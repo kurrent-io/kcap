@@ -132,6 +132,7 @@ public static class CommandServices {
             sp.GetRequiredService<CapacitorServer>().IsLocal
                 ? s => FeedbackMail.Send(s, sp.GetRequiredService<IBrowserLauncher>(), Clipboard.TryCopy)
                 : null));
+        services.AddTransient<GrokBotWatchCommand>();
         services.AddTransient<HarnessCommand>();
         services.AddTransient<IdeCommand>();
         services.AddTransient<IgnoreCommand>();

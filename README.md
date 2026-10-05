@@ -225,6 +225,7 @@ At a glance — each links to its section below:
 | [`.kcap/approvals.yaml`](#approval-policy) | Auto-allow, deny, or force-ask specific tool calls |
 | [`kcap import`](#loading-historical-sessions) | Backfill past sessions from every detected agent |
 | [`kcap muse-assistant`](#muse-assistant) | Record Muse Assistant chats as private sessions, run by Muse's own cron inside its VM |
+| [`kcap grok-bot watch`](#grok-bot) | Record every Grok Bot chat, run on the Grok Bot cloud computer |
 | [`kcap recap`](#session-recap) | AI summary + per-turn outline of a session |
 | [`kcap sessions`](#listing-sessions-on-a-repository) | List the sessions you can see, on one repo or all, optionally within a period |
 | [`kcap validate-plan`](#plan-validation) | Check that every planned item was completed |
@@ -1373,6 +1374,26 @@ Muse Assistant (Meta's consumer agent) runs in a Meta-hosted VM with no transcri
 - **Nothing lost, nothing twice.** Each walk is validated whole — Muse's own cursor chain, complete pages, every recorded item intact — before anything is posted; the watermark advances only after the server accepts each call; every lifecycle post is recorded as an intent first and replayed by the next run or by `sweep`; a failed ingest keeps its directory for the next tick. One ingest per chat at a time, held by a lock the kernel releases.
 - **Exit codes.** `0` done; `1` server, network or sign-in failure, or an unexpected local failure; `2` malformed input or a wrong argument shape; `3` chat out of scope; `4` from `scope remove` or `scope reset` only: recording could not be confirmed stopped (nothing revoked, or an unexpected error), so retry — retrying is safe. A `scope reset` that exits 1 or 4 may also have set chats aside; its stderr says which.
 - **Requires** a server that knows the `muse-assistant` vendor: against an older server the ingest exits 1 and advances nothing.
+
+### Grok Bot
+
+Grok Bot runs only on a Cursor-hosted cloud computer, writes no transcript file there, and its hooks carry no conversation id, so none of the hook or watcher paths above can record it. `kcap grok-bot watch` runs on that computer instead: it polls the computer's local Grok Bot gateway and records every chat: each Bot's own thread, and every new chat, which the gateway lists as a group.
+
+```bash
+npm install -g @kurrent/kcap
+kcap setup --server-url https://<your-tenant> --device --no-prompt --skip-cursor-hooks --skip-cursor-mcp --skip-import
+nohup kcap grok-bot watch >> ~/.config/kcap/grok-bot/watch.log 2>&1 &
+```
+
+The kcap plugin from the Cursor marketplace does the same through its `connect-capacitor` skill — ask any Bot to "connect Capacitor".
+
+- **Sessions.** A Bot has one endless thread; a new session starts at the first message after two hours of quiet (`--gap-minutes`), and ends once that gap passes with no new message and no turn running.
+- **What is recorded.** User messages, Bot messages, and the questions a Bot asks with the answer chosen. Tool calls, computer use and created files are not in the gateway's transcript and are not recorded.
+- **History.** The first run backfills every chat. Delivery state lives in `~/.config/kcap/grok-bot/state.json` and advances only once the server accepts each call, so a restarted watcher resends nothing and loses nothing.
+- **Failures back off.** A failed cycle — gateway unreachable, server refusing a call, a lapsed sign-in (`kcap login --device` fixes it) — is retried with a doubling wait up to five minutes and logged once, not on every retry; nothing advances until the server accepts, so recovery loses nothing.
+- **One per computer.** A second `kcap grok-bot watch` refuses to start. `--once` runs a single polling cycle and exits, 1 if it failed; `--dry-run` logs the calls it would make and sends and saves nothing.
+
+The gateway is an internal, undocumented Grok Bot API; a Grok Bot update can change it. The watcher logs and retries rather than guessing at an unfamiliar shape.
 
 ### Daemon
 
