@@ -70,6 +70,7 @@ public sealed partial class PullRequestContextViewModel {
     }
 
     public PullRequestStatus LifecycleStatus => CanDisplay ? PullRequestTones.LifecycleStatus(_overview) : new("");
+    public bool SelectedIsMerged => CanDisplay && _overview?.Lifecycle == "merged";
     public PullRequestStatus ReviewStatus => CanDisplay
         ? _overview?.ReviewDecision switch {
             "approved" => new("Approved", "success", "All required reviews are approved."),
@@ -179,6 +180,7 @@ public sealed partial class PullRequestContextViewModel {
         NotifyValue(SelectedTabIndex);
         NotifyValue(SelectedReviewTabIndex);
         NotifyValue(LifecycleStatus);
+        NotifyValue(SelectedIsMerged);
         NotifyValue(ReviewStatus);
         NotifyValue(ChecksStatus);
         NotifyValue(ThreadsStatus);
