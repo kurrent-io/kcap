@@ -531,11 +531,12 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             // The listing says live until the server folds the end; the agent's own end is the newer word.
             var shown = !serverEnded && _finished.Contains(sid) ? dto with { Status = "ended", EndedAt = dto.LastActivityAt } : dto;
             var server = AgentRow.FromServer(shown, hosted) with { OwnerIsViewer = Ownership(dto, sid) };
-            // The listing carries no checkout and often no cwd; what the daemon row reported while it
-            // hosted the session is the evidence, kept only where the viewer still has full access.
+            // The listing carries no checkout; what the daemon row reported while it hosted the session
+            // is the evidence, kept only at full access. A registry row names no worktree, so the
+            // listing's cwd stands in for it.
             if (dto.AccessLevel == "full" && _hostedFacts.TryGetValue(sid, out var facts))
                 server = server with {
-                    RepoPath = facts.RepoPath ?? server.RepoPath, WorktreePath = facts.WorktreePath,
+                    RepoPath = facts.RepoPath ?? server.RepoPath, WorktreePath = facts.WorktreePath ?? server.WorktreePath,
                     WorkLocation = facts.WorkLocation, BorrowedFrom = facts.BorrowedFrom, Branch = facts.Branch ?? server.Branch,
                 };
             next.Add(server);

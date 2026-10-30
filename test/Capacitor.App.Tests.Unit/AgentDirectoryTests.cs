@@ -860,6 +860,40 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("server:S").Value.IsTerminalSession).IsTrue();
     }
 
+    /// daemon reported still stands.
+    [Test]
+    public async Task The_server_row_that_replaces_a_registry_row_takes_the_listings_worktree() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        remote.Cache.AddOrUpdate(Remote("b1", daemon: "home-pc", owner: "me", sessionId: "S") with { RepoPath = "/home/r" });
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = "/home/r/.capacitor/worktrees/agent-b1" });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = "/home/r/.capacitor/worktrees/agent-b1" });
+
+        remote.Cache.RemoveKey("b1");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Cwd = "/home/r/.capacitor/worktrees/agent-b1" });
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/home/r");
+        await Assert.That(row.WorktreePath).IsEqualTo("/home/r/.capacitor/worktrees/agent-b1");
+    }
+
+    /// from the listing alone.
+    [Test]
+    public async Task An_ended_session_no_daemon_row_reported_takes_its_checkout_from_the_listing() {
+        var (_, _, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Cwd = "/r/.capacitor/worktrees/agent-1", Branch = "capacitor/agent-1" });
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/r");
+        await Assert.That(row.WorktreePath).IsEqualTo("/r/.capacitor/worktrees/agent-1");
+        await Assert.That(row.Branch).IsEqualTo("capacitor/agent-1");
+    }
+
     [Test]
     public async Task Mine_hides_a_teammates_hosted_row_and_keeps_unknown_local_rows() {
         var (local, remote, sessions, _, dir) = BuildWithSessions();

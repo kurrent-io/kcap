@@ -63,7 +63,7 @@ public static class GitRepository {
             // I/O errors — same "heuristic, not authoritative" stance as FindRoot.
         }
 
-        return StripAgentWorktreeTail(path);
+        return AgentWorktreeOwner(path);
     }
 
     /// <summary>The git directory belonging to THIS working tree: <c>.git</c> in a main checkout,
@@ -167,7 +167,10 @@ public static class GitRepository {
     static bool IsObjectId(string text) =>
         text.Length is 40 or 64 && text.All(char.IsAsciiHexDigit);
 
-    static string StripAgentWorktreeTail(string path) {
+    /// <summary>The checkout that owns an agent worktree (<c>&lt;repo&gt;/.claude/worktrees/&lt;leaf&gt;</c>,
+    /// <c>&lt;repo&gt;/.capacitor/worktrees/&lt;leaf&gt;</c>), read from the path alone, so it holds for a
+    /// path on another machine or one already removed. Any other path comes back unchanged.</summary>
+    public static string AgentWorktreeOwner(string path) {
         var normalized = path.Replace('\\', '/');
         foreach (var infra in (string[])["/.claude/worktrees/", "/.capacitor/worktrees/"]) {
             var i = normalized.LastIndexOf(infra, StringComparison.Ordinal);
