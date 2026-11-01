@@ -80,6 +80,8 @@ if (detachedImport is not null) {
 }
 if (InteractiveLifetime.IsInteractiveCommand(command) && detachedImport is null) {
     InteractiveLifetime.Install();
+
+    if (OperatingSystem.IsWindows()) WindowsConsoleWidth.FitSpectre();
 }
 
 // Hook short-circuit: when spawned inside a kcap-launched headless agent
