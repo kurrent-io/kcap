@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
+using Microsoft.Extensions.Time.Testing;
 using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -64,6 +66,45 @@ public class VendorModelCatalogsTests {
         await Assert.That(result.Keys).IsEquivalentTo(["pi", "kiro"]);
         await Assert.That(result["kiro"]).IsEmpty();
         await Assert.That(skipped.ProbeCalls).IsEqualTo(0);
+    }
+
+    static Task<IReadOnlyList<VendorModelOption>?> Never() =>
+        new TaskCompletionSource<IReadOnlyList<VendorModelOption>?>().Task;
+
+    /// A probe whose teardown never ends answers null at the ceiling and is named; the vendors that
+    /// answered keep their catalogs.
+    [Test]
+    public async Task Probe_past_the_ceiling_answers_null_and_names_the_vendor() {
+        var time    = new FakeTimeProvider();
+        var overran = new ConcurrentQueue<string>();
+        IHostedAgentRuntimeFactory[] factories = [
+            new StubCatalogFactory("pi", [A]),
+            new StubCatalogFactory("codex", [B]) { Probe = Never },
+        ];
+
+        var probing = VendorModelCatalogs.ProbeAsync(
+            factories, ["pi", "codex"], CancellationToken.None, new ProbeCeiling(TimeSpan.FromSeconds(30), time, overran.Enqueue));
+        time.Advance(TimeSpan.FromSeconds(30));
+        var result = await probing.WaitAsync(TimeSpan.FromSeconds(30));
+
+        await Assert.That(result.Keys).IsEquivalentTo(["pi"]);
+        await Assert.That(overran).IsEquivalentTo(["codex"]);
+    }
+
+    [Test]
+    public async Task An_account_probe_past_the_ceiling_is_named_by_its_account_key() {
+        var time    = new FakeTimeProvider();
+        var overran = new ConcurrentQueue<string>();
+        var codex   = new StubCatalogFactory("codex", [B]) { ProbeDirectory = d => d == "/stuck" ? Never() : Task.FromResult<IReadOnlyList<VendorModelOption>?>([A]) };
+
+        var probing = VendorModelCatalogs.ProbeByAccountAsync(
+            codex, [("acct-stuck", "/stuck"), ("acct-ok", "/ok")], CancellationToken.None,
+            new ProbeCeiling(TimeSpan.FromSeconds(30), time, overran.Enqueue));
+        time.Advance(TimeSpan.FromSeconds(30));
+        var result = await probing.WaitAsync(TimeSpan.FromSeconds(30));
+
+        await Assert.That(result.Keys).IsEquivalentTo(["acct-ok"]);
+        await Assert.That(overran).IsEquivalentTo([VendorModelCatalogs.AccountKey("acct-stuck")]);
     }
 
     [Test]
