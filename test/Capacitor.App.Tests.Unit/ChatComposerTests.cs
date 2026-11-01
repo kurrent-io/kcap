@@ -323,6 +323,29 @@ public class ChatComposerTests {
         });
     }
 
+    /// A screen reader announces the composer by its purpose, not as a bare "edit".
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_composer_speaks_its_name() {
+        await RunOnUiAsync(async () => {
+            var (_, _, _, chat, _, _) = await BuildAttachedAsync();
+            var view = new ChatTabView { DataContext = chat };
+            var window = new Window { Content = view, Width = 800, Height = 600 };
+            try {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var composer = ControlView.Descendants(window).Single(peer => peer.GetAutomationId() == "ComposerInput");
+                await Assert.That(composer.GetAutomationControlType()).IsEqualTo(Avalonia.Automation.Peers.AutomationControlType.Edit);
+                await Assert.That(composer.GetName()).IsEqualTo("Message the agent");
+            } finally {
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+                await chat.TeardownAsync();
+            }
+        });
+    }
+
     [Test]
     [Arguments("permission")]
     [Arguments("question")]
