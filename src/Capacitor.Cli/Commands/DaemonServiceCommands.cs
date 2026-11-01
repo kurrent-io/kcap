@@ -4,6 +4,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Install;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Services;
 
 namespace Capacitor.Cli.Commands;
@@ -956,10 +957,30 @@ sealed class DaemonServiceCommands(
             return 1;
         }
 
-        if (!exited) DaemonCommands.MarkLedgerInterrupted(store, id, time, Console.Error, DaemonCommands.KeepsSavedResumes(request, outcome));
+        var interrupted = exited ? 0 : DaemonCommands.MarkLedgerInterrupted(store, id, time, Console.Error, DaemonCommands.KeepsSavedResumes(request, outcome));
 
         await Console.Out.WriteLineAsync($"Service '{id}' stopped (still installed).");
+        if (request.Agents == "keep") await Console.Out.WriteLineAsync(DescribeKeptAgents(ResumingEntries(), interrupted));
         return 0;
+    }
+
+    int ResumingEntries() {
+        try {
+            return ResumeLedgerStore.For(store, id).ReadAll().Count(e => e.State == ResumeState.Resuming);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return 0;
+        }
+    }
+
+    /// <summary>What a keep-agents stop left for the next start: the agents saved for it to resume, and those
+    /// the stop had to end mid-run, which it does not bring back on its own.</summary>
+    internal static string DescribeKeptAgents(int kept, int interrupted) {
+        var line = kept == 0 ? "No agents were kept for the next start to resume."
+                 : $"Kept {Agents(kept)} for the next start to resume.";
+        return interrupted == 0 ? line
+             : $"{line} {Agents(interrupted)} ended mid-run; the next start does not resume {(interrupted == 1 ? "it" : "them")}.";
+
+        static string Agents(int n) => n == 1 ? "1 agent" : $"{n} agents";
     }
 
     internal async Task<int> Status() {
