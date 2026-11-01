@@ -83,4 +83,53 @@ public class ResolveForRepoTests {
 
         await Assert.That(await ResolveIn(["--server-url", ""], ProfileOverrides.None)).IsEqualTo(PinnedUrl);
     }
+
+    async Task WriteTwoProfiles(Dictionary<string, string>? bindings = null) =>
+        await ConfigMutator.MutateAsync(Config.Root, _ => new ProfileConfig {
+            ActiveProfile   = "active",
+            Profiles        = new() {
+                ["active"] = new Profile { ServerUrl = ActiveUrl },
+                ["pinned"] = new Profile { ServerUrl = PinnedUrl }
+            },
+            ProfileBindings = bindings ?? new()
+        });
+
+    /// <summary>The root git reports places <c>.kcap.json</c>, so a file at the repository root still
+    /// pins a session started in a subdirectory.</summary>
+    [Test]
+    public async Task A_repo_config_at_the_root_pins_a_session_in_a_subdirectory() {
+        await WriteTwoProfiles();
+        using var repo = GitRepo.Create();
+        repo.CreateFile(".kcap.json", """{"profile":"pinned"}""");
+        var deep = repo.CreateDir("src", "deep");
+
+        var resolved = await AppConfig.ResolveForRepo(
+            [], Config.Root, ProfileOverrides.None, NoLocalInstallation.Endpoints, new WorkingDirectory(deep.Path), gitTimeoutMs: 5000);
+
+        await Assert.That(resolved.Resolution.ServerUrl).IsEqualTo(PinnedUrl);
+    }
+
+    /// <summary>A <c>kcap use</c> binding is keyed by git's own spelling of the root, so it must still
+    /// be found from a subdirectory with no <c>.kcap.json</c> anywhere.</summary>
+    [Test]
+    public async Task A_use_binding_is_found_from_a_subdirectory() {
+        using var repo = GitRepo.Create();
+        await WriteTwoProfiles(new() { [repo.Do("rev-parse", "--show-toplevel").Text] = "pinned" });
+        var deep = repo.CreateDir("src");
+
+        var resolved = await AppConfig.ResolveForRepo(
+            [], Config.Root, ProfileOverrides.None, NoLocalInstallation.Endpoints, new WorkingDirectory(deep.Path), gitTimeoutMs: 5000);
+
+        await Assert.That(resolved.Resolution.ServerUrl).IsEqualTo(PinnedUrl);
+    }
+
+    [Test]
+    public async Task A_repo_config_is_seen_from_any_directory_below_it() {
+        var deep = Repo.CreateDir("a", "b");
+        await Assert.That(AppConfig.RepoConfigAtOrAbove(deep.Path)).IsFalse();
+
+        Repo.CreateFile(".kcap.json", "{}");
+
+        await Assert.That(AppConfig.RepoConfigAtOrAbove(deep.Path)).IsTrue();
+    }
 }

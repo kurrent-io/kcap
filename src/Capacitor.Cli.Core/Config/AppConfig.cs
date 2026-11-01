@@ -128,7 +128,11 @@ public static class AppConfig {
                 ? Task.Run(() => GetGitRemoteUrls(workdir.Path, gitTimeoutMs))
                 : Task.FromResult<string[]>([]);
 
-            var repoRoot = GetGitRepoRoot(workdir.Path, gitTimeoutMs) ?? workdir.Path;
+            // The root only places `.kcap.json` and keys a `kcap use` binding, and git's root is the
+            // working directory or one of its ancestors: with neither present, the probe changes nothing.
+            var repoRoot = config.ProfileBindings is { Count: > 0 } || GitLocationOverridden() || RepoConfigAtOrAbove(workdir.Path)
+                ? GetGitRepoRoot(workdir.Path, gitTimeoutMs) ?? workdir.Path
+                : workdir.Path;
 
             RepoConfig? repoConfig     = null;
             var         repoConfigPath = Path.Combine(repoRoot, ".kcap.json");
@@ -162,6 +166,22 @@ public static class AppConfig {
             }
 
             return new(resolved, config);
+        }
+    }
+
+    static bool GitLocationOverridden() =>
+        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GIT_DIR"))
+     || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GIT_WORK_TREE"));
+
+    internal static bool RepoConfigAtOrAbove(string directory) {
+        try {
+            for (var dir = new DirectoryInfo(directory); dir is not null; dir = dir.Parent)
+                if (File.Exists(Path.Combine(dir.FullName, ".kcap.json"))) return true;
+
+            return false;
+        } catch {
+            // Unreadable: let git decide, as it always did.
+            return true;
         }
     }
 
