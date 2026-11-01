@@ -19,6 +19,9 @@ using ReviewCommand = Capacitor.Cli.Commands.ReviewCommand;
 using WatchCommand = Capacitor.Cli.Commands.WatchCommand;
 using Capacitor.Cli.PrDetection;
 
+// Ahead of every Console.SetOut: on a console, setting the encoding discards whatever writer Console.Out holds.
+WindowsConsoleOutput.UseUnicode(args.Length > 0 ? args[0] : "");
+
 if (args.Length < 1) {
     await PrintUsage();
 
