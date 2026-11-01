@@ -170,7 +170,8 @@ internal partial class AgentOrchestrator {
                     ? (_time.GetUtcNow() - working).UtcDateTime : null,
                 AccountDirectory: a.Account?.Directory, AccountId: a.Account?.AccountId, AccountLabel: CurrentAccountLabel(a.Account?.AccountId, a.Account?.Label),
                 TurnAttested: a.Status == "Running" && a.ActivityClock.TurnAttested,
-                IsPrivate: a.IsPrivate))];
+                IsPrivate: a.IsPrivate,
+                LaunchPromptUnconfirmed: a.Status == "Running" && a.Runtime.LaunchPromptUnconfirmed))];
 
     /// The checkout is resolved as the live agent's is, so a row keeps its rail group across the handoff.
     AgentStatusDto LedgerStatusRow(ResumeLedgerEntry entry, string status) {
