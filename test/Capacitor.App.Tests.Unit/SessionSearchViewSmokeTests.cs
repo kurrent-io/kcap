@@ -8,6 +8,7 @@ using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.Views;
 using Capacitor.Remote.Models;
+using DynamicData;
 
 namespace Capacitor.App.Tests.Unit;
 
@@ -87,6 +88,40 @@ public class SessionSearchViewSmokeTests {
         await Assert.That(Right(titleBlock)).IsLessThanOrEqualTo(Left(chip));
         await Assert.That(Right(chip)).IsLessThanOrEqualTo(Left(when));
         await Assert.That(Right(when)).IsLessThanOrEqualTo(row.Bounds.Width);
+    });
+
+    /// An avatar is read as the person it stands for, in the rail and on a search hit, never as their initials.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Owner_avatars_speak_the_owners_name_not_their_initials() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Directory.Rows.AddOrUpdate(AgentRow.FromServer(new RepoSessionDto {
+            SessionId = "S2", Status = "active", AccessLevel = "full", Vendor = "claude", Title = "Tidy the rail",
+            Owner = new() { UserId = "u2", DisplayName = "Yuki Tanaka" },
+            StartedAt = DateTimeOffset.UnixEpoch, LastActivityAt = DateTimeOffset.UnixEpoch,
+            Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap-cli" },
+        }, hostedPresentation: false));
+        host.Settle();
+        var rail = ControlView.Descendants(host.Window.GetVisualDescendants().OfType<SessionRailView>().Single())
+            .Select(peer => peer.GetName()).ToList();
+
+        host.Response = new SearchResponseDto {
+            Sessions = [new() {
+                SessionId = "S1", Slug = "fix-auth", Title = "Fix auth flow", StartedAt = "2026-10-29T09:00:00Z", EndedAt = "2026-10-29T10:00:00Z",
+                MatchedField = "title", Snippet = "Fix auth flow", OwnerDisplayName = "Wendy Ng", OwnerUser = "wendy",
+            }],
+        };
+        OpenWithShortcut(host);
+        host.Window.KeyTextInput("auth");
+        host.SettleSearch();
+        var hit = host.Named<SessionSearchView>("SearchCover").GetVisualDescendants().OfType<TextBlock>()
+            .Single(t => t.Name == "SearchHitTitle").FindAncestorOfType<Button>()!;
+        var search = ControlView.Descendants(hit).Select(peer => peer.GetName()).ToList();
+
+        await Assert.That(rail).Contains("Yuki Tanaka");
+        await Assert.That(rail).DoesNotContain("YT");
+        await Assert.That(search).Contains("Wendy Ng");
+        await Assert.That(search).DoesNotContain("WN");
     });
 
     [Test]
