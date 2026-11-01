@@ -71,6 +71,9 @@ Options:
                               runs the server while you are signed in. Under
                               --json that is a windows_service_declined or
                               windows_service_unavailable line, not a failure.
+                              A running server its Scheduled Task had moves to
+                              the service restarted; setup waits until it is
+                              ready again, and fails when it does not come back.
   --json                      With --no-prompt: write one JSON object per line
                               to stdout for the whole run, ending with "done"
                               or "failed", and the narration to stderr. See
