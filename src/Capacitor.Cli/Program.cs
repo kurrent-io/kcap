@@ -19,6 +19,8 @@ using ReviewCommand = Capacitor.Cli.Commands.ReviewCommand;
 using WatchCommand = Capacitor.Cli.Commands.WatchCommand;
 using Capacitor.Cli.PrDetection;
 
+HookTiming.Begin(args, Environment.GetEnvironmentVariable);
+
 // Ahead of every Console.SetOut: on a console, setting the encoding discards whatever writer Console.Out holds.
 WindowsConsoleOutput.UseUnicode(args.Length > 0 ? args[0] : "");
 
@@ -144,6 +146,8 @@ if (isHook && args.Contains("--muse")) {
 var config  = museHook.ConfigRootOr(ConfigRoot.FromEnvironment);
 var workdir = WorkingDirectory.FromProcess();
 
+HookTiming.Open(config.Path("logs"));
+
 // git runs this after every commit on the machine, so it resolves no server, profile or update.
 if (command == "git-hook") return await GitHook.RunAsync(GitHookInvocation.Current(args[1..], workdir), config, time);
 
@@ -153,8 +157,15 @@ string? claudeHookBody = null;
 if (isHook && args.Contains("--claude")) {
     try { claudeHookBody = await Console.In.ReadToEndAsync(); } catch { claudeHookBody = ""; }
 
-    if (args.Contains(ClaudeTitlePrompt.Flag))
-        return ClaudeTitlePrompt.Handle(claudeHookBody, config, WatcherPaths.FromEnvironment(config), Console.Out, Console.Error);
+    HookTiming.DescribeFrom(claudeHookBody);
+    HookTiming.Mark("stdin");
+
+    if (args.Contains(ClaudeTitlePrompt.Flag)) {
+        var titled = ClaudeTitlePrompt.Handle(claudeHookBody, config, WatcherPaths.FromEnvironment(config), Console.Out, Console.Error);
+        HookTiming.Mark("title-prompt");
+
+        return titled;
+    }
 
     ClaudeSessionEnv.Persist(claudeHookBody, Environment.GetEnvironmentVariable(ClaudeSessionEnv.EnvFileVar), Console.Error);
 
@@ -164,6 +175,8 @@ if (isHook && args.Contains("--claude")) {
     if (ClaudeSessionEndHandoff.IsDetached(args)) {
         ClaudeSessionEndHandoff.EnterDetached(claudeHookBody, config);
     } else if (ClaudeSessionEndHandoff.ShouldHandOff(args, claudeHookBody) && ClaudeSessionEndHandoff.TrySpawn(args, claudeHookBody, config, SystemProcessStarter.Instance)) {
+        HookTiming.Mark("session-end-handoff");
+
         return 0;
     }
 }
@@ -183,6 +196,7 @@ var endpoints  = AuthEndpoints.FromEnvironment();
 var localRoot = LocalRoot.FromEnvironment(home);
 
 var profiles = museHook.Bind(await AppConfig.ResolveForRepo(args, config, serverEnv, LocalEndpoints.Read(localRoot), workdir, gitTimeoutMs: isHook || isRefreshHandoff ? 1000 : 5000));
+HookTiming.Mark("profile");
 
 if (museHook.MissingProfileWarning(profiles) is { } missingProfile) {
     Console.Error.WriteLine(missingProfile);
@@ -249,6 +263,7 @@ if (telemetry.Enabled) {
 // After the bag is complete and before dispatch: this shows the one-time privacy notice and queues
 // cli_first_run, which is once per device — a property missing from it is missing for good.
 telemetry.Announce(config);
+HookTiming.Mark("services");
 
 AppDomain.CurrentDomain.ProcessExit += (_, _) => {
     // Environment.Exit runs no `finally` and no `using` disposal, so a leg that ends that way has no
@@ -259,6 +274,7 @@ AppDomain.CurrentDomain.ProcessExit += (_, _) => {
 
     telemetry.RecordCommand(command, args, Environment.ExitCode, CommandTiming.ElapsedMs(commandStart, time));
     telemetry.FlushAndClose().GetAwaiter().GetResult();
+    HookTiming.Mark("telemetry-flush");
 };
 
 // Everything from here to the end of command dispatch — including the --help,
@@ -978,8 +994,10 @@ switch (command) {
         if (args.Contains("--claude") && args.Contains("--plan-edit")) {
             return await Run<ClaudeHookCommand>().HandlePlanEdit(new StringReader(claudeHookBody!));
         }
-        if (args.Contains("--claude") && baseUrl is not null)
+        if (args.Contains("--claude") && baseUrl is not null) {
             claudeHookBody = await Run<ClaudeHookCommand>().PrepareForDrain(claudeHookBody!);
+            HookTiming.Mark("session-claim");
+        }
 
         // The global drain reaps stale process claims as well as retained spool files. A Claude
         // start must claim its live process first, so an old PID cannot end that resumed session.
@@ -994,9 +1012,13 @@ switch (command) {
                 new HookSpool(config, time),
                 new TranscriptSpool(config, time),
                 sessionId: null);
+            HookTiming.Mark("global-spool-drain");
         }
         if (args.Contains("--claude")) {
-            return await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!));
+            var handled = await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!));
+            HookTiming.Mark("handled");
+
+            return handled;
         }
         if (args.Contains("--codex")) {
             var codexExit = await Run<CodexHookCommand>().Handle(Console.In);

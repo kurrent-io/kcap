@@ -76,6 +76,11 @@ Options:
               Always exits 0; the only stdout is the memory fragment Muse
               appends to the model's context on SessionStart.
 
+Environment:
+  KCAP_HOOK_TIMING=1
+              Append one line per phase, with its elapsed milliseconds, to
+              ~/.config/kcap/logs/hook-timing.log. Never to stdout.
+
 Exit codes:
   0   Normal exit (including budget expiry, malformed payload, and
       disabled-session suppression).
