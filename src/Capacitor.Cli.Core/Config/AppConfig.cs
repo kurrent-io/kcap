@@ -115,6 +115,19 @@ public static class AppConfig {
         {
             var config = await LoadProfileConfig(root);
 
+            // A named profile outranks every repository input, and remotes only matter to a profile that
+            // lists some: each git probe costs a process start, paid by every hook.
+            if (!string.IsNullOrEmpty(env.Profile)) {
+                var named = new ProfileResolver(config, cliServerUrl, env.Url, env.Profile, null, [], null, local).Resolve();
+                if (named.Warning is not null) await Console.Error.WriteLineAsync($"Warning: {named.Warning}");
+
+                return new(named, config);
+            }
+
+            var remotesProbe = config.Profiles.Values.Any(p => p.Remotes is { Length: > 0 })
+                ? Task.Run(() => GetGitRemoteUrls(workdir.Path, gitTimeoutMs))
+                : Task.FromResult<string[]>([]);
+
             var repoRoot = GetGitRepoRoot(workdir.Path, gitTimeoutMs) ?? workdir.Path;
 
             RepoConfig? repoConfig     = null;
@@ -129,7 +142,7 @@ public static class AppConfig {
                 }
             }
 
-            var remoteUrls = GetGitRemoteUrls(workdir.Path, gitTimeoutMs);
+            var remoteUrls = await remotesProbe;
 
             var resolver = new ProfileResolver(
                 config,

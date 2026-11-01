@@ -3,7 +3,7 @@ using Capacitor.Cli.Core.Config;
 namespace Capacitor.Cli.Core.Tests.Unit.Config;
 
 /// <summary>
-/// The short-circuit that skips repo discovery when an explicit URL is given.
+/// The short-circuits that skip repo discovery, and what they must not skip.
 /// </summary>
 public class ResolveForRepoTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
@@ -45,6 +45,33 @@ public class ResolveForRepoTests {
 
         await Assert.That(await ResolveIn([], new ProfileOverrides("https://env.example", null)))
                     .IsEqualTo("https://env.example");
+    }
+
+    [Test]
+    public async Task A_named_profile_outranks_the_repos_own_profile() {
+        await WriteRepoPinnedToAnotherProfile();
+
+        await Assert.That(await ResolveIn([], new ProfileOverrides(null, "active"))).IsEqualTo(ActiveUrl);
+    }
+
+    /// <summary>The remote probe is skipped when no profile lists remotes, so a profile that does must
+    /// still be matched by the repository's remote.</summary>
+    [Test]
+    public async Task A_profile_listing_the_repos_remote_is_matched() {
+        await ConfigMutator.MutateAsync(Config.Root, _ => new ProfileConfig {
+            ActiveProfile = "active",
+            Profiles = new() {
+                ["active"] = new Profile { ServerUrl = ActiveUrl },
+                ["team"]   = new Profile { ServerUrl = PinnedUrl, Remotes = ["github.com/acme/*"] }
+            }
+        });
+        using var repo = GitRepo.Create();
+        repo.AddRemote("https://github.com/acme/widgets.git");
+
+        var resolved = await AppConfig.ResolveForRepo(
+            [], Config.Root, ProfileOverrides.None, NoLocalInstallation.Endpoints, new WorkingDirectory(repo.Path), gitTimeoutMs: 5000);
+
+        await Assert.That(resolved.Resolution.ServerUrl).IsEqualTo(PinnedUrl);
     }
 
     /// <summary>An empty <c>--server-url</c> names no server: the resolver discards it and falls
