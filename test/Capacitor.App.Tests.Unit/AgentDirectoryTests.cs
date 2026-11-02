@@ -860,6 +860,7 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("server:S").Value.IsTerminalSession).IsTrue();
     }
 
+    /// A registry row names no worktree; the listing's cwd fills that in, while the repository the
     /// daemon reported still stands.
     [Test]
     public async Task The_server_row_that_replaces_a_registry_row_takes_the_listings_worktree() {
@@ -880,6 +881,28 @@ public class AgentDirectoryTests {
         await Assert.That(row.WorktreePath).IsEqualTo("/home/r/.capacitor/worktrees/agent-b1");
     }
 
+    /// The listing's worktree fills a registry row's gap only when it is a worktree of the repository that row named;
+    /// another checkout's worktree must not pair with it.
+    [Test]
+    public async Task The_listings_worktree_from_another_repository_is_not_paired_with_a_registry_row() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        remote.Cache.AddOrUpdate(Remote("b1", daemon: "home-pc", owner: "me", sessionId: "S") with { RepoPath = "/home/r" });
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = "/elsewhere/.capacitor/worktrees/agent-b1" });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = "/elsewhere/.capacitor/worktrees/agent-b1" });
+
+        remote.Cache.RemoveKey("b1");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Cwd = "/elsewhere/.capacitor/worktrees/agent-b1" });
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/home/r");
+        await Assert.That(row.WorktreePath).IsNull();
+    }
+
+    /// A directory that never saw the daemon row, as after an app restart, describes the session
     /// from the listing alone.
     [Test]
     public async Task An_ended_session_no_daemon_row_reported_takes_its_checkout_from_the_listing() {

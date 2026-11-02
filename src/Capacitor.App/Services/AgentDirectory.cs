@@ -531,14 +531,17 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             // The listing says live until the server folds the end; the agent's own end is the newer word.
             var shown = !serverEnded && _finished.Contains(sid) ? dto with { Status = "ended", EndedAt = dto.LastActivityAt } : dto;
             var server = AgentRow.FromServer(shown, hosted) with { OwnerIsViewer = Ownership(dto, sid) };
-            // The listing carries no checkout; what the daemon row reported while it hosted the session
-            // is the evidence, kept only at full access. A registry row names no worktree, so the
-            // listing's cwd stands in for it.
-            if (dto.AccessLevel == "full" && _hostedFacts.TryGetValue(sid, out var facts))
+            // What the daemon row reported while it hosted the session outranks the listing, kept only at full
+            // access, and stays one checkout: where it names no worktree (a registry row), the agent worktree the
+            // listing's cwd names stands in only when it belongs to the same repository.
+            if (dto.AccessLevel == "full" && _hostedFacts.TryGetValue(sid, out var facts)) {
+                var listingWorktree = facts.WorktreePath is null && server.WorktreePath is { } named
+                    && (facts.RepoPath is null || PlatformPaths.Comparer.Equals(facts.RepoPath, server.RepoPath)) ? named : null;
                 server = server with {
-                    RepoPath = facts.RepoPath ?? server.RepoPath, WorktreePath = facts.WorktreePath ?? server.WorktreePath,
+                    RepoPath = facts.RepoPath ?? server.RepoPath, WorktreePath = facts.WorktreePath ?? listingWorktree,
                     WorkLocation = facts.WorkLocation, BorrowedFrom = facts.BorrowedFrom, Branch = facts.Branch ?? server.Branch,
                 };
+            }
             next.Add(server);
         }
 
