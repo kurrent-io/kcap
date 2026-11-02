@@ -450,9 +450,14 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             if (!Matchable(row) || listedIdOf.GetValueOrDefault(row.Key) is not { } sid || !listed.TryGetValue(sid, out var dto)) continue;
             // A daemon row carries the listing's branch, never its own; the local daemon's is on its dto.
             var daemonBranch = row.Origin == AgentOrigin.Local ? _localAgents.FirstOrDefault(a => a.Id == row.Id)?.Branch : null;
-            if (row.RepoPath is not null || row.WorktreePath is not null)
-                _hostedFacts[sid] = (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom,
-                    string.IsNullOrWhiteSpace(daemonBranch) ? row.Branch ?? dto.Branch : daemonBranch);
+            // An unproven twin lists one session on both lanes and its registry row names no worktree:
+            // a field one row leaves out keeps what the other reported.
+            if (row.RepoPath is not null || row.WorktreePath is not null) {
+                var known = _hostedFacts.GetValueOrDefault(sid);
+                _hostedFacts[sid] = (row.RepoPath ?? known.RepoPath, row.WorktreePath ?? known.WorktreePath,
+                    row.WorkLocation ?? known.WorkLocation, row.BorrowedFrom ?? known.BorrowedFrom,
+                    string.IsNullOrWhiteSpace(daemonBranch) ? row.Branch ?? dto.Branch ?? known.Branch : daemonBranch);
+            }
             next[i] = row with {
                 OwnerUserId = dto.Owner?.UserId,
                 OwnerName = dto.Owner?.DisplayName ?? dto.Owner?.Username,
