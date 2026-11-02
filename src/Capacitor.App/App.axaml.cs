@@ -37,6 +37,7 @@ using Capacitor.Cli.Core.PullRequests.Readers;
 using Capacitor.Cli.Core.PullRequests.Readers.GitHubCli;
 using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Core.Setup;
+using Capacitor.Cli.Core.Setup.Intelligence;
 using Capacitor.Remote.Models;
 using Capacitor.Cli.Core.Harness;
 using Microsoft.Extensions.DependencyInjection;
@@ -156,7 +157,7 @@ public partial class App : Application {
     ICredentialSource? ServerCredentials(ProfileContext? profiles) => ServerLane(profiles)?.GetRequiredService<ICredentialSource>();
 
     // And its one read of KCAP_APP_PTY_DUMP: a file every terminal feed frame is appended to as
-    // received, for seeing what the emulator was given.
+    // received, with sizes and attaches in a sibling .events file.
     static readonly string? PtyDumpPath = Environment.GetEnvironmentVariable("KCAP_APP_PTY_DUMP");
 
     // Both are app-lifetime and BOTH exist before any graph does: OnShutdownRequested latches and
@@ -372,6 +373,7 @@ public partial class App : Application {
                     ("update_relaunch", Program.Host.UpdateRelaunch ? "true" : null),
                     ("installed_handoff", desktop.Args?.Contains("--kcap-installed", StringComparer.Ordinal) == true ? "true" : null));
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
+                if (await RunLegacyInstallGuardAsync(desktop)) return;
             }
             _updater = CreateUpdater(_betaUpdates);
             if (UpdateCoordinator.TryApplyPendingAtStartup(_updater, Program.Host.UpdateRelaunch,
@@ -409,6 +411,8 @@ public partial class App : Application {
                 if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
                 _ = RetirePreviousBundleAsync(InstallLocation.BundleRoot(Environment.ProcessPath));
             }
+            if (_legacyRetirement is { } retirement && !_shutdown.IsCancellationRequested)
+                _coordinator?.Window?.Notifier?.Notify(retirement.Message);
             if (_updateNotApplied is { } failed && !_shutdown.IsCancellationRequested)
                 _coordinator?.Window?.Notifier?.Notify(
                     $"kcap {failed.To} did not install. This is still kcap {CapacitorVersion.CurrentDisplay()}, and the update is offered again shortly.");
@@ -514,6 +518,7 @@ public partial class App : Application {
     }
 
     AppUpdateTransition? _updateNotApplied;
+    Platform.Windows.LegacyRetirementOutcome? _legacyRetirement;
     Action? _closeUpdateFinishWindow;
     // Completes once no update is being finished: at once on an ordinary launch, else when its steps settle.
     // The command-line tool offer waits for it, since its prompt would otherwise land in the middle of the update.
@@ -810,6 +815,20 @@ public partial class App : Application {
         if (Program.Host.UpdateRelaunch && directories.Count == 1 && plan.Action != ApplicationsInstallAction.Blocked)
             Dispatcher.UIThread.Post(window.StartMove);
         return true;
+    }
+
+    /// Windows only: true when this copy handed its launch to the kcap install and is shutting down.
+    async Task<bool> RunLegacyInstallGuardAsync(IClassicDesktopStyleApplicationLifetime desktop) {
+        if (!OperatingSystem.IsWindows()) return false;
+        var (handedOver, retirement) = await Platform.Windows.WindowsLegacyInstallGuard.RunAsync(
+            Program.Host.CliDirectory, _config, [_config.Directory, _daemonStore.Directory, _localRoot.Directory],
+            new ProcessRunner(_time), LifecycleLog.Write, _shutdown.Token);
+        if (handedOver) {
+            desktop.Shutdown(0);
+            return true;
+        }
+        _legacyRetirement = retirement;
+        return false;
     }
 
     async Task RetirePreviousBundleAsync(string? bundleRoot) {
@@ -1129,9 +1148,7 @@ public partial class App : Application {
             _ = reportCliSetup(_shutdown.Token);
         });
 
-        // One attach client per attempt, dialed at the daemon's own control socket; 80x24 is a
-        // placeholder only — TerminalControl resizes its model to the real pane the moment it is
-        // attached to the visual tree (WorkspaceView's own header comment).
+        // One attach client per attempt, dialed at the daemon's own control socket.
         var attachFactory = CoreTerminalAttachClient.Factory(() => _daemonStore.SocketPath(service.DaemonName));
         var isLocalServer = IsLocalServer(profiles?.Resolution.ServerUrl, _localRoot);
         var requestSignIn = SignInRequestFor(isLocalServer, () => {
@@ -1199,7 +1216,8 @@ public partial class App : Application {
         };
         // Workspace links only: the explicit "Open in web" actions keep the browser.
         var workspaceOpener = new AgentLinkOpener(opener, profiles?.Resolution.ServerUrl,
-            agentId => _coordinator?.Window?.DataContext is MainWindowViewModel vm && vm.OpenSession(agentId));
+            agentId => _coordinator?.Window?.DataContext is MainWindowViewModel vm
+                && vm.OpenSession(AgentLinkLabels.HeldIdOf(directory.Rows, agentId) ?? agentId));
         var drafts = new ComposerDrafts();
         var workContextLayout = new WorkContextLayout();
         var transcripts = new LocalTranscripts();
@@ -1207,7 +1225,7 @@ public partial class App : Application {
         _usageClock = readings.Clock;
         var handoffOutcomes = new HandoffOutcomeReader(service, ops, _time);
         WorkspaceViewModel BuildWorkspace(string agentId) => new(
-            agentId, service, actions, attachFactory, () => new XtermTerminalSurface(80, 24, PtyDumpPath), _time, workspaceOpener, permissions,
+            agentId, service, actions, attachFactory, () => XtermTerminalSurface.ForLocalPane(PtyDumpPath), _time, workspaceOpener, permissions,
             workContext, ops, uploader,
             requestSignIn: requestSignIn, signInCompleted: serverClients.SignInCompleted, pullRequests: readers,
             linkGitHub: linkGitHub,
@@ -1800,6 +1818,12 @@ public partial class App : Application {
                 SystemBrowser.Instance, Capacitor.Cli.Core.Auth.Clipboard.TryCopy),
             ResumeWebSignUp: WizardComposition.ResumesWebSignUp(await _appState.LoadAsync(), _time.GetUtcNow()),
             Prefetch: _localPrefetch,
+            HeadlessHarnesses: async (name, ct) => {
+                var binaries = BinaryProbe.Searching(await probe.TerminalPathAsync(ct));
+
+                return await HeadlessHarnessSource.ReadAsync(_daemonStore, name, _time,
+                    () => HeadlessHarnessProbe.Detect(HarnessRegistry.FromEnvironment(_userHome, binaries), binaries), ct);
+            },
             OffersWindowsService: OperatingSystem.IsWindows());
         _localInstall ??= WizardComposition.NewInstallController(options);
         var graph = WizardComposition.BuildGraph(options with { Install = _localInstall });
@@ -2232,6 +2256,11 @@ public partial class App : Application {
         var window = adopt?.Window ?? new MainWindow();
         window.DataContext = vm;
         window.Closed += (_, _) => vm.Search?.Dispose();
+        // An adopted window still holds the labels over the directory it was built with.
+        window.GetValue(MarkdownView.AgentLinksProperty)?.Dispose();
+        var agentLinks = new AgentLinkLabels(appServerUrl, resolvedDirectory.Rows, RxSchedulers.MainThreadScheduler);
+        MarkdownView.SetAgentLinks(window, agentLinks);
+        window.Closed += (_, _) => agentLinks.Dispose();
         window.Notifier = notifier;
         window.ContentScale = uiScale;
         window.Onboarding = null;
@@ -2281,8 +2310,6 @@ public partial class App : Application {
         var lifecycle = new DaemonLifecycleController(
             service, cli, probe, surface, () => Task.FromResult(ValidProfileName(profile)), _time,
             canonicalServer, runMutation, autoActionsPermanentlyClosed, requiresAppRestart,
-            windowsServiceDeclined: async () => (await _appState.LoadAsync().ConfigureAwait(false)).WindowsServiceDeclined,
-            rememberWindowsServiceDeclined: () => _appState.UpdateAsync(s => s with { WindowsServiceDeclined = true }),
             replacementCliVersion: replacementCliVersion);
 
         // The shim links to the RESOLVED ABSOLUTE path only — CliResolver's bare "kcap" PATH

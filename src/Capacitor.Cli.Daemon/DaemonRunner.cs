@@ -57,7 +57,8 @@ public static partial class DaemonRunner {
         // before DI exists, so it is threaded by hand until the container is built.
         var time = TimeProvider.System;
         if (TryHandleVersionFlag(args, Console.Out)) return 0;
-        var launchBinary = RestartCoordinator.StatProcessBinary();
+        var launchPath   = Environment.ProcessPath;
+        var launchBinary = RestartCoordinator.StatBinaryAt(launchPath, OperatingSystem.IsWindows(), File.Exists);
 
         string?    logFile     = null;
         string?    stderrFile  = null;
@@ -87,6 +88,7 @@ public static partial class DaemonRunner {
             Binaries     = binaries,
             WorktreeRoot = Path.Combine(userHome.Path, ".capacitor", "worktrees"),
             OriginalArgs = args,
+            LaunchPath   = launchPath,
             LaunchBinary = launchBinary,
         };
         var awaitLock = args.Contains("--await-lock");
@@ -207,12 +209,14 @@ public static partial class DaemonRunner {
             await Console.Error.WriteLineAsync(legacyCodexWarning);
 
         // Committed before the first advertisement, which carries it to the server.
+        config.CodexAppServerByDefault = Harness.Codex.CodexTransportDecision.AppServerByDefault;
         var startupCodex = Harness.Codex.CodexTransportResolution.Read(
             1, config.ReadExperimentalSettings, () => ProbeCliVersion(harnesses.LaunchCommand(HarnessId.Codex, config.CodexPath)),
             problem => {
                 config.ExperimentalSettingsProblem = problem;
                 return Harness.Codex.CodexTransportResolution.Unreadable(1, problem);
-            });
+            },
+            config.CodexAppServerByDefault);
         config.CodexResolution = startupCodex;
 
         // The per-vendor reviewer switches are opt-out: unset means enabled, matching the vendors that
@@ -1639,8 +1643,8 @@ public static partial class DaemonRunner {
 
     internal const string MuseVendor = "muse";
 
-    /// <param name="codex">The committed resolution Codex's policy, transport and — when the switch is
-    /// on, which is when the resolution probed it — version are read from.</param>
+    /// <param name="codex">The committed resolution Codex's policy, transport and — when it probed
+    /// Codex — version are read from.</param>
     /// <param name="advertised">The already-classified advertised vendors, when the caller has them.
     /// Passing them avoids re-running a classification that spawns vendor binaries; omitting them
     /// recomputes, which is what the tests and any other caller want.</param>
@@ -1654,7 +1658,7 @@ public static partial class DaemonRunner {
         // under one ceiling, rather than blocking startup for the sum across every advertised vendor.
         // A vendor whose binary is unresolved is not probed at all — its version stays null, exactly as
         // an inline probe of an empty path would leave it.
-        var codexFromResolution = codex.SwitchOn;
+        var codexFromResolution = codex.Probed;
         var probePaths = unattended
             .Where(v => !(codexFromResolution && IsCodex(v)))
             .Where(v => byVendor.TryGetValue(v, out var f) && !string.IsNullOrEmpty(f.CliPath))
@@ -1731,14 +1735,14 @@ public static partial class DaemonRunner {
     /// <summary>Carries a version already advertised over a re-probe that returned none. The server
     /// reads a null version as the vendor being gone, so a transient probe miss must not withdraw
     /// a reviewer that was advertised a moment ago. Every other field comes from the re-probe.</summary>
-    /// <param name="codex">With its switch on, Codex's version comes from this resolution, null included:
+    /// <param name="codex">When it probed Codex, Codex's version comes from this resolution, null included:
     /// it was probed with the policy and transport beside it, and an older version would misdescribe them.</param>
     internal static IReadOnlyList<UnattendedVendorCapability> RetainAdvertisedVersions(
             IReadOnlyList<UnattendedVendorCapability>? current, IReadOnlyList<UnattendedVendorCapability> fresh,
             Harness.Codex.CodexTransportResolution codex) {
         if (current is null) return fresh;
         return fresh.Select(capability => {
-            if (!string.IsNullOrEmpty(capability.CliVersion) || (codex.SwitchOn && IsCodex(capability.Vendor))) return capability;
+            if (!string.IsNullOrEmpty(capability.CliVersion) || (codex.Probed && IsCodex(capability.Vendor))) return capability;
             var advertised = current.FirstOrDefault(c => string.Equals(c.Vendor, capability.Vendor, StringComparison.Ordinal));
             return string.IsNullOrEmpty(advertised?.CliVersion) ? capability : capability with { CliVersion = advertised.CliVersion };
         }).ToArray();

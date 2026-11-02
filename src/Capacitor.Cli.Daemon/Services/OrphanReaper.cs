@@ -27,7 +27,8 @@ internal sealed class OrphanReaper(
         AgentPidRecordStore store, string daemonId, string currentEpoch, ILogger logger, TimeProvider time,
         Action<string, string, string?, string?>? onRecordResolved = null,
         MarkerCandidateStore? markerStore = null,
-        Action<string, string>? onMarkerResolved = null) {
+        Action<string, string>? onMarkerResolved = null,
+        Func<string, bool>? stoppedForResume = null) {
     // Phase B2-b (sequenced-settlement design): CurrentDiscovery is a multi-field struct
     // ({enum, DateTimeOffset?}) written on the reap thread and read on the report/connect thread, so an
     // unguarded read could tear. A dedicated gate around just the field's get/set makes each access
@@ -138,6 +139,7 @@ internal sealed class OrphanReaper(
             if (string.Equals(record.DaemonEpoch, currentEpoch, StringComparison.Ordinal)) continue;
 
             try {
+                var running       = ProcessIdentity.Matches(record.Pid, record.StartIdentity);
                 var confirmedGone = await ProcessReaper.ReapByRecordAsync(record, logger, time, ct);
                 if (confirmedGone) {
                     // Phase B2-b (sequenced-settlement design §4.2.4): ledger-append BEFORE
@@ -148,9 +150,7 @@ internal sealed class OrphanReaper(
                     // positive confirmed-gone branch — never for spared/ambiguous records.
                     onRecordResolved?.Invoke(record.AgentId, record.DaemonEpoch, record.FlowRunId, record.FlowRole);
                     store.Delete(record.AgentId); // killed+confirmed, already-gone, or proven identity mismatch
-                    logger.LogInformation(
-                        "OrphanReaper: reaped leftover agent {AgentId} (pid {Pid}) from a prior daemon run",
-                        record.AgentId, record.Pid);
+                    LogRecordResolved(record, running, StoppedForResume(record.AgentId));
                 } else if (record.IdentityKind == PidIdentityKind.IdentityUnavailable) {
                     logger.LogWarning(
                         "OrphanReaper: identity_unavailable record for {AgentId} (pid {Pid}, age {Age}) unresolved by the record pass — the env-marker scan may still reap it on Linux; macOS requires a manual kill",
@@ -171,6 +171,41 @@ internal sealed class OrphanReaper(
 
         // ── (2) env-marker scan (recordless survivors) ───────────────────────────────────────────
         await ScanEnvMarkersAsync(handledPids, ct);
+    }
+
+    /// <summary>A keep-agents stop ends each agent itself and leaves its record for this pass, so an agent
+    /// that was stopped for resume and is already gone is the expected case, not a leftover.</summary>
+    void LogRecordResolved(AgentPidRecord record, bool wasRunning, bool forResume) {
+        switch (wasRunning, forResume) {
+            case (false, true):
+                logger.LogInformation(
+                    "OrphanReaper: agent {AgentId} (pid {Pid}) was stopped by the prior daemon run to be resumed; cleared its record",
+                    record.AgentId, record.Pid);
+                break;
+            case (false, false):
+                logger.LogInformation(
+                    "OrphanReaper: agent {AgentId} (pid {Pid}) of a prior daemon run had already exited; cleared its record",
+                    record.AgentId, record.Pid);
+                break;
+            case (true, true):
+                logger.LogWarning(
+                    "OrphanReaper: agent {AgentId} (pid {Pid}) was still running after the prior daemon run stopped it to be resumed; ended it",
+                    record.AgentId, record.Pid);
+                break;
+            default:
+                logger.LogInformation(
+                    "OrphanReaper: reaped leftover agent {AgentId} (pid {Pid}) from a prior daemon run",
+                    record.AgentId, record.Pid);
+                break;
+        }
+    }
+
+    bool StoppedForResume(string agentId) {
+        try {
+            return stoppedForResume?.Invoke(agentId) == true;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return false;
+        }
     }
 
     async Task ScanEnvMarkersAsync(HashSet<int> handledPids, CancellationToken ct) {

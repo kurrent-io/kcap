@@ -28,14 +28,20 @@ public class ExperimentalCommandTests {
     Task<(int Exit, string Out, string Err)> Run(Func<int, ProbeResult> probe, params string[] args) =>
         Run(Resolutions.None(new ConfigRoot(Tmp.Path)), (_, n) => probe(n), args);
 
-    async Task<(int Exit, string Out, string Err)> Run(
-            ProfileContext profiles, Func<string, int, ProbeResult> probe, params string[] args) {
+    Task<(int Exit, string Out, string Err)> Run(
+            ProfileContext profiles, Func<string, int, ProbeResult> probe, params string[] args) =>
+        RunWith(profiles, probe, null, args);
+
+    async Task<(int Exit, string Out, string Err)> RunWith(
+            ProfileContext profiles, Func<string, int, ProbeResult> probe, IReadOnlyList<ExperimentalFeature>? features,
+            params string[] args) {
         var time  = new FakeTimeProvider();
         var calls = 0;
         var sut = new ExperimentalCommand(
             new ConfigRoot(Tmp.Path), profiles, time,
             (daemon, _) => Task.FromResult(probe(daemon, calls++)),
-            (span, _) => { time.Advance(span); return Task.CompletedTask; });
+            (span, _) => { time.Advance(span); return Task.CompletedTask; },
+            features);
 
         using var capture = ConsoleOutput.StartFullCapture("\n");
         var exit = await sut.HandleAsync(["experimental", .. args]);
@@ -185,6 +191,46 @@ public class ExperimentalCommandTests {
         await Assert.That(exit).IsEqualTo(0);
         foreach (var feature in ExperimentalFeatures.All)
             await Assert.That(output).Contains(feature.Id);
+    }
+
+    [Test]
+    [Arguments(true, false, "on by default")]
+    [Arguments(true, true, "on")]
+    [Arguments(false, true, "off")]
+    [Arguments(false, false, "off")]
+    public async Task The_switch_reads_on_by_default_only_when_the_profile_never_set_it(bool on, bool set, string expected) =>
+        await Assert.That(ExperimentalCommand.SwitchText(on, set)).IsEqualTo(expected);
+
+    /// The daemon reports an unset switch as stored off and running on; neither is a change still applying.
+    [Test]
+    public async Task List_shows_an_unset_switch_on_by_default_as_active_when_the_daemon_runs_it() {
+        var defaultOn = ExperimentalFeatures.CodexAppServer with { OnByDefault = true };
+
+        var (exit, output, _) = await RunWith(
+            Resolutions.None(new ConfigRoot(Tmp.Path)),
+            (_, _) => Running(Status([Feature(false, true) with { ResolvedOn = true }])),
+            [defaultOn]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(output).Contains($"{Id}  on by default  active");
+        await Assert.That(output).DoesNotContain("applying");
+    }
+
+    /// Disabling a switch the platform turned on changes what it takes effect as, not what the daemon last
+    /// stored, so a daemon still running it on has not applied the change.
+    [Test]
+    public async Task Disable_from_on_by_default_waits_for_the_daemon_to_turn_it_off() {
+        var probes = 0;
+
+        var (_, output, _) = await Run(n => {
+            probes = n + 1;
+            return Running(Status([n == 0
+                ? Feature(false, true) with { ResolvedOn = true }
+                : Feature(false, false) with { ResolvedOn = false }]));
+        }, "disable", Id);
+
+        await Assert.That(output).Contains("Applied live");
+        await Assert.That(probes).IsEqualTo(2);
     }
 
     [Test]

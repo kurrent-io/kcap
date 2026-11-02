@@ -388,10 +388,14 @@ public class DaemonLifecycleControllerTests {
         await Assert.That(h.Surface.Prompts).IsEmpty();
     }
 
+    /// A supervisor restarts a crash itself, so a service it leaves stopped was stopped on purpose — a
+    /// <c>kcap daemon service stop</c>, which reads as installed on Windows and as an unloaded unit on launchd.
     [Test]
-    public async Task A_stopped_service_found_on_recovery_is_started_verified() {
+    [Arguments("installed")]
+    [Arguments("not_installed")]
+    public async Task A_stopped_service_found_on_recovery_is_left_stopped(string state) {
         await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(unitPresent: true, state: "installed"));
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(unitPresent: true, state: state));
         h.Start();
 
         h.PushConnected();
@@ -400,8 +404,25 @@ public class DaemonLifecycleControllerTests {
 
         h.PushUnreachable();
 
-        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the recovery start");
-        await Assert.That(h.Lane.Requests[0].Verb).IsEqualTo(MutationVerb.StartVerified);
+        await WaitUntilAsync(() => h.Cli.StatusCallCount == 2, what: "the recovery's status read");
+        await Task.Delay(50); // a negative: give a start every chance to be requested
+        await Assert.That(h.Lane.Requests).IsEmpty();
+    }
+
+    /// The recovery leaves the service alone, so the Start button is what brings it back.
+    [Test]
+    public async Task A_service_left_stopped_on_recovery_still_starts_on_the_start_action() {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(unitPresent: true, state: "installed"));
+        h.Start();
+        h.PushConnected();
+        await h.Controller.PhaseClosed;
+        h.PushUnreachable();
+        await WaitUntilAsync(() => h.Cli.StatusCallCount == 2, what: "the recovery's status read");
+
+        await h.Controller.StartActionAsync(CancellationToken.None);
+
+        await Assert.That(h.Lane.Requests.Single().Verb).IsEqualTo(MutationVerb.StartVerified);
     }
 
     /// One recovery per interval: a trigger inside it waits for the interval's end, and a second
@@ -2051,27 +2072,57 @@ public class DaemonLifecycleControllerTests {
             Supervisor = "windows_scheduled_task", WindowsServiceInstallable = installable,
         };
 
+    static ServiceSnapshot OutdatedService() =>
+        Snap(unitPresent: true, state: "running", jobPid: 77, daemonPid: 77) with {
+            Supervisor = "windows_service", ServiceUpgradeAvailable = true,
+        };
+
+    /// Setup chose the Scheduled Task, so no launch is interrupted to offer the move; Settings carries it.
+    /// Both outcome orders: a daemon already up when the app starts, and one the startup branch brings up.
     [Test]
-    public async Task A_task_supervised_daemon_is_offered_the_windows_service_and_accepting_installs_it() {
+    [Arguments(true, false)]
+    [Arguments(true, true)]
+    [Arguments(false, false)]
+    public async Task A_task_supervised_daemon_is_never_offered_the_windows_service(bool installable, bool connectsLater) {
         await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised());
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised(installable));
+        h.Surface.ConfirmBehavior = (_, _) => Task.FromResult(true);
+        h.Start();
+
+        if (connectsLater) {
+            h.PushUnreachable();
+            await h.Controller.PhaseClosed;
+        }
+        var reads = h.Cli.StatusCallCount;
+        h.PushConnected();
+
+        await WaitUntilAsync(() => h.Cli.StatusCallCount > reads, what: "the connected read");
+        await h.Controller.PhaseClosed;
+        await Task.Delay(50); // a negative: give a prompt every chance to appear
+        await Assert.That(h.Surface.Prompts).IsEmpty();
+        await Assert.That(h.Lane.Requests).IsEmpty();
+    }
+
+    [Test]
+    public async Task An_older_installed_service_is_offered_an_update_and_accepting_runs_it_through_the_lane() {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(OutdatedService());
         h.Surface.ConfirmBehavior = (_, _) => Task.FromResult(true);
         h.Start();
 
         h.PushConnected();
 
-        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the Windows service install");
-        await Assert.That(h.Surface.Prompts.Single().Kind).IsEqualTo(LifecyclePrompt.KindWindowsService);
-        await Assert.That(h.Surface.Prompts.Single().Disclosure).IsEqualTo(DaemonLifecycleController.WindowsServiceDisclosure(0, resumes: false));
+        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the Windows service update");
+        await Assert.That(h.Surface.Prompts.Single().Kind).IsEqualTo(LifecyclePrompt.KindWindowsServiceUpdate);
         await Assert.That(h.Lane.Requests[0].Verb).IsEqualTo(MutationVerb.InstallWindowsService);
     }
 
     /// The update path: the installer stopped the daemon, so the app's first outcome is unreachable and
     /// the daemon it starts connects later. That Connected is the run's only chance to make the offer.
     [Test]
-    public async Task A_daemon_that_connects_after_the_startup_branch_is_offered_the_windows_service() {
+    public async Task A_daemon_that_connects_after_the_startup_branch_is_offered_the_service_update() {
         await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised());
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(OutdatedService());
         h.Surface.ConfirmBehavior = (_, _) => Task.FromResult(true);
         h.Start();
 
@@ -2079,8 +2130,8 @@ public class DaemonLifecycleControllerTests {
         await h.Controller.PhaseClosed;
         h.PushConnected();
 
-        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the Windows service install");
-        await Assert.That(h.Surface.Prompts.Single().Kind).IsEqualTo(LifecyclePrompt.KindWindowsService);
+        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the Windows service update");
+        await Assert.That(h.Surface.Prompts.Single().Kind).IsEqualTo(LifecyclePrompt.KindWindowsServiceUpdate);
         await Assert.That(h.Lane.Requests[0].Verb).IsEqualTo(MutationVerb.InstallWindowsService);
     }
 
@@ -2090,7 +2141,7 @@ public class DaemonLifecycleControllerTests {
     public async Task A_failed_read_when_the_started_daemon_connects_still_leads_to_the_offer() {
         await using var h = new Harness();
         var reads = 0;
-        h.Cli.StatusBehavior = _ => Task.FromResult(++reads == 2 ? null : (ServiceSnapshot?)TaskSupervised());
+        h.Cli.StatusBehavior = _ => Task.FromResult(++reads == 2 ? null : (ServiceSnapshot?)OutdatedService());
         h.Surface.ConfirmBehavior = (_, _) => Task.FromResult(true);
         h.Start();
 
@@ -2098,72 +2149,15 @@ public class DaemonLifecycleControllerTests {
         await h.Controller.PhaseClosed;
         h.PushConnected();
 
-        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the Windows service install");
-        await Assert.That(h.Surface.Prompts.Single().Kind).IsEqualTo(LifecyclePrompt.KindWindowsService);
-    }
-
-    [Test]
-    public async Task Declining_the_windows_service_is_remembered_and_not_asked_again() {
-        await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised());
-        h.Start();
-
-        h.PushConnected();
-
-        await WaitUntilAsync(() => h.DeclinesRemembered == 1, what: "the remembered decline");
-        await Assert.That(h.Lane.Requests).IsEmpty();
-
-        await using var later = new Harness { WindowsServiceDeclined = true };
-        later.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised());
-        later.Start();
-        later.PushConnected();
-        await WaitUntilAsync(() => later.Cli.StatusCallCount == 1, what: "the reconciliation query");
-        await later.Controller.PhaseClosed;
-        await Task.Delay(50);
-        await Assert.That(later.Surface.Prompts).IsEmpty();
-    }
-
-    [Test]
-    public async Task A_prompt_closed_by_the_app_shutting_down_is_not_remembered_as_a_decline() {
-        var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised());
-        h.Surface.ConfirmBehavior = async (_, ct) => {
-            try {
-                await Task.Delay(Timeout.Infinite, ct);
-            } catch (OperationCanceledException) { }
-            return false;
-        };
-        h.Start();
-        h.PushConnected();
-        await WaitUntilAsync(() => h.Surface.Prompts.Count == 1, what: "the Windows service offer");
-
-        await h.DisposeAsync();
-
-        await Assert.That(h.DeclinesRemembered).IsEqualTo(0);
-    }
-
-    /// The prompt agreed to end no agents; one started while it was open would be ended by the move
-    [Test]
-    public async Task A_daemon_that_got_busy_while_the_prompt_was_open_is_not_moved() {
-        await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised());
-        h.Surface.ConfirmBehavior = (_, _) => {
-            h.PushSnapshot(activeAgents: 1);
-            return Task.FromResult(true);
-        };
-        h.Start();
-
-        h.PushConnected();
-
-        await WaitUntilAsync(() => h.Surface.StatusMessages.Contains(DaemonLifecycleController.PromptBusyStatus), what: "the cancel");
-        await Assert.That(h.Lane.Requests).IsEmpty();
+        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the Windows service update");
+        await Assert.That(h.Surface.Prompts.Single().Kind).IsEqualTo(LifecyclePrompt.KindWindowsServiceUpdate);
     }
 
     /// The consent was for the daemon the prompt described
     [Test]
-    public async Task A_daemon_that_changed_while_the_prompt_was_open_is_not_moved() {
+    public async Task A_daemon_that_changed_while_the_prompt_was_open_is_not_updated() {
         await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised());
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(OutdatedService());
         h.Surface.ConfirmBehavior = (_, _) => {
             h.PushConnecting();
             return Task.FromResult(true);
@@ -2174,73 +2168,6 @@ public class DaemonLifecycleControllerTests {
 
         await WaitUntilAsync(() => h.Surface.StatusMessages.Contains(DaemonLifecycleController.PromptStaleStatus), what: "the cancel");
         await Assert.That(h.Lane.Requests).IsEmpty();
-    }
-
-    [Test]
-    public async Task An_older_installed_service_is_offered_an_update_and_a_decline_is_not_remembered() {
-        await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(
-            Snap(unitPresent: true, state: "running", jobPid: 77, daemonPid: 77) with { Supervisor = "windows_service", ServiceUpgradeAvailable = true });
-        h.Start();
-
-        h.PushConnected();
-
-        await WaitUntilAsync(() => h.Surface.Prompts.Count == 1, what: "the update offer");
-        await Assert.That(h.Surface.Prompts[0].Kind).IsEqualTo(LifecyclePrompt.KindWindowsServiceUpdate);
-        await Task.Delay(50);
-        await Assert.That(h.DeclinesRemembered).IsEqualTo(0);
-    }
-
-    [Test]
-    [Arguments(false, false)] // nothing to offer: the bundle carries no service
-    [Arguments(true, true)]   // a busy daemon: the install would end its agents
-    public async Task No_windows_service_offer(bool installable, bool busy) {
-        await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised(installable));
-        h.Start();
-        if (busy) h.PushSnapshot(activeAgents: 1);
-
-        h.PushConnected();
-
-        await WaitUntilAsync(() => h.Cli.StatusCallCount == 1, what: "the reconciliation query");
-        await h.Controller.PhaseClosed;
-        await Task.Delay(50);
-        await Assert.That(h.Surface.Prompts).IsEmpty();
-        await Assert.That(h.DeclinesRemembered).IsEqualTo(0);
-    }
-
-    /// The move stops the daemon keeping its agents, so a daemon that resumes them is asked while they run
-    [Test]
-    public async Task A_busy_daemon_that_resumes_its_agents_is_offered_the_windows_service() {
-        await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised());
-        h.Start();
-        h.PushSnapshot(activeAgents: 2);
-
-        h.Client.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [DaemonLifecycleController.ResumeCapability]));
-
-        await WaitUntilAsync(() => h.Surface.Prompts.Count == 1, what: "the Windows service offer");
-        await Assert.That(h.Surface.Prompts[0].Disclosure).IsEqualTo(DaemonLifecycleController.WindowsServiceDisclosure(2, resumes: true));
-        await Assert.That(h.Surface.Prompts[0].Disclosure).Contains("2 running agents resume if auto-resume is on");
-    }
-
-    /// One that cannot resume them waits for idle, without spending the run's offer
-    [Test]
-    public async Task A_busy_daemon_that_cannot_resume_is_offered_once_it_reconnects_idle() {
-        await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(TaskSupervised());
-        h.Start();
-        h.PushSnapshot(activeAgents: 1);
-        h.PushConnected();
-        await WaitUntilAsync(() => h.Cli.StatusCallCount == 1, what: "the reconciliation query");
-        await h.Controller.PhaseClosed;
-        await Assert.That(h.Surface.Prompts).IsEmpty();
-
-        h.PushSnapshot(activeAgents: 0);
-        h.PushConnecting();
-        h.PushConnected();
-
-        await WaitUntilAsync(() => h.Surface.Prompts.Count == 1, what: "the Windows service offer");
     }
 
     [Test]
@@ -2303,9 +2230,7 @@ public class DaemonLifecycleControllerTests {
 
         public string? ProfileName = "default";
         public bool NeedsAppRestart;
-        public bool WindowsServiceDeclined;
         public bool OffersSupervision = true;
-        public int DeclinesRemembered;
 
         public Harness(
                 string? canonicalServer = "https://kcap.example.com:443", bool autoActionsPermanentlyClosed = false) {
@@ -2313,9 +2238,9 @@ public class DaemonLifecycleControllerTests {
             Time  = new TimerCountingTimeProvider(Clock);
             Controller = new DaemonLifecycleController(
                 Client, Cli, Probe, Surface, () => Task.FromResult<string?>(ProfileName), Time,
-                CanonicalServer, Lane.RunAsync, autoActionsPermanentlyClosed, () => NeedsAppRestart,
-                () => Task.FromResult(WindowsServiceDeclined),
-                () => { DeclinesRemembered++; return Task.CompletedTask; }) { OffersSupervision = () => OffersSupervision };
+                CanonicalServer, Lane.RunAsync, autoActionsPermanentlyClosed, () => NeedsAppRestart) {
+                OffersSupervision = () => OffersSupervision,
+            };
         }
 
         public void Start() => Controller.Start();
@@ -2447,6 +2372,16 @@ sealed class FakeKcapCli : IKcapCli {
     public Task<ImportDiscoveryReport?> ImportDiscoverAsync(IReadOnlyList<string> vendorFlags, CancellationToken ct) {
         DiscoverCalls.Add(vendorFlags);
         return DiscoverBehavior(vendorFlags);
+    }
+
+    public readonly List<(Cli.Core.Setup.Intelligence.IntelligenceAnswer Answer, string? Model, string? Key, bool? ImportOutcomes)> IntelligenceCalls = [];
+    public Func<Cli.Core.Setup.Intelligence.IntelligenceAnswer, Task<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome>> IntelligenceBehavior =
+        answer => Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome>(new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Applied(
+            new(answer.Mode, answer.Harness, answer.Vendor?.Id, true, 200, answer.Mode == "none" ? [] : ["titles", "outcomes"])));
+    public Task<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome> LocalIntelligenceAsync(
+            Cli.Core.Setup.Intelligence.IntelligenceAnswer answer, string? model, string? apiKey, bool? importOutcomes, CancellationToken ct) {
+        IntelligenceCalls.Add((answer, model, apiKey, importOutcomes));
+        return IntelligenceBehavior(answer);
     }
 
     public int ImportCallCount;

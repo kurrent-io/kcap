@@ -260,7 +260,7 @@ public class AgentHookPosterTests : IDisposable {
         var entered = false;
 
         await Poster.DrainSpoolsCoreAsync(
-            new HookSpool(Config.Root, TimeProvider.System), new TranscriptSpool(Config.Root, TimeProvider.System), null,
+            new HookSpool(Config.Root, TimeProvider.System, server: null), new TranscriptSpool(Config.Root, TimeProvider.System, server: null), null,
             _ => {
                 entered = true;
                 throw new InvalidOperationException("a client was built for an empty spool");
@@ -272,12 +272,12 @@ public class AgentHookPosterTests : IDisposable {
     /// <summary>The counterpart that keeps the test above honest: a spooled entry still gets a client.</summary>
     [Test]
     public async Task A_drain_with_a_spooled_entry_builds_a_client() {
-        var lifecycle = new HookSpool(Config.Root, TimeProvider.System);
+        var lifecycle = new HookSpool(Config.Root, TimeProvider.System, server: null);
         lifecycle.Append("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "session-start/codex", "{}");
         var entered = false;
 
         await Poster.DrainSpoolsCoreAsync(
-            lifecycle, new TranscriptSpool(Config.Root, TimeProvider.System), null,
+            lifecycle, new TranscriptSpool(Config.Root, TimeProvider.System, server: null), null,
             _ => {
                 entered = true;
                 return Task.FromResult(new AuthAttempt(new HttpClient(), AuthStatus.Expired));

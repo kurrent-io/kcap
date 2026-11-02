@@ -115,6 +115,30 @@ public class WindowsTaskUnitTests {
     }
 
     [Test]
+    public async Task WithDaemonBinary_changes_the_binary_and_nothing_else() {
+        const string moved = @"C:\Users\u\AppData\Local\kcap\current\bin\kcap-daemon.exe";
+
+        var rewritten = WindowsTaskUnit.WithDaemonBinary(WindowsTaskUnit.Wrapper(Spec()), moved);
+
+        await Assert.That(rewritten).IsEqualTo(WindowsTaskUnit.Wrapper(Spec() with { DaemonBinaryPath = moved }));
+        await Assert.That(WindowsTaskUnit.BinaryFromWrapper(rewritten!)).IsEqualTo(moved);
+    }
+
+    [Test]
+    public async Task WithDaemonBinary_escapes_a_percent_as_the_wrapper_does() {
+        const string moved = @"C:\dir%x\kcap-daemon.exe";
+
+        var rewritten = WindowsTaskUnit.WithDaemonBinary(WindowsTaskUnit.Wrapper(Spec()), moved);
+
+        await Assert.That(rewritten).IsEqualTo(WindowsTaskUnit.Wrapper(Spec() with { DaemonBinaryPath = moved }));
+    }
+
+    [Test]
+    public async Task WithDaemonBinary_refuses_a_wrapper_with_no_daemon_line() {
+        await Assert.That(WindowsTaskUnit.WithDaemonBinary("@echo off\r\nset \"A=B\"\r\n", @"C:\kcap\kcap-daemon.exe")).IsNull();
+    }
+
+    [Test]
     public async Task BinaryFromWrapper_unescapes_doubled_percent() {
         var spec = Spec() with { DaemonBinaryPath = @"C:\dir%x\kcap-daemon.exe" };
         await Assert.That(WindowsTaskUnit.BinaryFromWrapper(WindowsTaskUnit.Wrapper(spec)))

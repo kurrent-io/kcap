@@ -184,4 +184,16 @@ public class UpdateCommandScriptInstallTests : IDisposable {
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(output.GetCapturedError()).Contains("Run `kcap refresh` to retry");
     }
+
+    /// <summary>Only a Windows daemon can predate the update watch, and a service still on the npm binary is
+    /// never moved by a script update, so the notice names the reinstall.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task The_daemon_notice_names_what_a_script_update_does_not_restart(bool windows) {
+        var notice = UpdateCommand.ScriptDaemonNotice(windows);
+
+        await Assert.That(notice.Contains("needs `kcap daemon restart` once", StringComparison.Ordinal)).IsEqualTo(windows);
+        await Assert.That(notice).Contains("`kcap daemon service install --replace --verify`");
+    }
 }

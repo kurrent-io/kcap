@@ -39,6 +39,20 @@ public class TranscriptChatCanonicalTests {
         await Assert.That(result.SubmittedInputs).IsEmpty();
     }
 
+    /// The server writes it for a queued message the agent never picked up, so it is no receipt of any send.
+    [Test]
+    public async Task An_undelivered_user_message_is_marked_and_acknowledges_no_input() {
+        var undelivered = new UserMessageReceived { Content = "hello" };
+        undelivered.Extensions[CapacitorExtension.Slug] = Struct.Parser.ParseJson($$"""{"{{CapacitorExtension.Undelivered}}":true}""");
+        foreach (var rules in new IChatDisplayRules?[] { null, ClaudeChatRules.Instance }) {
+            var result = TranscriptChat.Project(Event(CanonicalEventTypes.UserMessageReceived, undelivered), rules);
+            await Assert.That(result.Envelopes.Single().ToolKind).IsEqualTo(ChatDisplayKind.Undelivered);
+            await Assert.That(result.Envelopes.Single().Text).IsEqualTo("hello");
+            await Assert.That(result.SubmittedInputs).IsEmpty();
+            await Assert.That(result.LiteralInputs).IsEmpty();
+        }
+    }
+
     /// The server writes it from the subagent-start hook, which names the agent but not its call. Claude's own records
     /// start the row, so the record only names it there and never adds a second.
     [Test]

@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -92,6 +93,32 @@ public class OrphanReaperTests {
 
         // Process gone (or PID reused → proven identity mismatch) → the stale record is deleted.
         await Assert.That(store.ReadAll()).IsEmpty();
+    }
+
+    /// <summary>A keep-agents stop ends its agents and leaves their records for the next boot. The record of one
+    /// that is already gone is cleared, and the log says what happened to it rather than claiming a kill.</summary>
+    [Test]
+    [Arguments(true, "was stopped by the prior daemon run to be resumed; cleared its record")]
+    [Arguments(false, "of a prior daemon run had already exited; cleared its record")]
+    public async Task Record_pass_says_an_agent_that_had_already_exited_was_not_reaped(bool stoppedForResume, string expected) {
+        var store = NewStore();
+        using var dummy = DummyProcess.StartSleep(30);
+        var identity = ProcessIdentity.Capture(dummy.Pid)!;
+        var pid = dummy.Pid;
+        dummy.Kill();
+        dummy.WaitForExit(TimeSpan.FromSeconds(5));
+        store.Write(Rec("kept", pid, identity, daemonId: _daemonId, epoch: "old-epoch"));
+        var logger = new CapturingLogger<OrphanReaper>();
+
+        var reaper = new OrphanReaper(store, daemonId: _daemonId, currentEpoch: "new-epoch", logger, time: TimeProvider.System,
+            stoppedForResume: id => stoppedForResume && id == "kept");
+        await reaper.ReapOnceAsync();
+
+        await Assert.That(store.ReadAll()).IsEmpty();
+        List<(LogLevel Level, string Message)> entries;
+        lock (logger.Entries) entries = [.. logger.Entries];
+        await Assert.That(entries.Any(e => e.Message.Contains(expected, StringComparison.Ordinal))).IsTrue();
+        await Assert.That(entries.Any(e => e.Message.Contains("reaped leftover agent", StringComparison.Ordinal))).IsFalse();
     }
 
     [Test]

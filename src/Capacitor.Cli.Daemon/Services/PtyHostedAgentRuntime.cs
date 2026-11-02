@@ -56,6 +56,11 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// </summary>
     internal static readonly TimeSpan GracefulStopLaneWait = TimeSpan.FromSeconds(1);
 
+    /// <summary>How long a resubmit waits for the input lane: past a submit spray, and well inside the
+    /// round's confirmation window, so a lane freed only after the verdict never gets an Enter the
+    /// verdict did not count.</summary>
+    internal static readonly TimeSpan ResubmitLaneWait = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// How long output must have been silent, once the TUI looks ready, before the launch prompt is
     /// pasted: a TUI still drawing its banner or startup spinner is not reading its composer yet.
@@ -399,6 +404,25 @@ internal sealed partial class PtyHostedAgentRuntime(
             await pty.WriteAsync(data);
         } finally {
             _lane.Release();
+        }
+    }
+
+    /// <summary>Withheld while a dialog shows, since its default option would take the Enter, and once
+    /// <paramref name="isCurrent"/> is false: a newer delivery may have released the lane this waited on,
+    /// and the Enter would submit that round instead.</summary>
+    public async Task<bool> ResubmitAsync(Func<bool> isCurrent) {
+        try {
+            if (!await _lane.WaitAsync(ResubmitLaneWait, _disposal.Token)) return false;
+        } catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) {
+            return false;
+        }
+
+        try {
+            if (_stopRequested || DialogGone is not null || !isCurrent()) return false;
+
+            return await WriteSubmitCarriageReturnAsync();
+        } finally {
+            try { _lane.Release(); } catch (ObjectDisposedException) { }
         }
     }
 

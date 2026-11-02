@@ -38,7 +38,32 @@ public class ExperimentalFeatureStateTests {
     [MethodDataSource(nameof(Rows))]
     public async Task Classify_covers_every_state(
         bool saved, bool running, DaemonStatusDto? status, string featureId, ExperimentalFeatureStateKind kind, string? reason) {
-        var (actualKind, actualReason) = ExperimentalFeatureState.Classify(saved, running, status, featureId);
+        var (actualKind, actualReason) = ExperimentalFeatureState.Classify(saved, saved, running, status, featureId);
+
+        await Assert.That(actualKind).IsEqualTo(kind);
+        await Assert.That(actualReason).IsEqualTo(reason);
+    }
+
+    static ExperimentalFeatureStatusDto Resolved(bool saved, bool on, bool active, string? reason = null) =>
+        new(Id, saved, active, 3, true, reason, false, on);
+
+    /// An unset switch the platform turns on is stored as off and takes effect as on; the daemon reports both,
+    /// and each is compared with its own counterpart.
+    public static IEnumerable<(bool Saved, bool On, ExperimentalFeatureStatusDto Feature, ExperimentalFeatureStateKind Kind, string? Reason)> DefaultRows() {
+        yield return (false, true, Resolved(false, true, true), ExperimentalFeatureStateKind.Active, null);
+        yield return (false, true, Resolved(false, true, false, "Codex 0.1 is older"), ExperimentalFeatureStateKind.OnNotActive, "Codex 0.1 is older");
+        yield return (false, true, Resolved(false, false, false), ExperimentalFeatureStateKind.Applying, null);
+        yield return (false, false, Resolved(false, true, true), ExperimentalFeatureStateKind.Applying, null);
+        yield return (false, false, Resolved(false, false, false), ExperimentalFeatureStateKind.Off, null);
+        yield return (true, true, Resolved(false, true, true), ExperimentalFeatureStateKind.Applying, null);
+        yield return (false, true, Feature(false, false, true), ExperimentalFeatureStateKind.Unknown, null);
+    }
+
+    [Test]
+    [MethodDataSource(nameof(DefaultRows))]
+    public async Task Classify_compares_the_stored_and_effective_switch_separately(
+        bool saved, bool on, ExperimentalFeatureStatusDto feature, ExperimentalFeatureStateKind kind, string? reason) {
+        var (actualKind, actualReason) = ExperimentalFeatureState.Classify(saved, on, true, Status(feature), Id);
 
         await Assert.That(actualKind).IsEqualTo(kind);
         await Assert.That(actualReason).IsEqualTo(reason);

@@ -93,7 +93,7 @@ Update with `kcap update`. It also retries an installed local server’s upgrade
 
 ### Desktop app on macOS
 
-Download `kcap-osx-arm64.dmg` from https://www.kurrent.io/download/mac (Apple silicon, macOS 15 or later), open it and drag **kcap** to **Applications**. The app bundles its own `kcap` CLI and daemon: you do not need the npm install as well, and the first run offers to link `kcap` onto your terminal PATH. On the first run, the cloud edition opens the sign-up page in your browser, where the invite code, organization, workspace address and trial are handled; once the page says your workspace is ready, **Continue** in the app finds it and setup carries on. The local edition first asks how to search your sessions: by meaning, with the built-in model kcap downloads and runs itself, or through [Ollama](https://ollama.com) with `mxbai-embed-large` or a model you name, or by keyword only; the install shows the built-in or Ollama model download and ends by saying which one search uses, and why when it is keyword. The search item beside **kcap local** in the sidebar changes it later, by running setup again. Signing in installs the daemon as a background service and starts it without asking, named after this machine (with `-1`, `-2`, … when another machine of yours already uses that name), and removes the service of the name it replaced — it asks only before replacing a daemon service that belongs to another workspace. Whenever the app finds the daemon not running, it starts the service again. Sessions running on your other machines' daemons open in the app too — their chat, their prompts, and for a terminal harness a read-only view of the terminal — over the server, without a local daemon. Wheel and trackpad gestures scroll the terminal history in small increments. When an agent enables terminal mouse tracking, wheel reports go to the source in either screen buffer so the agent scrolls its own history; this requires a desktop app and source daemon with wheel-input support.
+Download `kcap-osx-arm64.dmg` from https://www.kurrent.io/download/mac (Apple silicon, macOS 15 or later), open it and drag **kcap** to **Applications**. The app bundles its own `kcap` CLI and daemon: you do not need the npm install as well, and the first run offers to link `kcap` onto your terminal PATH. On the first run, the cloud edition opens the sign-up page in your browser, where the invite code, organization, workspace address and trial are handled; once the page says your workspace is ready, **Continue** in the app finds it and setup carries on. The local edition first asks how to search your sessions: by meaning, with the built-in model kcap downloads and runs itself, or through [Ollama](https://ollama.com) with `mxbai-embed-large` or a model you name, or by keyword only; the install shows the built-in or Ollama model download and ends by saying which one search uses, and why when it is keyword. The search item beside **kcap local** in the sidebar changes it later, by running setup again. Signing in installs the daemon as a background service and starts it without asking, named after this machine (with `-1`, `-2`, … when another machine of yours already uses that name), and removes the service of the name it replaced — it asks only before replacing a daemon service that belongs to another workspace. When the app opens and finds the daemon service stopped, it starts it again; while the app is open it leaves a stopped service alone, so a `kcap daemon service stop` holds until the app next opens. Sessions running on your other machines' daemons open in the app too — their chat, their prompts, and for a terminal harness a read-only view of the terminal — over the server, without a local daemon. Wheel and trackpad gestures scroll the terminal history in small increments. When an agent enables terminal mouse tracking, wheel reports go to the source in either screen buffer so the agent scrolls its own history; this requires a desktop app and source daemon with wheel-input support.
 
 For sessions hosted on this machine, Claude Code panels such as `/status` and `/cost` appear in chat with **Close** to send Escape. Opening a panel confirms the latest slash command sent at an idle prompt; unrelated messages stay pending until their own receipt arrives.
 
@@ -127,7 +127,7 @@ Help → Report a Bug… / Send Feedback… (or the help button in the session r
 
 ### Desktop app on Windows
 
-Download `kcap-<version>-win-x64-Setup.exe` from the [GitHub release](https://github.com/kurrent-io/kcap-cli/releases) (Windows 10 or later, x64) and run it. It installs per user into `%LocalAppData%\kcap` with no administrator prompt and adds a Start-menu entry. Like the macOS app it bundles its own `kcap` CLI and daemon. The first run offers to add the app's folder to your user PATH, so `kcap` works from any new terminal. Signing in installs the daemon as a background service and starts it, as on macOS: the app offers to run it under the machine's `kcap-service` Windows service, which takes one administrator prompt, and keeps a per-user Scheduled Task that starts at sign-in when you decline. See [Windows service](#windows-service).
+Download `kcap-<version>-win-x64-Setup.exe` from the [GitHub release](https://github.com/kurrent-io/kcap-cli/releases) (Windows 10 or later, x64) and run it. It installs per user into `%LocalAppData%\kcap` with no administrator prompt and adds a Start-menu entry. Like the macOS app it bundles its own `kcap` CLI and daemon. The first run offers to add the app's folder to your user PATH, so `kcap` works from any new terminal. Signing in installs the daemon as a background service and starts it, as on macOS: under the machine's `kcap-service` Windows service once it is installed, otherwise under a per-user Scheduled Task that starts at sign-in. Settings → Daemon → **Run as a Windows service** moves a daemon its Scheduled Task runs to the service, behind one administrator prompt; the app does not interrupt a launch to offer it, since setup already chose the daemon's supervisor. See [Windows service](#windows-service).
 
 Windows draws no application menu, so **Settings…**, **Changelog** and the app version sit in the help button in the session rail's footer, next to Documentation and the report items. Closing the window keeps the app running in the notification area — quit from the tray icon's menu. Updates arrive through the app the same way as on macOS, from the Windows feed.
 
@@ -140,6 +140,18 @@ On macOS an installed **Kurrent Capacitor** app updates itself to kcap in place 
 finishes the update by moving to `kcap.app` in the same Applications folder, repointing the
 `kcap` terminal link and the daemon's background service. Opening the kcap disk image does the
 same for a Kurrent Capacitor app that has not updated yet, and quits it first if it is running.
+
+On Windows a **Kurrent Capacitor** install in `%LocalAppData%\KurrentCapacitor` keeps
+updating itself in place, so installing kcap beside it would leave two apps sharing one daemon.
+Each launch of kcap from `%LocalAppData%\kcap` finds such an install and replaces it: it ends
+the old app and its updater, points the daemon's Scheduled Task at its own daemon (`kcap daemon
+service repoint`, which restarts a running daemon with its agents kept), removes the old
+shortcuts and any sign-in entry, moves the old folder off your user PATH, points the `kcap`
+entry in **Installed apps** at itself, and deletes the old folder. Settings, sign-in and the
+daemon's data are kept. A daemon busy with an eval, or a file still in use, leaves the old
+folder for the next launch to try again. A Kurrent Capacitor copy that has already updated
+itself to this release opens kcap instead when kcap is installed. A Kurrent Capacitor install
+newer than kcap is left until kcap updates.
 
 The connection skill is now `connect-kcap` (`kcap-connect-kcap` in the shared
 agent skill tree), and the Muse recording skill is `kcap-recording`. Refreshing
@@ -203,7 +215,7 @@ At a glance — each links to its section below:
 | Command | What it does |
 |---------|--------------|
 | [`kcap setup`](#initial-setup) | Interactive wizard — server, auth, agent hooks, daemon (`--local` runs the server on this machine) |
-| [`kcap local`](#local-server-kcap-local) | Status, start, stop, restart, upgrade, bundle prefetch, logs, web UI and uninstall of the server `kcap setup --local` installed |
+| [`kcap local`](#local-server-kcap-local) | Status, start, stop, restart, upgrade, bundle prefetch, background intelligence, logs, web UI and uninstall of the server `kcap setup --local` installed |
 | [`.kcap/approvals.yaml`](#approval-policy) | Auto-allow, deny, or force-ask specific tool calls |
 | [`kcap import`](#loading-historical-sessions) | Backfill past sessions from every detected agent |
 | [`kcap muse-assistant`](#muse-assistant) | Record Muse Assistant chats as private sessions, run by Muse's own cron inside its VM |
@@ -246,7 +258,7 @@ At a glance — each links to its section below:
 kcap setup                                   # interactive wizard (local, cloud, or a workspace you have)
 kcap setup <tenant>                          # shorthand: https://<tenant>.kcap.ai
 kcap setup --server-url <url> --no-prompt    # CI / scripted
-kcap setup --local --single-user --yes --no-prompt   # local edition, unattended
+kcap setup --local --single-user --yes --intelligence claude --no-prompt   # local edition, unattended
 kcap setup --server-url <url> --no-prompt --json     # …with JSON progress for a wrapper
 kcap setup --discover [--json]               # report workspaces only, configure nothing
 kcap setup --org "Acme" --slug acme --no-prompt   # create a workspace, unattended
@@ -255,6 +267,7 @@ kcap setup --local --embedding-model <model> # …embedding with this Ollama mod
 kcap setup --local --builtin-embeddings      # …embedding with the built-in model
 kcap setup --local --windows-service         # …run by the kcap-service Windows service (Windows)
 kcap local fetch                             # download the server bundle ahead of the install
+kcap local intelligence <answer>             # choose who runs its titles, outcomes and evals
 kcap local uninstall [--purge]               # remove it, keeping (or deleting) its data
 ```
 
@@ -343,6 +356,11 @@ The first version is for a machine with one user: on a shared machine, other OS 
 - With no embedding flag, a recorded choice stands, and a recorded built-in model that is missing or damaged is downloaded again. With nothing recorded, setup uses Ollama when it is running and the built-in model otherwise; `--no-prompt` and `--json` take that without asking.
 - When neither is available, setup carries on and search works by keyword. A failed download or pull, or a model that cannot embed, is reported the same way and never fails the install.
 
+**Background intelligence.** The server titles sessions, says what each achieved and runs evals with a model. After the daemon step, setup asks what runs those calls: your own coding agent on this machine (Claude Code or Codex, whichever of them the daemon can run without a terminal, on its own sign-in and quota), a provider with your API key (Anthropic, OpenAI, OpenRouter or Cohere, with a model defaulted to the server's), or not now. A provider's key is read from its own variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` or `COHERE_API_KEY`) or a hidden prompt, never from the command line, and the server tries it with one call before storing anything. Any answer but not now then asks whether imported sessions also get a summary of what each achieved (yes by default), and the import step says how many days the server's background work on them takes at its daily pace. Once the server titles sessions, the import no longer offers to name them with your agent. Not now stores nothing, so a re-run never clears an earlier answer; a refused or unreachable answer never fails setup.
+
+- `--intelligence <answer>` answers it without asking: `claude` or `codex`, `anthropic`, `openai`, `openrouter` or `cohere`, or `none`, which is not now (`kcap local intelligence none` turns it off). `--intelligence-model <model>` picks a provider's model, and `--import-outcomes` / `--no-import-outcomes` the summary choice. `--no-prompt` requires `--intelligence`, and a provider's key in its variable, and is refused before anything installs without them.
+- `kcap local intelligence <answer> [--model <model>] [--import-outcomes | --no-import-outcomes] [--json]` changes the answer later, with the same key rules. It exits 0 when the server took it, 1 when the server could not be asked, and 2 when the arguments or the server refused it; `--json` prints one line, `{"ok":true,"mode":…,"import_outcomes":…,"backlog_session_touches_per_day":…,"resolving":[…]}` or `{"ok":false,"error":"…"}`.
+
 - A machine that already has a profile for another server is refused for now.
 - Every kcap that talks to the local server must be newer than 1.3.0, which does not keep to its rules. Setup asks the `kcap` on `PATH` and the desktop app's bundled one (in `/Applications` or `~/Applications`) for their versions, and stops if either is 1.3.0 or older, or does not report one: update it, or remove the one on `PATH`. The local server refuses an older kcap too, so its hooks and watcher record nothing there.
 - Builds of kcap for musl Linux are not supported.
@@ -395,7 +413,7 @@ kcap local uninstall --purge    # also delete its data and retire its URL
 The local edition, on a Mac:
 
 ```bash
-kcap setup --local --single-user --yes --no-embeddings --no-prompt
+kcap setup --local --single-user --yes --no-embeddings --intelligence claude --no-prompt
 ```
 
 The cloud edition, against a workspace that exists, with a [machine credential](#machine-credentials-headless-recording) in the environment:
@@ -430,6 +448,8 @@ kcap setup --org "Acme" --slug acme --tier team --default-visibility org_public 
 | Install kcap local (local) | `--yes` | required, except to reuse an installation |
 | Search by meaning (local) | `--builtin-embeddings`, `--embedding-model <model>`, `--no-embeddings` | the recorded choice; else Ollama when it runs, the built-in model otherwise |
 | Share usage data? (local) | — (`kcap config set telemetry on` beforehand, or `KCAP_TELEMETRY=1`) | the saved choice; else not shared, and nothing is saved |
+| Who runs background intelligence? (local) | `--intelligence <answer>`, `--intelligence-model <model>` | required; a provider also needs its key in its variable |
+| Summarise what imported sessions achieved? (local) | `--import-outcomes`, `--no-import-outcomes` | the server's choice (yes) |
 | Default session visibility | `--default-visibility` | the workspace's default (`org_public` from a server that cannot say); against a local server, the profile's stored value and no question |
 | Install kcap for the detected agents? | `--skip-harnesses`, `--skip-<agent>-hooks` and friends | yes |
 | Let Codex's sandbox reach the server? | `--skip-codex-network-access` | yes |
@@ -438,7 +458,7 @@ kcap setup --org "Acme" --slug acme --tier team --default-visibility org_public 
 | Daemon name | `--daemon-name` | the suggestion; a held `--daemon-name` fails |
 | Import past sessions? | `--skip-import` | yes |
 | Which projects to import? | `--skip-import-repo <owner/name>`, `--skip-import-folder <path>` (each repeatable; this import only) | every one |
-| Name imported sessions with your coding agent? | — | no |
+| Name imported sessions with your coding agent? | — | no; not asked once the local server titles them |
 | Open an agent to follow the import? | — | not offered |
 
 **Exit codes.** `kcap setup` exits:
@@ -468,7 +488,7 @@ kcap setup --org "Acme" --slug acme --tier team --default-visibility org_public 
 {"v":1,"event":"done","server_url":"https://acme.kcap.ai"}
 ```
 
-The steps are `server`, `sign_in`, `visibility`, `harnesses`, `daemon` and `import`. `credential` is `machine`, `stored`, `sign_in` or `none`; the daemon's `outcome` is `enabled`, `enabled_unverified`, `already_enabled`, `refused` or `failed` for its service, or `skipped` when none was set up; the import's is `ran` or `skipped`. With `--local`, the [install's own events](#local-edition) come inside the `server` step. A `failed` line names the step it stopped in and carries a `code`: the local install's codes, or `answer_required`, `invalid_arguments`, `server_unreachable`, `workspace_unavailable`, `sign_in_failed`, `machine_credential_rejected`, `daemon_name_held`, `cancelled`, or `setup_failed` for anything else, with the last error setup printed as its `message`. A refusal found before any step starts is a `failed` line alone; the local edition's consents are checked inside the `server` step, so their `answer_required` line follows its `step_started`.
+The steps are `server`, `sign_in`, `visibility`, `harnesses`, `daemon`, `intelligence` (with `--local` only) and `import`. `credential` is `machine`, `stored`, `sign_in` or `none`; the daemon's `outcome` is `enabled`, `enabled_unverified`, `already_enabled`, `refused` or `failed` for its service, or `skipped` when none was set up; the intelligence step's is the mode the server applied (`local_agent` or `provider`), or `skipped`; the import's is `ran` or `skipped`. With `--local`, the [install's own events](#local-edition) come inside the `server` step. A `failed` line names the step it stopped in and carries a `code`: the local install's codes, or `answer_required`, `invalid_arguments`, `server_unreachable`, `workspace_unavailable`, `sign_in_failed`, `machine_credential_rejected`, `daemon_name_held`, `cancelled`, or `setup_failed` for anything else, with the last error setup printed as its `message`. A refusal found before any step starts is a `failed` line alone; the local edition's consents are checked inside the `server` step, so their `answer_required` line follows its `step_started`.
 
 In `--no-prompt` mode, the wizard installs hooks for every detected agent by default. Opt out per agent with `--skip-claude-hooks`, `--skip-codex-hooks`, `--skip-cursor-hooks`, `--skip-copilot-hooks`, `--skip-gemini-hooks`, `--skip-kiro-hooks`, `--skip-pi-hooks`, `--skip-opencode-hooks`, `--skip-antigravity-hooks`, `--skip-mistral-vibe-hooks`, `--skip-grok-hooks`, and/or `--skip-muse-hooks` (with `--skip-muse-mcp` to leave Muse's MCP block alone). When Codex hooks are installed, the wizard also enables Codex sandbox network access for your server(s) by default; pass `--skip-codex-network-access` to leave `~/.codex/config.toml` untouched.
 
@@ -532,6 +552,7 @@ kcap local logs -n 200     # the end of the server's log, which holds Postgres's
 kcap local open            # open the web UI in a browser
 kcap local upgrade         # move it forward to this kcap's version
 kcap local fetch           # download and verify this kcap's bundle ahead of an install
+kcap local intelligence claude   # who runs its titles, outcomes and evals (see Local edition)
 kcap local uninstall       # remove it, keeping its data; --purge deletes it (see Removing the local edition)
 ```
 
@@ -1297,7 +1318,7 @@ kcap daemon start --name laptop -d  # run multiple daemons on the same machine b
 kcap daemon status                  # list all running daemons
 kcap daemon status --name laptop    # show status of a specific daemon (incl. its running version and any resuming/interrupted agents)
 kcap daemon stop --name laptop      # stop just that one, ending its hosted agents
-kcap daemon stop --name laptop --keep-agents   # stop it but keep its agents for the next start to resume
+kcap daemon stop --name laptop --keep-agents   # stop it and its agents; the next start relaunches them on their saved sessions (a turn in progress is cut off)
 kcap daemon stop --name laptop --direct        # Windows only: ask the daemon itself even when a service manages it (the Windows service's own graceful stop; otherwise use `daemon service stop`)
 kcap daemon stop --yes              # stop all running daemons unattended (otherwise prompts on multi)
 kcap daemon restart --name laptop              # restart now, stopping its agents and resuming them on the new daemon; refuses while an eval, a launch or a flow round is in progress
@@ -1324,7 +1345,7 @@ A daemon whose process is alive but whose local control socket does not yet answ
 Daemon 'laptop': running (PID 12345, starting — not yet serving)
 ```
 
-**Updating:** after `kcap update`, a running daemon on macOS/Linux detects the new binary and restarts itself, stopping its hosted agents and **resuming them on the new version** under the same ids where the vendor session can be resumed; where it cannot, or the resume fails, kcap continue brings the agent back as a fresh session under a new id, which `kcap agent ls` shows. It waits until no eval, launch or flow round is in progress and every interactive agent is waiting on input — the last for at most `KCAP_RESTART_TURN_WAIT_SECONDS` (default 300). Service-managed daemons exit so the supervisor relaunches the new binary; background (`-d`) daemons re-spawn themselves. `kcap daemon status` shows the running version (above) plus any pending restart, so you can tell the update apart from an as-yet-unrestarted daemon; `kcap daemon restart` applies it now. On **Windows**, stop the daemon (`kcap daemon stop` / `kcap daemon service stop`) before `kcap update` — a running daemon locks its binary, so the update can't replace it (the launcher detects this and aborts with instructions).
+**Updating:** after `kcap update`, a running daemon detects the new binary and restarts itself, stopping its hosted agents and, unless `daemon.auto_resume` is `false`, **resuming them on the new version** under the same ids where the vendor session can be resumed; where it cannot, or the resume fails, kcap continue brings the agent back as a fresh session under a new id, which `kcap agent ls` shows. It waits until no eval, launch or flow round is in progress and every interactive agent is waiting on input, so a daemon with nothing in progress restarts at once. Turns and flow rounds hold it for at most `KCAP_RESTART_TURN_WAIT_SECONDS` (default 300) and are then cut off; an eval or a launch holds it past that limit. Service-managed daemons exit so the supervisor relaunches the new binary; background (`-d`) daemons re-spawn themselves. `kcap daemon status` shows the running version (above) plus any pending restart, so you can tell the update apart from an as-yet-unrestarted daemon; `kcap daemon restart` applies it now. **Windows** works the same for npm and script installs: the update moves the running binary aside or switches `current`, so the daemon finds the new one at the path it started from. A Windows daemon started on a release that did not watch for those updates needs `kcap daemon restart` once. A daemon started in a terminal restarts only by hand, on every platform.
 
 **Installing a coding agent later:** the daemon decides at startup which agents it can host, and checks its own `PATH` for the CLI of each one it is missing. When one appears, it restarts itself once no agents are running, so the new agent becomes available without a manual restart. A service unit's `PATH` is the one captured when it was installed, so a CLI installed into a directory that `PATH` did not include stays invisible. Re-running `kcap setup` (or the app's setup) fixes that: when it finds an agent CLI that the service's `PATH` misses, it gives the unit its current `PATH`, keeping the unit's own directories, and reloads the daemon (launchd), or has it restart once idle (systemd and the Windows service `kcap-service`). A Windows Scheduled Task runs its wrapper only when the task starts, so once the daemon is idle setup stops it, keeping its agents for the next one to resume, ends the task, rewrites the wrapper and runs the task again. A busy daemon keeps its old `PATH`; run setup again once it is idle.
 
@@ -1342,14 +1363,15 @@ kcap daemon service install --replace --verify --retire OLD   # also remove the 
 kcap daemon service status                 # installed / running state
 kcap daemon service status --json          # machine-readable status (pids, binary paths, txn-marker state)
 kcap daemon service stop                   # stop the running service (stays installed), ending its hosted agents
-kcap daemon service stop --keep-agents     # stop it, keeping its agents for the next start to resume
-kcap daemon service start                  # start it again
+kcap daemon service stop --keep-agents     # stop it and its agents; the next start relaunches them on their saved sessions (a turn in progress is cut off)
+kcap daemon service start                  # start it again; plain start (without --verify) and stop wait up to a minute for another operation on the service (the desktop app restarting it, say) to finish
 kcap daemon service start --verify         # start, then verify readiness/ownership before exiting 0
 kcap daemon service ensure                 # install-or-start from a fresh status read (flow-driven)
 kcap daemon service refresh                # bring installed units up to this version and onto a script install's `current` path; a reload stops the daemon with its agents kept and the reloaded daemon resumes them, and waits for the next update while an eval or a launch is in progress (runs after `kcap update`)
 kcap daemon service refresh --name N --force   # reload daemon N now, even mid-eval; prints refresh_outcome=<token> on stderr (launchd only; elsewhere `unsupported`, exit 1)
 kcap daemon service uninstall              # stop and remove the service, ending its hosted agents
 kcap daemon service uninstall --under DIR  # stop and remove every unit whose daemon binary is inside DIR, ending their hosted agents
+kcap daemon service repoint --from DIR     # Windows: point every Scheduled Task whose daemon binary is inside DIR at this install's daemon; a running one restarts with its agents kept, a busy one is left and the command exits 1
 ```
 
 On **Linux**, to run the daemon as a service requires systemd. Without systemd, as in most containers and sandboxes, every `kcap daemon service` verb exits 1 saying so, `kcap daemon status` and `stop` skip the service, and setup tells you to run `kcap daemon start -d`. Nothing starts that daemon again after a restart: run it again, and it resumes the agents it was hosting that were alive within `KCAP_RESUME_MAX_AGE_SECONDS` (default 24 hours). Uninstall leaves a unit installed while systemd ran, and keeps the config directory, until you delete the unit file it names.
@@ -1358,7 +1380,7 @@ On **Linux**, to run the daemon as a service requires systemd. Without systemd, 
 
 #### Windows service
 
-On a machine with the desktop app, the daemon can run under `kcap-service`, a Windows service that starts with Windows and starts each enrolled user's daemon when they sign in, as that user, from their own app install. `kcap daemon service install --system` (or the app's own offer) installs it behind one administrator prompt: the elevated step copies only `kcap-service.exe` into `%ProgramFiles%\kcap\service\`, which only administrators can write, registers the service to restart on failure, and starts it. Once it is installed, `kcap daemon service install` enrolls your daemon with it instead of writing a Scheduled Task, retiring a task the same name already had, and `start`, `stop`, `status` and `uninstall` act on your daemon through the service; another user's daemon is never visible to you. The service restarts a daemon that crashes after five seconds and leaves one that exits 0 stopped; stopping or updating the service itself leaves the daemons running, and when it starts it adopts them and supervises them as if it had started them: it restarts one that crashes and stops it on `service stop`. `service status` says whether the service started or adopted your daemon, and whether it runs your local server too (`--json`: `supervisor_adopted`, `service_runs_local_server`). The daemon keeps updating with the app, without a prompt; only a new `kcap-service.exe` asks again, and `service status --json` reports it as `service_upgrade_available`. Uninstalling the app hands your daemon back, and the service removes itself once no user on the machine is enrolled; `kcap daemon service uninstall --system` removes it on demand, after moving your local server and daemon back to their Scheduled Tasks: the daemon stops with its agents kept for its task's daemon to resume, and the task starts it when the service was running it. A move that fails leaves the service installed and running what it could not move; a declined prompt leaves both on their tasks. It does not run a daemon before you sign in: the daemon runs as you, and Windows only lends a service your identity while you are signed in. Until `kcap-service` is installed on the machine, every install uses the Scheduled Task described next, whether it came from npm, the script or the app with its prompt declined. The service runs your [local server](#local-edition) the same way, from your own installation and only while you are signed in: installing the service moves a local server a Scheduled Task runs onto it, and `--system` uninstall moves it back, each restarting it and waiting until it is ready again.
+On a machine with the desktop app, the daemon can run under `kcap-service`, a Windows service that starts with Windows and starts each enrolled user's daemon when they sign in, as that user, from their own app install. `kcap daemon service install --system` (or the app's Settings → Daemon → **Run as a Windows service**) installs it behind one administrator prompt: the elevated step copies only `kcap-service.exe` into `%ProgramFiles%\kcap\service\`, which only administrators can write, registers the service to restart on failure, and starts it. Once it is installed, `kcap daemon service install` enrolls your daemon with it instead of writing a Scheduled Task, retiring a task the same name already had, and `start`, `stop`, `status` and `uninstall` act on your daemon through the service; another user's daemon is never visible to you. The service restarts a daemon that crashes after five seconds and leaves one that exits 0 stopped; stopping or updating the service itself leaves the daemons running, and when it starts it adopts them and supervises them as if it had started them: it restarts one that crashes and stops it on `service stop`. `service status` says whether the service started or adopted your daemon, and whether it runs your local server too (`--json`: `supervisor_adopted`, `service_runs_local_server`). The daemon keeps updating with the app, without a prompt; only a new `kcap-service.exe` asks again, and `service status --json` reports it as `service_upgrade_available`. Uninstalling the app hands your daemon back, and the service removes itself once no user on the machine is enrolled; `kcap daemon service uninstall --system` removes it on demand, after moving your local server and daemon back to their Scheduled Tasks: the daemon stops with its agents kept for its task's daemon to resume, and the task starts it when the service was running it. A move that fails leaves the service installed and running what it could not move; a declined prompt leaves both on their tasks. It does not run a daemon before you sign in: the daemon runs as you, and Windows only lends a service your identity while you are signed in. Until `kcap-service` is installed on the machine, every install uses the Scheduled Task described next, whether it came from npm, the script or the app with its prompt declined. The service runs your [local server](#local-edition) the same way, from your own installation and only while you are signed in: installing the service moves a local server a Scheduled Task runs onto it, and `--system` uninstall moves it back, each restarting it and waiting until it is ready again.
 
 On **Windows** the service is a per-user Scheduled Task scoped to your account, so installing it needs no administrator rights. It runs the daemon in a windowless console (`conhost --headless`) at sign-in, and the task's wrapper restarts the daemon five seconds after any non-zero exit — a crash, or the daemon's own `kcap daemon restart` — the way systemd's `Restart=on-failure` does; an exit 0 is a deliberate stop. `service stop` and `service uninstall` end the task and then the daemon itself, since ending a task leaves its child processes running. Uninstalling the desktop app runs `service uninstall --under` for the app's own folder and takes that folder back off your user PATH, so a task that would otherwise retry the deleted daemon at every sign-in goes with it; a service an npm or standalone install wrote is left alone. The wrapper also carries the installing shell's `HOME` when it is an absolute path, so a Git Bash or redirected home resolves the same daemons directory for the daemon as for the CLI.
 
@@ -1421,7 +1443,7 @@ That guarantee covers the unit and the directory holding it. It does **not** ext
 
 > Verified against `oauth-personal` (Gemini Code Assist) with a project. The `gemini-api-key`, `vertex-ai` and `gateway` auth methods are not verified; their variables are carried so they *can* work, which is not the same as knowing they do.
 
-Because the service auto-restarts, stop a service-managed daemon with `kcap daemon service stop` (or `uninstall`) rather than `kcap daemon stop` — a raw stop would be relaunched immediately, so `kcap daemon stop` refuses it, exits 1 and prints the `kcap daemon service stop --name <name>` command to run instead. While the desktop app is running it starts its own stopped daemon service again; quit the app to keep the daemon stopped. `kcap daemon status` and `kcap daemon doctor` both report installed services.
+Because the service auto-restarts, stop a service-managed daemon with `kcap daemon service stop` (or `uninstall`) rather than `kcap daemon stop` — a raw stop would be relaunched immediately, so `kcap daemon stop` refuses it, exits 1 and prints the `kcap daemon service stop --name <name>` command to run instead. The desktop app starts a stopped daemon service when it opens, not while it is open. `kcap daemon status` and `kcap daemon doctor` both report installed services.
 
 Each daemon process holds an exclusive `flock` on `~/.config/kcap/daemons/<name>.lock` for its entire lifetime. The kernel releases the lock automatically when the daemon exits (including `SIGKILL` or power-off), so leftover lock files on disk are never a blocker — only a live process holding the kernel-level lock can prevent another daemon from acquiring the same name.
 
@@ -1606,8 +1628,14 @@ IDE installed never offers the vendor at all.
 **Everything in the Gemini warning above applies.** Reviews run in a daemon-owned worktree under a
 per-launch, owner-only `HOME` (removed when the reviewer is disposed), so your own `~/.gemini` config and
 the kcap capture plugin inside it do not reach the reviewer, and your interactive Antigravity sessions are
-unaffected. POSIX only, for the same reason as Kiro: that home holds the reviewer's own transcript, and
-therefore the review context, and cannot be created owner-only on Windows.
+unaffected. The restriction is read back before every launch, and a home that cannot be made owner-only
+refuses the launch rather than running with review context other users could read.
+
+**Not offered on Windows yet.** A Windows daemon withholds Antigravity, hosted agents and reviewers alike,
+with `antigravity_reviewer_unsupported_platform`. The home itself is ready there — a protected ACL admitting
+only you and SYSTEM, with `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and `TEMP`/`TMP` redirected into it
+alongside `HOME` — but no real `agy` run on Windows has yet confirmed that `agy` writes nothing outside it,
+and containment here is proven by a real run, not assumed.
 
 That home also carries a small `settings.json` holding `permissions.allow` rules for exactly the MCP tools
 the launch injected — the `kcap-flow-result` submit channel, plus any read-only servers the flow definition
@@ -1629,13 +1657,19 @@ kcap daemon start -d --name "$(whoami)"          # or: kcap daemon service insta
 
 The daemon needs all three of `GOOGLE_CLOUD_PROJECT`, `AGY_ADC_AUTH=1` and
 `GOOGLE_APPLICATION_CREDENTIALS`. The CLI captures any you exported and silently derives the rest:
-the credential path from ADC's well-known location (only when the file is actually there), `AGY_ADC_AUTH=1`
+the credential path from ADC's well-known location — `application_default_credentials.json` in gcloud's
+configuration directory, which is `CLOUDSDK_CONFIG` when you set it, else `~/.config/gcloud` (macOS, Linux)
+or `%APPDATA%\gcloud` (Windows), and only when the file is actually there — `AGY_ADC_AUTH=1`
 alongside it, and the project from your environment or gcloud's own active configuration. Exported values
 always win. Only the canonical `GOOGLE_CLOUD_PROJECT` counts here — `GOOGLE_CLOUD_PROJECT_ID` is carried
 for Gemini, which honours both, and does not satisfy agy's project leg. The explicit path looks redundant — ADC has a well-known default location — but a reviewer
-launch redirects `HOME` to a per-launch state directory, so the default location is not visible to the
-child. Derivation happens in the CLI, at your command; the daemon itself still never reads a credential
-location of its own accord — it only forwards what it was started with.
+launch redirects `HOME` (and on Windows `APPDATA`) to a per-launch state directory, so the default
+location is not visible to the child. Derivation happens in the CLI, at your command; the daemon itself
+still never reads a credential location of its own accord — it only forwards what it was started with.
+
+On Windows, `service install` derives nothing and never carries the credential path, as it carries no
+secret-capable value into a Windows unit, so a Windows daemon gets the trio from `kcap daemon start`/`-d`
+— which is how the desktop app starts it.
 
 A daemon already running from before you logged in needs a fresh start to pick the trio up — `kcap daemon
 stop` then `kcap daemon start`/`-d` (or re-run `service install`). `kcap daemon restart` reuses the running
@@ -1754,7 +1788,8 @@ consents specifically to an *unattended review*, whose risk is that it runs unde
 and returns what it read to whoever asked for the review — someone who need not be you. A hosted agent has
 no such gap: the server only ever launches on a daemon you own, so the person launching it is you.
 
-What a hosted launch *does* share with the reviewer is the **minimum `agy` version** (and POSIX), because
+What a hosted launch *does* share with the reviewer is the **minimum `agy` version** (and not being offered
+on Windows yet), because
 the containment that protects is the isolated `HOME` both shapes rely on. Your daemon records that minimum
 at startup whenever `agy` resolves, so there is normally nothing to do; if you installed `agy` after the
 daemon started, restart it or run `kcap daemon reviewer affirm --vendor antigravity`.
@@ -2071,7 +2106,7 @@ KCAP_CODEX_PATH=/opt/codex/bin/codex  kcap daemon
 
 ##### Codex app-server transport
 
-Hosted Codex agents (review-flow reviewers and interactive agents) can run over the `codex app-server` JSON-RPC protocol instead of the interactive terminal. It is an experimental feature, off by default, and is switched per profile — the one `KCAP_PROFILE` names, or else the active profile:
+Hosted Codex agents (review-flow reviewers and interactive agents) can run over the `codex app-server` JSON-RPC protocol instead of the interactive terminal. It is an experimental feature, off by default except on Windows, and is switched per profile — the one `KCAP_PROFILE` names, or else the active profile:
 
 ```bash
 kcap experimental                          # name the profile, then list features, whether each is on, and whether the daemon applied it
@@ -2081,7 +2116,9 @@ kcap experimental disable codex-app-server # roll back
 
 - The running daemon applies the change to its next launch without a restart, and `kcap experimental enable` waits a few seconds for it to confirm. Agents already running keep the transport they started with.
 - It takes effect only when the installed Codex meets the minimum version (**0.146.0**); otherwise the feature is saved but reported as not active, with the reason, and new launches take the terminal. A launch the server already pinned to app-server is refused instead, since it is never moved to another transport
+- On Windows a profile that never set the switch runs app-server: through the Windows console, Codex submits a pasted follow-up review round as newlines, so the round never starts on the terminal. `kcap experimental` and the desktop app's Settings show the switch as on by default; `kcap experimental disable codex-app-server` keeps that profile on the terminal.
 - PR reviews (`kcap review`) and `kcap agent start` local spawns always use the terminal.
+- On the terminal, a review-flow reviewer whose round starts no turn within 30 seconds gets one more Enter; if 30 more seconds pass without one, the daemon ends the reviewer so the round fails at once (`participant_died`, detail `codex_reviewer_turn_not_started`) instead of waiting out the flow's inactivity bound.
 - The former `KCAP_CODEX_TRANSPORT` environment variable is removed; a daemon that still sees it logs a warning naming the command above.
 
 The Cursor CLI path (`cursor-agent` by default, used to spawn the `cursor` hosted-agent vendor) is env-only for now — there is no `daemon.cursor_path` profile key yet, so set it per-launch:
@@ -2900,12 +2937,14 @@ kcap feedback --feedback                               # send feedback; prompts 
 > started from; then the new binary runs `kcap refresh`. The version it replaced
 > stays; every other version is deleted unless something still runs from it.
 > macOS cannot tell, so there it is deleted anyway, and a process already running
-> from it keeps working. A daemon started from a script install restarts on the new version once it is idle,
-> Windows included, provided it was started on a release that watches for updates
-> there; restart an older Windows daemon once with `kcap daemon restart`. A daemon service
+> from it keeps working. A daemon started from a script install restarts on the
+> new version by itself (see **Updating** under [Daemon](#daemon)), Windows included,
+> provided it was started on a release that watches for updates there; restart
+> an older Windows daemon once with `kcap daemon restart`. A daemon service
 > installed from a script install is moved onto the `current` path, so it
 > follows updates. Switching from npm, a daemon service installed under npm keeps
-> running the npm binary: run `kcap daemon service install` again once the
+> running the npm binary, and no script update restarts it onto the new version:
+> reinstall it with `kcap daemon service install --replace --verify` once the
 > script install is on your `PATH`.
 >
 > **The snap** ships `kcap` with the desktop app, and snapd keeps both up to date:
@@ -2926,8 +2965,13 @@ kcap feedback --feedback                               # send feedback; prompts 
 > servers keep the binary locked) or the daemon are running — the old executable
 > is moved aside so npm can replace it, and the leftover is cleaned up
 > automatically later. Running processes keep the old version until they
-> restart; a running daemon reports this and applies the new version on
-> `kcap daemon restart`. A plain `npm install -g` / `npm update -g` does **not**
+> restart. A daemon running in the background or as a service restarts on
+> the new version by itself, as on macOS and Linux: at once with nothing in
+> progress, otherwise after its agents' turns and flow rounds, for at most
+> `KCAP_RESTART_TURN_WAIT_SECONDS`, while an eval or a launch in progress holds
+> it past that limit. Its agents resume unless `daemon.auto_resume` is `false`,
+> and `kcap daemon status` shows the pending restart meanwhile. One started on a
+> release that did not watch npm installs on Windows needs `kcap daemon restart` once. A plain `npm install -g` / `npm update -g` does **not**
 > do this and fails with `EBUSY` while any kcap process is running — prefer
 > `kcap update`.
 >

@@ -13,8 +13,13 @@ sealed class FakeTerminalSurface : ITerminalSurface {
     public event Action<byte[]>? InputProduced;
     public event Action<int, int>? Resized;
     public void RaiseInput(byte[] bytes) => InputProduced?.Invoke(bytes);
-    public void RaiseResize(int cols, int rows) => Resized?.Invoke(cols, rows);
+    /// A resize is the control measuring the pane, as the production surface treats it.
+    public void RaiseResize(int cols, int rows) {
+        Measured = true;
+        Resized?.Invoke(cols, rows);
+    }
     public (int Cols, int Rows) CurrentSize { get; set; } = (80, 24);
+    public bool Measured { get; set; } = true;
     public List<(int Cols, int Rows)> Resizes { get; } = [];
     public void Resize(int cols, int rows) { Resizes.Add((cols, rows)); CurrentSize = (cols, rows); }
 }
