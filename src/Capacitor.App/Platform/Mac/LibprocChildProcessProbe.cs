@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using System.Text;
 using Capacitor.Cli.Core;
 
 namespace Capacitor.App.Platform.Mac;
@@ -10,10 +9,15 @@ namespace Capacitor.App.Platform.Mac;
 [SupportedOSPlatform("macos")]
 public sealed partial class LibprocChildProcessProbe : IChildProcessProbe {
     const int MaxChildren = 4096;
-    const int PathMax     = 4096; // PROC_PIDPATHINFO_MAXSIZE
     const int SigKill     = 9;
 
-    public string? SelfImage { get; } = ReadImagePath(Environment.ProcessId);
+    // sys/proc_info.h: PROC_PIDT_SHORTBSDINFO fills a 64-byte proc_bsdshortinfo.
+    const int  ProcPidTShortBsdInfo = 13;
+    const int  ShortBsdInfoSize     = 64;
+    const int  StatusOffset         = 12; // pbsi_status
+    const int  FlagsOffset          = 32; // pbsi_flags
+    const uint ProcFlagExec         = 0x4000; // set by exec, never inherited across fork
+    const uint StatusZombie         = 5;      // SZOMB
 
     public unsafe IReadOnlyList<int> Children() {
         var pids = new int[MaxChildren];
@@ -22,18 +26,18 @@ public sealed partial class LibprocChildProcessProbe : IChildProcessProbe {
         return count <= 0 ? [] : pids[..Math.Min(count, pids.Length)];
     }
 
-    public string? ImagePath(int pid) => ReadImagePath(pid);
+    public unsafe bool? HasExeced(int pid) {
+        Span<byte> info = stackalloc byte[ShortBsdInfoSize];
+        int written;
+        fixed (byte* p = info) written = proc_pidinfo(pid, ProcPidTShortBsdInfo, 0, p, ShortBsdInfoSize);
+        if (written != ShortBsdInfoSize) return null;
+        if (BitConverter.ToUInt32(info[StatusOffset..]) == StatusZombie) return null;
+        return (BitConverter.ToUInt32(info[FlagsOffset..]) & ProcFlagExec) != 0;
+    }
 
     public string? Identity(int pid) => ProcessStartToken.ForPid(pid);
 
     public void Kill(int pid) => kill(pid, SigKill);
-
-    static unsafe string? ReadImagePath(int pid) {
-        var buffer = new byte[PathMax];
-        int length;
-        fixed (byte* p = buffer) length = proc_pidpath(pid, p, (uint) buffer.Length);
-        return length <= 0 ? null : Encoding.UTF8.GetString(buffer, 0, length);
-    }
 
     // Returns the number of pids written, not bytes.
     [LibraryImport("libproc")]
@@ -42,7 +46,7 @@ public sealed partial class LibprocChildProcessProbe : IChildProcessProbe {
 
     [LibraryImport("libproc")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
-    private static unsafe partial int proc_pidpath(int pid, byte* buffer, uint buffersize);
+    private static unsafe partial int proc_pidinfo(int pid, int flavor, ulong arg, byte* buffer, int buffersize);
 
     [LibraryImport("libc", SetLastError = true)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

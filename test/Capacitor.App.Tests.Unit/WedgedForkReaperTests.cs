@@ -2,26 +2,22 @@ using System.Diagnostics;
 using System.Runtime.Versioning;
 using TUnit.Core.Enums;
 using Capacitor.App.Platform.Mac;
-using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.App.Tests.Unit;
 
 public class WedgedForkReaperTests {
-    const string Self = "/Applications/kcap.app/Contents/MacOS/kcap-desktop";
-
     sealed class FakeProbe : IChildProcessProbe {
-        public string? SelfImage { get; set; } = Self;
-        public Dictionary<int, (string? Image, string? Identity)> Live { get; } = [];
+        public Dictionary<int, (bool? Execed, string? Identity)> Live { get; } = [];
         public List<int> Killed { get; } = [];
-        /// Runs before the image read with this 1-based index.
+        /// Runs before the exec check with this 1-based index.
         public (int Look, Action Change)? AtLook { get; set; }
         int _looks;
 
         public IReadOnlyList<int> Children() => Live.Keys.ToList();
 
-        public string? ImagePath(int pid) {
+        public bool? HasExeced(int pid) {
             if (++_looks == AtLook?.Look) AtLook.Value.Change();
-            return Live.TryGetValue(pid, out var c) ? c.Image : null;
+            return Live.TryGetValue(pid, out var c) ? c.Execed : null;
         }
 
         public string? Identity(int pid) => Live.TryGetValue(pid, out var c) ? c.Identity : null;
@@ -29,29 +25,40 @@ public class WedgedForkReaperTests {
         public void Kill(int pid) => Killed.Add(pid);
     }
 
-    readonly FakeTimeProvider _time = new();
+    /// Moves the monotonic timestamp and the wall clock independently.
+    sealed class SplitClock : TimeProvider {
+        long _ticks;
+        public DateTimeOffset Wall { get; set; } = DateTimeOffset.UnixEpoch;
+        public void Advance(TimeSpan by) => _ticks += by.Ticks;
+        public override long GetTimestamp() => _ticks;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override DateTimeOffset GetUtcNow() => Wall;
+    }
+
+    readonly SplitClock _time = new();
     readonly List<string> _reports = [];
 
     WedgedForkReaper Reaper(FakeProbe probe) => new(probe, _time, _reports.Add);
 
     [Test]
-    public async Task Kills_a_copy_of_the_app_once_it_outlives_the_grace_period() {
-        var probe = new FakeProbe { Live = { [42] = (Self, "id-42") } };
+    public async Task Kills_an_unexeced_fork_once_it_outlives_the_grace_period() {
+        var probe = new FakeProbe { Live = { [42] = (false, "id-42") } };
         var reaper = Reaper(probe);
 
         reaper.Sweep();
-        _time.Advance(WedgedForkReaper.Grace - TimeSpan.FromMilliseconds(1));
+        _time.Advance(WedgedForkReaper.Grace - TimeSpan.FromTicks(1));
         await Assert.That(reaper.Sweep()).IsEqualTo(0);
 
-        _time.Advance(TimeSpan.FromMilliseconds(1));
+        _time.Advance(TimeSpan.FromTicks(1));
         await Assert.That(reaper.Sweep()).IsEqualTo(1);
         await Assert.That(probe.Killed).IsEquivalentTo([42]);
         await Assert.That(_reports.Single()).Contains("42");
     }
 
+    /// Covers the app relaunching itself: that child runs the same executable, but it has execed.
     [Test]
-    public async Task Leaves_children_running_another_executable() {
-        var probe = new FakeProbe { Live = { [7] = ("/usr/bin/gh", "id-7") } };
+    public async Task Leaves_execed_children_alone_whatever_they_run() {
+        var probe = new FakeProbe { Live = { [7] = (true, "id-7") } };
         var reaper = Reaper(probe);
 
         reaper.Sweep();
@@ -62,10 +69,10 @@ public class WedgedForkReaperTests {
     }
 
     [Test]
-    public async Task Spares_a_child_that_execs_between_the_check_and_the_signal() {
-        var probe = new FakeProbe { Live = { [9] = (Self, "id-9") } };
+    public async Task Spares_a_child_that_execs_before_the_final_check() {
+        var probe = new FakeProbe { Live = { [9] = (false, "id-9") } };
         // Look 1 is the first sweep, look 2 the second sweep's check, look 3 its re-check.
-        probe.AtLook = (3, () => probe.Live[9] = ("/opt/homebrew/bin/kcap", "id-9"));
+        probe.AtLook = (3, () => probe.Live[9] = (true, "id-9"));
         var reaper = Reaper(probe);
         reaper.Sweep();
         _time.Advance(WedgedForkReaper.Grace);
@@ -78,12 +85,12 @@ public class WedgedForkReaperTests {
     /// A new incarnation behind a reused pid starts its own grace period instead of inheriting the old one's.
     [Test]
     public async Task Times_a_reused_pid_from_its_own_first_sighting() {
-        var probe = new FakeProbe { Live = { [5] = (Self, "first") } };
+        var probe = new FakeProbe { Live = { [5] = (false, "first") } };
         var reaper = Reaper(probe);
         reaper.Sweep();
         _time.Advance(WedgedForkReaper.Grace);
 
-        probe.Live[5] = (Self, "second");
+        probe.Live[5] = (false, "second");
         reaper.Sweep();
 
         await Assert.That(probe.Killed).IsEmpty();
@@ -91,7 +98,7 @@ public class WedgedForkReaperTests {
 
     [Test]
     public async Task Forgets_a_child_that_left_so_its_return_restarts_the_clock() {
-        var probe = new FakeProbe { Live = { [3] = (Self, "id-3") } };
+        var probe = new FakeProbe { Live = { [3] = (false, "id-3") } };
         var reaper = Reaper(probe);
         reaper.Sweep();
 
@@ -99,33 +106,50 @@ public class WedgedForkReaperTests {
         _time.Advance(WedgedForkReaper.Grace);
         reaper.Sweep();
 
-        probe.Live[3] = (Self, "id-3");
+        probe.Live[3] = (false, "id-3");
         reaper.Sweep();
 
         await Assert.That(probe.Killed).IsEmpty();
     }
 
+    /// The kill lands before the runtime reaps the child, so the next sweeps can still list it.
     [Test]
-    public async Task Does_nothing_when_its_own_image_is_unreadable() {
-        var probe = new FakeProbe { SelfImage = null, Live = { [4] = (null, "id-4") } };
+    public async Task Signals_and_reports_a_child_once_while_it_awaits_reaping() {
+        var probe = new FakeProbe { Live = { [8] = (false, "id-8") } };
         var reaper = Reaper(probe);
         reaper.Sweep();
         _time.Advance(WedgedForkReaper.Grace);
 
-        await Assert.That(reaper.Sweep()).IsEqualTo(0);
+        reaper.Sweep();
+        _time.Advance(WedgedForkReaper.Period);
+        reaper.Sweep();
+
+        await Assert.That(probe.Killed).IsEquivalentTo([8]);
+        await Assert.That(_reports).Count().IsEqualTo(1);
     }
 
-    /// Pins the libproc reads against the kernel: a real exec'd child is listed under its own
-    /// image, never this process's, so the reaper leaves it alone.
+    [Test]
+    public async Task Ignores_wall_clock_jumps() {
+        var probe = new FakeProbe { Live = { [6] = (false, "id-6") } };
+        var reaper = Reaper(probe);
+        reaper.Sweep();
+
+        _time.Wall += TimeSpan.FromHours(1);
+        reaper.Sweep();
+
+        await Assert.That(probe.Killed).IsEmpty();
+    }
+
+    /// Pins the libproc reads against the kernel: an execed child and this process both carry the exec flag.
     [Test, RunOn(OS.MacOs)]
     [SupportedOSPlatform("macos")]
-    public async Task Libproc_probe_sees_a_real_child_under_its_execed_image() {
+    public async Task Libproc_probe_reads_the_exec_flag_of_a_real_child() {
         var probe = new LibprocChildProcessProbe();
         using var child = Process.Start(new ProcessStartInfo("/bin/sleep", ["30"]) { UseShellExecute = false })!;
         try {
-            await Assert.That(probe.SelfImage).IsNotNull();
             await Assert.That(probe.Children()).Contains(child.Id);
-            await Assert.That(probe.ImagePath(child.Id)).IsEqualTo("/bin/sleep");
+            await Assert.That(probe.HasExeced(child.Id)).IsTrue();
+            await Assert.That(probe.HasExeced(Environment.ProcessId)).IsTrue();
             await Assert.That(probe.Identity(child.Id)).IsNotNull();
 
             var reaper = new WedgedForkReaper(probe, _time, _reports.Add);
