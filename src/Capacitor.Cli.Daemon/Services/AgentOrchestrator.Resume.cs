@@ -1339,7 +1339,9 @@ internal partial class AgentOrchestrator {
 
         // With no live runtime left, a lease lost while the launch ran may already have let a hand-off in, so no
         // continuation may follow; a live one is settled below once it is confirmed gone.
-        if (lease?.IsLost == true && resume.Agent?.Runtime is not { HasExited: false }) return (SourceLeaseLostReason, null);
+        // A captured survivor outranks a disposed runtime's HasExited, which can read true while its process lives.
+        if (lease?.IsLost == true && resume.Survivor is null && resume.Agent?.Runtime is not { HasExited: false })
+            return (SourceLeaseLostReason, null);
 
         if (resume.AccountRefusal is { } refusal) return (refusal, null);
 

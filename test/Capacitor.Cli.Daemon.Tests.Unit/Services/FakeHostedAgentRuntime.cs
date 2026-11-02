@@ -83,5 +83,12 @@ sealed class FakeHostedAgentRuntime(string vendor, bool emitsTerminalOutput) : I
         return Task.CompletedTask;
     }
 
-    public ValueTask DisposeAsync() => default;
+    /// <summary>When set, disposal marks the runtime exited whatever its process does, as an ACP runtime's does.</summary>
+    public bool ExitsOnDispose { get; init; }
+
+    public ValueTask DisposeAsync() {
+        if (ExitsOnDispose) ExitGate.TrySetResult();
+
+        return default;
+    }
 }

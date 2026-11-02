@@ -37,6 +37,7 @@ public class AgentOrchestratorResumeOnBootTests {
         public bool ExitBeforeHandshake { get; init; }
         public bool PtyStyle { get; init; }
         public bool Unkillable { get; init; }
+        public bool ExitsOnDispose { get; init; }
         public string? ResumeToken { get; init; }
         public bool ReopensSession { get; init; }
         public FakeAcpRuntime? LastAcpRuntime { get; private set; }
@@ -62,7 +63,7 @@ public class AgentOrchestratorResumeOnBootTests {
 
                 if (PtyStyle)
                     return new HostedRuntimeStart(new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) {
-                        IgnoresTerminate = Unkillable,
+                        IgnoresTerminate = Unkillable, ExitsOnDispose = ExitsOnDispose,
                         // A pid no real process can have, so cleanup's own liveness check never reaches one.
                         Pid = Unkillable ? int.MaxValue : 0, StartIdentity = Unkillable ? "test-identity" : null,
                     },
@@ -388,6 +389,32 @@ public class AgentOrchestratorResumeOnBootTests {
         await WaitHarness.WaitBoundedAsync(f.Orch.ResumeOnBootAsync(CancellationToken.None), "the resume lane");
 
         await Assert.That(f.Orch.ResumeLedger!.TryRead("hung-1")!.LastError).IsEqualTo("source_lease_unreachable");
+    }
+
+    /// <summary>A lost lease does not settle a refused survivor as gone because its disposed runtime reads exited: its
+    /// process still holds the lease.</summary>
+    [Test]
+    public async Task A_lost_lease_does_not_override_a_refused_survivors_evidence() {
+        var factory = new ResumableFactory { PtyStyle = true, Unkillable = true, ExitsOnDispose = true };
+        var server  = new CaptureServerConnection {
+            BeginResume  = _ => new HandoffTakeoverAdmission("lease-1", null, 60),
+            RenewHandoff = (_, _) => Task.FromResult(factory.Contexts.IsEmpty),
+        };
+        var f = Build(factory, server: server);
+        await using var _ = f.Orch;
+        f.Orch.ProcessStillOurs   = (_, _) => true;
+        f.Orch.SourceLeaseRenewal = TimeSpan.FromMilliseconds(50);
+        f.Server.RegistrationResponse = _ => {
+            Thread.Sleep(200);
+            return new AgentRegisteredResponse(false, "recorded_failure");
+        };
+        Entry(f, "refused-lost-1");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("refused-lost-1")!.LastError).IsEqualTo("runtime_unstopped");
+        await Assert.That(f.Server.HandoffEnds).IsEmpty();
     }
 
     /// <summary>A refused registration whose runtime will not die is not continued under a new id beside it.</summary>
