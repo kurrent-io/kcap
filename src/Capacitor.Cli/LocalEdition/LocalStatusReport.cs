@@ -7,4 +7,7 @@ namespace Capacitor.Cli.LocalEdition;
 sealed record LocalStatusReport(bool Ready, string Headline, IReadOnlyList<KeyValuePair<string, string>> Fields, IReadOnlyList<string> Notes) {
     /// <summary>The verdict as a client acts on it: whether a start could bring the server up, and if not, why.</summary>
     public LocalServerReading Reading { get; init; } = new(LocalServerCondition.Installed);
+
+    /// <summary>Whether a running server stores session vectors; null when it did not say.</summary>
+    public EmbeddingVectors? Vectors { get; init; }
 }

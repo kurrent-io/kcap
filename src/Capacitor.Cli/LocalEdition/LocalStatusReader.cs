@@ -1,3 +1,4 @@
+using System.Globalization;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalEdition;
 
@@ -152,9 +153,9 @@ sealed class LocalStatusReader(LocalStack stack, string cliVersion, Func<int, Po
 
                 AddStores(fields, ready.Stores);
                 if (ready.UpdatePending) notes.Add("The server can serve requests while its update finishes. A planned restart is still pending.");
-                await ApplyEmbeddingHealthAsync(fields, unit, pending, ct);
+                var vectors = await ApplyEmbeddingHealthAsync(fields, unit, pending, ct);
 
-                return await LocalServerProbe.AuthConfigAsync(stack.Local, unit.BaseUrl, ct) switch {
+                LocalStatusReport report = await LocalServerProbe.AuthConfigAsync(stack.Local, unit.BaseUrl, ct) switch {
                     AuthConfigAnswer.Lifted => new(true, $"Ready on {unit.BaseUrl}.", fields, notes),
                     AuthConfigAnswer.Pending => Down("Running fenced: the server answers as an installation setup has not committed.", fields, notes,
                         ["It accepts no writes until setup commits. Run kcap setup --local to finish it."]),
@@ -163,13 +164,16 @@ sealed class LocalStatusReader(LocalStack stack, string cliVersion, Func<int, Po
                         with { Reading = new(LocalServerCondition.PortTaken, port, Answer: "a server that does not answer as this installation") },
                 };
 
+                return report with { Vectors = vectors };
+
             case ServerHealth.Answered answered:
                 if (held is not null) return Down($"Not ready: something else answers on port {port}.", fields, notes, taken) with { Reading = held };
 
                 AddStores(fields, answered.Stores);
-                await ApplyEmbeddingHealthAsync(fields, unit, pending, ct);
+                var answeredVectors = await ApplyEmbeddingHealthAsync(fields, unit, pending, ct);
                 return Down("Starting, or a store is down.", fields, notes,
-                    [$"The server reports ready once both stores are up and its schema is migrated. {Logs} shows its progress."]) with { Reading = starting };
+                    [$"The server reports ready once both stores are up and its schema is migrated. {Logs} shows its progress."])
+                    with { Reading = starting, Vectors = answeredVectors };
 
             case ServerHealth.Foreign(var what):
                 fields.Add(new("Postgres", PostgresField()));
@@ -189,19 +193,39 @@ sealed class LocalStatusReader(LocalStack stack, string cliVersion, Func<int, Po
         }
     }
 
-    /// <summary>Replaces the file-derived Search line only for a built-in model the server reports on; everything else
-    /// keeps the recorded wording.</summary>
-    async Task ApplyEmbeddingHealthAsync(List<KeyValuePair<string, string>> fields, LocalServerUnit unit, string pending, CancellationToken ct) {
-        if (await LocalServerProbe.EmbeddingsAsync(stack.Local, unit.BaseUrl, stack.Time, ct) is not { Provider: "builtin" } health) return;
+    /// <summary>Replaces the file-derived Search line for a built-in model the server reports on, and for any usable
+    /// provider whose session vectors are not being stored; everything else keeps the recorded wording.</summary>
+    async Task<EmbeddingVectors?> ApplyEmbeddingHealthAsync(List<KeyValuePair<string, string>> fields, LocalServerUnit unit, string pending, CancellationToken ct) {
+        if (await EmbeddingHealthAnswer.ReadAsync(stack.Local, unit.BaseUrl, stack.Time, ct) is not { } health) return null;
 
         var index = fields.FindIndex(f => f.Key == "Search");
-        if (index < 0) return;
 
-        fields[index] = new("Search", (health switch {
+        var line = health switch {
+            { Usable: true, Vectors.State: VectorStorageState.Failing } => NotStoring(health, unit.BaseUrl),
+            { Provider: not "builtin" } => null,
             { Usable: true }  => "by meaning with the built-in model, and by keyword",
             { Reason: null }  => "by keyword only: the built-in model is not loaded yet",
             { Reason: var r } => $"by keyword only: the built-in model is not usable ({r}); {Remedy(r)}"
-        }) + pending);
+        };
+        if (index >= 0 && line is not null) fields[index] = new("Search", line + pending);
+
+        return health.Vectors;
+    }
+
+    /// <summary>A usable model whose vectors the server cannot write still searches by keyword alone. The anonymous
+    /// endpoint carries no error text; the admin page does.</summary>
+    static string NotStoring(EmbeddingHealthAnswer health, string baseUrl) {
+        var model = health.Provider switch {
+            "builtin" => "the built-in model is loaded",
+            "ollama"  => "Ollama is configured",
+            var other => $"the {other} provider is configured",
+        };
+        var failed = health.Vectors?.LastFailureAt is { } at
+            ? $" (last failed {at.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC)"
+            : "";
+
+        return $"{model}, but session vectors are not being stored{failed}, so search falls back to keywords; "
+             + $"{baseUrl.TrimEnd('/')}/admin/settings/ai/embeddings says why";
     }
 
     /// <summary>Setup restores files that are missing or altered; it finds verified files present and restarts nothing,

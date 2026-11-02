@@ -31,17 +31,25 @@ public class LocalSearchViewModelTests {
 
         public int SettingsOpened;
         public readonly BehaviorSubject<Action?> OpenSettings = new(null);
+        /// What the server's embeddings report answers; asked again on every reconnect.
+        public EmbeddingHealthAnswer? Health;
+        public int HealthReads;
 
-        public Harness(LocalEmbeddingSetting? setting, bool offered = true, TaskCompletionSource<LocalEmbeddingModelManifest?>? lookup = null) {
+        public Harness(LocalEmbeddingSetting? setting, bool offered = true, TaskCompletionSource<LocalEmbeddingModelManifest?>? lookup = null,
+                EmbeddingHealthAnswer? health = null) {
             Lookup  = lookup;
             Setting = setting;
+            Health  = health;
             Offered = offered ? new("builtin-test", 1, new('e', 64), [new("model.onnx", new('f', 64), 300L * 1024 * 1024)]) : null;
             Search  = new LocalSearchController(() => Cli, action => action(), held: () => Upgrade.Running);
             Upgrade = new LocalUpgradeController(() => Cli, action => action(), held: () => Search.Running);
             Vm = new LocalSearchViewModel(() => Setting, _ => Lookup?.Task ?? Task.FromResult(Offered), Status, Search, Upgrade, () => {
                 Reconnects++;
                 return Task.CompletedTask;
-            }, CancellationToken.None, ImmediateScheduler.Instance, openSettings: OpenSettings);
+            }, CancellationToken.None, ImmediateScheduler.Instance, openSettings: OpenSettings, readHealth: _ => {
+                HealthReads++;
+                return Task.FromResult(Health);
+            });
         }
 
         public async Task ApplyAsync(int exitCode, params string[] lines) {
@@ -309,6 +317,70 @@ public class LocalSearchViewModelTests {
             await Assert.That(before).IsEqualTo("search by meaning");
             await Assert.That(h.Vm.StateText).IsEqualTo("keyword search");
             await Assert.That(h.Vm.Choice.UseKeyword).IsTrue();
+        });
+    }
+
+    static readonly DateTimeOffset FailedAt = new(2026, 11, 2, 9, 14, 5, TimeSpan.Zero);
+
+    static EmbeddingHealthAnswer Builtin(VectorStorageState state, bool usable = true) =>
+        new("builtin", usable, usable ? null : "load_failed", new EmbeddingVectors(state, null, FailedAt));
+
+    /// <summary>A usable model whose last pass stored nothing is the one state the recorded setting cannot show: it
+    /// reads as attention beside the setting's unchanged description.</summary>
+    [Test]
+    public async Task Session_vectors_that_are_not_stored_need_attention() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness(LocalEmbeddingSetting.Builtin(new string('a', 64)), health: Builtin(VectorStorageState.Failing));
+
+            await Assert.That(h.Vm.VectorsFailing).IsTrue();
+            await Assert.That(h.Vm.VectorsWarning).Contains("falls back to keywords");
+            await Assert.That(h.Vm.VectorsFailedText).StartsWith("Last failed ");
+            await Assert.That(h.Vm.CurrentText).IsEqualTo("Searches by meaning with the built-in model.");
+        });
+    }
+
+    public static IEnumerable<Func<EmbeddingHealthAnswer?>> Settled() => [
+        () => Builtin(VectorStorageState.Ok),
+        () => Builtin(VectorStorageState.NotRun),
+        () => Builtin(VectorStorageState.Unknown),
+        () => Builtin(VectorStorageState.Failing, usable: false),
+        () => new("builtin", true, null),
+        () => null,
+    ];
+
+    /// <summary>A pass that worked or has not run, a state this build does not know, an older server, no answer, and a
+    /// model that cannot embed at all, which the setting's own retry covers, all leave the page as it was.</summary>
+    [Test]
+    [MethodDataSource(nameof(Settled))]
+    public async Task Every_other_report_leaves_the_search_page_as_it_was(EmbeddingHealthAnswer? health) {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness(LocalEmbeddingSetting.Builtin(new string('a', 64)), health: health);
+
+            await Assert.That(h.Vm.VectorsFailing).IsFalse();
+            await Assert.That(h.Vm.VectorsWarning).IsNull();
+            await Assert.That(h.Vm.VectorsFailedText).IsNull();
+            await Assert.That(h.Vm.StateText).IsEqualTo("search by meaning");
+        });
+    }
+
+    /// <summary>A pass fails some time after the server comes up, so a reconnect and each showing of the controls ask
+    /// again.</summary>
+    [Test]
+    public async Task A_reconnect_or_a_showing_rereads_the_vectors_state() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness(LocalEmbeddingSetting.Builtin(new string('a', 64)), health: Builtin(VectorStorageState.NotRun));
+
+            h.Health = Builtin(VectorStorageState.Failing);
+            h.Status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
+            h.Status.OnNext(new(ServerLaneState.Connected));
+
+            await Assert.That(h.Vm.VectorsFailing).IsTrue();
+
+            h.Health = Builtin(VectorStorageState.Ok);
+            h.Vm.ReadHealth();
+
+            await Assert.That(h.Vm.VectorsFailing).IsFalse();
+            await Assert.That(h.HealthReads).IsEqualTo(3);
         });
     }
 }

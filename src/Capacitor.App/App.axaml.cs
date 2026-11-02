@@ -1170,12 +1170,16 @@ public partial class App : Application {
         localSearch = localUpgrade is null ? null
             : new LocalSearchController(() => lifecycleCli, action => Dispatcher.UIThread.Post(action), held: () => localUpgrade.Running);
         _localSearch = localSearch;
+        Func<CancellationToken, Task<EmbeddingHealthAnswer?>>? localEmbeddingHealth = profiles?.Resolution.ServerUrl is { Length: > 0 } localUrl
+            ? ct => EmbeddingHealthAnswer.ReadAsync(localUrl, ct)
+            : null;
         var localStack = localUpgrade is null ? null : new LocalStackViewModel(
             () => LocalEndpoints.Read(_localRoot).Active?.Version, serverLane.Status, localUpgrade, lifecycleCli.LocalStartAsync,
             () => serverLane.RestartAsync(), _shutdown.Token, searchChange: localSearch) {
             Search = localSearch is null ? null : new LocalSearchViewModel(
                 () => LocalEmbeddingFile.Read(_localRoot), ct => LocalBuiltinOffer.LookupAsync(_localRoot, ct), serverLane.Status, localSearch, localUpgrade, () => serverLane.RestartAsync(),
-                _shutdown.Token, openSettings: _openSearchSettings, builtinModelReady: () => LocalBuiltinOffer.InstalledModelReady(_localRoot)),
+                _shutdown.Token, openSettings: _openSearchSettings, builtinModelReady: () => LocalBuiltinOffer.InstalledModelReady(_localRoot),
+                readHealth: localEmbeddingHealth),
         };
         _localStack = localStack;
         IObservable<bool>? stackOwnsStart = null;

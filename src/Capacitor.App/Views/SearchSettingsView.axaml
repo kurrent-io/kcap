@@ -16,6 +16,19 @@
                        Text="{Binding CurrentText}" />
         </StackPanel>
 
+        <Border x:Name="SearchVectorsWarning" Classes="settingsError warning" IsVisible="{Binding VectorsFailing}"
+                AutomationProperties.Name="{x:Static vm:LocalSearchViewModel.VectorsWarningName}">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <views:AppIcon Kind="TriangleAlert" Size="14" Foreground="{StaticResource KcapWarningBrush}"
+                               VerticalAlignment="Top" Margin="0,2,0,0" />
+                <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock x:Name="SearchVectorsWarningText" Classes="settingsErrorTitle" FontWeight="Normal" Text="{Binding VectorsWarning}" />
+                    <TextBlock Classes="kcapHint" Text="{Binding VectorsFailedText}" TextWrapping="Wrap"
+                               IsVisible="{Binding VectorsFailedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
         <Border Classes="settingsCard settingsCardBody">
             <StackPanel Spacing="14">
                 <Panel IsEnabled="{Binding !Running}">

@@ -149,6 +149,54 @@ public class LocalStatusReaderTests {
         await Assert.That(Text(await Read())).Contains(expected);
     }
 
+    const string NotStoring = "but session vectors are not being stored (last failed 2026-11-02 09:14 UTC), so search falls back to keywords; "
+                            + "http://localhost:9473/admin/settings/ai/embeddings says why";
+
+    /// <summary>A usable model says nothing about whether session vectors are written; a failing pass turns the line
+    /// to keywords whatever the provider, and a pass that has not run yet leaves it as it was.</summary>
+    [Test]
+    [Arguments("builtin", "failing", "Search: the built-in model is loaded, " + NotStoring)]
+    [Arguments("ollama", "failing", "Search: Ollama is configured, " + NotStoring)]
+    [Arguments("builtin", "not_run", Meaning)]
+    [Arguments("builtin", "ok", Meaning)]
+    [Arguments("builtin", "paused", Meaning)]
+    [Arguments("ollama", "ok", OllamaLine)]
+    public async Task The_search_field_says_when_session_vectors_are_not_stored(string provider, string state, string expected) {
+        Running();
+        Health(HttpStatusCode.OK);
+        LocalEmbeddingFile.Write(Root, provider == "builtin" ? LocalEmbeddingSetting.Builtin(new string('a', 64)) : LocalEmbeddingSetting.Ollama("mxbai-embed-large"));
+
+        var body = $$$"""
+            {"provider":"{{{provider}}}","usable":true,"reason":null,
+             "vectors":{"state":"{{{state}}}","last_stored_at":null,"last_failure_at":"2026-11-02T09:14:05+00:00"}}
+            """;
+        var ready = Server.Override;
+        Server.Override = path => path == "/healthz/embeddings"
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") }
+            : ready!(path);
+
+        var report = await Read();
+
+        await Assert.That(Text(report)).Contains(expected);
+        await Assert.That(report.Vectors?.State).IsEqualTo(VectorStorageStateExtensions.FromWire(state));
+    }
+
+    [Test]
+    public async Task A_builtin_model_that_cannot_embed_says_so_before_any_vectors_state() {
+        Running();
+        Health(HttpStatusCode.OK);
+        LocalEmbeddingFile.Write(Root, LocalEmbeddingSetting.Builtin(new string('a', 64)));
+
+        var ready = Server.Override;
+        Server.Override = path => path == "/healthz/embeddings"
+            ? new HttpResponseMessage(HttpStatusCode.OK) {
+                Content = new StringContent("""{"provider":"builtin","usable":false,"reason":"load_failed","vectors":{"state":"failing"}}""", Encoding.UTF8, "application/json"),
+            }
+            : ready!(path);
+
+        await Assert.That(Text(await Read())).Contains("Search: by keyword only: the built-in model is not usable (load_failed)");
+    }
+
     [Test]
     public async Task A_builtin_search_field_survives_a_server_that_does_not_answer_embeddings() {
         Running();
