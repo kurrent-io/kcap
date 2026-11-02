@@ -2306,6 +2306,16 @@ public class ClaudeHookCommandTests {
         await Assert.That(TimeSpan.FromSeconds(timeout)).IsEqualTo(ClaudeHookCommand.SessionStartCeiling);
     }
 
+    /// <summary>Claude cancels a synchronous plugin SessionEnd hook after 1.5s whatever its timeout, which a
+    /// slow shell start alone can exceed; an async one is started and left running past Claude's exit.</summary>
+    [Test]
+    public async Task The_session_end_hook_runs_async() {
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "kcap", "hooks", "hooks.json")))!;
+        var hook     = manifest["hooks"]!["SessionEnd"]![0]!["hooks"]![0]!;
+
+        await Assert.That(hook["async"]?.GetValue<bool>()).IsTrue();
+    }
+
     static string RepoRoot([CallerFilePath] string here = "") {
         var dir = Path.GetDirectoryName(here);
         while (dir is not null && !File.Exists(Path.Combine(dir, "Capacitor.slnx")))

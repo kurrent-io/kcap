@@ -79,6 +79,20 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         }
     }
 
+    /// <summary>
+    /// Appends the end of a run that came after any end already delivered for the session. An ended
+    /// marker would make the drain discard it, so the marker is lifted, along with what is spooled
+    /// behind it: that earlier run's stragglers, which the drain would have discarded anyway.
+    /// </summary>
+    public bool AppendEnd(string sessionId, string route, string rawPayloadJson) {
+        if (IsMarkedEnded(sessionId)) {
+            DiscardRemainder(sessionId);
+            ClearEnded(sessionId);
+        }
+
+        return Append(sessionId, route, rawPayloadJson);
+    }
+
     // ---- filename key encoding -------------------------------------------------------------
     //
     // Session ids are case-SENSITIVE and are preserved byte-for-byte (OpenCode's are base62 --

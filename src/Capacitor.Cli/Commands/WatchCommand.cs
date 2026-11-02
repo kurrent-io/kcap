@@ -1264,8 +1264,8 @@ partial class WatchCommand(
         // session stays "active" forever in the read model). Agent watchers skip it: the
         // parent session's own end covers them. A session with no real turn is posted too —
         // its start hook already registered it, so skipping the end leaves it Live for good.
-        // Runs after SignalR dispose so the server's StopAndDrainAsync skips the
-        // 10s drain wait (no live watcher connection to signal).
+        // Runs after SignalR dispose so the server usually finds no watcher to drain; one that has
+        // not yet processed the disconnect waits out its drain timeout, which the POST budget covers.
         var endReason = DecideEndReason(
             parentExited:  Volatile.Read(ref parentExited)      == 1,
             crewFinished:  Volatile.Read(ref crewFinished)      == 1,
@@ -1891,12 +1891,11 @@ partial class WatchCommand(
     static readonly HashSet<string> KnownVendors = new(StringComparer.Ordinal) { "claude", "codex", "copilot", "gemini", "kiro", "pi", "opencode", "antigravity", "cursor", "mistral-vibe", "grok", "muse" };
 
     /// <summary>
-    /// Total time budget for the parent-exit session-end POST. Covers /auth/config
-    /// discovery + retrying POST. Short by design — this runs on the watcher's
-    /// shutdown path; a stalled server must not block process termination, the whole
-    /// point of the parent-PID watchdog is to self-terminate within ~5s.
+    /// Total time budget for the parent-exit session-end POST, client creation included. A server
+    /// that has not yet seen this watcher's connection close waits up to 10s for a drain it already
+    /// had before answering, so the budget outlasts that wait; an end that still misses it is spooled.
     /// </summary>
-    static readonly TimeSpan ParentExitPostBudget = TimeSpan.FromSeconds(10);
+    static readonly TimeSpan ParentExitPostBudget = TimeSpan.FromSeconds(15);
 
     /// <summary>
     /// Codex has no session-end hook and the desktop app's single long-lived
@@ -2434,8 +2433,8 @@ partial class WatchCommand(
         if (failed.Count > 0) Log(time, $"{failed.Count} handed session-end(s) could not be sent; left for the spool drain to retry");
     }
 
-    /// <summary>Posts a handed end once more directly, which needs no spool: true, with the claim released, when the
-    /// server took it; false leaves the claim held. The retry sends the handed end itself: one rebuilt from this
+    /// <summary>Posts a handed end once more directly: true, with the claim released, when the server took it or it
+    /// went into the spool; false leaves the claim held. The retry sends the handed end itself: one rebuilt from this
     /// watcher would name the watcher's run, which can be an earlier one. Not while the session still has spooled
     /// hooks: a direct post would overtake them, ending the session before its start replays.</summary>
     async Task<bool> RetryHandedEndAsync(
@@ -2513,33 +2512,50 @@ partial class WatchCommand(
         return HandedEndOutcome.Posted;
     }
 
-    /// <summary>True when the server accepted the end.</summary>
+    /// <summary>True when the server accepted the end or it is spooled for the drain. A session with a spooled
+    /// backlog gets its end spooled behind it, so a stranded start still reaches the server first.</summary>
     async Task<bool> PostSessionEndPayloadAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) {
+        if (repository is not null) {
+            endHook["repository"] = JsonNode.Parse(
+                JsonSerializer.Serialize(repository, CapacitorJsonContext.Default.RepositoryPayload)
+            );
+        }
+
+        var body  = endHook.ToJsonString();
+        var spool = new HookSpool(config, time, Url);
+
+        bool Spool(string why) {
+            var spooled = spool.AppendEnd(sessionId, $"session-end/{vendor}", body);
+            Log(time, $"{what} session-end {why}; {(spooled ? "spooled for the next drain" : "the spool write failed, so it is lost")}");
+
+            return spooled;
+        }
+
+        if (spool.HasBacklog(sessionId)) return Spool("queued behind the session's spooled hooks");
+
         using var budgetCts = new CancellationTokenSource(ParentExitPostBudget, time);
 
         try {
-            if (repository is not null) {
-                endHook["repository"] = JsonNode.Parse(
-                    JsonSerializer.Serialize(repository, CapacitorJsonContext.Default.RepositoryPayload)
-                );
-            }
-
             using var httpClient = await http.ForBackgroundAsync(budgetCts.Token);
-            using var content    = new StringContent(endHook.ToJsonString(), Encoding.UTF8, "application/json");
+            using var content    = new StringContent(body, Encoding.UTF8, "application/json");
 
             var url = $"{Url}/hooks/session-end/{vendor}";
             using var response = await httpClient.PostWithRetryAsync(url, content, time, timeout: ParentExitPostBudget, ct: budgetCts.Token);
 
             if (!response.IsSuccessStatusCode) {
-                Log(time, $"{what} session-end POST returned HTTP {(int)response.StatusCode}");
+                var code = (int)response.StatusCode;
+
+                if (HookSpool.IsRetryable(code)) return Spool($"POST returned HTTP {code}");
+
+                Log(time, $"{what} session-end POST returned HTTP {code}");
                 return false;
             }
 
             Log(time, $"{what} session-end POST succeeded");
 
             try {
-                var body = await response.Content.ReadAsStringAsync(budgetCts.Token);
-                var node = string.IsNullOrWhiteSpace(body) ? null : JsonNode.Parse(body);
+                var answer = await response.Content.ReadAsStringAsync(budgetCts.Token);
+                var node   = string.IsNullOrWhiteSpace(answer) ? null : JsonNode.Parse(answer);
 
                 if (node?["generate_whats_done"]?.GetValue<bool>() == true) {
                     watchers.SpawnWhatsDoneGenerator(sessionId, vendor);
@@ -2550,7 +2566,9 @@ partial class WatchCommand(
 
             return true;
         } catch (OperationCanceledException) {
-            Log(time, $"{what} session-end POST timed out after {ParentExitPostBudget.TotalSeconds:F0}s");
+            return Spool($"POST timed out after {ParentExitPostBudget.TotalSeconds:F0}s");
+        } catch (HttpRequestException ex) {
+            return Spool($"POST failed: {ex.Message}");
         } catch (Exception ex) {
             Log(time, $"{what} session-end POST failed: {ex.Message}");
         }
