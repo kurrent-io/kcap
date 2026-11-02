@@ -620,6 +620,32 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("server:S").Value.WorktreePath).IsEqualTo("/r/.wt/a1");
     }
 
+    /// Another daemon's registry row for the same session is not a twin, and its repository is a path on
+    /// its own machine: it must not pair with the local row's worktree, in either arrival order.
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_registry_row_from_another_machine_does_not_split_the_local_checkout(bool remoteFirst) {
+        var (local, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        MineLive(sessions, "S");
+        void AddLocal() => local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { WorktreePath = "/r/.wt/a1", WorkLocation = "owned" });
+        void AddRemote() => remote.Cache.AddOrUpdate(Remote("z9", daemon: "elsewhere", owner: "me", sessionId: "S") with { RepoPath = "/home/other/r" });
+        if (remoteFirst) { AddRemote(); AddLocal(); } else { AddLocal(); AddRemote(); }
+
+        local.Agents.RemoveKey("a1");
+        remote.Cache.RemoveKey("z9");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S"));
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/r");
+        await Assert.That(row.WorktreePath).IsEqualTo("/r/.wt/a1");
+    }
+
     /// The daemon's paths are protected session content like the listing's own branch: a viewer the
     /// server now lists below full access gets none of them.
     [Test]
