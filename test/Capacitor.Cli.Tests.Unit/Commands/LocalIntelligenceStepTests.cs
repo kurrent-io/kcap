@@ -81,6 +81,17 @@ public class LocalIntelligenceStepTests {
             new IntelligenceSetupRequest("provider", null, "anthropic", "claude-haiku-4-5", "sk-env"));
     }
 
+    /// Setup's none is not now, so an unattended re-run keeps an earlier answer; kcap local intelligence none turns it off.
+    [Test]
+    public async Task A_flag_none_posts_nothing() {
+        var server = new Server();
+        var (step, said) = Step(server, null);
+
+        await Assert.That(await step.RunAsync(Args(IntelligenceAnswer.NoneToken))).IsNull();
+        await Assert.That(server.Requests).IsEmpty();
+        await Assert.That(string.Join('\n', said)).Contains("kcap local intelligence");
+    }
+
     [Test]
     public async Task A_refused_flag_answer_is_reported_and_setup_carries_on() {
         var server = new Server(new IntelligenceSetupOutcome.Refused("key_rejected: 401"));

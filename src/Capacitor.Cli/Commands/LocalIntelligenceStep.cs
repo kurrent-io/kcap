@@ -4,8 +4,8 @@ namespace Capacitor.Cli.Commands;
 
 /// <summary>
 /// <c>kcap setup --local</c>'s background intelligence question. A flag answers it; otherwise a person is asked until
-/// the server takes an answer or they choose not now, which stores nothing, so a re-run never clears what an earlier
-/// one chose. A refused or unreachable answer never fails setup: it says how to answer later.
+/// the server takes an answer or they choose not now. Not now, as a flag too, stores nothing, so a re-run never clears
+/// what an earlier one chose. A refused or unreachable answer never fails setup: it says how to answer later.
 /// </summary>
 /// <param name="questions">Null when nobody can be asked.</param>
 /// <param name="say">One line for the person, unformatted.</param>
@@ -22,6 +22,8 @@ sealed class LocalIntelligenceStep(
     /// <returns>The answer as the server applied it, or null when none was.</returns>
     public async Task<IntelligenceSetupResponse?> RunAsync(LocalSetupArgs args) {
         if (args.Intelligence is { } given) {
+            if (given == IntelligenceAnswer.None) return NotNow();
+
             var (key, error) = given.Vendor is { } vendor
                 ? IntelligenceKey.Resolve(vendor, variable, questions is null ? null : () => questions.Key(vendor))
                 : (null, null);
@@ -43,11 +45,7 @@ sealed class LocalIntelligenceStep(
         while (true) {
             var choice = questions.Choose(offered);
 
-            if (choice == IntelligenceAnswer.NoneToken) {
-                say($"Background intelligence: not set up. {Later}");
-
-                return null;
-            }
+            if (choice == IntelligenceAnswer.NoneToken) return NotNow();
 
             IntelligenceAnswer answer;
             string? model = null, key = null;
@@ -89,6 +87,12 @@ sealed class LocalIntelligenceStep(
         foreach (var line in LocalIntelligenceCommand.Summary(applied)) say(line);
 
         return applied;
+    }
+
+    IntelligenceSetupResponse? NotNow() {
+        say($"Background intelligence: not set up. {Later}");
+
+        return null;
     }
 
     IntelligenceSetupResponse? Unset(string why) {
