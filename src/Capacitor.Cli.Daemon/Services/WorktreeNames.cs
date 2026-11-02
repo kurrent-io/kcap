@@ -5,26 +5,24 @@ namespace Capacitor.Cli.Daemon.Services;
 static class WorktreeNames {
     internal static readonly string[] Adjectives = [
         "bold", "brave", "brisk", "busy", "calm", "clean", "clear", "cool", "crisp", "eager",
-        "easy", "epic", "fair", "fancy", "fast", "fine", "fond", "free", "fresh", "full",
-        "fuzzy", "glad", "good", "grand", "green", "happy", "hardy", "jolly", "keen", "kind",
-        "lucky", "lush", "merry", "mild", "neat", "new", "nice", "noble", "open", "pink",
-        "plain", "plush", "proud", "pure", "quick", "quiet", "red", "rich", "ripe", "rosy",
-        "safe", "shiny", "silky", "sleek", "smart", "snug", "soft", "still", "sunny", "sweet",
-        "swift", "tall", "tidy", "tiny", "true", "vast", "warm", "wavy", "wild", "wise",
-        "witty", "young", "zesty", "zippy"
+        "easy", "epic", "fancy", "fast", "fine", "fond", "free", "fresh", "full", "fuzzy",
+        "glad", "good", "grand", "green", "happy", "hardy", "jolly", "keen", "kind", "lucky",
+        "lush", "merry", "mild", "neat", "nice", "pink", "plush", "proud", "pure", "quick",
+        "quiet", "rich", "ripe", "rosy", "safe", "shiny", "silky", "sleek", "smart", "snug",
+        "soft", "still", "sunny", "sweet", "swift", "tall", "tidy", "tiny", "true", "vast",
+        "warm", "wavy", "wild", "wise", "witty", "zesty", "zippy"
     ];
 
     internal static readonly string[] Nouns = [
-        "ant", "apple", "ball", "bean", "bear", "bee", "bell", "bike", "boat", "book",
-        "bowl", "box", "bread", "bus", "cake", "camel", "car", "cat", "chair", "coat",
-        "coin", "corn", "cow", "crab", "crow", "cup", "deer", "desk", "dog", "door",
-        "drum", "duck", "egg", "fan", "fish", "fork", "fox", "frog", "goat", "hare",
-        "hat", "hen", "honey", "horse", "jam", "jar", "jug", "key", "kite", "koala",
-        "lamb", "lamp", "leaf", "lime", "lion", "map", "mat", "milk", "mole", "moth",
-        "mouse", "mug", "nest", "note", "otter", "owl", "pan", "panda", "pear", "pen",
-        "pie", "pig", "plum", "pot", "ring", "robin", "rope", "rug", "seal", "sheep",
-        "ship", "shoe", "sock", "sofa", "spoon", "star", "swan", "table", "tea", "tent",
-        "tiger", "tile", "toad", "toy", "tray", "tree", "vase", "whale", "wolf", "zebra"
+        "ant", "apple", "ball", "bean", "bell", "bike", "boat", "book", "bowl", "box",
+        "bus", "cake", "camel", "car", "cat", "chair", "coat", "coin", "corn", "cow",
+        "crab", "crow", "cup", "desk", "dog", "door", "drum", "duck", "egg", "fan",
+        "fish", "fork", "fox", "frog", "goat", "hat", "hen", "honey", "jam", "jar",
+        "jug", "key", "kite", "lamp", "leaf", "lime", "lion", "map", "mat", "milk",
+        "mole", "moth", "mouse", "mug", "nest", "note", "otter", "owl", "pan", "panda",
+        "pen", "pig", "plum", "pot", "ring", "rope", "rug", "sheep", "ship", "shoe",
+        "sock", "sofa", "spoon", "star", "swan", "table", "tent", "tiger", "tile", "toy",
+        "tray", "tree", "wolf"
     ];
 
     const int Attempts = 32;
