@@ -90,6 +90,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     long                             _lastOutputAt;
     volatile bool                    _sawOutput;
     volatile bool                    _stopRequested;
+    volatile bool                    _stopRequestedDuringDialog;
     bool                             _deliveryHoldsLane;
     TaskCompletionSource?            _dialogGone;
     TaskCompletionSource?            _arrival;
@@ -404,11 +405,11 @@ internal sealed partial class PtyHostedAgentRuntime(
         try {
             await pty.WriteAsync(BracketedPaste.Frame(text));
             // Unlike the launch prompt, a stop alone does not withhold the Enter: the stop's "/exit"
-            // would land in the composer behind the unsent paste. A stop that cut a dialog's wait
-            // short does, even once that dialog has closed: the stop wrote meanwhile.
+            // would land in the composer behind the unsent paste. A stop asked for while a dialog this
+            // waited on was open does, even once that dialog has closed: the stop wrote meanwhile.
             var submitted = await SubmitAsync(async () => {
                 var waited = await WaitOutDialogsReportingAsync();
-                return DialogGone is null && !(waited && Ending);
+                return DialogGone is null && !pty.HasExited && !(waited && _stopRequestedDuringDialog);
             });
             if (!submitted) throw AgentEnding();
         } finally {
@@ -475,7 +476,8 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// master fd regardless, and the lane must never be what keeps the stop from being asked for.
     /// </summary>
     public async Task RequestGracefulStopAsync() {
-        _stopRequested = true;
+        _stopRequestedDuringDialog = DialogGone is not null;
+        _stopRequested             = true;
         var holdsLane  = await _lane.WaitAsync(GracefulStopLaneWait, CancellationToken.None);
 
         try {

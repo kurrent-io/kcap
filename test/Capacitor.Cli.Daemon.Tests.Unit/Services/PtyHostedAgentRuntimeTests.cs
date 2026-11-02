@@ -710,6 +710,34 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    /// <summary>A stop asked for only after the dialog closed did not cut its wait short: the message is
+    /// submitted as with any stop that finds no dialog open.</summary>
+    [Test]
+    public async Task A_message_submit_is_not_withheld_by_a_stop_after_its_dialog_closed() {
+        var time    = new FakeTimeProvider();
+        var pty     = new GatedRawPty();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        var send = runtime.SendUserInputAsync("carry on");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+        await AdvanceAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 4);
+
+        var answer = runtime.SendRawInputAsync([0x1b]);
+        await pty.RawWriteEntered.WaitAsync(TimeSpan.FromSeconds(5));
+        runtime.NoteTerminalDialog(false);
+        var stop = runtime.RequestGracefulStopAsync();
+        await StepAsync(time, PtyHostedAgentRuntime.GracefulStopLaneWait * 2, () => stop.IsCompleted);
+
+        pty.ReleaseRawWrites();
+        await answer.WaitAsync(TimeSpan.FromSeconds(5));
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted);
+
+        await send;
+        await Assert.That(pty.Inner.Writes[^1]).IsEqualTo("\r");
+        pty.Inner.Exit();
+    }
+
     /// <summary>Starts a launch whose hooks report its turns and runs it to the first submit.</summary>
     static async Task<(PtyHostedAgentRuntime Runtime, RecordingScriptedPtyProcess Pty)> SubmittedConfirmingLaunchAsync(FakeTimeProvider time) {
         var pty     = new RecordingScriptedPtyProcess();
