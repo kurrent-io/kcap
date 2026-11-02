@@ -1471,8 +1471,8 @@ public class ChatTabViewSmokeTests {
         await RunOnUiAsync(async () => {
             var host = new Host();
             await host.LoadAsync(Tmp.CreateFile("chips.jsonl", [
-                """{"type":"user","message":{"role":"user","content":"hello"}}""",
-                """{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}""",
+                """{"type":"user","timestamp":"2026-11-02T09:04:00Z","message":{"role":"user","content":"hello"}}""",
+                """{"type":"assistant","timestamp":"2026-11-02T09:05:00Z","message":{"content":[{"type":"text","text":"hi"}]}}""",
                 """{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<summary>Agent finished</summary>\n<result>\nAll good.\n</result>\n</task-notification>"}}""",
             ]));
             host.Settle();
@@ -1486,6 +1486,14 @@ public class ChatTabViewSmokeTests {
             var you = host.View.GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Classes.Contains("toolKindChip") && t.Text == "You");
             await Assert.That(you.HorizontalAlignment).IsEqualTo(Avalonia.Layout.HorizontalAlignment.Left);
+            var times = host.View.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.Classes.Contains("chatTime") && t.IsEffectivelyVisible)
+                .Select(t => t.Text ?? "")
+                .ToList();
+            await Assert.That(times).IsEquivalentTo([
+                host.Chat.Items.OfType<UserTurnItem>().Single().Time!.Label,
+                host.Chat.Items.OfType<AssistantTextItem>().Single().Time!.Label,
+            ]);
 
             host.Chat.Items.OfType<UserTurnItem>().Single().Sender.Title = "Tony";
             host.Settle();
