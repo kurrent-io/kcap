@@ -50,19 +50,22 @@ public sealed class WedgedForkReaper(IChildProcessProbe probe, TimeProvider time
 
     string? UnexecedIdentity(int pid) => probe.HasExeced(pid) == false ? probe.Identity(pid) : null;
 
+    /// An exception escaping this thread would end the process, so even a throwing <paramref name="report"/> stays inside it.
     public static void Start(IChildProcessProbe probe, TimeProvider time, Action<string> report) {
-        var reaper = new WedgedForkReaper(probe, time, report);
+        void SafeReport(string message) {
+            try { report(message); } catch { /* nowhere left to report to */ }
+        }
+
+        var reaper = new WedgedForkReaper(probe, time, SafeReport);
         var reportedFailure = false;
         var thread = new Thread(() => {
             while (true) {
                 Thread.Sleep(Period);
                 try {
                     reaper.Sweep();
-                } catch (Exception ex) when (!reportedFailure) {
+                } catch (Exception ex) {
+                    if (!reportedFailure) SafeReport($"kcap app: fork reaper sweep failed: {ex}");
                     reportedFailure = true;
-                    report($"kcap app: fork reaper sweep failed: {ex}");
-                } catch {
-                    // Already reported once; the next sweep may succeed.
                 }
             }
         }) { IsBackground = true, Name = "kcap fork reaper" };
