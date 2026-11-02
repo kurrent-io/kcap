@@ -1,4 +1,5 @@
 using System.Globalization;
+using Avalonia.Automation;
 using Capacitor.App.Services;
 using Capacitor.Remote.Models;
 using ReactiveUI.Reactive;
@@ -22,6 +23,8 @@ public sealed class SearchHitViewModel : ReactiveObject {
     public string? OwnerName { get; init; }
     public string? OwnerInitials { get; init; }
     public string? OwnerAvatarUrl { get; init; }
+    /// An avatar with no owner to name stays out of the control view rather than reading as an unnamed element.
+    public AccessibilityView OwnerAvatarView => string.IsNullOrEmpty(OwnerName) ? AccessibilityView.Raw : AccessibilityView.Content;
     public required string WhenText { get; init; }
     public required PinPresentation Presentation { get; init; }
 
