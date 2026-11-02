@@ -26,9 +26,6 @@ public sealed class SessionAccessService : IDisposable {
         /// The last state published, read under _lock instead of State.Value: the subject replays to
         /// a new subscriber under its own gate, and that subscriber can release its lease.
         public SessionAccessState Current = SessionAccessState.Establishing;
-        /// States published under _lock and delivered after it is released, in order; null completes.
-        public readonly Queue<SessionAccessState?> Outbox = new();
-        public bool Delivering;
     }
 
     readonly IServerLane _lane;
@@ -41,8 +38,9 @@ public sealed class SessionAccessService : IDisposable {
     readonly SessionGates _chatGates = new();
     readonly Subject<(string SessionId, SessionAccessState State)> _transitions = new();
     readonly Lock _lock = new();
-    /// Entries with undelivered states; guarded by _lock.
-    readonly List<Entry> _undelivered = [];
+    /// States published under _lock, delivered after it is released in the order they were published; null completes.
+    readonly Queue<(Entry Entry, SessionAccessState? State)> _outbox = new();
+    bool _delivering;
     readonly IDisposable _subscriptions;
     bool _connected;
     bool _disposed;
@@ -258,44 +256,38 @@ public sealed class SessionAccessService : IDisposable {
 
     // Caller holds _lock.
     void Enqueue(Entry entry, SessionAccessState? state) {
-        lock (entry.Outbox) entry.Outbox.Enqueue(state);
-        _undelivered.Add(entry);
+        lock (_outbox) _outbox.Enqueue((entry, state));
     }
 
     /// Called with _lock released, after every section that published. A subscriber may acquire or
-    /// release a lease from inside a delivery, so nothing is held while one runs; one thread at a
-    /// time drains an entry's queue, and a state queued meanwhile goes out after the one in flight.
+    /// release a lease from inside a delivery, so nothing is held while one runs. One queue for the
+    /// whole service, drained by one thread at a time, keeps every state in the order it was published
+    /// under _lock — across entries too, so a replaced entry's last state never lands after its successor's.
     void Deliver() {
-        Entry[] entries;
-        lock (_lock) {
-            if (_undelivered.Count == 0) return;
-            entries = [.. _undelivered.Distinct()];
-            _undelivered.Clear();
-        }
-        foreach (var entry in entries) Deliver(entry);
-    }
-
-    void Deliver(Entry entry) {
-        lock (entry.Outbox) {
-            if (entry.Delivering) return;
-            entry.Delivering = true;
+        lock (_outbox) {
+            if (_delivering) return;
+            _delivering = true;
         }
         while (true) {
-            SessionAccessState? next;
-            lock (entry.Outbox) {
-                if (entry.Outbox.Count == 0) { entry.Delivering = false; return; }
-                next = entry.Outbox.Dequeue();
+            (Entry Entry, SessionAccessState? State) next;
+            lock (_outbox) {
+                if (_outbox.Count == 0) { _delivering = false; return; }
+                next = _outbox.Dequeue();
             }
-            // A throwing observer must not wedge the queue: every later state, a refusal included,
-            // still has to reach the others, and the caller's own bookkeeping has to finish.
-            try {
-                if (next is not { } state) { entry.State.OnCompleted(); continue; }
-                entry.State.OnNext(state);
-                _transitions.OnNext((entry.SessionId, state));
-            } catch (ObjectDisposedException) {
-            } catch (Exception ex) {
-                Console.Error.WriteLine($"kcap: session access observer for {entry.SessionId} failed: {ex.Message}");
-            }
+            var entry = next.Entry;
+            if (next.State is not { } state) { Notify(entry, entry.State.OnCompleted); continue; }
+            // Each notification on its own: an observer that throws must not keep the state from the rest.
+            Notify(entry, () => entry.State.OnNext(state));
+            Notify(entry, () => _transitions.OnNext((entry.SessionId, state)));
+        }
+    }
+
+    static void Notify(Entry entry, Action notify) {
+        try {
+            notify();
+        } catch (ObjectDisposedException) {
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: session access observer for {entry.SessionId} failed: {ex.Message}");
         }
     }
 

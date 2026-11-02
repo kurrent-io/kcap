@@ -34,6 +34,46 @@ public class SessionAccessServiceTests {
         await WaitUntilAsync(() => h.Lane.ChatUnsubscribes.Contains("s1"), what: "unsubscribe on last release");
     }
 
+    /// States reach the transition stream in the order they were published, across entries too: an entry replaced from
+    /// inside its own observer still delivers its refusal before its successor's establishment, or a reader ordering by
+    /// session would let the stale refusal win.
+    [Test]
+    public async Task A_replaced_entrys_last_state_reaches_transitions_before_its_successors() {
+        using var h = new Harness();
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Denied("Session not visible to caller"));
+        h.Connect();
+        var seen = new List<SessionAccessState>();
+        using var transitions = h.Service.Transitions.Where(t => t.SessionId == "s1").Subscribe(t => { lock (seen) seen.Add(t.State); });
+        var old = h.Service.Acquire("s1");
+        SessionAccessLease? successor = null;
+        using var replace = old.State.Where(s => s == SessionAccessState.Denied).Take(1).Subscribe(_ => {
+            h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+            old.Dispose();
+            successor = h.Service.Acquire("s1");
+        });
+
+        await WaitUntilAsync(() => { lock (seen) return seen.Contains(SessionAccessState.Established); }, what: "the successor established");
+
+        List<SessionAccessState> order;
+        lock (seen) order = [.. seen];
+        await Assert.That(order.IndexOf(SessionAccessState.Denied)).IsLessThan(order.IndexOf(SessionAccessState.Established));
+        successor?.Dispose();
+    }
+
+    /// An observer that throws keeps the state from neither the transition stream nor later states.
+    [Test]
+    public async Task A_throwing_observer_does_not_hide_the_state_from_transitions() {
+        using var h = new Harness();
+        var seen = new List<SessionAccessState>();
+        using var transitions = h.Service.Transitions.Where(t => t.SessionId == "s1").Subscribe(t => { lock (seen) seen.Add(t.State); });
+        // Subscribed while the lane is down, so the throwing observer is in place before anything is established.
+        using var lease = h.Service.Acquire("s1");
+        using var thrower = lease.State.Subscribe(s => { if (s == SessionAccessState.Established) throw new InvalidOperationException("observer"); });
+        h.Connect();
+
+        await WaitUntilAsync(() => { lock (seen) return seen.Contains(SessionAccessState.Established); }, what: "established on the transition stream");
+    }
+
     [Test]
     public async Task A_denied_watch_is_terminal_and_never_subscribes_chat() {
         using var h = new Harness();
