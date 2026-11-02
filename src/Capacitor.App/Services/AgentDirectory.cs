@@ -95,7 +95,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     readonly Dictionary<string, DateTime> _hostedUntil = new(StringComparer.Ordinal);
     /// Listed session id → the checkout facts its daemon row last reported, for the server row
     /// that stands for the session once the daemon row is gone.
-    readonly Dictionary<string, (string? RepoPath, string? WorktreePath, string? WorkLocation, string? BorrowedFrom, string? Branch)> _hostedFacts =
+    readonly Dictionary<string, (string? RepoPath, string? WorktreePath, string? WorkLocation, string? BorrowedFrom, string? Branch, bool FromLocal)> _hostedFacts =
         new(StringComparer.Ordinal);
     /// Sessions whose hosted agent is known to have finished while the listing may still say live:
     /// a local row seen Completed, or a stop the app saw accepted. A live daemon row for the session
@@ -450,18 +450,21 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             if (!Matchable(row) || listedIdOf.GetValueOrDefault(row.Key) is not { } sid || !listed.TryGetValue(sid, out var dto)) continue;
             // A daemon row carries the listing's branch, never its own; the local daemon's is on its dto.
             var daemonBranch = row.Origin == AgentOrigin.Local ? _localAgents.FirstOrDefault(a => a.Id == row.Id)?.Branch : null;
-            // A local and a registry row can both list one session, twins or not, and a registry row names
-            // no worktree. The checkout, branch included, is one unit from one row, so nothing from one
-            // checkout pairs with another: a row without a worktree replaces only a checkout that has none
-            // either, and a branch the row lacks carries over only within the same worktree.
+            // The checkout, branch included, is one unit from one row. A local row is the daemon's own account,
+            // so a worktree it leaves out means the agent runs in the checkout itself; a registry row never names
+            // a worktree, and a local and a registry row can both list one session, twins or not. So a local row
+            // replaces the kept checkout, a registry row replaces only one a registry row reported, and a branch
+            // the row lacks carries over only within the same checkout: the same worktree, or with none, the
+            // same repository.
             if (row.RepoPath is not null || row.WorktreePath is not null) {
                 var known = _hostedFacts.GetValueOrDefault(sid);
+                var fromLocal = row.Origin == AgentOrigin.Local;
                 var reported = string.IsNullOrWhiteSpace(daemonBranch) ? row.Branch ?? dto.Branch : daemonBranch;
-                var replaces = row.WorktreePath is not null || known.WorktreePath is null;
-                var sameCheckout = !replaces || row.WorktreePath == known.WorktreePath;
+                var replaces = fromLocal || !known.FromLocal;
+                var sameCheckout = !replaces || string.Equals(row.WorktreePath ?? row.RepoPath, known.WorktreePath ?? known.RepoPath, StringComparison.Ordinal);
                 var branch = reported ?? (sameCheckout ? known.Branch : null);
                 _hostedFacts[sid] = replaces
-                    ? (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom, branch)
+                    ? (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom, branch, fromLocal)
                     : known with { Branch = branch };
             }
             next[i] = row with {
