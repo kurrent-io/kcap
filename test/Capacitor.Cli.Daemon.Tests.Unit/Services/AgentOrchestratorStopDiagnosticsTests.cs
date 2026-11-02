@@ -78,4 +78,16 @@ public class AgentOrchestratorStopDiagnosticsTests {
         await Assert.That(warning).IsNotNull();
         await Assert.That(warning!).Contains("without claude exiting");
     }
+
+    /// <summary>A terminal-dimensions send the shutdown cancels is expected and logged without a stack; the
+    /// same cancellation while the daemon runs on, or any other failure, stays a warning.</summary>
+    [Test]
+    [Arguments(true, true, true)]
+    [Arguments(true, false, false)]
+    [Arguments(false, true, false)]
+    public async Task Only_a_cancellation_during_shutdown_is_a_quiet_dims_failure(bool cancelled, bool shuttingDown, bool quiet) {
+        Exception failure = cancelled ? new TaskCanceledException() : new IOException("connection reset");
+
+        await Assert.That(AgentOrchestrator.IsShutdownCancellation(failure, shuttingDown)).IsEqualTo(quiet);
+    }
 }

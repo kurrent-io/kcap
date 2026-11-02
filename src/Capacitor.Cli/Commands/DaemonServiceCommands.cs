@@ -949,28 +949,74 @@ sealed class DaemonServiceCommands(
         var interrupted = exited ? 0 : DaemonCommands.MarkLedgerInterrupted(store, id, time, Console.Error, DaemonCommands.KeepsSavedResumes(request, outcome));
 
         await Console.Out.WriteLineAsync($"Service '{id}' stopped (still installed).");
-        if (request.Agents == "keep") await Console.Out.WriteLineAsync(DescribeKeptAgents(ResumingEntries(), interrupted));
+        if (request.Agents == "keep") {
+            var (resuming, midTurn) = ResumingEntries();
+            await Console.Out.WriteLineAsync(DescribeKeptAgents(resuming, midTurn, interrupted));
+        }
         return 0;
     }
 
-    int ResumingEntries() {
+    /// <summary>The entries saved for the next start, and how many of those agents were mid-turn when stopped.</summary>
+    (int Resuming, int MidTurn) ResumingEntries() {
         try {
-            return ResumeLedgerStore.For(store, id).ReadAll().Count(e => e.State == ResumeState.Resuming);
+            var resuming = ResumeLedgerStore.For(store, id).ReadAll().Where(e => e.State == ResumeState.Resuming).ToList();
+            return (resuming.Count, resuming.Count(e => e.AwaitingInput == false));
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return 0;
+            return (0, 0);
         }
     }
 
-    /// <summary>What a keep-agents stop left for the next start: the agents saved for it to resume, and those
-    /// the stop had to end mid-run, which it does not bring back on its own.</summary>
-    internal static string DescribeKeptAgents(int kept, int interrupted) {
-        var line = kept == 0 ? "No agents were kept for the next start to resume."
-                 : $"Kept {Agents(kept)} for the next start to resume.";
+    /// <summary>What a keep-agents stop left for the next start. A kept agent's process does not survive the
+    /// stop on any platform: the daemon ends it, and the next one launches it again on its saved session, so a
+    /// turn in flight is cut off. Agents the stop had to end mid-run are not brought back at all.</summary>
+    internal static string DescribeKeptAgents(int kept, int midTurn, int interrupted) {
+        var line = kept == 0 ? "No agents were left for the next start to resume."
+                 : kept == 1 ? "Stopped 1 agent; the next start relaunches it and resumes its session."
+                 : $"Stopped {kept} agents; the next start relaunches them and resumes their sessions.";
+
+        line += midTurn switch {
+            <= 0             => "",
+            1 when kept == 1 => " It was mid-turn: that turn was cut off, and the resumed session is told to check what finished.",
+            1                => " 1 of them was mid-turn: that turn was cut off, and its resumed session is told to check what finished.",
+            _                => $" {midTurn} of them were mid-turn: those turns were cut off, and each resumed session is told to check what finished.",
+        };
+
         return interrupted == 0 ? line
              : $"{line} {Agents(interrupted)} ended mid-run; the next start does not resume {(interrupted == 1 ? "it" : "them")}.";
 
         static string Agents(int n) => n == 1 ? "1 agent" : $"{n} agents";
     }
+
+    /// <summary>How long <c>start</c> and <c>stop</c> wait out another operation on the same service. The
+    /// desktop app starts a daemon service it sees stopped and holds the lock through that daemon's boot, so a
+    /// start typed straight after a stop can find the lock taken.</summary>
+    internal static readonly TimeSpan WaitOutOthers = TimeSpan.FromSeconds(60);
+
+    /// <summary>Long enough that an ordinary hand-over between two verbs passes without a word.</summary>
+    static readonly TimeSpan QuietWait = TimeSpan.FromSeconds(2);
+
+    Task<ServiceTxnLock?> AcquireWaitingOutOthersAsync() =>
+        ServiceTxnLock.AcquireWaitingAsync(store, id, WaitOutOthers, QuietWait, time, async holder => {
+            try {
+                await Console.Error.WriteLineAsync(WaitingLine(id, holder, WaitOutOthers - QuietWait, time.GetUtcNow()));
+            } catch (IOException) { }
+        });
+
+    /// <summary>Refuses with exit 1, naming who holds the lock when it recorded itself.</summary>
+    async Task<int> RefuseContendedAsync(string serviceId, string? consequence = null) {
+        var line = ContentionLine(serviceId, ServiceTxnHolder.Read(store, serviceId), time.GetUtcNow());
+        await Console.Error.WriteLineAsync(consequence is null ? line : $"{line} {consequence}");
+        return 1;
+    }
+
+    internal static string WaitingLine(string serviceId, ServiceTxnHolder? holder, TimeSpan remaining, DateTimeOffset now) {
+        var held = holder is null ? "" : $": {holder.Describe(now)}";
+        return $"Another service operation on '{serviceId}' is in progress{held}. Waiting up to {(int) remaining.TotalSeconds}s for it to finish.";
+    }
+
+    internal static string ContentionLine(string serviceId, ServiceTxnHolder? holder, DateTimeOffset now) => holder is null
+        ? $"Another service operation is in progress for '{serviceId}'. Try again shortly."
+        : $"Another service operation is in progress for '{serviceId}': {holder.Describe(now)}. Try again once it finishes.";
 
     internal async Task<int> Status() {
         await StaleTxnMarker.SettleAsync(store, manager, id, time);
@@ -1369,7 +1415,7 @@ sealed class DaemonServiceCommands(
         Console.Error.WriteLine("  start [--name N] [--verify]   Start the installed service now");
         Console.Error.WriteLine("                          --verify polls readiness/ownership and rolls back on failure");
         Console.Error.WriteLine("  stop [--name N] [--keep-agents]   Stop the running service (stays installed) and end its agents;");
-        Console.Error.WriteLine("                          --keep-agents keeps them for the next start to resume");
+        Console.Error.WriteLine("                          --keep-agents stops them for the next start to relaunch on their sessions");
         Console.Error.WriteLine("  ensure [--name N] [--profile P] [--json]   Install-or-start from a fresh status read");
         Console.Error.WriteLine("                          (bakes the born-prompt consent seed; gate refusals emit recovery_surface=)");
         Console.Error.WriteLine("  status [--name N] [--json]   Show installed/running state (--json for machine-readable output)");

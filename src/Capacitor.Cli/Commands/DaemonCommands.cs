@@ -1129,7 +1129,7 @@ public sealed class DaemonCommands(
         console.Error.WriteLine();
         console.Error.WriteLine("  start [-d] [--name <n>]    Start the daemon (foreground, or -d for background)");
         console.Error.WriteLine("  stop [--name <n>] [--yes] [--keep-agents]  Stop a running daemon and end its agents (prompts on multi unless --yes);");
-        console.Error.WriteLine("                             --keep-agents keeps them for the next start to resume");
+        console.Error.WriteLine("                             --keep-agents stops them for the next start to relaunch on their sessions");
         console.Error.WriteLine("  restart [--name <n>] [--when-idle] [--force]  Restart now, resuming its agents (--when-idle queues; --force skips the flow-round wait)");
         console.Error.WriteLine("  status [--name <n>]        Show daemon status (lists all when --name omitted)");
         console.Error.WriteLine("  logs                       Show recent daemon log output");

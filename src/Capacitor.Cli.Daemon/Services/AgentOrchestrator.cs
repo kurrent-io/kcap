@@ -941,7 +941,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 _resolvedLedger?.Upsert(a, e, resuming ? null : fr, resuming ? null : role);
             },
             markerStore: _markerCandidates,
-            onMarkerResolved: (a, e) => _resolvedLedger?.Upsert(a, e, null, null));
+            onMarkerResolved: (a, e) => _resolvedLedger?.Upsert(a, e, null, null),
+            stoppedForResume: a => (ResumeLedger?.TryRead(a) ?? ParticipantLedger?.TryRead(a))?.State == ResumeState.Resuming);
 
         // Phase B2-b (sequenced-settlement design §4.2.2) + §3.3: publish the epoch-scoped processor
         // BEFORE any handler is wired, so no command can ever observe a null one in production.
@@ -5442,7 +5443,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         try {
             await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows);
         } catch (Exception ex) {
-            LogTerminalDimsSendFailed(ex, agent.Id);
+            ReportDimsSendFailed(ex, agent.Id);
         }
 
         _ = _server.AppendAgentRunEventAsync(
@@ -5988,7 +5989,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     try {
                         await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows);
                     } catch (Exception ex) {
-                        LogTerminalDimsSendFailed(ex, agent.Id);
+                        ReportDimsSendFailed(ex, agent.Id);
                     }
 
                     // The command list is server-side in-memory only, and the AgentRegistered above
@@ -6921,6 +6922,18 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to send terminal dimensions for agent {AgentId} (read-only viewers may render garbled until the next reconnect)")]
     partial void LogTerminalDimsSendFailed(Exception ex, string agentId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Terminal dimensions for agent {AgentId} not sent: the daemon is shutting down")]
+    partial void LogTerminalDimsSendCancelled(string agentId);
+
+    void ReportDimsSendFailed(Exception ex, string agentId) {
+        if (IsShutdownCancellation(ex, _shutdownCts.IsCancellationRequested)) LogTerminalDimsSendCancelled(agentId);
+        else LogTerminalDimsSendFailed(ex, agentId);
+    }
+
+    /// <summary>A send the shutdown cancelled is expected, so it is not reported as a failure. A cancellation
+    /// while the daemon runs on is one.</summary>
+    internal static bool IsShutdownCancellation(Exception ex, bool shuttingDown) => shuttingDown && ex is OperationCanceledException;
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} stuck in Starting for {Seconds:F1}s with no output (PID={Pid}, exited={Exited}), terminating")]
     partial void LogAgentStuck(string agentId, double seconds, int pid, bool exited);

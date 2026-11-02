@@ -35,7 +35,8 @@ Options for stop:
                           before stopping them (unless --yes is passed).
   --yes, -y               Unattended mode: stop all running daemons without
                           prompting. Useful in cleanup scripts.
-  --keep-agents           Keep the hosted agents for the next start to resume.
+  --keep-agents           Stop the hosted agents so the next start relaunches them
+                          on their saved sessions; a turn in progress is cut off.
   --direct                Windows only: ask the daemon itself even when a service
                           manages it. The Windows service uses it for its own
                           graceful stop; to stop a supervised daemon, use
@@ -139,9 +140,12 @@ Subcommands for service (per-user; restarts the daemon if it crashes, starts it 
                           Stop the running service (unloads/deregisters it with
                           the OS supervisor; stays installed — returns at next
                           login or `service start`). Ends its hosted agents;
-                          --keep-agents keeps them for the next start to resume.
-                          While the desktop app runs, it starts its stopped
-                          daemon service again; quit the app to keep it stopped.
+                          --keep-agents stops them so the next start relaunches
+                          them on their saved sessions (a turn in progress is
+                          cut off). While the desktop app runs, it starts its
+                          stopped daemon service again; quit the app to keep it
+                          stopped. start and stop wait up to a minute for
+                          another operation on the service to finish.
   ensure [--name N] [--profile P] [--json]
                           Flow-driven ladder: from a fresh status read, install
                           when there is no unit (baking the born-prompt consent

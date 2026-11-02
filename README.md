@@ -1297,7 +1297,7 @@ kcap daemon start --name laptop -d  # run multiple daemons on the same machine b
 kcap daemon status                  # list all running daemons
 kcap daemon status --name laptop    # show status of a specific daemon (incl. its running version and any resuming/interrupted agents)
 kcap daemon stop --name laptop      # stop just that one, ending its hosted agents
-kcap daemon stop --name laptop --keep-agents   # stop it but keep its agents for the next start to resume
+kcap daemon stop --name laptop --keep-agents   # stop it and its agents; the next start relaunches them on their saved sessions (a turn in progress is cut off)
 kcap daemon stop --name laptop --direct        # Windows only: ask the daemon itself even when a service manages it (the Windows service's own graceful stop; otherwise use `daemon service stop`)
 kcap daemon stop --yes              # stop all running daemons unattended (otherwise prompts on multi)
 kcap daemon restart --name laptop              # restart now, stopping its agents and resuming them on the new daemon; refuses while an eval, a launch or a flow round is in progress
@@ -1342,8 +1342,8 @@ kcap daemon service install --replace --verify --retire OLD   # also remove the 
 kcap daemon service status                 # installed / running state
 kcap daemon service status --json          # machine-readable status (pids, binary paths, txn-marker state)
 kcap daemon service stop                   # stop the running service (stays installed), ending its hosted agents
-kcap daemon service stop --keep-agents     # stop it, keeping its agents for the next start to resume
-kcap daemon service start                  # start it again
+kcap daemon service stop --keep-agents     # stop it and its agents; the next start relaunches them on their saved sessions (a turn in progress is cut off)
+kcap daemon service start                  # start it again; start and stop wait up to a minute for another operation on the service (the desktop app restarting it, say) to finish
 kcap daemon service start --verify         # start, then verify readiness/ownership before exiting 0
 kcap daemon service ensure                 # install-or-start from a fresh status read (flow-driven)
 kcap daemon service refresh                # bring installed units up to this version and onto a script install's `current` path; a reload stops the daemon with its agents kept and the reloaded daemon resumes them, and waits for the next update while an eval or a launch is in progress (runs after `kcap update`)
