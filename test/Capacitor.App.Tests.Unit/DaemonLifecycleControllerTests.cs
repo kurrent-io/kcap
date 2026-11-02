@@ -388,10 +388,14 @@ public class DaemonLifecycleControllerTests {
         await Assert.That(h.Surface.Prompts).IsEmpty();
     }
 
+    /// A supervisor restarts a crash itself, so a service it leaves stopped was stopped on purpose — a
+    /// <c>kcap daemon service stop</c>, which reads as installed on Windows and as an unloaded unit on launchd.
     [Test]
-    public async Task A_stopped_service_found_on_recovery_is_started_verified() {
+    [Arguments("installed")]
+    [Arguments("not_installed")]
+    public async Task A_stopped_service_found_on_recovery_is_left_stopped(string state) {
         await using var h = new Harness();
-        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(unitPresent: true, state: "installed"));
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(unitPresent: true, state: state));
         h.Start();
 
         h.PushConnected();
@@ -400,8 +404,25 @@ public class DaemonLifecycleControllerTests {
 
         h.PushUnreachable();
 
-        await WaitUntilAsync(() => h.Lane.Requests.Count == 1, what: "the recovery start");
-        await Assert.That(h.Lane.Requests[0].Verb).IsEqualTo(MutationVerb.StartVerified);
+        await WaitUntilAsync(() => h.Cli.StatusCallCount == 2, what: "the recovery's status read");
+        await Task.Delay(50); // a negative: give a start every chance to be requested
+        await Assert.That(h.Lane.Requests).IsEmpty();
+    }
+
+    /// The recovery leaves the service alone, so the Start button is what brings it back.
+    [Test]
+    public async Task A_service_left_stopped_on_recovery_still_starts_on_the_start_action() {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(unitPresent: true, state: "installed"));
+        h.Start();
+        h.PushConnected();
+        await h.Controller.PhaseClosed;
+        h.PushUnreachable();
+        await WaitUntilAsync(() => h.Cli.StatusCallCount == 2, what: "the recovery's status read");
+
+        await h.Controller.StartActionAsync(CancellationToken.None);
+
+        await Assert.That(h.Lane.Requests.Single().Verb).IsEqualTo(MutationVerb.StartVerified);
     }
 
     /// One recovery per interval: a trigger inside it waits for the interval's end, and a second

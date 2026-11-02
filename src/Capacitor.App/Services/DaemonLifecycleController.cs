@@ -321,7 +321,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
             return;
         }
         lock (_lock) _lastRecovery = _time.GetUtcNow();
-        await RunStartupBranchAsync(triggering).ConfigureAwait(false);
+        await RunStartupBranchAsync(triggering, recovering: false).ConfigureAwait(false);
     }
 
     /// False when the daemon came back while this waited, or the app is closing.
@@ -509,7 +509,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
         }
     }
 
-    /// A daemon that went away mid-run: the same ensure as at startup, at most once per
+    /// A daemon that went away mid-run: the ensure as at startup, short of starting a stopped service, at most once per
     /// <see cref="CurrentRecoveryInterval"/>. One inside the interval is deferred to its end rather
     /// than dropped, because the attach loop reports unreachable once per transition, not per retry.
     async Task RunRecoveryAsync((AttachState State, string? Reason) triggering) {
@@ -542,7 +542,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
             _recoveriesSinceConnect++;
         }
 
-        await RunStartupBranchAsync(triggering).ConfigureAwait(false);
+        await RunStartupBranchAsync(triggering, recovering: true).ConfigureAwait(false);
     }
 
     internal static TimeSpan CurrentRecoveryInterval(int recoveriesSinceConnect) {
@@ -553,7 +553,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     /// The ensure branch, at startup and on every recovery. Closes the startup phase only once this
     /// full flow — query, optional txn-active wait, matrix decision, any mutation, and its
     /// confirmation wait — has completed.
-    async Task RunStartupBranchAsync((AttachState State, string? Reason) triggering) {
+    async Task RunStartupBranchAsync((AttachState State, string? Reason) triggering, bool recovering) {
         try {
             if (_cli.CliPath is null) {
                 _surface.Status("The kcap command-line tool wasn't found, so the app can't manage the daemon.");
@@ -583,7 +583,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
                 // A daemon that attached during the reads above needs nothing, whatever they saw.
                 if (IsCurrentlyAttached()) return;
 
-                await RunStartupMatrixAsync(snap, _lifetime.Token).ConfigureAwait(false);
+                await RunStartupMatrixAsync(snap, recovering, _lifetime.Token).ConfigureAwait(false);
             } finally {
                 _gate.Release();
             }
@@ -599,7 +599,10 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     /// The startup matrix, keyed on the loaded-label/job state before plist presence. An unrecognized wire
     /// state is Unknown, not NotInstalled — positive evidence only, never a silent entry into the
     /// auto-install/start path below.
-    async Task RunStartupMatrixAsync(ServiceSnapshot snap, CancellationToken ct) {
+    /// <param name="recovering">The daemon went away while the app was attached. Its service is then never started:
+    /// every supervisor restarts a crashed daemon itself, so one it leaves stopped was stopped on purpose, and a
+    /// start would also hold the service operation lock against the user's own <c>kcap daemon service start</c>.</param>
+    async Task RunStartupMatrixAsync(ServiceSnapshot snap, bool recovering, CancellationToken ct) {
         var state = ServiceStateClassifier.Parse(snap.State);
         if (state == ServiceState.Unknown) {
             _surface.Status("The daemon service is in an unknown state, so kcap left it as it is.");
@@ -627,7 +630,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
                 AttentionCoexistence(snap.DaemonPid.Value);
                 return;
             }
-            await RunLaneMutationAsync(MutationVerb.StartVerified, ct).ConfigureAwait(false);
+            if (!recovering) await RunLaneMutationAsync(MutationVerb.StartVerified, ct).ConfigureAwait(false);
             return;
         }
 
@@ -637,7 +640,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
                 AttentionCoexistence(snap.DaemonPid.Value);
                 return;
             }
-            await RunLaneMutationAsync(MutationVerb.StartVerified, ct).ConfigureAwait(false);
+            if (!recovering) await RunLaneMutationAsync(MutationVerb.StartVerified, ct).ConfigureAwait(false);
             return;
         }
 
