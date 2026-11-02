@@ -16,7 +16,8 @@ public static class PinnedSessionRow {
             AccessLevel = "",
             StartedAt = summary.StartedAt,
             EndedAt = summary.EndedAt,
-            LastActivityAt = summary.LastEventAt ?? summary.EndedAt ?? summary.StartedAt,
+            // The server writes a title, classification or recap after a session ends, advancing LastEventAt.
+            LastActivityAt = summary.EndedAt ?? summary.LastEventAt ?? summary.StartedAt,
             Branch = summary.RepoBranch,
             PrimaryRepoHash = repo?.RepoHash,
             Repo = repo is null ? null : new() { Hash = repo.RepoHash, Owner = repo.Owner, Name = repo.RepoName },
