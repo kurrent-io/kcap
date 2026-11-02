@@ -175,4 +175,68 @@ public class RoutedImportResumeLedgerTests : IDisposable {
         await Import(source, reimport: true);
         await Assert.That(_server.Posted).IsEquivalentTo([3]);
     }
+
+    [Test]
+    [Arguments("remove_entry")]
+    [Arguments("set_history_entries")]
+    public async Task unified_vibe_history_changes_resume_from_the_server_watermark(string operation) {
+        var session = $"vibe/logs/session/unified/{SessionId}";
+        Tmp.CreateFile($"{session}/meta.json", """{"environment":{"working_directory":"/tmp/proj"}}""");
+        var first   = UnifiedMessage("u0", "user");
+        var second  = UnifiedMessage("a1", "assistant");
+        var ignored = UnifiedMessage("ignored", "system");
+        var journal = Tmp.CreateFile($"{session}/journal/0001.jsonl", new[] {
+            UnifiedDelta(AppendEntry(first), AppendEntry(second), AppendEntry(ignored)),
+        });
+        var source = new MistralVibeImportSource(new MistralVibePaths(Home, Tmp.PathTo("vibe")), TimeProvider.System);
+        await Import(source);
+        await Assert.That(_server.Posted).IsEquivalentTo([0, 1, 2]);
+        await Assert.That(_server.StoredEvents(SessionId)).IsEqualTo(2);
+
+        var next = UnifiedMessage("u2", "user");
+        var last = UnifiedMessage("a3", "assistant");
+        var edit = operation == "remove_entry"
+            ? UnifiedDelta("""{"op":"remove_entry","id":"ignored"}""", AppendEntry(next), AppendEntry(last))
+            : UnifiedDelta("""{"op":"set_history_entries","entries":[""" + string.Join(",", first, second, next, last) + "]}");
+        File.AppendAllText(journal, edit + "\n");
+        _server.ClearPosted();
+
+        await Import(source);
+        await Assert.That(_server.Posted).IsEquivalentTo([2, 3]);
+    }
+
+    static string UnifiedMessage(string id, string role) =>
+        $$"""{"type":"message","id":"{{id}}","role":"{{role}}","content":"hello","generationStatus":"completed"}""";
+
+    static string AppendEntry(string entry) => """{"op":"append_entry","entry":""" + entry + "}";
+
+    static string UnifiedDelta(params string[] operations) =>
+        """{"type":"projection_delta","payload":{"delta":[""" + string.Join(",", operations) + "]}}";
+
+    [Test]
+    [Arguments("model_completed")]
+    [Arguments("run.model.configured")]
+    public async Task unfinished_muse_metadata_tails_remain_replayable(string recordType) {
+        var (source, log) = CreateSession("muse");
+        var metadata = File.ReadLines(log).First();
+        var tail = recordType == "model_completed"
+            ? MuseRun("usage", """{"kind":"model_completed","usage":{"input_tokens":100,"output_tokens":20}}""")
+            : $$$$"""{"id":"model","stream":{"kind":"session","id":"{{{{SessionId}}}}"},"record_type":"event","payload_type":"run.model.configured","payload":{"record":{"model_id":"muse-spark-1.3"}}}""";
+        Tmp.CreateFile(Path.GetRelativePath(Tmp.Path, log), new[] {
+            metadata,
+            MuseRun("text-1", """{"kind":"assistant_message_committed","text":"first"}"""),
+            tail,
+        });
+        await Import(source);
+        await Assert.That(_server.Posted).IsEquivalentTo([0, 1, 2]);
+        await Assert.That(_server.StoredEvents(SessionId)).IsEqualTo(2);
+        File.AppendAllText(log, MuseRun("text-2", """{"kind":"assistant_message_committed","text":"next"}""") + "\n");
+        _server.ClearPosted();
+
+        await Import(source);
+        await Assert.That(_server.Posted).IsEquivalentTo([2, 3]);
+    }
+
+    static string MuseRun(string id, string evt) =>
+        $$"""{"id":"{{id}}","stream":{"kind":"session","id":"{{SessionId}}"},"record_type":"event","recorded_at":1791916402415040,"payload_type":"runtime.session","payload":{"kind":"run","run_id":"run-1","event":""" + evt + "}}";
 }

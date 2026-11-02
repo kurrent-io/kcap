@@ -13,7 +13,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// so lines that produce no event never move it.
 /// </summary>
 sealed class EventStoringTranscriptServer : IDisposable {
-    static readonly HashSet<string> NoiseTypes = ["system", "last-prompt", "file-history-snapshot", "progress", "turn_ended", "session.end"];
+    static readonly HashSet<string> NoiseTypes = ["system", "last-prompt", "file-history-snapshot", "progress", "turn_ended", "session.end", "run.model.configured"];
 
     readonly WireMockServer                     _server = WireMockServer.Start();
     readonly Dictionary<string, SortedSet<int>> _stored = new(StringComparer.Ordinal);
@@ -88,8 +88,11 @@ sealed class EventStoringTranscriptServer : IDisposable {
         try {
             using var doc = JsonDocument.Parse(line);
             var root = doc.RootElement;
-            var type = root.TryGetProperty("type", out var t) ? t
-                : root.TryGetProperty("role", out var r) ? r
+            if (root.TryGetProperty("payload_type", out var payloadType) && payloadType.GetString() == "runtime.session"
+             && root.TryGetProperty("payload", out var payload) && payload.TryGetProperty("event", out var evt)
+             && evt.TryGetProperty("kind", out var kind) && kind.GetString() == "model_completed") return false;
+            var type = root.TryGetProperty("role", out var r) ? r
+                : root.TryGetProperty("type", out var t) ? t
                 : root.GetProperty("payload_type");
             return !NoiseTypes.Contains(type.GetString()!);
         } catch (JsonException) {

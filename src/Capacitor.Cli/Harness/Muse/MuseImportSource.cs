@@ -252,7 +252,8 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
             var resumeFromLn = 0;
 
             if (serverLastLine is { } srv) {
-                var ledger = ctx.Reimport ? null : ctx.TranscriptLedger;
+                // Unfinished logs may end in usage/model metadata that must be resent if the server loses its context
+                var ledger = !ctx.Reimport && endedAt is not null ? ctx.TranscriptLedger : null;
                 resumeFromLn = ledger?.ResumeFrom(ctx.BaseUrl, s.SessionId, srv) ?? srv + 1;
                 status = resumeFromLn > lastIdx
                     ? ImportCommand.ClassificationStatus.AlreadyLoaded
@@ -311,7 +312,7 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
                 BuildSessionEndPayload(classification.SessionId, classification.Meta.Cwd, endedAt), ct))
             return ImportOutcome.Failed;
 
-        await checkpoint.RecordAsync(classification.SessionId, ct);
+        if (parentEndedAt is not null) await checkpoint.RecordAsync(classification.SessionId, ct);
 
         var outcome = startLine > 0 ? ImportOutcome.Resumed : sent == 0 ? ImportOutcome.Skipped : ImportOutcome.Loaded;
 

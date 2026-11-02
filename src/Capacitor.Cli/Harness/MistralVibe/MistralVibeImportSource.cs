@@ -119,7 +119,8 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
             var resumeFromLn  = 0;
 
             if (serverLastLine is { } srv) {
-                var ledger = ctx.Reimport ? null : ctx.TranscriptLedger;
+                // Unified history can remove or replace entries; only legacy files have a stable physical frontier
+                var ledger = !ctx.Reimport && s.SourceMeta[FormatKey] is "legacy" ? ctx.TranscriptLedger : null;
                 resumeFromLn = ledger?.ResumeFrom(ctx.BaseUrl, s.SessionId, srv) ?? srv + 1;
                 status = resumeFromLn > lastLineIndex
                     ? ImportCommand.ClassificationStatus.AlreadyLoaded
@@ -174,7 +175,8 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
         if (!await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-end/mistral-vibe",
                 BuildSessionEndPayload(classification.SessionId, SessionDir(classification), classification.Meta.Cwd, classification.Meta.LastTimestamp), ct)) return ImportOutcome.Failed;
 
-        await checkpoint.RecordAsync(classification.SessionId, ct);
+        if (classification.SourceMeta![FormatKey] is "legacy")
+            await checkpoint.RecordAsync(classification.SessionId, ct);
 
         if (sent == 0) return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped;
         return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Loaded;
