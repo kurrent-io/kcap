@@ -176,6 +176,12 @@ Options:
                       settings.json (the mcp_servers block).
   --skip-muse-skills  With --muse: skip installing the kcap skills into
                       ~/.agents/skills.
+  --dsh               Target DeepSeek Harness: write kcap's recorder plugin to
+                      $DSH_HOME/plugins/kcap/ (~/.dsh by default) and load it from
+                      the home cordis.patch.yml, which applies to every profile.
+                      The plugin runs the bare `kcap hook --dsh`, so kcap must be
+                      on PATH. Recording only: no MCP servers or skills. Restart
+                      any running dsh session.
   --tools-only        With --cursor, --copilot, --gemini, --kiro, --pi, --opencode,
                       --antigravity, --mistral-vibe or --muse: install only the tools (MCP
                       servers, skills, steering instructions; the
@@ -334,6 +340,7 @@ Examples:
   kcap plugin install --mistral-vibe        # Install Mistral Vibe hooks (merge into ~/.vibe/hooks.toml) + MCP
   kcap plugin install --grok                # Write ~/.grok/hooks/kcap.json + agent skills
   kcap plugin install --muse                # Install Muse Code hooks (merge into ~/.config/muse/settings.json) + MCP
+  kcap plugin install --dsh                 # Install the DeepSeek Harness plugin (~/.dsh/plugins/kcap/)
   kcap plugin install --cursor --tools-only # Cursor MCP servers + agent skills, no hooks
   kcap plugin install --kiro --tools-only   # Kiro MCP servers + skills, default agent unchanged
   kcap plugin install --skills --if-installed   # Refresh skills if previously installed (used by npm postinstall)
@@ -349,4 +356,5 @@ Examples:
   kcap plugin remove --mistral-vibe         # Remove kcap hooks + MCP from ~/.vibe/hooks.toml and config.toml
   kcap plugin remove --grok                 # Delete ~/.grok/hooks/kcap.json
   kcap plugin remove --muse                 # Remove kcap hooks + MCP from ~/.config/muse/settings.json
+  kcap plugin remove --dsh                  # Remove the DeepSeek Harness plugin and its cordis.patch.yml entry
   kcap plugin remove --skills               # Remove agent skills + legacy ~/.codex/skills

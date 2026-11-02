@@ -30,6 +30,7 @@ internal static class SetupDecisions {
         if (d.Vibe)        names.Add("Mistral Vibe");
         if (d.Grok)        names.Add("Grok");
         if (d.Muse)        names.Add("Muse Code");
+        if (d.Dsh)         names.Add("DeepSeek Harness");
 
         return names.Count == 0 ? null : string.Join(", ", names);
     }
@@ -81,6 +82,7 @@ internal static class SetupDecisions {
             SkipMistralVibe = Skip(HarnessId.MistralVibe, options.SkipMistralVibe),
             SkipGrok        = Skip(HarnessId.Grok, options.SkipGrok),
             SkipMuse        = Skip(HarnessId.Muse, options.SkipMuse),
+            SkipDsh         = Skip(HarnessId.Dsh, options.SkipDsh),
 
             // The hooks flag counts against TOOLS as well. `--skip-<vendor>-hooks` is a whole-vendor
             // opt-out, and the browser's separate tools axis must not re-enable the half of it the

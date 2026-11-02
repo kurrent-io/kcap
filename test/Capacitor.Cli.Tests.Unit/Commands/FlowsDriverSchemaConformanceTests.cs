@@ -671,6 +671,7 @@ public class FlowsDriverSchemaConformanceTests {
             .Append("--claude")   // bundled kcap/.mcp.json, covered by the static-config test
             .Append("--pi")       // no MCP config at all, covered by the bridge test
             .Append("--grok")     // writes no MCP config: Grok loads Claude's, covered by the static-config test
+            .Append("--dsh")      // recording only: writes no MCP config
             .ToHashSet(StringComparer.Ordinal);
 
         foreach (var flag in VendorSelection.KnownVendorFlags)

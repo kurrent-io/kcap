@@ -25,6 +25,7 @@ internal static class VendorConfigSlots {
             HarnessId.MistralVibe => new(() => config.MistralVibePath,        v => config.MistralVibePath        = v),
             HarnessId.Grok        => new(() => config.GrokPath,        v => config.GrokPath        = v),
             HarnessId.Muse        => new(() => config.MusePath,        v => config.MusePath        = v),
+            HarnessId.Dsh         => new(() => config.DshPath,         v => config.DshPath         = v),
         };
 
         /// <summary>Null for the vendors we hand no model at all, which then pick their own. Exactly
@@ -39,7 +40,7 @@ internal static class VendorConfigSlots {
             HarnessId.Muse        => new(() => config.MuseModel,        v => config.MuseModel        = v),
 
             HarnessId.Claude or HarnessId.Codex or HarnessId.Copilot or HarnessId.Gemini
-                or HarnessId.MistralVibe or HarnessId.Grok => null,
+                or HarnessId.MistralVibe or HarnessId.Grok or HarnessId.Dsh => null,
         };
     }
 }

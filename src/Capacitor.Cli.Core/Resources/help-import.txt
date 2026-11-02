@@ -1,7 +1,7 @@
 kcap import — Import local sessions from every detected coding agent
 
 Discovers Claude, Codex, Cursor, Copilot, Gemini, Kiro, Pi, OpenCode, Antigravity,
-Mistral Vibe, Grok, and Muse Code sessions on this machine and imports them in a single run. Most agents
+Mistral Vibe, Grok, Muse Code, and DeepSeek Harness sessions on this machine and imports them in a single run. Most agents
 ship a per-session .jsonl transcript (OpenCode is a SQLite db):
   Claude   — ~/.claude/projects/<encoded-cwd>/<sid>.jsonl
   Codex    — ~/.codex/sessions/.../rollout-<sid>.jsonl
@@ -18,7 +18,9 @@ ship a per-session .jsonl transcript (OpenCode is a SQLite db):
   Grok     — ~/.grok/sessions/<encoded-cwd>/<sid>/updates.jsonl (honours $GROK_HOME)
   Muse     — ~/.local/share/muse/sessions/YYYY/MM/DD/<id>/session.jsonl (+ subagent/<id>/
              child logs; honours $XDG_DATA_HOME)
-kcap walks all twelve the same way.
+  dsh      — ~/.cache/kcap/dsh/<id>.jsonl, the copy kcap's DeepSeek Harness plugin writes;
+             sessions run before `kcap plugin install --dsh` have no copy
+kcap walks all thirteen the same way.
 
 Usage: kcap import [vendor-filters] [scope] [options]
 
@@ -39,6 +41,7 @@ Vendor filters (additive — pass one or more to restrict the run):
   --mistral-vibe          Import Mistral Vibe sessions (~/.vibe/logs/session)
   --grok                  Import Grok Build sessions and their subagents (~/.grok/sessions)
   --muse                  Import Muse Code sessions (~/.local/share/muse/sessions)
+  --dsh                   Import DeepSeek Harness sessions (~/.cache/kcap/dsh)
 
 Scope (one of, required for non-interactive use):
   --all                   Import every discovered session

@@ -56,7 +56,8 @@ internal static class MuseAssistantPosture {
         SkipMistralVibeMcp          = true,
         SkipGrok                    = true,
         SkipMuse                    = true,
-        SkipMuseMcp                 = true
+        SkipMuseMcp                 = true,
+        SkipDsh                     = true
     };
 
     public static string HostOf(string serverArg) {

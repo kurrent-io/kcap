@@ -14,6 +14,7 @@ using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.Harness.Cursor;
 using Capacitor.Cli.Harness.Gemini;
 using Capacitor.Cli.Harness.Kiro;
+using Capacitor.Cli.Harness.Dsh;
 using Capacitor.Cli.Harness.Grok;
 using Capacitor.Cli.Harness.MistralVibe;
 using Capacitor.Cli.Harness.Muse;
@@ -72,6 +73,7 @@ public class ReplayChildContentCapabilityTests {
     [Arguments("pi")]
     [Arguments("opencode")]
     [Arguments("mistralvibe")]
+    [Arguments("dsh")]
     public async Task sources_whose_replay_cannot_attach_child_content_do_not_declare_the_capability(string vendor) {
         await Assert.That(MakeSource(vendor).AttachesChildContentOnReplay).IsFalse();
     }
@@ -85,7 +87,7 @@ public class ReplayChildContentCapabilityTests {
     public async Task every_import_source_is_covered_by_this_table() {
         var declared = new[] {
             HarnessId.Cursor, HarnessId.Antigravity, HarnessId.Gemini, HarnessId.Claude, HarnessId.Codex,
-            HarnessId.Copilot, HarnessId.Kiro, HarnessId.Pi, HarnessId.OpenCode, HarnessId.MistralVibe, HarnessId.Grok, HarnessId.Muse,
+            HarnessId.Copilot, HarnessId.Kiro, HarnessId.Pi, HarnessId.OpenCode, HarnessId.MistralVibe, HarnessId.Grok, HarnessId.Muse, HarnessId.Dsh,
         };
 
         var actual = typeof(IImportSource).Assembly.GetTypes()
@@ -118,6 +120,7 @@ public class ReplayChildContentCapabilityTests {
             "mistralvibe" => new MistralVibeImportSource(new MistralVibePaths(new UserHome(scratch), null), TimeProvider.System),
             "grok"        => new GrokImportSource(new GrokPaths(new UserHome(scratch), null), _ => Task.FromResult<RepositoryPayload?>(null), TimeProvider.System),
             "muse"        => new MuseImportSource(new MusePaths(new UserHome(scratch), null, null), new WatcherPaths(scratch), TimeProvider.System),
+            "dsh"         => new DshImportSource(scratch, _ => Task.FromResult<RepositoryPayload?>(null), TimeProvider.System),
             _             => throw new ArgumentOutOfRangeException(nameof(vendor), vendor, "unclassified import source"),
         };
     }

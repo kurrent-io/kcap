@@ -33,11 +33,11 @@ internal static class CodingAgentsStep {
             // skip flag into something that writes MCP config would be a silent reversal.
             bool ToolsIndependentOfCapture = false,
             bool SkipMistralVibe = false, bool SkipMistralVibeMcp = false, bool SkipGrok = false,
-            bool SkipMuse = false, bool SkipMuseMcp = false);
+            bool SkipMuse = false, bool SkipMuseMcp = false, bool SkipDsh = false);
 
     /// <param name="ClaudeHooksViaPowerShell">Windows with no Git Bash Claude can find: Claude then starts every hook
     /// through PowerShell, whose start-up alone can spend a short hook's whole time limit.</param>
-    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false);
+    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool Dsh = false, bool ClaudeHooksViaPowerShell = false);
 
     internal record Paths(
             string  ClaudeSettingsPath,
@@ -72,7 +72,8 @@ internal static class CodingAgentsStep {
             string  VibeHooksPath = "",
             string  VibeConfigPath = "",
             string  GrokHooksPath = "",
-            string  MuseSettingsPath = ""
+            string  MuseSettingsPath = "",
+            string  DshPluginPath = ""
         );
 
     internal record Installers(
@@ -109,6 +110,7 @@ internal static class CodingAgentsStep {
             Func<string /*hooksJsonPath*/, bool>?                    InstallGrokHooks = null,
             Func<string /*settingsPath*/, bool>?                     InstallMuseHooks = null,
             Func<JsonMcpConfigWriter.Change>?                        RegisterMuseMcp = null,
+            Func<bool>?                                              InstallDshPlugin = null,
             Func<string /*skillsDir*/, IReadOnlySet<string>>?        ReadAgentSkillsConsumers = null,
             Action<string /*skillsDir*/, IEnumerable<string>>?       WriteAgentSkillsConsumers = null
         );
@@ -146,7 +148,8 @@ internal static class CodingAgentsStep {
             bool VibeMcpRegistered = false,
             bool GrokHooksInstalled = false,
             bool MuseHooksInstalled = false,
-            bool MuseMcpRegistered = false
+            bool MuseMcpRegistered = false,
+            bool DshPluginInstalled = false
         ) {
         /// <summary>
         /// True when at least one agent's hooks were installed — i.e. there's a
@@ -156,7 +159,7 @@ internal static class CodingAgentsStep {
         /// as agents are added (consumers like SetupCommand's restart tip key off this).
         /// </summary>
         internal bool AnyHooksInstalled =>
-            ClaudeInstalled || CodexHooksInstalled || CursorHooksInstalled || CopilotHooksInstalled || GeminiHooksInstalled || KiroHooksInstalled || KiroCrewHookInstalled || PiExtensionInstalled || OpenCodeExtensionInstalled || AntigravityHooksInstalled || VibeHooksInstalled || GrokHooksInstalled || MuseHooksInstalled;
+            ClaudeInstalled || CodexHooksInstalled || CursorHooksInstalled || CopilotHooksInstalled || GeminiHooksInstalled || KiroHooksInstalled || KiroCrewHookInstalled || PiExtensionInstalled || OpenCodeExtensionInstalled || AntigravityHooksInstalled || VibeHooksInstalled || GrokHooksInstalled || MuseHooksInstalled || DshPluginInstalled;
     }
 
     /// <summary>
@@ -205,6 +208,7 @@ internal static class CodingAgentsStep {
         Add(r.VibeMcpRegistered, p.VibeConfigPath);
         Add(r.GrokHooksInstalled, p.GrokHooksPath);
         Add(r.MuseHooksInstalled || r.MuseMcpRegistered, p.MuseSettingsPath);
+        Add(r.DshPluginInstalled, p.DshPluginPath);
 
         return paths;
     }
@@ -225,8 +229,8 @@ internal static class CodingAgentsStep {
         // Ordered early-returns — BEFORE any Handle*/HandleAgentSkills/selected work — so a
         // decline (or a no-agents machine) guarantees zero artifact mutations. See
         // SetupDecisions.DecideInstallAgents for how SetupCommand derives InstallAgents.
-        if (detected is { Claude: false, Codex: false, Cursor: false, Copilot: false, Gemini: false, Kiro: false, Pi: false, OpenCode: false, Antigravity: false, Vibe: false, Grok: false, Muse: false }) {
-            writeLine("  [yellow]⚠ No supported agent CLI detected.[/] Install Claude Code, Codex CLI, Cursor, Copilot CLI, Gemini CLI, Kiro CLI, Pi, OpenCode, Antigravity, Mistral Vibe, Grok, or Muse Code to start capturing sessions.");
+        if (detected is { Claude: false, Codex: false, Cursor: false, Copilot: false, Gemini: false, Kiro: false, Pi: false, OpenCode: false, Antigravity: false, Vibe: false, Grok: false, Muse: false, Dsh: false }) {
+            writeLine("  [yellow]⚠ No supported agent CLI detected.[/] Install Claude Code, Codex CLI, Cursor, Copilot CLI, Gemini CLI, Kiro CLI, Pi, OpenCode, Antigravity, Mistral Vibe, Grok, Muse Code, or DeepSeek Harness to start capturing sessions.");
 
             return Task.FromResult(new Result(false, false, false, false, false));
         }
@@ -283,6 +287,7 @@ internal static class CodingAgentsStep {
         var grokHooksInstalled    = HandleGrokHooks(options, detected, paths, installers, writeLine);
         var museHooksInstalled    = HandleMuseHooks(options, detected, paths, installers, writeLine, out var museTools);
         var museMcpRegistered     = HandleMuseMcp(options, paths, installers, writeLine, museTools);
+        var dshPluginInstalled    = HandleDshPlugin(options, detected, paths, installers, writeLine);
 
         // the shared ~/.agents/skills/ install is decoupled from Codex: run it
         // once when any non-Claude agent is detected, independent of that agent's hook
@@ -331,7 +336,8 @@ internal static class CodingAgentsStep {
                 VibeMcpRegistered: vibeMcpRegistered,
                 GrokHooksInstalled: grokHooksInstalled,
                 MuseHooksInstalled: museHooksInstalled,
-                MuseMcpRegistered: museMcpRegistered
+                MuseMcpRegistered: museMcpRegistered,
+                DshPluginInstalled: dshPluginInstalled
             )
         );
     }
@@ -769,6 +775,47 @@ internal static class CodingAgentsStep {
 
         writeLine($"  [green]✓[/] Grok hooks installed ({Markup.Escape(paths.GrokHooksPath)})");
         writeLine("  [dim]  Note: Grok loads hooks at startup — restart any running grok session to pick them up.[/]");
+
+        return true;
+    }
+
+    static bool HandleDshPlugin(
+            Options            options,
+            DetectedAgents     detected,
+            Paths              paths,
+            Installers         installers,
+            Action<string>     writeLine
+        ) {
+        if (!detected.Dsh) {
+            writeLine("  [dim]· DeepSeek Harness not detected — skipping[/]");
+
+            return false;
+        }
+
+        writeLine("  [green]✓[/] DeepSeek Harness detected");
+
+        if (options.SkipDsh) {
+            writeLine("  [dim]· DeepSeek Harness plugin skipped by flag[/]");
+
+            return false;
+        }
+
+        // The plugin runs the bare "kcap hook --dsh" command, so dsh must find kcap on PATH.
+        if (!installers.CapacitorOnPath()) {
+            writeLine("  [yellow]⚠[/] DeepSeek Harness plugin not installed — 'kcap' is not on PATH.");
+            writeLine("    [dim]" + Markup.Escape(InstallProvenance.NotOnPathHint()) + "[/]");
+
+            return false;
+        }
+
+        if (installers.InstallDshPlugin is null || !installers.InstallDshPlugin()) {
+            writeLine($"  [yellow]⚠[/] Could not install the DeepSeek Harness plugin ({Markup.Escape(paths.DshPluginPath)}).");
+
+            return false;
+        }
+
+        writeLine($"  [green]✓[/] DeepSeek Harness plugin installed ({Markup.Escape(paths.DshPluginPath)})");
+        writeLine("  [dim]  Note: restart any running dsh session to pick it up.[/]");
 
         return true;
     }

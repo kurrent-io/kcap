@@ -29,6 +29,7 @@ public sealed class RefreshCommand(IProcessRunner runner) {
         ["plugin", "install", "--grok",        "--if-installed"],
         ["plugin", "install", "--mistral-vibe", "--if-installed"],
         ["plugin", "install", "--muse",        "--if-installed"],
+        ["plugin", "install", "--dsh",         "--if-installed"],
         ["plugin", "install",                  "--if-installed"],
         ["daemon", "service", "refresh"],
     ];

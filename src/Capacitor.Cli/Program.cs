@@ -108,7 +108,7 @@ if (InteractiveLifetime.IsInteractiveCommand(command) && detachedImport is null)
 // nested headless invocation.
 if (Environment.GetEnvironmentVariable(HostedAgent.SkipVar) is "1"
  && command == "hook"
- && (args.Contains("--claude") || args.Contains("--cursor") || args.Contains("--copilot") || args.Contains("--gemini") || args.Contains("--kiro") || args.Contains("--pi") || args.Contains("--opencode") || args.Contains("--antigravity") || args.Contains("--mistral-vibe") || args.Contains("--grok") || args.Contains("--muse"))) {
+ && (args.Contains("--claude") || args.Contains("--cursor") || args.Contains("--copilot") || args.Contains("--gemini") || args.Contains("--kiro") || args.Contains("--pi") || args.Contains("--opencode") || args.Contains("--antigravity") || args.Contains("--mistral-vibe") || args.Contains("--grok") || args.Contains("--muse") || args.Contains("--dsh"))) {
     return 0;
 }
 
@@ -1061,8 +1061,11 @@ switch (command) {
         if (args.Contains("--muse")) {
             return await Run<MuseHookCommand>().Handle(Console.In);
         }
+        if (args.Contains("--dsh")) {
+            return await Run<DshHookCommand>().Handle(args);
+        }
         Console.Error.WriteLine("kcap hook requires a vendor flag (for example --claude)");
-        Console.Error.WriteLine("Supported vendors: --claude, --codex, --cursor, --copilot, --gemini, --kiro, --pi, --opencode, --antigravity, --mistral-vibe, --grok, --muse");
+        Console.Error.WriteLine("Supported vendors: --claude, --codex, --cursor, --copilot, --gemini, --kiro, --pi, --opencode, --antigravity, --mistral-vibe, --grok, --muse, --dsh");
         return 1;
     }
     case "cursor":

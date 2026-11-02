@@ -19,4 +19,5 @@ public enum HarnessId {
     MistralVibe,
     Grok,
     Muse,
+    Dsh,
 }

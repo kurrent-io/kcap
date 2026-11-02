@@ -10,6 +10,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Harness.Dsh;
 using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Harness.Kiro;
@@ -54,10 +55,10 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         return args.Contains("--strict-refresh") && _refreshFailed ? 1 : exit;
     }
 
-    static readonly string[] ExclusiveTargetFlags = ["--codex", "--cursor", "--copilot", "--gemini", "--kiro", "--pi", "--opencode", "--antigravity", "--mistral-vibe", "--grok", "--muse", "--skills"];
+    static readonly string[] ExclusiveTargetFlags = ["--codex", "--cursor", "--copilot", "--gemini", "--kiro", "--pi", "--opencode", "--antigravity", "--mistral-vibe", "--grok", "--muse", "--dsh", "--skills"];
 
     const string MutuallyExclusiveMsg =
-        "--cursor, --codex, --copilot, --gemini, --kiro, --pi, --opencode, --antigravity, --mistral-vibe, --grok, --muse, and --skills are mutually exclusive.";
+        "--cursor, --codex, --copilot, --gemini, --kiro, --pi, --opencode, --antigravity, --mistral-vibe, --grok, --muse, --dsh, and --skills are mutually exclusive.";
 
     static bool HasConflictingTargets(string[] args) =>
         ExclusiveTargetFlags.Count(args.Contains) > 1;
@@ -99,6 +100,9 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
             if (args.Contains("--grok"))
                 return RefuseToolsOnlyAsync("Grok", "kcap installs no tools for it; Grok loads the ones set up for Claude Code");
 
+            if (args.Contains("--dsh"))
+                return RefuseToolsOnlyAsync("DeepSeek Harness", "kcap installs only its recorder plugin");
+
             if (!ExclusiveTargetFlags.Any(args.Contains))
                 return RefuseToolsOnlyAsync("Claude Code", "its MCP servers and skills ship inside the plugin that records sessions");
         }
@@ -114,6 +118,7 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         if (args.Contains("--mistral-vibe")) return InstallVibe(args);
         if (args.Contains("--grok")) return InstallGrok(args);
         if (args.Contains("--muse")) return InstallMuse(args);
+        if (args.Contains("--dsh")) return InstallDsh(args);
 
         return InstallClaude(args);
     }
@@ -154,6 +159,7 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         if (args.Contains("--mistral-vibe")) return await RemoveVibe(args);
         if (args.Contains("--grok")) return await RemoveGrok(args);
         if (args.Contains("--muse")) return await RemoveMuse(args);
+        if (args.Contains("--dsh")) return await RemoveDsh();
 
         return await RemoveClaude(args);
     }
@@ -2816,6 +2822,69 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         var skills = await ReleaseSharedSkillsAsync(HarnessId.Muse);
 
         return hooksFailed || mcpFailed || skills.HadErrors ? 1 : 0;
+    }
+
+    // ── DeepSeek Harness: a Cordis plugin loaded from the home patch layer ──
+
+    async Task<int> InstallDsh(string[] args) {
+        var dsh         = env.Harnesses.Of<DshHarness>().Paths;
+        var refreshOnly = args.Contains("--if-installed");
+        var installed   = DshPluginInstaller.IsInstalled(dsh);
+
+        if (refreshOnly && !installed && !File.Exists(dsh.LegacyPluginFile)) return 0;
+
+        // The plugin runs the bare `kcap hook --dsh`. Not checked on the postinstall path.
+        if (!refreshOnly && !KcapOnPath) {
+            await env.Stderr.WriteLineAsync(
+                "Cannot install the DeepSeek Harness plugin: 'kcap' is not on PATH. "
+              + InstallProvenance.NotOnPathHint()
+            );
+
+            return 1;
+        }
+
+        if (refreshOnly && installed && DshPluginInstaller.ReadMarker(dsh) == CapacitorVersion.Current()) return 0;
+
+        if (DshPluginInstaller.Install(dsh)) {
+            await env.Stdout.WriteLineAsync(
+                refreshOnly
+                    ? $"DeepSeek Harness plugin refreshed ({dsh.PluginFile})"
+                    : $"DeepSeek Harness plugin installed ({dsh.PluginFile}), loaded from {dsh.CordisPatch}"
+            );
+
+            return 0;
+        }
+
+        if (refreshOnly) {
+            _refreshFailed = true;
+            await env.Stderr.WriteLineAsync($"Warning: could not refresh the DeepSeek Harness plugin ({dsh.PluginFile}).");
+
+            return 0;
+        }
+
+        await env.Stderr.WriteLineAsync($"Could not install the DeepSeek Harness plugin into {dsh.PluginDir} and {dsh.CordisPatch}.");
+
+        return 1;
+    }
+
+    async Task<int> RemoveDsh() {
+        var dsh = env.Harnesses.Of<DshHarness>().Paths;
+
+        if (!DshPluginInstaller.Remove(dsh)) {
+            await env.Stdout.WriteLineAsync("Nothing to remove — the DeepSeek Harness plugin is not installed.");
+
+            return 0;
+        }
+
+        if (DshPluginInstaller.IsRegistered(dsh.CordisPatch) || Directory.Exists(dsh.PluginDir)) {
+            await env.Stderr.WriteLineAsync($"Could not fully remove the DeepSeek Harness plugin from {dsh.PluginDir} and {dsh.CordisPatch}.");
+
+            return 1;
+        }
+
+        await env.Stdout.WriteLineAsync($"DeepSeek Harness plugin removed ({dsh.PluginDir}).");
+
+        return 0;
     }
 
     async Task<int> RemoveVibe(string[] args) {

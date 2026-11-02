@@ -10,6 +10,7 @@ using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Harness.Kiro;
 using Capacitor.Cli.Core.Harness.Muse;
+using Capacitor.Cli.Core.Harness.Dsh;
 using Capacitor.Cli.Core.Harness.MistralVibe;
 using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.Harness.Pi;
@@ -141,6 +142,7 @@ sealed class UninstallCommand(
         await console.Out.WriteLineAsync($"  • Remove the kcap plugin from {harnesses.Of<AntigravityHarness>().Paths.PluginDir}");
         await console.Out.WriteLineAsync($"  • Remove kcap entries from {harnesses.Of<MuseHarness>().Paths.SettingsJson}");
         await console.Out.WriteLineAsync($"  • Remove kcap entries from {harnesses.Of<MistralVibeHarness>().Paths.HooksToml} and {harnesses.Of<MistralVibeHarness>().Paths.ConfigToml}");
+        await console.Out.WriteLineAsync($"  • Remove {harnesses.Of<DshHarness>().Paths.PluginDir} and its entry in {harnesses.Of<DshHarness>().Paths.CordisPatch}");
         await console.Out.WriteLineAsync($"  • Remove agent skills under {agents.UserSkillsDir} and vendor-specific skill trees");
         await console.Out.WriteLineAsync($"  • Remove {Path.Combine(home.Path, ".cache", "kcap")} and legacy Cursor pending recordings");
 
@@ -282,6 +284,7 @@ sealed class UninstallCommand(
             if (await pluginCommand.HandleAsync(["plugin", "remove", "--mistral-vibe"]) != 0) hadFailures = true;
             if (await pluginCommand.HandleAsync(["plugin", "remove", "--grok"])        != 0) hadFailures = true; // ~/.grok/hooks/kcap.json
             if (await pluginCommand.HandleAsync(["plugin", "remove", "--muse"])        != 0) hadFailures = true; // Muse hooks + MCP in settings.json
+            if (await pluginCommand.HandleAsync(["plugin", "remove", "--dsh"])         != 0) hadFailures = true;
 
             // Skills are removed by --codex above, but call --skills explicitly in
             // case the user only ever installed Cursor / agent-agnostic skills and

@@ -26,5 +26,6 @@ public class HandoffLaunchRecipeTests {
 
     [Test]
     public async Task The_registry_covers_every_harness() =>
-        await Assert.That(HandoffLaunchRecipe.All.Keys.ToList()).IsEquivalentTo(HarnessRegistry.Identities.Select(i => i.Id).ToList());
+        await Assert.That(HandoffLaunchRecipe.All.Keys.Concat(HandoffLaunchRecipe.Unsupported).ToList())
+                    .IsEquivalentTo(HarnessRegistry.Identities.Select(i => i.Id).ToList());
 }

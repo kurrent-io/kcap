@@ -13,6 +13,7 @@ internal static class HandoffVendorEligibility {
     public static IReadOnlyList<HandoffVendor> Eligible(
             HarnessRegistry harnesses, CodingAgentsStep.Paths paths, Func<HarnessId, bool>? installing = null) => [
         .. HarnessRegistry.Identities
+            .Where(i => HandoffLaunchRecipe.All.ContainsKey(i.Id))
             .Where(i => harnesses.Detected(i.Id) && (HasSkill(i.Id, paths) || installing?.Invoke(i.Id) == true))
             .Select(i => new HandoffVendor(i.Id, i.Label, harnesses.ResolveLaunchable(i.Id)))
     ];

@@ -22,6 +22,7 @@ public static class HarnessNames {
             HarnessId.MistralVibe => "mistral-vibe",
             HarnessId.Grok        => "grok",
             HarnessId.Muse        => "muse",
+            HarnessId.Dsh         => "dsh",
         };
 
         /// <summary>The flag that selects this one harness on our commands.</summary>
@@ -49,6 +50,7 @@ public static class HarnessNames {
             "mistral-vibe" => HarnessId.MistralVibe,
             "grok"        => HarnessId.Grok,
             "muse"        => HarnessId.Muse,
+            "dsh"         => HarnessId.Dsh,
             _             => null,
         };
 

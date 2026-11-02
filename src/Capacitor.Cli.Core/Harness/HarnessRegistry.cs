@@ -4,6 +4,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Harness.Dsh;
 using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Harness.Kiro;
@@ -56,6 +57,7 @@ public sealed class HarnessRegistry : IReadOnlyList<IHarness>, IHarnessDetection
         IdentityOf<MistralVibeHarness>(),
         IdentityOf<GrokHarness>(),
         IdentityOf<MuseHarness>(),
+        IdentityOf<DshHarness>(),
     ];
 
     static HarnessIdentity IdentityOf<TSelf>() where TSelf : IHarness<TSelf> => new(TSelf.Id, TSelf.Label);
@@ -84,6 +86,7 @@ public sealed class HarnessRegistry : IReadOnlyList<IHarness>, IHarnessDetection
             MistralVibeHarness.FromEnvironment(home),
             GrokHarness.FromEnvironment(home),
             MuseHarness.FromEnvironment(home),
+            DshHarness.FromEnvironment(home),
         ], binaries, DesktopAppProbe.FromEnvironment(home));
     }
 

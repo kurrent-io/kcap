@@ -5,6 +5,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Harness.Dsh;
 using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Harness.Kiro;
@@ -63,7 +64,8 @@ public static class TestHarnesses {
             AntigravityHarness.Over(gemini),
             MistralVibeHarness.Over(new MistralVibePaths(home, null)),
             GrokHarness.Over(new GrokPaths(home, null)),
-            MuseHarness.Over(new MusePaths(home, null, null)));
+            MuseHarness.Over(new MusePaths(home, null, null)),
+            DshHarness.Over(new DshPaths(home, null)));
     }
 
     /// <summary>One harness that answers from the search path alone — no run signal, whatever names

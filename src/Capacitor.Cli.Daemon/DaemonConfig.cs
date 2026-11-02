@@ -548,6 +548,10 @@ public class DaemonConfig {
     /// <summary>Path or bare command for the Muse Code CLI. Overridable via <c>KCAP_MUSE_PATH</c>.</summary>
     public string MusePath { get; set; } = Core.Harness.Muse.MuseHarness.CliBinary;
 
+    /// <summary>Path or bare command for DeepSeek Harness. Overridable via <c>KCAP_DSH_PATH</c>. Recording-only,
+    /// like Mistral Vibe: no launcher reads it.</summary>
+    public string DshPath { get; set; } = Core.Harness.Dsh.DshHarness.CliBinary;
+
     /// <summary>Daemon-wide default model for Muse; null keeps Muse's own default. Overridable via
     /// <c>KCAP_MUSE_MODEL</c>.</summary>
     public string? MuseModel { get; set; }
