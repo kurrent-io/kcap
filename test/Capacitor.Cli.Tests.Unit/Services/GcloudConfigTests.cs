@@ -51,4 +51,58 @@ public class GcloudConfigTests {
     [Test]
     public async Task No_config_dir_means_no_project() =>
         await Assert.That(GcloudConfig.DefaultProject(null)).IsNull();
+
+    static TempDir Configurations() {
+        var tmp = new TempDir();
+        tmp.CreateFile("active_config", "work\n");
+        tmp.CreateFile(["configurations", "config_default"], "[core]\nproject = default-proj\n");
+        tmp.CreateFile(["configurations", "config_work"], "[core]\nproject = work-proj\n");
+        tmp.CreateFile(["configurations", "config_personal"], "[core]\nproject = personal-proj\n");
+        return tmp;
+    }
+
+    [Test]
+    public async Task The_active_config_file_names_the_configuration() {
+        using var tmp = Configurations();
+
+        await Assert.That(GcloudConfig.DefaultProject(tmp.Path, Env())).IsEqualTo("work-proj");
+    }
+
+    /// <summary>gcloud lets <c>CLOUDSDK_ACTIVE_CONFIG_NAME</c> override the file, so the project is the
+    /// one the operator's gcloud is actually using.</summary>
+    [Test]
+    public async Task The_active_config_name_override_wins_over_the_file() {
+        using var tmp = Configurations();
+
+        await Assert.That(GcloudConfig.DefaultProject(tmp.Path, Env(("CLOUDSDK_ACTIVE_CONFIG_NAME", "personal"))))
+            .IsEqualTo("personal-proj");
+    }
+
+    [Test]
+    public async Task An_empty_override_falls_back_to_the_file() {
+        using var tmp = Configurations();
+
+        await Assert.That(GcloudConfig.DefaultProject(tmp.Path, Env(("CLOUDSDK_ACTIVE_CONFIG_NAME", ""))))
+            .IsEqualTo("work-proj");
+    }
+
+    [Test]
+    public async Task No_active_config_file_reads_the_default_configuration() {
+        using var tmp = new TempDir();
+        tmp.CreateFile(["configurations", "config_default"], "[core]\nproject = default-proj\n");
+
+        await Assert.That(GcloudConfig.DefaultProject(tmp.Path, Env())).IsEqualTo("default-proj");
+    }
+
+    /// <summary>The name is joined into a path, so one gcloud would refuse cannot reach a file outside
+    /// <c>configurations</c>.</summary>
+    [Test]
+    [Arguments("x/../../escape")]
+    [Arguments("Work")]
+    public async Task A_name_gcloud_would_refuse_derives_nothing(string name) {
+        using var tmp = Configurations();
+        tmp.CreateFile("escape", "[core]\nproject = escaped-proj\n");
+
+        await Assert.That(GcloudConfig.DefaultProject(tmp.Path, Env(("CLOUDSDK_ACTIVE_CONFIG_NAME", name)))).IsNull();
+    }
 }

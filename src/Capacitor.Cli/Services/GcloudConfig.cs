@@ -37,15 +37,24 @@ static class GcloudConfig {
     /// <summary>The active configuration's <c>[core] project</c> under <paramref name="root"/> (see
     /// <see cref="ConfigDir(Core.UserHome)"/>), or null when gcloud is not set up, the config is
     /// unreadable, or no project is set. Never throws.</summary>
-    public static string? DefaultProject(string? root) {
+    public static string? DefaultProject(string? root) => DefaultProject(root, Environment.GetEnvironmentVariable);
+
+    /// <summary>The active configuration is picked as gcloud picks it: <c>CLOUDSDK_ACTIVE_CONFIG_NAME</c>,
+    /// then the <c>active_config</c> file, then <c>default</c>. A name gcloud would refuse derives
+    /// nothing, since it is joined into a path.</summary>
+    internal static string? DefaultProject(string? root, Func<string, string?> env) {
         if (root is null) return null;
 
         try {
             var active = "default";
 
             var activePath = Path.Combine(root, "active_config");
-            if (File.Exists(activePath) && File.ReadAllText(activePath).Trim() is { Length: > 0 } name)
+            if (env("CLOUDSDK_ACTIVE_CONFIG_NAME") is { Length: > 0 } overridden)
+                active = overridden;
+            else if (File.Exists(activePath) && File.ReadAllText(activePath).Trim() is { Length: > 0 } name)
                 active = name;
+
+            if (!IsConfigurationName(active)) return null;
 
             var configPath = Path.Combine(root, "configurations", $"config_{active}");
 
@@ -54,6 +63,11 @@ static class GcloudConfig {
             return null;
         }
     }
+
+    /// <summary>gcloud's own rule for a configuration name: a lowercase letter, then lowercase letters,
+    /// digits and hyphens.</summary>
+    static bool IsConfigurationName(string name) =>
+        char.IsAsciiLetterLower(name[0]) && name.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-');
 
     /// <summary>Minimal INI walk: the <c>project</c> key inside the <c>[core]</c> section and
     /// nowhere else — the same key under another section (e.g. <c>[compute]</c>) means something
