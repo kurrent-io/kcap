@@ -5,7 +5,8 @@ namespace Capacitor.Cli.Daemon.Services;
 
 /// A fixed viewport that applies the cursor and erase sequences a full-screen TUI uses to redraw.
 /// Stripping those sequences and keeping the bytes leaves a menu on the scrollback after the
-/// screen has overwritten it, so a match has to be read off the cells the cursor last wrote.
+/// screen has overwritten it, so a match has to be read off the cells the cursor last wrote. On Windows
+/// ConPTY repaints with its own sequences (erase-character, delete-line, scroll regions), so those count too.
 internal sealed class AnsiScreen {
     int _cols;
     int _rows;
@@ -17,6 +18,8 @@ internal sealed class AnsiScreen {
     int _col;
     int _savedRow;
     int _savedCol;
+    int _top;
+    int _bottom;
     Mode _mode = Mode.Ground;
     bool _private;
     bool _paramStarted;
@@ -40,6 +43,7 @@ internal sealed class AnsiScreen {
         _rows  = rows;
         _cells = new char[cols * rows];
         Array.Fill(_cells, ' ');
+        _bottom = rows - 1;
     }
 
     public int Cols => _cols;
@@ -59,6 +63,8 @@ internal sealed class AnsiScreen {
         _col      = Math.Min(_col, cols - 1);
         _savedRow = Math.Min(_savedRow, rows - 1);
         _savedCol = Math.Min(_savedCol, cols - 1);
+        _top      = 0;
+        _bottom   = rows - 1;
     }
 
     public void Write(ReadOnlySpan<byte> bytes) {
@@ -137,6 +143,20 @@ internal sealed class AnsiScreen {
             case ']':
                 _mode = Mode.Osc;
                 break;
+            case '7':
+                _savedRow = _row;
+                _savedCol = _col;
+                _mode = Mode.Ground;
+                break;
+            case '8':
+                _row = _savedRow;
+                _col = _savedCol;
+                _mode = Mode.Ground;
+                break;
+            case 'M':
+                ReverseIndex();
+                _mode = Mode.Ground;
+                break;
             case '(':
             case ')':
                 _mode = Mode.OscEsc;
@@ -182,7 +202,13 @@ internal sealed class AnsiScreen {
             case 'B': Move(0, Param(0, 1)); break;
             case 'C': Move(Param(0, 1), 0); break;
             case 'D': Move(-Param(0, 1), 0); break;
-            case 'G': _col = Math.Clamp(Param(0, 1) - 1, 0, _cols - 1); break;
+            case 'E': Move(0, Param(0, 1)); _col = 0; break;
+            case 'F': Move(0, -Param(0, 1)); _col = 0; break;
+            case 'G':
+            case '`':
+                _col = Math.Clamp(Param(0, 1) - 1, 0, _cols - 1);
+                break;
+            case 'd': _row = Math.Clamp(Param(0, 1) - 1, 0, _rows - 1); break;
             case 'H':
             case 'f':
                 _row = Math.Clamp(Param(0, 1) - 1, 0, _rows - 1);
@@ -193,6 +219,31 @@ internal sealed class AnsiScreen {
                 break;
             case 'K':
                 EraseLine(Param(0, 0));
+                break;
+            case 'X':
+                Fill(_row * _cols + _col, _row * _cols + Math.Min(_cols, _col + Param(0, 1)));
+                break;
+            case 'P':
+                ShiftLine(-Param(0, 1));
+                break;
+            case '@':
+                ShiftLine(Param(0, 1));
+                break;
+            case 'L':
+                if (_row >= _top && _row <= _bottom) { ScrollDown(_row, _bottom, Param(0, 1)); _col = 0; }
+                break;
+            case 'M':
+                if (_row >= _top && _row <= _bottom) { ScrollUp(_row, _bottom, Param(0, 1)); _col = 0; }
+                break;
+            case 'S':
+                ScrollUp(_top, _bottom, Param(0, 1));
+                break;
+            // With more than one parameter CSI T is a mouse-tracking request, not a scroll.
+            case 'T' when _paramCount <= 1:
+                ScrollDown(_top, _bottom, Param(0, 1));
+                break;
+            case 'r':
+                SetMargins(Param(0, 1) - 1, Param(1, _rows) - 1);
                 break;
             case 's':
                 _savedRow = _row;
@@ -237,9 +288,48 @@ internal sealed class AnsiScreen {
 
     void LineFeed() {
         _col = 0;
-        if (_row < _rows - 1) { _row++; return; }
-        Array.Copy(_cells, _cols, _cells, 0, _cells.Length - _cols);
-        Fill(_cells.Length - _cols, _cells.Length);
+        if (_row == _bottom) ScrollUp(_top, _bottom, 1);
+        else if (_row < _rows - 1) _row++;
+    }
+
+    void ReverseIndex() {
+        if (_row == _top) ScrollDown(_top, _bottom, 1);
+        else if (_row > 0) _row--;
+    }
+
+    /// A region that is not at least two rows is ignored, as a terminal ignores it; a valid one homes the cursor.
+    void SetMargins(int top, int bottom) {
+        bottom = Math.Min(bottom, _rows - 1);
+        if (top < 0 || top >= bottom) return;
+        (_top, _bottom) = (top, bottom);
+        (_row, _col)    = (0, 0);
+    }
+
+    /// Moves rows <paramref name="top"/>+n..<paramref name="bottom"/> up by n and blanks the n rows freed at the bottom.
+    void ScrollUp(int top, int bottom, int n) {
+        n = Math.Min(n, bottom - top + 1);
+        Array.Copy(_cells, (top + n) * _cols, _cells, top * _cols, (bottom - top + 1 - n) * _cols);
+        Fill((bottom + 1 - n) * _cols, (bottom + 1) * _cols);
+    }
+
+    void ScrollDown(int top, int bottom, int n) {
+        n = Math.Min(n, bottom - top + 1);
+        Array.Copy(_cells, top * _cols, _cells, (top + n) * _cols, (bottom - top + 1 - n) * _cols);
+        Fill(top * _cols, (top + n) * _cols);
+    }
+
+    /// Deletes (negative) or inserts (positive) blank cells at the cursor, shifting the rest of the row.
+    void ShiftLine(int by) {
+        var start = _row * _cols;
+        var count = Math.Min(Math.Abs(by), _cols - _col);
+        var tail  = _cols - _col - count;
+        if (by < 0) {
+            Array.Copy(_cells, start + _col + count, _cells, start + _col, tail);
+            Fill(start + _cols - count, start + _cols);
+        } else {
+            Array.Copy(_cells, start + _col, _cells, start + _col + count, tail);
+            Fill(start + _col, start + _col + count);
+        }
     }
 
     enum Mode { Ground, Esc, Csi, Osc, OscEsc }

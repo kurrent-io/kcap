@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Capacitor.Cli.Daemon.Harness.Claude;
 using TUnit.Assertions.Enums;
@@ -117,6 +118,20 @@ public class ClaudeTerminalDialogDetectorTests {
 
         await Assert.That(screen.Observe(Utf8(CursorUp)).Dialog?.Selected).IsEqualTo(1);
         await Assert.That(screen.Observe(Utf8(Erase)).Dialog).IsNull();
+    }
+
+    /// ConPTY repaints an emptied row with erase-character and scrolls the rest away with delete-line, rather
+    /// than the erase-line Claude itself sends; the dialog must clear either way.
+    [Test]
+    [Arguments("\x1b[{0};1H\x1b[120X")]
+    [Arguments("\x1b[1;1H\x1b[30M")]
+    public async Task A_dialog_erased_the_way_conpty_repaints_clears(string perRow) {
+        var screen = new ClaudeScreenWatcher();
+        await Assert.That(screen.Observe(Utf8(Dialog)).Dialog).IsNotNull();
+
+        var erase = string.Concat(Enumerable.Range(1, 30).Select(row => string.Format(CultureInfo.InvariantCulture, perRow, row)));
+
+        await Assert.That(screen.Observe(Utf8(erase)).Dialog).IsNull();
     }
 
     [Test]
