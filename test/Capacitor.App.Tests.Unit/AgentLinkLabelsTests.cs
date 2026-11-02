@@ -67,6 +67,17 @@ public class AgentLinkLabelsTests {
     }
 
     [Test]
+    public async Task The_local_row_wins_whichever_spelling_the_link_matches_exactly() {
+        var (rows, labels) = Build();
+        using var _ = labels;
+        rows.AddOrUpdate(Row(AgentOrigin.Remote, "0f8fad5b-d9cb-469f-a165-70867728950e", "Remote twin"));
+        rows.AddOrUpdate(Row(AgentOrigin.Local, "0f8fad5bd9cb469fa16570867728950e", "Local agent"));
+
+        await Assert.That(AgentLinkLabels.HeldIdOf(rows.AsObservableCache(), "0f8fad5b-d9cb-469f-a165-70867728950e")).IsEqualTo("0f8fad5bd9cb469fa16570867728950e");
+        await Assert.That(labels.For($"{Server}/agents/0f8fad5b-d9cb-469f-a165-70867728950e")?.Text).IsEqualTo("Local agent");
+    }
+
+    [Test]
     public async Task An_agent_the_app_does_not_hold_has_no_stored_id() {
         var (rows, labels) = Build();
         using var _ = labels;

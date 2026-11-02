@@ -40,23 +40,17 @@ public sealed class AgentLinkLabels : IDisposable {
     public static string? HeldIdOf(IObservableCache<AgentRow, string> rows, string agentId) =>
         HeldRows(rows, agentId).FirstOrDefault()?.Id;
 
-    // A row keeps the spelling its source used, so a dashed GUID key never matches an undashed link.
+    // A row keeps the spelling its source used, so rows match by normalized id; lane order is the
+    // workspace's own preference, local before remote.
     static IEnumerable<AgentRow> HeldRows(IObservableCache<AgentRow, string> rows, string agentId) {
         var normalized = AgentIds.Normalize(agentId);
-        string[] spellings = normalized is null || normalized == agentId ? [agentId] : [agentId, normalized];
-        foreach (var spelling in spellings)
-            foreach (var lane in Lanes)
-                if (rows.Lookup($"{lane}:{spelling}") is { HasValue: true, Value: var row })
-                    yield return row;
-        foreach (var row in rows.Items)
-            if (IsAgentLane(row) && AgentIds.Normalize(row.Id) == normalized)
-                yield return row;
+        return rows.Items
+            .Where(row => IsAgentLane(row) && AgentIds.Normalize(row.Id) == normalized)
+            .OrderBy(row => row.Origin switch { AgentOrigin.Local => 0, AgentOrigin.Pending => 1, _ => 2 });
     }
 
-    static bool IsAgentLane(AgentRow row) => row.Origin is AgentOrigin.Local or AgentOrigin.Pending or AgentOrigin.Remote;
-
     // Server rows are keyed by session id, which an agent link does not carry.
-    static readonly string[] Lanes = ["local", "pending", "remote"];
+    static bool IsAgentLane(AgentRow row) => row.Origin is AgentOrigin.Local or AgentOrigin.Pending or AgentOrigin.Remote;
 
     static bool BecameTitled(Change<AgentRow, string> change) =>
         IsAgentLane(change.Current)
