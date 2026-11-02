@@ -755,7 +755,11 @@ public static partial class DaemonRunner {
         await accounts.RebuildAsync(CancellationToken.None);
         startupWatch.Entering("probing model catalogs");
         await ProbeVendorCatalogsAsync(config, runtimeFactories, accounts.Current, CancellationToken.None,
-            new ProbeCeiling(CatalogProbeCeiling, time, key => LogCatalogProbeOverran(logger, key, (int)CatalogProbeCeiling.TotalSeconds)));
+            new ProbeCeiling(CatalogProbeCeiling, time, key => LogCatalogProbeOverran(logger, key, (int)CatalogProbeCeiling.TotalSeconds),
+                key => {
+                    LogCatalogProbeAnsweredLate(logger, key);
+                    config.LateCatalogKeys.TryAdd(key, 0);
+                }));
         foreach (var (vendor, models) in config.VendorModels!) LogVendorModels(logger, vendor, models.Length);
         foreach (var (id, models) in config.VendorModelsByAccount!) LogVendorModels(logger, VendorModelCatalogs.AccountKey(id), models.Length);
         LogStartupPhase(logger, "vendors probed");
@@ -2146,6 +2150,9 @@ public static partial class DaemonRunner {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Model catalog probe for {Key} did not finish within {Seconds}s; starting without its models")]
     static partial void LogCatalogProbeOverran(ILogger logger, string key, int seconds);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Model catalog probe for {Key} answered after the startup limit; re-probing it")]
+    static partial void LogCatalogProbeAnsweredLate(ILogger logger, string key);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "{Vendor}: {Count} models")]
     static partial void LogVendorModels(ILogger logger, string vendor, int count);

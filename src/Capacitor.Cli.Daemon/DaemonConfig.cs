@@ -215,6 +215,11 @@ public class DaemonConfig {
     /// it begins watching. Replaced by reference.</summary>
     public IReadOnlyDictionary<string, Services.CatalogPathStat[]>? VendorCatalogBaselines { get; set; }
 
+    /// <summary>Catalog keys whose startup probe overran its limit and answered afterwards. The vendor CLI
+    /// watcher asks for a refresh when one is added, and a refresh probes these vendors though they have no
+    /// catalog yet.</summary>
+    public System.Collections.Concurrent.ConcurrentDictionary<string, byte> LateCatalogKeys { get; } = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Vendor tokens this daemon accepts a launch-time ACP permission preset for — the installed
     /// hostable vendors (a subset of <see cref="SupportedVendors"/>) that route permissions through

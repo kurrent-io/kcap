@@ -92,6 +92,30 @@ public class VendorModelCatalogsTests {
     }
 
     [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_probe_past_the_ceiling_that_answers_later_is_named_only_when_it_has_a_catalog(bool hasCatalog) {
+        var time  = new FakeTimeProvider();
+        var late  = new ConcurrentQueue<string>();
+        var stuck = new TaskCompletionSource<IReadOnlyList<VendorModelOption>?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        IHostedAgentRuntimeFactory[] factories = [new StubCatalogFactory("codex", [B]) { Probe = () => stuck.Task }];
+
+        var probing = VendorModelCatalogs.ProbeAsync(
+            factories, ["codex"], CancellationToken.None, new ProbeCeiling(TimeSpan.FromSeconds(30), time, _ => { }, late.Enqueue));
+        time.Advance(TimeSpan.FromSeconds(30));
+        await probing.WaitAsync(TimeSpan.FromSeconds(30));
+        await Assert.That(late).IsEmpty();
+
+        stuck.SetResult(hasCatalog ? [B] : null);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (hasCatalog && late.IsEmpty && DateTime.UtcNow < deadline) await Task.Delay(10);
+        if (!hasCatalog) await Task.Delay(100);
+
+        string[] expected = hasCatalog ? ["codex"] : [];
+        await Assert.That(late.ToArray()).IsEquivalentTo(expected);
+    }
+
+    [Test]
     public async Task An_account_probe_past_the_ceiling_is_named_by_its_account_key() {
         var time    = new FakeTimeProvider();
         var overran = new ConcurrentQueue<string>();

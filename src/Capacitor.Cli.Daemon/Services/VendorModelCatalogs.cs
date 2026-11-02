@@ -81,8 +81,10 @@ internal static class VendorModelCatalogs {
         try {
             return await probe.WaitAsync(ceiling.Limit, ceiling.Time).ConfigureAwait(false);
         } catch (TimeoutException) {
-            _ = probe.ContinueWith(
-                static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+            _ = probe.ContinueWith(t => {
+                if (t.IsFaulted) _ = t.Exception;
+                else if (t.IsCompletedSuccessfully && t.Result is not null) ceiling.AnsweredLate?.Invoke(key);
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             ceiling.Overran(key);
             return null;
         }

@@ -1708,7 +1708,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 var supported         = _config.SupportedVendors ?? [];
                 var catalogVendors    = !probeCatalog ? [] : _runtimeFactories.Values
                     .Where(f => supported.Contains(f.Vendor, StringComparer.Ordinal))
-                    .Where(f => f.CatalogFingerprintPaths.Count > 0 || (previousCatalog?.ContainsKey(f.Vendor) ?? false))
+                    .Where(f => f.CatalogFingerprintPaths.Count > 0 || (previousCatalog?.ContainsKey(f.Vendor) ?? false)
+                             || _config.LateCatalogKeys.ContainsKey(f.Vendor))
                     .Select(f => f.Vendor)
                     .ToArray();
                 var accountFactory = probeCatalog ? VendorModelCatalogs.AccountFactory(_runtimeFactories.Values, supported) : null;
