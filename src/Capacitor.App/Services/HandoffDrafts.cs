@@ -143,6 +143,8 @@ public sealed class HandoffDrafts : IDisposable {
                     _pending.Remove(id);
                     if (!_resumesSeen.Remove(id)) {
                         StoreFailed(held.SourceSessionId, Failed(held.Draft, "", resume: true));
+                        // Offered again, Resume could start a second launch beside one that may still be starting.
+                        _resumeFailed.Add(held.SourceSessionId);
                         unsettled = true;
                     }
                 }

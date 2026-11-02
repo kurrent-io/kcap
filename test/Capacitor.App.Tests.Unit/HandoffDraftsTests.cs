@@ -37,6 +37,7 @@ public class HandoffDraftsTests {
         time.Advance(TimeSpan.FromMinutes(10));
 
         await Assert.That(drafts.TakeFailed("source-1")?.Text).IsEqualTo("carry on");
+        await Assert.That(drafts.ResumeFailed("source-1")).IsTrue();
     }
 
     /// <summary>A resume whose agent showed up as a row started: its expiry returns nothing.</summary>
