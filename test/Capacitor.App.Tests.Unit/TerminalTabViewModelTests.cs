@@ -340,6 +340,71 @@ public class TerminalTabViewModelTests {
         });
     }
 
+    /// Pins that the ring waits for the pane's own size: parsed at the placeholder, every row wraps at
+    /// a width the agent never drew at, and a PTY sized to the placeholder redraws the agent at it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_unmeasured_surface_holds_the_replay_and_the_resize_until_the_pane_measures_it() {
+        await RunOnUiAsync(async () => {
+            var surface = new FakeTerminalSurface { Measured = false };
+            var (_, _, _, vm, client) = await BuildConnectingAsync(surfaceFactory: () => surface);
+
+            await client.TriggerAttached("ring"u8.ToArray());
+            await client.TriggerOutput("live"u8.ToArray());
+            await Assert.That(surface.Fed).IsEmpty();
+            await Assert.That(client.Resizes).IsEmpty();
+
+            surface.CurrentSize = (150, 45);
+            surface.RaiseResize(150, 45);
+            await Assert.That(string.Concat(surface.Fed)).IsEqualTo("ringlive");
+            await Assert.That(client.Resizes).IsEquivalentTo(new[] { (150, 45) });
+
+            await client.TriggerOutput("next"u8.ToArray());
+            await Assert.That(string.Concat(surface.Fed)).IsEqualTo("ringlivenext");
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// A pane that is never laid out still shows the ring after the hidden-feed interval, and its
+    /// placeholder never reaches the PTY.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_never_measured_surface_takes_the_replay_on_the_hidden_feed_interval_without_resizing() {
+        await RunOnUiAsync(async () => {
+            var surface = new FakeTerminalSurface { Measured = false };
+            var (_, _, time, vm, client) = await BuildConnectingAsync(surfaceFactory: () => surface);
+
+            await client.TriggerAttached("ring"u8.ToArray());
+            time.Advance(TerminalTabViewModel.HiddenFeedInterval);
+
+            await Assert.That(string.Concat(surface.Fed)).IsEqualTo("ring");
+            await Assert.That(client.Resizes).IsEmpty();
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// A pane that takes its size without raising a resize is still sized once the held replay is fed.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_surface_measured_without_a_resize_event_is_sized_when_the_held_replay_is_fed() {
+        await RunOnUiAsync(async () => {
+            var surface = new FakeTerminalSurface { Measured = false };
+            var (_, _, time, vm, client) = await BuildConnectingAsync(surfaceFactory: () => surface);
+
+            await client.TriggerAttached("ring"u8.ToArray());
+            surface.CurrentSize = (150, 45);
+            surface.Measured = true;
+            time.Advance(TerminalTabViewModel.HiddenFeedInterval);
+
+            await Assert.That(string.Concat(surface.Fed)).IsEqualTo("ring");
+            await Assert.That(client.Resizes).IsEquivalentTo(new[] { (150, 45) });
+
+            time.Advance(TerminalTabViewModel.HiddenFeedInterval);
+            await Assert.That(client.Resizes.Count).IsEqualTo(1);
+            await vm.TeardownAsync();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Exited_maps_to_exited_banner_and_connection_lost_maps_to_failed() {

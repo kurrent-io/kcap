@@ -156,7 +156,7 @@ public partial class App : Application {
     ICredentialSource? ServerCredentials(ProfileContext? profiles) => ServerLane(profiles)?.GetRequiredService<ICredentialSource>();
 
     // And its one read of KCAP_APP_PTY_DUMP: a file every terminal feed frame is appended to as
-    // received, for seeing what the emulator was given.
+    // received, with sizes and attaches in a sibling .events file.
     static readonly string? PtyDumpPath = Environment.GetEnvironmentVariable("KCAP_APP_PTY_DUMP");
 
     // Both are app-lifetime and BOTH exist before any graph does: OnShutdownRequested latches and
@@ -1129,9 +1129,7 @@ public partial class App : Application {
             _ = reportCliSetup(_shutdown.Token);
         });
 
-        // One attach client per attempt, dialed at the daemon's own control socket; 80x24 is a
-        // placeholder only — TerminalControl resizes its model to the real pane the moment it is
-        // attached to the visual tree (WorkspaceView's own header comment).
+        // One attach client per attempt, dialed at the daemon's own control socket.
         var attachFactory = CoreTerminalAttachClient.Factory(() => _daemonStore.SocketPath(service.DaemonName));
         var isLocalServer = IsLocalServer(profiles?.Resolution.ServerUrl, _localRoot);
         var requestSignIn = SignInRequestFor(isLocalServer, () => {
@@ -1207,7 +1205,7 @@ public partial class App : Application {
         _usageClock = readings.Clock;
         var handoffOutcomes = new HandoffOutcomeReader(service, ops, _time);
         WorkspaceViewModel BuildWorkspace(string agentId) => new(
-            agentId, service, actions, attachFactory, () => new XtermTerminalSurface(80, 24, PtyDumpPath), _time, workspaceOpener, permissions,
+            agentId, service, actions, attachFactory, () => XtermTerminalSurface.ForLocalPane(PtyDumpPath), _time, workspaceOpener, permissions,
             workContext, ops, uploader,
             requestSignIn: requestSignIn, signInCompleted: serverClients.SignInCompleted, pullRequests: readers,
             linkGitHub: linkGitHub,

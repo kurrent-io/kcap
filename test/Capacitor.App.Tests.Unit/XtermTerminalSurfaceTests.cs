@@ -121,6 +121,54 @@ public class XtermTerminalSurfaceTests {
         });
     }
 
+    /// Pins the sidecar a capture is read against: each line carries the dump's byte length at that
+    /// moment, so a size can be placed between the bytes fed before and after it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_dump_path_stamps_each_event_with_the_dump_length_so_far() {
+        await RunOnUiAsync(async () => {
+            var dump = Tmp.PathTo("feed.bin");
+            var surface = new XtermTerminalSurface(40, 4, dump);
+            surface.Feed("ab⏵");
+            surface.NoteDiagnostic("resize-sent 50x10");
+
+            var events = File.ReadAllLines(dump + ".events");
+            await Assert.That(events[0]).EndsWith("\t@0\tsurface 40x4 reflow=False placeholder=False");
+            await Assert.That(events[^1]).EndsWith("\t@5\tresize-sent 50x10");
+        });
+    }
+
+    /// Pins that a pane-sized surface counts as measured once its size leaves the placeholder, even
+    /// when nothing raised a size event.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_placeholder_surface_is_measured_once_resized() {
+        await RunOnUiAsync(async () => {
+            var surface = new XtermTerminalSurface(80, 24, awaitsPaneSize: true);
+            await Assert.That(surface.Measured).IsFalse();
+
+            surface.Resize(120, 40);
+
+            await Assert.That(surface.Measured).IsTrue();
+        });
+    }
+
+    /// Pins that the surface rewraps a soft-wrapped row when it widens: with the resize quirk ConPTY
+    /// leaves that to the terminal. The row is finished first; the engine does not rewrap the row the
+    /// cursor is still on.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_reflowing_surface_rejoins_a_wrapped_row_when_it_widens() {
+        await RunOnUiAsync(async () => {
+            var surface = new XtermTerminalSurface(20, 4, reflowOnResize: true);
+            surface.Feed(new string('x', 30) + "\r\nnext");
+
+            surface.Resize(40, 4);
+
+            await Assert.That(surface.Model.Terminal.Engine.GetLine(0)).IsEqualTo(new string('x', 30));
+        });
+    }
+
     /// Pins that a resized viewport leaves the cursor on the line it was on, so the repaint an
     /// agent sends on SIGWINCH lands on the tail rather than above it. The feed must overflow the
     /// viewport first — without scrollback the emulator has no lines to give back on a grow.

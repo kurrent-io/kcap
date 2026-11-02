@@ -318,12 +318,29 @@ public sealed class TerminalTabViewModel : ReactiveObject {
     bool AgentIsWaiting => _lastDto is { Status: "Running", AwaitingInput: true };
 
     // Idle chat viewers must not provoke redraws. Active and unknown turns retain terminal
-    // negotiation: a buffered query can still be waiting for its first answer.
+    // negotiation: a buffered query can still be waiting for its first answer. An unmeasured
+    // surface reports its placeholder, and a PTY sized to it makes the agent draw at that width.
     void ResizeSurface() {
         if ((!SurfaceShown && AgentIsWaiting) || State is not { Phase: TerminalSessionPhase.Attached, ReadOnly: false }
-            || Surface is not { } surface || _client is not { } client) return;
+            || Surface is not { Measured: true } surface || _client is not { } client) return;
         var (cols, rows) = surface.CurrentSize;
+        SendResize(client, surface, cols, rows);
+    }
+
+    // The surface a size has gone out for; UI thread only.
+    ITerminalSurface? _sizedSurface;
+
+    void SendResize(ITerminalAttachClient client, ITerminalSurface surface, int cols, int rows) {
+        _sizedSurface = surface;
+        surface.NoteDiagnostic($"resize-sent {cols}x{rows}");
         _ = client.ResizeAsync(cols, rows);
+    }
+
+    // A pane can take its size without raising a resize, which leaves the attach's own resize skipped
+    // and nothing else to send one.
+    void OnHeldTimer() {
+        FeedHeld(force: true);
+        if (!ReferenceEquals(_sizedSurface, Surface)) ResizeSurface();
     }
 
     // Held ring replays are megabytes; kept as the pieces they arrived in so holding them adds no copy.
@@ -336,8 +353,12 @@ public sealed class TerminalTabViewModel : ReactiveObject {
 
     void Deliver(int generation, ITerminalSurface surface, string text) => Deliver(generation, surface, [text]);
 
+    /// Output for a surface the pane has not sized yet is held like hidden output: a replay parsed
+    /// at the placeholder wraps every row at its width, and nothing redraws those rows. The first
+    /// measurement feeds it, or the hidden-feed timer does if the pane is never laid out.
     void Deliver(int generation, ITerminalSurface surface, IReadOnlyList<string> pieces, bool replay = false) {
-        if (_surfaceShown) {
+        if (_surfaceShown && surface.Measured) {
+            if (ReferenceEquals(_heldSurface, surface)) FeedHeld();
             surface.Feed(pieces, replay);
             return;
         }
@@ -353,11 +374,12 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         _heldArmed = true;
         // Off-thread in production, synchronous under a fake clock: the scheduler keeps the feed
         // on the UI thread either way.
-        _heldTimer ??= _time.CreateTimer(_ => RxSchedulers.MainThreadScheduler.Schedule(FeedHeld), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _heldTimer ??= _time.CreateTimer(_ => RxSchedulers.MainThreadScheduler.Schedule(OnHeldTimer), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _heldTimer.Change(HiddenFeedInterval, Timeout.InfiniteTimeSpan);
     }
 
-    void FeedHeld() {
+    void FeedHeld(bool force = false) {
+        if (!force && _heldSurface is { Measured: false }) return;
         _heldArmed = false;
         if (_held.Count == 0 && _heldSnapshot is null) return;
         var snapshot = _heldSnapshot;
@@ -659,10 +681,13 @@ public sealed class TerminalTabViewModel : ReactiveObject {
             if (Retired(generation) || State.ReadOnly) return;
             _ = client.SendInputAsync(bytes);
         };
+        // A resize is also the surface's first measurement, which releases what Deliver held for it.
         surface.Resized += (cols, rows) => {
-            if (Retired(generation) || (!SurfaceShown && AgentIsWaiting)
+            if (Retired(generation)) return;
+            if (_surfaceShown) FeedHeld();
+            if ((!SurfaceShown && AgentIsWaiting)
                 || State is not { Phase: TerminalSessionPhase.Attached, ReadOnly: false }) return;
-            _ = client.ResizeAsync(cols, rows);
+            SendResize(client, surface, cols, rows);
         };
     }
 
@@ -679,6 +704,8 @@ public sealed class TerminalTabViewModel : ReactiveObject {
                 _resumeDeadline = null;
                 _attachedIncarnation = incarnation;
             }
+            var (cols, rows) = surface.CurrentSize;
+            surface.NoteDiagnostic($"attached snapshot={ack.Snapshot.Length}B surface={cols}x{rows} measured={surface.Measured}");
             Deliver(generation, surface, pieces, replay: AgentIsWaiting);
             Publish(TerminalSessionState.Attached(ack.ReadOnlyReason), openingToken);
             ResizeSurface();
@@ -957,6 +984,8 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         _heldTimer = null;
         _held.Clear();
         _heldSnapshot = null;
+        _heldSurface = null;
+        _sizedSurface = null;
 
         Interlocked.Increment(ref _attemptGeneration);
 
