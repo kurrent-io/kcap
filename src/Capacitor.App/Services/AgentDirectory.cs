@@ -531,13 +531,19 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             // The listing says live until the server folds the end; the agent's own end is the newer word.
             var shown = !serverEnded && _finished.Contains(sid) ? dto with { Status = "ended", EndedAt = dto.LastActivityAt } : dto;
             var server = AgentRow.FromServer(shown, hosted) with { OwnerIsViewer = Ownership(dto, sid) };
-            // The listing carries no checkout and often no cwd; what the daemon row reported while it
-            // hosted the session is the evidence, kept only where the viewer still has full access.
-            if (dto.AccessLevel == "full" && _hostedFacts.TryGetValue(sid, out var facts))
+            // What the daemon row reported while it hosted the session outranks the listing, kept only at full
+            // access, and stays one checkout. A local row's missing worktree means the agent runs in the checkout itself,
+            // so it stands; only a registry row, which never names one, takes the agent worktree the listing's cwd names,
+            // and only when it belongs to the same repository. Both paths are on the daemon's machine, so they compare
+            // exactly, not by this host's case rules.
+            if (dto.AccessLevel == "full" && _hostedFacts.TryGetValue(sid, out var facts)) {
+                var listingWorktree = !facts.FromLocal && facts.WorktreePath is null && server.WorktreePath is { } named
+                    && (facts.RepoPath is null || SameRemotePath(facts.RepoPath, server.RepoPath)) ? named : null;
                 server = server with {
-                    RepoPath = facts.RepoPath ?? server.RepoPath, WorktreePath = facts.WorktreePath,
+                    RepoPath = facts.RepoPath ?? server.RepoPath, WorktreePath = facts.WorktreePath ?? listingWorktree,
                     WorkLocation = facts.WorkLocation, BorrowedFrom = facts.BorrowedFrom, Branch = facts.Branch ?? server.Branch,
                 };
+            }
             next.Add(server);
         }
 
@@ -545,6 +551,9 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
         var nextLapse = _hostedUntil.Count == 0 ? Timeout.InfiniteTimeSpan : _hostedUntil.Values.Min() - now;
         _graceExpiry.Change(nextLapse, Timeout.InfiniteTimeSpan);
     }
+
+    static bool SameRemotePath(string a, string? b) =>
+        b is not null && string.Equals(a.TrimEnd('/', '\\'), b.TrimEnd('/', '\\'), StringComparison.Ordinal);
 
     /// Under Mine the scoped listing answers; under Team only the account's ids can, and only once known.
     bool? OwnerIsViewer(RepoSessionDto dto, bool inMine) => _scope == RailScope.Mine ? inMine : ViewerOwns(dto);
