@@ -495,6 +495,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             var serverEnded = dto.Status != "active";
             var suppressServer = false;
             var hostedNow = false;
+            var hostedLocally = false;
             next.RemoveAll(row => {
                 if (row.Origin is not (AgentOrigin.Local or AgentOrigin.Remote) || listedIdOf.GetValueOrDefault(row.Key) != sid || !Matchable(row)) return false;
                 if (row.Origin == AgentOrigin.Remote) {
@@ -517,13 +518,13 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                 switch (row.Status) {
                     case "Completed": return true;
                     case "Failed": suppressServer = true; return false;
-                    default: suppressServer = true; hostedNow = true; return false;
+                    default: suppressServer = true; hostedNow = hostedLocally = true; return false;
                 }
             });
-            if (hostedNow) {
-                _hostedUntil[sid] = now + HandoverGrace;
-                _finished.Remove(sid);
-            }
+            if (hostedNow) _hostedUntil[sid] = now + HandoverGrace;
+            // Only the daemon that finished the agent can say it runs again: a registry row, unproven twin or another
+            // daemon's, can lag that daemon's completion, so it keeps the grace without undoing the end.
+            if (hostedLocally) _finished.Remove(sid);
             if (serverEnded) _finished.Remove(sid);
             if (suppressServer) continue;
             var hosted = _hostedUntil.TryGetValue(sid, out var until) && until > now;

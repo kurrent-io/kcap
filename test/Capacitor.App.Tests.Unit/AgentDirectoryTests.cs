@@ -746,6 +746,32 @@ public class AgentDirectoryTests {
         await Assert.That(row.Branch).IsNull();
     }
 
+    /// A registry row still listing the session as running lags the local daemon that finished it, so it does not
+    /// undo the local completion; a live local row does.
+    [Test]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    public async Task Only_a_live_local_row_undoes_a_local_completion(bool localResumes, bool ended) {
+        var (local, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        remote.CurrentSubject.OnNext(true);
+        MineLive(sessions, "S");
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S", status: "Completed"));
+        // The daemon drops its completed row before the lagging registry row arrives.
+        local.Agents.RemoveKey("a1");
+        remote.Cache.AddOrUpdate(Remote("z9", daemon: "unproven", owner: "me", sessionId: "S"));
+        remote.Cache.RemoveKey("z9");
+        if (localResumes) {
+            local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+            local.Agents.RemoveKey("a1");
+        }
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.IsEndedSession).IsEqualTo(ended);
+    }
+
     /// The daemon's paths are protected session content like the listing's own branch: a viewer the
     /// server now lists below full access gets none of them.
     [Test]
