@@ -49,12 +49,12 @@ public class AgentAttachClientTests {
 
         var run = client.RunAsync(120, 40, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
-        var first = await server.FirstFrame.Task;              // the opening Attach frame
+        var first = await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
         await server.SendAttachedAsync(AgentId, [1, 2, 3]);
         await server.SendStdoutAsync([4, 5]);
         await server.SendExitedAsync(7);
 
-        var outcome = await run;
+        var outcome = await run.WithinDeadlineAsync("the run to settle");
 
         // The Received pump is a background drain (ScriptedAttachServer's own doc comment);
         // waiting for the frame we actually assert on makes the read deterministic instead of
@@ -84,13 +84,13 @@ public class AgentAttachClientTests {
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
-        await rec.AttachedObserved.Task;
+        await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");
         await client.SendInputAsync([42]);
         await client.ResizeAsync(137, 41);
         await server.SendExitedAsync(0);
-        await run;
-        await client.DisposeAsync();
-        await server.InboundDrained;
+        await run.WithinDeadlineAsync("the run to settle");
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
+        await server.InboundDrained.WithinDeadlineAsync("the server to drain inbound frames to EOF");
 
         var received = server.SnapshotReceived();
         await Assert.That(received.Single(f => f.Type == FrameType.Stdin).Bytes).IsEquivalentTo(new byte[] { 42 });
@@ -109,10 +109,10 @@ public class AgentAttachClientTests {
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedReadOnlyAsync(AgentId, "flow participant", [9]);
         await server.SendExitedAsync(0);
-        await run;
+        await run.WithinDeadlineAsync("the run to settle");
 
         await Assert.That(rec.Attached.Single().Reason).IsEqualTo("flow participant");
-        await Assert.That(server.Received.Any(f => f.Type == FrameType.Resize)).IsFalse();
+        await Assert.That(server.SnapshotReceived().Any(f => f.Type == FrameType.Resize)).IsFalse();
     }
 
     [Test]
@@ -125,11 +125,11 @@ public class AgentAttachClientTests {
 
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
-        var first = await server.FirstFrame.Task;
+        var first = await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
         await server.SendAsync(LocalFrame.RuntimeStarted(started));
         await server.SendAttachedReadOnlyAsync(AgentId, "review", [1]);
         await server.SendExitedAsync(0);
-        await run;
+        await run.WithinDeadlineAsync("the run to settle");
 
         await Assert.That(first.Type).IsEqualTo(FrameType.AttachWithRuntime);
         await Assert.That(first.Text).IsEqualTo(AgentId);
@@ -147,9 +147,9 @@ public class AgentAttachClientTests {
 
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
-        var first = await server.FirstFrame.Task;
+        var first = await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
         await server.SendAsync(LocalFrame.RuntimeStarted(DateTimeOffset.UnixEpoch));
-        var outcome = await run;
+        var outcome = await run.WithinDeadlineAsync("the run to settle");
 
         await Assert.That(first.Type).IsEqualTo(FrameType.Attach);
         await Assert.That(outcome).IsTypeOf<AttachOutcome.Failed>();
@@ -167,7 +167,7 @@ public class AgentAttachClientTests {
         await server.AcceptAndPumpInboundAsync();
         await server.SendErrorAsync("no such agent aaaa…");
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.Failed("no such agent aaaa…"));
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Failed("no such agent aaaa…"));
         await Assert.That(rec.Attached).IsEmpty();
     }
 
@@ -196,7 +196,7 @@ public class AgentAttachClientTests {
         await Task.Delay(100);
         gate.SetResult();
         await server.SendExitedAsync(0);
-        await run;
+        await run.WithinDeadlineAsync("the run to settle");
 
         await Assert.That(maxConcurrent).IsEqualTo(1);
         await Assert.That(count).IsEqualTo(2);
@@ -215,8 +215,8 @@ public class AgentAttachClientTests {
         await server.WaitForReceivedAsync(FrameType.Detach);   // deterministic: pump has drained it
         server.CloseConnection();                       // daemon closes; no ack
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.Detached());
-        await Assert.That(server.Received.Any(f => f.Type == FrameType.Detach)).IsTrue();
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Detached());
+        await Assert.That(server.SnapshotReceived().Any(f => f.Type == FrameType.Detach)).IsTrue();
     }
 
     [Test]
@@ -231,7 +231,7 @@ public class AgentAttachClientTests {
         await client.DetachAsync();
         await server.SendExitedAsync(3);                // daemon raced: exit after Detach
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.Exited(3));
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Exited(3));
     }
 
     [Test]
@@ -247,10 +247,10 @@ public class AgentAttachClientTests {
         // only delivered after buffered data. Without this wait, CloseConnection() can beat
         // the client's read of Attached, so it never observes attach and the run settles
         // Failed instead of ConnectionLost.
-        await rec.AttachedObserved.Task;
+        await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");
         server.CloseConnection();
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.ConnectionLost());
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
     }
 
     [Test]
@@ -261,10 +261,10 @@ public class AgentAttachClientTests {
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
-        await rec.AttachedObserved.Task;              // Windows RST guard — see comment above
+        await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
         await server.SendRawThenCloseAsync([0x41, 0x00]);          // stdout type byte + half a length
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.ConnectionLost());
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
     }
 
     [Test]
@@ -285,11 +285,11 @@ public class AgentAttachClientTests {
         var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
-        await server.FirstFrame.Task;                   // Attach written, first reply pending
+        await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");  // Attach written, first reply pending
 
-        await client.DisposeAsync();                    // must not throw
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");  // must not throw
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.Detached());
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Detached());
     }
 
     [Test]
@@ -316,8 +316,8 @@ public class AgentAttachClientTests {
 
         cts.Cancel();
 
-        await Assert.ThrowsAsync<OperationCanceledException>(async () => await run);
-        await client.DisposeAsync();                    // must complete cleanly
+        await Assert.ThrowsAsync<OperationCanceledException>(async () => await run.WithinDeadlineAsync("the run to settle"));
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");  // must complete cleanly
     }
 
     [Test]
@@ -331,11 +331,11 @@ public class AgentAttachClientTests {
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
         await server.SendStdoutAsync([1]);
-        await entered.Task;                              // callback is now stuck on the internal token
+        await entered.Task.WithinDeadlineAsync("the output callback to be entered");  // callback is now stuck on the internal token
 
-        await client.DisposeAsync();
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.Detached());
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Detached());
     }
 
     [Test]
@@ -347,10 +347,10 @@ public class AgentAttachClientTests {
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
         await server.SendExitedAsync(0);
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.Exited(0));   // run already completed, unforced
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Exited(0));   // run already completed, unforced
 
-        await client.DisposeAsync();                    // dispose after a completed run: must not throw
-        await client.DisposeAsync();                    // second dispose: must not throw
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");  // dispose after a completed run: must not throw
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");  // second dispose: must not throw
     }
 
     [Test]
@@ -360,13 +360,13 @@ public class AgentAttachClientTests {
         await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
-        await server.FirstFrame.Task;
+        await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
 
         await client.SendInputAsync([1]);
         await client.ResizeAsync(100, 30);
         await server.SendAttachedAsync(AgentId, []);
         await server.SendExitedAsync(0);
-        await run;
+        await run.WithinDeadlineAsync("the run to settle");
 
         // Deterministic: the stream is ordered, so observing the post-attach Resize nudge proves
         // any erroneous pre-attach Stdin (which would have arrived first) is already recorded too.
@@ -392,9 +392,9 @@ public class AgentAttachClientTests {
         await client.SendInputAsync([1]);
         await client.ResizeAsync(100, 30);
         await server.SendExitedAsync(0);
-        await run;
+        await run.WithinDeadlineAsync("the run to settle");
 
-        await Assert.That(server.Received.Any(f => f.Type is FrameType.Stdin or FrameType.Resize)).IsFalse();
+        await Assert.That(server.SnapshotReceived().Any(f => f.Type is FrameType.Stdin or FrameType.Resize)).IsFalse();
     }
 
     [Test]
@@ -411,11 +411,12 @@ public class AgentAttachClientTests {
         await server.WaitForReceivedAsync(FrameType.Detach);   // deterministic: pump has drained it
         await client.SendInputAsync([9]);
         server.CloseConnection();
-        await run;
+        await run.WithinDeadlineAsync("the run to settle");
 
-        var detachIndex = server.Received.FindIndex(f => f.Type == FrameType.Detach);
+        var received = server.SnapshotReceived();
+        var detachIndex = received.FindIndex(f => f.Type == FrameType.Detach);
         await Assert.That(detachIndex).IsGreaterThanOrEqualTo(0);
-        await Assert.That(server.Received.Skip(detachIndex + 1).Any(f => f.Type == FrameType.Stdin)).IsFalse();
+        await Assert.That(received.Skip(detachIndex + 1).Any(f => f.Type == FrameType.Stdin)).IsFalse();
     }
 
     [Test]
@@ -428,7 +429,7 @@ public class AgentAttachClientTests {
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
         await server.SendExitedAsync(0);
-        await run;
+        await run.WithinDeadlineAsync("the run to settle");
 
         await server.WaitForReceivedAsync(FrameType.Resize);
         var resize = server.SnapshotReceived().Single(f => f.Type == FrameType.Resize);
@@ -471,13 +472,13 @@ public class AgentAttachClientTests {
             // drained is the whole question below.
             server.ShutdownSend();
 
-            var outcome = await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+            var outcome = await runTask.WithinDeadlineAsync("the run to settle");
 
             // The client writes nothing further once its run has settled, so closing it here ends the
             // pump at EOF rather than at a deadline. Joining the pump is what makes "no Attach
             // arrived" a fact about the wire instead of a snapshot taken before it caught up.
-            await client.DisposeAsync();
-            await server.InboundDrained;
+            await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
+            await server.InboundDrained.WithinDeadlineAsync("the server to drain inbound frames to EOF");
 
             var receivedAttach = server.SnapshotReceived().Any(f => f.Type == FrameType.Attach);
 
@@ -503,13 +504,13 @@ public class AgentAttachClientTests {
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
         await Task.Delay(50);
-        var before = server.Received.Count(f => f.Type == FrameType.Resize);
+        var before = server.SnapshotReceived().Count(f => f.Type == FrameType.Resize);
 
         await client.ResizeAsync(cols, rows);
         await server.SendExitedAsync(0);
-        await run;
+        await run.WithinDeadlineAsync("the run to settle");
 
-        await Assert.That(server.Received.Count(f => f.Type == FrameType.Resize)).IsEqualTo(before);
+        await Assert.That(server.SnapshotReceived().Count(f => f.Type == FrameType.Resize)).IsEqualTo(before);
     }
 
     /// Read side held open: the write failure alone must settle the run.
@@ -521,12 +522,12 @@ public class AgentAttachClientTests {
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
-        await rec.AttachedObserved.Task;              // Windows RST guard — see comment above
+        await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
 
         server.CloseConnection();                                  // break the transport under the writer
         await client.SendInputAsync([1, 2, 3]);                    // must not throw
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.ConnectionLost());
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
     }
 
     [Test]
@@ -540,8 +541,8 @@ public class AgentAttachClientTests {
         await server.SendAttachedAsync(AgentId, []);
         await Task.Delay(50);
 
-        await client.DisposeAsync();
-        await run;
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
+        await run.WithinDeadlineAsync("the run to settle");
 
         await Assert.That(sink.Entries).IsEmpty();
     }
@@ -565,9 +566,9 @@ public class AgentAttachClientTests {
 
         var dispose = client.DisposeAsync();
         disposeStarted.SetResult();
-        await dispose;                                             // completes normally, no rethrow
+        await dispose.WithinDeadlineAsync("dispose to join the run");  // completes normally, no rethrow
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.Detached());
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Detached());
         await Assert.That(sink.Entries.Count(e => ReferenceEquals(e.Ex, boom))).IsEqualTo(1);
     }
 
@@ -585,8 +586,8 @@ public class AgentAttachClientTests {
         await server.SendAttachedAsync(AgentId, []);
         await server.SendStdoutAsync([1]);
 
-        var thrown = await Assert.ThrowsAsync<AttachCallbackException>(async () => await run);
-        await client.DisposeAsync();                               // completes normally
+        var thrown = await Assert.ThrowsAsync<AttachCallbackException>(async () => await run.WithinDeadlineAsync("the run to settle"));
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");  // completes normally
 
         await Assert.That(thrown!.InnerException).IsSameReferenceAs(boom);
         // the fault WON — it is the result, not a losing diagnostic:
@@ -602,13 +603,13 @@ public class AgentAttachClientTests {
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
-        await rec.AttachedObserved.Task;              // Windows RST guard — see comment above
+        await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
 
         server.CloseConnection();
         await client.SendInputAsync([1]);                          // write failure → loser or winner, sink throws either way
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.ConnectionLost());
-        await client.DisposeAsync();                               // still clean
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");  // still clean
     }
 
     /// A second, independent throwing-sink drive. The output callback parks on the
@@ -633,30 +634,25 @@ public class AgentAttachClientTests {
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
-        await attachedObserved.Task;                  // Windows RST guard — see comment above
+        await attachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
         await server.SendStdoutAsync([1]);
-        await pumpParked.Task;
+        await pumpParked.Task.WithinDeadlineAsync("the pump to park in the output callback");
 
         server.CloseConnection();
         await client.SendInputAsync([1, 2, 3]);                     // the only producer that can possibly fail right now
 
-        await client.DisposeAsync();                                 // unblocks the parked callback via the internal token
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.ConnectionLost());  // the already-claimed cause wins
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");  // unblocks the parked callback via the internal token
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());  // the already-claimed cause wins
 
         await Assert.That(sinkCalls).IsEqualTo(1);
         await Assert.That(contexts).IsEquivalentTo(["outbound write"]);
-        await client.DisposeAsync();                                 // idempotent even after a throwing sink
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");  // idempotent even after a throwing sink
     }
 
-    /// A deterministic pump-side LOSS (review finding C1): the pump is parked
-    /// inside `onOutput` (armed, not yet released), so nothing on the read side
-    /// can claim anything while an input-write failure independently claims
-    /// `ConnectionLost` and tears down the local transport. Releasing the
-    /// callback then lets the pump's own next read hit the now-disposed stream —
-    /// its exception LOSES the already-claimed slot, and since it lost to
-    /// `ConnectionLost` (not `Detached`), the socket-close exclusion does not
-    /// apply: it must be observed through the sink exactly once, alongside the
-    /// writer's own report.
+    /// A deterministic pump-side loss: the pump is parked inside `onOutput`, so an input-write
+    /// failure claims `ConnectionLost` first. The pump's next read then fails on the disposed stream
+    /// and loses to `ConnectionLost`, not `Detached`, so the socket-close exclusion does not apply:
+    /// the sink sees it exactly once, alongside the writer's own report.
     [Test]
     public async Task Pump_exception_losing_to_writer_connection_lost_is_reported_once() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
@@ -673,29 +669,26 @@ public class AgentAttachClientTests {
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
-        await attachedObserved.Task;                      // Windows RST guard — see comment above
+        await attachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
         await server.SendStdoutAsync([1]);
-        await pumpBlocked.Task;                           // inside the callback, gate not yet open
+        await pumpBlocked.Task.WithinDeadlineAsync("the pump to block in the output callback");  // inside the callback, gate not yet open
 
         server.CloseConnection();
         await client.SendInputAsync([9]);                 // the writer claims ConnectionLost, closes the local transport
 
         gate.SetResult();                                  // release the pump: its next read hits the disposed stream
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.ConnectionLost());
-        await client.DisposeAsync();
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
 
         await Assert.That(sink.Entries.Count(e => e.Context == "transport")).IsEqualTo(1);
         await Assert.That(sink.Entries.Count(e => e.Context == "outbound write")).IsEqualTo(1);
         await Assert.That(sink.Entries.Count).IsEqualTo(2);
     }
 
-    /// A deterministic pump-side WIN (review finding C4): nothing else races this
-    /// exception — the pump's own truncated-frame read is the first and only
-    /// cause-slot claim. Per the ruling, a winning transport exception is now
-    /// ALSO reported: `ConnectionLost` carries no detail, so the sink is the only
-    /// place it ever surfaces — the most common real failure (the daemon dying,
-    /// detected by the reader) must yield an errno somewhere, not silence.
+    /// A deterministic pump-side win: the truncated-frame read is the only cause-slot claim, and it
+    /// is reported anyway, because `ConnectionLost` carries no detail and the daemon dying would
+    /// otherwise leave no errno anywhere.
     [Test]
     public async Task Pump_exception_winning_the_slot_is_reported_once() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
@@ -705,39 +698,24 @@ public class AgentAttachClientTests {
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
-        await rec.AttachedObserved.Task;              // Windows RST guard — see comment above
+        await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
         await server.SendRawThenCloseAsync([0x41, 0x00]);   // stdout type byte + half a length: mid-header truncation
 
-        await Assert.That(await run).IsEqualTo(new AttachOutcome.ConnectionLost());
-        await client.DisposeAsync();
+        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
 
         await Assert.That(sink.Entries.Count).IsEqualTo(1);
         await Assert.That(sink.Entries.Single().Context).IsEqualTo("transport");
     }
 
-    /// The other half of the input-write-failure-vs-detach-intent ordering (review
-    /// finding I2 — the brief's "both orderings" requirement's second half): here
-    /// `DisposeAsync`'s `Detached` claim wins first, and an outbound write —
-    /// already past its own guard check and genuinely in flight — faults when
-    /// `DisposeAsync`'s teardown lands underneath it. `ReportIfLost`'s
-    /// socket-close exclusion must swallow that fault: the sink stays empty. This
-    /// is a genuine, unforced race (see the loop comment below for why and how it
-    /// is repeated rather than hit in one shot) — not a claim of proven
-    /// concurrency, only of repeated, honest attempts at it.
+    /// The detach-first ordering of an input-write failure: `DisposeAsync`'s `Detached` claim wins,
+    /// and an outbound write already in flight faults when its teardown lands underneath.
+    /// `ReportIfLost`'s socket-close exclusion must swallow that fault, so the sink stays empty.
     [Test]
     public async Task Write_losing_to_an_already_claimed_detach_is_excluded_from_the_sink() {
-        // No test-side hook exists into the write's actual I/O (frozen API), so the
-        // desired interleaving — a write already past its guard check and genuinely
-        // in flight (either still inside FrameCodec.WriteAsync, or in its own
-        // finally releasing _writeLock) when DisposeAsync's Detached claim and
-        // teardown land — cannot be forced deterministically in one shot. Confirmed
-        // empirically: a single attempt hits it about half the time (observed both
-        // an IOException from the disposed stream and an ObjectDisposedException
-        // from _writeLock.Release() racing _writeLock.Dispose()). So this forces
-        // the ordering across repeats instead of a single race hoped to land: every
-        // attempt must stay silent regardless of whether that specific interleaving
-        // landed on it, and 25 attempts make it near-certain at least one did.
-        // Verified by mutation: deleting ReportIfLost's exclusion turns this red.
+        // Nothing exposes the write's I/O to hook, so the interleaving cannot be forced in one shot.
+        // A single attempt lands it about half the time; every attempt must stay silent, and 25
+        // make it near-certain at least one did.
         for (var attempt = 0; attempt < 25; attempt++) {
             var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
             var sink = new RecordingSink();
@@ -751,10 +729,10 @@ public class AgentAttachClientTests {
             var huge = new byte[8 * 1024 * 1024 - 64];      // near FrameCodec's payload cap: real in-flight time on write
             var writeTask = Task.Run(() => client.SendInputAsync(huge));
             await Task.Yield();                              // give the write a chance past its guard, into real I/O
-            await client.DisposeAsync();                     // claims Detached first, then tears down the local transport
-            await writeTask;                                 // must not throw regardless of the race's outcome
+            await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");  // claims Detached first, then tears down the local transport
+            await writeTask.WithinDeadlineAsync("the input write to return");  // must not throw regardless of the race's outcome
 
-            await Assert.That(await run).IsEqualTo(new AttachOutcome.Detached());
+            await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Detached());
             await Assert.That(sink.Entries).IsEmpty();
         }
     }
@@ -803,21 +781,21 @@ public class AgentAttachClientTests {
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
-        await attachedObserved.Task;                               // Windows RST guard — see comment above
+        await attachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
         await server.SendStdoutAsync([1]);
         await Task.Delay(50);                                      // pump is blocked inside the callback, gated on `proceed`
 
         server.CloseConnection();                                  // break the transport under the writer
         var writeTask = Task.Run(async () => await client.SendInputAsync([9]).ConfigureAwait(false));
 
-        await firstInSink.Task;             // the write's own report has entered the sink and parked, holding _sinkLock
+        await firstInSink.Task.WithinDeadlineAsync("the write's report to park in the sink");  // the write's own report has entered the sink and parked, holding _sinkLock
         proceed.SetResult();                // now let the callback fault fire — it must lose the already-claimed slot
         await Task.Delay(50);               // real wall-clock time for it to reach Report and block on the held lock
         releaseFirst.SetResult();           // release the write's parked call; the blocked callback call can now proceed
 
-        await writeTask;                    // must not throw
-        var outcome = await run;            // the write already won the slot: no callback fault is ever thrown here
-        await client.DisposeAsync();
+        await writeTask.WithinDeadlineAsync("the input write to return");  // must not throw
+        var outcome = await run.WithinDeadlineAsync("the run to settle");  // the write already won the slot: no callback fault is ever thrown here
+        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
 
         await Assert.That(maxConcurrent).IsEqualTo(1);                          // serialized under proven contention
         await Assert.That(outcome).IsEqualTo(new AttachOutcome.ConnectionLost());
