@@ -11,8 +11,11 @@ public class CodexRoundConfirmationTests {
     /// time, so a continuation that resumed on the pool has registered its next delay before the clock
     /// moves on.</summary>
     static async Task<CodexRoundConfirmation.Result> Settle(FakeTimeProvider time, Task<CodexRoundConfirmation.Result> task) {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (!task.IsCompleted && DateTime.UtcNow < deadline) {
+        var deadline = DateTime.UtcNow + BoundedWait.Deadline;
+        while (!task.IsCompleted) {
+            if (DateTime.UtcNow >= deadline)
+                throw new TimeoutException($"Stalled waiting for the confirmation to settle: not done within {BoundedWait.DeadlineSeconds}s.");
+
             time.Advance(Poll);
             await Task.WhenAny(task, Task.Delay(5));
         }
@@ -82,6 +85,33 @@ public class CodexRoundConfirmationTests {
         var result = await Settle(time, Confirm(time, () => 10, () => Task.FromResult(false)));
 
         await Assert.That(result).IsEqualTo(new CodexRoundConfirmation.Result(CodexRoundConfirmation.Verdict.NotStarted, false));
+    }
+
+    /// <summary>An Enter parked in a write the terminal never drains cannot hold the verdict back, and
+    /// does not count as written.</summary>
+    [Test]
+    public async Task A_resubmit_that_never_returns_still_ends_not_started() {
+        var time  = new FakeTimeProvider();
+        var stuck = new TaskCompletionSource<bool>();
+
+        var result = await Settle(time, Confirm(time, () => 10, () => stuck.Task));
+
+        await Assert.That(result).IsEqualTo(new CodexRoundConfirmation.Result(CodexRoundConfirmation.Verdict.NotStarted, false));
+    }
+
+    /// <summary>A turn the Enter started while its write was still pending is credited to the resubmit.</summary>
+    [Test]
+    public async Task Growth_while_the_resubmit_is_pending_is_credited_to_it() {
+        var  time    = new FakeTimeProvider();
+        long length  = 10;
+        var  pending = new TaskCompletionSource<bool>();
+
+        var result = await Settle(time, Confirm(time, () => length, () => {
+            length = 42;
+            return pending.Task;
+        }));
+
+        await Assert.That(result).IsEqualTo(new CodexRoundConfirmation.Result(CodexRoundConfirmation.Verdict.StartedAfterResubmit, false));
     }
 
     /// <summary>An unreadable rollout is a measurement gap: nothing is resubmitted and nothing fails.</summary>

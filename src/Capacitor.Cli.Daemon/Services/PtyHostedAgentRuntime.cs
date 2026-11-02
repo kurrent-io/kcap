@@ -56,8 +56,9 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// </summary>
     internal static readonly TimeSpan GracefulStopLaneWait = TimeSpan.FromSeconds(1);
 
-    /// <summary>How long a resubmit waits for the input lane: past a submit spray, short of a write
-    /// wedged in <c>write(2)</c>, which would otherwise hold the round's verdict.</summary>
+    /// <summary>How long a resubmit waits for the input lane: past a submit spray, and well inside the
+    /// round's confirmation window, so a lane freed only after the verdict never gets an Enter the
+    /// verdict did not count.</summary>
     internal static readonly TimeSpan ResubmitLaneWait = TimeSpan.FromSeconds(5);
 
     /// <summary>

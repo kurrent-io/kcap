@@ -10,8 +10,8 @@ namespace Capacitor.Cli.Daemon.Harness.Codex;
 internal static class CodexRoundConfirmation {
     internal enum Verdict { Started, StartedAfterResubmit, NotStarted, Unavailable, Superseded, Cancelled }
 
-    /// <param name="ResubmitWritten">Whether the extra Enter reached the terminal; false when a dialog,
-    /// a stop or a busy input lane held it back.</param>
+    /// <param name="ResubmitWritten">Whether the extra Enter reached the terminal by the verdict; false
+    /// when a dialog, a stop or a busy input lane held it back, or its write had not returned.</param>
     internal readonly record struct Result(Verdict Verdict, bool ResubmitWritten);
 
     /// <summary>How long each attempt waits for a turn. A submitted prompt shows within seconds, and two
@@ -32,10 +32,18 @@ internal static class CodexRoundConfirmation {
         if (isCurrent is not null && !isCurrent()) return new(Verdict.Superseded, false);
         if (ct.IsCancellationRequested) return new(Verdict.Cancelled, false);
 
-        var written = await resubmit();
+        // Not awaited before the second window: a terminal that stopped draining input holds the Enter
+        // in a write nothing can cancel, and the round must still reach a verdict. The verdict is final;
+        // an Enter whose write returns after it counts as not written.
+        var resubmitting = resubmit();
 
         var second = await CodexTurnObserver.ObserveGrowthAsync(
             currentLength, baseline, window, pollInterval, time, ct, isCurrent, turnAttested);
+
+        var written = resubmitting is { IsCompletedSuccessfully: true, Result: true };
+        if (!resubmitting.IsCompletedSuccessfully)
+            _ = resubmitting.ContinueWith(static t => _ = t.Exception, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
         return new(Map(second, resubmitted: true), written);
     }
