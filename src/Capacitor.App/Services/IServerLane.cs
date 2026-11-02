@@ -33,6 +33,8 @@ public interface IServerLane {
     /// A session the server lists started, changed, ended, was renamed or was deleted.
     IObservable<SessionPush> SessionPushes { get; }
     IObservable<PendingInputUpdate> PendingInputChanged { get; }
+    /// The agent whose held messages changed, for its owner and the sender.
+    IObservable<string> HeldMessagesChanged { get; }
     /// Null when the lane has no live connection right now.
     Task<IReadOnlyList<Capacitor.Remote.Models.DaemonInfo>?> GetConnectedDaemonsAsync(CancellationToken ct);
     /// Null when the lane has no live connection right now, or the call failed.

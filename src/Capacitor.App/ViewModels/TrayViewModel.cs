@@ -314,7 +314,8 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
         var laneConnected = directory.RemoteStale.Select(stale => !stale);
         return remoteRows.CombineLatest(laneConnected, attention, (rows, connected, sessions) => {
             var entries = rows.Where(r => r.SessionId is { } sid && sessions.Contains(sid))
-                .Select(r => new TrayAgentEntry(r.Id, $"{r.Title ?? r.Vendor} · on {r.MachineBadge}", r.Kind, StopEnabled: true, AgentOrigin.Remote))
+                .Select(r => new TrayAgentEntry(r.Id, $"{r.Title ?? r.Vendor} · on {r.MachineBadge}", r.Kind,
+                    StopEnabled: AgentViewerAccess.From(r.ViewerRights).CanPressKeys, AgentOrigin.Remote))
                 .ToList();
             return new RemoteTraySummary(rows.Count, connected, entries.Count, entries);
         });
@@ -411,7 +412,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
                     StopEnabled: !stopsInFlight.Contains(AgentActionService.StopKey(AgentOrigin.Local, a.Id))));
 
         var remoteEntries = (remote.AttentionEntries ?? [])
-            .Select(e => e with { StopEnabled = !stopsInFlight.Contains(e.Key) });
+            .Select(e => e with { StopEnabled = e.StopEnabled && !stopsInFlight.Contains(e.Key) });
 
         return [.. local, .. remoteEntries];
     }

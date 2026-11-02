@@ -26,11 +26,13 @@ public class RemoteTerminalViewModelTests {
         public readonly RemoteTerminalViewModel Vm;
 
         /// <param name="subscribe">The server's answers, in place before the pane's first showing asks.</param>
-        public Harness(bool visible = true, Func<string, Task<HubCallOutcome>>? subscribe = null, bool measured = true) {
+        public Harness(bool visible = true, Func<string, Task<HubCallOutcome>>? subscribe = null, bool measured = true,
+                IObservable<AgentViewerAccess>? viewer = null) {
             if (subscribe is not null) Lane.TerminalSubscribeHandler = subscribe;
             Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
             Visible = new BehaviorSubject<bool>(visible);
-            Vm = new RemoteTerminalViewModel("a1", Lane, Access, Ended, Visible, Time, () => { var s = new FakeTerminalSurface(); Surfaces.Add(s); return s; });
+            Vm = new RemoteTerminalViewModel("a1", Lane, Access, Ended, Visible, Time, () => { var s = new FakeTerminalSurface(); Surfaces.Add(s); return s; },
+                viewer);
             if (measured) Vm.SetViewport(80, 24);
         }
 
@@ -484,6 +486,51 @@ public class RemoteTerminalViewModelTests {
             await WaitUntilAsync(() => h.Lane.TerminalSubscribes.Count == 2, what: "the second subscribe");
             await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live, what: "live again");
             await Assert.That(h.Surfaces.Count).IsEqualTo(2);
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    static AgentViewerAccess Held => AgentViewerAccess.From(new AgentViewerRightsDto { Reaches = true, HoldMessages = true });
+
+    /// A held viewer watches the terminal but neither presses its keys nor sizes it, and is told why; the hold
+    /// lifting hands both back.
+    [Test]
+    public async Task A_held_viewer_neither_presses_keys_nor_sizes_the_terminal() {
+        await RunOnUiAsync(async () => {
+            var viewer = new BehaviorSubject<AgentViewerAccess>(Held);
+            var h = new Harness(viewer: viewer);
+            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live, what: "live");
+            await Assert.That(h.Vm.ControlRefusal).IsEqualTo(AgentViewerAccess.HeldReason);
+            await Assert.That(await h.Vm.SendKeyCommand.CanExecute.FirstAsync()).IsFalse();
+            h.Surfaces.Single().RaiseInput([0x1b]);
+            h.Vm.SetViewport(100, 30);
+            await Assert.That(h.Lane.SpecialKeys).IsEmpty();
+            await Assert.That(h.Lane.Resizes).IsEmpty();
+
+            viewer.OnNext(AgentViewerAccess.Unrestricted);
+            await WaitUntilAsync(() => h.Lane.Resizes.Contains(("a1", 100, 30)), what: "the viewport once the hold lifts");
+            await Assert.That(h.Vm.ControlRefusal).IsNull();
+            await Assert.That(await h.Vm.SendKeyCommand.CanExecute.FirstAsync()).IsTrue();
+
+            viewer.OnNext(Held);
+            await WaitUntilAsync(() => h.Lane.ResizeReleases.Contains("a1"), what: "the viewport given back");
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    public async Task A_key_refused_for_an_open_question_says_so_until_a_key_lands() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live, what: "live");
+            h.Lane.SpecialKeyHandler = _ => Task.FromResult(
+                HubCallOutcome.Denied("Session not visible to caller: the agent is waiting on a question you can't answer"));
+            await h.Vm.SendKeyCommand.Execute(SpecialKeys.Enter);
+            await Assert.That(h.Vm.KeyRefusal).IsEqualTo("The agent is waiting on a question you can't answer");
+
+            h.Lane.SpecialKeyHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+            await h.Vm.SendKeyCommand.Execute(SpecialKeys.Enter);
+            await Assert.That(h.Vm.KeyRefusal).IsNull();
             await h.Vm.TeardownAsync();
         });
     }

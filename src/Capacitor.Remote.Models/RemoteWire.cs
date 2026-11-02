@@ -48,6 +48,7 @@ public static class HubBroadcasts {
     public const string SessionAccessChanged   = "SessionAccessChanged";
     public const string RawStreamAccessRevoked = "RawStreamAccessRevoked";
     public const string DaemonAccountsChanged  = "DaemonAccountsChanged";
+    public const string HeldMessagesChanged    = "HeldMessagesChanged";
 }
 
 public static class ApiRoutes {
@@ -70,6 +71,11 @@ public static class ApiRoutes {
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/agents/{Uri.EscapeDataString(agentId)}/events?from={from}";
     public static string PermissionResponse(string sessionId, string requestId) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/permission-response/{Uri.EscapeDataString(requestId)}";
+    public static string HeldMessages(string agentId) =>
+        $"api/agents/{Uri.EscapeDataString(agentId)}/held-messages";
+    /// decision is approve, reject or withdraw.
+    public static string HeldMessageDecision(string agentId, Guid dispatchId, string decision) =>
+        $"{HeldMessages(agentId)}/{dispatchId}/{decision}";
 }
 
 /// Named keys understood by the daemon; wheel reports use TerminalScrollKey.
@@ -96,6 +102,14 @@ public static class WireTokens {
     public const string SessionAccessRecheckFailed = "Session access recheck failed; retry";
     /// HubException message for a stream subscribe the caller may not make.
     public const string StreamNotAuthorized = "Not authorized to subscribe to this stream.";
+    /// HubException message fragment refusing input while a question the sender may not answer waits on the
+    /// agent. It also carries SessionNotVisible, so it arrives as a denial.
+    public const string QuestionPending = "the agent is waiting on a question you can't answer";
+    /// held-message route error code for a decision the open question blocks.
+    public const string HeldQuestionPending = "question_pending";
+
+    public static bool IsQuestionPending(string? message) =>
+        message is not null && message.Contains(QuestionPending, StringComparison.Ordinal);
 }
 
 /// Behaviors the permission-response route accepts.

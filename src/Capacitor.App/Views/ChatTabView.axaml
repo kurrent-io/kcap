@@ -505,7 +505,7 @@
         <Border x:Name="ComposerBand" Grid.Row="2" Padding="22,15,22,16"
                 Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                 BorderThickness="0,1,0,0">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
                 <!-- Runs that outlive the turn. Warning marks work in flight here as it does on a running
                      tool, not attention. -->
                 <Border x:Name="SubagentsBanner" Grid.Row="0" Margin="0,0,0,8" Padding="13,10"
@@ -579,21 +579,72 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Messages held for the owner's approval: the owner decides each, a sender may withdraw their own. -->
+                <Border x:Name="HeldMessagesBanner" Grid.Row="2" Margin="0,0,0,8" Padding="13,10"
+                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                        BorderThickness="1" CornerRadius="8" IsVisible="{Binding Held.HasItems, FallbackValue=False}">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Held messages" FontSize="13.5" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}" />
+                        <TextBlock Text="{Binding Held.ErrorText}" FontSize="12" Foreground="{StaticResource KcapDangerBrush}" TextWrapping="Wrap"
+                                   IsVisible="{Binding Held.ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+                        <ScrollViewer MaxHeight="160" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl ItemsSource="{Binding Held.Items}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:HeldMessageItemViewModel">
+                                        <Grid Margin="0,2" ColumnDefinitions="*,Auto">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock FontSize="11" Foreground="{StaticResource KcapFaintBrush}" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{Binding Sender}" />
+                                                    <Run Text=" · " />
+                                                    <Run Text="{Binding StatusText}" />
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding Text}" ToolTip.Tip="{Binding Text}" FontSize="13.5"
+                                                           TextTrimming="CharacterEllipsis" MaxLines="2" TextWrapping="Wrap"
+                                                           Foreground="{StaticResource KcapMutedBrush}" />
+                                                <TextBlock Text="{Binding AttachmentNames}" FontSize="11" Foreground="{StaticResource KcapFaintBrush}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           IsVisible="{Binding AttachmentNames, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="12,0,0,0" VerticalAlignment="Center">
+                                                <Button x:Name="WithdrawHeldButton" Classes="kcapChip" Content="Withdraw"
+                                                        Command="{Binding WithdrawCommand}" IsVisible="{Binding CanWithdraw}"
+                                                        BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
+                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand"
+                                                        AutomationProperties.Name="Withdraw held message" />
+                                                <Button x:Name="RejectHeldButton" Classes="kcapChip" Content="Reject"
+                                                        Command="{Binding RejectCommand}" IsVisible="{Binding CanDecide}"
+                                                        BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
+                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand"
+                                                        AutomationProperties.Name="Reject held message" />
+                                                <Button x:Name="ApproveHeldButton" Classes="kcapPrimary" Content="Approve"
+                                                        Command="{Binding ApproveCommand}" IsVisible="{Binding CanDecide}"
+                                                        Height="24" Padding="12,0" VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                        FontSize="13" FontWeight="SemiBold" CornerRadius="7"
+                                                        AutomationProperties.Name="Approve held message" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+
                 <!-- Inset to the cards' text edge; a horizontal StackPanel here would never wrap it. The
                      band does not scroll, so the line cap keeps a server-sent reason from pushing the
                      composer off-screen. -->
-                <TextBlock x:Name="ChatActivityNote" Grid.Row="2" Margin="14,0,14,8" IsVisible="{Binding ShowsActivityNote}"
+                <TextBlock x:Name="ChatActivityNote" Grid.Row="3" Margin="14,0,14,8" IsVisible="{Binding ShowsActivityNote}"
                            Text="{Binding ActivityNote}" ToolTip.Tip="{Binding ActivityNote}"
                            Foreground="{StaticResource KcapMutedBrush}" FontSize="13.5"
                            TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
 
-                <Border x:Name="ReadOnlyBanner" Grid.Row="3" IsVisible="{Binding ShowsReadOnlyBanner}"
+                <Border x:Name="ReadOnlyBanner" Grid.Row="4" IsVisible="{Binding ShowsReadOnlyBanner}"
                         Background="{StaticResource KcapWarningDimBrush}" BorderBrush="{StaticResource KcapWarningBrush}"
                         BorderThickness="1" CornerRadius="8" Padding="12,7">
                     <TextBlock Text="{Binding ReadOnlyNotice, StringFormat='Read-only: {0}'}"
                                Foreground="{StaticResource KcapWarningBrush}" TextWrapping="Wrap" />
                 </Border>
-                <TextBlock x:Name="EndedComposerHint" AutomationProperties.AutomationId="EndedComposerHint" Grid.Row="3" Margin="14,0"
+                <TextBlock x:Name="EndedComposerHint" AutomationProperties.AutomationId="EndedComposerHint" Grid.Row="4" Margin="14,0"
                            Text="{Binding ComposerHint}" FontSize="12.5" Foreground="{StaticResource KcapFaintBrush}"
                            TextWrapping="Wrap">
                     <TextBlock.IsVisible>
@@ -604,13 +655,16 @@
                         </MultiBinding>
                     </TextBlock.IsVisible>
                 </TextBlock>
-                <Panel Grid.Row="3" IsVisible="{Binding Handoff, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <Panel Grid.Row="4" IsVisible="{Binding Handoff, Converter={x:Static ObjectConverters.IsNotNull}}">
                     <views:HandoffComposerView x:Name="HandoffComposer" DataContext="{Binding Handoff}" />
                 </Panel>
-                <Border x:Name="ComposerCard" Classes="attachTarget" Grid.Row="3" IsVisible="{Binding ShowsComposer}"
+                <Border x:Name="ComposerCard" Classes="attachTarget" Grid.Row="4" IsVisible="{Binding ShowsComposer}"
                         Background="{StaticResource KcapSurfaceRaisedBrush}"
                         BorderThickness="1" CornerRadius="10" Padding="13,8,13,12">
                     <StackPanel Spacing="6">
+                        <TextBlock x:Name="ComposerControlNote" Text="{Binding ControlNote}" FontSize="12.5" TextWrapping="Wrap"
+                                   Foreground="{StaticResource KcapMutedBrush}"
+                                   IsVisible="{Binding ControlNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         <Border x:Name="TerminalMenuCard" IsVisible="{Binding ShowsTerminalMenu}"
                                 Background="{StaticResource KcapWarningDimBrush}" BorderBrush="{StaticResource KcapWarningBrush}"
                                 BorderThickness="1" CornerRadius="8" Padding="12,10">
@@ -684,7 +738,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border x:Name="AccountStrip" Grid.Row="4" Margin="0,6,0,0" IsVisible="{Binding ShowsAccountStrip}">
+                <Border x:Name="AccountStrip" Grid.Row="5" Margin="0,6,0,0" IsVisible="{Binding ShowsAccountStrip}">
                     <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
                         <ContentControl VerticalAlignment="Center"
                                         Content="{Binding AccountVendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=12}" />
