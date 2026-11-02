@@ -520,7 +520,9 @@ public sealed class ConPtyProcess : IPtyProcess {
             return;
         }
 
-        SendInterrupt();
+        // A pipe write blocks while the input pipe is full (an earlier write still pending), and then the
+        // kill below would never be reached; TerminateProcess unblocks it by closing the pipe's reader.
+        _ = Task.Run(SendInterrupt);
 
         var deadline = _time.GetUtcNow().UtcDateTime + (timeout ?? TimeSpan.FromSeconds(5));
 
