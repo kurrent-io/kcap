@@ -13,9 +13,9 @@ internal sealed class TranscriptImportCheckpoint(ImportContext ctx) : IProgress<
         ctx.Progress?.Report(value);
     }
 
-    public async Task RecordAsync(string sessionId, CancellationToken ct) {
+    public async Task RecordAsync(string sessionId, CancellationToken ct, string? prefixSha256 = null) {
         if (_dropped || ctx.TranscriptLedger is not { } ledger) return;
 
-        await ledger.RecordAsync(ctx.HttpClient, ctx.BaseUrl, sessionId, CompleteLines.Value, ct);
+        await ledger.RecordAsync(ctx.HttpClient, ctx.BaseUrl, sessionId, CompleteLines.Value, ct, prefixSha256);
     }
 }

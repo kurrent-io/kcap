@@ -397,10 +397,12 @@ internal sealed class CursorImportSource : IImportSource {
 
             var status       = ImportCommand.ClassificationStatus.New;
             var resumeFromLn = 0;
+            TranscriptImportMark? resumeMark = null;
 
             if (serverLastLine is { } srv) {
                 var ledger = ctx.Reimport ? null : ctx.TranscriptLedger;
-                resumeFromLn = ledger?.ResumeFrom(ctx.BaseUrl, s.SessionId, srv) ?? srv + 1;
+                if (ledger is not null) resumeMark = await ledger.MatchFileAsync(ctx.BaseUrl, s.SessionId, srv, transcriptPath, ct);
+                resumeFromLn = resumeMark?.Lines ?? srv + 1;
                 status = resumeFromLn > lastNonBlankIndex.Value
                     ? ImportCommand.ClassificationStatus.AlreadyLoaded
                     : ImportCommand.ClassificationStatus.Partial;
@@ -423,7 +425,7 @@ internal sealed class CursorImportSource : IImportSource {
                 Vendor          = Vendor,
                 ResumeFromLine  = resumeFromLn,
                 TotalLines      = nonBlankCount,
-                SourceMeta      = StampSubagentMeta(s.SourceMeta!, s.SessionId, quarantineIdentity, subagentLinks, childrenByParent),
+                SourceMeta      = StampSubagentMeta(s.SourceMeta!, s.SessionId, quarantineIdentity, subagentLinks, childrenByParent, resumeMark),
             });
         }
 
@@ -558,6 +560,9 @@ internal sealed class CursorImportSource : IImportSource {
         }
 
         var checkpoint = new TranscriptImportCheckpoint(ctx);
+        using var fingerprint = new TranscriptImportFingerprint(
+            classification.SourceMeta.TryGetValue("ImportPrefixLines", out var prefixLines) && prefixLines is int count ? count : 0,
+            classification.SourceMeta.GetValueOrDefault("ImportPrefixSha256") as string);
         int sent;
         try {
             // abortDelivery re-checks the ALREADY-resolved
@@ -575,7 +580,8 @@ internal sealed class CursorImportSource : IImportSource {
                 vendor:        Vendor,
                 progress:      checkpoint,
                 abortDelivery: () => _markers.IsQuarantined(quarantineIdentity),
-                completeLines: checkpoint.CompleteLines);
+                completeLines: checkpoint.CompleteLines,
+                fingerprint:   fingerprint);
         } catch (SessionImporter.TranscriptDeliveryAbortedException) {
             // Quarantine tripped, or the server blocked a batch at a gap: no remaining batches or
             // children, so a re-run resumes from the server's watermark.
@@ -637,7 +643,7 @@ internal sealed class CursorImportSource : IImportSource {
             ct);
         if (!endOk) return ImportOutcome.Failed;
 
-        await checkpoint.RecordAsync(classification.SessionId, ct);
+        await checkpoint.RecordAsync(classification.SessionId, ct, fingerprint.Sha256);
 
         if (sent == 0) {
             var noOwnContentOutcome = startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped;
@@ -669,9 +675,14 @@ internal sealed class CursorImportSource : IImportSource {
         string                                                     sessionId,
         string                                                     quarantineIdentity,
         Dictionary<string, CursorSubagentCorrelator.SubagentLink>  links,
-        Dictionary<string, List<CursorSubagentChild>>              childrenByParent
+        Dictionary<string, List<CursorSubagentChild>>              childrenByParent,
+        TranscriptImportMark?                                     resumeMark
     ) {
         var d = new Dictionary<string, object?>(src) { ["QuarantineIdentity"] = quarantineIdentity };
+        if (resumeMark is { PrefixSha256: not null }) {
+            d["ImportPrefixLines"] = resumeMark.Lines;
+            d["ImportPrefixSha256"] = resumeMark.PrefixSha256;
+        }
         if (links.TryGetValue(sessionId, out var link)) {
             d["IsSubagentChild"] = true;
             d["ParentSessionId"] = link.ParentSessionId;

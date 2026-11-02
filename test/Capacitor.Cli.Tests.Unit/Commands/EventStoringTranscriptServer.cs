@@ -39,6 +39,10 @@ sealed class EventStoringTranscriptServer : IDisposable {
 
     public bool RejectTranscripts { get; set; }
 
+    public Action? AfterTranscript { get; set; }
+
+    public Action? AfterSessionStart { get; set; }
+
     public int StoredEvents(string sessionId) { lock (_gate) return _stored.TryGetValue(sessionId, out var s) ? s.Count : 0; }
 
     public int SessionEnds { get { lock (_gate) return _sessionEnds; } }
@@ -61,6 +65,7 @@ sealed class EventStoringTranscriptServer : IDisposable {
     ResponseMessage SessionStart(IRequestMessage request) {
         using var doc = JsonDocument.Parse(request.Body!);
         lock (_gate) _stored.TryAdd(doc.RootElement.GetProperty("session_id").GetString()!, []);
+        AfterSessionStart?.Invoke();
         return Json(200, "{}");
     }
 
@@ -81,6 +86,7 @@ sealed class EventStoringTranscriptServer : IDisposable {
             }
         }
 
+        AfterTranscript?.Invoke();
         return Json(200, $$"""{"processed":{{lines.Length}}}""");
     }
 

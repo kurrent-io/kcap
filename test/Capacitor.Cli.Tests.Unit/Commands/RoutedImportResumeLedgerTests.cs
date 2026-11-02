@@ -5,6 +5,7 @@ using Capacitor.Cli.Harness.Cursor;
 using Capacitor.Cli.Harness.MistralVibe;
 using Capacitor.Cli.Harness.Muse;
 using Capacitor.Cli.PrDetection;
+using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -177,8 +178,93 @@ public class RoutedImportResumeLedgerTests : IDisposable {
     }
 
     [Test]
+    [Arguments(3, false)]
+    [Arguments(3, true)]
+    [Arguments(2, false)]
+    public async Task cursor_replaced_ignored_lines_resume_from_the_server_watermark(int replacedLine, bool append) {
+        var (source, log) = CreateSession("cursor");
+        await Import(source);
+        var lines = File.ReadAllLines(log);
+        lines[replacedLine] = Content("cursor");
+        File.WriteAllLines(log, lines);
+        if (append) File.AppendAllText(log, Tail("cursor") + "\n");
+        _server.ClearPosted();
+
+        await Import(source);
+
+        await Assert.That(_server.Posted).IsEquivalentTo(replacedLine == 2 ? [2, 3] : append ? [3, 4] : new[] { 3 });
+        await Assert.That(_server.StoredEvents(SessionId)).IsEqualTo(3);
+        _server.ClearPosted();
+        await Import(source);
+        await Assert.That(_server.Posted).IsEmpty();
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task cursor_marks_without_valid_content_evidence_replay_the_tail_once(bool malformed) {
+        var (source, _) = CreateSession("cursor");
+        await Import(source);
+        var path = Config.Root.Path(TranscriptImportLedger.FileName);
+        var ledger = JsonNode.Parse(File.ReadAllText(path))!;
+        var mark = ledger[_server.Url]![SessionId]!.AsObject();
+        if (malformed) mark["prefix_sha256"] = "invalid";
+        else mark.Remove("prefix_sha256");
+        File.WriteAllText(path, ledger.ToJsonString());
+        _server.ClearPosted();
+
+        await Import(source);
+
+        await Assert.That(_server.Posted).IsEquivalentTo([3]);
+        _server.ClearPosted();
+        await Import(source);
+        await Assert.That(_server.Posted).IsEmpty();
+    }
+
+    [Test]
+    public async Task cursor_does_not_acknowledge_a_prefix_rewritten_after_delivery() {
+        var (source, log) = CreateSession("cursor");
+        _server.AfterTranscript = () => {
+            _server.AfterTranscript = null;
+            var lines = File.ReadAllLines(log);
+            lines[3] = Content("cursor");
+            File.WriteAllLines(log, lines);
+        };
+        await Import(source);
+        _server.ClearPosted();
+
+        await Import(source);
+
+        await Assert.That(_server.Posted).IsEquivalentTo([3]);
+        await Assert.That(_server.StoredEvents(SessionId)).IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task cursor_does_not_send_past_a_skipped_prefix_rewritten_after_classification() {
+        var (source, log) = CreateSession("cursor");
+        await Import(source);
+        File.AppendAllText(log, Content("cursor") + "\n");
+        _server.ClearPosted();
+        _server.AfterSessionStart = () => {
+            _server.AfterSessionStart = null;
+            var lines = File.ReadAllLines(log);
+            lines[3] = Content("cursor");
+            File.WriteAllLines(log, lines);
+        };
+
+        await Import(source);
+
+        await Assert.That(_server.Posted).IsEmpty();
+        await Assert.That(_server.StoredEvents(SessionId)).IsEqualTo(2);
+        await Import(source);
+        await Assert.That(_server.Posted).IsEquivalentTo([3, 4]);
+        await Assert.That(_server.StoredEvents(SessionId)).IsEqualTo(4);
+    }
+
+    [Test]
     [Arguments("remove_entry")]
     [Arguments("set_history_entries")]
+    [Arguments("replace_entry")]
     public async Task unified_vibe_history_changes_resume_from_the_server_watermark(string operation) {
         var session = $"vibe/logs/session/unified/{SessionId}";
         Tmp.CreateFile($"{session}/meta.json", """{"environment":{"working_directory":"/tmp/proj"}}""");
@@ -195,14 +281,16 @@ public class RoutedImportResumeLedgerTests : IDisposable {
 
         var next = UnifiedMessage("u2", "user");
         var last = UnifiedMessage("a3", "assistant");
-        var edit = operation == "remove_entry"
-            ? UnifiedDelta("""{"op":"remove_entry","id":"ignored"}""", AppendEntry(next), AppendEntry(last))
-            : UnifiedDelta("""{"op":"set_history_entries","entries":[""" + string.Join(",", first, second, next, last) + "]}");
+        var edit = operation switch {
+            "remove_entry" => UnifiedDelta("""{"op":"remove_entry","id":"ignored"}""", AppendEntry(next), AppendEntry(last)),
+            "replace_entry" => UnifiedDelta("""{"op":"replace_entry","id":"ignored","entry":""" + next + "}"),
+            _ => UnifiedDelta("""{"op":"set_history_entries","entries":[""" + string.Join(",", first, second, next, last) + "]}"),
+        };
         File.AppendAllText(journal, edit + "\n");
         _server.ClearPosted();
 
         await Import(source);
-        await Assert.That(_server.Posted).IsEquivalentTo([2, 3]);
+        await Assert.That(_server.Posted).IsEquivalentTo(operation == "replace_entry" ? [2] : new[] { 2, 3 });
     }
 
     static string UnifiedMessage(string id, string role) =>
