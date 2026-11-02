@@ -22,6 +22,8 @@ public abstract class ChatInput : ReactiveObject, IDisposable {
     /// newer send's delivery notice.
     public virtual void ConfirmLastSend() { }
     public virtual bool CanInterrupt => false;
+    /// How the viewer's messages reach the agent and, when they may not press its keys, why; null when nothing applies.
+    public virtual string? ControlNote => null;
     public virtual Task InterruptAsync(CancellationToken ct) => Task.CompletedTask;
     /// Whether a row the server holds can be dropped from its queue through this channel.
     public virtual bool CanDiscardQueued => false;

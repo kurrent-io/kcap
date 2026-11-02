@@ -54,6 +54,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     bool _hadSession;
     AgentRow _row;
     readonly BehaviorSubject<AgentRow> _rows;
+    readonly HeldMessagesViewModel? _held;
     readonly BehaviorSubject<string> _titles;
     string? _viewerSubject;
 
@@ -131,6 +132,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         get => _activeTab;
         private set {
             this.RaiseAndSetIfChanged(ref _activeTab, value);
+            if (value == RemoteTab.Chat) _held?.Refresh();
             RaiseTabProjections();
             Artefacts.IsShown = IsArtefactsActive;
             PullRequests?.SetReaderVisible(IsPullRequestActive);
@@ -161,6 +163,10 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     /// agent's liveness, and there is nothing to stop, attach to or message.
     public bool IsSessionOnly => _row.Origin == AgentOrigin.Server;
     public bool ShowsStop => !IsSessionOnly;
+
+    string? _stopRefusal;
+    /// Why the viewer may not stop this agent, when their rights are the reason.
+    public string? StopRefusal { get => _stopRefusal; private set => this.RaiseAndSetIfChanged(ref _stopRefusal, value); }
 
     readonly ReplaySubject<Unit> _ended = new(1);
     public IObservable<Unit> Ended => _ended.Take(1);
@@ -286,7 +292,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             IRemoteAgentsService? remoteAgents = null, IAppNotifier? notifier = null, IObservable<string?>? appSubject = null,
             IServerSessionsService? serverSessions = null, WorkContextLayout? workContextLayout = null,
             Func<AgentRow, HandoffComposerViewModel>? handoff = null, LocalMachine? localMachine = null,
-            HandoffOutcomeReader? handoffOutcomes = null,
+            HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             Func<bool>? inAppPages = null) {
         _drafts = drafts;
@@ -338,16 +344,21 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
                 }).DisposeWith(_disposables);
         lane.Status.Select(s => s.State).DistinctUntilChanged().Skip(1)
             .Where(state => state == ServerLaneState.Connected).ObserveOn(RxSchedulers.MainThreadScheduler)
-            .Subscribe(_ => PullRequests?.Reconnected()).DisposeWith(_disposables);
+            .Subscribe(_ => { PullRequests?.Reconnected(); _held?.Refresh(); }).DisposeWith(_disposables);
 
         WorkContext.PullRequests = PullRequests;
         _accessStates.Where(s => s == SessionAccessState.Established)
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(_ => Artefacts.Refresh()).DisposeWith(_disposables);
+        var viewer = _rows.Select(r => AgentViewerAccess.From(r.ViewerRights)).DistinctUntilChanged();
         ChatInput input = row.Origin == AgentOrigin.Server
             ? new ReadOnlyChatInput()
             : new ServerChatInput(row.Id, lane, _accessStates, _session, HostedHarnessCatalog.ShowsTerminal(null, row.Vendor),
-                WorkContext.WhenAnyValue(context => context.ViewerIdentity));
+                WorkContext.WhenAnyValue(context => context.ViewerIdentity), viewer);
+        viewer.Subscribe(access => StopRefusal = access.CanPressKeys ? null : access.ControlRefusal).DisposeWith(_disposables);
+        _held = heldMessages is null || row.Origin == AgentOrigin.Server
+            ? null
+            : new HeldMessagesViewModel(row.Id, heldMessages, lane.HeldMessagesChanged, viewer);
         Chat = new ChatTabViewModel(
             row.Id, AgentOrigin.Remote, _session, Observable.Return<string[]?>(null), input, new NoAttachmentUploader(),
             key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readDetail, lane, time, Log),
@@ -362,7 +373,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             signInCompleted: signInCompleted,
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-            openLink: Artefacts.OpenLink) { InputSending = inputSending };
+            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held) { InputSending = inputSending };
         lane.Status.Select(s => s.Subject).DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(subject => {
@@ -372,7 +383,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         if (PullRequests is { } fixHost)
             Chat.WhenAnyValue(chat => chat.ShowsComposer).Subscribe(_ => fixHost.FixAvailabilityChanged()).DisposeWith(_disposables);
         Terminal = surfaceFactory is not null && row.Origin != AgentOrigin.Server && HostedHarnessCatalog.ShowsTerminal(null, row.Vendor)
-            ? new RemoteTerminalViewModel(row.Id, lane, _accessStates, _sessionEndedChanges, _terminalPaneShown, time, surfaceFactory)
+            ? new RemoteTerminalViewModel(row.Id, lane, _accessStates, _sessionEndedChanges, _terminalPaneShown, time, surfaceFactory, viewer)
             : null;
         if (Terminal is not null) Chat.ShowTerminal = () => ActiveTab = RemoteTab.Terminal;
         Apply(row);
@@ -454,8 +465,9 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         });
         var stopKey = AgentActionService.StopKey(AgentOrigin.Remote, row.Id);
         var canStop = _sessionEndedChanges
-            .CombineLatest(_originChangedChanges, actions.StopsInFlight,
-                (ended, movedLocal, inFlight) => !IsSessionOnly && !ended && !movedLocal && !inFlight.Contains(stopKey));
+            .CombineLatest(_originChangedChanges, actions.StopsInFlight, viewer,
+                (ended, movedLocal, inFlight, access) => !IsSessionOnly && !ended && !movedLocal && !inFlight.Contains(stopKey)
+                    && access.CanPressKeys);
         StopCommand = ReactiveCommand.Create(
             () => actions.RequestStop(row.Id, $"{_row.Vendor} · {_row.RepoGroupLabel}", _row.Kind, AgentOrigin.Remote,
                 accepted: () => RxSchedulers.MainThreadScheduler.Schedule(() => {

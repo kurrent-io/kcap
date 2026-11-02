@@ -24,12 +24,13 @@ public sealed class PermissionCardViewModel : PendingCardViewModel {
     public ReactiveCommand<Unit, Unit> AllowAlwaysCommand { get; }
     public ReactiveCommand<Unit, Unit> DenyCommand { get; }
 
-    public PermissionCardViewModel(PendingPermissionRequest entry, IPermissionService permissions, IObservable<string?> root) : base(entry) {
+    public PermissionCardViewModel(PendingPermissionRequest entry, IPermissionService permissions, IObservable<string?> root,
+            IObservable<AgentViewerAccess>? access = null) : base(entry, access) {
         _entry = entry;
         _permissions = permissions;
         ToolName = entry.ToolName.Length == 0 ? "Tool call" : entry.ToolName;
 
-        var idle = Busy.Select(b => !b);
+        var idle = Ready;
         Options = entry.Options?.Select(o => new AcpOptionViewModel(o.OptionId, o.Label, o.Description, PickAsync, idle, () => { })).ToList() ?? [];
         ShowsAllowAlways = entry.Vendor == "claude" && entry.ToolName != ClaudeElicitation.ToolName && !HasOptions;
 
@@ -48,6 +49,7 @@ public sealed class PermissionCardViewModel : PendingCardViewModel {
     }
 
     async Task AnswerAsync(PermissionAnswer answer) {
+        if (!CanAnswer) return;
         IsBusy = true;
         ErrorText = null;
         try {
@@ -59,6 +61,7 @@ public sealed class PermissionCardViewModel : PendingCardViewModel {
     }
 
     async Task PickAsync(AcpOptionViewModel option) {
+        if (!CanAnswer) return;
         IsBusy = true;
         ErrorText = null;
         try { ErrorText = ErrorTextFor(await _permissions.PickOptionAsync(_entry, option.OptionId, CancellationToken.None)); }

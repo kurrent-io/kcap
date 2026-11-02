@@ -1,4 +1,5 @@
 using System.Reactive.Disposables;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using ReactiveUI.Reactive;
@@ -17,8 +18,11 @@ public abstract class PendingCardViewModel : ReactiveObject, IDisposable {
     // SessionRailViewModel documents (headless ReactiveUI init ordering).
     protected readonly BehaviorSubject<bool> Busy = new(false);
 #pragma warning restore CA1051
+    readonly BehaviorSubject<bool> _answerable = new(true);
     bool _isBusy;
     string? _errorText;
+    bool _canAnswer = true;
+    string? _waitingOn;
 
     /// The cache key: lane-scoped, so two lanes' ids can never collide in a card list.
     public string Key { get; }
@@ -43,11 +47,41 @@ public abstract class PendingCardViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    protected PendingCardViewModel(PendingPermissionRequest entry) {
+    /// False for a viewer the server has not given the right to answer this kind of prompt: the card shows read-only.
+    public bool CanAnswer {
+        get => _canAnswer;
+        private set {
+            if (IsDisposed) return;
+            this.RaiseAndSetIfChanged(ref _canAnswer, value);
+        }
+    }
+
+    /// Who a read-only card is waiting for; null while the viewer can answer it.
+    public string? WaitingOn {
+        get => _waitingOn;
+        private set {
+            if (IsDisposed) return;
+            this.RaiseAndSetIfChanged(ref _waitingOn, value);
+        }
+    }
+
+    /// Every answering command's canExecute: not in flight, and the viewer may answer.
+    protected IObservable<bool> Ready { get; }
+
+    protected PendingCardViewModel(PendingPermissionRequest entry, IObservable<AgentViewerAccess>? access) {
         Key = entry.Key;
         RequestId = entry.RequestId;
         RequestedAt = entry.RequestedAt;
         Disposables.Add(Busy);
+        Ready = Busy.CombineLatest(_answerable, (busy, answerable) => !busy && answerable);
+        if (access is not null)
+            Disposables.Add(access.Subscribe(viewer => {
+                if (IsDisposed) return;
+                CanAnswer = viewer.CanAnswer(entry);
+                WaitingOn = viewer.WaitingOn(entry);
+                _answerable.OnNext(CanAnswer);
+            }));
+        Disposables.Add(_answerable);
     }
 
     public void Dispose() {

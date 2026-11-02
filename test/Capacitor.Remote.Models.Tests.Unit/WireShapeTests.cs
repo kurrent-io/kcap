@@ -116,4 +116,24 @@ public class WireShapeTests {
         await Assert.That(items[1].Text).IsEqualTo("bare");
         await Assert.That(items[1].DispatchId).IsEqualTo(Guid.Empty);
     }
+
+    /// The server leaves viewer_rights off the wire while agent privileges are off, and an older server never sends it.
+    [Test]
+    public async Task Viewer_rights_read_their_snake_case_keys_and_are_null_when_absent() {
+        const string with = """
+        {"agent_id":"a1","status":"Running","registered_at":"2026-09-06T10:00:00Z",
+         "viewer_rights":{"is_owner":false,"reaches":true,"answer_questions":true,"approve_tool_use":false,
+                          "send_without_approval":false,"hold_messages":true}}
+        """;
+        var rights = JsonSerializer.Deserialize(with, RemoteModelsJsonContext.Default.AgentInstanceDto)!.ViewerRights!;
+        await Assert.That(rights.IsOwner).IsFalse();
+        await Assert.That(rights.Reaches).IsTrue();
+        await Assert.That(rights.AnswerQuestions).IsTrue();
+        await Assert.That(rights.ApproveToolUse).IsFalse();
+        await Assert.That(rights.SendWithoutApproval).IsFalse();
+        await Assert.That(rights.HoldMessages).IsTrue();
+
+        const string without = """{"agent_id":"a1","status":"Running","registered_at":"2026-09-06T10:00:00Z"}""";
+        await Assert.That(JsonSerializer.Deserialize(without, RemoteModelsJsonContext.Default.AgentInstanceDto)!.ViewerRights).IsNull();
+    }
 }

@@ -51,6 +51,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     readonly Subject<string> _sessionAccessChanged = new();
     readonly Subject<SessionPush> _sessionPushes = new();
     readonly Subject<PendingInputUpdate> _pendingInput = new();
+    readonly Subject<string> _heldMessagesChanged = new();
     readonly Subject<TerminalOutputFrame> _terminalOutput = new();
     readonly Subject<TerminalSize> _terminalDimensions = new();
     // The subscription client of the live hub, replaced with it: it registers the StreamEvent
@@ -115,6 +116,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     public IObservable<string> SessionAccessChanged => _sessionAccessChanged.AsObservable();
     public IObservable<SessionPush> SessionPushes => _sessionPushes.AsObservable();
     public IObservable<PendingInputUpdate> PendingInputChanged => _pendingInput.AsObservable();
+    public IObservable<string> HeldMessagesChanged => _heldMessagesChanged.AsObservable();
     public IObservable<TerminalOutputFrame> TerminalOutput => _terminalOutput.AsObservable();
     public IObservable<TerminalSize> TerminalDimensions => _terminalDimensions.AsObservable();
 
@@ -331,6 +333,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         hub.On<string, string, JsonElement?>(HubBroadcasts.PendingInputChanged, (_, sessionId, items) => {
             if (ParseQueue(items) is { } queue) _pendingInput.OnNext(new(sessionId, queue));
         });
+        hub.On<string>(HubBroadcasts.HeldMessagesChanged, _heldMessagesChanged.OnNext);
         hub.On<string, string>(HubBroadcasts.TerminalOutput, (agentId, base64) => _terminalOutput.OnNext(new(agentId, base64)));
         hub.On<string, int, int>(HubBroadcasts.TerminalDimensions, (agentId, cols, rows) => _terminalDimensions.OnNext(new(agentId, cols, rows)));
         foreach (var name in UnusedNudges) hub.On(name, static () => { });
@@ -605,6 +608,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         _sessionAccessChanged.Dispose();
         _sessionPushes.Dispose();
         _pendingInput.Dispose();
+        _heldMessagesChanged.Dispose();
         _terminalOutput.Dispose();
         _terminalDimensions.Dispose();
     }

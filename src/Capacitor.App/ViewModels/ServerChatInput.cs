@@ -28,6 +28,7 @@ internal sealed class ServerChatInput : ChatInput {
     bool _sending;
     bool _disposed;
     ViewerIdentityDto? _senderIdentity;
+    AgentViewerAccess _viewer = AgentViewerAccess.Unrestricted;
     bool _hasConnected;
     string? _notice;
     // Bumped by every send and availability change, so an interrupt reply that lands after one of
@@ -35,7 +36,7 @@ internal sealed class ServerChatInput : ChatInput {
     int _noticeVersion;
 
     public ServerChatInput(string agentId, IServerLane lane, IObservable<SessionAccessState> access, IObservable<ChatSessionInfo> session, bool hasTerminal,
-            IObservable<ViewerIdentityDto?>? senderIdentity = null) {
+            IObservable<ViewerIdentityDto?>? senderIdentity = null, IObservable<AgentViewerAccess>? viewer = null) {
         _agentId = agentId;
         _lane = lane;
         _hasTerminal = hasTerminal;
@@ -46,6 +47,8 @@ internal sealed class ServerChatInput : ChatInput {
         })));
         _subscriptions.Add(access.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(a => Apply(() => _access = a)));
         _subscriptions.Add(session.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(i => Apply(() => _session = i)));
+        if (viewer is not null)
+            _subscriptions.Add(viewer.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(v => Apply(() => _viewer = v)));
         // The token subject belongs to its issuer; the identity endpoint names the server's actor and aliases.
         if (senderIdentity is not null)
             _subscriptions.Add(senderIdentity.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(identity => Apply(() => {
@@ -73,7 +76,7 @@ internal sealed class ServerChatInput : ChatInput {
         : _session?.Status is "Running" or "Idle" ? SendAvailability.Ready
         : SendAvailability.Connecting;
 
-    public override bool CanAcceptText => Availability == SendAvailability.Ready;
+    public override bool CanAcceptText => Availability == SendAvailability.Ready && _viewer.CanSend;
     public override ViewerIdentityDto? SenderIdentity => !_disposed && _laneState == ServerLaneState.Connected
         && _access == SessionAccessState.Established ? _senderIdentity : null;
     public override string? SenderUserId => SenderIdentity?.UserId;
@@ -94,14 +97,20 @@ internal sealed class ServerChatInput : ChatInput {
     }
 
     /// Escape is a PTY keystroke; a frame-driven harness has nothing it would reach.
-    public override bool CanInterrupt => _hasTerminal && CanAcceptText;
+    public override bool CanInterrupt => _hasTerminal && CanAcceptText && _viewer.CanPressKeys;
 
-    public override string Hint => _notice ?? Availability switch {
-        SendAvailability.Ready   => "Enter sends · Shift+Enter for a new line",
-        SendAvailability.Sending => "Sending…",
-        SendAvailability.Ended   => EndedHint,
-        _                        => "Connecting to the session…",
-    };
+    public override string? ControlNote => _disposed || Availability == SendAvailability.Ended ? null
+        : _viewer.InputHeld ? $"{_viewer.ApprovalMode}. {AgentViewerAccess.HeldReason}"
+        : _viewer.ApprovalMode;
+
+    public override string Hint => _notice
+        ?? (Availability == SendAvailability.Ready && !_viewer.CanSend ? AgentViewerAccess.ViewOnlyReason : null)
+        ?? Availability switch {
+            SendAvailability.Ready   => "Enter sends · Shift+Enter for a new line",
+            SendAvailability.Sending => "Sending…",
+            SendAvailability.Ended   => EndedHint,
+            _                        => "Connecting to the session…",
+        };
 
     /// A session on another machine has no attachment lane yet: the hub call carries text alone.
     public override bool CanAttach => false;
@@ -119,7 +128,8 @@ internal sealed class ServerChatInput : ChatInput {
         }
         return outcome.Result switch {
             HubCallResult.Ok     => Settle(ChatSendOutcome.Accepted, null),
-            HubCallResult.Denied => Settle(ChatSendOutcome.Rejected, "you cannot message this session"),
+            HubCallResult.Denied => Settle(ChatSendOutcome.Rejected,
+                WireTokens.IsQuestionPending(outcome.Reason) ? AgentViewerAccess.QuestionPendingNote : "you cannot message this session"),
             _                    => Settle(ChatSendOutcome.Unconfirmed, Unconfirmed),
         };
     }
@@ -131,9 +141,10 @@ internal sealed class ServerChatInput : ChatInput {
         var version = _noticeVersion;
         string? notice;
         try {
-            notice = (await _lane.SendSpecialKeyAsync(_agentId, SpecialKeys.Escape, ct)).Result switch {
+            var outcome = await _lane.SendSpecialKeyAsync(_agentId, SpecialKeys.Escape, ct);
+            notice = outcome.Result switch {
                 HubCallResult.Ok     => null,
-                HubCallResult.Denied => InterruptDenied,
+                HubCallResult.Denied => WireTokens.IsQuestionPending(outcome.Reason) ? AgentViewerAccess.QuestionPendingNote : InterruptDenied,
                 _                    => InterruptUnconfirmed,
             };
         }
@@ -143,7 +154,7 @@ internal sealed class ServerChatInput : ChatInput {
             notice = InterruptUnconfirmed;
         }
         if (_disposed || version != _noticeVersion) return;
-        if (notice is null && _notice is not (InterruptUnconfirmed or InterruptDenied)) return;
+        if (notice is null && _notice is not (InterruptUnconfirmed or InterruptDenied or AgentViewerAccess.QuestionPendingNote)) return;
         _notice = notice;
         Raise();
     }
@@ -165,6 +176,7 @@ internal sealed class ServerChatInput : ChatInput {
         this.RaisePropertyChanged(nameof(Availability));
         this.RaisePropertyChanged(nameof(CanAcceptText));
         this.RaisePropertyChanged(nameof(CanInterrupt));
+        this.RaisePropertyChanged(nameof(ControlNote));
         this.RaisePropertyChanged(nameof(CanDiscardQueued));
         this.RaisePropertyChanged(nameof(SenderIdentity));
         this.RaisePropertyChanged(nameof(SenderUserId));

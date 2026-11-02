@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
@@ -17,8 +18,9 @@ public class ServerChatInputTests {
         public readonly BehaviorSubject<ChatSessionInfo> Session = new(Info("Running"));
         public readonly ServerChatInput Input;
 
-        public Harness(bool hasTerminal = false, IObservable<ViewerIdentityDto?>? senderIdentity = null) =>
-            Input = new ServerChatInput("a1", Lane, Access, Session, hasTerminal, senderIdentity);
+        public Harness(bool hasTerminal = false, IObservable<ViewerIdentityDto?>? senderIdentity = null, AgentViewerRightsDto? rights = null) =>
+            Input = new ServerChatInput("a1", Lane, Access, Session, hasTerminal, senderIdentity,
+                rights is null ? null : Observable.Return(AgentViewerAccess.From(rights)));
 
         public static ChatSessionInfo Info(string status, bool ended = false) =>
             new(status, status, "gemini", null, null, null, ended, "", "s1");
@@ -276,6 +278,76 @@ public class ServerChatInputTests {
             var h = new Harness();
             await Assert.That(await h.Input.SendAsync("early", [], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Rejected);
             await Assert.That(h.Lane.UserInputs).IsEmpty();
+            h.Input.Dispose();
+        });
+    }
+
+    public enum Viewer { Owner, Held, SendsDirect, OutOfReach }
+
+    static AgentViewerRightsDto RightsFor(Viewer viewer) => viewer switch {
+        Viewer.Owner => new() { IsOwner = true, Reaches = true, AnswerQuestions = true, ApproveToolUse = true, SendWithoutApproval = true, HoldMessages = true },
+        Viewer.Held => new() { Reaches = true, AnswerQuestions = true, ApproveToolUse = true, HoldMessages = true },
+        Viewer.SendsDirect => new() { Reaches = true, SendWithoutApproval = true, HoldMessages = true },
+        _ => new() { HoldMessages = true },
+    };
+
+    /// A held viewer still types (the server holds the text) but may not press Escape; one out of reach only watches.
+    [Test]
+    [Arguments(Viewer.Owner, true, true, "Messages from others wait for your approval", "Enter sends · Shift+Enter for a new line")]
+    [Arguments(Viewer.Held, true, false,
+        "Your messages wait for the owner's approval. Only the owner can control the terminal while messages need approval",
+        "Enter sends · Shift+Enter for a new line")]
+    [Arguments(Viewer.SendsDirect, true, true, "Message approval is on, and your messages go straight to the agent",
+        "Enter sends · Shift+Enter for a new line")]
+    [Arguments(Viewer.OutOfReach, false, false, null, AgentViewerAccess.ViewOnlyReason)]
+    public async Task The_viewers_rights_decide_what_the_composer_offers(
+            Viewer viewer, bool acceptsText, bool interrupts, string? controlNote, string hint) {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(hasTerminal: true, rights: RightsFor(viewer));
+            h.Ready();
+            await Assert.That(h.Input.CanAcceptText).IsEqualTo(acceptsText);
+            await Assert.That(h.Input.CanInterrupt).IsEqualTo(interrupts);
+            await Assert.That(h.Input.ControlNote).IsEqualTo(controlNote);
+            await Assert.That(h.Input.Hint).IsEqualTo(hint);
+            if (acceptsText) {
+                await Assert.That(await h.Input.SendAsync("hello", [], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Accepted);
+                await Assert.That(h.Lane.UserInputs).Contains(("a1", "hello"));
+            }
+            await h.Input.InterruptAsync(CancellationToken.None);
+            await Assert.That(h.Lane.SpecialKeys.Count).IsEqualTo(interrupts ? 1 : 0);
+            h.Input.Dispose();
+        });
+    }
+
+    /// A server with agent privileges off sends no rights; the composer is exactly what it is without them.
+    [Test]
+    public async Task No_rights_from_the_server_leave_the_composer_unrestricted() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(hasTerminal: true);
+            h.Ready();
+            await Assert.That(h.Input.CanAcceptText).IsTrue();
+            await Assert.That(h.Input.CanInterrupt).IsTrue();
+            await Assert.That(h.Input.ControlNote).IsNull();
+            h.Input.Dispose();
+        });
+    }
+
+    [Test]
+    public async Task A_send_or_interrupt_refused_for_an_open_question_shows_why() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(hasTerminal: true);
+            h.Ready();
+            var refusal = HubCallOutcome.Denied("Session not visible to caller: the agent is waiting on a question you can't answer");
+            h.Lane.UserInputHandler = _ => Task.FromResult(refusal);
+            await Assert.That(await h.Input.SendAsync("hello", [], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Rejected);
+            await Assert.That(h.Input.Hint).IsEqualTo("The agent is waiting on a question you can't answer");
+
+            h.Lane.SpecialKeyHandler = _ => Task.FromResult(refusal);
+            await h.Input.InterruptAsync(CancellationToken.None);
+            await Assert.That(h.Input.Hint).IsEqualTo("The agent is waiting on a question you can't answer");
+            h.Lane.SpecialKeyHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+            await h.Input.InterruptAsync(CancellationToken.None);
+            await Assert.That(h.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
             h.Input.Dispose();
         });
     }

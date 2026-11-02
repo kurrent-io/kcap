@@ -62,12 +62,13 @@ public class RemoteSessionViewModelTests {
                 Capacitor.Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,
                 BackgroundCommandActivity? commands = null, SubagentEventsReader? readSubagent = null, AccountReadings? readings = null,
                 Func<AgentRow, HandoffComposerViewModel>? handoff = null, HandoffOutcomeReader? handoffOutcomes = null,
-                IPageContentSource? pageContent = null, IUrlOpener? opener = null, bool? webView = null, bool inAppPages = true) {
+                IPageContentSource? pageContent = null, IUrlOpener? opener = null, bool? webView = null, bool inAppPages = true,
+                IHeldMessagesApi? heldMessages = null) {
             Directory.Rows.AddOrUpdate(row);
             return new RemoteSessionViewModel(row, Directory, Access, Permissions, Actions, Lane, (_, _) => Task.FromResult(Detail), opener ?? new RecordingOpener(), Time, WorkSource, () => new FakeTerminalSurface(), planArtifacts, commands, pullRequests: pullRequests, plans: plans, readSubagent: readSubagent, readings: readings,
                 remoteAgents: Remote, notifier: Notifier, serverSessions: Sessions, handoff: handoff, handoffOutcomes: handoffOutcomes,
                 pageContent: pageContent, pageLinks: webView is null ? null : new PageLinkRouter(() => "https://a.kcap.ai"),
-                webView: webView is { } available ? new FixedWebViewAvailability(available) : null, inAppPages: () => inAppPages);
+                webView: webView is { } available ? new FixedWebViewAvailability(available) : null, inAppPages: () => inAppPages, heldMessages: heldMessages);
         }
 
         /// One chat poll: the pane reads its feed on the timer this harness owns.
@@ -1940,6 +1941,62 @@ public class RemoteSessionViewModelTests {
             await vm.Chat.OpenLinkCommand.Execute("https://evil.test/pages/pg-chat");
             await Assert.That(opener.Opened).IsEquivalentTo(new[] { "https://evil.test/pages/pg-card", "https://evil.test/pages/pg-chat" });
             await (vm.Artefacts.PendingPageLoadForTesting ?? Task.CompletedTask);
+            await vm.TeardownAsync();
+        });
+    }
+
+    static AgentRow RowWith(AgentViewerRightsDto? rights, string vendor = "claude") => Harness.Row(vendor: vendor) with { ViewerRights = rights };
+
+    static readonly AgentViewerRightsDto HeldParticipant = new() { Reaches = true, AnswerQuestions = true, HoldMessages = true };
+
+    [Test]
+    public async Task A_held_viewer_cannot_stop_the_agent_and_is_told_why() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var held = h.Build(RowWith(HeldParticipant));
+            await Assert.That(await held.StopCommand.CanExecute.FirstAsync()).IsFalse();
+            await Assert.That(held.StopRefusal).IsEqualTo(AgentViewerAccess.HeldReason);
+            await held.TeardownAsync();
+
+            var legacy = h.Build(RowWith(null) with { Id = "a2", Key = "remote:a2" });
+            await Assert.That(await legacy.StopCommand.CanExecute.FirstAsync()).IsTrue();
+            await Assert.That(legacy.StopRefusal).IsNull();
+            await legacy.TeardownAsync();
+        });
+    }
+
+    /// The held list is read when the workspace opens on its chat, again each time the chat tab is shown, and again
+    /// after the lane reconnects, since a push sent while it was down never arrives.
+    [Test]
+    public async Task The_held_list_is_read_when_the_chat_opens_and_after_a_reconnect() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var api = new FakeHeldMessagesApi();
+            var vm = h.Build(RowWith(HeldParticipant), heldMessages: api);
+            await Assert.That(vm.Chat.Held).IsNotNull();
+            await WaitUntilAsync(() => api.Reads.Count == 1, what: "the first read");
+
+            await vm.ShowTerminalCommand.Execute();
+            await vm.ShowChatCommand.Execute();
+            await WaitUntilAsync(() => api.Reads.Count == 2, what: "the read on showing the chat");
+
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Epoch: 1));
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 2));
+            await WaitUntilAsync(() => api.Reads.Count == 3, what: "the read after reconnecting");
+            await vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    public async Task A_server_without_rights_is_never_asked_for_held_messages() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var api = new FakeHeldMessagesApi();
+            var vm = h.Build(RowWith(null), heldMessages: api);
+            await vm.ShowTerminalCommand.Execute();
+            await vm.ShowChatCommand.Execute();
+            await Assert.That(api.Reads).IsEmpty();
+            await Assert.That(vm.Chat.ControlNote).IsNull();
             await vm.TeardownAsync();
         });
     }

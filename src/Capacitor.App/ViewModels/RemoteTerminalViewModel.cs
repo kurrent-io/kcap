@@ -5,6 +5,7 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.Remote.Models;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -30,6 +31,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
     // ReactiveUI's ObservableForProperty/RxAppBuilder global init, which only some other code
     // having built the app primes.
     readonly BehaviorSubject<RemoteTerminalPhase> _phases = new(RemoteTerminalPhase.Waiting);
+    readonly BehaviorSubject<bool> _controls = new(true);
     int _generation;
     Utf8StreamDecoder? _decoder;
     bool _subscribed;
@@ -82,21 +84,52 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
     internal const string RefusedNote = "You don't have access to this session's terminal.";
 
     public bool ShowsBanner => Phase != RemoteTerminalPhase.Live;
+
+    string? _controlRefusal;
+    /// Why the viewer may watch but not press keys or size the terminal; null while they may.
+    public string? ControlRefusal {
+        get => _controlRefusal;
+        private set {
+            this.RaiseAndSetIfChanged(ref _controlRefusal, value);
+            this.RaisePropertyChanged(nameof(ShowsControlRefusal));
+        }
+    }
+    public bool ShowsControlRefusal => ControlRefusal is not null;
+
+    string? _keyRefusal;
+    /// The server's reason for refusing the last key, while it is one the viewer can act on.
+    public string? KeyRefusal {
+        get => _keyRefusal;
+        private set {
+            this.RaiseAndSetIfChanged(ref _keyRefusal, value);
+            this.RaisePropertyChanged(nameof(ShowsKeyRefusal));
+        }
+    }
+    public bool ShowsKeyRefusal => KeyRefusal is not null;
+    bool CanControl => ControlRefusal is null;
     public string SizeNote => _sourceSize is { } s ? $"{s.Cols}×{s.Rows} · sized by the source" : "";
     public IReadOnlyList<SpecialKeyChoice> Keys => SpecialKeyMapper.Choices;
     public ReactiveCommand<string, Unit> SendKeyCommand { get; }
 
     public RemoteTerminalViewModel(
             string agentId, IServerLane lane, IObservable<SessionAccessState> access, IObservable<bool> sessionEnded,
-            IObservable<bool> visible, TimeProvider time, Func<ITerminalSurface> surfaceFactory) {
+            IObservable<bool> visible, TimeProvider time, Func<ITerminalSurface> surfaceFactory,
+            IObservable<AgentViewerAccess>? viewer = null) {
         _agentId = agentId;
         _lane = lane;
         _time = time;
         _surfaceFactory = surfaceFactory;
         _token = _lifetime.Token;
         SendKeyCommand = ReactiveCommand.CreateFromTask<string>(
-            SendKeyAsync, _phases.Select(phase => phase == RemoteTerminalPhase.Live));
+            SendKeyAsync, _phases.CombineLatest(_controls, (phase, controls) => phase == RemoteTerminalPhase.Live && controls));
         _disposables.Add(SendKeyCommand);
+        viewer?.Select(v => v.CanPressKeys ? null : v.ControlRefusal).DistinctUntilChanged()
+            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(refusal => {
+                ControlRefusal = refusal;
+                _controls.OnNext(CanControl);
+                if (!CanControl) _ = ReleaseViewportAsync();
+                else if (_viewport is { } size) ReportViewport(size);
+            }).DisposeWith(_disposables);
 
         visible.DistinctUntilChanged().ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(shown => {
             _visible = shown;
@@ -241,7 +274,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
 
     // A hidden pane must not clamp the source to its last measured viewport.
     void ReportViewport((int Cols, int Rows) size) {
-        if (!_visible || !_subscribed) return;
+        if (!_visible || !_subscribed || !CanControl) return;
         var (cols, rows) = size;
         if (cols is not (> 0 and <= MaxCols) || rows is not (> 0 and <= MaxRows)) return;
         _reported = true;
@@ -274,19 +307,25 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         ReleaseViewportAsync());
 
     async Task SendKeyAsync(string key) {
-        if (!_subscribed || Phase != RemoteTerminalPhase.Live) return;
-        await Report(_lane.SendSpecialKeyAsync(_agentId, key, _token), $"key {key}");
+        if (!_subscribed || Phase != RemoteTerminalPhase.Live || !CanControl) return;
+        var outcome = await Report(_lane.SendSpecialKeyAsync(_agentId, key, _token), $"key {key}");
+        if (outcome is null) return;
+        KeyRefusal = outcome.Result == HubCallResult.Denied && WireTokens.IsQuestionPending(outcome.Reason)
+            ? AgentViewerAccess.QuestionPendingNote
+            : null;
     }
 
-    static async Task Report(Task<HubCallOutcome> call, string what) {
+    static async Task<HubCallOutcome?> Report(Task<HubCallOutcome> call, string what) {
         try {
             var outcome = await call;
             if (outcome.Result is HubCallResult.Denied or HubCallResult.Failed)
                 Console.Error.WriteLine($"kcap: remote terminal {what}: {outcome.Reason}");
+            return outcome;
         } catch (OperationCanceledException) {
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: remote terminal {what}: {ex.Message}");
         }
+        return null;
     }
 
     public async Task TeardownAsync() {
