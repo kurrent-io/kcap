@@ -209,6 +209,9 @@ public partial class App : Application {
     IDisposable? _notificationAccessPrompt;
     DesktopNotificationCoordinator? _desktopNotifications;
     readonly Subject<string?> _viewedAgent = new();
+    /// Sessions with a workspace open in the main window; notification leases establish access
+    /// to every session, so established access alone does not mean open.
+    readonly BehaviorSubject<IReadOnlySet<string>> _openSessions = new(FrozenSet<string>.Empty);
     NotificationSessionSubscriptions? _notificationSessions;
     // The server lane's half of the permission graph. Disposed as a group with _permissions: the
     // feed and the tracker first (both push into the cache and hold timers), the access service
@@ -1118,7 +1121,7 @@ public partial class App : Application {
         serverLane.Start();
 
         var unopenedAttention = attention.SessionsWithAttention
-            .CombineLatest(sessionAccess.EstablishedSessions, PendingAttention.Unopened)
+            .CombineLatest(sessionAccess.EstablishedSessions, _openSessions, PendingAttention.Unopened)
             .Replay(1).RefCount();
         var agentsWithPending = permissions.AgentsWithPending.CombineLatest(
             unopenedAttention, directory.SessionAgents, PendingAttention.Agents);
@@ -2287,7 +2290,14 @@ public partial class App : Application {
             })
             .DistinctUntilChanged()
             .Subscribe(_viewedAgent.OnNext);
-        window.Closed += (_, _) => subscription.Dispose();
+        var open = vm.OpenSessionId
+            .Select(id => id is { Length: > 0 } ? (IReadOnlySet<string>)new HashSet<string>(StringComparer.Ordinal) { id } : FrozenSet<string>.Empty)
+            .Subscribe(_openSessions.OnNext);
+        window.Closed += (_, _) => {
+            subscription.Dispose();
+            open.Dispose();
+            _openSessions.OnNext(FrozenSet<string>.Empty);
+        };
         return window;
     }
 

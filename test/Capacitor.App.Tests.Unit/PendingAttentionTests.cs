@@ -14,10 +14,35 @@ public class PendingAttentionTests {
     [Test]
     public async Task An_open_session_is_left_to_its_cards() {
         var unopened = PendingAttention.Unopened(
-            attention: new HashSet<string> { "s-open", "s-closed" }, open: new HashSet<string> { "s-open" });
+            attention: new HashSet<string> { "s-open", "s-closed" },
+            established: new HashSet<string> { "s-open", "s-closed" },
+            open: new HashSet<string> { "s-open" });
 
         await Assert.That(unopened).DoesNotContain("s-open");
         await Assert.That(unopened).Contains("s-closed");
+    }
+
+    /// Notification subscriptions establish access to every session, and the feed reconciles only
+    /// answerable interrupts, so established access alone must not silence the tracker.
+    [Test]
+    public async Task Established_access_without_an_open_workspace_keeps_the_tracker() {
+        var unopened = PendingAttention.Unopened(
+            attention: new HashSet<string> { "s-closed" },
+            established: new HashSet<string> { "s-closed" },
+            open: FrozenSet<string>.Empty);
+
+        await Assert.That(unopened).Contains("s-closed");
+    }
+
+    /// Until access stands the feed has not reconciled the session, so the tracker still speaks for it.
+    [Test]
+    public async Task An_open_session_without_access_keeps_the_tracker() {
+        var unopened = PendingAttention.Unopened(
+            attention: new HashSet<string> { "s-open" },
+            established: FrozenSet<string>.Empty,
+            open: new HashSet<string> { "s-open" });
+
+        await Assert.That(unopened).Contains("s-open");
     }
 
     /// The tray's entry list is how the user finds a waiting remote session, so an open one

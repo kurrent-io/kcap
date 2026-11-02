@@ -1,11 +1,12 @@
 namespace Capacitor.App.Services;
 
-/// What the rail and tray mark as waiting. A session with established access is left to its
-/// cards: the feed reconciles it into the cache its chat reads, while the tracker also lists
-/// interrupts no card renders, so counting both marked it with nothing to answer.
+/// What the rail and tray mark as waiting. A session open in a workspace with established access
+/// is left to its cards: the feed reconciles it into the cache its chat reads, while the tracker
+/// also lists interrupts no card renders, so counting both marked it with nothing to answer.
 public static class PendingAttention {
-    public static IReadOnlySet<string> Unopened(IReadOnlySet<string> attention, IReadOnlySet<string> open) =>
-        attention.Where(s => !open.Contains(s)).ToHashSet(StringComparer.Ordinal);
+    public static IReadOnlySet<string> Unopened(
+            IReadOnlySet<string> attention, IReadOnlySet<string> established, IReadOnlySet<string> open) =>
+        attention.Where(s => !(open.Contains(s) && established.Contains(s))).ToHashSet(StringComparer.Ordinal);
 
     /// The tray lists a remote session for either reason: still unopened, or holding a server
     /// card. A local card's session id names a session on the local daemon's server, which need
