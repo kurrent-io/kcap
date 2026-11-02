@@ -28,13 +28,14 @@ public class PageBridgeTests {
         public FakePageContentSource Source { get; } = new();
         public FakeTimeProvider Time { get; } = new();
         public List<JsonObject> Posts { get; } = [];
+        public int SignedOutRaised;
         PageBridge? _bridge;
 
         public PageBridge Bridge(PageResultsAccess access, bool start = true) {
             _bridge = new PageBridge(Source, Page(), Version, access, Nonce, json => {
                 lock (Posts) Posts.Add(JsonNode.Parse(json)!.AsObject());
                 return Task.CompletedTask;
-            }, Time);
+            }, () => Interlocked.Increment(ref SignedOutRaised), Time);
             if (start) _bridge.Start();
             return _bridge;
         }
@@ -244,6 +245,22 @@ public class PageBridgeTests {
 
         await Assert.That(h.Calls()).IsEquivalentTo(new[] { "results" });
         await Assert.That(h.Posts).IsEmpty();
+        await Assert.That(h.SignedOutRaised).IsEqualTo(status == 401 ? 1 : 0);
+    }
+
+    [Test]
+    public async Task A_signed_out_mine_or_submit_signs_the_viewer_out_once() {
+        await using var h = new Harness();
+        h.Source.EnqueueReply("mine", Reply(401));
+        h.Source.EnqueueReply("submit", Reply(401));
+        h.Bridge(PageResultsAccess.Hidden);
+
+        await h.Send("""{"kcap":"v1","type":"ready"}""");
+        await h.Send("""{"kcap":"v1","type":"submit","payload":{"a":1}}""");
+
+        await Assert.That(h.Calls()).IsEquivalentTo(new[] { "mine", "submit" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That(h.Types()).IsEquivalentTo(new[] { "ack" });
+        await Assert.That(h.SignedOutRaised).IsEqualTo(1);
     }
 
     [Test]
@@ -299,6 +316,7 @@ public class PageBridgeTests {
 
         await Assert.That(h.Source.AccessChecks).IsEqualTo(1);
         await Assert.That(h.Calls()).IsEmpty();
+        await Assert.That(h.SignedOutRaised).IsEqualTo(settled == PageResultsAccess.SignedOut ? 1 : 0);
     }
 
     [Test]
@@ -406,7 +424,7 @@ public class PageBridgeTests {
     public async Task A_throwing_post_does_not_escape_the_message_handler() {
         var source = new FakePageContentSource();
         await using var bridge = new PageBridge(source, Page(), Version, PageResultsAccess.Hidden, Nonce,
-            _ => throw new InvalidOperationException("webview gone"), new FakeTimeProvider());
+            _ => throw new InvalidOperationException("webview gone"), () => { }, new FakeTimeProvider());
 
         await bridge.OnNativeMessageAsync(Wrap("""{"kcap":"v1","type":"ready"}"""));
 

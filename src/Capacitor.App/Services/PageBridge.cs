@@ -30,6 +30,7 @@ public sealed class PageBridge : IAsyncDisposable {
     readonly int _version;
     readonly string _prefix;
     readonly Func<string, Task> _postToPage;
+    readonly Action _signedOut;
     readonly TimeProvider _time;
     readonly SemaphoreSlim _gate = new(1, 1);
     readonly CancellationTokenSource _disposed = new();
@@ -40,16 +41,30 @@ public sealed class PageBridge : IAsyncDisposable {
     bool _sentResults;
     string? _lastEtag;
     int _ticking;
+    int _signedOutRaised;
 
+    /// <param name="signedOut">Raised once, off the UI thread, when a call finds the credential lapsed.</param>
     public PageBridge(IPageContentSource source, ArtefactDto page, int version, PageResultsAccess access, string nonce,
-            Func<string, Task> postToPage, TimeProvider time) {
+            Func<string, Task> postToPage, Action signedOut, TimeProvider time) {
         _source = source;
         _page = page;
         _version = version;
         _access = access;
         _prefix = $"{{\"nonce\":\"{nonce}\"";
         _postToPage = postToPage;
+        _signedOut = signedOut;
         _time = time;
+    }
+
+    void SignedOut() {
+        _access = PageResultsAccess.SignedOut;
+        StopPolling();
+        if (Interlocked.Exchange(ref _signedOutRaised, 1) == 1) return;
+        try {
+            _signedOut();
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: page sign-out failed: {ex.Message}");
+        }
     }
 
     /// The last tick's work, for tests that advance time and must wait for its reads.
@@ -117,6 +132,10 @@ public sealed class PageBridge : IAsyncDisposable {
     async Task ReadyAsync(CancellationToken ct) {
         var name = await _source.ViewerNameAsync(ct).ConfigureAwait(false);
         var mine = await _source.MineAsync(_page.ArtefactId, _version, ct).ConfigureAwait(false);
+        if (mine.Status == 401) {
+            SignedOut();
+            return;
+        }
         var prior = mine.Status is >= 200 and < 300 && mine.Body is { } body && body.Arr("responses") is { } responses
             && responses.GetArrayLength() > 0 && responses[0].Prop("payload") is { } payload
                 ? payload
@@ -165,13 +184,18 @@ public sealed class PageBridge : IAsyncDisposable {
             w.WriteString("error", error);
             w.WriteNumber("code", reply.Status);
         }).ConfigureAwait(false);
+        if (reply.Status == 401) SignedOut();
     }
 
     async Task PushResultsAsync(CancellationToken ct) {
         var reply = await _source.ResultsAsync(_page.ArtefactId, _version, ct).ConfigureAwait(false);
-        if (reply.Status is 401 or 403 or 404) {
-            // Refused, gone, or signed out: asking again will not change the answer for this load.
-            _access = reply.Status == 401 ? PageResultsAccess.SignedOut : PageResultsAccess.Hidden;
+        if (reply.Status == 401) {
+            SignedOut();
+            return;
+        }
+        if (reply.Status is 403 or 404) {
+            // Refused or gone: asking again will not change the answer for this load.
+            _access = PageResultsAccess.Hidden;
             StopPolling();
             return;
         }
@@ -201,6 +225,10 @@ public sealed class PageBridge : IAsyncDisposable {
                 if (_access == PageResultsAccess.Unknown) {
                     _access = await _source.ResultsAccessAsync(_page.ArtefactId, _page, ct).ConfigureAwait(false);
                     if (_access == PageResultsAccess.Unknown) return;
+                    if (_access == PageResultsAccess.SignedOut) {
+                        SignedOut();
+                        return;
+                    }
                     if (!CanReadResults) {
                         StopPolling();
                         return;

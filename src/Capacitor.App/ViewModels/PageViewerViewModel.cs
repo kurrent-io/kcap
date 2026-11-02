@@ -1,4 +1,5 @@
 using System.Reactive;
+using System.Reactive.Concurrency;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Pages;
@@ -211,14 +212,16 @@ public sealed class PageViewerViewModel : ReactiveObject {
     /// when no page is loaded. The caller starts and disposes it.
     public PageBridge? CreateBridge(Func<string, Task> postToPage) =>
         Page is { } page && Nonce is { } nonce
-            ? new PageBridge(_source, page, Version, Access, nonce, postToPage, Time)
+            ? new PageBridge(_source, page, Version, Access, nonce, postToPage,
+                () => RxSchedulers.MainThreadScheduler.Schedule(SignedOut), Time)
             : null;
 
     /// True when the WebView must not perform this navigation. Only the host document and its
     /// frames' srcdoc load in place; any other target, in any frame, is offered for the browser.
     public bool CancelNavigation(Uri? request) {
         var url = request?.OriginalString;
-        if (url == HostBase.OriginalString || url == SrcdocUrl) return false;
+        // A fragment of the frame's own document scrolls it in place; about:blank#… would name the host.
+        if (url == HostBase.OriginalString || url == SrcdocUrl || url?.StartsWith(SrcdocUrl + "#", StringComparison.Ordinal) == true) return false;
         OpenNewWindow(request);
         return true;
     }

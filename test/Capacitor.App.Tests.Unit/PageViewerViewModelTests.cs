@@ -198,11 +198,22 @@ public class PageViewerViewModelTests {
     [Test]
     [Arguments("about:blank")]
     [Arguments("about:srcdoc")]
+    [Arguments("about:srcdoc#results")]
     public async Task The_host_load_and_the_frame_document_navigate_in_place(string url) {
         var h = new Harness();
 
         await Assert.That(h.Vm.CancelNavigation(new Uri(url))).IsFalse();
         await Assert.That(h.Opener.Opened).IsEmpty();
+    }
+
+    [Test]
+    [Arguments("about:blank#results")]
+    [Arguments("about:srcdoc?x")]
+    public async Task Other_documents_on_the_host_schemes_are_cancelled(string url) {
+        var h = new Harness();
+
+        await Assert.That(h.Vm.CancelNavigation(new Uri(url))).IsTrue();
+        await Assert.That(h.Vm.PendingExternalUrl).IsNull();
     }
 
     [Test]
