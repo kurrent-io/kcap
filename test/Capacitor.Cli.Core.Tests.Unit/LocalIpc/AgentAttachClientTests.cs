@@ -45,32 +45,32 @@ public class AgentAttachClientTests {
         var (server, tmp) = NewServer();
         await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(120, 40, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            var first = await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
+            await server.SendAttachedAsync(AgentId, [1, 2, 3]);
+            await server.SendStdoutAsync([4, 5]);
+            await server.SendExitedAsync(7);
 
-        var run = client.RunAsync(120, 40, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        var first = await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
-        await server.SendAttachedAsync(AgentId, [1, 2, 3]);
-        await server.SendStdoutAsync([4, 5]);
-        await server.SendExitedAsync(7);
+            var outcome = await run.WithinDeadlineAsync("the run to settle");
 
-        var outcome = await run.WithinDeadlineAsync("the run to settle");
+            // The Received pump is a background drain (ScriptedAttachServer's own doc comment);
+            // waiting for the frame we actually assert on makes the read deterministic instead of
+            // racing that pump.
+            await server.WaitForReceivedAsync(FrameType.Resize);
 
-        // The Received pump is a background drain (ScriptedAttachServer's own doc comment);
-        // waiting for the frame we actually assert on makes the read deterministic instead of
-        // racing that pump.
-        await server.WaitForReceivedAsync(FrameType.Resize);
-
-        await Assert.That(first.Type).IsEqualTo(FrameType.Attach);
-        await Assert.That(first.Text).IsEqualTo(AgentId);
-        await Assert.That(outcome).IsEqualTo(new AttachOutcome.Exited(7));
-        await Assert.That(rec.Attached.Single().Snapshot).IsEquivalentTo(new byte[] { 1, 2, 3 });
-        await Assert.That(rec.Attached.Single().Reason).IsNull();
-        await Assert.That(rec.Output.Single()).IsEquivalentTo(new byte[] { 4, 5 });
-        // resize nudge at the initial size, after the read-write Attached:
-        var resize = server.SnapshotReceived().Single(f => f.Type == FrameType.Resize);
-        await Assert.That(resize.Cols).IsEqualTo((ushort)120);
-        await Assert.That(resize.Rows).IsEqualTo((ushort)40);
+            await Assert.That(first.Type).IsEqualTo(FrameType.Attach);
+            await Assert.That(first.Text).IsEqualTo(AgentId);
+            await Assert.That(outcome).IsEqualTo(new AttachOutcome.Exited(7));
+            await Assert.That(rec.Attached.Single().Snapshot).IsEquivalentTo(new byte[] { 1, 2, 3 });
+            await Assert.That(rec.Attached.Single().Reason).IsNull();
+            await Assert.That(rec.Output.Single()).IsEquivalentTo(new byte[] { 4, 5 });
+            // resize nudge at the initial size, after the read-write Attached:
+            var resize = server.SnapshotReceived().Single(f => f.Type == FrameType.Resize);
+            await Assert.That(resize.Cols).IsEqualTo((ushort)120);
+            await Assert.That(resize.Rows).IsEqualTo((ushort)40);
+        }, "dispose to join the run");
     }
 
     [Test]
@@ -78,24 +78,24 @@ public class AgentAttachClientTests {
         var (server, tmp) = NewServer();
         await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput,
-            resizeOnAttach: false);
+        var unsized = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput, resizeOnAttach: false);
+        await unsized.UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedAsync(AgentId, []);
+            await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");
+            await client.SendInputAsync([42]);
+            await client.ResizeAsync(137, 41);
+            await server.SendExitedAsync(0);
+            await run.WithinDeadlineAsync("the run to settle");
+            await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
+            await server.InboundDrained.WithinDeadlineAsync("the server to drain inbound frames to EOF");
 
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedAsync(AgentId, []);
-        await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");
-        await client.SendInputAsync([42]);
-        await client.ResizeAsync(137, 41);
-        await server.SendExitedAsync(0);
-        await run.WithinDeadlineAsync("the run to settle");
-        await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
-        await server.InboundDrained.WithinDeadlineAsync("the server to drain inbound frames to EOF");
-
-        var received = server.SnapshotReceived();
-        await Assert.That(received.Single(f => f.Type == FrameType.Stdin).Bytes).IsEquivalentTo(new byte[] { 42 });
-        var resize = received.Single(f => f.Type == FrameType.Resize);
-        await Assert.That((resize.Cols, resize.Rows)).IsEqualTo(((ushort)137, (ushort)41));
+            var received = server.SnapshotReceived();
+            await Assert.That(received.Single(f => f.Type == FrameType.Stdin).Bytes).IsEquivalentTo(new byte[] { 42 });
+            var resize = received.Single(f => f.Type == FrameType.Resize);
+            await Assert.That((resize.Cols, resize.Rows)).IsEqualTo(((ushort)137, (ushort)41));
+        }, "dispose to join the run");
     }
 
     [Test]
@@ -103,16 +103,16 @@ public class AgentAttachClientTests {
         var (server, tmp) = NewServer();
         await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedReadOnlyAsync(AgentId, "flow participant", [9]);
+            await server.SendExitedAsync(0);
+            await run.WithinDeadlineAsync("the run to settle");
 
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedReadOnlyAsync(AgentId, "flow participant", [9]);
-        await server.SendExitedAsync(0);
-        await run.WithinDeadlineAsync("the run to settle");
-
-        await Assert.That(rec.Attached.Single().Reason).IsEqualTo("flow participant");
-        await Assert.That(server.SnapshotReceived().Any(f => f.Type == FrameType.Resize)).IsFalse();
+            await Assert.That(rec.Attached.Single().Reason).IsEqualTo("flow participant");
+            await Assert.That(server.SnapshotReceived().Any(f => f.Type == FrameType.Resize)).IsFalse();
+        }, "dispose to join the run");
     }
 
     [Test]
@@ -121,20 +121,20 @@ public class AgentAttachClientTests {
         await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
         var started = new DateTimeOffset(2026, 10, 20, 9, 30, 15, TimeSpan.Zero).AddTicks(42);
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput, requestRuntime: true);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput, requestRuntime: true).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            var first = await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
+            await server.SendAsync(LocalFrame.RuntimeStarted(started));
+            await server.SendAttachedReadOnlyAsync(AgentId, "review", [1]);
+            await server.SendExitedAsync(0);
+            await run.WithinDeadlineAsync("the run to settle");
 
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        var first = await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
-        await server.SendAsync(LocalFrame.RuntimeStarted(started));
-        await server.SendAttachedReadOnlyAsync(AgentId, "review", [1]);
-        await server.SendExitedAsync(0);
-        await run.WithinDeadlineAsync("the run to settle");
-
-        await Assert.That(first.Type).IsEqualTo(FrameType.AttachWithRuntime);
-        await Assert.That(first.Text).IsEqualTo(AgentId);
-        await Assert.That(rec.RuntimeStarts.Single()).IsEqualTo(started);
-        await Assert.That(rec.Attached.Single().Reason).IsEqualTo("review");
+            await Assert.That(first.Type).IsEqualTo(FrameType.AttachWithRuntime);
+            await Assert.That(first.Text).IsEqualTo(AgentId);
+            await Assert.That(rec.RuntimeStarts.Single()).IsEqualTo(started);
+            await Assert.That(rec.Attached.Single().Reason).IsEqualTo("review");
+        }, "dispose to join the run");
     }
 
     /// Only an attach that asked for the stamp may receive one: anywhere else it is a protocol fault.
@@ -143,17 +143,17 @@ public class AgentAttachClientTests {
         var (server, tmp) = NewServer();
         await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            var first = await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
+            await server.SendAsync(LocalFrame.RuntimeStarted(DateTimeOffset.UnixEpoch));
+            var outcome = await run.WithinDeadlineAsync("the run to settle");
 
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        var first = await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
-        await server.SendAsync(LocalFrame.RuntimeStarted(DateTimeOffset.UnixEpoch));
-        var outcome = await run.WithinDeadlineAsync("the run to settle");
-
-        await Assert.That(first.Type).IsEqualTo(FrameType.Attach);
-        await Assert.That(outcome).IsTypeOf<AttachOutcome.Failed>();
-        await Assert.That(rec.Attached).IsEmpty();
+            await Assert.That(first.Type).IsEqualTo(FrameType.Attach);
+            await Assert.That(outcome).IsTypeOf<AttachOutcome.Failed>();
+            await Assert.That(rec.Attached).IsEmpty();
+        }, "dispose to join the run");
     }
 
     [Test]
@@ -161,14 +161,14 @@ public class AgentAttachClientTests {
         var (server, tmp) = NewServer();
         await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendErrorAsync("no such agent aaaa…");
 
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendErrorAsync("no such agent aaaa…");
-
-        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Failed("no such agent aaaa…"));
-        await Assert.That(rec.Attached).IsEmpty();
+            await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Failed("no such agent aaaa…"));
+            await Assert.That(rec.Attached).IsEmpty();
+        }, "dispose to join the run");
     }
 
     /// Serial awaited delivery: the pump must not read frame N+1 until the
@@ -179,7 +179,7 @@ public class AgentAttachClientTests {
         await using var _s = server; using var _t = tmp;
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int concurrent = 0, maxConcurrent = 0, count = 0;
-        await using var client = new AgentAttachClient(server.Path, AgentId,
+        var serial = new AgentAttachClient(server.Path, AgentId,
             (_, _) => Task.CompletedTask,
             async (_, _) => {
                 var c = Interlocked.Increment(ref concurrent);
@@ -188,94 +188,100 @@ public class AgentAttachClientTests {
                 Interlocked.Decrement(ref concurrent);
             });
 
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedAsync(AgentId, []);
-        await server.SendStdoutAsync([1]);
-        await server.SendStdoutAsync([2]);   // must sit in the socket until the gate opens
-        await Task.Delay(100);
-        gate.SetResult();
-        await server.SendExitedAsync(0);
-        await run.WithinDeadlineAsync("the run to settle");
+        await serial.UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedAsync(AgentId, []);
+            await server.SendStdoutAsync([1]);
+            await server.SendStdoutAsync([2]);   // must sit in the socket until the gate opens
+            await Task.Delay(100);
+            gate.SetResult();
+            await server.SendExitedAsync(0);
+            await run.WithinDeadlineAsync("the run to settle");
 
-        await Assert.That(maxConcurrent).IsEqualTo(1);
-        await Assert.That(count).IsEqualTo(2);
+            await Assert.That(maxConcurrent).IsEqualTo(1);
+            await Assert.That(count).IsEqualTo(2);
+        }, "dispose to join the run");
     }
 
     [Test]
     public async Task Detach_intent_plus_eof_settles_detached() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedAsync(AgentId, []);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedAsync(AgentId, []);
 
-        await client.DetachAsync();
-        await server.WaitForReceivedAsync(FrameType.Detach);   // deterministic: pump has drained it
-        server.CloseConnection();                       // daemon closes; no ack
+            await client.DetachAsync();
+            await server.WaitForReceivedAsync(FrameType.Detach);   // deterministic: pump has drained it
+            server.CloseConnection();                       // daemon closes; no ack
 
-        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Detached());
-        await Assert.That(server.SnapshotReceived().Any(f => f.Type == FrameType.Detach)).IsTrue();
+            await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Detached());
+            await Assert.That(server.SnapshotReceived().Any(f => f.Type == FrameType.Detach)).IsTrue();
+        }, "dispose to join the run");
     }
 
     [Test]
     public async Task A_terminal_frame_read_after_detach_intent_still_wins() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedAsync(AgentId, []);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedAsync(AgentId, []);
 
-        await client.DetachAsync();
-        await server.SendExitedAsync(3);                // daemon raced: exit after Detach
+            await client.DetachAsync();
+            await server.SendExitedAsync(3);                // daemon raced: exit after Detach
 
-        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Exited(3));
+            await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.Exited(3));
+        }, "dispose to join the run");
     }
 
     [Test]
     public async Task Uninitiated_eof_after_attach_is_connection_lost() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedAsync(AgentId, []);
-        // Windows: an abortive close (socket dispose without a graceful shutdown) sends RST,
-        // and RST discards whatever the peer hasn't read yet — unlike Unix's FIN, which is
-        // only delivered after buffered data. Without this wait, CloseConnection() can beat
-        // the client's read of Attached, so it never observes attach and the run settles
-        // Failed instead of ConnectionLost.
-        await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");
-        server.CloseConnection();
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedAsync(AgentId, []);
+            // Windows: an abortive close (socket dispose without a graceful shutdown) sends RST,
+            // and RST discards whatever the peer hasn't read yet — unlike Unix's FIN, which is
+            // only delivered after buffered data. Without this wait, CloseConnection() can beat
+            // the client's read of Attached, so it never observes attach and the run settles
+            // Failed instead of ConnectionLost.
+            await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");
+            server.CloseConnection();
 
-        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
+            await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
+        }, "dispose to join the run");
     }
 
     [Test]
     public async Task Mid_header_truncation_after_attach_is_connection_lost() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedAsync(AgentId, []);
-        await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
-        await server.SendRawThenCloseAsync([0x41, 0x00]);          // stdout type byte + half a length
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedAsync(AgentId, []);
+            await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
+            await server.SendRawThenCloseAsync([0x41, 0x00]);          // stdout type byte + half a length
 
-        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
+            await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
+        }, "dispose to join the run");
     }
 
     [Test]
     public async Task Connect_refusal_without_intent_is_failed() {
         using var tmp = new TempDir("sock");
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(tmp.GetResolvedPath("nobody.sock"), AgentId, rec.OnAttached, rec.OnOutput);
+        await new AgentAttachClient(tmp.GetResolvedPath("nobody.sock"), AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var outcome = await client.RunAsync(80, 24, CancellationToken.None).WithinDeadlineAsync("the run to settle");
 
-        var outcome = await client.RunAsync(80, 24, CancellationToken.None);
-
-        await Assert.That(outcome).IsAssignableTo<AttachOutcome.Failed>();
+            await Assert.That(outcome).IsAssignableTo<AttachOutcome.Failed>();
+        }, "dispose to join the run");
     }
 
     [Test]
@@ -357,84 +363,87 @@ public class AgentAttachClientTests {
     public async Task Input_and_resize_before_attached_are_dropped() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.FirstFrame.Task.WithinDeadlineAsync("the opening Attach frame");
 
-        await client.SendInputAsync([1]);
-        await client.ResizeAsync(100, 30);
-        await server.SendAttachedAsync(AgentId, []);
-        await server.SendExitedAsync(0);
-        await run.WithinDeadlineAsync("the run to settle");
+            await client.SendInputAsync([1]);
+            await client.ResizeAsync(100, 30);
+            await server.SendAttachedAsync(AgentId, []);
+            await server.SendExitedAsync(0);
+            await run.WithinDeadlineAsync("the run to settle");
 
-        // Deterministic: the stream is ordered, so observing the post-attach Resize nudge proves
-        // any erroneous pre-attach Stdin (which would have arrived first) is already recorded too.
-        await server.WaitForReceivedAsync(FrameType.Resize);
+            // Deterministic: the stream is ordered, so observing the post-attach Resize nudge proves
+            // any erroneous pre-attach Stdin (which would have arrived first) is already recorded too.
+            await server.WaitForReceivedAsync(FrameType.Resize);
 
-        var received = server.SnapshotReceived();
-        await Assert.That(received.Count(f => f.Type == FrameType.Stdin)).IsEqualTo(0);
-        // the only Resize is the post-attach nudge at the run's initial size:
-        await Assert.That(received.Count(f => f.Type == FrameType.Resize)).IsEqualTo(1);
-        await Assert.That(received.Single(f => f.Type == FrameType.Resize).Cols).IsEqualTo((ushort)80);
+            var received = server.SnapshotReceived();
+            await Assert.That(received.Count(f => f.Type == FrameType.Stdin)).IsEqualTo(0);
+            // the only Resize is the post-attach nudge at the run's initial size:
+            await Assert.That(received.Count(f => f.Type == FrameType.Resize)).IsEqualTo(1);
+            await Assert.That(received.Single(f => f.Type == FrameType.Resize).Cols).IsEqualTo((ushort)80);
+        }, "dispose to join the run");
     }
 
     [Test]
     public async Task Explicit_input_and_resize_after_read_only_attach_are_dropped() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedReadOnlyAsync(AgentId, "review", []);
-        await Task.Delay(50);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedReadOnlyAsync(AgentId, "review", []);
+            await Task.Delay(50);
 
-        await client.SendInputAsync([1]);
-        await client.ResizeAsync(100, 30);
-        await server.SendExitedAsync(0);
-        await run.WithinDeadlineAsync("the run to settle");
+            await client.SendInputAsync([1]);
+            await client.ResizeAsync(100, 30);
+            await server.SendExitedAsync(0);
+            await run.WithinDeadlineAsync("the run to settle");
 
-        await Assert.That(server.SnapshotReceived().Any(f => f.Type is FrameType.Stdin or FrameType.Resize)).IsFalse();
+            await Assert.That(server.SnapshotReceived().Any(f => f.Type is FrameType.Stdin or FrameType.Resize)).IsFalse();
+        }, "dispose to join the run");
     }
 
     [Test]
     public async Task No_input_is_written_behind_a_queued_detach() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedAsync(AgentId, []);
-        await Task.Delay(50);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedAsync(AgentId, []);
+            await Task.Delay(50);
 
-        await client.DetachAsync();
-        await server.WaitForReceivedAsync(FrameType.Detach);   // deterministic: pump has drained it
-        await client.SendInputAsync([9]);
-        server.CloseConnection();
-        await run.WithinDeadlineAsync("the run to settle");
+            await client.DetachAsync();
+            await server.WaitForReceivedAsync(FrameType.Detach);   // deterministic: pump has drained it
+            await client.SendInputAsync([9]);
+            server.CloseConnection();
+            await run.WithinDeadlineAsync("the run to settle");
 
-        var received = server.SnapshotReceived();
-        var detachIndex = received.FindIndex(f => f.Type == FrameType.Detach);
-        await Assert.That(detachIndex).IsGreaterThanOrEqualTo(0);
-        await Assert.That(received.Skip(detachIndex + 1).Any(f => f.Type == FrameType.Stdin)).IsFalse();
+            var received = server.SnapshotReceived();
+            var detachIndex = received.FindIndex(f => f.Type == FrameType.Detach);
+            await Assert.That(detachIndex).IsGreaterThanOrEqualTo(0);
+            await Assert.That(received.Skip(detachIndex + 1).Any(f => f.Type == FrameType.Stdin)).IsFalse();
+        }, "dispose to join the run");
     }
 
     [Test]
     public async Task Out_of_range_initial_size_is_clamped_not_dropped_from_the_opening_nudge() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(70000, -5, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedAsync(AgentId, []);
+            await server.SendExitedAsync(0);
+            await run.WithinDeadlineAsync("the run to settle");
 
-        var run = client.RunAsync(70000, -5, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedAsync(AgentId, []);
-        await server.SendExitedAsync(0);
-        await run.WithinDeadlineAsync("the run to settle");
-
-        await server.WaitForReceivedAsync(FrameType.Resize);
-        var resize = server.SnapshotReceived().Single(f => f.Type == FrameType.Resize);
-        await Assert.That(resize.Cols).IsEqualTo((ushort)65535);
-        await Assert.That(resize.Rows).IsEqualTo((ushort)1);
+            await server.WaitForReceivedAsync(FrameType.Resize);
+            var resize = server.SnapshotReceived().Single(f => f.Type == FrameType.Resize);
+            await Assert.That(resize.Cols).IsEqualTo((ushort)65535);
+            await Assert.That(resize.Rows).IsEqualTo((ushort)1);
+        }, "dispose to join the run");
     }
 
     /// The dial itself never blocks a local Unix socket connect on every platform this suite
@@ -452,40 +461,40 @@ public class AgentAttachClientTests {
         for (var attempt = 0; attempt < attempts; attempt++) {
             var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
             var rec = new Recorder();
-            await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
+            await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+                var runTask = Task.Run(() => client.RunAsync(80, 24, CancellationToken.None));
+                await client.DetachAsync();
 
-            var runTask = Task.Run(() => client.RunAsync(80, 24, CancellationToken.None));
-            await client.DetachAsync();
+                // Accept CONCURRENTLY with the run, never after it: when the dial wins this race the
+                // client has written a graceful Detach and is parked in its read loop awaiting the peer,
+                // because DetachAsync leaves the transport open so a terminal frame can still beat
+                // Detached. An accept that waits for the run waits for a client that is waiting for it.
+                //
+                // Bounded, because an aborted dial reaches no listener backlog: a timeout here means the
+                // dial never landed, which is the outcome under test.
+                using var acceptCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+                try { await server.AcceptAndPumpInboundAsync(acceptCts.Token); } catch (OperationCanceledException) { }
 
-            // Accept CONCURRENTLY with the run, never after it: when the dial wins this race the
-            // client has written a graceful Detach and is parked in its read loop awaiting the peer,
-            // because DetachAsync leaves the transport open so a terminal frame can still beat
-            // Detached. An accept that waits for the run waits for a client that is waiting for it.
-            //
-            // Bounded, because an aborted dial reaches no listener backlog: a timeout here means the
-            // dial never landed, which is the outcome under test.
-            using var acceptCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
-            try { await server.AcceptAndPumpInboundAsync(acceptCts.Token); } catch (OperationCanceledException) { }
+                // Half-close, so the client sees EOF and settles on the outcome it chose. Closing outright
+                // would settle it too, but would also discard anything not yet drained — and what was
+                // drained is the whole question below.
+                server.ShutdownSend();
 
-            // Half-close, so the client sees EOF and settles on the outcome it chose. Closing outright
-            // would settle it too, but would also discard anything not yet drained — and what was
-            // drained is the whole question below.
-            server.ShutdownSend();
+                var outcome = await runTask.WithinDeadlineAsync("the run to settle");
 
-            var outcome = await runTask.WithinDeadlineAsync("the run to settle");
+                // The client writes nothing further once its run has settled, so closing it here ends the
+                // pump at EOF rather than at a deadline. Joining the pump is what makes "no Attach
+                // arrived" a fact about the wire instead of a snapshot taken before it caught up.
+                await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
+                await server.InboundDrained.WithinDeadlineAsync("the server to drain inbound frames to EOF");
 
-            // The client writes nothing further once its run has settled, so closing it here ends the
-            // pump at EOF rather than at a deadline. Joining the pump is what makes "no Attach
-            // arrived" a fact about the wire instead of a snapshot taken before it caught up.
-            await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");
-            await server.InboundDrained.WithinDeadlineAsync("the server to drain inbound frames to EOF");
+                var receivedAttach = server.SnapshotReceived().Any(f => f.Type == FrameType.Attach);
 
-            var receivedAttach = server.SnapshotReceived().Any(f => f.Type == FrameType.Attach);
-
-            if (!receivedAttach) {
-                sawNoAttach = true;
-                await Assert.That(outcome).IsEqualTo(new AttachOutcome.Detached());
-            }
+                if (!receivedAttach) {
+                    sawNoAttach = true;
+                    await Assert.That(outcome).IsEqualTo(new AttachOutcome.Detached());
+                }
+            }, "dispose to join the run");
         }
 
         await Assert.That(sawNoAttach).IsTrue();   // otherwise this race never actually landed -- test would be vacuous
@@ -499,18 +508,19 @@ public class AgentAttachClientTests {
     public async Task Invalid_dimensions_are_rejected_locally(int cols, int rows) {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedAsync(AgentId, []);
-        await Task.Delay(50);
-        var before = server.SnapshotReceived().Count(f => f.Type == FrameType.Resize);
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedAsync(AgentId, []);
+            await Task.Delay(50);
+            var before = server.SnapshotReceived().Count(f => f.Type == FrameType.Resize);
 
-        await client.ResizeAsync(cols, rows);
-        await server.SendExitedAsync(0);
-        await run.WithinDeadlineAsync("the run to settle");
+            await client.ResizeAsync(cols, rows);
+            await server.SendExitedAsync(0);
+            await run.WithinDeadlineAsync("the run to settle");
 
-        await Assert.That(server.SnapshotReceived().Count(f => f.Type == FrameType.Resize)).IsEqualTo(before);
+            await Assert.That(server.SnapshotReceived().Count(f => f.Type == FrameType.Resize)).IsEqualTo(before);
+        }, "dispose to join the run");
     }
 
     /// Read side held open: the write failure alone must settle the run.
@@ -518,16 +528,17 @@ public class AgentAttachClientTests {
     public async Task Input_write_failure_settles_connection_lost_without_rethrow_or_hung_pump() {
         var (server, tmp) = NewServer(); await using var _s = server; using var _t = tmp;
         var rec = new Recorder();
-        await using var client = new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput);
-        var run = client.RunAsync(80, 24, CancellationToken.None);
-        await server.AcceptAndPumpInboundAsync();
-        await server.SendAttachedAsync(AgentId, []);
-        await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
+        await new AgentAttachClient(server.Path, AgentId, rec.OnAttached, rec.OnOutput).UsingWithinDeadlineAsync(async client => {
+            var run = client.RunAsync(80, 24, CancellationToken.None);
+            await server.AcceptAndPumpInboundAsync();
+            await server.SendAttachedAsync(AgentId, []);
+            await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
 
-        server.CloseConnection();                                  // break the transport under the writer
-        await client.SendInputAsync([1, 2, 3]);                    // must not throw
+            server.CloseConnection();                                  // break the transport under the writer
+            await client.SendInputAsync([1, 2, 3]);                    // must not throw
 
-        await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
+            await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
+        }, "dispose to join the run");
     }
 
     [Test]
