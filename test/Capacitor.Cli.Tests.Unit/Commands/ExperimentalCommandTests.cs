@@ -203,7 +203,8 @@ public class ExperimentalCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(output).Contains($"in-app-pages  on  {ExperimentalCommand.DesktopAppOnlyText}");
-        await Assert.That(output).Contains($"{Id}  off  applied");
+        var daemonFeature = output.Split('\n').Single(line => line.StartsWith($"{Id}  ", StringComparison.Ordinal));
+        await Assert.That(daemonFeature).DoesNotContain(ExperimentalCommand.DesktopAppOnlyText);
     }
 
     [Test]
