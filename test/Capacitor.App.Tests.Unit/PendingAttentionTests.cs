@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core.LocalIpc;
 
 namespace Capacitor.App.Tests.Unit;
 
@@ -30,6 +31,16 @@ public class PendingAttentionTests {
 
         await Assert.That(sessions).Contains("s-open");
         await Assert.That(sessions).Contains("s-closed");
+    }
+
+    [Test]
+    public async Task A_local_card_does_not_list_a_remote_session_sharing_its_id() {
+        var local = new PendingPermissionRequest(new PermissionPendingDto(
+            "l1", "a-local", "s-open", "claude", "Bash", null, null, false, false, "2026-11-02T00:00:00Z"));
+
+        var sessions = PendingAttention.TraySessions(unopened: FrozenSet<string>.Empty, cards: [local]);
+
+        await Assert.That(sessions).IsEmpty();
     }
 
     [Test]

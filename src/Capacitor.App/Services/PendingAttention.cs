@@ -7,9 +7,11 @@ public static class PendingAttention {
     public static IReadOnlySet<string> Unopened(IReadOnlySet<string> attention, IReadOnlySet<string> open) =>
         attention.Where(s => !open.Contains(s)).ToHashSet(StringComparer.Ordinal);
 
-    /// The tray lists a session for either reason: still unopened, or holding a card.
+    /// The tray lists a remote session for either reason: still unopened, or holding a server
+    /// card. A local card's session id names a session on the local daemon's server, which need
+    /// not be the app's.
     public static IReadOnlySet<string> TraySessions(IReadOnlySet<string> unopened, IEnumerable<PendingPermissionRequest> cards) =>
-        unopened.Concat(cards.Select(p => p.SessionId).Where(s => s.Length > 0)).ToHashSet(StringComparer.Ordinal);
+        unopened.Concat(cards.Where(p => p.Lane == PermissionLane.Server).Select(p => p.SessionId).Where(s => s.Length > 0)).ToHashSet(StringComparer.Ordinal);
 
     public static IReadOnlySet<string> Agents(
             IReadOnlySet<string> cards, IReadOnlySet<string> unopened, IReadOnlyDictionary<string, string> sessionAgents) =>
