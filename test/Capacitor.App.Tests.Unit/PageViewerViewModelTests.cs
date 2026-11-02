@@ -68,6 +68,20 @@ public class PageViewerViewModelTests {
     }
 
     [Test]
+    public async Task A_signed_out_access_check_signs_the_viewer_out_without_the_page() {
+        var h = new Harness();
+        h.Source.Access = PageResultsAccess.SignedOut;
+        h.Source.EnqueueContent(new PageContentRead.Found(Page(), 3, "<p>a</p>"));
+
+        await h.Vm.LoadAsync(CancellationToken.None);
+
+        await Assert.That(h.Vm.State).IsEqualTo(PageViewerState.SignedOut);
+        await Assert.That(h.Vm.Html).IsNull();
+        await Assert.That(h.Vm.Nonce).IsNull();
+        await Assert.That(h.Vm.CreateBridge(_ => Task.CompletedTask)).IsNull();
+    }
+
+    [Test]
     public async Task The_bridge_answers_for_the_loaded_page_and_nonce() {
         var h = new Harness();
         h.Source.EnqueueContent(new PageContentRead.Found(Page(), 3, "<p>a</p>"));

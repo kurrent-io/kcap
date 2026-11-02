@@ -138,6 +138,10 @@ public sealed class PageViewerViewModel : ReactiveObject {
                 return;
             }
             if (generation != _generation) return;
+            if (access == PageResultsAccess.SignedOut) {
+                SignedOut();
+                return;
+            }
             Page = found.Page;
             Version = found.Version;
             Access = access;

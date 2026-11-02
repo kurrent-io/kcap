@@ -16,10 +16,13 @@ public static partial class WebKitPeerConnection {
         var configuration = Send(wkWebView, Selector("configuration"));
         var preferences = configuration == 0 ? 0 : Send(configuration, Selector("preferences"));
         var setter = Selector("_setPeerConnectionEnabled:");
-        if (preferences == 0 || SendBool(preferences, Selector("respondsToSelector:"), setter) == 0) return false;
+        var getter = Selector("_peerConnectionEnabled");
+        // An unanswered selector raises an Objective-C exception, which no managed catch can stop.
+        var responds = Selector("respondsToSelector:");
+        if (preferences == 0 || SendBool(preferences, responds, setter) == 0 || SendBool(preferences, responds, getter) == 0) return false;
 
         SetBool(preferences, setter, 0);
-        return SendBool(preferences, Selector("_peerConnectionEnabled")) == 0;
+        return SendBool(preferences, getter) == 0;
     }
 
     [LibraryImport(ObjC, EntryPoint = "sel_registerName", StringMarshalling = StringMarshalling.Utf8)]
