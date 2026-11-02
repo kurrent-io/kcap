@@ -24,7 +24,7 @@ internal sealed partial class ExperimentalSettingsWatcher : BackgroundService {
             DaemonConfig config, AgentOrchestrator orchestrator, ILogger<ExperimentalSettingsWatcher> logger, TimeProvider time)
         : this(new ExperimentalSettingsStore(config.ConfigRoot).Path,
             orchestrator.RefreshExperimentalSettings,
-            () => config.ReadExperimentalSettings().IsEnabled(ExperimentalFeatures.CodexAppServer.Id) != config.CodexResolution.SwitchOn,
+            () => SavedDiffers(config),
             time, logger) { }
 
     ExperimentalSettingsWatcher(string path, Action<string> refresh, Func<bool> savedDiffersFromCommitted, TimeProvider time, ILogger logger) {
@@ -33,6 +33,12 @@ internal sealed partial class ExperimentalSettingsWatcher : BackgroundService {
         _savedDiffersFromCommitted = savedDiffersFromCommitted;
         _time                      = time;
         _logger                    = logger;
+    }
+
+    static bool SavedDiffers(DaemonConfig config) {
+        var committed = config.CodexResolution;
+        return Harness.Codex.CodexTransportResolution.SwitchOf(config.ReadExperimentalSettings(), config.CodexAppServerByDefault)
+            != (committed.SwitchOn, committed.ByDefault);
     }
 
     internal static ExperimentalSettingsWatcher ForTest(

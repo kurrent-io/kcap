@@ -9,6 +9,11 @@ internal static class CodexTransportDecision {
     /// <summary>The lowest Codex whose app-server method set and containment probes are verified.</summary>
     public const string VersionFloor = "0.146.0";
 
+    /// <summary>Whether app-server stands in for a <c>codex-app-server</c> switch the profile never set.
+    /// Under ConPTY Codex sees no bracketed paste, so the Enter after a pasted follow-up round inserts a
+    /// newline instead of submitting it; app-server takes the round as a <c>turn/start</c>.</summary>
+    public static bool AppServerByDefault => OperatingSystem.IsWindows();
+
     /// <summary>Why a launch's expected transport cannot be honoured, or null when it can. Only a
     /// Codex launch has more than one transport, so every other vendor ignores the field.</summary>
     public static string? ExpectedTransportRejection(string vendor, string? expected) =>

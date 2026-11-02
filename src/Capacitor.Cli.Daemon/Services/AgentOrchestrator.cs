@@ -1764,14 +1764,15 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         string? problem = null;
         var resolved   = CodexTransportResolution.Read(
             committed.Generation + 1, _config.ReadExperimentalSettings, () => DaemonRunner.ProbeCliVersion(_harnesses.LaunchCommand(HarnessId.Codex, _config.CodexPath)),
-            unreadable => { problem = unreadable; return committed; });
+            unreadable => { problem = unreadable; return committed; },
+            _config.CodexAppServerByDefault);
 
         if (problem is not null && problem != _config.ExperimentalSettingsProblem) LogUnreadableSettings(_logger, problem);
         _config.ExperimentalSettingsProblem = problem;
         if (resolved.SameStateAs(committed)) return committed;
 
         _config.CodexResolution = resolved;
-        LogCodexResolution(_logger, resolved.Generation, resolved.SwitchOn, resolved.Active, resolved.InactiveReason ?? "");
+        LogCodexResolution(_logger, resolved.Generation, resolved.SwitchOn, resolved.ByDefault, resolved.Active, resolved.InactiveReason ?? "");
         _statusNotifier.Pulse();
         return resolved;
     }
@@ -6695,8 +6696,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-advertising unattended vendor capabilities ({Reason}): {Versions}")]
     static partial void LogReAdvertising(ILogger logger, string reason, string versions);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Codex transport resolution {Generation}: switch {SwitchOn}, app-server {Active} {InactiveReason}")]
-    static partial void LogCodexResolution(ILogger logger, long generation, bool switchOn, bool active, string inactiveReason);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Codex transport resolution {Generation}: switch {SwitchOn}, platform default {ByDefault}, app-server {Active} {InactiveReason}")]
+    static partial void LogCodexResolution(ILogger logger, long generation, bool switchOn, bool byDefault, bool active, string inactiveReason);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Experimental settings unreadable ({Problem}); keeping the committed Codex transport")]
     static partial void LogUnreadableSettings(ILogger logger, string problem);

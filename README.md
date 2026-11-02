@@ -2071,7 +2071,7 @@ KCAP_CODEX_PATH=/opt/codex/bin/codex  kcap daemon
 
 ##### Codex app-server transport
 
-Hosted Codex agents (review-flow reviewers and interactive agents) can run over the `codex app-server` JSON-RPC protocol instead of the interactive terminal. It is an experimental feature, off by default, and is switched per profile — the one `KCAP_PROFILE` names, or else the active profile:
+Hosted Codex agents (review-flow reviewers and interactive agents) can run over the `codex app-server` JSON-RPC protocol instead of the interactive terminal. It is an experimental feature, off by default except on Windows, and is switched per profile — the one `KCAP_PROFILE` names, or else the active profile:
 
 ```bash
 kcap experimental                          # name the profile, then list features, whether each is on, and whether the daemon applied it

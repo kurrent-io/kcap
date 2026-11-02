@@ -274,6 +274,10 @@ public class DaemonConfig {
 
     Harness.Codex.CodexTransportResolution _codexResolution = Harness.Codex.CodexTransportResolution.Unresolved;
 
+    /// <summary>Whether app-server applies when the profile never set the <c>codex-app-server</c>
+    /// switch. Set from the platform at boot; off for a config built anywhere else.</summary>
+    internal bool CodexAppServerByDefault { get; set; }
+
     /// <summary>The last resolution a registration carried to the server. A launch that names no
     /// transport follows this one, since it is what the server dispatched against.</summary>
     internal Harness.Codex.CodexTransportResolution AcknowledgedCodexResolution {
