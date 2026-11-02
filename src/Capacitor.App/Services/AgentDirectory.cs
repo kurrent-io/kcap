@@ -97,9 +97,10 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     /// Session id → when its hosted presentation lapses; written while a daemon row suppresses the
     /// server row, read once none does.
     readonly Dictionary<string, DateTime> _hostedUntil = new(StringComparer.Ordinal);
-    /// Listed session id → the checkout facts its daemon row last reported, for the server row
-    /// that stands for the session once the daemon row is gone.
-    readonly Dictionary<string, (string? RepoPath, string? WorktreePath, string? WorkLocation, string? BorrowedFrom, string? Branch, bool FromLocal)> _hostedFacts =
+    /// Session id, under both spellings the server may list it by → the checkout facts its daemon row last reported,
+    /// for the server row that stands for the session once the daemon row is gone. The branch outranks the listing's
+    /// only when the daemon itself reported it.
+    readonly Dictionary<string, (string? RepoPath, string? WorktreePath, string? WorkLocation, string? BorrowedFrom, string? Branch, bool FromLocal, bool BranchFromDaemon)> _hostedFacts =
         new(StringComparer.Ordinal);
     /// Session id → until when its hosted agent counts as finished while the listing may still say live:
     /// a local row seen Completed, which renews it while the row stays, or a stop the app saw accepted. A
@@ -450,9 +451,12 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             foreach (var row in next)
                 if (row is { Origin: AgentOrigin.Local, Status: "Completed" }) MarkFinished(row.SessionId);
 
-        for (var i = 0; i < next.Count; i++) {
-            var row = next[i];
-            if (!Matchable(row) || listedIdOf.GetValueOrDefault(row.Key) is not { } sid || !listed.TryGetValue(sid, out var dto)) continue;
+        // The checkout is kept for every daemon row on the app's server, listed yet or not: a short run can leave
+        // before the listing first names its session.
+        foreach (var row in next) {
+            if (row.Origin is not (AgentOrigin.Local or AgentOrigin.Remote) || !Matchable(row)) continue;
+            if (row.RepoPath is null && row.WorktreePath is null || SessionIds.Canonical(row.SessionId) is not { } own) continue;
+            var listedDto = listedIdOf.GetValueOrDefault(row.Key) is { } listedSid ? listed.GetValueOrDefault(listedSid) : null;
             // A daemon row carries the listing's branch, never its own; the local daemon's is on its dto.
             var daemonBranch = row.Origin == AgentOrigin.Local ? _localAgents.FirstOrDefault(a => a.Id == row.Id)?.Branch : null;
             // The checkout, branch included, is one unit from one row. A local row is the daemon's own account,
@@ -461,17 +465,24 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             // replaces the kept checkout, a registry row replaces only one a registry row reported, and a branch
             // the row lacks carries over only within the same checkout: the same worktree, or with none, the
             // same repository.
-            if (row.RepoPath is not null || row.WorktreePath is not null) {
-                var known = _hostedFacts.GetValueOrDefault(sid);
-                var fromLocal = row.Origin == AgentOrigin.Local;
-                var reported = string.IsNullOrWhiteSpace(daemonBranch) ? row.Branch ?? dto.Branch : daemonBranch;
-                var replaces = fromLocal || !known.FromLocal;
-                var sameCheckout = !replaces || string.Equals(row.WorktreePath ?? row.RepoPath, known.WorktreePath ?? known.RepoPath, StringComparison.Ordinal);
-                var branch = reported ?? (sameCheckout ? known.Branch : null);
-                _hostedFacts[sid] = replaces
-                    ? (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom, branch, fromLocal)
-                    : known with { Branch = branch };
-            }
+            var known = _hostedFacts.GetValueOrDefault(own);
+            var fromLocal = row.Origin == AgentOrigin.Local;
+            var fromDaemon = !string.IsNullOrWhiteSpace(daemonBranch);
+            var reported = fromDaemon ? daemonBranch : row.Branch ?? listedDto?.Branch;
+            var replaces = fromLocal || !known.FromLocal;
+            var sameCheckout = string.Equals(row.WorktreePath ?? row.RepoPath, known.WorktreePath ?? known.RepoPath, StringComparison.Ordinal);
+            var (branch, branchFromDaemon) = reported is not null ? (reported, fromDaemon)
+                : sameCheckout ? (known.Branch, known.BranchFromDaemon) : (null, false);
+            // A row that does not replace the kept checkout leaves all of it, branch included: a registry row's branch is
+            // only the listing's, and must not displace the one the local daemon reported.
+            var facts = replaces ? (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom, branch, fromLocal, branchFromDaemon) : known;
+            _hostedFacts[own] = facts;
+            _hostedFacts[SessionIds.ServerToken(own)] = facts;
+        }
+
+        for (var i = 0; i < next.Count; i++) {
+            var row = next[i];
+            if (!Matchable(row) || listedIdOf.GetValueOrDefault(row.Key) is not { } sid || !listed.TryGetValue(sid, out var dto)) continue;
             next[i] = row with {
                 OwnerUserId = dto.Owner?.UserId,
                 OwnerName = dto.Owner?.DisplayName ?? dto.Owner?.Username,
@@ -546,7 +557,9 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                     && (facts.RepoPath is null || SameRemotePath(facts.RepoPath, server.RepoPath)) ? named : null;
                 server = server with {
                     RepoPath = facts.RepoPath ?? server.RepoPath, WorktreePath = facts.WorktreePath ?? listingWorktree,
-                    WorkLocation = facts.WorkLocation, BorrowedFrom = facts.BorrowedFrom, Branch = facts.Branch ?? server.Branch,
+                    WorkLocation = facts.WorkLocation, BorrowedFrom = facts.BorrowedFrom,
+                    // A branch the daemon reported is the checkout's own; one taken from an earlier listing yields to the current one.
+                    Branch = facts.BranchFromDaemon ? facts.Branch ?? server.Branch : server.Branch ?? facts.Branch,
                 };
             }
             next.Add(server);
