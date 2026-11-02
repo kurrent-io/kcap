@@ -13,4 +13,7 @@ public static class ChatDisplayKind {
 
     /// The summary the harness carries into a compacted conversation.
     public const string CompactSummary = "compact_summary";
+
+    /// A user message the server recorded from a queued input the agent never received.
+    public const string Undelivered = "undelivered";
 }

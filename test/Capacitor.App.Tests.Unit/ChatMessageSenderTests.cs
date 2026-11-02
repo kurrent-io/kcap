@@ -122,6 +122,36 @@ public class ChatMessageSenderTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public Task An_undelivered_message_shows_as_undelivered_and_leaves_the_send_queued() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var lane = new FakeServerLane();
+        var feed = new RemoteTranscriptFeed("s1", "claude", access,
+            (_, _) => Task.FromResult(new SessionDetailFetch(RemoteFixtures.Detail())), lane, time, _ => { });
+        var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Session("s1")), Observable.Return<string[]?>(null),
+            new AcceptingChatPromptInput("u1"), new NoAttachmentUploader(), _ => feed, new RecordingOpener(), time,
+            new FakePermissionService(), new SessionRuns(time), sessionId: Observable.Return<string?>("s1"));
+        try {
+            await WaitUntilAsync(() => chat.HasSeed && lane.Tails.Count == 1, what: "the seed and tail");
+            chat.ComposerText = "same prompt";
+            await chat.SendCommand.Execute();
+            lane.PushStreamEvent(RemoteFixtures.Envelope("s1", 6, CanonicalEventTypes.UserMessageReceived,
+                """{"content":"same prompt","extensions":{"capacitor":{"undelivered":true}}}"""));
+            await WaitUntilAsync(() => chat.Items.OfType<UserTurnItem>().Any(), what: "the undelivered message");
+
+            await Assert.That(chat.Items.OfType<UserTurnItem>().Single().IsUndelivered).IsTrue();
+            await Assert.That(chat.QueuedMessages.Single().Text).IsEqualTo("same prompt");
+
+            lane.PushStreamEvent(RemoteFixtures.Envelope("s1", 7, CanonicalEventTypes.UserMessageReceived, """{"content":"same prompt"}"""));
+            await WaitUntilAsync(() => chat.Items.OfType<UserTurnItem>().Count() == 2, what: "the echo");
+
+            await Assert.That(chat.Items.OfType<UserTurnItem>().Last().IsUndelivered).IsFalse();
+            await Assert.That(chat.HasQueuedMessages).IsFalse();
+        } finally { await chat.TeardownAsync(); }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public Task A_late_queue_snapshot_cannot_revive_a_dispatch_already_attributed_to_a_message() => RunOnUiAsync(async () => {
         using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
         using var queue = new Subject<IReadOnlyList<QueuedInputItem>>();

@@ -18,6 +18,7 @@ public static class TranscriptEnvelopes {
         switch (evt.Payload) {
             case UserMessageReceived m:
                 return [new AcpEventEnvelope(Kind: AcpEventKind.UserMessage, Text: m.Content, TimestampIso: ts,
+                    ToolKind: IsUndelivered(m) ? ChatDisplayKind.Undelivered : null,
                     SourceEventId: evt.EventId == Guid.Empty ? null : evt.EventId)];
             case AssistantTextGenerated m:
                 return [new AcpEventEnvelope(Kind: AcpEventKind.AssistantText, Text: m.Content, TimestampIso: ts)];
@@ -39,6 +40,9 @@ public static class TranscriptEnvelopes {
                 return [];
         }
     }
+
+    static bool IsUndelivered(UserMessageReceived m) =>
+        SchemaExtensions.Flag(SchemaExtensions.Slug(m, CapacitorExtension.Slug), CapacitorExtension.Undelivered);
 
     /// At most ToolResultCap units including the marker; a cut that would split a surrogate pair
     /// drops the high half too, so the result can be one unit short of the cap.
