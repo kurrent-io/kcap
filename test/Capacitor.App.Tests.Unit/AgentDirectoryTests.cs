@@ -646,6 +646,31 @@ public class AgentDirectoryTests {
         await Assert.That(row.WorktreePath).IsEqualTo("/r/.wt/a1");
     }
 
+    /// A resumed session reported from another worktree is another checkout: the branch the earlier one
+    /// was on does not carry over to it when nothing reports one, while the same worktree keeps its branch.
+    [Test]
+    [Arguments("/r/.wt/a2", null)]
+    [Arguments("/r/.wt/a1", "feature")]
+    public async Task A_kept_branch_carries_over_only_within_the_same_worktree(string resumedWorktree, string? expectedBranch) {
+        var (local, _, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        MineLive(sessions, "S");
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { WorktreePath = "/r/.wt/a1", Branch = "feature" });
+        local.Agents.RemoveKey("a1");
+        local.Agents.AddOrUpdate(LocalAgent("a2", sessionId: "S") with { WorktreePath = resumedWorktree });
+
+        local.Agents.RemoveKey("a2");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S"));
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.WorktreePath).IsEqualTo(resumedWorktree);
+        await Assert.That(row.Branch).IsEqualTo(expectedBranch);
+    }
+
     /// The daemon's paths are protected session content like the listing's own branch: a viewer the
     /// server now lists below full access gets none of them.
     [Test]

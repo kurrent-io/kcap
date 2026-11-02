@@ -451,13 +451,16 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             // A daemon row carries the listing's branch, never its own; the local daemon's is on its dto.
             var daemonBranch = row.Origin == AgentOrigin.Local ? _localAgents.FirstOrDefault(a => a.Id == row.Id)?.Branch : null;
             // A local and a registry row can both list one session, twins or not, and a registry row names
-            // no worktree. The checkout is one unit from one row, so a repository from one machine never
-            // pairs with a worktree from another: a row without a worktree replaces only a checkout that
-            // has none either.
+            // no worktree. The checkout, branch included, is one unit from one row, so nothing from one
+            // checkout pairs with another: a row without a worktree replaces only a checkout that has none
+            // either, and a branch the row lacks carries over only within the same worktree.
             if (row.RepoPath is not null || row.WorktreePath is not null) {
                 var known = _hostedFacts.GetValueOrDefault(sid);
-                var branch = string.IsNullOrWhiteSpace(daemonBranch) ? row.Branch ?? dto.Branch ?? known.Branch : daemonBranch;
-                _hostedFacts[sid] = row.WorktreePath is not null || known.WorktreePath is null
+                var reported = string.IsNullOrWhiteSpace(daemonBranch) ? row.Branch ?? dto.Branch : daemonBranch;
+                var replaces = row.WorktreePath is not null || known.WorktreePath is null;
+                var sameCheckout = !replaces || row.WorktreePath == known.WorktreePath;
+                var branch = reported ?? (sameCheckout ? known.Branch : null);
+                _hostedFacts[sid] = replaces
                     ? (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom, branch)
                     : known with { Branch = branch };
             }
