@@ -23,9 +23,9 @@ public class ExperimentalSettingsViewModelTests {
     static Task Until(Func<bool> condition, string what) => WorkspaceFixtures.WaitUntilAsync(condition, what: what);
 
     static DaemonStatusDto Reporting(
-            bool resolved, bool active, bool acknowledged = true, string? reason = null, bool failed = false) =>
+            bool resolved, bool active, bool acknowledged = true, string? reason = null, bool failed = false, bool? on = null) =>
         FakeDaemonClientService.Snap() with {
-            Experimental = [new ExperimentalFeatureStatusDto(Id, resolved, active, 1, acknowledged, reason, failed)],
+            Experimental = [new ExperimentalFeatureStatusDto(Id, resolved, active, 1, acknowledged, reason, failed, on)],
         };
 
     [Test]
@@ -52,6 +52,27 @@ public class ExperimentalSettingsViewModelTests {
         await vm.Loaded;
 
         await Assert.That(vm.Features.Single().IsEnabled).IsTrue();
+    });
+
+    /// The daemon reports an unset switch as stored off and running on, so the row reads it as settled
+    /// rather than applying, and a Codex too old for it as on and not active.
+    [Test]
+    public Task A_switch_on_by_default_shows_the_daemons_state_for_it() => AvaloniaSession.RunOnUiAsync(async () => {
+        var store = new ExperimentalSettingsStore(Config.Root);
+        IReadOnlyList<ExperimentalFeature> onByDefault = [.. ExperimentalFeatures.All.Select(f => f with { OnByDefault = true })];
+        var service = Connected();
+        using var vm = new ExperimentalSettingsViewModel(store, "work", service, onByDefault);
+        await vm.Loaded;
+        var row = vm.Features.Single();
+
+        service.SnapshotsSubject.OnNext(Reporting(resolved: false, active: true, on: true));
+        await Until(() => row.StatusText == "Active", "the default running");
+
+        service.SnapshotsSubject.OnNext(Reporting(resolved: false, active: false, reason: "codex is older than 0.146.0", on: true));
+        await Until(() => row.StatusText == "On, not active: codex is older than 0.146.0", "the default not active");
+
+        row.IsEnabled = false;
+        await Assert.That(row.StatusText).IsEqualTo("Applying…");
     });
 
     /// <summary>The store is read off the UI thread, so the constructor cannot know the saved value: the

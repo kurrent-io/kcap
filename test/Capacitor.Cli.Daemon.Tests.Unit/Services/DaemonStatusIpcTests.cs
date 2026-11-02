@@ -442,13 +442,13 @@ public class DaemonStatusIpcTests {
             var dto = JsonSerializer.Deserialize(statusIpc.Snapshot(), StatusIpcJsonContext.Default.DaemonStatusDto)!;
 
             await Assert.That(dto.Experimental!.Single()).IsEqualTo(
-                new ExperimentalFeatureStatusDto("codex-app-server", true, true, 4, false, "the server has not been told yet", false));
+                new ExperimentalFeatureStatusDto("codex-app-server", true, true, 4, false, "the server has not been told yet", false, ResolvedOn: true));
 
             config.CodexRegistrationFailed(config.CodexResolution);
             dto = JsonSerializer.Deserialize(statusIpc.Snapshot(), StatusIpcJsonContext.Default.DaemonStatusDto)!;
 
             await Assert.That(dto.Experimental!.Single()).IsEqualTo(
-                new ExperimentalFeatureStatusDto("codex-app-server", true, true, 4, false, "the server has not been told yet", true));
+                new ExperimentalFeatureStatusDto("codex-app-server", true, true, 4, false, "the server has not been told yet", true, ResolvedOn: true));
 
             config.CodexResolution = new(5, true, "0.100.0", false, "Codex is too old");
             config.AcknowledgedCodexResolution = new(5, true, "0.100.0", false, "Codex is too old");
@@ -456,9 +456,15 @@ public class DaemonStatusIpcTests {
             dto = JsonSerializer.Deserialize(statusIpc.Snapshot(), StatusIpcJsonContext.Default.DaemonStatusDto)!;
 
             await Assert.That(dto.Experimental!.Single()).IsEqualTo(
-                new ExperimentalFeatureStatusDto("codex-app-server", true, false, 5, true, "Codex is too old", false));
+                new ExperimentalFeatureStatusDto("codex-app-server", true, false, 5, true, "Codex is too old", false, ResolvedOn: true));
 
-            config.CodexResolution = config.AcknowledgedCodexResolution = new(6, false, null, false, null);
+            config.CodexResolution = config.AcknowledgedCodexResolution = new(6, false, "0.100.0", false, "Codex is too old", ByDefault: true);
+            dto = JsonSerializer.Deserialize(statusIpc.Snapshot(), StatusIpcJsonContext.Default.DaemonStatusDto)!;
+
+            await Assert.That(dto.Experimental!.Single()).IsEqualTo(
+                new ExperimentalFeatureStatusDto("codex-app-server", false, false, 6, true, "Codex is too old", false, ResolvedOn: true));
+
+            config.CodexResolution = config.AcknowledgedCodexResolution = new(7, false, null, false, null);
             config.ExperimentalSettingsProblem = "experimental.json is not valid JSON";
             dto = JsonSerializer.Deserialize(statusIpc.Snapshot(), StatusIpcJsonContext.Default.DaemonStatusDto)!;
 

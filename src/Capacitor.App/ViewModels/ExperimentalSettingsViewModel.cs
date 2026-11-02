@@ -97,7 +97,7 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         _appliedSequence = sequence;
         foreach (var row in Features) {
             if (_saving.Contains(row.Id)) continue;
-            row.Load(read.Readable && read.IsOn(row.Feature), read.Readable);
+            row.Load(read.Readable && read.IsOn(row.Feature), read.Readable && read.IsSet(row.Id), read.Readable);
         }
         Problem = read.Problem ?? _saveProblem;
     }
