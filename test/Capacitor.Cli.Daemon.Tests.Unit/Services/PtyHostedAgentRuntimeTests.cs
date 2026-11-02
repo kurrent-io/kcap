@@ -710,6 +710,24 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    /// <summary>The unattended spray stops at an exit before asking about dialogs, so an exit while a
+    /// dialog held the pasted message fails it there too.</summary>
+    [Test]
+    public async Task An_unattended_message_held_by_a_dialog_when_the_agent_exits_fails() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: true);
+
+        var send = runtime.SendUserInputAsync("carry on");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+        pty.Exit();
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => send.IsCompleted);
+
+        await Assert.That(async () => await send).Throws<IOException>();
+        await Assert.That(pty.Writes.Count(w => w == "\r")).IsEqualTo(0);
+    }
+
     /// <summary>A stop asked for only after the dialog closed did not cut its wait short: the message is
     /// submitted as with any stop that finds no dialog open.</summary>
     [Test]
