@@ -65,7 +65,7 @@ public class AgentOrchestratorResumeOnBootTests {
                         McpConfigPath: null, Transcript: null);
 
                 var runtime = ReopensSession && ctx.ResumeSessionId is { } reopened
-                    ? new FakeAcpRuntime { Vendor = Vendor, Cwd = ctx.Worktree.Path, AcpSessionId = reopened, Reopened = true }
+                    ? new FakeAcpRuntime { Vendor = Vendor, Cwd = ctx.Worktree.Path, AcpSessionId = reopened, Reopened = true, NeverExits = Unkillable }
                     : new FakeAcpRuntime { Vendor = Vendor, Cwd = ctx.Worktree.Path, VendorResumeToken = ResumeToken };
                 LastAcpRuntime = runtime;
 
@@ -259,6 +259,38 @@ public class AgentOrchestratorResumeOnBootTests {
         await f.Orch.ResumeOnBootAsync(CancellationToken.None);
 
         await Assert.That(f.Orch.ResumeLedger!.TryRead("stuck-1")!.State).IsEqualTo(ResumeState.Running);
+    }
+
+    /// <summary>A runtime that will not die is never continued beside, whether its lease lapsed or the server refused
+    /// its transcript: it stays the session's resumed agent.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_refused_transcript_on_a_runtime_that_will_not_stop_is_not_continued(bool leaseLost) {
+        using var silence = new CancellationTokenSource();
+        var server = new CaptureServerConnection {
+            BeginResume         = _ => new HandoffTakeoverAdmission("lease-1", null, 60),
+            RenewHandoff        = (_, _) => Task.FromResult(!leaseLost),
+            AcpEventsAckOverride = _ => new AcpBatchAck(41, 41),
+            AcpEventsBlockUntil = silence,
+        };
+        var f = Build(new ResumableFactory { ReopensSession = true, Unkillable = true },
+            c => c.ResumeReadinessWindow = TimeSpan.FromMilliseconds(500), server: server);
+        await using var _ = f.Orch;
+        f.Orch.SourceLeaseRenewal = TimeSpan.FromMilliseconds(50);
+        Entry(f, "stuck-acp-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await silence.CancelAsync();
+
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Factory.LastAcpRuntime!.HasExited).IsFalse();
     }
 
     /// <summary>A server that has the lease but does not answer for it leaves the session unfenced: after the retry

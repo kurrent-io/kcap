@@ -1344,21 +1344,25 @@ internal partial class AgentOrchestrator {
         // A lapsed lease may already have let a hand-off take the session over.
         // Settled as failed only once the runtime is gone: a live one stays registered on the source, which refuses a
         // takeover, and carries on as the resumed agent.
+        // A runtime that will not die is never continued beside: it is settled as the resumed agent.
+        var unkillable = false;
         if (lease?.IsLost == true) {
             if (await TerminateConfirmedAsync(agent)) return (SourceLeaseLostReason, null);
 
             LogInPlaceRetireUnconfirmed(agent.Id);
+            unkillable = true;
         }
 
-        if (!survived && TranscriptRefused(agent)) {
+        if (!unkillable && !survived && TranscriptRefused(agent)) {
             // Its first turn was never sent, so kcap continue repeats nothing; still pending its resume,
             // the teardown this starts keeps the worktree for it.
-            await agent.Runtime.TerminateAsync(ShutdownTerminateGrace);
+            if (await TerminateConfirmedAsync(agent)) return (TranscriptRefusedReason, null);
 
-            return (TranscriptRefusedReason, null);
+            LogInPlaceRetireUnconfirmed(agent.Id);
+            unkillable = true;
         }
 
-        if (!survived) return ("runtime_exited", agent.Runtime.ExitCode);
+        if (!unkillable && !survived) return ("runtime_exited", agent.Runtime.ExitCode);
 
         lock (_ledgerLock) {
             // A shutdown that began meanwhile has marked the agent for its own resume.
