@@ -36,6 +36,22 @@ public class IntelligenceStepViewModelTests {
         await Assert.That(h.Option("codex").IsSelected).IsTrue();
     }
 
+    /// The Harnesses page can change between visits; an agent unticked there must not be offered, or sent, here.
+    [Test]
+    public async Task Coming_back_after_the_ticks_change_offers_the_new_ticks_and_keeps_a_choice_still_offered() {
+        var h = new Harness();
+        await h.EnterAsync();
+        h.Option(IntelligenceOption.ProviderToken).IsSelected = true;
+
+        h.Ticked = [HarnessId.Codex];
+        await h.EnterAsync();
+
+        await Assert.That(h.Vm.Options.Select(o => o.Token))
+            .IsEquivalentTo(["codex", IntelligenceOption.ProviderToken, IntelligenceAnswer.NoneToken], CollectionOrdering.Matching);
+        await Assert.That(h.Option(IntelligenceOption.ProviderToken).IsSelected).IsTrue();
+        await Assert.That(h.Vm.Options.Count(o => o.IsSelected)).IsEqualTo(1);
+    }
+
     [Test]
     public async Task With_no_local_agent_to_offer_not_now_is_preselected() {
         var h = new Harness { Headless = [] };

@@ -32,6 +32,8 @@ public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IIm
     bool                              _loading;
     IntelligenceSetupResponse?        _applied;
     (IntelligenceAnswer Answer, string? Model, string? Key)? _sent;
+    string[]?                         _headlessRead;
+    string                            _offeredFor = "";
 
     public IntelligenceStepViewModel(
             IKcapCli cli, Action<Action> post, Func<bool> onLocalPath, Func<IReadOnlyList<HarnessId>> ticked,
@@ -109,7 +111,7 @@ public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IIm
         }
     }
 
-    public string KeyHint => $"Your {SelectedVendor.Label} API key. It is stored on the local server, never sent anywhere else.";
+    public string KeyHint => $"Your {SelectedVendor.Label} API key. The local server stores it and sends it only to {SelectedVendor.Label}.";
 
     public string? Error {
         get => _error;
@@ -128,7 +130,13 @@ public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IIm
     public bool CanContinue => !Busy && !IsLoading && (!ProviderSelected || !string.IsNullOrWhiteSpace(ApiKey));
 
     public Task OnEnterAsync(CancellationToken ct) {
-        if (!_onLocalPath() || Options.Count > 0) return Task.CompletedTask;
+        if (!_onLocalPath() || IsLoading) return Task.CompletedTask;
+
+        if (_headlessRead is { } read) {
+            if (TickedKey() != _offeredFor) Offer(read);
+
+            return Task.CompletedTask;
+        }
 
         IsLoading = true;
         Loading   = LoadAsync(ct);
@@ -147,22 +155,34 @@ public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IIm
             headless = [];
         }
 
-        _post(() => Offer(headless));
+        _post(() => {
+            _headlessRead = headless;
+            Offer(headless);
+        });
     }
 
+    string TickedKey() => string.Join(',', _ticked().Select(id => id.VendorId).Order(StringComparer.OrdinalIgnoreCase));
+
+    /// The Harnesses page can change between visits, so the agents are offered again from its ticks, keeping a choice
+    /// that is still on offer.
     void Offer(string[] headless) {
-        var ticked = _ticked().Select(id => id.VendorId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var agents = headless.Where(ticked.Contains).Select(IntelligenceOption.LocalAgent);
+        var ticked   = _ticked().Select(id => id.VendorId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var agents   = headless.Where(ticked.Contains).Select(IntelligenceOption.LocalAgent);
+        var previous = Selected?.Token;
+
+        foreach (var old in Options) old.PropertyChanged -= OnOptionChanged;
 
         List<IntelligenceOption> options = [.. agents, IntelligenceOption.Provider(), IntelligenceOption.NotNow()];
-        options[0].IsSelected = options[0].IsLocalAgent;
-        if (!options[0].IsLocalAgent) options[^1].IsSelected = true;
+        if (options.FirstOrDefault(o => o.Token == previous) is { } kept) kept.IsSelected = true;
+        else if (options[0].IsLocalAgent) options[0].IsSelected = true;
+        else options[^1].IsSelected = true;
 
         foreach (var option in options) {
             option.PropertyChanged += OnOptionChanged;
         }
 
-        Options   = options;
+        _offeredFor = TickedKey();
+        Options     = options;
         IsLoading = false;
         this.RaisePropertyChanged(nameof(ProviderSelected));
     }
