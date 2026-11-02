@@ -215,7 +215,7 @@ At a glance — each links to its section below:
 | Command | What it does |
 |---------|--------------|
 | [`kcap setup`](#initial-setup) | Interactive wizard — server, auth, agent hooks, daemon (`--local` runs the server on this machine) |
-| [`kcap local`](#local-server-kcap-local) | Status, start, stop, restart, upgrade, bundle prefetch, logs, web UI and uninstall of the server `kcap setup --local` installed |
+| [`kcap local`](#local-server-kcap-local) | Status, start, stop, restart, upgrade, bundle prefetch, background intelligence, logs, web UI and uninstall of the server `kcap setup --local` installed |
 | [`.kcap/approvals.yaml`](#approval-policy) | Auto-allow, deny, or force-ask specific tool calls |
 | [`kcap import`](#loading-historical-sessions) | Backfill past sessions from every detected agent |
 | [`kcap muse-assistant`](#muse-assistant) | Record Muse Assistant chats as private sessions, run by Muse's own cron inside its VM |
@@ -258,7 +258,7 @@ At a glance — each links to its section below:
 kcap setup                                   # interactive wizard (local, cloud, or a workspace you have)
 kcap setup <tenant>                          # shorthand: https://<tenant>.kcap.ai
 kcap setup --server-url <url> --no-prompt    # CI / scripted
-kcap setup --local --single-user --yes --no-prompt   # local edition, unattended
+kcap setup --local --single-user --yes --intelligence claude --no-prompt   # local edition, unattended
 kcap setup --server-url <url> --no-prompt --json     # …with JSON progress for a wrapper
 kcap setup --discover [--json]               # report workspaces only, configure nothing
 kcap setup --org "Acme" --slug acme --no-prompt   # create a workspace, unattended
@@ -267,6 +267,7 @@ kcap setup --local --embedding-model <model> # …embedding with this Ollama mod
 kcap setup --local --builtin-embeddings      # …embedding with the built-in model
 kcap setup --local --windows-service         # …run by the kcap-service Windows service (Windows)
 kcap local fetch                             # download the server bundle ahead of the install
+kcap local intelligence <answer>             # choose who runs its titles, outcomes and evals
 kcap local uninstall [--purge]               # remove it, keeping (or deleting) its data
 ```
 
@@ -355,6 +356,11 @@ The first version is for a machine with one user: on a shared machine, other OS 
 - With no embedding flag, a recorded choice stands, and a recorded built-in model that is missing or damaged is downloaded again. With nothing recorded, setup uses Ollama when it is running and the built-in model otherwise; `--no-prompt` and `--json` take that without asking.
 - When neither is available, setup carries on and search works by keyword. A failed download or pull, or a model that cannot embed, is reported the same way and never fails the install.
 
+**Background intelligence.** The server titles sessions, says what each achieved and runs evals with a model. After the daemon step, setup asks what runs those calls: your own coding agent on this machine (Claude Code or Codex, whichever of them the daemon can run without a terminal, on its own sign-in and quota), a provider with your API key (Anthropic, OpenAI, OpenRouter or Cohere, with a model defaulted to the server's), or not now. A provider's key is read from its own variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` or `COHERE_API_KEY`) or a hidden prompt, never from the command line, and the server tries it with one call before storing anything. Any answer but not now then asks whether imported sessions also get a summary of what each achieved (yes by default), and the import step says how many days the server's background work on them takes at its daily pace. Once the server titles sessions, the import no longer offers to name them with your agent. Not now stores nothing, so a re-run never clears an earlier answer; a refused or unreachable answer never fails setup.
+
+- `--intelligence <answer>` answers it without asking: `claude` or `codex`, `anthropic`, `openai`, `openrouter` or `cohere`, or `none`, which is not now (`kcap local intelligence none` turns it off). `--intelligence-model <model>` picks a provider's model, and `--import-outcomes` / `--no-import-outcomes` the summary choice. `--no-prompt` requires `--intelligence`, and a provider's key in its variable, and is refused before anything installs without them.
+- `kcap local intelligence <answer> [--model <model>] [--import-outcomes | --no-import-outcomes] [--json]` changes the answer later, with the same key rules. It exits 0 when the server took it, 1 when the server could not be asked, and 2 when the arguments or the server refused it; `--json` prints one line, `{"ok":true,"mode":…,"import_outcomes":…,"backlog_session_touches_per_day":…,"resolving":[…]}` or `{"ok":false,"error":"…"}`.
+
 - A machine that already has a profile for another server is refused for now.
 - Every kcap that talks to the local server must be newer than 1.3.0, which does not keep to its rules. Setup asks the `kcap` on `PATH` and the desktop app's bundled one (in `/Applications` or `~/Applications`) for their versions, and stops if either is 1.3.0 or older, or does not report one: update it, or remove the one on `PATH`. The local server refuses an older kcap too, so its hooks and watcher record nothing there.
 - Builds of kcap for musl Linux are not supported.
@@ -407,7 +413,7 @@ kcap local uninstall --purge    # also delete its data and retire its URL
 The local edition, on a Mac:
 
 ```bash
-kcap setup --local --single-user --yes --no-embeddings --no-prompt
+kcap setup --local --single-user --yes --no-embeddings --intelligence claude --no-prompt
 ```
 
 The cloud edition, against a workspace that exists, with a [machine credential](#machine-credentials-headless-recording) in the environment:
@@ -442,6 +448,8 @@ kcap setup --org "Acme" --slug acme --tier team --default-visibility org_public 
 | Install kcap local (local) | `--yes` | required, except to reuse an installation |
 | Search by meaning (local) | `--builtin-embeddings`, `--embedding-model <model>`, `--no-embeddings` | the recorded choice; else Ollama when it runs, the built-in model otherwise |
 | Share usage data? (local) | — (`kcap config set telemetry on` beforehand, or `KCAP_TELEMETRY=1`) | the saved choice; else not shared, and nothing is saved |
+| Who runs background intelligence? (local) | `--intelligence <answer>`, `--intelligence-model <model>` | required; a provider also needs its key in its variable |
+| Summarise what imported sessions achieved? (local) | `--import-outcomes`, `--no-import-outcomes` | the server's choice (yes) |
 | Default session visibility | `--default-visibility` | the workspace's default (`org_public` from a server that cannot say); against a local server, the profile's stored value and no question |
 | Install kcap for the detected agents? | `--skip-harnesses`, `--skip-<agent>-hooks` and friends | yes |
 | Let Codex's sandbox reach the server? | `--skip-codex-network-access` | yes |
@@ -450,7 +458,7 @@ kcap setup --org "Acme" --slug acme --tier team --default-visibility org_public 
 | Daemon name | `--daemon-name` | the suggestion; a held `--daemon-name` fails |
 | Import past sessions? | `--skip-import` | yes |
 | Which projects to import? | `--skip-import-repo <owner/name>`, `--skip-import-folder <path>` (each repeatable; this import only) | every one |
-| Name imported sessions with your coding agent? | — | no |
+| Name imported sessions with your coding agent? | — | no; not asked once the local server titles them |
 | Open an agent to follow the import? | — | not offered |
 
 **Exit codes.** `kcap setup` exits:
@@ -480,7 +488,7 @@ kcap setup --org "Acme" --slug acme --tier team --default-visibility org_public 
 {"v":1,"event":"done","server_url":"https://acme.kcap.ai"}
 ```
 
-The steps are `server`, `sign_in`, `visibility`, `harnesses`, `daemon` and `import`. `credential` is `machine`, `stored`, `sign_in` or `none`; the daemon's `outcome` is `enabled`, `enabled_unverified`, `already_enabled`, `refused` or `failed` for its service, or `skipped` when none was set up; the import's is `ran` or `skipped`. With `--local`, the [install's own events](#local-edition) come inside the `server` step. A `failed` line names the step it stopped in and carries a `code`: the local install's codes, or `answer_required`, `invalid_arguments`, `server_unreachable`, `workspace_unavailable`, `sign_in_failed`, `machine_credential_rejected`, `daemon_name_held`, `cancelled`, or `setup_failed` for anything else, with the last error setup printed as its `message`. A refusal found before any step starts is a `failed` line alone; the local edition's consents are checked inside the `server` step, so their `answer_required` line follows its `step_started`.
+The steps are `server`, `sign_in`, `visibility`, `harnesses`, `daemon`, `intelligence` (with `--local` only) and `import`. `credential` is `machine`, `stored`, `sign_in` or `none`; the daemon's `outcome` is `enabled`, `enabled_unverified`, `already_enabled`, `refused` or `failed` for its service, or `skipped` when none was set up; the intelligence step's is the mode the server applied (`local_agent` or `provider`), or `skipped`; the import's is `ran` or `skipped`. With `--local`, the [install's own events](#local-edition) come inside the `server` step. A `failed` line names the step it stopped in and carries a `code`: the local install's codes, or `answer_required`, `invalid_arguments`, `server_unreachable`, `workspace_unavailable`, `sign_in_failed`, `machine_credential_rejected`, `daemon_name_held`, `cancelled`, or `setup_failed` for anything else, with the last error setup printed as its `message`. A refusal found before any step starts is a `failed` line alone; the local edition's consents are checked inside the `server` step, so their `answer_required` line follows its `step_started`.
 
 In `--no-prompt` mode, the wizard installs hooks for every detected agent by default. Opt out per agent with `--skip-claude-hooks`, `--skip-codex-hooks`, `--skip-cursor-hooks`, `--skip-copilot-hooks`, `--skip-gemini-hooks`, `--skip-kiro-hooks`, `--skip-pi-hooks`, `--skip-opencode-hooks`, `--skip-antigravity-hooks`, `--skip-mistral-vibe-hooks`, `--skip-grok-hooks`, and/or `--skip-muse-hooks` (with `--skip-muse-mcp` to leave Muse's MCP block alone). When Codex hooks are installed, the wizard also enables Codex sandbox network access for your server(s) by default; pass `--skip-codex-network-access` to leave `~/.codex/config.toml` untouched.
 
@@ -544,6 +552,7 @@ kcap local logs -n 200     # the end of the server's log, which holds Postgres's
 kcap local open            # open the web UI in a browser
 kcap local upgrade         # move it forward to this kcap's version
 kcap local fetch           # download and verify this kcap's bundle ahead of an install
+kcap local intelligence claude   # who runs its titles, outcomes and evals (see Local edition)
 kcap local uninstall       # remove it, keeping its data; --purge deletes it (see Removing the local edition)
 ```
 
