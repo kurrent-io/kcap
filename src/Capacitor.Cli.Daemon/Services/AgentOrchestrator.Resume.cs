@@ -1268,7 +1268,7 @@ internal partial class AgentOrchestrator {
         // be being handed off, and a continuation would take it over a second time.
         if (!reason.StartsWith(AccountResolution.Unavailable, StringComparison.Ordinal)
          && reason is not (SourceReservedReason or SourceLeaseUnreachableReason or SourceLeaseLostReason or RuntimeUnstoppedReason
-                        or ResumeInPlaceRefusals.DirectoryNotAllowed)
+                        or ResumeInPlaceRefusals.DirectoryNotAllowed or ResumeInPlaceRefusals.StoreChanged)
          && !reason.StartsWith(SourceLeaseRefusedReason, StringComparison.Ordinal)) {
             var outcome = await ContinueEntry(entry, reason, ct);
             if (outcome != ResumeOutcome.Interrupted) return outcome;
@@ -1309,6 +1309,11 @@ internal partial class AgentOrchestrator {
         if (entry.Launch.Work == WorkLocation.InPlace) {
             var authorized = await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(entry.Launch.WorktreePath);
             if (!authorized.Allowed || authorized.CanonicalCwd != entry.Launch.WorktreePath) return (ResumeInPlaceRefusals.DirectoryNotAllowed, null);
+
+            // And under the store it was recorded with: a vendor with no default directory would otherwise resume against
+            // whatever store it has now.
+            if (StoreRefusal(entry.Vendor, entry.Launch.AccountId, entry.Launch.AccountDirectory) is { } storeRefusal)
+                return (storeRefusal, null);
         }
 
         // The lease a hand-off takeover would need, held until the readiness window passes, so the session is not taken

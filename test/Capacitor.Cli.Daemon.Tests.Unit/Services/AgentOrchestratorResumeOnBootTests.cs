@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
+using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
@@ -114,7 +116,8 @@ public class AgentOrchestratorResumeOnBootTests {
             bool isPrivate = false, ResumeState state = ResumeState.Resuming, DateTimeOffset? at = null,
             string? predecessor = "instance-old", string? daemonInstanceId = null, bool standalone = false,
             string vendor = "cursor", string? permissionMode = null, string title = "the thing", bool? titleDerived = null,
-            IReadOnlyList<string>? inherited = null, bool? awaitingInput = null, WorkLocation work = WorkLocation.OwnedWorktree) {
+            IReadOnlyList<string>? inherited = null, bool? awaitingInput = null, WorkLocation work = WorkLocation.OwnedWorktree,
+            string? store = null) {
         var stamp = at ?? TimeProvider.System.GetUtcNow();
         var path  = worktree ?? Tmp.CreateDir($"wt-{agentId}");
         // An in-place entry records its directory as both, as the launch does.
@@ -126,7 +129,9 @@ public class AgentOrchestratorResumeOnBootTests {
             RequesterUserId: "user-1", RequesterDisplay: "User One", ConsentSource: "default",
             ConsentAt: stamp.ToString("O"), FlowRunId: null, FlowRole: null,
             WorktreeBranch: $"capacitor/custom-{agentId}", WorktreeIsStandalone: standalone, WorktreeSourceRepo: f.Repo,
-            PermissionMode: permissionMode, TitleDerived: titleDerived);
+            PermissionMode: permissionMode, TitleDerived: titleDerived,
+            // An in-place entry records the store it was resumed under, as the launch does.
+            AccountDirectory: store ?? (work == WorkLocation.InPlace ? CursorStore(f) : null));
         var entry = new ResumeLedgerEntry(
             ResumeLedgerEntry.CurrentSchemaVersion, agentId, "daemon-1", stamp, stamp, vendor, "acp",
             $"session-{agentId}", vendorSession, launch, state, Attempts: 0, LastError: null,
@@ -368,6 +373,31 @@ public class AgentOrchestratorResumeOnBootTests {
 
         await Assert.That(f.Factory.Contexts).IsEmpty();
         await Assert.That(f.Orch.ResumeLedger!.TryRead("in-place-cont-1")!.State).IsEqualTo(ResumeState.Interrupted);
+    }
+
+    static string CursorStore(Fixture f) =>
+        AccountDirectory.Normalize(Directory.CreateDirectory(f.Orch.HarnessesForTest.Of<CursorHarness>().Paths.CursorDir).FullName);
+
+    /// <summary>An in-place entry is resumed after a restart only under the store it recorded: one that no longer matches
+    /// is neither resumed nor continued, since a continuation would use the same store.</summary>
+    [Test]
+    public async Task An_in_place_restart_resume_under_a_changed_store_starts_nothing() {
+        var allowed = ResolvedDirectory("own-store");
+        var f = Build(new ResumableFactory { PtyStyle = true }, c => c.AllowedRepoPaths = [.. c.AllowedRepoPaths, allowed]);
+        await using var _ = f.Orch;
+        Entry(f, "in-place-store-1", worktree: allowed, work: WorkLocation.InPlace, store: AccountDirectory.Normalize(Tmp.CreateDir("other-store")));
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts).IsEmpty();
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("in-place-store-1")!.LastError).IsEqualTo(ResumeInPlaceRefusals.StoreChanged);
     }
 
     string ResolvedDirectory(string name) {
