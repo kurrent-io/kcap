@@ -632,9 +632,11 @@ public class PtyHostedAgentRuntimeTests {
     }
 
     /// <summary>A stop while a message waits on a dialog fails the message rather than typing it into
-    /// the dialog.</summary>
+    /// the dialog, or behind the stop's "/exit" once the dialog closes.</summary>
     [Test]
-    public async Task A_message_waiting_on_a_dialog_is_not_pasted_once_a_stop_is_asked_for() {
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_message_waiting_on_a_dialog_is_not_pasted_once_a_stop_is_asked_for(bool dialogClosesAfterStop) {
         var time    = new FakeTimeProvider();
         var pty     = new RecordingScriptedPtyProcess();
         var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
@@ -644,10 +646,35 @@ public class PtyHostedAgentRuntimeTests {
         await AdvanceAsync(time, TimeSpan.FromSeconds(1));
 
         var stop = runtime.RequestGracefulStopAsync();
+        if (dialogClosesAfterStop) runtime.NoteTerminalDialog(false);
         await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted && stop.IsCompleted);
 
         await Assert.That(async () => await send).Throws<IOException>();
         await Assert.That(pty.Writes.Any(w => w.Contains("carry on"))).IsFalse();
+        pty.Exit();
+    }
+
+    /// <summary>A message pasted before a dialog opened, and left unsubmitted because the agent stopped
+    /// or exited while the dialog showed, is a failed delivery, not a delivered one.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_message_whose_submit_a_dialog_withheld_until_the_agent_ended_fails(bool exits) {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        var send = runtime.SendUserInputAsync("carry on");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+        await AdvanceAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 4);
+
+        if (exits) pty.Exit();
+        else _ = runtime.RequestGracefulStopAsync();
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted);
+
+        await Assert.That(async () => await send).Throws<IOException>();
+        await Assert.That(pty.Writes.TakeWhile(w => w != "/exit").Count(w => w == "\r")).IsEqualTo(0);
         pty.Exit();
     }
 

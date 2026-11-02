@@ -369,17 +369,19 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// would answer it, and the server may have refused this sender that answer, so the paste and each
     /// submit Enter wait for any dialog to close, with the lane released so the dialog can be answered.
     /// </summary>
-    /// <exception cref="IOException">A stop was asked for while a dialog was still open.</exception>
+    /// <exception cref="IOException">The agent stopped or exited while a dialog held the message.</exception>
     public async Task SendUserInputAsync(string text) {
         await WaitForLaunchPromptAsync();
 
         while (true) {
+            var dialogShowed = DialogGone is not null;
             await WaitWhileDialogShowsAsync(_disposal.Token);
+            if (dialogShowed && Ending) throw DialogOutlivedAgent();
+
             await _lane.WaitAsync(_disposal.Token);
             if (DialogGone is null) break;
 
             _lane.Release();
-            if (_stopRequested || pty.HasExited) throw new IOException("The agent is stopping with a dialog open.");
         }
 
         _deliveryHoldsLane = true;
@@ -388,14 +390,19 @@ internal sealed partial class PtyHostedAgentRuntime(
             await pty.WriteAsync(BracketedPaste.Frame(text));
             // Unlike the launch prompt, a stop alone does not withhold the Enter: the stop's "/exit"
             // would land in the composer behind the unsent paste.
-            await SubmitAsync(async () => {
+            var submitted = await SubmitAsync(async () => {
                 await WaitOutDialogsAsync();
                 return DialogGone is null;
             });
+            if (!submitted) throw DialogOutlivedAgent();
         } finally {
             ReleaseDeliveryLane();
         }
     }
+
+    bool Ending => _stopRequested || pty.HasExited;
+
+    static IOException DialogOutlivedAgent() => new("The agent stopped or exited while a dialog held the message.");
 
     public async Task SendSpecialKeyAsync(string key) {
         var isWheel = TerminalScrollKey.TryDecode(key, out var bytes);
