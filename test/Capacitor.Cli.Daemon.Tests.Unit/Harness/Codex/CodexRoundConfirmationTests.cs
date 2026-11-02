@@ -24,9 +24,11 @@ public class CodexRoundConfirmationTests {
     }
 
     static Task<CodexRoundConfirmation.Result> Confirm(
-            FakeTimeProvider time, Func<long> length, Func<Task<bool>> resubmit, Func<bool>? attested = null, Func<bool>? isCurrent = null) =>
+            FakeTimeProvider time, Func<long> length, Func<Task<bool>> resubmit, Func<ulong>? attestations = null,
+            ulong attestationBaseline = 0, Func<bool>? isCurrent = null) =>
         CodexRoundConfirmation.ConfirmAsync(
-            length, baseline: 10, attested ?? (() => false), resubmit, Window, Poll, time, CancellationToken.None, isCurrent);
+            length, baseline: 10, attestations ?? (() => attestationBaseline), attestationBaseline, resubmit,
+            Window, Poll, time, CancellationToken.None, isCurrent);
 
     [Test]
     public async Task A_turn_in_the_first_window_needs_no_resubmit() {
@@ -38,16 +40,45 @@ public class CodexRoundConfirmationTests {
         await Assert.That(resubmits).IsEqualTo(0);
     }
 
-    /// <summary>A relayed prompt-submit hook proves the turn even before the rollout grows.</summary>
+    /// <summary>A prompt-submit hook relayed after delivery proves the turn even before the rollout grows.</summary>
     [Test]
     public async Task A_relayed_turn_counts_without_rollout_growth() {
         var resubmits = 0;
 
         var result = await Confirm(
-            new FakeTimeProvider(), () => 10, () => { resubmits++; return Task.FromResult(true); }, attested: () => true);
+            new FakeTimeProvider(), () => 10, () => { resubmits++; return Task.FromResult(true); },
+            attestations: () => 4, attestationBaseline: 3);
 
         await Assert.That(result.Verdict).IsEqualTo(CodexRoundConfirmation.Verdict.Started);
         await Assert.That(resubmits).IsEqualTo(0);
+    }
+
+    /// <summary>An attestation an earlier turn left standing says nothing about this round: the Enter is
+    /// still resent, and with no growth and no newer attestation the round did not start.</summary>
+    [Test]
+    public async Task An_attestation_from_before_delivery_does_not_count() {
+        var time      = new FakeTimeProvider();
+        var resubmits = 0;
+
+        var result = await Settle(time, Confirm(
+            time, () => 10, () => { resubmits++; return Task.FromResult(true); },
+            attestations: () => 3, attestationBaseline: 3));
+
+        await Assert.That(result).IsEqualTo(new CodexRoundConfirmation.Result(CodexRoundConfirmation.Verdict.NotStarted, true));
+        await Assert.That(resubmits).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task An_attestation_after_the_resubmit_is_credited_to_it() {
+        var   time         = new FakeTimeProvider();
+        ulong attestations = 3;
+
+        var result = await Settle(time, Confirm(time, () => 10, () => {
+            attestations++;
+            return Task.FromResult(true);
+        }, attestations: () => attestations, attestationBaseline: 3));
+
+        await Assert.That(result).IsEqualTo(new CodexRoundConfirmation.Result(CodexRoundConfirmation.Verdict.StartedAfterResubmit, true));
     }
 
     [Test]

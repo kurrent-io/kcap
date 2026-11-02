@@ -20,13 +20,18 @@ internal static class CodexRoundConfirmation {
 
     /// <param name="baseline">The rollout length sampled before the round was delivered; growth from
     /// either Enter counts against it.</param>
-    /// <param name="turnAttested">A turn the hooks relayed, which a submitted prompt starts.</param>
+    /// <param name="turnAttestations">The count of turns the hooks relayed, which a submitted prompt adds to.</param>
+    /// <param name="attestationBaseline">That count sampled before the round was delivered: an attestation
+    /// still standing from an earlier turn proves nothing about this round, so only a later one counts.</param>
     /// <param name="resubmit">Writes one more Enter; true when it reached the terminal.</param>
     public static async Task<Result> ConfirmAsync(
-            Func<long> currentLength, long baseline, Func<bool> turnAttested, Func<Task<bool>> resubmit,
-            TimeSpan window, TimeSpan pollInterval, TimeProvider time, CancellationToken ct, Func<bool>? isCurrent = null) {
+            Func<long> currentLength, long baseline, Func<ulong> turnAttestations, ulong attestationBaseline,
+            Func<Task<bool>> resubmit, TimeSpan window, TimeSpan pollInterval, TimeProvider time, CancellationToken ct,
+            Func<bool>? isCurrent = null) {
+        bool TurnAttested() => turnAttestations() > attestationBaseline;
+
         var first = await CodexTurnObserver.ObserveGrowthAsync(
-            currentLength, baseline, window, pollInterval, time, ct, isCurrent, turnAttested);
+            currentLength, baseline, window, pollInterval, time, ct, isCurrent, TurnAttested);
         if (first != CodexTurnObserver.Outcome.NotObserved) return new(Map(first, resubmitted: false), false);
 
         if (isCurrent is not null && !isCurrent()) return new(Verdict.Superseded, false);
@@ -38,7 +43,7 @@ internal static class CodexRoundConfirmation {
         var resubmitting = resubmit();
 
         var second = await CodexTurnObserver.ObserveGrowthAsync(
-            currentLength, baseline, window, pollInterval, time, ct, isCurrent, turnAttested);
+            currentLength, baseline, window, pollInterval, time, ct, isCurrent, TurnAttested);
 
         var written = resubmitting is { IsCompletedSuccessfully: true, Result: true };
         if (!resubmitting.IsCompletedSuccessfully)

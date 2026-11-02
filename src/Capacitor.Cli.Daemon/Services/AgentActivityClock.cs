@@ -38,6 +38,7 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
     // A relayed prompt submit or tool call with no turn end since. Output and a cleared wait also
     // describe an idle prompt, so this is a PTY vendor's only proof a turn is running.
     bool    _hookTurn;
+    ulong   _turnAttestations;
     ulong   _waitGeneration;
     // When the flag last became false. Silence is measured from here as well as from the last
     // output: a key that clears the wait must not be undone by the idle time already elapsed.
@@ -82,6 +83,14 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
 
     /// <summary>Fires outside <see cref="_gate"/> on every genuine <see cref="TurnAttested"/> change.</summary>
     public Action? OnTurnAttestedChanged { get; set; }
+
+    /// <summary>Counts every signal that attests a turn, whether or not it moved
+    /// <see cref="TurnAttested"/>. That flag stays set until a turn end or quiet mark clears it, so a
+    /// delivery that must know whether its own input started a turn samples this before writing and
+    /// counts only a later signal.</summary>
+    public ulong TurnAttestations {
+        get { lock (_gate) return _turnAttestations; }
+    }
 
     /// <summary>Counts every observed turn end, whether or not it moved the flag: a PTY vendor
     /// relays only Stop, so a wait nothing cleared sees the next turn end as a second Stop with the
@@ -273,6 +282,7 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
             _silenceWait = false;
             awaitingChanged = awaiting != _awaitingInput;
             if (ended) _waitGeneration++;
+            if (value) _turnAttestations++;
             if (!awaiting) _notAwaitingSince = time.GetTimestamp();
             if (_awaitingInput && !awaiting) _workingSince = _notAwaitingSince;
             _awaitingInput = awaiting;
@@ -298,6 +308,7 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
             attestedChanged = !_turnInFlight && _hookTurn == value;
             if (value) _waitGeneration++;
             else {
+                _turnAttestations++;
                 _notAwaitingSince = time.GetTimestamp();
                 if (changed) _workingSince = _notAwaitingSince;
             }

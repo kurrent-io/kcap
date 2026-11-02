@@ -4967,8 +4967,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // the daemon's journal instead.
         var   isCodex       = agent.Runtime.EmitsTerminalOutput
                            && string.Equals(agent.Runtime.Vendor, "codex", StringComparison.OrdinalIgnoreCase);
-        long? codexBaseline = null;
-        long  codexGen      = 0;
+        long? codexBaseline     = null;
+        long  codexGen          = 0;
+        ulong codexAttestations = 0;
 
         InputDeliveryOutcome outcome;
 
@@ -4980,7 +4981,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
 
         // Armed outside the section, and only for a write that actually landed.
-        if (isCodex && outcome.Kind is InputDeliveryKind.Delivered) ArmCodexTurnProbe(agent, codexBaseline, codexGen, dispatchId);
+        if (isCodex && outcome.Kind is InputDeliveryKind.Delivered)
+            ArmCodexTurnProbe(agent, codexBaseline, codexAttestations, codexGen, dispatchId);
 
         return outcome;
 
@@ -5065,15 +5067,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     return InputDeliveryOutcome.Drop(SendInputDropReason.DeliveryFailed, TearingDown);
                 }
 
-                // Codex turn diagnostic: bump the round generation and sample the rollout length BEFORE
-                // delivering, while the gate is held so it is ordered per agent. Bumping first instantly
-                // invalidates any prior round's still-running probe (it emits a verdict only while its
-                // generation is the latest), so a fast Codex append caused by THIS input can never be
-                // credited to the previous round. Sampling after the bump but before the send keeps the
-                // baseline honest — the append lands strictly after it. A null here (path not cached yet,
-                // or the stat failed) is handled in ArmCodexTurnProbe.
+                // Under the gate and before the write: the bump retires the previous round's probe before
+                // this input can grow the rollout, and the rollout length and attestation count are
+                // sampled before anything this input starts can move them. A null baseline is handled in
+                // ArmCodexTurnProbe.
                 if (isCodex) {
-                    codexGen = Interlocked.Increment(ref agent.CodexTurnProbeGen);
+                    codexGen          = Interlocked.Increment(ref agent.CodexTurnProbeGen);
+                    codexAttestations = agent.ActivityClock.TurnAttestations;
                     if (agent.TranscriptPath is { } rolloutPath) codexBaseline = TryFileLength(rolloutPath);
                 }
 
@@ -5146,17 +5146,18 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// while it is still the agent's latest, so a later round's growth is never credited to this one. A
     /// null baseline is logged and skipped, never read as "no turn".</para>
     /// </summary>
-    void ArmCodexTurnProbe(AgentInstance agent, long? baseline, long gen, Guid? dispatchId) {
+    void ArmCodexTurnProbe(AgentInstance agent, long? baseline, ulong attestations, long gen, Guid? dispatchId) {
         Interlocked.Increment(ref _codexProbesArmed);
         if (agent.TranscriptPath is not { } rolloutPath || baseline is not { } b) {
             LogCodexTurnRolloutUnresolved(agent.Id);
             return;
         }
 
-        _ = Task.Run(() => ObserveCodexTurnAsync(agent, rolloutPath, b, gen, dispatchId));
+        _ = Task.Run(() => ObserveCodexTurnAsync(agent, rolloutPath, b, attestations, gen, dispatchId));
     }
 
-    async Task ObserveCodexTurnAsync(AgentInstance agent, string rolloutPath, long baseline, long gen, Guid? dispatchId) {
+    async Task ObserveCodexTurnAsync(
+            AgentInstance agent, string rolloutPath, long baseline, ulong attestations, long gen, Guid? dispatchId) {
         try {
             // Linked here, on the pool, so a teardown that already disposed ReadCts faults this probe
             // rather than the send.
@@ -5172,7 +5173,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             if (agent.Kind == LaunchKind.ReviewFlow) {
                 var result = await CodexRoundConfirmation.ConfirmAsync(
-                    CurrentLength, baseline, () => agent.ActivityClock.TurnAttested, agent.Runtime.ResubmitAsync,
+                    CurrentLength, baseline, () => agent.ActivityClock.TurnAttestations, attestations,
+                    () => agent.Runtime.ResubmitAsync(IsCurrent),
                     CodexRoundConfirmation.Window, CodexTurnObserveInterval, _time, cts.Token, IsCurrent);
 
                 // Re-checked after the verdict: the in-loop check runs before each stat, so a newer
@@ -5225,25 +5227,33 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>
     /// Ends a review-flow reviewer whose round never started a turn, so the flow fails the round now, with
     /// this reason, rather than at its inactivity bound. The server settles a round on its participant's
-    /// stop; a rejected dispatch only retires the message, so it is reported first and the reviewer is
-    /// then terminated. No graceful <c>/exit</c>: typed behind the unsent round, it would submit both.
+    /// stop; a rejected dispatch only retires the message, so the report goes out ahead of the stop. It is
+    /// not awaited before the terminate: while the reviewer lives, an Enter whose write is still pending
+    /// can land and start a turn after this verdict. No graceful <c>/exit</c>: typed behind the unsent
+    /// round, it would submit both.
     /// </summary>
-    async Task FailUnstartedCodexRoundAsync(AgentInstance agent, Guid? dispatchId, bool resubmitWritten) {
+    internal async Task FailUnstartedCodexRoundAsync(AgentInstance agent, Guid? dispatchId, bool resubmitWritten) {
         if (agent.IsCleanupStarted || agent.IsReapClaimed || agent.Runtime.HasExited) return;
 
         LogCodexRoundNotStarted(agent.Id, (CodexRoundConfirmation.Window * 2).TotalSeconds, resubmitWritten);
 
-        if (dispatchId is { } dispatch && !agent.IsServerSilent) {
-            try {
-                await _server.SendInputRejectedAsync(dispatch, agent.Id, SendInputDropReason.TurnNotStarted);
-            } catch (Exception ex) {
-                LogSendInputRejectReportFailed(ex, agent.Id, SendInputDropReason.TurnNotStarted);
-            }
-        }
+        var report = dispatchId is { } dispatch && !agent.IsServerSilent
+            ? ReportUnstartedRoundAsync(dispatch)
+            : Task.CompletedTask;
 
         agent.StopDetail ??= CodexRoundNotStartedReason;
         agent.PendingEndReason = CodexRoundNotStartedReason;
         try { await agent.Runtime.TerminateAsync(TimeSpan.FromSeconds(10)); } catch (Exception ex) { LogStopError(ex, agent.Id); }
+
+        await report;
+
+        async Task ReportUnstartedRoundAsync(Guid rejected) {
+            try {
+                await _server.SendInputRejectedAsync(rejected, agent.Id, SendInputDropReason.TurnNotStarted);
+            } catch (Exception ex) {
+                LogSendInputRejectReportFailed(ex, agent.Id, SendInputDropReason.TurnNotStarted);
+            }
+        }
     }
 
     static long? TryFileLength(string path) {

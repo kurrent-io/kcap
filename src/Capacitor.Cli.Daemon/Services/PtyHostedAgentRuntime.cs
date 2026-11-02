@@ -407,8 +407,10 @@ internal sealed partial class PtyHostedAgentRuntime(
         }
     }
 
-    /// <summary>Withheld while a dialog shows, since its default option would take the Enter.</summary>
-    public async Task<bool> ResubmitAsync() {
+    /// <summary>Withheld while a dialog shows, since its default option would take the Enter, and once
+    /// <paramref name="isCurrent"/> is false: a newer delivery may have released the lane this waited on,
+    /// and the Enter would submit that round instead.</summary>
+    public async Task<bool> ResubmitAsync(Func<bool> isCurrent) {
         try {
             if (!await _lane.WaitAsync(ResubmitLaneWait, _disposal.Token)) return false;
         } catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) {
@@ -416,7 +418,7 @@ internal sealed partial class PtyHostedAgentRuntime(
         }
 
         try {
-            if (_stopRequested || DialogGone is not null) return false;
+            if (_stopRequested || DialogGone is not null || !isCurrent()) return false;
 
             return await WriteSubmitCarriageReturnAsync();
         } finally {
