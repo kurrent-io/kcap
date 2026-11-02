@@ -276,6 +276,10 @@ internal sealed class AgentHookPoster(
             return;
         }
 
+        // An empty spool posts nothing, and resolving a credential only to find that out is a token
+        // read, or a refresh, on the hook's path.
+        if (sessionId is null && !lifecycle.SessionIdsWithBacklog().Any() && !transcript.SessionIdsWithBacklog().Any()) return;
+
         var budget = TimeSpan.FromSeconds(1.5);
 
         try {

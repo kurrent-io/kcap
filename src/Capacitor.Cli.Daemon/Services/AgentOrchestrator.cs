@@ -1225,9 +1225,26 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     /// The bridge's attributed turn-boundary verdict for a PTY-hosted agent, whose runtime cannot
     /// attest its own turns. Lands on the live agent's clock; an id the daemon does not hold
-    /// (torn down since the hook fired) is dropped.
+    /// (torn down since the hook fired) is dropped. Either verdict proves a prompt reached the agent.
     void HandleInputWait(string agentId, bool waiting) {
-        if (_agents.TryGetValue(agentId, out var agent)) agent.ActivityClock.SetAwaitingInput(waiting);
+        if (!_agents.TryGetValue(agentId, out var agent)) return;
+
+        agent.ActivityClock.SetAwaitingInput(waiting);
+
+        var unconfirmed = agent.Runtime.LaunchPromptUnconfirmed;
+        agent.Runtime.NoteTurnRelayed();
+        if (unconfirmed) _statusNotifier.Pulse();
+    }
+
+    /// Republishes the agent once its launch prompt is found unconfirmed, so its chat can say so.
+    async Task WatchLaunchPromptAsync(AgentInstance agent) {
+        if (agent.Runtime.LaunchPromptDelivery is not { } delivery) return;
+
+        try {
+            if (await delivery.ConfigureAwait(false) == LaunchPromptOutcome.NotConfirmed) _statusNotifier.Pulse();
+        } catch (Exception) {
+            // The runtime factory logs a faulted delivery.
+        }
     }
 
     /// The bridge's attributed notice that a prompt was answered where the daemon cannot see:
@@ -1691,7 +1708,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 var supported         = _config.SupportedVendors ?? [];
                 var catalogVendors    = !probeCatalog ? [] : _runtimeFactories.Values
                     .Where(f => supported.Contains(f.Vendor, StringComparer.Ordinal))
-                    .Where(f => f.CatalogFingerprintPaths.Count > 0 || (previousCatalog?.ContainsKey(f.Vendor) ?? false))
+                    .Where(f => f.CatalogFingerprintPaths.Count > 0 || (previousCatalog?.ContainsKey(f.Vendor) ?? false)
+                             || _config.LateCatalogKeys.ContainsKey(f.Vendor))
                     .Select(f => f.Vendor)
                     .ToArray();
                 var accountFactory = probeCatalog ? VendorModelCatalogs.AccountFactory(_runtimeFactories.Values, supported) : null;
@@ -2373,10 +2391,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             AgentActivityClock? activityClock = null,
             WorktreeInfo? worktree = null, WorkLocation work = WorkLocation.OwnedWorktree,
             string vendor = "codex",
-            string? borrowedSnapshotSource = null) {
+            string? borrowedSnapshotSource = null,
+            IHostedAgentRuntime? runtime = null) {
         var agent = new AgentInstance(
             id, prompt, model, null, "/repo", vendor,
-            new PtyHostedAgentRuntime(vendor, pty ?? NoopPtyProcess.Instance, _time),
+            runtime ?? new PtyHostedAgentRuntime(vendor, pty ?? NoopPtyProcess.Instance, _time),
             worktree ?? new WorktreeInfo("/repo", "b", "/repo"),
             new CancellationTokenSource()) {
             Kind = kind, FlowRunId = flowRunId, FlowRole = flowRole, IsPrivate = isPrivate,
@@ -3306,6 +3325,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             }
             published = true;
             onPublished?.Invoke(agent);
+            _ = WatchLaunchPromptAsync(agent);
             storeLease?.Keep();
             if (resume is null) WriteLedger(agent, cmd, "server", consent);
             hold.Dispose();

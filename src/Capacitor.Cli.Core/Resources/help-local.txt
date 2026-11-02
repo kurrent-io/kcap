@@ -52,9 +52,11 @@ bundle is published for it yet.
 
 On Windows the server runs under the kcap-service Windows service when that is installed (`kcap setup
 --local --windows-service`, or `kcap daemon service install --system`, moves it there), and otherwise as a
-per-user Scheduled Task named kcap-local that runs while you are signed in.
+per-user Scheduled Task named kcap-local that runs while you are signed in. Moving a running server between
+the two restarts it; the move waits until it is ready again and says how long it was down.
 
-The installation lives in ~/.config/kcap/local, or in KCAP_LOCAL_ROOT when it is set; its logs are
-in the logs directory under it. The root must leave room for the stack's sockets: the longest,
-data/kurrentdb/kurrent.sock under it (data\kurrentdb\kurrent.sock on Windows), must fit in 103 bytes
-on macOS and 107 on Linux and Windows, so setup refuses a longer root before it installs anything.
+The installation lives in ~/.config/kcap/local (%USERPROFILE%\.config\kcap\local on Windows), or in
+KCAP_LOCAL_ROOT when it is set; its logs are in the logs directory under it. The root must leave room
+for the stack's sockets: the longest, data/kurrentdb/kurrent.sock under it (data\kurrentdb\kurrent.sock
+on Windows), must fit in 103 bytes on macOS and 107 on Linux and Windows, so setup refuses a longer root
+before it installs anything.

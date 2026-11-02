@@ -563,12 +563,14 @@ public sealed class DaemonCommands(
         return 0;
     }
 
-    /// <summary>A killed daemon's agents are not resumed, except those <paramref name="where"/> excludes.</summary>
-    internal static void MarkLedgerInterrupted(DaemonStore store, string name, TimeProvider time, TextWriter stderr, Func<ResumeLedgerEntry, bool>? where = null) {
+    /// <summary>A killed daemon's agents are not resumed, except those <paramref name="where"/> excludes.
+    /// Returns how many entries it marked.</summary>
+    internal static int MarkLedgerInterrupted(DaemonStore store, string name, TimeProvider time, TextWriter stderr, Func<ResumeLedgerEntry, bool>? where = null) {
         try {
-            ResumeLedgerStore.For(store, name, time).MarkInterrupted("stopped_by_operator", where);
+            return ResumeLedgerStore.For(store, name, time).MarkInterrupted("stopped_by_operator", where);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             stderr.WriteLine($"Daemon '{name}': could not mark its resume ledger interrupted ({ex.Message}).");
+            return 0;
         }
     }
 

@@ -48,6 +48,14 @@ public class DaemonCommandsServiceStopTests {
         await Assert.That(ledger.ReadAll().Single() is { State: ResumeState.Interrupted, LastError: "stopped_by_operator" }).IsTrue();
     }
 
+    [Test]
+    [Arguments(0, 0, "No agents were kept for the next start to resume.")]
+    [Arguments(1, 0, "Kept 1 agent for the next start to resume.")]
+    [Arguments(2, 1, "Kept 2 agents for the next start to resume. 1 agent ended mid-run; the next start does not resume it.")]
+    [Arguments(0, 2, "No agents were kept for the next start to resume. 2 agents ended mid-run; the next start does not resume them.")]
+    public async Task A_keep_agents_stop_says_what_it_kept(int kept, int interrupted, string expected) =>
+        await Assert.That(DaemonServiceCommands.DescribeKeptAgents(kept, interrupted)).IsEqualTo(expected);
+
     /// <summary>A keep-agents stop that overruns keeps the entries the daemon already saved as resuming.</summary>
     [Test]
     [Arguments(true, ResumeState.Resuming)]

@@ -123,7 +123,10 @@
                 </Grid>
             </Border>
 
-            <Border x:Name="LocalServerBanner" Classes="notice" IsVisible="{Binding Notices.ShowServer}">
+            <!-- A Border is outside the accessibility tree unless it asks in, so the banner asks as a named region. -->
+            <Border x:Name="LocalServerBanner" Classes="notice" IsVisible="{Binding Notices.ShowServer}"
+                    AutomationProperties.Name="Local server" AutomationProperties.AccessibilityView="Content"
+                    AutomationProperties.ControlTypeOverride="Group" AutomationProperties.LandmarkType="Region">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <Panel VerticalAlignment="Top">
                         <views:AppIcon Classes="noticeIcon kcapSpinning" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapMutedBrush}"

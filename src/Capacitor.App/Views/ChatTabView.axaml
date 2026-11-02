@@ -639,7 +639,7 @@
                         <views:AttachmentChipStrip x:Name="ChipStrip" Tray="{Binding Tray}"
                                                    IsVisible="{Binding Tray.HasAttachments}" />
                         <TextBox x:Name="ComposerInput" Classes="kcapEmbedded" Text="{Binding ComposerText}" AcceptsReturn="True" TextWrapping="Wrap"
-                                 MinHeight="44" MaxHeight="160" Padding="0" PlaceholderText="Write a message" IsVisible="{Binding ShowsComposer}"
+                                 AutomationProperties.Name="Message the agent" MinHeight="44" MaxHeight="160" Padding="0" PlaceholderText="Write a message" IsVisible="{Binding ShowsComposer}"
                                  IsEnabled="{Binding !HasTerminalMenu}" />
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                             <!-- The hint exists only while the gate is shut, which is exactly when a tooltip

@@ -281,6 +281,64 @@ public class PtyHostedAgentRuntimeFactoryTests {
         }
     }
 
+    /// <summary>An agent whose hooks reach the daemon counts its prompt delivered only once a turn is
+    /// relayed, and the daemon log shows both the paste and the confirmation.</summary>
+    [Test]
+    public async Task A_launch_whose_hooks_reach_the_daemon_logs_its_prompt_confirmed() {
+        var config   = new DaemonConfig { ClaudePath = "claude", ServerUrl = "", CapacitorPath = "kcap" };
+        var launcher = new ClaudeLauncher(config, TestHarnesses.Under(Home), NullLogger<ClaudeLauncher>.Instance);
+        var process  = new RecordingScriptedPtyProcess();
+        var logger   = new CapturingLogger<PtyHostedAgentRuntimeFactory>();
+        var factory  = new PtyHostedAgentRuntimeFactory(launcher, new SpyPtyProcessFactory(process), logger, TimeProvider.System, Home);
+
+        var start = await factory.StartAsync(
+            BuildClaudeLaunchContext(null) with { DaemonBridgeUrl = "http://127.0.0.1:9" }, CancellationToken.None);
+
+        try {
+            _ = PumpAsync(start.Runtime);
+            process.Emit("\x1b[?2004hwelcome banner");
+            await WaitForWritesAsync(process, 2);
+            start.Runtime.NoteTurnRelayed();
+
+            var outcome = await start.Runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+            await WaitUntilAsync(() => InformationLines(logger).Length >= 2);
+
+            await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.Confirmed);
+            await Assert.That(InformationLines(logger)[0]).Contains("pasted and submitted");
+            await Assert.That(InformationLines(logger)[1]).Contains("received its launch prompt");
+            await Assert.That(InformationLines(logger).All(line => line.Contains("agent-mode-1"))).IsTrue();
+        } finally {
+            process.Exit();
+            await start.Runtime.DisposeAsync();
+        }
+    }
+
+    /// <summary>A private agent's hooks cannot reach the daemon, so no turn could ever confirm its prompt:
+    /// waiting for one would only send a stray Enter and a false warning.</summary>
+    [Test]
+    public async Task A_private_launch_does_not_wait_to_see_its_prompt_arrive() {
+        var (factory, _, process) = NewPasteFactory();
+        var start = await factory.StartAsync(
+            BuildClaudeLaunchContext(null) with { IsPrivate = true, DaemonBridgeUrl = "http://127.0.0.1:9" }, CancellationToken.None);
+
+        try {
+            _ = PumpAsync(start.Runtime);
+            process.Emit("\x1b[?2004hwelcome banner");
+
+            var outcome = await start.Runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(10));
+
+            await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.Delivered);
+            await Assert.That(process.Writes.Count).IsEqualTo(2);
+        } finally {
+            process.Exit();
+            await start.Runtime.DisposeAsync();
+        }
+    }
+
+    static string[] InformationLines(CapturingLogger<PtyHostedAgentRuntimeFactory> logger) {
+        lock (logger.Entries) return [.. logger.Entries.Where(e => e.Level == LogLevel.Information).Select(e => e.Message)];
+    }
+
     static async Task WaitUntilAsync(Func<bool> done) {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (!done() && DateTime.UtcNow < deadline) await Task.Delay(25);

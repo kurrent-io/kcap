@@ -1420,4 +1420,37 @@ public class LauncherPaneViewSmokeTests {
             vm.Dispose();
         });
     }
+
+    /// The banner is a Border, which UI Automation leaves out unless it asks in; a screen reader then
+    /// finds the stopped server as a named region that holds its headline and Start button.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_stopped_local_server_banner_is_a_named_region_around_its_contents() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var (vm, _, _, tmp) = Build();
+            using var _tmp = tmp;
+            using var lane = new BehaviorSubject<ServerLaneStatus>(new(ServerLaneState.Retrying, "Connection refused"));
+            using var recovery = new LocalServerRecoveryViewModel(lane, isLocalServer: true,
+                _ => Task.FromResult(new ProcessResult(0, "", "", false)), () => Task.CompletedTask, CancellationToken.None);
+            vm.AttachLocalServerRecovery(recovery);
+            var window = new Window { Content = new LauncherPaneView { DataContext = vm }, Width = 900, Height = 700 };
+            window.Show();
+            try {
+                Settle(window);
+                await Assert.That(Find<Border>(window, "LocalServerBanner")!.IsEffectivelyVisible).IsTrue();
+
+                var banner = ControlView.Descendants(window).Single(peer => peer.GetAutomationId() == "LocalServerBanner");
+                await Assert.That(banner.GetName()).IsEqualTo("Local server");
+                await Assert.That(banner.GetAutomationControlType()).IsEqualTo(AutomationControlType.Group);
+                await Assert.That(banner.GetLandmarkType()).IsEqualTo(AutomationLandmarkType.Region);
+                var inside = ControlView.Descendants(banner).Select(peer => peer.GetAutomationId()).ToList();
+                await Assert.That(inside).Contains("LocalServerHeadline");
+                await Assert.That(inside).Contains("StartLocalServerButton");
+            } finally {
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+                vm.Dispose();
+            }
+        });
+    }
 }

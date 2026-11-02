@@ -684,6 +684,7 @@ public static partial class DaemonRunner {
         var host   = builder.Build();
         var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("kcap.Daemon");
         LogStartupPhase(logger, "host built");
+        using var startupWatch = new StartupWatch(logger, time, "finding vendor CLIs", StartupWatchInterval);
 
         // Wired before the vendor probes below, which can run for tens of seconds: a stop that lands
         // during them must still leave a line saying why.
@@ -734,6 +735,7 @@ public static partial class DaemonRunner {
         //
         // Classified ONCE and reused below: a gated reviewer's classification spawns the vendor binary
         // to read its version, so recomputing per consumer would probe it three times per startup.
+        startupWatch.Entering("classifying unattended vendors");
         var unattendedStatuses = ClassifyUnattendedVendors(runtimeFactories);
 
         config.UnattendedVendors = AdvertisedUnattendedVendors(unattendedStatuses);
@@ -742,17 +744,26 @@ public static partial class DaemonRunner {
         // Every advertised vendor is recorded, since a catalog-only vendor is watched too.
         config.UnattendedVendorBaselines =
             FingerprintUnattendedVendors(config.Binaries, runtimeFactories, config.SupportedVendors);
+        startupWatch.Entering("probing vendor CLI versions");
         var startupCapabilities = ComputeUnattendedVendorCapabilities(runtimeFactories, config, startupCodex, config.UnattendedVendors);
         config.Advertise(startupCapabilities, startupCodex);
 
         // Built before the host starts, so the per-account probe and the vendor watcher's first watch
         // set read the same accounts.
         var accounts = host.Services.GetRequiredService<AccountsPublisher>();
+        startupWatch.Entering("reading the account registry");
         await accounts.RebuildAsync(CancellationToken.None);
-        await ProbeVendorCatalogsAsync(config, runtimeFactories, accounts.Current, CancellationToken.None);
+        startupWatch.Entering("probing model catalogs");
+        await ProbeVendorCatalogsAsync(config, runtimeFactories, accounts.Current, CancellationToken.None,
+            new ProbeCeiling(CatalogProbeCeiling, time, key => LogCatalogProbeOverran(logger, key, (int)CatalogProbeCeiling.TotalSeconds),
+                key => {
+                    LogCatalogProbeAnsweredLate(logger, key);
+                    config.LateCatalogKeys.TryAdd(key, 0);
+                }));
         foreach (var (vendor, models) in config.VendorModels!) LogVendorModels(logger, vendor, models.Length);
         foreach (var (id, models) in config.VendorModelsByAccount!) LogVendorModels(logger, VendorModelCatalogs.AccountKey(id), models.Length);
         LogStartupPhase(logger, "vendors probed");
+        startupWatch.Entering("starting its services");
 
         // Which build of each unattended vendor was installed when this daemon started. Recorded at
         // startup (like the Cursor-unavailable warning below) rather than per launch, and reported
@@ -836,6 +847,7 @@ public static partial class DaemonRunner {
                 // exactly what this bridge is meant to avoid.
                 await host.StartAsync(lifetime.ApplicationStopping);
                 LogStartupPhase(logger, "socket bound");
+                startupWatch.Entering("reaping agents a prior run left behind");
 
                 // Phase B (D4 §6.4(3)): resolve the orchestrator (which wires OnLaunchAgent +
                 // GetLiveAgents in its ctor) and reap any hosted-agent children that outlived a
@@ -846,9 +858,11 @@ public static partial class DaemonRunner {
                 // handler. Under the daemon lock; best-effort (swallows its own faults).
                 orchestrator = host.Services.GetRequiredService<AgentOrchestrator>();
                 await orchestrator.ReapOrphansOnceAsync();
+                startupWatch.Entering("loading the resume ledger");
                 // An unreadable ledger leaves empty keep-sets; a sweep against them would delete what it protects.
                 var ledgerReadable = orchestrator.LoadResumeLedger();
 
+                startupWatch.Entering("sweeping transcripts, attachments and worktrees");
                 await host.Services.GetRequiredService<TranscriptJournalSweep>().RunOnceAsync(lifetime.ApplicationStopping);
 
                 if (ledgerReadable) orchestrator.AttachmentStore.SweepOrphans(orchestrator.IsLiveAttachmentStem, logger);
@@ -865,8 +879,10 @@ public static partial class DaemonRunner {
                 connection.RunHeadlessPromptHandler    = headless.RunAsync;
 
                 try {
+                    startupWatch.Entering("connecting to the server");
                     await connection.ConnectAsync(lifetime.ApplicationStopping);
                     LogStartupPhase(logger, "server connected");
+                    startupWatch.Dispose();
                 } catch (Exception ex) when (nameInUse) {
                     // ConnectAsync's initial-connect path threw because of NameInUse. OnNameInUse
                     // already fired and set our flag; the host hasn't started its main loop yet, so
@@ -1683,16 +1699,16 @@ public static partial class DaemonRunner {
     /// catalog depends on the account, each registered account's catalog under its own directory.</summary>
     internal static async Task ProbeVendorCatalogsAsync(
             DaemonConfig config, IReadOnlyList<IHostedAgentRuntimeFactory> factories,
-            Core.Accounts.AccountsSnapshotDto? accounts, CancellationToken ct) {
+            Core.Accounts.AccountsSnapshotDto? accounts, CancellationToken ct, ProbeCeiling? ceiling = null) {
         var supported      = config.SupportedVendors ?? [];
         var accountFactory = VendorModelCatalogs.AccountFactory(factories, supported);
         var perAccount     = accountFactory is null ? [] : VendorModelCatalogs.AccountsIn(accounts);
 
         config.VendorCatalogBaselines = VendorModelCatalogs.FingerprintCatalogPaths(factories, supported, accountFactory, perAccount);
-        var vendorProbe  = VendorModelCatalogs.ProbeAsync(factories, supported, ct);
+        var vendorProbe  = VendorModelCatalogs.ProbeAsync(factories, supported, ct, ceiling);
         var accountProbe = accountFactory is null
             ? Task.FromResult(new Dictionary<string, VendorModelOption[]>(StringComparer.Ordinal))
-            : VendorModelCatalogs.ProbeByAccountAsync(accountFactory, perAccount, ct);
+            : VendorModelCatalogs.ProbeByAccountAsync(accountFactory, perAccount, ct, ceiling);
         await Task.WhenAll(vendorProbe, accountProbe);
 
         config.VendorModels          = await vendorProbe;
@@ -2125,6 +2141,18 @@ public static partial class DaemonRunner {
 
     [LoggerMessage(Level = LogLevel.Information, Message = "startup phase: {Phase}")]
     static partial void LogStartupPhase(ILogger logger, string phase);
+
+    static readonly TimeSpan StartupWatchInterval = TimeSpan.FromSeconds(30);
+
+    /// <summary>Above every catalog probe's own deadline and exit grace, so only a probe whose teardown is
+    /// stuck is cut off.</summary>
+    internal static readonly TimeSpan CatalogProbeCeiling = TimeSpan.FromSeconds(30);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Model catalog probe for {Key} did not finish within {Seconds}s; starting without its models")]
+    static partial void LogCatalogProbeOverran(ILogger logger, string key, int seconds);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Model catalog probe for {Key} answered after the startup limit; re-probing it")]
+    static partial void LogCatalogProbeAnsweredLate(ILogger logger, string key);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "{Vendor}: {Count} models")]
     static partial void LogVendorModels(ILogger logger, string vendor, int count);

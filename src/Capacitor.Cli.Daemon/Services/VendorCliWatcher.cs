@@ -33,7 +33,10 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
     internal Action<string>                 Refresh;
     // A vendor's CLI path is read per tick: a desktop app's bundled CLI moves to a new directory on update.
     internal Func<string, string?>          CurrentCliPath = _ => null;
+    internal Func<ICollection<string>>      LateCatalogs   = () => [];
     internal IReadOnlyList<(string Vendor, string CliPath, IReadOnlyList<string> CatalogPaths)> Watched;
+
+    int _lateCatalogsSeen;
 
     readonly Dictionary<string, CliBinaryStat?>   _baselines        = new(StringComparer.Ordinal);
     readonly Dictionary<string, CatalogPathStat[]> _catalogBaselines = new(StringComparer.Ordinal);
@@ -62,6 +65,7 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
         Refresh    = reason => orchestrator.RefreshAdvertisedCapabilities(reason);
         StatBinary = path => StatCliBinary(config.Binaries, path);
         CurrentCliPath = vendor => factories.TryGetValue(vendor, out var factory) ? factory.CliPath : null;
+        LateCatalogs   = () => config.LateCatalogKeys.Keys;
         Watched    = [];
         accounts.Changed += OnAccountsChanged;
     }
@@ -184,7 +188,15 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
             (changed ??= []).Add(vendor);
         }
 
-        return changed is null ? null : $"{string.Join(", ", changed)} CLI binary or catalog files changed on disk";
+        var onDisk = changed is null ? null : $"{string.Join(", ", changed)} CLI binary or catalog files changed on disk";
+
+        // Keys are only added, so a new count is a probe that answered after the startup limit.
+        var late = LateCatalogs();
+        if (late.Count == _lateCatalogsSeen) return onDisk;
+        _lateCatalogsSeen = late.Count;
+
+        var answered = $"the {string.Join(", ", late.Order(StringComparer.Ordinal))} model catalog probe answered after startup";
+        return onDisk is null ? answered : $"{onDisk}; {answered}";
     }
 
     CliBinaryStat? StatCli(string cliPath) => string.IsNullOrEmpty(cliPath) ? null : StatBinary(cliPath);

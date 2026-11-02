@@ -1099,6 +1099,8 @@ internal partial class AgentOrchestrator {
     /// candidates at most <see cref="DaemonConfig.ResumeConcurrency"/> at a time. Never throws.</summary>
     internal async Task ResumeOnBootAsync(CancellationToken ct) {
         try {
+            foreach (var (entry, reason) in _interruptedAtBoot) LogResumeOutcome(entry.AgentId, DescribeResume(ResumeOutcome.Interrupted, reason));
+
             foreach (var (entry, reason) in _interruptedAtBoot.Where(i => !i.Entry.Launch.IsPrivate))
                 await ReportResumeFailedAsync(entry, reason, null, ct);
 
@@ -1128,7 +1130,8 @@ internal partial class AgentOrchestrator {
                 _resumeAttempts[entry.AgentId] = attempt;
             }
 
-            await ResumeEntryAsync(entry, attempt.Token);
+            var outcome = await ResumeEntryAsync(entry, attempt.Token);
+            LogResumeOutcome(entry.AgentId, DescribeResume(outcome, outcome == ResumeOutcome.Interrupted ? TryReadLedger(entry.AgentId)?.LastError : null));
         } catch (OperationCanceledException) when (attempt is not null && IsWithdrawn(entry.AgentId) && !ct.IsCancellationRequested) {
             // The withdrawal already removed the entry.
         } catch (Exception ex) when (ex is not OperationCanceledException) {
@@ -1697,4 +1700,15 @@ internal partial class AgentOrchestrator {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Resume: flow participant {AgentId} was not resumed: {Reason}")]
     partial void LogParticipantNotResumed(string agentId, string reason);
+
+    /// <summary>What became of a predecessor's agent at boot, as the boot log reports it.</summary>
+    internal static string DescribeResume(ResumeOutcome outcome, string? reason) => outcome switch {
+        ResumeOutcome.Resumed   => "resumed its own session",
+        ResumeOutcome.Continued => "continued its work as a new agent",
+        ResumeOutcome.Stopped   => "was stopped before it came back",
+        _                       => reason is { Length: > 0 } ? $"was not resumed ({reason})" : "was not resumed",
+    };
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Resume: agent {AgentId} {Outcome}")]
+    partial void LogResumeOutcome(string agentId, string outcome);
 }

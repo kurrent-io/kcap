@@ -4,6 +4,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Install;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Services;
 
 namespace Capacitor.Cli.Commands;
@@ -34,6 +35,7 @@ sealed class DaemonServiceCommands(
         }
 
         var serviceId = DaemonStore.Sanitize(DaemonNameResolver.Resolve(rest, profiles.DaemonName));
+        var serverMoveFailed = false;
 
         // Elevated first, so the install below already finds the service and enrolls with it. The elevated step
         // changes the machine's service, so a hosted caller is refused ahead of it.
@@ -45,8 +47,10 @@ sealed class DaemonServiceCommands(
             var elevated = WindowsServiceElevation.Run("install");
             if (elevated != 0) return await ElevationFailedAsync(elevated, "install");
 
-            if (await LocalEdition.LocalServerMigration.ToServiceAsync(Core.LocalEdition.LocalRoot.FromEnvironment(home), home, time) is { } moved)
-                await Console.Out.WriteLineAsync(moved);
+            // The daemon still moves when the server did not come back; the exit says the server did not.
+            var moved = await LocalEdition.LocalServerMigration.ToServiceAsync(Core.LocalEdition.LocalRoot.FromEnvironment(home), home, time);
+            await ReportServerMoveAsync(moved);
+            serverMoveFailed = moved is { Failed: true };
         }
 
         IServiceManager manager;
@@ -63,7 +67,7 @@ sealed class DaemonServiceCommands(
         // whole job. A changed profile or agent cap goes through the install below, which re-enrolls.
         if (system && action == "install" && manager is WindowsServiceManager windows && EnrolledAsAsked(windows)) {
             await Console.Out.WriteLineAsync($"kcap-service is current; '{serviceId}' is already enrolled with it.");
-            return 0;
+            return serverMoveFailed ? 1 : 0;
         }
 
         bool EnrolledAsAsked(WindowsServiceManager windows) {
@@ -77,7 +81,7 @@ sealed class DaemonServiceCommands(
             }
         }
 
-        return action switch {
+        var exit = action switch {
             "install"   => await verbs.Install(rest, startNow: !noStart),
             "uninstall" when system && OperatingSystem.IsWindows() => await verbs.UninstallSystem(rest),
             "uninstall" => UnderArg(rest) switch {
@@ -92,6 +96,15 @@ sealed class DaemonServiceCommands(
             "refresh"   => await verbs.Refresh(force: rest.Contains("--force")),
             _           => Usage(),
         };
+
+        return exit == 0 && serverMoveFailed ? 1 : exit;
+    }
+
+    /// <summary>A server that did not come back after its move goes to standard error.</summary>
+    static async Task ReportServerMoveAsync(LocalEdition.LocalServerMove? moved) {
+        if (moved is null) return;
+
+        await (moved.Failed ? Console.Error : Console.Out).WriteLineAsync(moved.Message);
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
@@ -113,12 +126,16 @@ sealed class DaemonServiceCommands(
         }
 
         // Before anything else: the service is not removed from under a server it still runs.
+        LocalEdition.LocalServerMove? moved;
         try {
-            if (await LocalEdition.LocalServerMigration.ToTaskAsync(home, time) is { } moved) await Console.Out.WriteLineAsync(moved);
+            moved = await LocalEdition.LocalServerMigration.ToTaskAsync(home, time);
         } catch (Exception ex) when (ex is Core.LocalEdition.LocalLifecycleException or IOException or UnauthorizedAccessException) {
             await Console.Error.WriteLineAsync($"The local server could not be moved off kcap-service: {ex.Message}. The Windows service was not changed.");
             return 1;
         }
+
+        // A server that did not come back is under its task already, so the service still goes.
+        await ReportServerMoveAsync(moved);
 
         if (manager is WindowsServiceManager windows) {
             var exit = await MoveDaemonToTaskAsync(windows);
@@ -127,7 +144,7 @@ sealed class DaemonServiceCommands(
         var elevated = WindowsServiceElevation.Run("uninstall");
         if (elevated != 0) return await ElevationFailedAsync(elevated, "uninstall");
         await Console.Out.WriteLineAsync("The Windows service kcap-service is uninstalled.");
-        return 0;
+        return moved is { Failed: true } ? 1 : 0;
     }
 
     /// <summary>Gives the daemon kcap-service runs for this user back its Scheduled Task, written as <see cref="Install"/>
@@ -940,10 +957,30 @@ sealed class DaemonServiceCommands(
             return 1;
         }
 
-        if (!exited) DaemonCommands.MarkLedgerInterrupted(store, id, time, Console.Error, DaemonCommands.KeepsSavedResumes(request, outcome));
+        var interrupted = exited ? 0 : DaemonCommands.MarkLedgerInterrupted(store, id, time, Console.Error, DaemonCommands.KeepsSavedResumes(request, outcome));
 
         await Console.Out.WriteLineAsync($"Service '{id}' stopped (still installed).");
+        if (request.Agents == "keep") await Console.Out.WriteLineAsync(DescribeKeptAgents(ResumingEntries(), interrupted));
         return 0;
+    }
+
+    int ResumingEntries() {
+        try {
+            return ResumeLedgerStore.For(store, id).ReadAll().Count(e => e.State == ResumeState.Resuming);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return 0;
+        }
+    }
+
+    /// <summary>What a keep-agents stop left for the next start: the agents saved for it to resume, and those
+    /// the stop had to end mid-run, which it does not bring back on its own.</summary>
+    internal static string DescribeKeptAgents(int kept, int interrupted) {
+        var line = kept == 0 ? "No agents were kept for the next start to resume."
+                 : $"Kept {Agents(kept)} for the next start to resume.";
+        return interrupted == 0 ? line
+             : $"{line} {Agents(interrupted)} ended mid-run; the next start does not resume {(interrupted == 1 ? "it" : "them")}.";
+
+        static string Agents(int n) => n == 1 ? "1 agent" : $"{n} agents";
     }
 
     internal async Task<int> Status() {

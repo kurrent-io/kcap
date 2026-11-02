@@ -26,9 +26,7 @@ public sealed class StatusCommand(
 
         if (args.Contains("--json")) return await WriteJsonAsync(args, baseUrl);
 
-        var glyphs = StatusGlyphs.Encodable(Console.OutputEncoding);
-
-        Task Line(string text) => Console.Out.WriteLineAsync(glyphs ? text : StatusGlyphs.Plain(text));
+        static Task Line(string text) => Console.Out.WriteLineAsync(StatusGlyphs.ForConsole(text));
 
         // Version line reuses UpdateNotice's shared check and marks-reported so the exit footer
         // doesn't double-print; respects the same opt-outs.
@@ -55,7 +53,7 @@ public sealed class StatusCommand(
         var codexRefused = CodexRefusedHooks(harnesses);
         var line         = BuildHooksStatusLine(harnesses.Select(h => (h.Id, HooksRun(h.Id, h.Signals.IsWired, codexRefused))));
 
-        await Line(WrapHooksLine(glyphs ? line : StatusGlyphs.Plain(line), TerminalWidth()));
+        await Line(WrapHooksLine(StatusGlyphs.ForConsole(line), TerminalWidth()));
 
         if (codexRefused is not null) await Line($"           {CodexHooksDetailLine(codexRefused)}");
 

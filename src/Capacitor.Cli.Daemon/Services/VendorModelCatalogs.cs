@@ -10,10 +10,11 @@ namespace Capacitor.Cli.Daemon.Services;
 internal static class VendorModelCatalogs {
     /// Probes the named vendors concurrently; a vendor whose probe answers null is not a key.
     internal static async Task<Dictionary<string, VendorModelOption[]>> ProbeAsync(
-            IEnumerable<IHostedAgentRuntimeFactory> factories, IEnumerable<string> vendors, CancellationToken ct) {
+            IEnumerable<IHostedAgentRuntimeFactory> factories, IEnumerable<string> vendors, CancellationToken ct,
+            ProbeCeiling? ceiling = null) {
         var wanted = new HashSet<string>(vendors, StringComparer.Ordinal);
         var probes = factories.Where(f => wanted.Contains(f.Vendor))
-            .Select(async f => (f.Vendor, Models: await f.ProbeModelsAsync(ct).ConfigureAwait(false)))
+            .Select(async f => (f.Vendor, Models: await Bounded(f.ProbeModelsAsync(ct), f.Vendor, ceiling).ConfigureAwait(false)))
             .ToArray();
 
         var result = new Dictionary<string, VendorModelOption[]>(StringComparer.Ordinal);
@@ -58,15 +59,35 @@ internal static class VendorModelCatalogs {
     /// Probes each account concurrently under its own directory; an account whose probe answers null
     /// is not a key.
     internal static async Task<Dictionary<string, VendorModelOption[]>> ProbeByAccountAsync(
-            IHostedAgentRuntimeFactory factory, IReadOnlyList<(string AccountId, string Directory)> accounts, CancellationToken ct) {
+            IHostedAgentRuntimeFactory factory, IReadOnlyList<(string AccountId, string Directory)> accounts, CancellationToken ct,
+            ProbeCeiling? ceiling = null) {
         var probes = accounts
-            .Select(async a => (a.AccountId, Models: await factory.ProbeModelsAsync(a.Directory, ct).ConfigureAwait(false)))
+            .Select(async a => (a.AccountId,
+                Models: await Bounded(factory.ProbeModelsAsync(a.Directory, ct), AccountKey(a.AccountId), ceiling).ConfigureAwait(false)))
             .ToArray();
 
         var result = new Dictionary<string, VendorModelOption[]>(StringComparer.Ordinal);
         foreach (var (id, models) in await Task.WhenAll(probes).ConfigureAwait(false))
             if (models is not null) result[id] = [.. models];
         return result;
+    }
+
+    /// A probe's own deadline does not bound its teardown, which waits for the child's pipes to close; a
+    /// descendant that inherited them can hold them open for as long as it lives.
+    static async Task<IReadOnlyList<VendorModelOption>?> Bounded(
+            Task<IReadOnlyList<VendorModelOption>?> probe, string key, ProbeCeiling? ceiling) {
+        if (ceiling is null) return await probe.ConfigureAwait(false);
+
+        try {
+            return await probe.WaitAsync(ceiling.Limit, ceiling.Time).ConfigureAwait(false);
+        } catch (TimeoutException) {
+            _ = probe.ContinueWith(t => {
+                if (t.IsFaulted) _ = t.Exception;
+                else if (t.IsCompletedSuccessfully && t.Result is not null) ceiling.AnsweredLate?.Invoke(key);
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            ceiling.Overran(key);
+            return null;
+        }
     }
 
     /// Like <see cref="Merge"/>, except that an account not in <paramref name="live"/> is dropped

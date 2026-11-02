@@ -9,13 +9,14 @@ namespace Capacitor.Cli.Commands;
 /// <summary>
 /// <c>kcap setup --local --windows-service</c>, ahead of the install: installs <c>kcap-service</c> behind the
 /// administrator prompt when it is missing or cannot run the local server, then moves a server a Scheduled Task runs
-/// to it. A declined prompt or a build without the service is not a failure: the install carries on under the task.
+/// to it. A declined prompt or a build without the service is not a failure: the install carries on under the task. A
+/// moved server that does not come back is, and throws <see cref="LocalInstallFailure"/>.
 /// </summary>
 /// <param name="servesLocalServer">The service is registered and advertises every server verb.</param>
 /// <param name="carried">This kcap ships <c>kcap-service.exe</c>, or the machine already has it.</param>
 /// <param name="elevate"><c>kcap-service.exe install</c> behind the prompt; its exit code.</param>
 /// <param name="migrate">Moves a task's server to the service; what to tell the user, if anything.</param>
-sealed class LocalWindowsServiceStep(Func<bool> servesLocalServer, Func<bool> carried, Func<int> elevate, Func<Task<string?>> migrate) {
+sealed class LocalWindowsServiceStep(Func<bool> servesLocalServer, Func<bool> carried, Func<int> elevate, Func<Task<LocalServerMove?>> migrate) {
     /// <summary>Win32 ERROR_CANCELLED, which a declined UAC prompt reports.</summary>
     const int DeclinedExit = 1223;
 
@@ -57,6 +58,12 @@ sealed class LocalWindowsServiceStep(Func<bool> servesLocalServer, Func<bool> ca
             }
         }
 
-        if (await migrate() is { } moved) say(moved);
+        switch (await migrate()) {
+            case { Failed: true } moved:
+                throw new LocalInstallFailure(LocalInstallFailureCode.StartFailed, moved.Message);
+            case { } moved:
+                say(moved.Message);
+                break;
+        }
     }
 }

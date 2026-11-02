@@ -35,7 +35,9 @@ internal static class CodingAgentsStep {
             bool SkipMistralVibe = false, bool SkipMistralVibeMcp = false, bool SkipGrok = false,
             bool SkipMuse = false, bool SkipMuseMcp = false);
 
-    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false);
+    /// <param name="ClaudeHooksViaPowerShell">Windows with no Git Bash Claude can find: Claude then starts every hook
+    /// through PowerShell, whose start-up alone can spend a short hook's whole time limit.</param>
+    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false);
 
     internal record Paths(
             string  ClaudeSettingsPath,
@@ -1845,6 +1847,11 @@ internal static class CodingAgentsStep {
         }
 
         writeLine($"  [green]✓[/] Claude Code plugin installed ({Markup.Escape(paths.ClaudeScopeLabel)}: {Markup.Escape(paths.ClaudeSettingsPath)})");
+
+        if (detected.ClaudeHooksViaPowerShell) {
+            writeLine("  [yellow]⚠[/] Claude Code finds no Git Bash, so it starts each kcap hook through PowerShell, which can take longer than the hook is allowed.");
+            writeLine("    [dim]Install Git for Windows, or set CLAUDE_CODE_GIT_BASH_PATH to its bash.exe.[/]");
+        }
 
         return true;
     }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using Avalonia.Automation;
 using Capacitor.App.Services;
 using Capacitor.Remote.Models;
 using ReactiveUI.Reactive;
@@ -19,8 +20,11 @@ public sealed class SearchHitViewModel : ReactiveObject {
     public IReadOnlyList<SnippetRun> Snippet { get; init; } = [];
     public required string Caption { get; init; }
     public int? PrNumber { get; init; }
+    public string? OwnerName { get; init; }
     public string? OwnerInitials { get; init; }
     public string? OwnerAvatarUrl { get; init; }
+    /// An avatar with no owner to name stays out of the control view rather than reading as an unnamed element.
+    public AccessibilityView OwnerAvatarView => string.IsNullOrEmpty(OwnerName) ? AccessibilityView.Raw : AccessibilityView.Content;
     public required string WhenText { get; init; }
     public required PinPresentation Presentation { get; init; }
 
@@ -42,9 +46,10 @@ public sealed class SearchHitViewModel : ReactiveObject {
             SessionId = hit.SessionId,
             Kind = SearchMode.Sessions,
             Title = title,
-            Caption = Join(RepoOf(hit.RepoOwner, hit.RepoName), OwnerName(hit.OwnerDisplayName, hit.OwnerUser), hint),
+            Caption = Join(RepoOf(hit.RepoOwner, hit.RepoName), OwnerNameOf(hit.OwnerDisplayName, hit.OwnerUser), hint),
             PrNumber = hit.PrNumber,
-            OwnerInitials = RailSessionViewModel.Initials(OwnerName(hit.OwnerDisplayName, hit.OwnerUser)),
+            OwnerName = OwnerNameOf(hit.OwnerDisplayName, hit.OwnerUser),
+            OwnerInitials = RailSessionViewModel.Initials(OwnerNameOf(hit.OwnerDisplayName, hit.OwnerUser)),
             OwnerAvatarUrl = hit.OwnerAvatarUrl,
             WhenText = hit.EndedAt is null ? "Live" : WhenOf(hit.StartedAt, null, now),
             Presentation = new PinPresentation(hit.OwnerUser, hit.OwnerDisplayName, hit.OwnerAvatarUrl)
@@ -59,8 +64,9 @@ public sealed class SearchHitViewModel : ReactiveObject {
             Title = [new SnippetRun(FirstNonEmpty(hit.Title, hit.Slug) ?? hit.SessionId, false)],
             Speaker = speaker,
             Snippet = SearchSnippet.Parse(hit.Snippet),
-            Caption = Join(RepoOf(hit.RepoOwner, hit.RepoName), OwnerName(hit.OwnerDisplayName, hit.OwnerUser)),
-            OwnerInitials = RailSessionViewModel.Initials(OwnerName(hit.OwnerDisplayName, hit.OwnerUser)),
+            Caption = Join(RepoOf(hit.RepoOwner, hit.RepoName), OwnerNameOf(hit.OwnerDisplayName, hit.OwnerUser)),
+            OwnerName = OwnerNameOf(hit.OwnerDisplayName, hit.OwnerUser),
+            OwnerInitials = RailSessionViewModel.Initials(OwnerNameOf(hit.OwnerDisplayName, hit.OwnerUser)),
             OwnerAvatarUrl = hit.OwnerAvatarUrl,
             WhenText = WhenOf(hit.Timestamp, hit.StartedAt, now),
             Presentation = new PinPresentation(hit.OwnerUser, hit.OwnerDisplayName, hit.OwnerAvatarUrl)
@@ -72,7 +78,7 @@ public sealed class SearchHitViewModel : ReactiveObject {
     static string? RepoOf(string? owner, string? name) =>
         string.IsNullOrEmpty(name) ? null : string.IsNullOrEmpty(owner) ? name : $"{owner}/{name}";
 
-    static string? OwnerName(string? displayName, string? user) => FirstNonEmpty(displayName, user);
+    static string? OwnerNameOf(string? displayName, string? user) => FirstNonEmpty(displayName, user);
 
     static string Join(params string?[] parts) => string.Join(" · ", parts.Where(p => !string.IsNullOrEmpty(p)));
 

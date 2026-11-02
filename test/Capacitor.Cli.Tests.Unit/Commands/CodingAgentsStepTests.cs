@@ -34,6 +34,29 @@ public class CodingAgentsStepTests {
     }
 
     [Test]
+    public async Task Claude_without_git_bash_warns_that_hooks_start_through_powershell() {
+        var sink    = new Sink();
+        var options = new Options(SkipClaude: false, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false);
+
+        await RunAsync(options, new DetectedAgents(Claude: true, Codex: false, Cursor: false, Copilot: false, ClaudeHooksViaPowerShell: true),
+            TestPaths(), new InstallerCalls().AsInstallers(), prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(sink.Lines).Contains(l => l.Contains("no Git Bash") && l.Contains("PowerShell"));
+        await Assert.That(sink.Lines).Contains(l => l.Contains("CLAUDE_CODE_GIT_BASH_PATH"));
+    }
+
+    [Test]
+    public async Task Claude_with_git_bash_prints_no_shell_warning() {
+        var sink    = new Sink();
+        var options = new Options(SkipClaude: false, SkipCodex: true, SkipCursor: true, SkipCopilot: true, NoPrompt: false);
+
+        await RunAsync(options, new DetectedAgents(Claude: true, Codex: false, Cursor: false, Copilot: false),
+            TestPaths(), new InstallerCalls().AsInstallers(), prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(sink.Lines).DoesNotContain(l => l.Contains("Git Bash"));
+    }
+
+    [Test]
     public async Task Claude_installs_even_if_prompt_would_decline() {
         // The per-vendor prompt is gone — SetupCommand's single InstallAgents decision is the
         // only gate now, so Claude installs regardless of what a (no longer consulted) prompt
