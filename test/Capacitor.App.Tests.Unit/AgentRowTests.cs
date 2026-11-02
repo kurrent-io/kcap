@@ -94,6 +94,15 @@ public class AgentRowTests {
         await Assert.That(row.WorktreePath).IsEqualTo("/u/shop-api/.capacitor/worktrees/agent-1");
     }
 
+    /// An agent worktree inside another's belongs to the innermost one, whichever marker each uses.
+    [Test]
+    public async Task Server_row_whose_cwd_nests_agent_worktrees_names_the_innermost() {
+        var row = AgentRow.FromServer(Listed(cwd: "/u/shop-api/.capacitor/worktrees/agent-1/.claude/worktrees/leaf/src"), hostedPresentation: false);
+
+        await Assert.That(row.RepoPath).IsEqualTo("/u/shop-api/.capacitor/worktrees/agent-1");
+        await Assert.That(row.WorktreePath).IsEqualTo("/u/shop-api/.capacitor/worktrees/agent-1/.claude/worktrees/leaf");
+    }
+
     /// Without a repository label the rail groups by path; two agents of one checkout share its group.
     [Test]
     public async Task Server_rows_without_a_label_group_agent_worktrees_under_their_checkout() {
