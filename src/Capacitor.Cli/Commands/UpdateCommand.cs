@@ -180,10 +180,30 @@ public sealed class UpdateCommand(
             await Console.Error.WriteLineAsync("Some agent integrations were not refreshed. Run `kcap refresh` to retry.");
 
         await Console.Out.WriteLineAsync($"kcap updated to {target}.");
-        await Console.Out.WriteLineAsync(
-            "The daemon waits for active turns. It restarts when the configured wait ends. Long turns may be interrupted. Eligible agents resume if auto-resume is on. Other sessions may need attention. Daemons started in a terminal need a manual restart.");
+        await Console.Out.WriteLineAsync(ScriptDaemonNotice(OperatingSystem.IsWindows()));
 
         return await UpgradeLocalAsync(exe);
+    }
+
+    /// <summary>What happens to a running daemon after a script update. A service still on the npm binary watches
+    /// that path, so no script update ever restarts it.</summary>
+    internal static string ScriptDaemonNotice(bool windows) {
+        string[] olderWindowsDaemon = windows
+            ? ["A daemon started on a release that did not watch for updates on Windows needs `kcap daemon restart` once."]
+            : [];
+        string[] lines = [
+            "A background or service daemon restarts on the new version by itself:",
+            "at once with nothing in progress, otherwise once its agents' turns and flow rounds end, for at most",
+            "KCAP_RESTART_TURN_WAIT_SECONDS (default 300), then cutting off what still runs.",
+            "An evaluation or agent launch in progress holds the restart past that limit.",
+            "Its agents resume unless daemon.auto_resume is false, which leaves them interrupted for `kcap agent resume <id>`.",
+            "A daemon started in a terminal needs `kcap daemon restart`.",
+            .. olderWindowsDaemon,
+            "A daemon service installed under npm keeps running the npm binary and does not restart onto this version:",
+            "reinstall it from this install with `kcap daemon service install --replace --verify`.",
+        ];
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     async Task<int> UpgradeLocalAsync(string exe) =>

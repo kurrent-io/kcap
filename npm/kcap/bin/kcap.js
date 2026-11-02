@@ -415,21 +415,29 @@ function runUpdate(binaryPath, updArgs) {
     // fire-and-forget: the server will observe on the next request anyway
   }
 
-  // A running daemon keeps executing the old image until restarted. A
-  // background daemon notices the new binary at the path it started from (on
-  // Windows the old image was moved aside above, so npm wrote a new file
-  // there) and restarts, preferring a turn boundary for a bounded wait, then
-  // resumes the agents it can; a foreground daemon only restarts by hand.
+  // A background daemon notices the new binary at the path it started from (on
+  // Windows the old image was moved aside above, so npm wrote a new file there).
+  // A Windows daemon from a release without that watch never notices it.
   if (daemonRunning) {
-    console.log("The daemon is still on the old version. A background daemon updates automatically.");
-    console.log("It waits for active turns. Long turns may be interrupted when the wait ends.");
-    console.log("A running evaluation or agent launch can delay the restart.");
-    console.log("Eligible agents resume if auto-resume is on. Other sessions may need attention.");
-    console.log("Daemons started in a terminal need a manual restart.");
-    console.log("Check with `kcap daemon status`. Apply now with `kcap daemon restart --force`.");
+    for (const line of daemonUpdateNotice(process.platform === "win32")) console.log(line);
   }
 
   process.exit(exitCode);
+}
+
+function daemonUpdateNotice(isWindows) {
+  return [
+    "The daemon is still on the old version. A background or service daemon restarts on the new one by itself:",
+    "at once with nothing in progress, otherwise once its agents' turns and flow rounds end, for at most",
+    "KCAP_RESTART_TURN_WAIT_SECONDS (default 300), then cutting off what still runs.",
+    "An evaluation or agent launch in progress holds the restart past that limit.",
+    "Its agents resume unless daemon.auto_resume is false, which leaves them interrupted for `kcap agent resume <id>`.",
+    "A daemon started in a terminal needs `kcap daemon restart`.",
+    ...(isWindows
+      ? ["A daemon started on a release that did not watch for npm updates on Windows needs `kcap daemon restart` once."]
+      : []),
+    "Check with `kcap daemon status`. Apply now with `kcap daemon restart --force`.",
+  ];
 }
 
 function upgradeLocalStack(binaryPath) {
@@ -460,4 +468,5 @@ module.exports = {
   localUpgradeArgs,
   localRegistryPath,
   localUpgradeSucceeded,
+  daemonUpdateNotice,
 };

@@ -61,13 +61,15 @@ Options for restart:
 
 Updating: after `kcap update`, a running daemon detects the new binary and
 restarts itself, stopping its hosted agents and resuming them on the new
-version. It waits until no eval, launch or flow round is in progress and
-every interactive agent is waiting on input, the last for at most
-KCAP_RESTART_TURN_WAIT_SECONDS. `kcap daemon status` reports the running
-daemon's version plus any pending restart, so you can confirm a self-update took
-effect. A daemon started in a terminal restarts only by hand. On Windows a
-daemon started on a release that did not watch for updates there needs
-`kcap daemon restart` once.
+version unless daemon.auto_resume is false. It waits until no eval, launch
+or flow round is in progress and every interactive agent is waiting on
+input, so a daemon with nothing in progress restarts at once. Turns and
+flow rounds hold it for at most KCAP_RESTART_TURN_WAIT_SECONDS, then are
+cut off; an eval or a launch holds it past that limit. `kcap daemon status`
+reports the running daemon's version plus any pending restart, so you can
+confirm a self-update took effect. A daemon started in a terminal restarts
+only by hand. On Windows a daemon started on a release that did not watch
+for updates there needs `kcap daemon restart` once.
 
 Resume after a restart: `kcap agent ls` shows each agent's state (running,
 resuming, interrupted), and `kcap agent resume <id>` retries an interrupted one.
@@ -150,10 +152,10 @@ Subcommands for service (per-user; restarts the daemon if it crashes, starts it 
                           login or `service start`). Ends its hosted agents;
                           --keep-agents stops them so the next start relaunches
                           them on their saved sessions (a turn in progress is
-                          cut off). While the desktop app runs, it starts its
-                          stopped daemon service again; quit the app to keep it
-                          stopped. start and stop wait up to a minute for
-                          another operation on the service to finish.
+                          cut off). The desktop app starts a stopped daemon
+                          service when it opens, not while it is open. start
+                          and stop wait up to a minute for another operation
+                          on the service to finish.
   ensure [--name N] [--profile P] [--json]
                           Flow-driven ladder: from a fresh status read, install
                           when there is no unit (baking the born-prompt consent

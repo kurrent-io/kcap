@@ -17,14 +17,12 @@ switched to it, so running processes keep the files they started from.
 The new binary then runs `kcap refresh`. The version it replaced stays;
 every other version is deleted unless something still runs from it. macOS
 cannot tell, so there it is deleted anyway, and a process already running
-from it keeps working. A daemon
-started from a script install restarts on the new version once it is idle,
-Windows included, provided it was started on a release that watches for
-updates there; restart an older Windows daemon once with kcap daemon restart.
-A daemon service installed from a script install is moved onto the `current`
-path, so it follows updates.
-A daemon service installed under npm keeps running the npm binary after a
-switch to the script install: run `kcap daemon service install` again.
+from it keeps working. A daemon service installed from a script install is
+moved onto the `current` path, so it follows updates. A daemon service
+installed under npm keeps running the npm binary after a switch to the
+script install, and a script update never restarts it onto the new
+version: reinstall it from the script install with
+kcap daemon service install --replace --verify.
 
 For other installs (e.g. Homebrew), prints the command to run instead.
 
@@ -35,12 +33,17 @@ exit 1. A release whose server bundle is not published yet only says so:
 the stack stays on its version until kcap local upgrade is run again. Other installs run kcap local upgrade themselves after updating.
 
 A daemon running in the background or as a service restarts on the new
-version by itself, on every platform: it waits for its agents' active
-turns (at most KCAP_RESTART_TURN_WAIT_SECONDS, default 300), then its
-agents are stopped and resumed. kcap daemon status shows the pending
-restart meanwhile. A daemon started in a terminal needs kcap daemon
-restart. An npm-installed Windows daemon started on a release that did
-not watch for npm updates needs kcap daemon restart once.
+version by itself, on every platform. With nothing in progress it
+restarts at once. Otherwise it waits for its agents' turns and flow
+rounds, for at most KCAP_RESTART_TURN_WAIT_SECONDS (default 300), and
+then cuts off what is still running; an evaluation or agent launch in
+progress holds it past that limit. Its agents are stopped, then resumed
+unless daemon.auto_resume is false, which leaves them interrupted in
+kcap agent ls, from where kcap agent resume <id> retries one. kcap daemon
+status shows the pending restart meanwhile. A daemon started in a
+terminal needs kcap daemon restart. On Windows, a daemon started on a
+release that did not watch for updates there needs kcap daemon restart
+once.
 
 On Windows the update also works while agent sessions or the daemon keep
 the binary locked: the old executable is moved aside and cleaned up later.

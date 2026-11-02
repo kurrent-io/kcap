@@ -15,6 +15,7 @@ const {
   localUpgradeArgs,
   localRegistryPath,
   localUpgradeSucceeded,
+  daemonUpdateNotice,
 } = require("./kcap.js");
 
 assert.strictEqual(resolveInstallSpec({ install_tag: "beta" }), "@kurrent/kcap@beta");
@@ -40,6 +41,11 @@ assert.strictEqual(localUpgradeSucceeded(4), true);   // bundle not published ye
 assert.strictEqual(localUpgradeSucceeded(1), false);
 assert.strictEqual(localUpgradeSucceeded(2), false);
 assert.strictEqual(localUpgradeSucceeded(null), false);
+
+// A Windows daemon from a release that did not watch for npm updates never restarts by itself.
+const restartOnce = (lines) => lines.some((l) => l.includes("needs `kcap daemon restart` once"));
+assert.strictEqual(restartOnce(daemonUpdateNotice(true)), true);
+assert.strictEqual(restartOnce(daemonUpdateNotice(false)), false);
 
 assert.deepStrictEqual(probeArgs([]), ["update", "--check", "--no-update-check"]);
 assert.deepStrictEqual(probeArgs(["--beta"]), ["update", "--check", "--no-update-check", "--beta"]);
