@@ -27,11 +27,14 @@ public class WatcherStopSignalTests {
         await Assert.That(WatcherStopSignal.TryRequest(pid)).IsFalse();
 
         var listener = WatcherStopSignal.Listen(pid, () => { })!;
-        await Assert.That(WatcherStopSignal.TryRequest(pid)).IsTrue();
-        listener.Dispose();
+        try {
+            await Assert.That(WatcherStopSignal.TryRequest(pid)).IsTrue();
+        } finally {
+            listener.Dispose();
+        }
 
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (WatcherStopSignal.TryRequest(pid) && DateTime.UtcNow < deadline) await Task.Delay(20);
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (WatcherStopSignal.TryRequest(pid) && waited.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(20);
 
         await Assert.That(WatcherStopSignal.TryRequest(pid)).IsFalse();
     }
