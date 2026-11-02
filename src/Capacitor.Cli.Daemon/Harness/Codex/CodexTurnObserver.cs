@@ -49,6 +49,8 @@ internal static class CodexTurnObserver {
     /// polling within one interval rather than running to <paramref name="timeout"/> — the caller
     /// keeps the actual verdict authority (a generation), so this only manages the probe's lifetime.
     /// Null (the default) disables it.</param>
+    /// <param name="turnAttested">Optional second turn signal, such as a relayed prompt-submit hook,
+    /// checked beside the length; true counts as a turn.</param>
     public static async Task<Outcome> ObserveGrowthAsync(
         Func<long>        currentLength,
         long              baseline,
@@ -56,13 +58,14 @@ internal static class CodexTurnObserver {
         TimeSpan          pollInterval,
         TimeProvider      time,
         CancellationToken ct,
-        Func<bool>?       isCurrent = null) {
+        Func<bool>?       isCurrent = null,
+        Func<bool>?       turnAttested = null) {
         var start = time.GetTimestamp();
 
         try {
             while (time.GetElapsedTime(start) < timeout) {
                 if (isCurrent is not null && !isCurrent()) return Outcome.Superseded;
-                if (currentLength() > baseline)            return Outcome.TurnObserved;
+                if (currentLength() > baseline || turnAttested?.Invoke() == true) return Outcome.TurnObserved;
                 await Task.Delay(pollInterval, time, ct);
             }
 
@@ -70,6 +73,7 @@ internal static class CodexTurnObserver {
             // the loop condition fired first. A negative reading here is a genuine measurement gap,
             // not a "no turn" verdict.
             if (isCurrent is not null && !isCurrent()) return Outcome.Superseded;
+            if (turnAttested?.Invoke() == true) return Outcome.TurnObserved;
             var finalLength = currentLength();
             if (finalLength < 0)        return Outcome.Unavailable;
             return finalLength > baseline ? Outcome.TurnObserved : Outcome.NotObserved;

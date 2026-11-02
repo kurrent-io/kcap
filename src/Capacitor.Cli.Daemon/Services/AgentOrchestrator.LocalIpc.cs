@@ -894,8 +894,11 @@ internal partial class AgentOrchestrator {
     }
 
     async Task SafeSendDimsAsync(AgentInstance agent) {
+        // A shutdown detaches every client; nobody is left to re-lock to the size it would announce.
+        if (_shutdownCts.IsCancellationRequested) return;
+
         try { await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows); }
-        catch (Exception ex) { LogTerminalDimsSendFailed(ex, agent.Id); }
+        catch (Exception ex) { ReportDimsSendFailed(ex, agent.Id); }
     }
 
     /// <summary>

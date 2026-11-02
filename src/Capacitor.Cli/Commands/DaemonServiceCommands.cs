@@ -94,6 +94,10 @@ sealed class DaemonServiceCommands(
             "ensure"    => await verbs.Ensure(rest),
             "status"    => rest.Contains("--json") ? await verbs.StatusJson() : await verbs.Status(),
             "refresh"   => await verbs.Refresh(force: rest.Contains("--force")),
+            "repoint"   => DirectoryArg(rest, "--from") switch {
+                null or "" => Usage(),
+                var dir    => await verbs.RepointFrom(dir),
+            },
             _           => Usage(),
         };
 
@@ -154,10 +158,7 @@ sealed class DaemonServiceCommands(
         var name = enrollment.Name;
 
         using var txn = await ServiceTxnLock.TryAcquireAsync(store, name, TimeSpan.FromSeconds(10), time);
-        if (txn is null) {
-            await Console.Error.WriteLineAsync($"Another service operation is in progress for '{name}'. Try again shortly. The Windows service was not changed.");
-            return 1;
-        }
+        if (txn is null) return await RefuseContendedAsync(name, "The Windows service was not changed.");
 
         var daemonPath = File.Exists(enrollment.DaemonPath) ? enrollment.DaemonPath : UnitIdentity.ResolveDaemonBinary();
         if (daemonPath is null) {
@@ -741,10 +742,7 @@ sealed class DaemonServiceCommands(
     internal async Task<int> InstallPlain(ServiceSpec spec, bool startNow) {
         using var txn = await ServiceTxnLock.TryAcquireAsync(store, spec.ServiceId, TimeSpan.FromSeconds(10), time);
 
-        if (txn is null) {
-            await Console.Error.WriteLineAsync($"Another service operation is in progress for '{spec.ServiceId}'. Try again shortly.");
-            return 1;
-        }
+        if (txn is null) return await RefuseContendedAsync(spec.ServiceId);
 
         var before = TryQuery(spec.ServiceId);
         if (manager.Install(spec, startNow, out var error)) return 0;
@@ -793,10 +791,7 @@ sealed class DaemonServiceCommands(
     internal async Task<int> Uninstall() {
         using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
 
-        if (txn is null) {
-            await Console.Error.WriteLineAsync($"Another service operation is in progress for '{id}'. Try again shortly.");
-            return 1;
-        }
+        if (txn is null) return await RefuseContendedAsync(id);
 
         var ended = await ServiceRemoval.EndAgentsAsync(store, id, time);
 
@@ -830,7 +825,7 @@ sealed class DaemonServiceCommands(
 
                 using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
                 if (txn is null) {
-                    await Console.Error.WriteLineAsync($"Another service operation is in progress for '{unit}'. Try again shortly.");
+                    await RefuseContendedAsync(unit);
                     failed = true;
                 } else if (!Owned(unit)) {
                     // An install holding the lock may have repointed the unit at another copy of kcap.
@@ -863,11 +858,93 @@ sealed class DaemonServiceCommands(
     }
 
     /// <summary>
-    /// The folder <c>--under</c> names: null without the flag, empty when its value is missing,
-    /// blank or another flag.
+    /// Points every Scheduled Task whose daemon binary lies under <paramref name="dir"/> at this install's daemon,
+    /// keeping the rest of its unit, so another install's folder can be deleted without stranding the daemon. A
+    /// running daemon is stopped with its agents kept for the repointed one to resume; a busy one stays on the old
+    /// binary and fails the run, so the caller keeps that folder.
     /// </summary>
-    internal static string? UnderArg(string[] rest) {
-        var at = Array.IndexOf(rest, "--under");
+    /// <param name="daemonPath">Test seam; production resolves this install's daemon.</param>
+    internal async Task<int> RepointFrom(string dir, string? daemonPath = null) {
+        daemonPath ??= UnitIdentity.ResolveDaemonBinary();
+        if (daemonPath is null) {
+            await Console.Error.WriteLineAsync(DaemonCommands.DaemonNotFoundMessage());
+            return 1;
+        }
+
+        if (IsUnder(daemonPath, dir, OperatingSystem.IsWindows())) {
+            await Console.Error.WriteLineAsync($"This install's daemon ({daemonPath}) is inside {dir}; nothing was repointed.");
+            return 1;
+        }
+
+        if (manager.TryListInstalled() is not { } units) {
+            await Console.Error.WriteLineAsync($"Could not list the installed services ({manager.Describe()}); nothing was repointed.");
+            return 1;
+        }
+
+        var failed = false;
+
+        foreach (var unit in units) {
+            try {
+                if (!Owned(unit)) continue;
+
+                if (manager is not WindowsScheduledTaskServiceManager tasks) {
+                    await Console.Error.WriteLineAsync(
+                        $"Daemon '{unit}': {manager.Describe()} runs it from {dir}, and only a Scheduled Task can be repointed. Run `kcap daemon service install --replace --verify{SystemFlag} --name {unit}` from this install.");
+                    failed = true;
+                    continue;
+                }
+
+                if ((HostsCaller ?? HostsCallerOf(store))(unit)) {
+                    await Console.Error.WriteLineAsync(HostedCaller.Refusal(unit, $"`kcap daemon service repoint --from {dir}`"));
+                    failed = true;
+                    continue;
+                }
+
+                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
+                if (txn is null) {
+                    await RefuseContendedAsync(unit);
+                    failed = true;
+                    continue;
+                }
+
+                // An install holding the lock may have repointed the unit already.
+                if (!Owned(unit)) continue;
+
+                var outcome = tasks.RepointDaemon(unit, daemonPath, () => Proceeds(StopForReload(unit, "now", whenIdle: true)), out var error);
+                switch (outcome) {
+                    case UnitRefresh.Reloaded:
+                        await Console.Out.WriteLineAsync($"Daemon '{unit}': now runs {daemonPath}; it restarted and resumes its agents.");
+                        break;
+                    case UnitRefresh.NotLoaded or UnitRefresh.Current:
+                        await Console.Out.WriteLineAsync($"Daemon '{unit}': runs {daemonPath} from its next start.");
+                        break;
+                    case UnitRefresh.Deferred:
+                        await Console.Error.WriteLineAsync($"Daemon '{unit}' is busy, so it still runs from {dir}. Try again once it is idle.");
+                        failed = true;
+                        break;
+                    default:
+                        await Console.Error.WriteLineAsync($"Daemon '{unit}': could not repoint it ({error ?? RefreshToken(outcome)}).");
+                        failed = true;
+                        break;
+                }
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException) {
+                await Console.Error.WriteLineAsync($"Could not repoint service '{unit}': {ex.Message}");
+                failed = true;
+            }
+        }
+
+        return failed ? 1 : 0;
+
+        bool Owned(string unit) =>
+            manager.Status(unit).BinaryPath is { } binary && IsUnder(binary, dir, OperatingSystem.IsWindows());
+    }
+
+    internal static string? UnderArg(string[] rest) => DirectoryArg(rest, "--under");
+
+    /// <summary>The folder <paramref name="flag"/> names: null without the flag, empty when its value is missing,
+    /// blank or another flag.</summary>
+    internal static string? DirectoryArg(string[] rest, string flag) {
+        var at = Array.IndexOf(rest, flag);
         if (at < 0) return null;
         var value = at + 1 < rest.Length ? rest[at + 1] : "";
         return string.IsNullOrWhiteSpace(value) || value.StartsWith("--", StringComparison.Ordinal) ? "" : value;
@@ -883,7 +960,7 @@ sealed class DaemonServiceCommands(
     /// <summary>Routes plain vs <c>--verify</c> starts: launchd through its transaction engine, every
     /// other manager through <see cref="PollingServiceVerify"/>.</summary>
     internal async Task<int> Start(string[] args) {
-        if (!args.Contains("--verify")) return await StartPlain();
+        if (!args.Contains("--verify")) return await StartPlain(waitOutOthers: true);
         if (manager is LaunchdServiceManager) return await StartVerified();
 
         var exit = await NewPollingVerify().StartVerifiedAsync(id);
@@ -901,13 +978,14 @@ sealed class DaemonServiceCommands(
                 ? n => WindowsTaskUnit.StderrPath(root.Path($"daemon-{n}.log"))
                 : null);
 
-    async Task<int> StartPlain() {
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
+    /// <param name="waitOutOthers">The verb a person typed, which waits out another operation rather than
+    /// failing on it; the ensure ladder keeps the short wait its callers budget for.</param>
+    async Task<int> StartPlain(bool waitOutOthers = false) {
+        using var txn = waitOutOthers
+            ? await AcquireWaitingOutOthersAsync()
+            : await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
 
-        if (txn is null) {
-            await Console.Error.WriteLineAsync($"Another service operation is in progress for '{id}'. Try again shortly.");
-            return 1;
-        }
+        if (txn is null) return await RefuseContendedAsync(id);
 
         if (!manager.Start(id, out var error)) {
             await Console.Error.WriteLineAsync($"Could not start service '{id}': {error}");
@@ -939,12 +1017,9 @@ sealed class DaemonServiceCommands(
     }
 
     internal async Task<int> Stop(string[] args) {
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
+        using var txn = await AcquireWaitingOutOthersAsync();
 
-        if (txn is null) {
-            await Console.Error.WriteLineAsync($"Another service operation is in progress for '{id}'. Try again shortly.");
-            return 1;
-        }
+        if (txn is null) return await RefuseContendedAsync(id);
 
         var request = new ShutdownRequestDto(args.Contains("--keep-agents") ? "keep" : "end", "final");
         var outcome = DaemonPidProbe.ValidatedPid(store, id) is null
@@ -960,28 +1035,74 @@ sealed class DaemonServiceCommands(
         var interrupted = exited ? 0 : DaemonCommands.MarkLedgerInterrupted(store, id, time, Console.Error, DaemonCommands.KeepsSavedResumes(request, outcome));
 
         await Console.Out.WriteLineAsync($"Service '{id}' stopped (still installed).");
-        if (request.Agents == "keep") await Console.Out.WriteLineAsync(DescribeKeptAgents(ResumingEntries(), interrupted));
+        if (request.Agents == "keep") {
+            var (resuming, midTurn) = ResumingEntries();
+            await Console.Out.WriteLineAsync(DescribeKeptAgents(resuming, midTurn, interrupted));
+        }
         return 0;
     }
 
-    int ResumingEntries() {
+    /// <summary>The entries saved for the next start, and how many of those agents were mid-turn when stopped.</summary>
+    (int Resuming, int MidTurn) ResumingEntries() {
         try {
-            return ResumeLedgerStore.For(store, id).ReadAll().Count(e => e.State == ResumeState.Resuming);
+            var resuming = ResumeLedgerStore.For(store, id).ReadAll().Where(e => e.State == ResumeState.Resuming).ToList();
+            return (resuming.Count, resuming.Count(e => e.AwaitingInput == false));
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return 0;
+            return (0, 0);
         }
     }
 
-    /// <summary>What a keep-agents stop left for the next start: the agents saved for it to resume, and those
-    /// the stop had to end mid-run, which it does not bring back on its own.</summary>
-    internal static string DescribeKeptAgents(int kept, int interrupted) {
-        var line = kept == 0 ? "No agents were kept for the next start to resume."
-                 : $"Kept {Agents(kept)} for the next start to resume.";
+    /// <summary>What a keep-agents stop left for the next start. A kept agent's process does not survive the
+    /// stop on any platform: the daemon ends it, and the next one launches it again on its saved session, so a
+    /// turn in flight is cut off. Agents the stop had to end mid-run are not brought back at all.</summary>
+    internal static string DescribeKeptAgents(int kept, int midTurn, int interrupted) {
+        var line = kept == 0 ? "No agents were left for the next start to resume."
+                 : kept == 1 ? "Stopped 1 agent; the next start relaunches it and resumes its session."
+                 : $"Stopped {kept} agents; the next start relaunches them and resumes their sessions.";
+
+        line += midTurn switch {
+            <= 0             => "",
+            1 when kept == 1 => " It was mid-turn: that turn was cut off, and the resumed session is told to check what finished.",
+            1                => " 1 of them was mid-turn: that turn was cut off, and its resumed session is told to check what finished.",
+            _                => $" {midTurn} of them were mid-turn: those turns were cut off, and each resumed session is told to check what finished.",
+        };
+
         return interrupted == 0 ? line
              : $"{line} {Agents(interrupted)} ended mid-run; the next start does not resume {(interrupted == 1 ? "it" : "them")}.";
 
         static string Agents(int n) => n == 1 ? "1 agent" : $"{n} agents";
     }
+
+    /// <summary>How long plain <c>start</c> and <c>stop</c> wait out another operation on the same service. The
+    /// desktop app starts a daemon service it sees stopped and holds the lock through that daemon's boot, so a
+    /// start typed straight after a stop can find the lock taken.</summary>
+    internal static readonly TimeSpan WaitOutOthers = TimeSpan.FromSeconds(60);
+
+    /// <summary>Long enough that an ordinary hand-over between two verbs passes without a word.</summary>
+    static readonly TimeSpan QuietWait = TimeSpan.FromSeconds(2);
+
+    Task<ServiceTxnLock?> AcquireWaitingOutOthersAsync() =>
+        ServiceTxnLock.AcquireWaitingAsync(store, id, WaitOutOthers, QuietWait, time, async holder => {
+            try {
+                await Console.Error.WriteLineAsync(WaitingLine(id, holder, WaitOutOthers - QuietWait, time.GetUtcNow()));
+            } catch (IOException) { }
+        });
+
+    /// <summary>Refuses with exit 1, naming who holds the lock when it recorded itself.</summary>
+    async Task<int> RefuseContendedAsync(string serviceId, string? consequence = null) {
+        var line = ContentionLine(serviceId, ServiceTxnHolder.Read(store, serviceId), time.GetUtcNow());
+        await Console.Error.WriteLineAsync(consequence is null ? line : $"{line} {consequence}");
+        return 1;
+    }
+
+    internal static string WaitingLine(string serviceId, ServiceTxnHolder? holder, TimeSpan remaining, DateTimeOffset now) {
+        var held = holder is null ? "" : $": {holder.Describe(now)}";
+        return $"Another service operation on '{serviceId}' is in progress{held}. Waiting up to {(int) remaining.TotalSeconds}s for it to finish.";
+    }
+
+    internal static string ContentionLine(string serviceId, ServiceTxnHolder? holder, DateTimeOffset now) => holder is null
+        ? $"Another service operation is in progress for '{serviceId}'. Try again shortly."
+        : $"Another service operation is in progress for '{serviceId}': {holder.Describe(now)}. Try again once it finishes.";
 
     internal async Task<int> Status() {
         await StaleTxnMarker.SettleAsync(store, manager, id, time);
@@ -1366,7 +1487,7 @@ sealed class DaemonServiceCommands(
     }
 
     static int Usage() {
-        Console.Error.WriteLine("Usage: kcap daemon service <install|uninstall|start|stop|ensure|status|refresh> [--name N]");
+        Console.Error.WriteLine("Usage: kcap daemon service <install|uninstall|start|stop|ensure|status|refresh|repoint> [--name N]");
         Console.Error.WriteLine();
         Console.Error.WriteLine("  install [--name N] [--profile P] [--max-agents N] [--no-start] [--replace] [--verify] [--retire ID]");
         Console.Error.WriteLine("                          --verify polls readiness/version/ownership and rolls back on failure");
@@ -1380,11 +1501,12 @@ sealed class DaemonServiceCommands(
         Console.Error.WriteLine("  start [--name N] [--verify]   Start the installed service now");
         Console.Error.WriteLine("                          --verify polls readiness/ownership and rolls back on failure");
         Console.Error.WriteLine("  stop [--name N] [--keep-agents]   Stop the running service (stays installed) and end its agents;");
-        Console.Error.WriteLine("                          --keep-agents keeps them for the next start to resume");
+        Console.Error.WriteLine("                          --keep-agents stops them for the next start to relaunch on their sessions");
         Console.Error.WriteLine("  ensure [--name N] [--profile P] [--json]   Install-or-start from a fresh status read");
         Console.Error.WriteLine("                          (bakes the born-prompt consent seed; gate refusals emit recovery_surface=)");
         Console.Error.WriteLine("  status [--name N] [--json]   Show installed/running state (--json for machine-readable output)");
         Console.Error.WriteLine("  refresh                Update installed units to this version's format; a reload resumes the daemon's agents");
+        Console.Error.WriteLine("  repoint --from DIR     Windows: point every Scheduled Task whose daemon binary is inside DIR at this install's daemon");
         return 1;
     }
 }

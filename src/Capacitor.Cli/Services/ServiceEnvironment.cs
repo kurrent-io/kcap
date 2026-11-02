@@ -122,10 +122,11 @@ static class ServiceEnvironment {
         // Windows derives nothing, so it must also LOOK at nothing: reading the credential location
         // and discarding the result downstream is still the probe the boundary forbids.
         var isWindows = OperatingSystem.IsWindows();
+        var gcloud    = isWindows ? null : GcloudConfig.ConfigDir(home);
 
         return Build(profileName, Snapshot(), config, isWindows,
-            adcCredentialsPath: isWindows ? null : Harness.Antigravity.AntigravityAdcTrio.ExistingCredentialsPath(home),
-            gcloudProject:      isWindows ? null : GcloudConfig.DefaultProject(home));
+            adcCredentialsPath: Harness.Antigravity.AntigravityAdcTrio.ExistingCredentialsPath(gcloud),
+            gcloudProject:      GcloudConfig.DefaultProject(gcloud));
     }
 
     static Dictionary<string, string> Snapshot() {

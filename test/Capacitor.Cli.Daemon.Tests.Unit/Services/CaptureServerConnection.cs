@@ -397,10 +397,13 @@ sealed class CaptureServerConnection : ServerConnection {
     /// observable to anyone but this daemon's own log.</summary>
     public List<(Guid DispatchId, string AgentId, string Reason)> InputRejections { get; } = [];
 
+    /// <summary>When set, every dropped-input report is recorded and then held until this completes.</summary>
+    public TaskCompletionSource? InputRejectionGate { get; init; }
+
     public override Task SendInputRejectedAsync(Guid dispatchId, string agentId, string reason) {
         lock (InputRejections) InputRejections.Add((dispatchId, agentId, reason));
 
-        return Task.CompletedTask;
+        return InputRejectionGate?.Task ?? Task.CompletedTask;
     }
 
     public override Task AgentUnregisteredAsync(string agentId, string? stopReason = null) {

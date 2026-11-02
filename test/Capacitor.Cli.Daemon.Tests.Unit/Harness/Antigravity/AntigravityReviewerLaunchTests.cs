@@ -20,8 +20,11 @@ public class AntigravityReviewerLaunchTests {
     static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(10);
 
     /// <summary>A path, never a created directory — <see cref="AntigravityHostedAgentRuntimeFactory.BuildTurnPsi"/> is pure, so the argv
-    /// assertions below run identically on every platform (the real per-launch home is POSIX-only).</summary>
+    /// assertions below run identically on every platform.</summary>
     const string HomePath = "/tmp/kcap-antigravity-home";
+
+    /// <summary>The Windows-shaped counterpart, for the Windows launch environment on any host.</summary>
+    const string WindowsHomePath = @"C:\Users\op\.config\kcap\daemons\d\antigravity-reviewers\home";
 
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
 
@@ -93,10 +96,11 @@ public class AntigravityReviewerLaunchTests {
     const string CapabilityUrl = "http://127.0.0.1:1234/0123456789abcdef0123456789abcdef";
 
     static ProcessStartInfo BuildPsi(
-            DaemonConfig config, string? conversationId = null, bool isReviewFlow = true) =>
+            DaemonConfig config, string? conversationId = null, bool isReviewFlow = true, bool windowsHost = false) =>
         AntigravityHostedAgentRuntimeFactory.BuildTurnPsi(
             config, Ctx(isReviewFlow: isReviewFlow), prompt: "<PROMPT>",
-            conversationId: conversationId, home: HomePath);
+            conversationId: conversationId, home: windowsHost ? WindowsHomePath : HomePath,
+            windowsHost: windowsHost);
 
     // ── argv ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -225,6 +229,79 @@ public class AntigravityReviewerLaunchTests {
             .IsEqualTo(Path.Combine(HomePath, ".config", "kcap"));
     }
 
+    /// <summary>
+    /// On Windows agy, a Go binary, finds its home through <c>USERPROFILE</c> and its config, cache and
+    /// temp directories through <c>APPDATA</c>, <c>LOCALAPPDATA</c> and <c>TMP</c>/<c>TEMP</c> — not
+    /// <c>HOME</c>. Any one of them left inherited puts its writes in the operator's real profile.
+    /// </summary>
+    [Test]
+    public async Task A_windows_turn_child_has_every_profile_directory_inside_the_isolated_home() {
+        var psi = BuildPsi(EnabledConfig(), windowsHost: true);
+        var tmp = Path.Combine(WindowsHomePath, "tmp");
+
+        await Assert.That(psi.Environment["HOME"]).IsEqualTo(WindowsHomePath);
+        await Assert.That(psi.Environment["USERPROFILE"]).IsEqualTo(WindowsHomePath);
+        await Assert.That(psi.Environment["APPDATA"]).IsEqualTo(Path.Combine(WindowsHomePath, "AppData", "Roaming"));
+        await Assert.That(psi.Environment["LOCALAPPDATA"]).IsEqualTo(Path.Combine(WindowsHomePath, "AppData", "Local"));
+        await Assert.That(psi.Environment["TEMP"]).IsEqualTo(tmp);
+        await Assert.That(psi.Environment["TMP"]).IsEqualTo(tmp);
+        await Assert.That(psi.Environment["TMPDIR"]).IsEqualTo(tmp);
+        await Assert.That(psi.Environment["HOMEDRIVE"]).IsEqualTo("C:");
+        await Assert.That(psi.Environment["HOMEDRIVE"] + psi.Environment["HOMEPATH"]).IsEqualTo(WindowsHomePath);
+    }
+
+    /// <summary>The directories the Windows environment names are the ones the launch creates, so none
+    /// is missing when agy first writes, and every one is inside the home it is removed with.</summary>
+    [Test]
+    public async Task The_launch_creates_every_directory_the_windows_environment_names() {
+        var psi  = BuildPsi(EnabledConfig(), windowsHost: true);
+        var dirs = AntigravityHostedAgentRuntimeFactory.LaunchDirectoriesIn(WindowsHomePath, windowsHost: true);
+
+        await Assert.That(dirs).IsEquivalentTo(new[] {
+            psi.Environment["TEMP"]!, psi.Environment["APPDATA"]!, psi.Environment["LOCALAPPDATA"]!
+        });
+    }
+
+    /// <summary>A POSIX launch leaves the Windows profile variables as they were: a Unix agy never reads
+    /// them, and the POSIX environment is the measured one.</summary>
+    [Test]
+    [NotInParallel]
+    public async Task A_posix_turn_child_leaves_the_windows_profile_variables_alone() {
+        const string inherited = "/tmp/kcap-userprofile-probe";
+        using var _ = EnvScope.Exclusive("USERPROFILE", inherited);
+
+        var psi = BuildPsi(EnabledConfig(), windowsHost: false);
+
+        await Assert.That(psi.Environment.TryGetValue("USERPROFILE", out var profile) ? profile : null).IsEqualTo(inherited);
+        await Assert.That(AntigravityHostedAgentRuntimeFactory.LaunchDirectoriesIn(HomePath, windowsHost: false))
+            .IsEquivalentTo(new[] { Path.Combine(HomePath, "tmp") });
+    }
+
+    /// <summary>Home lookups that read <c>HOMEDRIVE</c>/<c>HOMEPATH</c> must not find the operator's
+    /// profile there when the isolated home has no drive letter to split off.</summary>
+    [Test]
+    public async Task A_windows_home_without_a_drive_letter_drops_the_inherited_homedrive_pair() {
+        var env = new Dictionary<string, string?> { ["HOMEDRIVE"] = "Q:", ["HOMEPATH"] = @"\Users\operator" };
+        AntigravityHostedAgentRuntimeFactory.RedirectUserDirectories(env, @"\\server\share\home", windowsHost: true);
+
+        await Assert.That(env.ContainsKey("HOMEDRIVE")).IsFalse();
+        await Assert.That(env.ContainsKey("HOMEPATH")).IsFalse();
+    }
+
+    /// <summary>On Linux Go's config and cache directories honour the XDG variables ahead of
+    /// <c>HOME</c>, so an inherited one would put agy's state back in the operator's tree.</summary>
+    [Test]
+    [NotInParallel]
+    public async Task The_turn_child_does_not_inherit_an_xdg_base_directory() {
+        using var config = EnvScope.Exclusive("XDG_CONFIG_HOME", "/tmp/kcap-xdg-config-probe");
+        using var cache  = EnvScope.Exclusive("XDG_CACHE_HOME", "/tmp/kcap-xdg-cache-probe");
+
+        var psi = BuildPsi(EnabledConfig());
+
+        await Assert.That(psi.Environment.ContainsKey("XDG_CONFIG_HOME")).IsFalse();
+        await Assert.That(psi.Environment.ContainsKey("XDG_CACHE_HOME")).IsFalse();
+    }
+
     /// <summary>An operator with <c>GEMINI_CLI_HOME</c> exported must not have it reach the turn
     /// child: the child derives its whole Gemini root (config, MCP servers, result channel) from the
     /// isolated <c>HOME</c> above, and an inherited override would point it at the operator's real
@@ -265,32 +342,49 @@ public class AntigravityReviewerLaunchTests {
     /// the installed <c>agy</c>'s version, so an unseamed test would resolve <see langword="null"/> on
     /// any host without the binary (CI) and refuse as <c>version_unresolved</c> — passing or failing
     /// for a reason unrelated to what it asserts. Defaults to the shipped floor.</param>
-    /// <param name="posixHost">Pinned rather than inherited from the runner, so every arm of the
-    /// ladder is reachable from any host. Defaulting this to the ambient OS is what reddened the
-    /// Windows CI leg: the platform arm short-circuits ahead of the binary and floor arms, so
-    /// <c>A_missing_binary_…</c> and <c>A_below_floor_…</c> both refused on platform and failed for a
-    /// reason unrelated to what they assert. Tests that genuinely touch the POSIX-only reviewer HOME
-    /// still need their own <c>Skip.Unless</c> — this seam decides the gate, not the filesystem.</param>
+    /// <param name="windowsHost">Pinned rather than inherited from the runner, so every arm of the
+    /// ladder is reachable from any host: the platform arm short-circuits ahead of the binary and
+    /// version arms, so following a Windows runner would refuse every launch here on platform. The
+    /// real home a launch creates still follows the runner, so on Windows these tests exercise its
+    /// ACL.</param>
     static AntigravityHostedAgentRuntimeFactory Factory(
             DaemonConfig config,
             Func<ProcessStartInfo, CancellationToken, Task<IAgyTurnProcess>>? turnSource = null,
             bool binaryExists = true,
             string? version = "1.1.10",
-            bool posixHost = true) =>
+            bool windowsHost = false) =>
         new(config, NullLoggerFactory.Instance, TimeProvider.System, turnSource, _ => binaryExists, _ => version,
-            posixHost);
+            windowsHost);
 
-    /// <summary>The platform arm itself — assertable from POSIX only because the seam above exists,
-    /// which is the point of having it. The reviewer's per-launch home holds review context and
-    /// cannot be created owner-only on Windows, so the vendor is withheld rather than advertised with
-    /// a world-readable home.</summary>
+    /// <summary>The platform arm itself. Containment on Windows has not been confirmed by a real agy
+    /// run, so the vendor is withheld there rather than advertised.</summary>
     [Test]
     public async Task A_windows_host_is_withheld_as_an_unsupported_platform() {
-        var support = Factory(EnabledConfig(), posixHost: false).DescribeUnattendedSupport();
+        var support = Factory(EnabledConfig(), windowsHost: true).DescribeUnattendedSupport();
 
         await Assert.That(support.Supported).IsFalse();
         await Assert.That(support.WithheldReason!).Contains("antigravity_reviewer_unsupported_platform");
     }
+
+    /// <summary>The platform arm gates a hosted launch too: the unconfirmed containment is the
+    /// per-launch home's, which a hosted agent relies on as surely as a reviewer.</summary>
+    [Test]
+    public async Task A_windows_host_refuses_a_hosted_launch_too() {
+        var config = EnabledConfig();
+        config.AntigravityUnattendedReviewerEnabled = false;
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Factory(config, new SpyTurnSource().SpawnAsync, windowsHost: true)
+                .StartAsync(Ctx(isReviewFlow: false), CancellationToken.None));
+
+        await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_unsupported_platform");
+    }
+
+    /// <summary>A launcher only offers what the daemon advertises, so a Windows host that refuses
+    /// every launch must not report the vendor available — the binary is present here.</summary>
+    [Test]
+    public async Task A_windows_host_does_not_report_the_vendor_available() =>
+        await Assert.That(Factory(EnabledConfig(), windowsHost: true).IsAvailable()).IsFalse();
 
     [Test]
     public async Task A_consent_withheld_daemon_reports_an_operator_actionable_reason() {
@@ -323,9 +417,6 @@ public class AntigravityReviewerLaunchTests {
     /// not a vendor that silently disappears.</summary>
     [Test]
     public async Task Consent_plus_binary_is_supported_with_no_withheld_reason() {
-        Skip.Unless(!OperatingSystem.IsWindows(),
-            "The Antigravity reviewer is POSIX-only: its per-launch home holds review context and cannot be created owner-only on Windows.");
-
         var support = Factory(EnabledConfig()).DescribeUnattendedSupport();
 
         await Assert.That(support.Supported).IsTrue();
@@ -342,8 +433,6 @@ public class AntigravityReviewerLaunchTests {
     [Arguments("1.1.10")]
     [Arguments("2.5.0")]
     public async Task A_minimum_meeting_build_is_advertised(string installed) {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var support = Factory(EnabledConfig(), version: installed).DescribeUnattendedSupport();
 
         await Assert.That(support.Supported).IsTrue();
@@ -352,8 +441,6 @@ public class AntigravityReviewerLaunchTests {
 
     [Test]
     public async Task A_below_minimum_build_is_withheld_with_a_reason_naming_both_versions() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var support = Factory(EnabledConfig(), version: "1.1.8").DescribeUnattendedSupport();
 
         await Assert.That(support.Supported).IsFalse();
@@ -367,8 +454,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task A_daemon_with_no_recorded_minimum_is_withheld() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var support = Factory(EnabledConfig(minimum: null)).DescribeUnattendedSupport();
 
         await Assert.That(support.Supported).IsFalse();
@@ -381,8 +466,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task An_affirmation_taken_under_a_running_daemon_is_picked_up() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var config  = EnabledConfig(minimum: "9.9.9");
         var factory = Factory(config, version: "1.1.10");
 
@@ -397,8 +480,6 @@ public class AntigravityReviewerLaunchTests {
     /// next action is to fix the binary, not to upgrade it.</summary>
     [Test]
     public async Task An_unidentifiable_build_is_withheld_as_unresolved() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var support = Factory(EnabledConfig(), version: null).DescribeUnattendedSupport();
 
         await Assert.That(support.Supported).IsFalse();
@@ -410,8 +491,6 @@ public class AntigravityReviewerLaunchTests {
     /// version that was never going to resolve.</summary>
     [Test]
     public async Task A_missing_binary_outranks_the_version_arm() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var support = Factory(EnabledConfig(), binaryExists: false, version: null).DescribeUnattendedSupport();
 
         await Assert.That(support.WithheldReason!).StartsWith("antigravity_reviewer_binary_missing");
@@ -441,15 +520,13 @@ public class AntigravityReviewerLaunchTests {
     /// happens to resolve to first.</summary>
     [Test]
     public async Task The_probe_reads_the_configured_path_exactly_once() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var config = EnabledConfig();
         config.AntigravityPath = "/opt/agy/bin/agy";
 
         var seen   = new List<string>();
         var factory = new AntigravityHostedAgentRuntimeFactory(
             config, NullLoggerFactory.Instance, TimeProvider.System, turnSource: null, binaryExists: _ => true,
-            resolveVersion: path => { seen.Add(path); return "1.1.8"; });
+            resolveVersion: path => { seen.Add(path); return "1.1.8"; }, windowsHost: false);
 
         factory.DescribeUnattendedSupport();
 
@@ -507,8 +584,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task StartAsync_returns_with_the_conversation_id_bound_and_the_clock_already_wired() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy   = new SpyTurnSource();
         var clock = new AgentActivityClock(new FakeTimeProvider());
 
@@ -529,8 +604,6 @@ public class AntigravityReviewerLaunchTests {
     /// reconstructed, so this cannot pass against a launch that resumed something else.</summary>
     [Test]
     public async Task A_second_turn_resumes_the_conversation_the_first_turn_established() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy   = new SpyTurnSource();
         var start = await Factory(EnabledConfig(), spy.SpawnAsync)
             .StartAsync(Ctx(), CancellationToken.None).WaitAsync(HangGuard);
@@ -565,8 +638,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task An_interactive_launch_is_hosted_under_the_isolated_home_with_permissions_widened() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var config = EnabledConfig();
         var spy    = new SpyTurnSource();
 
@@ -604,8 +675,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task Consent_gates_a_review_launch_but_not_a_hosted_launch_on_the_same_daemon() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var config = EnabledConfig();
         config.AntigravityUnattendedReviewerEnabled = false;
 
@@ -665,27 +734,6 @@ public class AntigravityReviewerLaunchTests {
         await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_version_below_minimum");
     }
 
-    /// <summary>The platform arm is shared for the same reason as the floor: Windows cannot create the
-    /// per-launch home owner-only, and that home holds a hosted agent's own conversation transcript as
-    /// surely as it holds a reviewer's.</summary>
-    [Test]
-    public async Task A_windows_host_refuses_a_hosted_launch_too() {
-        var config = EnabledConfig();
-        config.AntigravityUnattendedReviewerEnabled = false;
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            Factory(config, new SpyTurnSource().SpawnAsync, posixHost: false)
-                .StartAsync(Ctx(isReviewFlow: false), CancellationToken.None));
-
-        await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_unsupported_platform");
-    }
-
-    /// <summary>A launcher only offers what the daemon advertises, so a Windows host that refuses
-    /// every launch must not report the vendor available — the binary is present here.</summary>
-    [Test]
-    public async Task A_windows_host_does_not_report_the_vendor_available() =>
-        await Assert.That(Factory(EnabledConfig(), posixHost: false).IsAvailable()).IsFalse();
-
     /// <summary>Binary presence is shared too — there is nothing to launch either way.</summary>
     [Test]
     public async Task A_missing_binary_refuses_a_hosted_launch_too() {
@@ -725,8 +773,6 @@ public class AntigravityReviewerLaunchTests {
     /// offering the very thing its operator never opted into.</summary>
     [Test]
     public async Task Advertisement_still_requires_consent_even_though_a_hosted_launch_does_not() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var config = EnabledConfig();
         config.AntigravityUnattendedReviewerEnabled = false;
 
@@ -796,8 +842,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task A_hosted_launch_gets_no_result_channel_and_is_not_refused_for_missing_one() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy = new SpyTurnSource();
 
         var start = await Factory(EnabledConfig(), spy.SpawnAsync)
@@ -825,8 +869,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task A_review_launch_injects_the_flow_result_channel_and_ignores_caller_supplied_servers() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy = new SpyTurnSource();
 
         var start = await Factory(EnabledConfig(), spy.SpawnAsync)
@@ -862,8 +904,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task A_review_launch_delivers_through_the_capability_and_never_the_token_store() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy = new SpyTurnSource();
 
         var start = await Factory(EnabledConfig(), spy.SpawnAsync)
@@ -945,8 +985,6 @@ public class AntigravityReviewerLaunchTests {
     /// interactive agent — and this vendor's whole hosted lane with it.</summary>
     [Test]
     public async Task An_ordinary_hosted_launch_is_not_refused_as_a_pr_review() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy = new SpyTurnSource();
 
         var start = await Factory(EnabledConfig(), spy.SpawnAsync)
@@ -974,8 +1012,6 @@ public class AntigravityReviewerLaunchTests {
     /// definition for is the same category error as the result-channel refusal above.</summary>
     [Test]
     public async Task A_non_auto_approvable_allowlist_refuses_a_review_but_not_a_hosted_launch() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy     = new SpyTurnSource();
         var factory = Factory(EnabledConfig(), spy.SpawnAsync);
 
@@ -1000,8 +1036,6 @@ public class AntigravityReviewerLaunchTests {
     /// above would still pass.</summary>
     [Test]
     public async Task An_auto_approvable_allowlist_entry_reaches_the_reviewers_surface() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy = new SpyTurnSource();
 
         var start = await Factory(EnabledConfig(), spy.SpawnAsync)
@@ -1037,8 +1071,6 @@ public class AntigravityReviewerLaunchTests {
     /// nothing else in this file would notice if it did not.</summary>
     [Test]
     public async Task A_review_launch_grants_its_own_result_channel() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy = new SpyTurnSource();
 
         var start = await Factory(EnabledConfig(), spy.SpawnAsync)
@@ -1062,8 +1094,6 @@ public class AntigravityReviewerLaunchTests {
     /// servers are a caller's, which the reviewer classifier refuses outright.</summary>
     [Test]
     public async Task A_hosted_launch_is_granted_nothing_and_is_not_refused_for_a_caller_supplied_server() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy = new SpyTurnSource();
 
         var start = await Factory(EnabledConfig(), spy.SpawnAsync)
@@ -1085,8 +1115,6 @@ public class AntigravityReviewerLaunchTests {
     /// change introduced.</summary>
     [Test]
     public async Task A_hosted_launch_forwards_the_mcp_servers_it_was_given() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy = new SpyTurnSource();
 
         var start = await Factory(EnabledConfig(), spy.SpawnAsync)
@@ -1126,8 +1154,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task An_unauthenticated_first_turn_fails_with_the_coded_adc_remedy() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var factory = Factory(EnabledConfig(), (_, _) => Task.FromResult<IAgyTurnProcess>(
             new UnauthenticatedTurnProcess()));
 
@@ -1163,8 +1189,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task A_first_turn_that_dies_with_unrelated_output_is_not_reported_as_an_auth_failure() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var factory = Factory(EnabledConfig(), (_, _) => Task.FromResult<IAgyTurnProcess>(
             new DyingTurnProcess("panic: runtime error: index out of range [3]")));
 
@@ -1178,8 +1202,6 @@ public class AntigravityReviewerLaunchTests {
     /// pattern match, rather than the classifier, is responsible for.</summary>
     [Test]
     public async Task A_first_turn_that_dies_silently_is_not_reported_as_an_auth_failure() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var factory = Factory(EnabledConfig(), (_, _) => Task.FromResult<IAgyTurnProcess>(
             new DyingTurnProcess(null)));
 
@@ -1199,8 +1221,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task An_alive_but_silent_first_turn_hits_the_launch_deadline_and_is_reaped() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var config = EnabledConfig();
         config.AntigravityReviewerLaunchTimeoutSeconds = 1;
 
@@ -1219,8 +1239,6 @@ public class AntigravityReviewerLaunchTests {
     /// describing a problem that never happened.</summary>
     [Test]
     public async Task A_shutdown_mid_launch_surfaces_as_cancellation_not_a_reviewer_fault() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var child   = new AliveSilentTurnProcess();
         var spawned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -1261,8 +1279,6 @@ public class AntigravityReviewerLaunchTests {
     /// </summary>
     [Test]
     public async Task The_reviewer_home_is_removed_when_the_runtime_is_disposed() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         var spy   = new SpyTurnSource();
         var start = await Factory(EnabledConfig(), spy.SpawnAsync)
             .StartAsync(Ctx(), CancellationToken.None).WaitAsync(HangGuard);
@@ -1279,8 +1295,6 @@ public class AntigravityReviewerLaunchTests {
     /// path is the one where nobody downstream will ever call <c>DisposeAsync</c> for us.</summary>
     [Test]
     public async Task A_failed_launch_removes_the_reviewer_home_it_created() {
-        Skip.Unless(!OperatingSystem.IsWindows(), "POSIX-only: the per-launch home cannot be owner-only on Windows.");
-
         string? home    = null;
         var     factory = Factory(EnabledConfig(), (psi, _) => {
             home = psi.Environment["HOME"];

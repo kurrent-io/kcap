@@ -12,6 +12,15 @@
                      CanResize="False" CanMinimize="False" CanMaximize="False" Topmost="True" WindowStartupLocation="CenterOwner"
                      Background="{StaticResource KcapCanvasBrush}"
                      ExtendClientAreaToDecorationsHint="True">
+    <!-- Where Avalonia draws the title bar itself it greys out the caption buttons CanMinimize/CanMaximize turn
+         off rather than hiding them, full screen included; only Close can act on this dialog. -->
+    <Window.WindowDecorationsTheme>
+        <ControlTheme TargetType="WindowDrawnDecorations" BasedOn="{StaticResource {x:Type WindowDrawnDecorations}}">
+            <Style Selector="^ /template/ Button:disabled">
+                <Setter Property="IsVisible" Value="False" />
+            </Style>
+        </ControlTheme>
+    </Window.WindowDecorationsTheme>
     <!-- The disclosure TextBlocks carry an explicit Width: SizeToContent="Height" needs a bound for
          the wrap to settle against, and the headless platform never completes measure without it. -->
     <Panel>

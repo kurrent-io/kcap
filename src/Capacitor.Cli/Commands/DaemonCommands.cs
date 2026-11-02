@@ -284,18 +284,20 @@ public sealed class DaemonCommands(
     /// leave hosted Antigravity without it just because the daemon didn't come from a service install.
     /// </summary>
     void ApplyEnvironment(IDictionary<string, string?> env) {
-        var isWindows = OperatingSystem.IsWindows();
+        var gcloud = GcloudConfig.ConfigDir(home);
 
         ApplySpawnEnvironment(
-            env, store.Directory, config.Directory, isWindows,
-            adcCredentialsPath: isWindows ? null : Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.ExistingCredentialsPath(home),
-            gcloudProject:      isWindows ? null : GcloudConfig.DefaultProject(home));
+            env, store.Directory, config.Directory, OperatingSystem.IsWindows(),
+            adcCredentialsPath: Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.ExistingCredentialsPath(gcloud),
+            gcloudProject:      GcloudConfig.DefaultProject(gcloud));
     }
 
     /// <summary>Pure half of <see cref="ApplyEnvironment"/>: the daemon/config roots are written, not
     /// left to the child to derive (a derived root is one HOME change away from a different one, and
-    /// the sandboxes that do rewrite HOME name their own root anyway), and off Windows the trio is
-    /// completed via <see cref="Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.Complete"/>.
+    /// the sandboxes that do rewrite HOME name their own root anyway), and the trio is completed via
+    /// <see cref="Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.Complete"/> — on Windows too:
+    /// this environment lives only in the spawned process, whereas a service unit is a file on disk,
+    /// which is why <c>ServiceEnvironment</c> leaves the credential path out of a Windows unit.
     /// <c>Complete</c> is seeded from what the environment already carries, so a trio member the
     /// operator exported wins over the derived default — it only fills what is absent, and handing it
     /// an empty view would let the derived default overwrite the exported value on the copy back.
@@ -310,12 +312,11 @@ public sealed class DaemonCommands(
         env[DaemonStore.DaemonsDirEnvVar] = daemonsDir;
         env[ConfigRoot.ConfigDirEnvVar]   = configDir;
 
-        if (isWindows) return;
-
-        var trio = new Dictionary<string, string>();
+        // Windows names are case-insensitive, so an exported trio member spelled otherwise still wins.
+        var trio = new Dictionary<string, string>(isWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         foreach (var (k, v) in env) {
             if (v is null) continue;
-            if (v.Length > 0 || k == Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.FlagKey)
+            if (v.Length > 0 || trio.Comparer.Equals(k, Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.FlagKey))
                 trio[k] = v;
         }
 
@@ -1129,7 +1130,7 @@ public sealed class DaemonCommands(
         console.Error.WriteLine();
         console.Error.WriteLine("  start [-d] [--name <n>]    Start the daemon (foreground, or -d for background)");
         console.Error.WriteLine("  stop [--name <n>] [--yes] [--keep-agents]  Stop a running daemon and end its agents (prompts on multi unless --yes);");
-        console.Error.WriteLine("                             --keep-agents keeps them for the next start to resume");
+        console.Error.WriteLine("                             --keep-agents stops them for the next start to relaunch on their sessions");
         console.Error.WriteLine("  restart [--name <n>] [--when-idle] [--force]  Restart now, resuming its agents (--when-idle queues; --force skips the flow-round wait)");
         console.Error.WriteLine("  status [--name <n>]        Show daemon status (lists all when --name omitted)");
         console.Error.WriteLine("  logs                       Show recent daemon log output");

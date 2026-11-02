@@ -9,8 +9,8 @@ using TUnit.Core.Enums;
 
 namespace Capacitor.App.Tests.Unit;
 
-/// The way back to the Windows service after its one-time offer was declined: shown only while a Scheduled
-/// Task supervises a daemon this install's service could take over
+/// Settings' move of a daemon to the Windows service: shown only while a Scheduled Task supervises a
+/// daemon this install's service could take over
 [RunOn(OS.Windows)]
 [NotInParallel("AvaloniaSession")]
 public class SettingsWindowsServiceTests {

@@ -137,14 +137,14 @@ public class ConnectWithRetryTests {
         }
 
         await Assert.That(Status().Experimental!.Single().RegistrationFailed == true).IsTrue();
-        await Assert.That(ExperimentalFeatureState.Classify(true, true, Status(), ExperimentalFeatures.CodexAppServer.Id).Kind)
+        await Assert.That(ExperimentalFeatureState.Classify(true, true, true, Status(), ExperimentalFeatures.CodexAppServer.Id).Kind)
             .IsEqualTo(ExperimentalFeatureStateKind.AppliedLocally);
 
         conn.StartThrows = null;
         await conn.ConnectWithRetryAsync(CancellationToken.None).WaitAsync(HangGuard);
 
         await Assert.That(Status().Experimental!.Single().RegistrationFailed == true).IsFalse();
-        await Assert.That(ExperimentalFeatureState.Classify(true, true, Status(), ExperimentalFeatures.CodexAppServer.Id).Kind)
+        await Assert.That(ExperimentalFeatureState.Classify(true, true, true, Status(), ExperimentalFeatures.CodexAppServer.Id).Kind)
             .IsEqualTo(ExperimentalFeatureStateKind.Active);
     }
 

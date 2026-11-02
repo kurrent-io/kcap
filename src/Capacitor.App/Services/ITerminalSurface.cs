@@ -27,4 +27,11 @@ public interface ITerminalSurface {
 
     /// Sizes the pane to the source PTY — a remote viewer follows the source, it never drives it.
     void Resize(int cols, int rows);
+
+    /// False while CurrentSize is still the construction placeholder: output parsed at it wraps at a
+    /// width nothing produced, and a PTY sized to it makes the agent draw at that width.
+    bool Measured => true;
+
+    /// Records a line beside the feed dump, when one is configured.
+    void NoteDiagnostic(string line) { }
 }

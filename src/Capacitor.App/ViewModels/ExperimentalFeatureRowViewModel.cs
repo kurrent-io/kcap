@@ -10,6 +10,8 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
     readonly ExperimentalFeature _feature;
     readonly Func<ExperimentalFeatureRowViewModel, bool, Task> _save;
     bool _enabled;
+    // False while the profile never set the switch, so _enabled is the feature's default and nothing is stored.
+    bool _set;
     bool _daemonRunning;
     bool _hasStatus;
     DaemonStatusDto? _status;
@@ -17,6 +19,8 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
     bool _statusIsWarning;
     bool _canChange;
     bool _changedHere;
+
+    internal ExperimentalFeature Feature => _feature;
 
     internal ExperimentalFeatureRowViewModel(ExperimentalFeature feature, bool enabled, bool canChange, Func<ExperimentalFeatureRowViewModel, bool, Task> save) {
         _feature = feature;
@@ -46,6 +50,7 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
         set {
             if (!CanChange || value == _enabled) return;
             _changedHere = true;
+            _set = true;
             this.RaiseAndSetIfChanged(ref _enabled, value);
             Recompute();
             _ = _save(this, value);
@@ -83,10 +88,12 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
     }
 
     /// Takes the saved value without saving it back.
-    internal void Load(bool enabled, bool canChange) {
+    /// <param name="enabled">What the switch takes effect as, the feature's default when <paramref name="set"/> is false.</param>
+    internal void Load(bool enabled, bool set, bool canChange) {
         CanChange = canChange;
         // Reading back this row's own save is no news; a different value was set elsewhere.
         if (enabled != _enabled) _changedHere = false;
+        _set = set;
         Show(enabled);
     }
 
@@ -96,7 +103,7 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
             StatusIsWarning = false;
             return;
         }
-        var (kind, reason) = ExperimentalFeatureState.Classify(_enabled, _daemonRunning, _status, _feature.Id);
+        var (kind, reason) = ExperimentalFeatureState.Classify(_set && _enabled, _enabled, _daemonRunning, _status, _feature.Id);
         StatusText = kind switch {
             ExperimentalFeatureStateKind.Active => "Active",
             ExperimentalFeatureStateKind.OnNotActive => $"On, not active: {reason}",
@@ -104,7 +111,7 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
             // Unprompted, an unregistered daemon is the Daemon page's news; a switch left off changes nothing.
             ExperimentalFeatureStateKind.AppliedLocally => _changedHere ? AppliedLocallyText : _enabled ? WaitingForServerText : "",
             ExperimentalFeatureStateKind.Unknown => "The daemon runs an older version of kcap. Update kcap. The daemon then restarts on its own.",
-            ExperimentalFeatureStateKind.DaemonNotRunning when _enabled => "Saved. Applies when the daemon starts.",
+            ExperimentalFeatureStateKind.DaemonNotRunning when _set && _enabled => "Saved. Applies when the daemon starts.",
             _ => "",
         };
         StatusIsWarning = kind is ExperimentalFeatureStateKind.OnNotActive or ExperimentalFeatureStateKind.Unknown;

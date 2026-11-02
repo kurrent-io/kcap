@@ -27,12 +27,13 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
     long _readSequence;
     long _appliedSequence;
 
-    public ExperimentalSettingsViewModel(ExperimentalSettingsStore store, string profile, IDaemonClientService service) {
+    public ExperimentalSettingsViewModel(ExperimentalSettingsStore store, string profile, IDaemonClientService service,
+            IReadOnlyList<ExperimentalFeature>? features = null) {
         _store = store;
         _profile = profile;
 
         // The switches stay locked until the first read lands; it runs off the UI thread like every other.
-        Features = ExperimentalFeatures.All
+        Features = (features ?? ExperimentalFeatures.All)
             .Select(f => new ExperimentalFeatureRowViewModel(f, false, false, SaveAsync))
             .ToList();
 
@@ -96,7 +97,7 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         _appliedSequence = sequence;
         foreach (var row in Features) {
             if (_saving.Contains(row.Id)) continue;
-            row.Load(read.Readable && read.IsEnabled(row.Id), read.Readable);
+            row.Load(read.Readable && read.IsOn(row.Feature), read.Readable && read.IsSet(row.Id), read.Readable);
         }
         Problem = read.Problem ?? _saveProblem;
     }

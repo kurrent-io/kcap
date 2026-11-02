@@ -91,6 +91,52 @@ public class PtyHostedAgentRuntimeTests {
     }
 
     [Test]
+    public async Task Resubmit_writes_one_carriage_return() {
+        var pty     = new RecordingPty();
+        var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: true);
+
+        await Assert.That(await runtime.ResubmitAsync(() => true)).IsTrue();
+
+        await Assert.That(pty.StringWrites.Count).IsEqualTo(1);
+        await Assert.That(pty.StringWrites[0]).IsEqualTo("\r");
+    }
+
+    /// <summary>A resubmit queued behind the input lane must not submit the newer round whose delivery
+    /// releases it.</summary>
+    [Test]
+    public async Task Resubmit_queued_behind_the_lane_writes_nothing_once_its_round_is_superseded() {
+        var pty     = new GatedRawPty();
+        var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: true);
+        var current = true;
+
+        var holder = runtime.SendRawInputAsync([0x1b]);
+        await pty.RawWriteEntered.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var resubmit = runtime.ResubmitAsync(() => Volatile.Read(ref current));
+        await Assert.That(resubmit.IsCompleted).IsFalse();
+
+        Volatile.Write(ref current, false);
+        pty.ReleaseRawWrites();
+        await holder.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(await resubmit.WaitAsync(TimeSpan.FromSeconds(5))).IsFalse();
+        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\x1b");
+        pty.Inner.Exit();
+    }
+
+    /// <summary>A dialog's default option would take the Enter.</summary>
+    [Test]
+    public async Task Resubmit_is_withheld_while_a_dialog_shows() {
+        var pty     = new RecordingPty();
+        var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: true);
+        runtime.NoteTerminalDialog(true);
+
+        await Assert.That(await runtime.ResubmitAsync(() => true)).IsFalse();
+
+        await Assert.That(pty.StringWrites.Count).IsEqualTo(0);
+    }
+
+    [Test]
     [Arguments(9)]
     [Arguments(1000)]
     [Arguments(1002)]

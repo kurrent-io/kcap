@@ -48,13 +48,36 @@ public class DaemonCommandsServiceStopTests {
         await Assert.That(ledger.ReadAll().Single() is { State: ResumeState.Interrupted, LastError: "stopped_by_operator" }).IsTrue();
     }
 
+    /// <summary>A kept agent's process ends with the stop on every platform, so the line says it is relaunched
+    /// on its session, and that a turn in flight was cut off rather than kept.</summary>
     [Test]
-    [Arguments(0, 0, "No agents were kept for the next start to resume.")]
-    [Arguments(1, 0, "Kept 1 agent for the next start to resume.")]
-    [Arguments(2, 1, "Kept 2 agents for the next start to resume. 1 agent ended mid-run; the next start does not resume it.")]
-    [Arguments(0, 2, "No agents were kept for the next start to resume. 2 agents ended mid-run; the next start does not resume them.")]
-    public async Task A_keep_agents_stop_says_what_it_kept(int kept, int interrupted, string expected) =>
-        await Assert.That(DaemonServiceCommands.DescribeKeptAgents(kept, interrupted)).IsEqualTo(expected);
+    [Arguments(0, 0, 0, "No agents were left for the next start to resume.")]
+    [Arguments(1, 0, 0, "Stopped 1 agent; the next start relaunches it and resumes its session.")]
+    [Arguments(1, 1, 0, "Stopped 1 agent; the next start relaunches it and resumes its session. It was mid-turn: that turn was cut off, and the resumed session is told to check what finished.")]
+    [Arguments(3, 1, 0, "Stopped 3 agents; the next start relaunches them and resumes their sessions. 1 of them was mid-turn: that turn was cut off, and its resumed session is told to check what finished.")]
+    [Arguments(3, 2, 0, "Stopped 3 agents; the next start relaunches them and resumes their sessions. 2 of them were mid-turn: those turns were cut off, and each resumed session is told to check what finished.")]
+    [Arguments(2, 0, 1, "Stopped 2 agents; the next start relaunches them and resumes their sessions. 1 agent ended mid-run; the next start does not resume it.")]
+    [Arguments(0, 0, 2, "No agents were left for the next start to resume. 2 agents ended mid-run; the next start does not resume them.")]
+    public async Task A_keep_agents_stop_says_what_happens_to_its_agents(int kept, int midTurn, int interrupted, string expected) =>
+        await Assert.That(DaemonServiceCommands.DescribeKeptAgents(kept, midTurn, interrupted)).IsEqualTo(expected);
+
+    /// <summary>The mid-turn count comes from the entries the daemon saved as resuming: one saved while its
+    /// agent waited on input is not counted, and neither is an entry that is not resuming.</summary>
+    [Test]
+    public async Task A_keep_agents_stop_counts_the_saved_agents_that_were_mid_turn() {
+        var ledger = ResumeLedgerStore.For(Daemons.Store, Name);
+        ledger.Write(ResumeLedgerEntries.For("idle", ResumeState.Resuming) with { AwaitingInput = true });
+        ledger.Write(ResumeLedgerEntries.For("busy", ResumeState.Resuming) with { AwaitingInput = false });
+        ledger.Write(ResumeLedgerEntries.For("ended", ResumeState.Interrupted) with { AwaitingInput = false });
+        var manager = new RecordingServiceManager(new() { [Name] = "/opt/kcap/kcap-daemon" });
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(manager).Stop(["--keep-agents"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(console.GetCapturedOutput()).Contains(
+            "Stopped 2 agents; the next start relaunches them and resumes their sessions. 1 of them was mid-turn");
+    }
 
     /// <summary>A keep-agents stop that overruns keeps the entries the daemon already saved as resuming.</summary>
     [Test]
