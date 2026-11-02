@@ -19,6 +19,19 @@ public class PendingAttentionTests {
         await Assert.That(unopened).Contains("s-closed");
     }
 
+    /// The tray's entry list is how the user finds a waiting remote session, so an open one
+    /// holding a real card stays listed even though the tracker no longer speaks for it.
+    [Test]
+    public async Task The_tray_lists_an_open_session_holding_a_card() {
+        var card = PendingPermissionRequest.FromServer(
+            new ServerPermissionRequest("s-open", "r1", "Bash", null, null), "claude", DateTimeOffset.UnixEpoch);
+
+        var sessions = PendingAttention.TraySessions(unopened: new HashSet<string> { "s-closed" }, cards: [card]);
+
+        await Assert.That(sessions).Contains("s-open");
+        await Assert.That(sessions).Contains("s-closed");
+    }
+
     [Test]
     public async Task A_card_marks_its_agent_whether_or_not_the_session_is_open() {
         var agents = PendingAttention.Agents(

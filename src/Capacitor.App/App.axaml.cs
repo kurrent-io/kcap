@@ -1,3 +1,4 @@
+using DynamicData;
 using Capacitor.Cli.Core.Telemetry;
 using System.Collections.Frozen;
 using System.ComponentModel;
@@ -1413,7 +1414,10 @@ public partial class App : Application {
             quit: () => desktop.TryShutdown(), openReviewPrompts: _promptCoordinator.ShowPromptWindow,
             lifecycleAttention: lifecycleAttention, shimOfferable: shimOffer.Offerable,
             installShim: shimOffer.RunManualInstallAsync, permissions: permissions,
-            remote: TrayViewModel.SummaryFrom(directory, unopenedAttention),
+            remote: TrayViewModel.SummaryFrom(directory, unopenedAttention.CombineLatest(
+                permissions.Pending.QueryWhenChanged(q => (IReadOnlyList<PendingPermissionRequest>)[.. q.Items])
+                    .StartWith((IReadOnlyList<PendingPermissionRequest>)[]),
+                PendingAttention.TraySessions)),
             updateMenu: _updates.MenuItem, updateAction: RunUpdateMenuActionAsync,
             restartPending: restartPending.Pending, openSettings: openSettings, openLaunchApprovals: launchApprovals.Show);
         _tray = new TrayIconManager(this, _trayVm);
