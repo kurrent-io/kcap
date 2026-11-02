@@ -56,7 +56,8 @@ internal sealed class BearerRejectionReportHandler(TimeProvider time, Action<str
         if (!string.IsNullOrWhiteSpace(bearer)) webSocket.Options.SetRequestHeader("Authorization", $"Bearer {bearer}");
 
         try {
-            await webSocket.ConnectAsync(uri, ct);
+            if (LoopbackConnect.WebSocketInvoker(uri) is { } invoker) await webSocket.ConnectAsync(uri, invoker, ct);
+            else await webSocket.ConnectAsync(uri, ct);
 
             return webSocket;
         } catch (WebSocketException) {

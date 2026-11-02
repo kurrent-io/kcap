@@ -35,6 +35,10 @@ public sealed class ConPtyProcess : IPtyProcess {
 
     readonly TimeProvider _time;
 
+    /// The desktop terminal reflows its own buffer on a resize, as Windows Terminal does, so conhost
+    /// must not repaint over it: the repaint lands on rows the emulator has already rewrapped.
+    internal const uint PseudoConsoleFlags = PSEUDOCONSOLE_RESIZE_QUIRK;
+
     ConPtyProcess(
             IntPtr hPC, IntPtr hProcess, IntPtr hOutputPipe, FileStream outputStream, FileStream inputStream,
             SafeFileHandle jobHandle, TimeProvider time) {
@@ -194,7 +198,7 @@ public sealed class ConPtyProcess : IPtyProcess {
         }
 
         var size = new ConPtyInterop.COORD { X = (short)cols, Y = (short)rows };
-        var hr   = CreatePseudoConsole(size, ptyInputRead, ptyOutputWrite, 0, out var hPC);
+        var hr   = CreatePseudoConsole(size, ptyInputRead, ptyOutputWrite, PseudoConsoleFlags, out var hPC);
 
         if (hr != 0) {
             // CreatePseudoConsole takes ownership of ptyInputRead/ptyOutputWrite ONLY on success
@@ -516,7 +520,9 @@ public sealed class ConPtyProcess : IPtyProcess {
             return;
         }
 
-        SendInterrupt();
+        // A pipe write blocks while the input pipe is full (an earlier write still pending), and then the
+        // kill below would never be reached; TerminateProcess unblocks it by closing the pipe's reader.
+        _ = Task.Run(SendInterrupt);
 
         var deadline = _time.GetUtcNow().UtcDateTime + (timeout ?? TimeSpan.FromSeconds(5));
 

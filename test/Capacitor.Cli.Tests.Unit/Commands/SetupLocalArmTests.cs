@@ -137,7 +137,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
 
     [Test]
     public async Task Json_success_ends_with_committed_and_exit_0() {
-        // The visibility step under --no-prompt would write org_public over it.
+        // A local setup leaves the stored visibility alone, so a non-default value must survive the run.
         File.WriteAllText(AppConfig.GetConfigPath(Config.Root),
             """{"version":2,"active_profile":"default","profiles":{"default":{"default_visibility":"private"}}}""");
 
@@ -176,7 +176,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
         Server.OnCliSetupReport = request => authorization ??= request.Headers.Authorization?.ToString() ?? "";
 
         string[] args = wholeRun
-            ? ["setup", "--local", "--json", "--no-prompt", "--single-user", "--yes", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags]
+            ? ["setup", "--local", "--json", "--no-prompt", "--intelligence", "none", "--single-user", "--yes", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags]
             : ["setup", "--local", "--json", "--single-user", "--yes"];
 
         var (exit, _, _, stderr) = await Run(args);
@@ -189,7 +189,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
     [Test]
     public async Task Json_with_no_prompt_reports_the_install_and_every_later_step() {
         var (exit, stdout, spectre, stderr) = await Run([
-            "setup", "--local", "--json", "--no-prompt", "--single-user", "--yes", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
+            "setup", "--local", "--json", "--no-prompt", "--intelligence", "none", "--single-user", "--yes", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
         ]);
 
         await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(stderr);
@@ -276,7 +276,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
 
     [Test]
     public async Task No_prompt_without_yes_fails() {
-        var (exit, _, _, stderr) = await Run("setup", "--local", "--single-user", "--no-prompt");
+        var (exit, _, _, stderr) = await Run("setup", "--local", "--single-user", "--no-prompt", "--intelligence", "none");
 
         await Assert.That(exit).IsEqualTo(SetupExit.Refused);
         await Assert.That(stderr).Contains("Pass --yes");
@@ -287,7 +287,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
     [Test]
     public async Task Terminal_arm_hands_the_local_url_and_none_to_later_steps() {
         var (exit, stdout, spectre, stderr) = await Run([
-            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
+            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "none", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
         ]);
 
         await Assert.That(exit).IsEqualTo(0).Because(string.Join('\n', stdout) + spectre + stderr);
@@ -300,18 +300,98 @@ internal sealed class SetupLocalArmTests : IDisposable {
         await Assert.That(string.Join('\n', stdout) + spectre).Contains("No sign-in needed for a local installation.");
     }
 
-    /// <summary>A local installation has one user, so its sessions default to private, as the app's local path does.</summary>
+    /// <summary>The answer goes to the server this run just installed, over the loopback lane, after the daemon step and
+    /// before the import.</summary>
     [Test]
-    [Arguments(null, "private")]
-    [Arguments("org_public", "org_public")]
-    public async Task No_prompt_local_visibility_defaults_to_private(string? flag, string expected) {
+    public async Task A_scripted_run_tells_the_local_server_who_runs_background_intelligence() {
+        string? body = null;
+        Server.Override = path => {
+            if (path != "/api/admin/intelligence") return null;
+
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) {
+                Content = new StringContent(
+                    """{"mode":"local_agent","harness":"claude","vendor":null,"import_outcomes":true,"backlog_session_touches_per_day":200,"resolving":["titles"]}"""),
+            };
+        };
+        Server.OnRequest = path => {
+            if (path == "/api/admin/intelligence") body = "seen";
+        };
+
         var (exit, stdout, spectre, stderr) = await Run([
+            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "claude", "--skip-import",
+            .. SetupCommandTests.SkipAllAgentInstallFlags,
+        ]);
+
+        await Assert.That(exit).IsEqualTo(0).Because(string.Join('\n', stdout) + spectre + stderr);
+        await Assert.That(body).IsEqualTo("seen");
+        await Assert.That(_log).Contains("POST /api/admin/intelligence");
+        await Assert.That(System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " "))
+            .Contains("Background intelligence: your local agent, claude.");
+    }
+
+    /// <summary>A server that refuses or cannot take the answer never fails setup; it says how to answer later.</summary>
+    [Test]
+    public async Task A_refused_answer_leaves_setup_finishing() {
+        Server.Override = path => path == "/api/admin/intelligence"
+            ? new HttpResponseMessage(System.Net.HttpStatusCode.BadRequest) { Content = new StringContent("""{"error":"not_offered"}""") }
+            : null;
+
+        var (exit, stdout, spectre, stderr) = await Run([
+            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "claude", "--skip-import",
+            .. SetupCommandTests.SkipAllAgentInstallFlags,
+        ]);
+
+        await Assert.That(exit).IsEqualTo(0).Because(string.Join('\n', stdout) + spectre + stderr);
+        await Assert.That(System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " "))
+            .Contains("This server does not run background work on a local agent. kcap local intelligence <answer> sets it up later.");
+    }
+
+    [Test]
+    public async Task A_scripted_run_without_the_answer_installs_nothing() {
+        var (exit, _, _, stderr) = await Run([
             "setup", "--local", "--single-user", "--yes", "--no-prompt", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
+        ]);
+
+        await Assert.That(exit).IsEqualTo(SetupExit.Refused);
+        await Assert.That(stderr).Contains("--intelligence");
+        await Assert.That(_log).DoesNotContain("install");
+    }
+
+    /// <summary>A local server records every session as shared with its one user, so a scripted local setup writes no
+    /// default of its own over the profile's: only an explicit flag changes it.</summary>
+    [Test]
+    [Arguments(null, "project")]
+    [Arguments("org_public", "org_public")]
+    public async Task No_prompt_local_setup_keeps_the_profiles_visibility(string? flag, string expected) {
+        File.WriteAllText(AppConfig.GetConfigPath(Config.Root),
+            """{"version":2,"active_profile":"default","profiles":{"default":{"default_visibility":"project"}}}""");
+
+        var (exit, stdout, spectre, stderr) = await Run([
+            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "none", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
             .. flag is null ? Array.Empty<string>() : ["--default-visibility", flag],
         ]);
 
         await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(string.Join('\n', stdout) + spectre + stderr);
         await Assert.That(ActiveProfile().DefaultVisibility).IsEqualTo(expected);
+        await Assert.That(spectre).DoesNotContain("Default session visibility");
+    }
+
+    /// <summary>An interactive local setup goes from sign-in to harnesses without asking who may read new sessions.</summary>
+    [Test]
+    public async Task Interactive_local_setup_asks_no_visibility_question() {
+        File.WriteAllText(AppConfig.GetConfigPath(Config.Root),
+            """{"version":2,"active_profile":"default","profiles":{"default":{"default_visibility":"project"}}}""");
+        using var console = new ScriptedConsole().Line("no").Enter();
+
+        var (exit, stdout, spectre, stderr) = await RunWith(null, () => console.Text, [
+            "setup", "--local", "--single-user", "--yes", "--skip-import", "--intelligence", "none", .. SetupCommandTests.SkipAllAgentInstallFlags,
+        ]);
+
+        await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(string.Join('\n', stdout) + spectre + stderr);
+        await Assert.That(spectre).Contains("Step 4/6");
+        await Assert.That(spectre).DoesNotContain("Default session visibility");
+        await Assert.That(spectre).DoesNotContain("readable by other users");
+        await Assert.That(ActiveProfile().DefaultVisibility).IsEqualTo("project");
     }
 
     [Test]
@@ -385,7 +465,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
         Ollama.Running($"{OllamaClient.DefaultModel}:latest").Embeds(1024);
 
         var (exit, stdout, spectre, stderr) = await Run([
-            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
+            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "none", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
         ]);
 
         await Assert.That(exit).IsEqualTo(0).Because(string.Join('\n', stdout) + spectre + stderr);
@@ -397,7 +477,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
         Ollama.Running().Pulls("""{"status":"success"}""").Embeds(768);
 
         var (exit, stdout, spectre, stderr) = await Run([
-            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--embedding-model", "nomic-embed-text", "--skip-import",
+            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "none", "--embedding-model", "nomic-embed-text", "--skip-import",
             .. SetupCommandTests.SkipAllAgentInstallFlags,
         ]);
 
@@ -446,7 +526,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
         (int Exit, string[] Stdout, string Spectre, string Stderr) run;
 
         try {
-            run = await RunWith(null, text.ToString, "setup", "--local", "--single-user", "--no-prompt");
+            run = await RunWith(null, text.ToString, "setup", "--local", "--single-user", "--no-prompt", "--intelligence", "none");
         } finally {
             AnsiConsole.Console = original;
         }
@@ -482,7 +562,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
                 if (point == "setup:after-registry") InteractiveLifetime.Interrupt(InteractiveLifetime.InterruptSource.Signal);
             });
 
-            run = await Run(["setup", "--local", "--single-user", "--yes", "--no-prompt", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags]);
+            run = await Run(["setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "none", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags]);
         } finally {
             InteractiveLifetime.Exit = original;
         }
@@ -512,7 +592,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
             });
 
             await Command(null).HandleAsync([
-                "setup", "--local", "--json", "--no-prompt", "--single-user", "--yes", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
+                "setup", "--local", "--json", "--no-prompt", "--intelligence", "none", "--single-user", "--yes", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
             ]);
         } finally {
             InteractiveLifetime.Exit = original;

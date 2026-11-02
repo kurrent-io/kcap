@@ -326,6 +326,27 @@ public class AgentActivityClockTests {
         await Assert.That(notified).IsEqualTo(2);
     }
 
+    /// A submit relayed while an earlier turn's attestation still stands leaves the flag as it was,
+    /// so only the count can tell a delivery that its own input started a turn.
+    [Test]
+    public async Task Every_turn_signal_advances_the_attestation_count_and_nothing_else_does() {
+        var clock = new AgentActivityClock(new FakeTimeProvider());
+
+        clock.SetAwaitingInput(false);
+        var sampled = clock.TurnAttestations;
+        clock.SetAwaitingInput(false);
+        await Assert.That(clock.TurnAttested).IsTrue();
+        await Assert.That(clock.TurnAttestations).IsEqualTo(sampled + 1);
+
+        clock.SetAwaitingInput(true);
+        clock.SetTurnInFlight(false);
+        clock.Advance();
+        await Assert.That(clock.TurnAttestations).IsEqualTo(sampled + 1);
+
+        clock.SetTurnInFlight(true);
+        await Assert.That(clock.TurnAttestations).IsEqualTo(sampled + 2);
+    }
+
     /// A delivery clears the wait it was answering, never one that began while the delivery was
     /// still in flight.
     [Test]

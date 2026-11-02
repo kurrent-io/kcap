@@ -66,6 +66,7 @@ public sealed partial class DaemonStore(string directory) {
     const string VersionExtension = "version";
     const string SocketExtension = "sock";
     const string ServiceLockExtension = "service-lock";
+    const string ServiceLockHolderExtension = "service-lock-holder";
     const string ServiceTxnExtension = "service-txn";
 
     /// <summary>The suffixes of the files something holds an exclusive lock on: the daemon for its
@@ -101,6 +102,10 @@ public sealed partial class DaemonStore(string directory) {
 
     /// <summary>The cross-process lock around one service transaction (install/replace/start).</summary>
     public string ServiceLockPath(string daemonName) => File(daemonName, ServiceLockExtension);
+
+    /// <summary>Who holds <see cref="ServiceLockPath"/>. A separate file, because Windows refuses every
+    /// open of the lock file while it is held.</summary>
+    public string ServiceLockHolderPath(string daemonName) => File(daemonName, ServiceLockHolderExtension);
 
     /// <summary>The crash-visible record of an in-flight service transaction.</summary>
     public string ServiceTxnPath(string daemonName) => File(daemonName, ServiceTxnExtension);

@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Acp;
 using Capacitor.Cli.Core.Harness.Antigravity;
 using Capacitor.Cli.Daemon.Harness.Kiro;
@@ -319,6 +320,11 @@ internal static class AntigravityReviewerHome {
             var isDirectory = attributes.HasFlag(FileAttributes.Directory);
             var isLink      = attributes.HasFlag(FileAttributes.ReparsePoint);
 
+            // Windows refuses to delete a read-only entry, and whatever agy or a library caches into
+            // the home can leave one; an undeleted home is review context left on disk.
+            if (!isLink && attributes.HasFlag(FileAttributes.ReadOnly))
+                File.SetAttributes(entry, attributes & ~FileAttributes.ReadOnly);
+
             if (isDirectory && isLink) Directory.Delete(entry);   // the link; its target is untouched
             else if (isDirectory)      DeleteTreeNoFollow(entry);
             else                       File.Delete(entry);
@@ -327,39 +333,21 @@ internal static class AntigravityReviewerHome {
         Directory.Delete(path);
     }
 
-    const UnixFileMode OwnerOnly =
-        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
-
     /// <summary>
-    /// Creates a directory that is owner-only FROM ITS FIRST INSTANT, and verifies it.
-    ///
-    /// <para>Not create-then-chmod: that leaves a window in which the directory exists at the default
-    /// umask, and the thing that gets written into it is a reviewer's own conversation state. .NET's
-    /// mode-carrying overload closes the window at the syscall.</para>
-    ///
-    /// <para>And not best-effort — same reasoning as <see cref="KiroReviewerHome"/>: the mode IS the
-    /// protection here, so a POSIX host that cannot achieve it must not run a reviewer at all.</para>
+    /// Creates a directory owner-only from its first instant (<c>0700</c>, or a protected DACL for the
+    /// user and SYSTEM on Windows) and reads it back. Never best-effort, unlike the daemon's own state
+    /// directory: the restriction is the protection for the conversation state written into it, so a
+    /// host that cannot achieve or confirm it refuses the launch.
     /// </summary>
     static void CreateOwnerOnly(string path) {
-        if (OperatingSystem.IsWindows()) {
-            // Unreachable in production: the Antigravity reviewer capability refuses Windows before
-            // any launch. Kept total so a direct call in a test cannot silently create a
-            // world-readable directory.
-            throw new PlatformNotSupportedException(
-                "antigravity_reviewer_unsupported_platform: a reviewer home cannot be created owner-only here.");
-        }
-
-        Directory.CreateDirectory(path, OwnerOnly);
-
-        // An existing directory keeps its own mode — CreateDirectory's mode argument applies only when
-        // it creates. Verifying covers that, and any filesystem that ignores the request.
-        var mode = File.GetUnixFileMode(path);
-
-        if ((mode & (UnixFileMode.GroupRead  | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
-                     UnixFileMode.OtherRead  | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) != 0)
+        try {
+            OwnerOnlyDirectory.CreateVerified(path);
+        } catch (Exception ex) {
             throw new InvalidOperationException(
-                $"antigravity_reviewer_home_not_owner_only: '{path}' is mode {mode}. The reviewer's "
-              + "conversation state, and so the review context, would be readable by other users on this host.");
+                $"antigravity_reviewer_home_not_owner_only: '{path}' could not be made owner-only "
+              + $"({ex.Message}). The agent's conversation state, and so any review context, would be "
+              + "readable by other users on this host.", ex);
+        }
     }
 
     static string Sanitize(string value) =>

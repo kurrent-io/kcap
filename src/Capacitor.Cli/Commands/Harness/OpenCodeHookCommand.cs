@@ -77,7 +77,7 @@ sealed class OpenCodeHookCommand(
 
         // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
         // `case "hook":` before dispatch — no longer wired here (removes the double-wire).
-        var spool = new HookSpool(config, clock.Time);
+        var spool = new HookSpool(config, clock.Time, Url);
 
         var activeProfile = profiles.Effective;
 
@@ -131,7 +131,7 @@ sealed class OpenCodeHookCommand(
             forwarded["default_visibility"] = visibility;
         }
 
-        SessionStartInventory.Stamp(forwarded, config, harnesses, clock.Time);
+        SessionStartInventory.Stamp(forwarded, config, harnesses, HarnessId.OpenCode, clock.Time, file);
         var enriched = await RepositoryDetection.EnrichWithRepositoryInfo(router, config, forwarded.ToJsonString(), clock.Time);
 
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,

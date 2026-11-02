@@ -25,7 +25,7 @@ internal enum RestartRequestResult {
 /// boundary). Also handles explicit requests from the control socket; a when-idle request waits for no
 /// agents at all. A vendor CLI installed after startup queues a when-idle restart too: what the daemon can
 /// host is decided once at boot, so only a restart can advertise it. On Windows self-detection covers
-/// script installs only; the explicit request path works anywhere.
+/// script and npm installs only; the explicit request path works anywhere.
 /// </summary>
 internal sealed partial class RestartCoordinator : BackgroundService {
     readonly TimeProvider _time;
@@ -59,7 +59,6 @@ internal sealed partial class RestartCoordinator : BackgroundService {
     bool          _whenIdle;
     bool          _fired;
     bool          _selfDetected;
-    // Pending only for a newly installed harness, so an update landing meanwhile still takes over.
     bool          _harnessOnly;
     // A foreground daemon cannot restart itself; the harness check stops there rather than holding the
     // coordinator fired, which would swallow every later update and request.
@@ -81,7 +80,7 @@ internal sealed partial class RestartCoordinator : BackgroundService {
         _logger    = logger;
         Strategy   = strategy;
         WireGate(orchestrator, evalCache);
-        StatBinary = StatProcessBinary;
+        WatchLaunchPath(config.LaunchPath, OperatingSystem.IsWindows());
         LaunchBinary = config.LaunchBinary;
         HarnessInstalled = () => UnadvertisedNowAvailable(config.SupportedVendors, factories.Values);
     }
@@ -125,18 +124,22 @@ internal sealed partial class RestartCoordinator : BackgroundService {
         lock (_gate) _baseline = LaunchBinary ?? StatBinary();
     }
 
-    internal static BinaryStat? StatProcessBinary() => StatBinaryAt(Environment.ProcessPath, OperatingSystem.IsWindows(), File.Exists);
+    /// <summary>Polls the binary at the path the daemon started from, never the process's current path.</summary>
+    internal void WatchLaunchPath(string? launchPath, bool isWindows) =>
+        StatBinary = () => StatBinaryAt(launchPath, isWindows, File.Exists);
 
     /// <summary>
     /// What the poll compares: the binary reached through a script install's or a snap's <c>current</c>,
-    /// which an update switches rather than overwriting this file, plus where that link points. Outside a
-    /// script install Windows never replaces a running binary in place, so there it returns null and
+    /// which an update switches rather than overwriting this file, plus where that link points. Windows never
+    /// replaces a running binary in place, so only two layouts get a new file at this path while the daemon
+    /// runs: a script install, through <c>current</c>, and an npm install, whose <c>kcap update</c> moves the
+    /// running image aside before npm writes the new one. Any other Windows binary returns null, so
     /// BinaryChanged() never fires; explicit restart requests still work.
     /// </summary>
     internal static BinaryStat? StatBinaryAt(string? processPath, bool isWindows, Func<string, bool> fileExists) {
         if (processPath is null) return null;
         var layout = ScriptInstallLayout.FromBinary(processPath, fileExists);
-        if (isWindows && layout is null) return null;
+        if (isWindows && layout is null && !NpmInstallLayout.IsPlatformBinary(processPath, fileExists)) return null;
 
         try {
             var fi     = new FileInfo(InstallPaths.Stabilize(processPath, fileExists));
@@ -199,7 +202,9 @@ internal sealed partial class RestartCoordinator : BackgroundService {
         lock (_gate) {
             if (_fired) return RestartRequestResult.Restarting; // already in progress
 
-            if (!_pending || _harnessOnly) {
+            // A pending when-idle restart (a request or a new harness) waits for every agent to leave, which idle
+            // agents never do, so an update landing behind it still has to take over.
+            if (!_pending || _whenIdle) {
                 var current = StatBinary();
                 if (RestartDecision.BinaryChanged(_baseline, current)) {
                     _pending      = true;

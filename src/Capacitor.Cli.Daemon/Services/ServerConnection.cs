@@ -6,6 +6,7 @@ using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Eval.Contracts;
+using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -92,6 +93,14 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     public Func<RunQuestionCommand,  Task<QuestionResult>>? RunQuestionHandler  { get; set; }
     public Func<FinalizeEvalCommand, Task<FinalizeResult>>? FinalizeEvalHandler { get; set; }
     public Func<CancelEvalCommand,   Task>?                 CancelEvalHandler   { get; set; }
+
+    // Headless prompts for a local-edition server. HeadlessVendors is advertised only while the run handler is wired.
+    public Func<RunHeadlessPromptArgs, Task<HeadlessPromptResponse>>? RunHeadlessPromptHandler    { get; set; }
+    public Func<CancelHeadlessPromptArgs, Task>?                      CancelHeadlessPromptHandler { get; set; }
+    public Func<string[]>?                                            GetHeadlessVendors          { get; set; }
+
+    /// <summary>What this daemon advertises it can run headless, to the server and on the local status alike.</summary>
+    public string[] AdvertisedHeadlessVendors() => RunHeadlessPromptHandler is null ? [] : GetHeadlessVendors?.Invoke() ?? [];
 
     // Eval protocol 2 (outcomes + coded failures) client-result invocations, registered beside
     // the protocol-1 ones above. Null (early startup / an unwired test) fails closed with a
@@ -287,11 +296,14 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             };
 
         _eventQueue = new(
-            config, credentials, time, loggerFactory.CreateLogger<AgentRunEventQueue>(), new HttpClient(Guarded(new HttpClientHandler(), ReportRejection)));
+            config, credentials, time, loggerFactory.CreateLogger<AgentRunEventQueue>(),
+            new HttpClient(Guarded(LoopbackConnect.Apply(new SocketsHttpHandler()), ReportRejection)));
+
+        var hubUrl = $"{config.ServerUrl.TrimEnd('/')}/hubs/sessions";
 
         _hub = new HubConnectionBuilder()
             .WithUrl(
-                $"{config.ServerUrl.TrimEnd('/')}/hubs/sessions",
+                hubUrl,
                 options => {
                     options.AccessTokenProvider = async () => {
                         var state = await credentials.ResolveAsync(default);
@@ -301,7 +313,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
                         else Volatile.Write(ref _lastUnavailable, null);
                         return state.Bearer;
                     };
-                    options.HttpMessageHandlerFactory = inner => Guarded(inner, ReportHubRejection);
+                    options.HttpMessageHandlerFactory = inner => Guarded(LoopbackConnect.ForHub(new Uri(hubUrl), inner), ReportHubRejection);
                     HttpClientExtensions.AddObservationHeaders(options.Headers, config.UpdateCheckOff);
                     options.WebSocketFactory = (context, ct) => {
                         LocalDestination.Check(context.Uri, config.LocalRoot, config.ServerUrl, refusal);
@@ -375,6 +387,13 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
         _hub.On<CancelEvalCommand>("CancelEval",
             cmd => CancelEvalHandler?.Invoke(cmd) ?? Task.CompletedTask);
+
+        _hub.On<RunHeadlessPromptArgs, HeadlessPromptResponse>("RunHeadlessPrompt",
+            args => RunHeadlessPromptHandler?.Invoke(args)
+                ?? Task.FromResult(new HeadlessPromptResponse(false, null, null, null, null, null, Error: "no handler")));
+
+        _hub.On<CancelHeadlessPromptArgs>("CancelHeadlessPrompt",
+            args => CancelHeadlessPromptHandler?.Invoke(args) ?? Task.CompletedTask);
 
         // Eval protocol 2.
         _hub.On<RunQuestionCommand, QuestionResultV2>("RunQuestionV2",
@@ -788,7 +807,9 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             ActiveCountVersion: activeCount?.Version,
             SupportsAccountLaunches: true,
             Accounts: GetAccountsSnapshot?.Invoke(),
-            SupportsScratchWorkspace: true);
+            HeadlessVendors: AdvertisedHeadlessVendors(),
+            SupportsScratchWorkspace: true,
+            SupportsHandoffLaunch: true);
     }
 
     async Task DaemonConnectCoreAsync(RegistrationAttempt attempt) {
@@ -1229,6 +1250,51 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             await step();
         } catch (Exception ex) {
             LogShutdownReportStepFailed(ex, agentId, label);
+        }
+    }
+
+    /// <summary>Asks the server to reserve the ended <paramref name="source"/> for the <paramref name="successor"/>
+    /// this daemon runs; a refusal is an answer carrying its reason. A server that relayed the hand-off has the
+    /// method, so any failure but the hub's own missing-method reply is unreachable, not unsupported.</summary>
+    public virtual async Task<HandoffBeginResult> BeginHandoffTakeoverAsync(
+            string source, string successor, CancellationToken ct) {
+        try {
+            return await InvokeBeginHandoffTakeoverRawAsync(source, successor, ct) is { } admission
+                ? new HandoffBeginResult.Answered(admission)
+                : new HandoffBeginResult.Unreachable();
+        } catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) {
+            LogHandoffTakeoverFailed(ex, "begin");
+
+            return IsUnknownHubMethod(ex, BeginHandoffTakeoverMethod)
+                ? new HandoffBeginResult.Unsupported()
+                : new HandoffBeginResult.Unreachable();
+        }
+    }
+
+    internal virtual Task<HandoffTakeoverAdmission?> InvokeBeginHandoffTakeoverRawAsync(string source, string successor, CancellationToken ct) =>
+        _hub.InvokeAsync<HandoffTakeoverAdmission?>(BeginHandoffTakeoverMethod, new HandoffTakeoverBeginRequest(source, successor), ct);
+
+    internal const string BeginHandoffTakeoverMethod = "BeginHandoffTakeover";
+
+    /// <summary>Extends the takeover lease; false when the server no longer holds it or the call fails.</summary>
+    public virtual async Task<bool> RenewHandoffTakeoverAsync(string token, CancellationToken ct) {
+        try {
+            return await _hub.InvokeAsync<bool>("RenewHandoffTakeover", token, ct);
+        } catch (Exception ex) when (ex is not OperationCanceledException) {
+            LogHandoffTakeoverFailed(ex, "renew");
+
+            return false;
+        }
+    }
+
+    /// <summary>Releases the takeover. Best effort: the lease lapses on its own.</summary>
+    // Its own deadline rather than the shutdown token: the end runs while the daemon stops, after that token fired.
+    public virtual async Task EndHandoffTakeoverAsync(string token) {
+        try {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5), _time);
+            await _hub.InvokeAsync("EndHandoffTakeover", token, cancellationToken: deadline.Token);
+        } catch (Exception ex) when (ex is not OperationCanceledException) {
+            LogHandoffTakeoverFailed(ex, "end");
         }
     }
 
@@ -1900,6 +1966,9 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
     [LoggerMessage(Level = LogLevel.Information, Message = "EndAgentSession for agent {AgentId} interrupted by a connection drop (retry {Attempt}); waiting for the daemon connection to recover before retrying")]
     partial void LogEndSessionRetry(string agentId, int attempt);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Hand-off takeover {Call} failed")]
+    partial void LogHandoffTakeoverFailed(Exception ex, string call);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Shutdown report step '{Step}' failed for agent {AgentId}")]
     partial void LogShutdownReportStepFailed(Exception ex, string agentId, string step);

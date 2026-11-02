@@ -134,8 +134,11 @@ public class KcapCliTests {
 
         await Assert.That(runner.SeenArgs).IsEquivalentTo(
             ["daemon", "service", "start", "--name", "daemon-a", "--verify"], CollectionOrdering.Matching);
-        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromSeconds(60));
+        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromSeconds(60) + BootExtension);
     }
+
+    /// <summary>A Windows verify waits out a daemon still probing vendor CLIs, so the app must outlast it.</summary>
+    static readonly TimeSpan BootExtension = OperatingSystem.IsWindows() ? TimeSpan.FromSeconds(70) : TimeSpan.Zero;
 
     [Test]
     public async Task ServiceInstallVerifiedAsync_argv_includes_profile_verify_and_replace() {
@@ -147,7 +150,7 @@ public class KcapCliTests {
         await Assert.That(runner.SeenArgs).IsEquivalentTo(
             ["daemon", "service", "install", "--name", "daemon-a", "--profile", "work", "--verify", "--replace"],
             CollectionOrdering.Matching);
-        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromSeconds(60));
+        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromSeconds(60) + BootExtension);
     }
 
     [Test]
@@ -157,7 +160,7 @@ public class KcapCliTests {
         await Assert.That(runner.SeenArgs).IsEquivalentTo(
             ["daemon", "service", "install", "--name", "daemon-a", "--profile", "work", "--verify", "--replace", "--retire", "old-name"],
             CollectionOrdering.Matching);
-        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromSeconds(150));
+        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromSeconds(150) + BootExtension);
     }
 
     [Test]
@@ -730,6 +733,31 @@ public class KcapCliTests {
             ["setup", "--local", "--json", "--single-user", "--yes", "--no-embeddings"], CollectionOrdering.Matching);
     }
 
+    [Test]
+    public async Task SetupLocalAsync_asks_for_the_windows_service_last() {
+        var runner = new FakeProcessRunner();
+        var cli = MakeCli(runner);
+
+        await cli.SetupLocalAsync(LocalEmbeddingChoice.KeywordOnly, _ => { }, CancellationToken.None, CancellationToken.None,
+            windowsService: true);
+
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(
+            ["setup", "--local", "--json", "--single-user", "--yes", "--no-embeddings", "--windows-service"], CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task LocalFetchAsync_streams_json_and_stops_through_its_interrupt() {
+        var runner = new FakeProcessRunner();
+        var cli = MakeCli(runner);
+        using var interrupt = new CancellationTokenSource();
+
+        await cli.LocalFetchAsync(_ => { }, interrupt.Token);
+
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(["local", "fetch", "--json"], CollectionOrdering.Matching);
+        await Assert.That(runner.SeenOptions!.Interrupt).IsEqualTo(interrupt.Token);
+        await Assert.That(runner.SeenStreamingToken.CanBeCanceled).IsFalse();
+    }
+
     /// The caller's token bounds only the work before the spawn: a running setup stops through its
     /// interrupt, which lets the CLI roll back, never through a tree kill.
     [Test]
@@ -816,6 +844,32 @@ public class KcapCliTests {
         await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromMinutes(11));
     }
 
+    /// <summary>Status exits 1 whenever the server is not ready, which is exactly when the banner asks, so the answer is
+    /// read from stdout whatever the exit code.</summary>
+    [Test]
+    public async Task LocalStatusAsync_reads_a_not_ready_status_from_stdout() {
+        var line = Capacitor.Cli.Core.LocalEdition.LocalStatusJson.From(false, "Not running.", [],
+            new(Capacitor.Cli.Core.LocalEdition.LocalServerCondition.Restarting, 9473)).Render();
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(1, line + "\n", "", false)) };
+        var cli = MakeCli(runner);
+
+        var reading = await cli.LocalStatusAsync(CancellationToken.None);
+
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(["local", "status", "--json"], CollectionOrdering.Matching);
+        await Assert.That(runner.SeenOptions!.EnvOverlay!["KCAP_PROFILE"]).IsEqualTo("work");
+        await Assert.That(reading!.Condition).IsEqualTo(Capacitor.Cli.Core.LocalEdition.LocalServerCondition.Restarting);
+    }
+
+    /// <summary>A CLI that predates the flag prints usage, and a timed-out one may print half a line: neither is a status.</summary>
+    [Test]
+    [Arguments(1, "kcap local status takes no arguments: --json\n", false)]
+    [Arguments(0, "{\"ready\":false,\"headline\":\"x\",\"condition\":\"restarting\",\"notes\":[]}", true)]
+    public async Task LocalStatusAsync_is_null_without_a_status_it_can_trust(int exitCode, string stdout, bool timedOut) {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(exitCode, stdout, "", timedOut)) };
+
+        await Assert.That(await MakeCli(runner).LocalStatusAsync(CancellationToken.None)).IsNull();
+    }
+
     [Test]
     public async Task LocalStartAsync_with_null_CliPath_returns_127_without_calling_the_runner() {
         var runner = new FakeProcessRunner();
@@ -862,5 +916,42 @@ public class KcapCliTests {
         var result = await cli.ServiceReloadAsync(CancellationToken.None);
         await Assert.That(result.ExitCode).IsEqualTo(127);
         await Assert.That(runner.SeenArgs).IsNull();
+    }
+
+    /// <summary>A provider's key reaches the CLI in its own variable, never on the command line, where any local user
+    /// could read it.</summary>
+    [Test]
+    public async Task Local_intelligence_carries_the_key_in_the_environment_only() {
+        var runner = new FakeProcessRunner {
+            Behavior = _ => Task.FromResult(new ProcessResult(0,
+                """{"ok":true,"mode":"provider","vendor":"anthropic","import_outcomes":true,"backlog_session_touches_per_day":200,"resolving":["titles"]}""",
+                "", false)),
+        };
+
+        var outcome = await MakeCli(runner).LocalIntelligenceAsync(
+            Cli.Core.Setup.Intelligence.IntelligenceAnswer.Parse("anthropic")!, "claude-haiku-4-5", "sk-ant-secret", false, CancellationToken.None);
+
+        await Assert.That(runner.SeenArgs!).IsEquivalentTo(
+            ["local", "intelligence", "anthropic", "--model", "claude-haiku-4-5", "--no-import-outcomes", "--json", "--no-update-check"],
+            CollectionOrdering.Matching);
+        await Assert.That(string.Join(' ', runner.SeenArgs!)).DoesNotContain("sk-ant-secret");
+        await Assert.That(runner.SeenOptions!.EnvOverlay!["ANTHROPIC_API_KEY"]).IsEqualTo("sk-ant-secret");
+        await Assert.That(((Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Applied)outcome).Response.Vendor).IsEqualTo("anthropic");
+    }
+
+    [Test]
+    public async Task Local_intelligence_reads_a_refusal_and_a_failure() {
+        var refused = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(2, """{"ok":false,"error":"not_offered"}""", "", false)) };
+        var failed  = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(1, """{"ok":false,"error":"Could not reach"}""", "", false)) };
+        var garbled = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, "not json", "boom", false)) };
+        var none    = Cli.Core.Setup.Intelligence.IntelligenceAnswer.None;
+
+        await Assert.That(await MakeCli(refused).LocalIntelligenceAsync(none, null, null, null, CancellationToken.None))
+            .IsEqualTo(new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Refused("not_offered"));
+        await Assert.That(await MakeCli(failed).LocalIntelligenceAsync(none, null, null, null, CancellationToken.None))
+            .IsEqualTo(new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Failed("Could not reach"));
+        await Assert.That(await MakeCli(garbled).LocalIntelligenceAsync(none, null, null, null, CancellationToken.None))
+            .IsTypeOf<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Failed>();
+        await Assert.That(refused.SeenArgs!).DoesNotContain("--model");
     }
 }

@@ -124,6 +124,49 @@ public static class GitRepository {
         }
     }
 
+    /// <summary>
+    /// What <c>git branch --show-current</c> prints, read from <c>HEAD</c> with no git process: the
+    /// branch, or empty when HEAD is detached. Null wherever only git can answer — a directory that is
+    /// gone or in no working tree, a git location set in the environment, a reftable store, a branch
+    /// that is itself a symbolic ref, or a HEAD git would refuse.
+    /// </summary>
+    public static string? ShowCurrentBranch(string? startDir) {
+        if (string.IsNullOrEmpty(startDir)
+         || !Directory.Exists(startDir)
+         || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GIT_DIR"))
+         || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GIT_WORK_TREE"))
+         || ResolveGitDir(startDir) is not { } gitDir)
+            return null;
+
+        try {
+            var head = File.ReadAllTextShared(Path.Combine(gitDir, "HEAD")).Trim();
+
+            const string symref = "ref:";
+            if (!head.StartsWith(symref, StringComparison.Ordinal)) return IsObjectId(head) ? "" : null;
+
+            const string heads = "refs/heads/";
+            var target = head[symref.Length..].Trim();
+            if (!target.StartsWith(heads, StringComparison.Ordinal) || target.Length == heads.Length) return null;
+
+            var branch = target[heads.Length..];
+
+            // A reftable repository keeps this placeholder in HEAD; the real ref lives in the table.
+            if (branch == ".invalid") return null;
+
+            if (ResolveCommonDir(startDir) is not { } commonDir) return null;
+
+            var loose = Path.Combine(commonDir, "refs", "heads", branch);
+            if (File.Exists(loose) && File.ReadAllTextShared(loose).StartsWith(symref, StringComparison.Ordinal)) return null;
+
+            return branch;
+        } catch {
+            return null;
+        }
+    }
+
+    static bool IsObjectId(string text) =>
+        text.Length is 40 or 64 && text.All(char.IsAsciiHexDigit);
+
     static string StripAgentWorktreeTail(string path) {
         var normalized = path.Replace('\\', '/');
         foreach (var infra in (string[])["/.claude/worktrees/", "/.capacitor/worktrees/"]) {

@@ -5,7 +5,8 @@ public static class ExperimentalFeatures {
         "codex-app-server",
         "Codex app-server",
         "Run Codex reviewers and interactive Codex agents over codex app-server instead of the terminal. Needs Codex 0.146.0 or later.",
-        AppliesLive: true);
+        AppliesLive: true,
+        OnByDefault: OperatingSystem.IsWindows());
 
     public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer];
 

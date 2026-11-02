@@ -32,6 +32,30 @@ public class ServerConnectionAdvertisementTests {
     }
 
     [Test]
+    public async Task DaemonConnect_without_a_headless_handler_advertises_none() {
+        var config = new DaemonConfig { Name = "test", ServerUrl = "http://127.0.0.1:1", ConfigRoot = Config.Root };
+        await using var conn = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance,
+            NullLogger<ServerConnection>.Instance, TimeProvider.System);
+        conn.GetHeadlessVendors = () => ["claude"];
+
+        var vendors = conn.BuildDaemonConnect("mac", [], [], null, config.Advertisement).HeadlessVendors;
+
+        await Assert.That(vendors).IsNotNull();
+        await Assert.That(vendors!).IsEmpty();
+    }
+
+    [Test]
+    public async Task DaemonConnect_advertises_the_headless_harnesses_once_wired() {
+        var config = new DaemonConfig { Name = "test", ServerUrl = "http://127.0.0.1:1", ConfigRoot = Config.Root };
+        await using var conn = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance,
+            NullLogger<ServerConnection>.Instance, TimeProvider.System);
+        conn.RunHeadlessPromptHandler = _ => Task.FromResult(default(HeadlessPromptResponse));
+        conn.GetHeadlessVendors       = () => ["claude", "codex"];
+
+        await Assert.That(conn.BuildDaemonConnect("mac", [], [], null, config.Advertisement).HeadlessVendors).IsEquivalentTo(["claude", "codex"]);
+    }
+
+    [Test]
     public async Task DaemonConnect_advertises_raw_input_once_a_handler_is_wired() {
         var config = new DaemonConfig { Name = "test", ServerUrl = "http://127.0.0.1:1", ConfigRoot = Config.Root };
         await using var conn = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance,
@@ -240,5 +264,25 @@ public class ServerConnectionAdvertisementTests {
         await Assert.That(connect.LiveAgentIds).IsEquivalentTo(["live-1"]);
         await Assert.That(connect.ResumingAgents!).IsEquivalentTo([claim]);
         await Assert.That(connect.StartupReapComplete).IsFalse();
+    }
+
+    [Test]
+    public async Task DaemonConnect_advertises_handoff_launches() {
+        var config = new DaemonConfig { Name = "test", ServerUrl = "http://127.0.0.1:1", ConfigRoot = Config.Root };
+        await using var conn = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance,
+            NullLogger<ServerConnection>.Instance, TimeProvider.System);
+
+        await Assert.That(conn.BuildDaemonConnect("mac", [], [], null, config.Advertisement).SupportsHandoffLaunch).IsTrue();
+    }
+
+    [Test]
+    public async Task The_begin_takeover_argument_goes_out_snake_case_through_the_hub_options() {
+        var options = new System.Text.Json.JsonSerializerOptions();
+        ServerConnection.ConfigureHubPayload(options);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            new Capacitor.Cli.Core.Handoff.HandoffTakeoverBeginRequest("src", "succ"), options);
+
+        await Assert.That(json).IsEqualTo("""{"source_session_id":"src","successor_session_id":"succ"}""");
     }
 }

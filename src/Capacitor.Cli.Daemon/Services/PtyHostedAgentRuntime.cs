@@ -23,10 +23,14 @@ namespace Capacitor.Cli.Daemon.Services;
 /// <paramref name="readyOnBracketedPaste"/> makes the launch prompt wait for the TUI to enable
 /// bracketed paste rather than for any output. The factory sets it on Windows, where ConPTY writes
 /// its own preamble before the agent starts; see <see cref="DeliverLaunchPrompt"/>.
+///
+/// <paramref name="confirmsLaunchPrompt"/> is set when the agent's hooks report its turns to this
+/// daemon (<see cref="NoteTurnRelayed"/>), so the launch prompt is not counted as delivered until
+/// one does.
 /// </summary>
 internal sealed partial class PtyHostedAgentRuntime(
         string vendor, IPtyProcess pty, TimeProvider time, bool approvalsDisabled = false,
-        ILogger? logger = null, bool readyOnBracketedPaste = false) : IHostedAgentRuntime {
+        ILogger? logger = null, bool readyOnBracketedPaste = false, bool confirmsLaunchPrompt = false) : IHostedAgentRuntime {
     /// <summary>
     /// Delays (relative to the previous write) before each carriage return on the spray submit path.
     /// A single CR right after a paste is unreliable: codex's TUI suppresses Enter-as-submit for a
@@ -52,6 +56,11 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// </summary>
     internal static readonly TimeSpan GracefulStopLaneWait = TimeSpan.FromSeconds(1);
 
+    /// <summary>How long a resubmit waits for the input lane: past a submit spray, and well inside the
+    /// round's confirmation window, so a lane freed only after the verdict never gets an Enter the
+    /// verdict did not count.</summary>
+    internal static readonly TimeSpan ResubmitLaneWait = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// How long output must have been silent, once the TUI looks ready, before the launch prompt is
     /// pasted: a TUI still drawing its banner or startup spinner is not reading its composer yet.
@@ -62,6 +71,11 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// <summary>Upper bound on that wait: a TUI that never settles still gets its prompt.</summary>
     internal static readonly TimeSpan LaunchPromptMaxWait = TimeSpan.FromSeconds(10);
 
+    /// <summary>How long the hooks get to report the turn a submitted launch prompt starts, before the
+    /// submit is sent again, and again after that before the prompt is reported unconfirmed. A hook
+    /// relays within a second or two of the submit, so this runs out only when the prompt did not go.</summary>
+    internal static readonly TimeSpan LaunchPromptConfirmWait = TimeSpan.FromSeconds(20);
+
     /// <summary>The PTY offers no exit event and the TUI can turn bracketed paste off again, so the
     /// launch prompt's waits are sliced and both re-read between slices.</summary>
     static readonly TimeSpan LaunchPromptPoll = TimeSpan.FromMilliseconds(250);
@@ -71,14 +85,33 @@ internal sealed partial class PtyHostedAgentRuntime(
     readonly SemaphoreSlim           _lane        = new(1, 1);
     readonly CancellationTokenSource _disposal    = new();
     readonly Lock                    _dialogGate  = new();
+    readonly Lock                    _arrivalGate = new();
+    readonly TaskCompletionSource<bool> _submitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     long                             _lastOutputAt;
     volatile bool                    _sawOutput;
     volatile bool                    _stopRequested;
     bool                             _deliveryHoldsLane;
     TaskCompletionSource?            _dialogGone;
+    TaskCompletionSource?            _arrival;
+    bool                             _unconfirmed;
 
     /// <summary>The pending launch-prompt delivery, or null when the launch carried no prompt to paste.</summary>
-    internal Task<LaunchPromptOutcome>? LaunchPromptDelivery { get; private set; }
+    public Task<LaunchPromptOutcome>? LaunchPromptDelivery { get; private set; }
+
+    /// <summary>Completes once the launch prompt is pasted and submitted: true when startup had settled,
+    /// false when it was pasted blind. Never completes for a prompt withdrawn first.</summary>
+    internal Task<bool> LaunchPromptSubmitted => _submitted.Task;
+
+    public bool LaunchPromptUnconfirmed {
+        get { lock (_arrivalGate) { return _unconfirmed; } }
+    }
+
+    public void NoteTurnRelayed() {
+        lock (_arrivalGate) {
+            _arrival?.TrySetResult();
+            _unconfirmed = false;
+        }
+    }
 
     public string  Vendor              => vendor;
     public int     Pid                 => pty.Pid;
@@ -154,25 +187,98 @@ internal sealed partial class PtyHostedAgentRuntime(
             }
 
             _deliveryHoldsLane = true;
+            Task? arrived = null;
 
             try {
                 if (_stopRequested) return LaunchPromptOutcome.StopRequested;
 
+                // Armed before the paste, so only a turn the paste could have started counts.
+                if (confirmsLaunchPrompt) {
+                    lock (_arrivalGate) {
+                        _arrival = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        arrived  = _arrival.Task;
+                    }
+                }
+
                 await pty.WriteAsync(BracketedPaste.Frame(prompt));
                 if (!await SubmitAsync(WaitOutDialogsAsync)) return LaunchPromptOutcome.StopRequested;
             } finally {
-                if (_deliveryHoldsLane) {
-                    _deliveryHoldsLane = false;
-                    try { _lane.Release(); } catch (ObjectDisposedException) { }
-                }
+                ReleaseDeliveryLane();
             }
 
-            return settled ? LaunchPromptOutcome.Delivered : LaunchPromptOutcome.DeliveredAfterMaxWait;
+            _submitted.TrySetResult(settled);
+
+            if (arrived is null) return settled ? LaunchPromptOutcome.Delivered : LaunchPromptOutcome.DeliveredAfterMaxWait;
+
+            return await ConfirmArrivalAsync(arrived);
         } catch (OperationCanceledException) {
             return LaunchPromptOutcome.Cancelled;
         } catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
             return LaunchPromptOutcome.WriteFailed;
         }
+    }
+
+    /// <summary>
+    /// Waits for the hooks to report a turn, which only a submitted prompt starts. When none comes the
+    /// submit is sent once more, since under ConPTY a later Enter submits a paste the first one missed.
+    /// That Enter goes only while no turn has been reported and no dialog shows: after the prompt
+    /// arrived it would submit an empty turn, and in a dialog it would pick an option.
+    /// </summary>
+    async Task<LaunchPromptOutcome> ConfirmArrivalAsync(Task arrived) {
+        if (await ArrivesWithinAsync(arrived)) return LaunchPromptOutcome.Confirmed;
+        if (Withdrawn() is { } early) return early;
+
+        await _lane.WaitAsync(_disposal.Token);
+        _deliveryHoldsLane = true;
+
+        try {
+            if (!await WaitOutDialogsAsync()) return LaunchPromptOutcome.StopRequested;
+            if (arrived.IsCompleted) return LaunchPromptOutcome.Confirmed;
+            if (!await WriteSubmitCarriageReturnAsync())
+                return pty.HasExited ? LaunchPromptOutcome.AgentExited : LaunchPromptOutcome.WriteFailed;
+        } finally {
+            ReleaseDeliveryLane();
+        }
+
+        if (await ArrivesWithinAsync(arrived)) return LaunchPromptOutcome.ConfirmedAfterResubmit;
+        if (Withdrawn() is { } late) return late;
+
+        lock (_arrivalGate) {
+            if (arrived.IsCompleted) return LaunchPromptOutcome.ConfirmedAfterResubmit;
+            _unconfirmed = true;
+        }
+
+        return LaunchPromptOutcome.NotConfirmed;
+    }
+
+    LaunchPromptOutcome? Withdrawn() =>
+        pty.HasExited ? LaunchPromptOutcome.AgentExited : _stopRequested ? LaunchPromptOutcome.StopRequested : null;
+
+    /// <summary>True once a turn is reported; false when <see cref="LaunchPromptConfirmWait"/> passes
+    /// first or the agent exits or is asked to stop. The wait starts over while a dialog shows: the
+    /// prompt cannot start a turn until it is answered.</summary>
+    async Task<bool> ArrivesWithinAsync(Task arrived) {
+        var started = time.GetTimestamp();
+
+        while (!arrived.IsCompleted && !pty.HasExited && !_stopRequested) {
+            if (DialogGone is not null) started = time.GetTimestamp();
+
+            var remaining = LaunchPromptConfirmWait - time.GetElapsedTime(started);
+            if (remaining <= TimeSpan.Zero) return false;
+
+            try {
+                await arrived.WaitAsync(remaining < LaunchPromptPoll ? remaining : LaunchPromptPoll, time, _disposal.Token);
+            } catch (TimeoutException) { }
+        }
+
+        return arrived.IsCompleted;
+    }
+
+    void ReleaseDeliveryLane() {
+        if (!_deliveryHoldsLane) return;
+
+        _deliveryHoldsLane = false;
+        try { _lane.Release(); } catch (ObjectDisposedException) { }
     }
 
     /// <summary>A follow-up waits for the launch prompt so it lands after it. The delivery reports
@@ -298,6 +404,25 @@ internal sealed partial class PtyHostedAgentRuntime(
             await pty.WriteAsync(data);
         } finally {
             _lane.Release();
+        }
+    }
+
+    /// <summary>Withheld while a dialog shows, since its default option would take the Enter, and once
+    /// <paramref name="isCurrent"/> is false: a newer delivery may have released the lane this waited on,
+    /// and the Enter would submit that round instead.</summary>
+    public async Task<bool> ResubmitAsync(Func<bool> isCurrent) {
+        try {
+            if (!await _lane.WaitAsync(ResubmitLaneWait, _disposal.Token)) return false;
+        } catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) {
+            return false;
+        }
+
+        try {
+            if (_stopRequested || DialogGone is not null || !isCurrent()) return false;
+
+            return await WriteSubmitCarriageReturnAsync();
+        } finally {
+            try { _lane.Release(); } catch (ObjectDisposedException) { }
         }
     }
 

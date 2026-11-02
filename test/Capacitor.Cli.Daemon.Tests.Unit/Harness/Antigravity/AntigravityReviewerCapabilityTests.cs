@@ -58,9 +58,9 @@ public class AntigravityReviewerCapabilityTests {
         await Assert.That(AntigravityReviewerCapability.Decide(Posix, false, installed, Minimum))
             .IsEqualTo(AntigravityReviewerDecision.Disabled);
 
-    /// <summary>The Windows arm, assertable from any host because the platform is a parameter. The
-    /// per-launch home holds the reviewer's own transcript — and so the review context — and cannot be
-    /// created owner-only there.</summary>
+    /// <summary>The Windows arm, assertable from any host because the platform is a parameter. No real
+    /// agy run has confirmed containment there, so a consenting daemon with a current build is still
+    /// refused.</summary>
     [Test]
     public async Task AWindowsHost_IsRefusedEvenWhenConsentedAndCurrent() =>
         await Assert.That(AntigravityReviewerCapability.Decide(
@@ -157,13 +157,15 @@ public class AntigravityReviewerCapabilityTests {
         await Assert.That(reason).Contains("daemon's environment");
     }
 
-    /// <summary>The platform refusal says WHY rather than merely refusing.</summary>
+    /// <summary>The platform refusal says what is missing — a real agy run confirming containment.
+    /// The home itself is owner-only on Windows, so a reason blaming it would be false.</summary>
     [Test]
-    public async Task TheUnsupportedPlatformReason_SaysWhyRatherThanJustRefusing() {
+    public async Task TheUnsupportedPlatformReason_NamesTheUnconfirmedContainment() {
         var reason = Reason(AntigravityReviewerDecision.UnsupportedPlatform, null, null);
 
         await Assert.That(reason).StartsWith("antigravity_reviewer_unsupported_platform");
-        await Assert.That(reason).Contains("owner-only");
+        await Assert.That(reason).Contains("real agy run");
+        await Assert.That(reason).DoesNotContain("cannot be created owner-only");
     }
 
     [Test]

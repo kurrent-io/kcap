@@ -74,6 +74,7 @@
                 <WrapPanel VerticalAlignment="Center">
                     <TextBlock x:Name="OllamaStatusText" Classes="detail" Text="{Binding OllamaStatus}" Margin="0,0,4,0" />
                     <Button x:Name="OllamaSiteLink" Classes="inlineLink" Command="{Binding OpenOllamaSiteCommand}"
+                            AutomationProperties.ControlTypeOverride="Hyperlink"
                             IsVisible="{Binding OllamaLinkVisible}" ToolTip.Tip="{x:Static vm:SearchChoiceViewModel.OllamaDownloadUrl}">
                         <TextBlock Text="Get it free at ollama.com" />
                     </Button>

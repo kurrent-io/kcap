@@ -50,7 +50,7 @@ static class LocalPurge {
         }
 
         await LocalStackStop.RunAsync(root, unit, service, home, removeUnit: true, ct);
-        LocalStackStop.Delete(root, "bin", "run", "data", "logs", "models");
+        LocalStackStop.Delete(root, "bin", "run", "data", "logs", "models", "cache");
         FaultPoints.Hit("purge:after-data");
 
         var config = new ConfigRoot(details.ConfigDir);
@@ -86,7 +86,7 @@ static class LocalPurge {
     /// machine records to nothing else, so the spools hold only its recordings.</summary>
     static void ForgetServer(ConfigRoot config, int port) {
         // Deleted outright rather than after an existence check, which reads an unreadable directory as absent.
-        foreach (var dir in new[] { HookSpool.DirName, TranscriptSpool.DirName }) {
+        foreach (var dir in new[] { HookSpool.DirectoryName, TranscriptSpool.DirectoryName }) {
             try {
                 Directory.Delete(config.Path(dir), recursive: true);
             } catch (DirectoryNotFoundException) {

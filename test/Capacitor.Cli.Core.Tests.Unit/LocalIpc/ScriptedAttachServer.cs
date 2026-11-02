@@ -22,11 +22,14 @@ sealed class ScriptedAttachServer : IAsyncDisposable {
         _listener.Listen(1);
     }
 
-    /// <paramref name="ct"/> bounds the ACCEPT only. The pump runs to EOF: a test that asserts a
-    /// frame did not arrive needs it to have read everything the client wrote, and a pump that stops
-    /// on a caller's deadline can leave one sitting in the socket unread.
+    /// <paramref name="ct"/> bounds the ACCEPT only, and without one the accept is bounded by
+    /// <see cref="BoundedWait.Deadline"/>. The pump runs to EOF: a test that asserts a frame did not
+    /// arrive needs it to have read everything the client wrote, and a pump that stops on a caller's
+    /// deadline can leave one sitting in the socket unread.
     public async Task AcceptAndPumpInboundAsync(CancellationToken ct = default) {
-        _conn = await _listener.AcceptAsync(ct);
+        _conn = ct.CanBeCanceled
+            ? await _listener.AcceptAsync(ct)
+            : await _listener.AcceptAsync(CancellationToken.None).WithinDeadlineAsync("the client to dial the scripted server");
         _stream = new NetworkStream(_conn, ownsSocket: false);
         _pump = Task.Run(async () => {
             try {
@@ -57,11 +60,11 @@ sealed class ScriptedAttachServer : IAsyncDisposable {
     /// Bounded so a regression that stops the pump delivering the frame FAILS the test with a
     /// named timeout instead of hanging the run indefinitely.
     public async Task WaitForReceivedAsync(FrameType type, CancellationToken ct = default) {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        var deadline = DateTime.UtcNow + BoundedWait.Deadline;
         while (true) {
             lock (Received) { if (Received.Any(f => f.Type == type)) return; }
             if (DateTime.UtcNow > deadline)
-                throw new TimeoutException($"ScriptedAttachServer.WaitForReceivedAsync: no {type} frame recorded within 10s.");
+                throw new TimeoutException($"ScriptedAttachServer.WaitForReceivedAsync: no {type} frame recorded within {BoundedWait.DeadlineSeconds}s.");
             await Task.Delay(5, ct).ConfigureAwait(false);
         }
     }

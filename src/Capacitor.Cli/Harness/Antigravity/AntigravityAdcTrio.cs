@@ -20,11 +20,15 @@ static class AntigravityAdcTrio {
     /// OAuth. Reported as <c>AGY_ADC_AUTH=1</c> so a captured <c>0</c> names its own remedy.</summary>
     const string FlagEnabled = "1";
 
-    /// <summary>The ADC well-known path, only when the file is actually there — deriving the path
-    /// without the file would bake a broken half-configuration. Never throws.</summary>
-    public static string? ExistingCredentialsPath(Core.UserHome home) {
+    /// <summary>The ADC well-known path inside gcloud's configuration directory
+    /// (<see cref="Services.GcloudConfig.ConfigDir(Core.UserHome)"/>), only when the file is actually
+    /// there — deriving the path without the file would bake a broken half-configuration. Never
+    /// throws.</summary>
+    public static string? ExistingCredentialsPath(string? gcloudConfigDir) {
+        if (gcloudConfigDir is null) return null;
+
         try {
-            var path = Path.Combine(home.Path, ".config", "gcloud", "application_default_credentials.json");
+            var path = Path.Combine(gcloudConfigDir, "application_default_credentials.json");
 
             return File.Exists(path) ? path : null;
         } catch {

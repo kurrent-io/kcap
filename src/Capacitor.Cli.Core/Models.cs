@@ -1137,6 +1137,8 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(FirstRun.RelinquishFirstRunFlowRequest))]
 [JsonSerializable(typeof(FirstRun.ReportFirstRunImportOutcomeRequest))]
 [JsonSerializable(typeof(LaunchAgentCommand))]
+[JsonSerializable(typeof(Handoff.HandoffTakeoverAdmission))]
+[JsonSerializable(typeof(Handoff.HandoffTakeoverBeginRequest))]
 [JsonSerializable(typeof(ExplicitReviewerModelLaunch))]
 [JsonSerializable(typeof(ReviewerModelResolveRequestV1))]
 [JsonSerializable(typeof(ReviewerModelResolveResponseV1))]
@@ -1153,6 +1155,9 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(RunQuestionCommand))]
 [JsonSerializable(typeof(FinalizeEvalCommand))]
 [JsonSerializable(typeof(CancelEvalCommand))]
+[JsonSerializable(typeof(RunHeadlessPromptArgs))]
+[JsonSerializable(typeof(HeadlessPromptResponse))]
+[JsonSerializable(typeof(CancelHeadlessPromptArgs))]
 [JsonSerializable(typeof(PrepareResult))]
 [JsonSerializable(typeof(QuestionResult))]
 [JsonSerializable(typeof(FinalizeResult))]
@@ -1298,12 +1303,16 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.ArtefactDto))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.ArtefactDetailDto))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.ArtefactListDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PageSearchResponseDto))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.ArtefactGrantDto))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.ArtefactErrorDto))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.PublishArtefactBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.PublishArtefactVersionBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.SetArtefactVisibilityBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.VisibilityOptionsResponse))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupRequest))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupResponse))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupError))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     UseStringEnumConverter = true
@@ -1758,14 +1767,24 @@ public readonly record struct LaunchAgentCommand(
         string?           ExpectedRuntimeTransport = null,
         // A review-flow reviewer with no repository: it runs in an empty daemon-owned directory and
         // RepoPath is empty. Sent only to a daemon advertising DaemonConnect.SupportsScratchWorkspace.
-        bool              ScratchWorkspace = false
+        bool              ScratchWorkspace = false,
+        // Continue an ended session from this start. Sent only to a daemon advertising
+        // DaemonConnect.SupportsHandoffLaunch; a daemon that cannot carry it refuses the launch.
+        Capacitor.Cli.Core.Handoff.HandoffLaunch? Handoff = null
     );
 
 /// <summary>Caller-selected Codex launch posture. Valid ONLY for interactive, daemon-owned-worktree
 /// launches (<see cref="LaunchKind.Default"/> and not borrowed); the daemon fails closed on any other
-/// launch shape. Both fields are required — a partial block is malformed. Values are the Codex CLI's
-/// own lowercase tokens, compared ordinally (see the daemon's CodexPosturePolicy).</summary>
-public sealed record CodexLaunchPosture(string Sandbox, string Approval);
+/// launch shape. Sandbox and approval are both required — a partial block is malformed. Values are the
+/// Codex CLI's own lowercase tokens, compared ordinally (see the daemon's CodexPosturePolicy).
+/// <see cref="ApprovalsReviewer"/> is optional: an older daemon drops it and launches with approvals
+/// routed to the user, never the other way round.</summary>
+public sealed record CodexLaunchPosture(
+    string Sandbox,
+    string Approval,
+    [property: JsonPropertyName("approvals_reviewer"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? ApprovalsReviewer = null
+);
 
 public sealed record ReviewerCertificationRequirement(
     string Vendor,
@@ -2305,9 +2324,15 @@ public readonly record struct DaemonConnect(
         Capacitor.Cli.Core.Accounts.AccountsSnapshotDto? Accounts = null,
         // Per-account launchable models, keyed by registry id.
         Dictionary<string, VendorModelOption[]>?    VendorModelsByAccount = null,
+        // Harness tokens this daemon runs RunHeadlessPrompt on. Null from a daemon predating the field;
+        // empty when it can run none.
+        string[]?                                   HeadlessVendors = null,
         // Accepts a LaunchAgentCommand.ScratchWorkspace launch. False from a daemon predating it, which
         // would try to create a worktree from an empty repository path.
-        bool                                        SupportsScratchWorkspace = false
+        bool                                        SupportsScratchWorkspace = false,
+        // Accepts a LaunchAgentCommand.Handoff launch. False from a daemon predating it, which would
+        // ignore the block and start an ordinary session.
+        bool                                        SupportsHandoffLaunch = false
     );
 
 public sealed record UnattendedVendorCapability(
@@ -2328,6 +2353,9 @@ public sealed record UnattendedVendorCapability(
     // never widened to "supported" by any fallback, so the server refuses posture selection rather
     // than sending a block that would be silently ignored.
     bool SupportsLaunchPosture = false,
+    // Whether a launch posture may carry an approvals reviewer. False from an older daemon, which
+    // would drop the field and prompt the user instead, so the server refuses the selection.
+    bool SupportsApprovalsReviewer = false,
     // The transport this daemon hosts an INTERACTIVE launch of this vendor on ("pty" | "app-server").
     // The server records it as the launch's expected runtime transport and refuses a registration
     // that claims anything else, so it must come from the same decision the launch router uses.
@@ -2456,6 +2484,39 @@ public readonly record struct FinalizeEvalCommand(
 
 /// <summary>Server → daemon: discard any cached context for this run (e.g. dashboard aborted).</summary>
 public readonly record struct CancelEvalCommand(string EvalRunId);
+
+// ── Headless prompts for a local-edition server ──────────────────────────────
+
+/// <summary>Server → daemon: one headless model call, abandoned at <see cref="Deadline"/>.</summary>
+public readonly record struct RunHeadlessPromptArgs(
+        string         RequestId,
+        string         Harness,
+        string         Model,
+        string?        ReasoningEffort,
+        string?        SystemPrompt,
+        string         Prompt,
+        string?        JsonSchema,
+        int            MaxTurns,
+        double?        MaxBudgetUsd,
+        DateTimeOffset Deadline
+    );
+
+/// <summary>Daemon → server: whether the run started, and its answer or failure kind. A token count is null when the
+/// harness reported none, which is not the same as zero.</summary>
+public readonly record struct HeadlessPromptResponse(
+        bool    Started,
+        string? NotStartedReason,
+        string? Text,
+        string? StructuredJson,
+        long?   InputTokens,
+        long?   OutputTokens,
+        double? CostUsd     = null,
+        string? FailureKind = null,
+        string? Error       = null
+    );
+
+/// <summary>Server → daemon, one-way: stop the headless run with this request id, queued or running.</summary>
+public readonly record struct CancelHeadlessPromptArgs(string RequestId);
 
 /// <summary>Daemon → server: prepare-phase result. The trailing fields are set on the evidence route;
 /// Route is legacy, evidence_one_shot or evidence_retrieval.</summary>

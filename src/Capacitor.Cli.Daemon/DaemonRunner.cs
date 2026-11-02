@@ -57,7 +57,8 @@ public static partial class DaemonRunner {
         // before DI exists, so it is threaded by hand until the container is built.
         var time = TimeProvider.System;
         if (TryHandleVersionFlag(args, Console.Out)) return 0;
-        var launchBinary = RestartCoordinator.StatProcessBinary();
+        var launchPath   = Environment.ProcessPath;
+        var launchBinary = RestartCoordinator.StatBinaryAt(launchPath, OperatingSystem.IsWindows(), File.Exists);
 
         string?    logFile     = null;
         string?    stderrFile  = null;
@@ -87,6 +88,7 @@ public static partial class DaemonRunner {
             Binaries     = binaries,
             WorktreeRoot = Path.Combine(userHome.Path, ".capacitor", "worktrees"),
             OriginalArgs = args,
+            LaunchPath   = launchPath,
             LaunchBinary = launchBinary,
         };
         var awaitLock = args.Contains("--await-lock");
@@ -207,12 +209,14 @@ public static partial class DaemonRunner {
             await Console.Error.WriteLineAsync(legacyCodexWarning);
 
         // Committed before the first advertisement, which carries it to the server.
+        config.CodexAppServerByDefault = Harness.Codex.CodexTransportDecision.AppServerByDefault;
         var startupCodex = Harness.Codex.CodexTransportResolution.Read(
             1, config.ReadExperimentalSettings, () => ProbeCliVersion(harnesses.LaunchCommand(HarnessId.Codex, config.CodexPath)),
             problem => {
                 config.ExperimentalSettingsProblem = problem;
                 return Harness.Codex.CodexTransportResolution.Unreadable(1, problem);
-            });
+            },
+            config.CodexAppServerByDefault);
         config.CodexResolution = startupCodex;
 
         // The per-vendor reviewer switches are opt-out: unset means enabled, matching the vendors that
@@ -371,6 +375,8 @@ public static partial class DaemonRunner {
         builder.Services.AddSingleton(config);
         builder.Services.AddSingleton(harnesses);
         builder.Services.AddSingleton(daemonLock);
+        var stopCause = new StopCause();
+        builder.Services.AddSingleton(stopCause);
         builder.Services.AddDaemonHttp(configRoot, config, serverEnv, machineEnv);
         builder.Services.AddSingleton<ServerConnection>();
 
@@ -614,6 +620,16 @@ public static partial class DaemonRunner {
         builder.Services.AddSingleton<AgentOrchestrator>();
         builder.Services.AddSingleton<EvalContextCache>();
         builder.Services.AddSingleton<EvalRunner>();
+        builder.Services.AddSingleton<IHeadlessHarness>(sp => new Harness.Claude.ClaudeHeadlessHarness(
+            sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(),
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Harness.Claude.ClaudeHeadlessHarness>>()));
+        builder.Services.AddSingleton<IHeadlessHarness>(sp => new Harness.Codex.CodexHeadlessHarness(
+            sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(),
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Harness.Codex.CodexHeadlessHarness>>()));
+        builder.Services.AddSingleton(sp => new HeadlessPromptRunner(
+            sp.GetServices<IHeadlessHarness>(), sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<HeadlessPromptRunner>>(),
+            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
 
         // Restart-after-update: a coordinator polls the on-disk binary and, when idle,
         // applies a queued restart via the strategy chosen by supervision detection.
@@ -672,6 +688,20 @@ public static partial class DaemonRunner {
         var host   = builder.Build();
         var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("kcap.Daemon");
         LogStartupPhase(logger, "host built");
+        using var startupWatch = new StartupWatch(logger, time, "finding vendor CLIs", StartupWatchInterval);
+
+        // Wired before the vendor probes below, which can run for tens of seconds: a stop that lands
+        // during them must still leave a line saying why.
+        var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
+        RegisterDeathRattle(logger, lifetime, AttachedToTerminal(), time, stopCause);
+        lifetime.ApplicationStopping.Register(() => {
+            DeathRattle(time, "Lifetime: ApplicationStopping fired");
+            LogLifetimeStopping(logger);
+        });
+        lifetime.ApplicationStopped.Register(() => {
+            DeathRattle(time, "Lifetime: ApplicationStopped fired");
+            LogLifetimeStopped(logger);
+        });
 
         // Set by the supervised restart strategy so we exit non-zero for a supervisor relaunch.
         var restartState = host.Services.GetRequiredService<RestartState>();
@@ -709,6 +739,7 @@ public static partial class DaemonRunner {
         //
         // Classified ONCE and reused below: a gated reviewer's classification spawns the vendor binary
         // to read its version, so recomputing per consumer would probe it three times per startup.
+        startupWatch.Entering("classifying unattended vendors");
         var unattendedStatuses = ClassifyUnattendedVendors(runtimeFactories);
 
         config.UnattendedVendors = AdvertisedUnattendedVendors(unattendedStatuses);
@@ -717,17 +748,26 @@ public static partial class DaemonRunner {
         // Every advertised vendor is recorded, since a catalog-only vendor is watched too.
         config.UnattendedVendorBaselines =
             FingerprintUnattendedVendors(config.Binaries, runtimeFactories, config.SupportedVendors);
+        startupWatch.Entering("probing vendor CLI versions");
         var startupCapabilities = ComputeUnattendedVendorCapabilities(runtimeFactories, config, startupCodex, config.UnattendedVendors);
         config.Advertise(startupCapabilities, startupCodex);
 
         // Built before the host starts, so the per-account probe and the vendor watcher's first watch
         // set read the same accounts.
         var accounts = host.Services.GetRequiredService<AccountsPublisher>();
+        startupWatch.Entering("reading the account registry");
         await accounts.RebuildAsync(CancellationToken.None);
-        await ProbeVendorCatalogsAsync(config, runtimeFactories, accounts.Current, CancellationToken.None);
+        startupWatch.Entering("probing model catalogs");
+        await ProbeVendorCatalogsAsync(config, runtimeFactories, accounts.Current, CancellationToken.None,
+            new ProbeCeiling(CatalogProbeCeiling, time, key => LogCatalogProbeOverran(logger, key, (int)CatalogProbeCeiling.TotalSeconds),
+                key => {
+                    LogCatalogProbeAnsweredLate(logger, key);
+                    config.LateCatalogKeys.TryAdd(key, 0);
+                }));
         foreach (var (vendor, models) in config.VendorModels!) LogVendorModels(logger, vendor, models.Length);
         foreach (var (id, models) in config.VendorModelsByAccount!) LogVendorModels(logger, VendorModelCatalogs.AccountKey(id), models.Length);
         LogStartupPhase(logger, "vendors probed");
+        startupWatch.Entering("starting its services");
 
         // Which build of each unattended vendor was installed when this daemon started. Recorded at
         // startup (like the Cursor-unavailable warning below) rather than per launch, and reported
@@ -768,7 +808,6 @@ public static partial class DaemonRunner {
             LogPriorUncleanExit(logger, config.Name, daemonLock.PriorHolderPid?.ToString() ?? "unknown");
         }
 
-        var lifetime   = host.Services.GetRequiredService<IHostApplicationLifetime>();
         var connection = host.Services.GetRequiredService<ServerConnection>();
 
         connection.GetAccountsSnapshot = () => accounts.Current;
@@ -776,27 +815,6 @@ public static partial class DaemonRunner {
         var refresher = host.Services.GetRequiredService<AccountRefresher>();
         accounts.RequestRefresh        = refresher.Request;
         accounts.RequestWiringRefresh  = refresher.RequestSoon;
-
-        // Death-rattle instrumentation: without these, a daemon dying mid-run
-        // (signal, OOM, unobserved-task FailFast, native crash) leaves no trace
-        // in the log and we can't tell a clean shutdown from a kill. Each hook
-        // best-effort logs *why* the process is going away before the runtime
-        // tears down the logging pipeline. Lifetime is captured so SIGHUP
-        // (terminal closed) can be turned into a cooperative StopApplication
-        // — without that, the host's finally-block cleanup never runs.
-        RegisterDeathRattle(logger, lifetime, AttachedToTerminal(), time);
-
-        // Lifetime-driven log lines — pair with the AppDomain/signal hooks so
-        // we can distinguish a cooperative StopApplication (e.g. NameInUse,
-        // Ctrl+C consumed by ConsoleLifetime) from an outside-the-runtime kill.
-        lifetime.ApplicationStopping.Register(() => {
-            DeathRattle(time, "Lifetime: ApplicationStopping fired");
-            LogLifetimeStopping(logger);
-        });
-        lifetime.ApplicationStopped.Register(() => {
-            DeathRattle(time, "Lifetime: ApplicationStopped fired");
-            LogLifetimeStopped(logger);
-        });
 
         // if the server rejects our DaemonConnect because another
         // live daemon owns the (owner, name) slot, signal host shutdown
@@ -806,6 +824,7 @@ public static partial class DaemonRunner {
 
         connection.OnNameInUse += _ => {
             nameInUse = true;
+            stopCause.Note($"the server reports another daemon already connected as '{config.Name}'");
             lifetime.StopApplication();
         };
 
@@ -832,6 +851,7 @@ public static partial class DaemonRunner {
                 // exactly what this bridge is meant to avoid.
                 await host.StartAsync(lifetime.ApplicationStopping);
                 LogStartupPhase(logger, "socket bound");
+                startupWatch.Entering("reaping agents a prior run left behind");
 
                 // Phase B (D4 §6.4(3)): resolve the orchestrator (which wires OnLaunchAgent +
                 // GetLiveAgents in its ctor) and reap any hosted-agent children that outlived a
@@ -842,9 +862,11 @@ public static partial class DaemonRunner {
                 // handler. Under the daemon lock; best-effort (swallows its own faults).
                 orchestrator = host.Services.GetRequiredService<AgentOrchestrator>();
                 await orchestrator.ReapOrphansOnceAsync();
+                startupWatch.Entering("loading the resume ledger");
                 // An unreadable ledger leaves empty keep-sets; a sweep against them would delete what it protects.
                 var ledgerReadable = orchestrator.LoadResumeLedger();
 
+                startupWatch.Entering("sweeping transcripts, attachments and worktrees");
                 await host.Services.GetRequiredService<TranscriptJournalSweep>().RunOnceAsync(lifetime.ApplicationStopping);
 
                 if (ledgerReadable) orchestrator.AttachmentStore.SweepOrphans(orchestrator.IsLiveAttachmentStem, logger);
@@ -854,9 +876,17 @@ public static partial class DaemonRunner {
                 var worktreeManager = host.Services.GetRequiredService<WorktreeManager>();
                 if (ledgerReadable) await worktreeManager.CleanupOrphanedAsync(orchestrator.LedgerWorktreePaths());
 
+                // Before connecting: the first DaemonConnect advertises HeadlessVendors only once the handler is wired.
+                var headless = host.Services.GetRequiredService<HeadlessPromptRunner>();
+                connection.GetHeadlessVendors          = headless.AdvertisedHarnesses;
+                connection.CancelHeadlessPromptHandler = headless.CancelAsync;
+                connection.RunHeadlessPromptHandler    = headless.RunAsync;
+
                 try {
+                    startupWatch.Entering("connecting to the server");
                     await connection.ConnectAsync(lifetime.ApplicationStopping);
                     LogStartupPhase(logger, "server connected");
+                    startupWatch.Dispose();
                 } catch (Exception ex) when (nameInUse) {
                     // ConnectAsync's initial-connect path threw because of NameInUse. OnNameInUse
                     // already fired and set our flag; the host hasn't started its main loop yet, so
@@ -887,20 +917,27 @@ public static partial class DaemonRunner {
             },
             teardown: () => RunDaemonTeardownAsync(logger, daemonLock, orchestrator, connection, host));
 
-        if (startupExit is { } earlyExit) return earlyExit;
+        // Restart-after-update (supervised) exits non-zero so the unit's failure-restart policy relaunches
+        // the updated binary. A mid-run name contest exits 3 so wrappers can tell it from a Ctrl+C; unlike
+        // the initial-connect NameInUseExit it ignores supervision, since the one respawn it causes settles
+        // the contest on its own initial connect.
+        var exitCode = startupExit
+                    ?? (restartState.SupervisedRestart ? ExitCodes.RestartRequested : nameInUse ? 3 : 0);
 
-        // Restart-after-update (supervised): exit non-zero so the unit's
-        // failure-restart policy relaunches the now-updated binary.
-        if (restartState.SupervisedRestart) return ExitCodes.RestartRequested;
+        return Exiting(time, logger, exitCode, ExitReason(stopCause.Reason, restartState.SupervisedRestart));
+    }
 
-        // if the daemon was shut down because the server told us
-        // our (owner, name) slot is contested mid-run (heartbeat-triggered
-        // path), exit with code 3 so wrappers (systemd, npm, CI) can tell
-        // this apart from a normal Ctrl+C exit. Deliberately NOT decision-6-aware (unlike the
-        // initial-connect NameInUseExit above): this is a mid-run contest, not the initial connect,
-        // and the one resulting respawn's own fresh initial connect is what settles it — bounding
-        // the loop either way without needing this exit to also be supervised-conditional.
-        return nameInUse ? 3 : 0;
+    /// <summary>The reason on a host-built daemon's last line: a stop nobody named would otherwise read the
+    /// same as a crash in the log.</summary>
+    internal static string ExitReason(string? stopCause, bool supervisedRestart) =>
+        supervisedRestart ? "restarting after an update; its supervisor starts the new binary"
+            : stopCause ?? "the host stopped without a recorded stop request";
+
+    static int Exiting(TimeProvider time, ILogger logger, int code, string reason) {
+        DeathRattle(time, $"exiting with code {code}: {reason}");
+        LogExiting(logger, code, reason);
+
+        return code;
     }
 
     /// <summary>
@@ -1606,8 +1643,8 @@ public static partial class DaemonRunner {
 
     internal const string MuseVendor = "muse";
 
-    /// <param name="codex">The committed resolution Codex's policy, transport and — when the switch is
-    /// on, which is when the resolution probed it — version are read from.</param>
+    /// <param name="codex">The committed resolution Codex's policy, transport and — when it probed
+    /// Codex — version are read from.</param>
     /// <param name="advertised">The already-classified advertised vendors, when the caller has them.
     /// Passing them avoids re-running a classification that spawns vendor binaries; omitting them
     /// recomputes, which is what the tests and any other caller want.</param>
@@ -1621,7 +1658,7 @@ public static partial class DaemonRunner {
         // under one ceiling, rather than blocking startup for the sum across every advertised vendor.
         // A vendor whose binary is unresolved is not probed at all — its version stays null, exactly as
         // an inline probe of an empty path would leave it.
-        var codexFromResolution = codex.SwitchOn;
+        var codexFromResolution = codex.Probed;
         var probePaths = unattended
             .Where(v => !(codexFromResolution && IsCodex(v)))
             .Where(v => byVendor.TryGetValue(v, out var f) && !string.IsNullOrEmpty(f.CliPath))
@@ -1654,6 +1691,7 @@ public static partial class DaemonRunner {
                 // Caller-selected launch posture, advertised per vendor rather than per platform —
                 // the seam is platform-neutral, and only the Codex launcher honours a posture block.
                 SupportsLaunchPosture: isCodex,
+                SupportsApprovalsReviewer: isCodex,
                 InteractiveTransport: isCodex ? codex.InteractiveTransport : null));
         }
         return capabilities;
@@ -1665,16 +1703,16 @@ public static partial class DaemonRunner {
     /// catalog depends on the account, each registered account's catalog under its own directory.</summary>
     internal static async Task ProbeVendorCatalogsAsync(
             DaemonConfig config, IReadOnlyList<IHostedAgentRuntimeFactory> factories,
-            Core.Accounts.AccountsSnapshotDto? accounts, CancellationToken ct) {
+            Core.Accounts.AccountsSnapshotDto? accounts, CancellationToken ct, ProbeCeiling? ceiling = null) {
         var supported      = config.SupportedVendors ?? [];
         var accountFactory = VendorModelCatalogs.AccountFactory(factories, supported);
         var perAccount     = accountFactory is null ? [] : VendorModelCatalogs.AccountsIn(accounts);
 
         config.VendorCatalogBaselines = VendorModelCatalogs.FingerprintCatalogPaths(factories, supported, accountFactory, perAccount);
-        var vendorProbe  = VendorModelCatalogs.ProbeAsync(factories, supported, ct);
+        var vendorProbe  = VendorModelCatalogs.ProbeAsync(factories, supported, ct, ceiling);
         var accountProbe = accountFactory is null
             ? Task.FromResult(new Dictionary<string, VendorModelOption[]>(StringComparer.Ordinal))
-            : VendorModelCatalogs.ProbeByAccountAsync(accountFactory, perAccount, ct);
+            : VendorModelCatalogs.ProbeByAccountAsync(accountFactory, perAccount, ct, ceiling);
         await Task.WhenAll(vendorProbe, accountProbe);
 
         config.VendorModels          = await vendorProbe;
@@ -1697,14 +1735,14 @@ public static partial class DaemonRunner {
     /// <summary>Carries a version already advertised over a re-probe that returned none. The server
     /// reads a null version as the vendor being gone, so a transient probe miss must not withdraw
     /// a reviewer that was advertised a moment ago. Every other field comes from the re-probe.</summary>
-    /// <param name="codex">With its switch on, Codex's version comes from this resolution, null included:
+    /// <param name="codex">When it probed Codex, Codex's version comes from this resolution, null included:
     /// it was probed with the policy and transport beside it, and an older version would misdescribe them.</param>
     internal static IReadOnlyList<UnattendedVendorCapability> RetainAdvertisedVersions(
             IReadOnlyList<UnattendedVendorCapability>? current, IReadOnlyList<UnattendedVendorCapability> fresh,
             Harness.Codex.CodexTransportResolution codex) {
         if (current is null) return fresh;
         return fresh.Select(capability => {
-            if (!string.IsNullOrEmpty(capability.CliVersion) || (codex.SwitchOn && IsCodex(capability.Vendor))) return capability;
+            if (!string.IsNullOrEmpty(capability.CliVersion) || (codex.Probed && IsCodex(capability.Vendor))) return capability;
             var advertised = current.FirstOrDefault(c => string.Equals(c.Vendor, capability.Vendor, StringComparison.Ordinal));
             return string.IsNullOrEmpty(advertised?.CliVersion) ? capability : capability with { CliVersion = advertised.CliVersion };
         }).ToArray();
@@ -1953,6 +1991,9 @@ public static partial class DaemonRunner {
     [LoggerMessage(Level = LogLevel.Information, Message = "Cleanup: completed, daemon exiting")]
     static partial void LogCleanupCompleted(ILogger logger);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Exiting with code {Code}: {Reason}")]
+    static partial void LogExiting(ILogger logger, int code, string reason);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Teardown step '{Step}' failed; continuing shutdown")]
     static partial void LogTeardownStepFailed(ILogger logger, Exception ex, string step);
 
@@ -2001,7 +2042,7 @@ public static partial class DaemonRunner {
     /// so the host's cleanup runs instead of the OS default termination.
     /// </summary>
     static void RegisterDeathRattle(
-            ILogger logger, IHostApplicationLifetime lifetime, bool attachedToTerminal, TimeProvider time) {
+            ILogger logger, IHostApplicationLifetime lifetime, bool attachedToTerminal, TimeProvider time, StopCause stopCause) {
         AppDomain.CurrentDomain.UnhandledException += (_, args) => {
             if (args.ExceptionObject is Exception ex) {
                 DeathRattle(time, $"AppDomain.UnhandledException (terminating={args.IsTerminating}): {ex.GetType().Name}: {ex.Message}");
@@ -2043,6 +2084,7 @@ public static partial class DaemonRunner {
 
                     DeathRattle(time, $"Received POSIX signal {ctx.Signal} — requesting cooperative shutdown");
                     LogPosixSignal(logger, ctx.Signal);
+                    stopCause.Note($"received {ctx.Signal}");
                     lifetime.StopApplication();
                 }));
             } catch (PlatformNotSupportedException) {
@@ -2103,6 +2145,18 @@ public static partial class DaemonRunner {
 
     [LoggerMessage(Level = LogLevel.Information, Message = "startup phase: {Phase}")]
     static partial void LogStartupPhase(ILogger logger, string phase);
+
+    static readonly TimeSpan StartupWatchInterval = TimeSpan.FromSeconds(30);
+
+    /// <summary>Above every catalog probe's own deadline and exit grace, so only a probe whose teardown is
+    /// stuck is cut off.</summary>
+    internal static readonly TimeSpan CatalogProbeCeiling = TimeSpan.FromSeconds(30);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Model catalog probe for {Key} did not finish within {Seconds}s; starting without its models")]
+    static partial void LogCatalogProbeOverran(ILogger logger, string key, int seconds);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Model catalog probe for {Key} answered after the startup limit; re-probing it")]
+    static partial void LogCatalogProbeAnsweredLate(ILogger logger, string key);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "{Vendor}: {Count} models")]
     static partial void LogVendorModels(ILogger logger, string vendor, int count);

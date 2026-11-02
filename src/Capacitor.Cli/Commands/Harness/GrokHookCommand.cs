@@ -80,6 +80,7 @@ sealed class GrokHookCommand(
         if ((Str(node, "workspaceRoot") ?? (cwd is null ? null : GitRepository.FindRoot(cwd))) is { } root) forwarded["workspace_root"] = root;
         if (Timestamp(node) is { } startedAt) forwarded["started_at"]         = startedAt.ToString("O");
         if (activeProfile?.DefaultVisibility is { } visibility) forwarded["default_visibility"] = visibility;
+        SessionStartInventory.StampRecording(forwarded, config, harnesses, HarnessId.Grok, transcriptPath);
 
         var enriched = await RepositoryDetection.EnrichWithRepositoryInfo(router, config, forwarded.ToJsonString(), clock.Time);
 
@@ -90,7 +91,7 @@ sealed class GrokHookCommand(
         }
 
         var outcome = await _poster.PostOrSpoolAsync("session-start/grok", enriched, "grok-hook",
-            new HookSpool(config, clock.Time), sessionId, route: "session-start/grok");
+            new HookSpool(config, clock.Time, Url), sessionId, route: "session-start/grok");
 
         // A refused start leaves the session unrecorded, so a later Stop must not start capturing it.
         if (outcome == HookPostOutcome.Failed) DisabledSessions.Mark(sessionId, config);

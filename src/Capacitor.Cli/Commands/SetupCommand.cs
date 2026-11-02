@@ -22,6 +22,7 @@ using Capacitor.Cli.Core.Instructions;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Mcp;
 using Capacitor.Cli.Core.Setup;
+using Capacitor.Cli.Core.Setup.Intelligence;
 using Capacitor.Cli.Core.Telemetry;
 using Capacitor.Cli.Core.Toml;
 using Capacitor.Cli.Harness.Antigravity;
@@ -562,7 +563,17 @@ sealed class SetupCommand(
     /// <c>"Skip"</c> must name one of the labels handed to it.</summary>
     internal Func<IReadOnlyList<string>, string?>? PickHandoffVendor { get; set; }
 
-    /// <summary>Whether the edition choice offers the local edition, which runs on Apple silicon Macs only.</summary>
+    /// <summary>Null in production, where the terminal asks; set by a test.</summary>
+    internal IIntelligenceQuestions? IntelligenceQuestions { get; init; }
+
+    /// <summary>The harnesses to offer as the local agent, read from the daemon this run named.</summary>
+    internal Func<string, CancellationToken, Task<string[]>> HeadlessHarnesses {
+        get => field ??= (name, ct) =>
+            HeadlessHarnessSource.ReadAsync(DaemonStore.FromEnvironment(), name, time, () => HeadlessHarnessProbe.Detect(harnesses, binaries), ct);
+        init;
+    }
+
+    /// <summary>Whether the edition choice offers the local edition, which runs on Apple silicon Macs and x64 Windows.</summary>
     internal bool LocalEditionAvailable { get; init; } = LocalPlatform.Current().SupportsLocalEdition;
 
     /// <summary>The whole run's JSON report, set only while a <c>--json --no-prompt</c> run is in progress.</summary>
@@ -843,7 +854,10 @@ sealed class SetupCommand(
             // A named server can be one still being created, which the provisioner says to re-run setup against.
             if (!await WaitForWorkspaceAsync(serverUrl, NewWorkspaceWait)) return 1;
         } else if (local is not null) {
-            var (exit, committed) = await new LocalSetupTerminal(localInstallers, local, _json).RunAsync();
+            var (exit, committed) = await new LocalSetupTerminal(localInstallers, local, _json,
+                local.WindowsService
+                    ? progress => WindowsServiceStepAsync(progress, line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}"))
+                    : null).RunAsync();
 
             if (committed is null) return exit;
 
@@ -959,8 +973,12 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
+        // A local server records every session as shared with its one user, whatever the profile says,
+        // so there is no audience to ask about and no reason to overwrite what the profile holds.
+        var serverIsLocal = local is not null || LocalEndpoints.Read(localRoot).Classify(serverUrl) is LocalEndpointClass.Local;
+
         // Step 3: Default session visibility
-        AnsiConsole.Write(new Rule("[yellow]Step 3/6 — Default session visibility[/]").LeftJustified());
+        if (!serverIsLocal) AnsiConsole.Write(new Rule("[yellow]Step 3/6 — Default session visibility[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Visibility);
 
         string defaultVisibility;
@@ -974,10 +992,13 @@ sealed class SetupCommand(
                   (await AppConfig.LoadProfileConfig(config))
                       .Profiles.GetValueOrDefault(activeProfile)?.DefaultVisibility ?? "org_public");
 
-        if (noPrompt) {
+        if (serverIsLocal) {
+            defaultVisibility = (GetArg(args, "--default-visibility")
+                              ?? (await AppConfig.LoadProfileConfig(config)).Profiles.GetValueOrDefault(activeProfile)?.DefaultVisibility
+                              ?? "org_public").ToLowerInvariant();
+        } else if (noPrompt) {
             defaultVisibility = (GetArg(args, "--default-visibility")
                               ?? (museAssistant ? MuseAssistantPosture.DefaultVisibility
-                                : local is not null ? LocalDefaultVisibility
                                 : VisibilityChoices(await ReadVisibilityOptionsAsync(serverUrl, activeProfile)).Preselected)).ToLowerInvariant();
 
             await Console.Out.WriteLineAsync($"  Default visibility: {defaultVisibility}");
@@ -1025,7 +1046,8 @@ sealed class SetupCommand(
             Antigravity: harnesses.Detected(HarnessId.Antigravity),
             Vibe:        harnesses.Detected(HarnessId.MistralVibe),
             Grok:        harnesses.Detected(HarnessId.Grok),
-            Muse:        harnesses.Detected(HarnessId.Muse));
+            Muse:        harnesses.Detected(HarnessId.Muse),
+            ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable));
 
         bool PromptYesNo(string text) =>
             AnsiConsole.Prompt(new ConfirmationPrompt(text) { DefaultValue = true });
@@ -1119,7 +1141,7 @@ sealed class SetupCommand(
             InstallCopilotHooks:    PluginCommand.InstallCopilotHooks,
             InstallGeminiHooks:     PluginCommand.InstallGeminiHooks,
             CapacitorOnPath:        () => binaries.Finds("kcap"),
-            InstallAgentSkills:     AgentsSkillsInstaller.Install,
+            InstallAgentSkills:     AgentsSkillsInstaller.TryInstall,
             CleanLegacyCodexSkills: legacyDir => AgentsSkillsInstaller.CleanLegacyCodexSkills(legacyDir).RemovedAny,
             // Read when it runs: a reported run swaps stderr for the writer its failure line comes from.
             InstallKiroHooks:       agentPath => PluginCommand.InstallKiroHooks(agentPath, harnesses, Console.Error),
@@ -1357,6 +1379,26 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
+        // Unnumbered, like the browser leg: only the local edition asks it.
+        IntelligenceSetupResponse? intelligence = null;
+
+        if (local is not null) {
+            AnsiConsole.Write(new Rule("[yellow]Background intelligence[/]").LeftJustified());
+            _json?.Started(SetupJsonReport.Intelligence);
+
+            var canAskIntelligence = !noPrompt && !local.NoPrompt && AnsiConsole.Profile.Capabilities.Interactive;
+            intelligence = await new LocalIntelligenceStep(
+                request => IntelligenceSetupClient.ApplyAsync(http.Loopback(), serverUrl, request, CancellationToken.None),
+                () => HeadlessHarnesses(daemonName, CancellationToken.None),
+                Environment.GetEnvironmentVariable,
+                canAskIntelligence ? IntelligenceQuestions ?? new IntelligenceQuestions() : null,
+                line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}")).RunAsync(local);
+
+            _json?.Completed(outcome: intelligence?.Mode ?? "skipped");
+
+            await Console.Out.WriteLineAsync();
+        }
+
         // Step 6: Import past sessions
         AnsiConsole.Write(new Rule("[yellow]Step 6/6 — Import past sessions[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Import);
@@ -1402,6 +1444,8 @@ sealed class SetupCommand(
             BrowserHandoffPrompt: browserAnswers.HandoffPrompt,
             BrowserBackground:   browserAnswers.Background,
             Skip:                importSkip,
+            Intelligence:        intelligence,
+            ImportOutcomes:      local?.ImportOutcomes,
             // A run that cannot ask imports what the flags chose; it never opens a prompt to find out.
             ChooseProjects:      AnsiConsole.Profile.Capabilities.Interactive ? ChooseProjectsPrompt : null));
 
@@ -1413,7 +1457,7 @@ sealed class SetupCommand(
 
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[bold]Server[/]",     Markup.Escape(serverUrl));
-        grid.AddRow("[bold]Visibility[/]", Markup.Escape(defaultVisibility));
+        if (!serverIsLocal) grid.AddRow("[bold]Visibility[/]", Markup.Escape(defaultVisibility));
         grid.AddRow("[bold]Daemon[/]",     Markup.Escape(daemonName));
         if (museAssistant) grid.AddRow("[bold]Posture[/]", MuseAssistantPosture.SummaryValue);
 
@@ -1458,7 +1502,7 @@ sealed class SetupCommand(
         }
 
         if (machineSignedIn) AnsiConsole.MarkupLine($"\n{MachineDaemonLine}");
-        else if (!museAssistant) AnsiConsole.MarkupLine($"\n{DaemonClosingLine(daemonService)}");
+        else if (!museAssistant) AnsiConsole.MarkupLine($"\n{DaemonClosingLine(daemonService, DaemonServiceUnit())}");
 
         WriteNextSteps(
             ShouldOfferGuidedTour(detectedSummary is not null, claudeSettingsPath, stepPaths),
@@ -1699,6 +1743,8 @@ sealed class SetupCommand(
         BackgroundImportLaunch?       BrowserBackground = null,
         Func<bool>?                   PromptNameSessions = null,
         ImportSkip?                   Skip = null,
+        IntelligenceSetupResponse?    Intelligence = null,
+        bool?                         ImportOutcomes = null,
         Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? ChooseProjects = null);
 
     /// <summary><see cref="RunId"/> and <see cref="Handoff"/> are null whenever the foreground pass
@@ -1777,6 +1823,15 @@ sealed class SetupCommand(
             PrintDiscovery(repos, attributed, unattributedOnDisk);
         }
 
+        // Importing under the server's other choice would summarise, or not, against the flag the user gave.
+        if (inputs.ImportOutcomes is { } wanted && inputs.Intelligence?.ImportOutcomes != wanted) {
+            var flag = wanted ? LocalSetupArgs.ImportOutcomesFlag : LocalSetupArgs.NoImportOutcomesFlag;
+            AnsiConsole.MarkupLine($"  [dim]Skipping import — the server did not take {flag}. "
+              + "Set it with [cyan]kcap local intelligence[/], then run [cyan]kcap import --all[/].[/]");
+
+            return new ImportStepResult(false, null, null, null);
+        }
+
         var decision = SetupDecisions.DecideImport(
             inputs.AuthSatisfied, inputs.SkipImport, inputs.NoPrompt, inputs.PromptYesNo);
 
@@ -1806,6 +1861,11 @@ sealed class SetupCommand(
                 skip = SetupImportChoice.SkipFor(choices, kept, skip);
             }
         }
+
+        if (found is not null && inputs.Intelligence is { Mode: not IntelligenceModes.None } applied
+         && ImportCostLine(found.Repos.Sum(r => r.SessionCount) + found.UnmatchedCount
+              - SetupImportChoice.From(found, skip).Where(c => !c.Included).Sum(c => c.Sessions), applied) is { } cost)
+            AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(cost)}[/]");
 
         if (!skip.IsEmpty) {
             AnsiConsole.MarkupLine($"  Leaving out of this import only: {Markup.Escape(string.Join(", ", skip.Labels))}.");
@@ -1839,7 +1899,8 @@ sealed class SetupCommand(
 
         var nameSessions = false;
 
-        if (inputs.PromptNameSessions is { } promptNameSessions) {
+        // The server titles them once a model resolves titles, so naming here would only spend the user's quota twice.
+        if (inputs.PromptNameSessions is { } promptNameSessions && inputs.Intelligence?.ResolvesTitles != true) {
             AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(NameSessionsDisclosure)}[/]");
             nameSessions = promptNameSessions();
         }
@@ -1899,6 +1960,13 @@ sealed class SetupCommand(
 
         return new ImportStepResult(true, runId, handoff, pasteBlock);
     }
+
+    /// <summary>How long the server's background work on an import takes at its daily pace, or null when there is nothing
+    /// to say.</summary>
+    internal static string? ImportCostLine(int sessions, IntelligenceSetupResponse intelligence) =>
+        sessions <= 0 || intelligence.DaysFor(sessions) is not { } days ? null
+        : $"The server works through {sessions:N0} imported session{(sessions == 1 ? "" : "s")} at up to "
+        + $"{intelligence.BacklogSessionTouchesPerDay:N0} a day: about {days} day{(days == 1 ? "" : "s")}.";
 
     static void PrintDiscovery(int repos, int attributed, int unmatched) =>
         AnsiConsole.MarkupLine(
@@ -2305,9 +2373,6 @@ sealed class SetupCommand(
 
         return [.. all.Where(h => h.Installed).Select(h => h.Id.VendorId)];
     }
-
-    /// <summary>A local installation has one user, so nobody else is there to read a shared session.</summary>
-    internal const string LocalDefaultVisibility = "private";
 
     internal const string MachineDaemonLine =
         "  [dim]No daemon service was set up: a service cannot carry the machine credential. Where "
@@ -2854,6 +2919,13 @@ sealed class SetupCommand(
                 return SetupExit.Refused;
             }
 
+            if (args.WindowsService) {
+                await WindowsServiceStepAsync(progress, line => Console.Error.WriteLine($"  {line}"));
+
+                // An installer built before would still pick the supervisor the machine had then.
+                installer = localInstallers.Create();
+            }
+
             var embeddings = args.Embeddings;
             var builtin    = await LocalSetupTerminal.BuiltinModelAsync(installer, plan, embeddings, deferral.Token);
             var committed  = await installer.InstallAsync(new(args.SingleUser, args.Yes, embeddings, builtin), progress, deferral.Token);
@@ -2868,6 +2940,18 @@ sealed class SetupCommand(
 
             return LocalSetupJsonLines.Exit(failure.Code);
         }
+    }
+
+    /// <summary>Replaces the real <c>--windows-service</c> step, which raises an administrator prompt.</summary>
+    internal LocalWindowsServiceStep? WindowsServiceStep { get; init; }
+
+    /// <param name="say">Prints a line about the move; under <c>--local --json</c> it goes to stderr, because stdout
+    /// carries only the JSON lines there.</param>
+    Task WindowsServiceStepAsync(IProgress<LocalInstallEvent> progress, Action<string> say) {
+        var step = WindowsServiceStep;
+        if (step is null && OperatingSystem.IsWindows()) step = LocalWindowsServiceStep.ForCurrentProcess(localRoot, home, time);
+
+        return step is null ? Task.CompletedTask : step.RunAsync(progress, say);
     }
 
     static void WriteJsonLine(string line) {
@@ -3158,11 +3242,12 @@ sealed class SetupCommand(
     /// <summary>The closing daemon line. Only a platform with no service manager is pointed at a plain
     /// background start; anywhere else that would run a second daemon beside the service. A retry is
     /// suggested only where one can change the answer.</summary>
-    internal static string DaemonClosingLine(FirstRunMachineActionResult? service) => (service?.Outcome, service?.Reason) switch {
+    /// <param name="unit">The service manager's name for the unit, when it is known.</param>
+    internal static string DaemonClosingLine(FirstRunMachineActionResult? service, string? unit = null) => (service?.Outcome, service?.Reason) switch {
         (FirstRunMachineActionOutcomes.Enabled or FirstRunMachineActionOutcomes.AlreadyEnabled, _) =>
-            "  [green]✓[/] The agent daemon runs as a background service.",
+            $"  [green]✓[/] The agent daemon runs as a background service{UnitSuffix(unit)}.",
         (FirstRunMachineActionOutcomes.EnabledUnverified, _) =>
-            "  [green]✓[/] The agent daemon is installed as a background service [dim](check with[/] [cyan]kcap daemon status[/][dim])[/].",
+            $"  [green]✓[/] The agent daemon is installed as a background service{UnitSuffix(unit)} [dim](check with[/] [cyan]kcap daemon status[/][dim])[/].",
         (FirstRunMachineActionOutcomes.Refused, FirstRunMachineActionReasons.UnsupportedPlatform) =>
             "  [dim]This platform has no service manager kcap supports:[/] start the daemon with [cyan]kcap daemon start -d[/]",
         (FirstRunMachineActionOutcomes.Refused, FirstRunMachineActionReasons.NotConfigured) =>
@@ -3171,6 +3256,17 @@ sealed class SetupCommand(
             "  [yellow]![/] The existing agent daemon service needs attention, so setup left it alone: see [cyan]kcap daemon service status[/]",
         _ => "  [yellow]![/] The agent daemon service is not running yet: retry with [cyan]kcap daemon service ensure[/]"
     };
+
+    static string UnitSuffix(string? unit) => unit is null ? "" : $", the {Markup.Escape(unit)}";
+
+    /// <summary>The name of the unit the daemon service runs under here; null on a platform with none.</summary>
+    string? DaemonServiceUnit() {
+        try {
+            return Services.ServiceManagerFactory.ForCurrentOs(config, home, time).Describe();
+        } catch (PlatformNotSupportedException) {
+            return null;
+        }
+    }
 
     /// <summary>
     /// The git hook's line. An older git ignores the entry silently, so setup says so rather than

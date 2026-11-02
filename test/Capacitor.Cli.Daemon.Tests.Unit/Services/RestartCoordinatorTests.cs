@@ -179,12 +179,55 @@ public class RestartCoordinatorTests {
     }
 
     [Test]
-    public async Task On_Windows_a_binary_outside_a_script_install_is_not_watched() {
+    public async Task On_Windows_a_binary_outside_a_script_or_npm_install_is_not_watched() {
         using var tmp = new TempDir();
-        var exe = tmp.CreateFile("npm/bin/kcap-daemon", "x");
+        var exe = tmp.CreateFile("standalone/bin/kcap-daemon", "x");
 
         await Assert.That(RestartCoordinator.StatBinaryAt(exe, isWindows: true, File.Exists)).IsNull();
         await Assert.That(RestartCoordinator.StatBinaryAt(exe, isWindows: false, File.Exists)).IsNotNull();
+    }
+
+    /// <summary>An npm update on Windows moves the running image aside and npm writes the new binary at the
+    /// path the daemon started from: the gap in between is no change, the new file is one.</summary>
+    [Test]
+    [Arguments("npm/node_modules/@kurrent/kcap-win32-x64/bin/kcap-daemon.exe")]
+    [Arguments("npm/node_modules/@kurrent/kcap/node_modules/@kurrent/kcap-win32-x64/bin/kcap-daemon.exe")]
+    public async Task On_Windows_an_npm_install_is_watched_across_a_rename_aside_update(string binary) {
+        using var tmp = new TempDir();
+        tmp.CreateFile("npm/node_modules/@kurrent/kcap/bin/kcap.js", "");
+        var launch = tmp.CreateFile(binary, "old");
+
+        var before = RestartCoordinator.StatBinaryAt(launch, isWindows: true, File.Exists);
+        File.Move(launch, tmp.PathTo("npm/.kcap-trash-kcap-daemon.exe"));
+        var moved = RestartCoordinator.StatBinaryAt(launch, isWindows: true, File.Exists);
+        tmp.CreateFile(binary, "the new version");
+        var after = RestartCoordinator.StatBinaryAt(launch, isWindows: true, File.Exists);
+
+        await Assert.That(before).IsNotNull();
+        await Assert.That(RestartDecision.BinaryChanged(before, moved)).IsFalse();
+        await Assert.That(RestartDecision.BinaryChanged(before, after)).IsTrue();
+    }
+
+    /// <summary>The coordinator watches the path captured at boot, so moving the running image out of the
+    /// install does not take the watch with it.</summary>
+    [Test]
+    public async Task An_npm_daemon_on_Windows_restarts_once_its_launch_path_holds_the_new_binary() {
+        using var tmp = new TempDir();
+        tmp.CreateFile("npm/node_modules/@kurrent/kcap/bin/kcap.js", "");
+        var launch = tmp.CreateFile("npm/node_modules/@kurrent/kcap-win32-x64/bin/kcap-daemon.exe", "old");
+        var spy    = new SpyStrategy();
+        var c      = RestartCoordinator.ForTest(Daemons.Store, "laptop", "v0.4.11", spy, TimeProvider.System);
+        c.WatchLaunchPath(launch, isWindows: true);
+        c.LaunchBinary = RestartCoordinator.StatBinaryAt(launch, isWindows: true, File.Exists);
+        c.PrimeBaseline();
+
+        File.Move(launch, tmp.PathTo("npm/.kcap-trash-kcap-daemon.exe"));
+        c.Tick();
+        await Assert.That(spy.Calls).IsEqualTo(0);
+
+        tmp.CreateFile("npm/node_modules/@kurrent/kcap-win32-x64/bin/kcap-daemon.exe", "the new version");
+        c.Tick();
+        await Assert.That(spy.Calls).IsEqualTo(1);
     }
 
     [Test]
@@ -432,6 +475,24 @@ public class RestartCoordinatorTests {
         boundary = true;
         c.Tick();
         await Assert.That(spy.Calls).IsEqualTo(1);
+    }
+
+    /// <summary>A when-idle request that reaches the daemon before its poll sees the new binary must not
+    /// hide the update: idle agents never leave, so only the turn-boundary restart would ever fire.</summary>
+    [Test]
+    public async Task An_update_landing_behind_a_when_idle_request_fires_at_the_turn_boundary() {
+        var spy  = new SpyStrategy();
+        var size = 100L;
+        var c    = NewCoordinator(spy, isBusy: () => false, stat: () => new BinaryStat(size, 1));
+        c.HasAgents = () => true;
+
+        c.RequestRestart(force: false, whenIdle: true);
+        await Assert.That(spy.Calls).IsEqualTo(0);
+
+        size = 200;
+        c.Tick();
+        await Assert.That(spy.Calls).IsEqualTo(1);
+        await Assert.That(DaemonRestartMarker.TryRead(Daemons.Store, "laptop")!.Reason).IsEqualTo("self-detected");
     }
 
     /// <summary>A request that lands while a harness restart is running stays pending after its no-op.</summary>

@@ -18,6 +18,7 @@ using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Policy;
 using Capacitor.Cli.Core.Resume;
+using HandoffSourceContext = Capacitor.Cli.Core.Handoff.HandoffSourceContext;
 using Capacitor.Cli.Daemon.Harness.Antigravity;
 using Capacitor.Cli.Daemon.Harness.Claude;
 using Capacitor.Cli.Daemon.Harness.Codex;
@@ -77,6 +78,12 @@ internal record AgentInstance(
     /// The interrupted session this agent continues, until its own session id is known and the
     /// takeover of that session's work has started.
     public string?              ContinuedFromSessionId { get; set; }
+
+    /// The ended session this agent was launched to hand off from, until its takeover settles.
+    public HandoffSourceContext? HandoffSource { get; set; }
+
+    /// Set by the first call that starts this agent's hand-off takeover; it runs once.
+    public int HandoffTakeoverStarted;
 
     /// The agent this one continues, announced on every registration so the server can follow its wake-ups here.
     public string?              ContinuesAgentId  { get; init; }
@@ -229,6 +236,9 @@ internal record AgentInstance(
     /// lets the value survive a server restart.</summary>
     public string?              SandboxPolicy     { get; init; }
     public string?              ApprovalPolicy    { get; init; }
+    /// <summary>The caller-selected Codex approvals reviewer, set alongside the posture pair; null when
+    /// approvals go to the user.</summary>
+    public string?              ApprovalsReviewer { get; init; }
 
     /// <summary>The applied ACP permission preset for a hosted interactive ACP launch that carried
     /// one; null everywhere else. Stored here (like the posture pair above) so initial registration
@@ -240,6 +250,10 @@ internal record AgentInstance(
     /// against the same documents the launch was reported with, whatever the files later say.
     /// Null when no provider was wired, or when the build failed.</summary>
     public PolicySnapshot?      PolicySnapshot    { get; init; }
+
+    /// <summary>The policy could not be built, so a null <see cref="PolicySnapshot"/> does not mean the run
+    /// has none: what it would have decided is unknown.</summary>
+    public bool                 PolicyUnavailable { get; init; }
 
     /// <summary>Launched fresh by this daemon process, so every permission it raised passed through this
     /// daemon's bridges; never for a resume or an adopted agent, whose earlier refusals this process never saw.</summary>
@@ -585,6 +599,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     // Tail-of-PTY capture for a FAILED launch, under the same per-daemon record root as the PID
     // records ({state}/{name}/agents/failed/) — survives worktree teardown for post-mortem.
     readonly FailedLaunchLog?     _failedLaunchLog;
+    readonly HandoffOutcomeStore  _handoffOutcomes;
     readonly string               _daemonId    = "";
     readonly string               _daemonEpoch = "";
 
@@ -903,6 +918,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         ResumeLedger      = ResumeLedgerStore.For(config.Store, config.Name, time);
         ParticipantLedger = ResumeLedgerStore.ParticipantsFor(config.Store, config.Name, time);
         _failedLaunchLog = new FailedLaunchLog(recordRoot, time);
+        _handoffOutcomes = new HandoffOutcomeStore(recordRoot, time);
         _quarantine  = new AgentKillQuarantine(logger, time);
         _daemonId    = ComputeDaemonId(config.Name);
         _daemonEpoch = config.DaemonEpoch ?? Guid.NewGuid().ToString("N");
@@ -925,7 +941,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 _resolvedLedger?.Upsert(a, e, resuming ? null : fr, resuming ? null : role);
             },
             markerStore: _markerCandidates,
-            onMarkerResolved: (a, e) => _resolvedLedger?.Upsert(a, e, null, null));
+            onMarkerResolved: (a, e) => _resolvedLedger?.Upsert(a, e, null, null),
+            stoppedForResume: a => (ResumeLedger?.TryRead(a) ?? ParticipantLedger?.TryRead(a))?.State == ResumeState.Resuming);
 
         // Phase B2-b (sequenced-settlement design §4.2.2) + §3.3: publish the epoch-scoped processor
         // BEFORE any handler is wired, so no command can ever observe a null one in production.
@@ -1161,6 +1178,18 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     /// <summary>Only the session a fresh agent reported as its own started under this daemon: a request naming another
     /// one, such as an older session resumed inside the agent, may carry refusals this daemon never saw.</summary>
+    AttributedAgent Attributed(AgentInstance agent, string canonicalSession) =>
+        new(agent.Id, agent.PolicySnapshot, agent.ApprovalsReviewer, PersonDeadlineOf(agent),
+            PolicyUnavailable: agent.PolicyUnavailable, BridgedSinceStart: FreshIn(agent, canonicalSession));
+
+    /// <summary>An app-server Codex on auto-review raises its person-lane prompts through the bridge rather
+    /// than its own approval bridge, so they keep that bridge's fail-closed deadline.</summary>
+    TimeSpan? PersonDeadlineOf(AgentInstance agent) =>
+        agent is { ApprovalsReviewer: Core.Harness.Codex.CodexApprovalsReviewers.AutoReview,
+                   RuntimeTransport: Harness.Codex.CodexTransportDecision.AppServer }
+            ? TimeSpan.FromSeconds(Math.Max(1, _config.CodexAppServerApprovalTimeoutSeconds))
+            : null;
+
     static bool FreshIn(AgentInstance agent, string canonicalSession) =>
         agent.BridgedSinceStart && agent.SessionId is { } own && PermissionWire.Canonical(own) == canonicalSession;
 
@@ -1175,21 +1204,21 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         if (query.AgentId is { Length: > 0 } rawId) {
             var raw = live.Where(a => string.Equals(a.Id, rawId, StringComparison.Ordinal)).ToList();
-            if (raw.Count == 1) return new AttributedAgent(raw[0].Id, raw[0].PolicySnapshot, FreshIn(raw[0], canonicalSession));
+            if (raw.Count == 1) return Attributed(raw[0], canonicalSession);
             if (PermissionWire.Canonical(rawId) is { } canonicalId) {
                 var canon = live.Where(a => PermissionWire.Canonical(a.Id) == canonicalId).ToList();
-                if (canon.Count == 1) return new AttributedAgent(canon[0].Id, canon[0].PolicySnapshot, FreshIn(canon[0], canonicalSession));
+                if (canon.Count == 1) return Attributed(canon[0], canonicalSession);
             }
         }
 
         var bySession = live.Where(a => a.SessionId is { } s && PermissionWire.Canonical(s) == canonicalSession).ToList();
-        if (bySession.Count == 1) return new AttributedAgent(bySession[0].Id, bySession[0].PolicySnapshot, FreshIn(bySession[0], canonicalSession));
+        if (bySession.Count == 1) return Attributed(bySession[0], canonicalSession);
 
         if (query.Cwd is { Length: > 0 } cwd) {
             var wanted = Path.TrimEndingDirectorySeparator(cwd);
             var byCwd = live.Where(a => string.Equals(
                 Path.TrimEndingDirectorySeparator(a.Worktree.Path), wanted, RepoPathStore.PathComparison)).ToList();
-            if (byCwd.Count == 1) return new AttributedAgent(byCwd[0].Id, byCwd[0].PolicySnapshot, FreshIn(byCwd[0], canonicalSession));
+            if (byCwd.Count == 1) return Attributed(byCwd[0], canonicalSession);
         }
 
         return null;
@@ -1197,9 +1226,26 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     /// The bridge's attributed turn-boundary verdict for a PTY-hosted agent, whose runtime cannot
     /// attest its own turns. Lands on the live agent's clock; an id the daemon does not hold
-    /// (torn down since the hook fired) is dropped.
+    /// (torn down since the hook fired) is dropped. Either verdict proves a prompt reached the agent.
     void HandleInputWait(string agentId, bool waiting) {
-        if (_agents.TryGetValue(agentId, out var agent)) agent.ActivityClock.SetAwaitingInput(waiting);
+        if (!_agents.TryGetValue(agentId, out var agent)) return;
+
+        agent.ActivityClock.SetAwaitingInput(waiting);
+
+        var unconfirmed = agent.Runtime.LaunchPromptUnconfirmed;
+        agent.Runtime.NoteTurnRelayed();
+        if (unconfirmed) _statusNotifier.Pulse();
+    }
+
+    /// Republishes the agent once its launch prompt is found unconfirmed, so its chat can say so.
+    async Task WatchLaunchPromptAsync(AgentInstance agent) {
+        if (agent.Runtime.LaunchPromptDelivery is not { } delivery) return;
+
+        try {
+            if (await delivery.ConfigureAwait(false) == LaunchPromptOutcome.NotConfirmed) _statusNotifier.Pulse();
+        } catch (Exception) {
+            // The runtime factory logs a faulted delivery.
+        }
     }
 
     /// The bridge's attributed notice that a prompt was answered where the daemon cannot see:
@@ -1663,7 +1709,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 var supported         = _config.SupportedVendors ?? [];
                 var catalogVendors    = !probeCatalog ? [] : _runtimeFactories.Values
                     .Where(f => supported.Contains(f.Vendor, StringComparer.Ordinal))
-                    .Where(f => f.CatalogFingerprintPaths.Count > 0 || (previousCatalog?.ContainsKey(f.Vendor) ?? false))
+                    .Where(f => f.CatalogFingerprintPaths.Count > 0 || (previousCatalog?.ContainsKey(f.Vendor) ?? false)
+                             || _config.LateCatalogKeys.ContainsKey(f.Vendor))
                     .Select(f => f.Vendor)
                     .ToArray();
                 var accountFactory = probeCatalog ? VendorModelCatalogs.AccountFactory(_runtimeFactories.Values, supported) : null;
@@ -1717,14 +1764,15 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         string? problem = null;
         var resolved   = CodexTransportResolution.Read(
             committed.Generation + 1, _config.ReadExperimentalSettings, () => DaemonRunner.ProbeCliVersion(_harnesses.LaunchCommand(HarnessId.Codex, _config.CodexPath)),
-            unreadable => { problem = unreadable; return committed; });
+            unreadable => { problem = unreadable; return committed; },
+            _config.CodexAppServerByDefault);
 
         if (problem is not null && problem != _config.ExperimentalSettingsProblem) LogUnreadableSettings(_logger, problem);
         _config.ExperimentalSettingsProblem = problem;
         if (resolved.SameStateAs(committed)) return committed;
 
         _config.CodexResolution = resolved;
-        LogCodexResolution(_logger, resolved.Generation, resolved.SwitchOn, resolved.Active, resolved.InactiveReason ?? "");
+        LogCodexResolution(_logger, resolved.Generation, resolved.SwitchOn, resolved.ByDefault, resolved.Active, resolved.InactiveReason ?? "");
         _statusNotifier.Pulse();
         return resolved;
     }
@@ -2345,10 +2393,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             AgentActivityClock? activityClock = null,
             WorktreeInfo? worktree = null, WorkLocation work = WorkLocation.OwnedWorktree,
             string vendor = "codex",
-            string? borrowedSnapshotSource = null) {
+            string? borrowedSnapshotSource = null,
+            IHostedAgentRuntime? runtime = null) {
         var agent = new AgentInstance(
             id, prompt, model, null, "/repo", vendor,
-            new PtyHostedAgentRuntime(vendor, pty ?? NoopPtyProcess.Instance, _time),
+            runtime ?? new PtyHostedAgentRuntime(vendor, pty ?? NoopPtyProcess.Instance, _time),
             worktree ?? new WorktreeInfo("/repo", "b", "/repo"),
             new CancellationTokenSource()) {
             Kind = kind, FlowRunId = flowRunId, FlowRole = flowRole, IsPrivate = isPrivate,
@@ -2524,11 +2573,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             : AccountResolution.ResolveForResume(registry, vendor, resumed.AccountId, resumed.AccountDirectory, defaultDirectory);
     }
 
-    /// <summary>The server's start title, or — from a server that sends none — one derived from the prompt.</summary>
+    /// <summary>The server's start title, or — from a server that sends none — one derived from the prompt, or
+    /// for a hand-off with no text, one naming its source.</summary>
     internal static AgentStartTitle? StartTitleOf(LaunchAgentCommand cmd) =>
         !string.IsNullOrWhiteSpace(cmd.Title)
             ? new AgentStartTitle(cmd.Title.Trim(), cmd.TitleDerived)
-            : AgentStartTitle.FromPrompt(cmd.Prompt);
+            : AgentStartTitle.FromPrompt(cmd.Prompt) ?? (cmd.Handoff?.Source is { } source ? HandoffStartTitle(source) : null);
 
     /// <summary>The launch body. Its outcome drives the sequenced lane: a pre-flight rejection is
     /// <c>LaunchRejected</c> (capacity as <c>daemon_capacity</c>, every other validation as
@@ -2551,6 +2601,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // Before consent for the same reason as the preset guard above.
         if (ClaudePermissionModePolicy.RejectionReason(cmd) is { } modeRejection) {
             await _server.LaunchFailedAsync(cmd.AgentId, modeRejection);
+
+            return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+        }
+
+        // Before consent for the same reason as the preset guard above.
+        if (HandoffLaunchRefusal(cmd, resuming: false) is { } handoffRefusal) {
+            await _server.LaunchFailedAsync(cmd.AgentId, handoffRefusal);
 
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
         }
@@ -2619,6 +2676,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // absorb this incidentally.)
         if (string.IsNullOrWhiteSpace(cmd.Vendor) || !_runtimeFactories.TryGetValue(cmd.Vendor, out var runtimeFactory)) {
             await LaunchFailedUnlessPrivateAsync(isPrivate, cmd.AgentId, $"Unknown vendor: {cmd.Vendor}");
+
+            return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+        }
+
+        if (HandoffLaunchRefusal(cmd, resume is not null) is { } handoffRefusal) {
+            await LaunchFailedUnlessPrivateAsync(isPrivate, cmd.AgentId, handoffRefusal);
 
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
         }
@@ -2848,6 +2911,17 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             if (resume is not null) {
                 worktree = resume.Worktree;
+            } else if (cmd.Handoff is not null) {
+                using var handoffCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token, cancel);
+                var handoff = await PrepareHandoffAsync(cmd, repoPath, handoffCts.Token);
+                if (handoff.Refusal is { } handoffRefused) {
+                    await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, handoffRefused);
+
+                    return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+                }
+
+                worktree = handoff.Worktree!;
+                prompt   = handoff.Prompt;
             } else if (cmd.Borrowed) {
                 // Defense-in-depth re-authorization: the server already probed this cwd, but the
                 // daemon NEVER borrows a path just because the server said so (TOCTOU-safe). The
@@ -2895,10 +2969,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // one set of documents. A policy that cannot be built is not a launch failure: the launch
             // proceeds with no snapshot, and the permission seam falls back to prompting.
             PolicySnapshot? policySnapshot = null;
+            var policyUnavailable = false;
             try {
                 policySnapshot = _policySnapshots?.BuildFor(worktree.Path);
             } catch (Exception ex) {
                 LogPolicySnapshotBuildFailed(ex, agentId);
+                policyUnavailable = true;
             }
 
             // The documents this run is judged against, enqueued BEFORE the runtime starts: the ACP
@@ -3218,11 +3294,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 ScratchWorkspace    = cmd.ScratchWorkspace,
                 SandboxPolicy       = appliedPosture?.Sandbox,
                 ApprovalPolicy      = appliedPosture?.Approval,
+                ApprovalsReviewer   = appliedPosture is null ? null : cmd.CodexPosture?.ApprovalsReviewer,
                 // Echoed on AgentRegistered for the dashboard chip; carried verbatim from the command
                 // so a reconnect re-registration reports the same value. Only ever set for an
                 // interactive ACP launch (the policy above rejects any other shape).
                 PermissionPreset    = cmd.AcpPermissionPreset,
                 PolicySnapshot      = policySnapshot,
+                PolicyUnavailable   = policyUnavailable,
                 BridgedSinceStart   = resume is null && cmd.ResumeSessionId is null,
                 ReviewerBridgeToken = reviewerToken,
                 BorrowedSnapshotSource = borrowedSnapshotSource,
@@ -3236,6 +3314,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 StartTitle          = startTitle,
                 IsPrivate           = isPrivate,
                 ContinuesAgentId    = resume?.Entry.InheritedAgentIds is [.., var predecessor] ? predecessor : null,
+                HandoffSource       = cmd.Handoff?.Source ?? resume?.Entry.Launch.HandoffSource,
                 // Keeps the worktree and the entry through any failure until the resume is judged.
                 ResumePending       = resume is not null
             };
@@ -3248,6 +3327,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             }
             published = true;
             onPublished?.Invoke(agent);
+            _ = WatchLaunchPromptAsync(agent);
             storeLease?.Keep();
             if (resume is null) WriteLedger(agent, cmd, "server", consent);
             hold.Dispose();
@@ -3367,6 +3447,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     Record: pid => PersistPidRecordOrThrow(agent, pid, null),
                     Clear:  () => DeletePidRecord(agent.Id));
             }
+
+            StartHandoffTakeover(agent);
 
             // Start reading output
             _ = ReadAgentOutputAsync(agent);
@@ -4775,6 +4857,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         public const string ReaperClaimedLate = "reaper_claimed_late";
         public const string QueueFull         = "queue_full";
         public const string DeliveryFailed    = "delivery_failed";
+        /// <summary>Written, but the agent started no turn from it: the input never reached the model.</summary>
+        public const string TurnNotStarted    = "turn_not_started";
     }
 
     /// <summary>Reports a drop to the server, when the dispatch carried an id to name. Never throws:
@@ -4883,8 +4967,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // the daemon's journal instead.
         var   isCodex       = agent.Runtime.EmitsTerminalOutput
                            && string.Equals(agent.Runtime.Vendor, "codex", StringComparison.OrdinalIgnoreCase);
-        long? codexBaseline = null;
-        long  codexGen      = 0;
+        long? codexBaseline     = null;
+        long  codexGen          = 0;
+        ulong codexAttestations = 0;
 
         InputDeliveryOutcome outcome;
 
@@ -4896,7 +4981,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
 
         // Armed outside the section, and only for a write that actually landed.
-        if (isCodex && outcome.Kind is InputDeliveryKind.Delivered) ArmCodexTurnProbe(agent, codexBaseline, codexGen);
+        if (isCodex && outcome.Kind is InputDeliveryKind.Delivered)
+            ArmCodexTurnProbe(agent, codexBaseline, codexAttestations, codexGen, dispatchId);
 
         return outcome;
 
@@ -4981,15 +5067,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     return InputDeliveryOutcome.Drop(SendInputDropReason.DeliveryFailed, TearingDown);
                 }
 
-                // Codex turn diagnostic: bump the round generation and sample the rollout length BEFORE
-                // delivering, while the gate is held so it is ordered per agent. Bumping first instantly
-                // invalidates any prior round's still-running probe (it emits a verdict only while its
-                // generation is the latest), so a fast Codex append caused by THIS input can never be
-                // credited to the previous round. Sampling after the bump but before the send keeps the
-                // baseline honest — the append lands strictly after it. A null here (path not cached yet,
-                // or the stat failed) is handled in ArmCodexTurnProbe.
+                // Under the gate and before the write: the bump retires the previous round's probe before
+                // this input can grow the rollout, and the rollout length and attestation count are
+                // sampled before anything this input starts can move them. A null baseline is handled in
+                // ArmCodexTurnProbe.
                 if (isCodex) {
-                    codexGen = Interlocked.Increment(ref agent.CodexTurnProbeGen);
+                    codexGen          = Interlocked.Increment(ref agent.CodexTurnProbeGen);
+                    codexAttestations = agent.ActivityClock.TurnAttestations;
                     if (agent.TranscriptPath is { } rolloutPath) codexBaseline = TryFileLength(rolloutPath);
                 }
 
@@ -5052,60 +5136,73 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     /// <summary>
-    /// Codex turn diagnostic: schedule a bounded, off-handler probe that watches the reviewer's
-    /// rollout for growth past <paramref name="baseline"/> (the length captured just before this
-    /// round's input was delivered) and logs whether a turn began — the only clean turn-start signal
-    /// a PTY runtime gives the daemon (see <see cref="CodexTurnObserver"/>).
+    /// Schedules the off-handler probe that watches a PTY Codex agent's rollout for growth past
+    /// <paramref name="baseline"/>, the length sampled just before this input was delivered: the only
+    /// turn-start signal a PTY runtime gives the daemon (see <see cref="CodexTurnObserver"/>). For a
+    /// review-flow reviewer the probe also resubmits and fails a round that never starts (see
+    /// <see cref="CodexRoundConfirmation"/>); for anyone else it only logs.
     ///
-    /// <para>Single-flight is by GENERATION, established in <see cref="DeliverInputAsync"/> before
-    /// delivery: <paramref name="gen"/> is this round's generation, and the probe emits a verdict
-    /// only while it is still the agent's latest — so a later round's growth is never credited to an
-    /// earlier round even during that earlier probe's own poll. This method itself does no I/O and
-    /// touches no disposable of the (already torn-down?) agent: it only schedules onto the pool, so
-    /// it cannot throw a teardown fault back onto the just-completed send. A null
-    /// <paramref name="baseline"/> (path not cached yet, or the pre-delivery stat failed) is logged
-    /// and skipped — never a false "no turn"; the generation was still bumped, so any prior probe is
-    /// already invalidated.</para>
+    /// <para><paramref name="gen"/> was bumped under the send gate before delivery, and a probe acts only
+    /// while it is still the agent's latest, so a later round's growth is never credited to this one. A
+    /// null baseline is logged and skipped, never read as "no turn".</para>
     /// </summary>
-    void ArmCodexTurnProbe(AgentInstance agent, long? baseline, long gen) {
+    void ArmCodexTurnProbe(AgentInstance agent, long? baseline, ulong attestations, long gen, Guid? dispatchId) {
         Interlocked.Increment(ref _codexProbesArmed);
         if (agent.TranscriptPath is not { } rolloutPath || baseline is not { } b) {
             LogCodexTurnRolloutUnresolved(agent.Id);
             return;
         }
 
-        _ = Task.Run(() => ObserveCodexTurnAsync(agent, rolloutPath, b, gen));
+        _ = Task.Run(() => ObserveCodexTurnAsync(agent, rolloutPath, b, attestations, gen, dispatchId));
     }
 
-    async Task ObserveCodexTurnAsync(AgentInstance agent, string rolloutPath, long baseline, long gen) {
+    async Task ObserveCodexTurnAsync(
+            AgentInstance agent, string rolloutPath, long baseline, ulong attestations, long gen, Guid? dispatchId) {
         try {
-            // The linked token is created HERE (on the pool), not on the send handler, so a
-            // concurrent teardown that has disposed ReadCts faults this best-effort probe rather
-            // than the send. Bounded by the agent's stop, daemon shutdown, and the observe timeout.
+            // Linked here, on the pool, so a teardown that already disposed ReadCts faults this probe
+            // rather than the send.
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(agent.ReadCts.Token, _shutdownCts.Token);
 
             long CurrentLength() {
                 try { return new FileInfo(rolloutPath).Length; } catch { return -1; } // <0 ⇒ momentarily unreadable
             }
 
-            // Monotonic elapsed measurement (same clock domain the observer uses) — DateTime.UtcNow
-            // could skew or go negative if the wall clock shifts mid-observation.
+            bool IsCurrent() => Volatile.Read(ref agent.CodexTurnProbeGen) == gen;
+
             var startTs = _time.GetTimestamp();
 
-            // Single-flight: this round's generation was bumped (under the send gate) before its
-            // input was delivered, so a newer round instantly makes this one stale. The predicate is
-            // checked inside the poll loop, so a superseded probe stops within one interval instead
-            // of polling to the timeout; the generation stays the sole verdict authority.
-            var outcome = await CodexTurnObserver.ObserveGrowthAsync(
-                CurrentLength, baseline, CodexTurnObserveTimeout, CodexTurnObserveInterval, _time, cts.Token,
-                isCurrent: () => Volatile.Read(ref agent.CodexTurnProbeGen) == gen);
+            if (agent.Kind == LaunchKind.ReviewFlow) {
+                var result = await CodexRoundConfirmation.ConfirmAsync(
+                    CurrentLength, baseline, () => agent.ActivityClock.TurnAttestations, attestations,
+                    () => agent.Runtime.ResubmitAsync(IsCurrent),
+                    CodexRoundConfirmation.Window, CodexTurnObserveInterval, _time, cts.Token, IsCurrent);
 
-            // Verdict authority: the in-loop predicate stops a superseded probe promptly, but it is
-            // checked BEFORE each length stat — so a newer round could bump the generation AND grow
-            // the rollout between that check and the read, yielding a TurnObserved that belongs to
-            // the newer round. Re-check the generation HERE, immediately before logging, so a stale
-            // round never emits a verdict (leaving only the sub-microsecond check-to-log window).
-            if (Volatile.Read(ref agent.CodexTurnProbeGen) != gen) return;
+                // Re-checked after the verdict: the in-loop check runs before each stat, so a newer
+                // round's growth can still land in between.
+                if (!IsCurrent()) return;
+
+                switch (result.Verdict) {
+                    case CodexRoundConfirmation.Verdict.Started:
+                        LogCodexTurnStarted(agent.Id, (long)_time.GetElapsedTime(startTs).TotalMilliseconds);
+                        break;
+                    case CodexRoundConfirmation.Verdict.StartedAfterResubmit:
+                        LogCodexTurnStartedAfterResubmit(agent.Id, (long)_time.GetElapsedTime(startTs).TotalMilliseconds);
+                        break;
+                    case CodexRoundConfirmation.Verdict.NotStarted:
+                        await FailUnstartedCodexRoundAsync(agent, dispatchId, result.ResubmitWritten);
+                        break;
+                    case CodexRoundConfirmation.Verdict.Unavailable:
+                        LogCodexTurnRolloutUnavailable(agent.Id);
+                        break;
+                }
+
+                return;
+            }
+
+            var outcome = await CodexTurnObserver.ObserveGrowthAsync(
+                CurrentLength, baseline, CodexTurnObserveTimeout, CodexTurnObserveInterval, _time, cts.Token, IsCurrent);
+
+            if (!IsCurrent()) return;
 
             switch (outcome) {
                 case CodexTurnObserver.Outcome.TurnObserved:
@@ -5115,15 +5212,47 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     LogCodexTurnNotObserved(agent.Id, CodexTurnObserveTimeout.TotalSeconds);
                     break;
                 case CodexTurnObserver.Outcome.Unavailable:
-                    // The rollout became unreadable and never showed growth — a measurement gap, NOT
-                    // evidence the reviewer ignored the input. Do not emit the strong "no turn" line.
+                    // A rollout that became unreadable is a measurement gap, not evidence of no turn.
                     LogCodexTurnRolloutUnavailable(agent.Id);
                     break;
-                // Superseded: a newer round took over — it reports; no verdict here.
-                // Cancelled: the agent stopped or the daemon is shutting down — no verdict to report.
             }
         } catch (Exception ex) {
             LogCodexTurnObserveFailed(ex, agent.Id);
+        }
+    }
+
+    /// <summary>The stop detail a review-flow reviewer is ended with when its round never started a turn.</summary>
+    internal const string CodexRoundNotStartedReason = "codex_reviewer_turn_not_started";
+
+    /// <summary>
+    /// Ends a review-flow reviewer whose round never started a turn, so the flow fails the round now, with
+    /// this reason, rather than at its inactivity bound. The server settles a round on its participant's
+    /// stop; a rejected dispatch only retires the message, so the report goes out ahead of the stop. It is
+    /// not awaited before the terminate: while the reviewer lives, an Enter whose write is still pending
+    /// can land and start a turn after this verdict. No graceful <c>/exit</c>: typed behind the unsent
+    /// round, it would submit both.
+    /// </summary>
+    internal async Task FailUnstartedCodexRoundAsync(AgentInstance agent, Guid? dispatchId, bool resubmitWritten) {
+        if (agent.IsCleanupStarted || agent.IsReapClaimed || agent.Runtime.HasExited) return;
+
+        LogCodexRoundNotStarted(agent.Id, (CodexRoundConfirmation.Window * 2).TotalSeconds, resubmitWritten);
+
+        var report = dispatchId is { } dispatch && !agent.IsServerSilent
+            ? ReportUnstartedRoundAsync(dispatch)
+            : Task.CompletedTask;
+
+        agent.StopDetail ??= CodexRoundNotStartedReason;
+        agent.PendingEndReason = CodexRoundNotStartedReason;
+        try { await agent.Runtime.TerminateAsync(TimeSpan.FromSeconds(10)); } catch (Exception ex) { LogStopError(ex, agent.Id); }
+
+        await report;
+
+        async Task ReportUnstartedRoundAsync(Guid rejected) {
+            try {
+                await _server.SendInputRejectedAsync(rejected, agent.Id, SendInputDropReason.TurnNotStarted);
+            } catch (Exception ex) {
+                LogSendInputRejectReportFailed(ex, agent.Id, SendInputDropReason.TurnNotStarted);
+            }
         }
     }
 
@@ -5362,7 +5491,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         try {
             await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows);
         } catch (Exception ex) {
-            LogTerminalDimsSendFailed(ex, agent.Id);
+            ReportDimsSendFailed(ex, agent.Id);
         }
 
         _ = _server.AppendAgentRunEventAsync(
@@ -5908,7 +6037,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     try {
                         await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows);
                     } catch (Exception ex) {
-                        LogTerminalDimsSendFailed(ex, agent.Id);
+                        ReportDimsSendFailed(ex, agent.Id);
                     }
 
                     // The command list is server-side in-memory only, and the AgentRegistered above
@@ -6067,6 +6196,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     agent.TranscriptPath = winner.Path;
                     UpdateLedgerSession(agent);
                     StartContinuationTakeover(agent);
+                    StartHandoffTakeover(agent);
                     _statusNotifier.Pulse();
                     LogSessionIdDetected(agent.Id, winner.SessionId);
 
@@ -6206,8 +6336,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             _configRoot,
             _http,
             _config.ServerUrl,
-            new HookSpool(_configRoot, _time),
-            new TranscriptSpool(_configRoot, _time),
+            new HookSpool(_configRoot, _time, _config.ServerUrl),
+            new TranscriptSpool(_configRoot, _time, _config.ServerUrl),
             _logger,
             _time,
             onWhatsDoneRequested: SpawnWhatsDoneGenerator);
@@ -6473,6 +6603,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 LogDisposeStepFailed(ex, "shutdown-cancel");
             }
 
+            try {
+                await DrainHandoffTakeoversAsync();
+            } catch (Exception ex) {
+                LogDisposeStepFailed(ex, "handoff-takeovers");
+            }
+
             // Before the hub is disposed (DaemonRunner disposes it after this method returns):
             // close admission, then end every pump, including one whose read loop is mid-drain.
             try {
@@ -6607,8 +6743,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-advertising unattended vendor capabilities ({Reason}): {Versions}")]
     static partial void LogReAdvertising(ILogger logger, string reason, string versions);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Codex transport resolution {Generation}: switch {SwitchOn}, app-server {Active} {InactiveReason}")]
-    static partial void LogCodexResolution(ILogger logger, long generation, bool switchOn, bool active, string inactiveReason);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Codex transport resolution {Generation}: switch {SwitchOn}, platform default {ByDefault}, app-server {Active} {InactiveReason}")]
+    static partial void LogCodexResolution(ILogger logger, long generation, bool switchOn, bool byDefault, bool active, string inactiveReason);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Experimental settings unreadable ({Problem}); keeping the committed Codex transport")]
     static partial void LogUnreadableSettings(ILogger logger, string problem);
@@ -6787,6 +6923,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Codex produced NO turn for agent {AgentId} within {Seconds}s of input delivery — the reviewer received the prompt but did not act on it")]
     partial void LogCodexTurnNotObserved(string agentId, double seconds);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Codex turn started for agent {AgentId} after one more submit ({ElapsedMs}ms after delivery)")]
+    partial void LogCodexTurnStartedAfterResubmit(string agentId, long elapsedMs);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Codex started no turn for review-flow agent {AgentId} within {Seconds}s of delivery, one more submit included (written: {ResubmitWritten}); ending it so the flow fails the round")]
+    partial void LogCodexRoundNotStarted(string agentId, double seconds, bool resubmitWritten);
+
     [LoggerMessage(Level = LogLevel.Information, Message = "Codex turn observer: could not resolve a rollout for agent {AgentId} — skipping turn-start diagnostic for this round")]
     partial void LogCodexTurnRolloutUnresolved(string agentId);
 
@@ -6834,6 +6976,18 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to send terminal dimensions for agent {AgentId} (read-only viewers may render garbled until the next reconnect)")]
     partial void LogTerminalDimsSendFailed(Exception ex, string agentId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Terminal dimensions for agent {AgentId} not sent: the daemon is shutting down")]
+    partial void LogTerminalDimsSendCancelled(string agentId);
+
+    void ReportDimsSendFailed(Exception ex, string agentId) {
+        if (IsShutdownCancellation(ex, _shutdownCts.IsCancellationRequested)) LogTerminalDimsSendCancelled(agentId);
+        else LogTerminalDimsSendFailed(ex, agentId);
+    }
+
+    /// <summary>A send the shutdown cancelled is expected, so it is not reported as a failure. A cancellation
+    /// while the daemon runs on is one.</summary>
+    internal static bool IsShutdownCancellation(Exception ex, bool shuttingDown) => shuttingDown && ex is OperationCanceledException;
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} stuck in Starting for {Seconds:F1}s with no output (PID={Pid}, exited={Exited}), terminating")]
     partial void LogAgentStuck(string agentId, double seconds, int pid, bool exited);

@@ -31,6 +31,8 @@ public class MainWindowViewModelTests {
     }
 
     sealed class UnusedLaunchClient : ILaunchClient {
+        public Task<IReadOnlySet<string>?> GetLaunchFeaturesAsync(CancellationToken ct) =>
+            Task.FromResult<IReadOnlySet<string>?>(System.Collections.Frozen.FrozenSet<string>.Empty);
         public Task<LaunchOutcome> StartAsync(LaunchRequest request, CancellationToken ct) =>
             Task.FromResult(new LaunchOutcome(false, null, "unexpected launch"));
     }
@@ -102,6 +104,29 @@ public class MainWindowViewModelTests {
 
             gate.SetResult(new StreamingResult(0, false, []));
             await run.Completion;
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_single_session_import_reads_in_the_singular() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var gate = new TaskCompletionSource<StreamingResult>();
+            Action<StreamedLine>? emit = null;
+            var run = ImportRun(1, 1);
+            var vm = new MainWindowViewModel(
+                new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System, historyImport: run);
+            using var activation = vm.Activator.Activate();
+
+            run.Start(new FakeKcapCli { ImportBehavior = (_, onLine, _) => { emit = onLine; return gate.Task; } }, [Pass()]);
+            emit!(new StreamedLine(ProcessStreamKind.Stdout, "  Loading s0 (claude)"));
+
+            await Assert.That(vm.HistoryImportStatus).IsEqualTo("Importing history · 1 of 1 session processed");
+
+            gate.SetResult(new StreamingResult(0, false, []));
+            await run.Completion;
+
+            await Assert.That(vm.HistoryImportStatus).IsEqualTo("History imported · 1 session processed");
         });
     }
 
@@ -417,6 +442,7 @@ public class MainWindowViewModelTests {
     [Arguments(LocalServerCondition.FilesMissing, MainWindowViewModel.LocalNeedsAttentionText)]
     [Arguments(LocalServerCondition.Interrupted, MainWindowViewModel.LocalNeedsAttentionText)]
     [Arguments(LocalServerCondition.PortTaken, MainWindowViewModel.LocalPortTakenText)]
+    [Arguments(LocalServerCondition.Restarting, MainWindowViewModel.LocalRestartingText)]
     public async Task LocalServerAlertFor_names_a_gone_or_changing_installation_without_start(LocalServerCondition condition, string text) {
         var alert = MainWindowViewModel.LocalServerAlertFor(updateFailed: false, starting: false, stopped: true, canStart: true, condition);
 

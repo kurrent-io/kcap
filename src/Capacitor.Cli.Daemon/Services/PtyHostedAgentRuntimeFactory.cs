@@ -139,9 +139,11 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
         // Tell the spawned Claude's permission-request hook where to find this daemon's local
         // SignalR bridge. Bypasses Cloudflare's HTTP timeout on the server's
         // /hooks/permission-request long-poll. CLI falls back to KCAP_URL if this var is absent
-        // (e.g. older CLI builds).
-        if (!ctx.IsPrivate && !string.IsNullOrEmpty(ctx.DaemonBridgeUrl)) {
-            env[HostedAgent.BridgeUrlVar] = ctx.DaemonBridgeUrl;
+        // (e.g. older CLI builds). Its turn hooks relay through it too, which is what confirms the
+        // launch prompt arrived.
+        var hooksReachDaemon = !ctx.IsPrivate && !string.IsNullOrEmpty(ctx.DaemonBridgeUrl);
+        if (hooksReachDaemon) {
+            env[HostedAgent.BridgeUrlVar] = ctx.DaemonBridgeUrl!;
         }
 
         if (ctx.IsReview && ctx.Review is { } reviewEnv) {
@@ -158,11 +160,11 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
 
         var pty     = ptyFactory.Spawn(launcher.CliPath, args, ctx.Worktree.Path, env, ctx.Cols, ctx.Rows, removeEnv);
         var runtime = new PtyHostedAgentRuntime(ctx.Vendor, pty, time, disablesApprovalPrompts, logger,
-            readyOnBracketedPaste: OperatingSystem.IsWindows());
+            readyOnBracketedPaste: OperatingSystem.IsWindows(), confirmsLaunchPrompt: hooksReachDaemon);
 
         if (launchPrompt is not null) {
             runtime.DeliverLaunchPrompt(launchPrompt);
-            _ = LogLaunchPromptOutcomeAsync(runtime.LaunchPromptDelivery!, ctx.AgentId);
+            _ = LogLaunchPromptOutcomeAsync(runtime, ctx.AgentId);
         }
 
         return new HostedRuntimeStart(runtime, mcpConfigPath);
@@ -174,12 +176,22 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Agent {AgentId} receives its {Length}-character prompt through the PTY after spawn")]
     partial void LogPromptPastedAfterSpawn(string agentId, int length);
 
-    /// <summary>An agent that never received its task leaves no other trace, so every withdrawn or
-    /// blind delivery is logged here.</summary>
-    async Task LogLaunchPromptOutcomeAsync(Task<LaunchPromptOutcome> delivery, string agentId) {
+    /// <summary>An agent that never received its task leaves no other trace, so the paste and what
+    /// became of it are both logged here.</summary>
+    async Task LogLaunchPromptOutcomeAsync(PtyHostedAgentRuntime runtime, string agentId) {
+        var                 delivery  = runtime.LaunchPromptDelivery!;
+        var                 submitted = runtime.LaunchPromptSubmitted;
+        var                 confirm   = PtyHostedAgentRuntime.LaunchPromptConfirmWait.TotalSeconds;
         LaunchPromptOutcome outcome;
 
         try {
+            await Task.WhenAny(submitted, delivery).ConfigureAwait(false);
+
+            if (submitted.IsCompletedSuccessfully) {
+                if (await submitted.ConfigureAwait(false)) LogLaunchPromptSubmitted(agentId);
+                else LogLaunchPromptPastedBlind(agentId, PtyHostedAgentRuntime.LaunchPromptMaxWait.TotalSeconds);
+            }
+
             outcome = await delivery.ConfigureAwait(false);
         } catch (Exception ex) {
             LogLaunchPromptFaulted(ex, agentId);
@@ -188,16 +200,31 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
         }
 
         switch (outcome) {
-            case LaunchPromptOutcome.Delivered:             LogLaunchPromptDelivered(agentId); break;
-            case LaunchPromptOutcome.DeliveredAfterMaxWait: LogLaunchPromptPastedBlind(agentId, PtyHostedAgentRuntime.LaunchPromptMaxWait.TotalSeconds); break;
-            case LaunchPromptOutcome.AgentExited:           LogLaunchPromptAgentExited(agentId); break;
-            case LaunchPromptOutcome.WriteFailed:           LogLaunchPromptWriteFailed(agentId); break;
-            default:                                        LogLaunchPromptWithdrawn(agentId, outcome); break;
+            case LaunchPromptOutcome.Delivered or LaunchPromptOutcome.DeliveredAfterMaxWait:
+                LogLaunchPromptUnchecked(agentId); break;
+            case LaunchPromptOutcome.Confirmed:              LogLaunchPromptConfirmed(agentId); break;
+            case LaunchPromptOutcome.ConfirmedAfterResubmit: LogLaunchPromptConfirmedAfterResubmit(agentId, confirm); break;
+            case LaunchPromptOutcome.NotConfirmed:           LogLaunchPromptNotConfirmed(agentId, confirm); break;
+            case LaunchPromptOutcome.AgentExited:            LogLaunchPromptAgentExited(agentId); break;
+            case LaunchPromptOutcome.WriteFailed:            LogLaunchPromptWriteFailed(agentId); break;
+            default:                                         LogLaunchPromptWithdrawn(agentId, outcome); break;
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Agent {AgentId} received its launch prompt")]
-    partial void LogLaunchPromptDelivered(string agentId);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Agent {AgentId}'s launch prompt was pasted and submitted")]
+    partial void LogLaunchPromptSubmitted(string agentId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Agent {AgentId} received its launch prompt: its hooks reported the turn it started")]
+    partial void LogLaunchPromptConfirmed(string agentId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Agent {AgentId}'s hooks do not report to this daemon, so its launch prompt was not checked for arrival")]
+    partial void LogLaunchPromptUnchecked(string agentId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} received its launch prompt only after Enter was sent again: no turn was reported within {Seconds}s of the first")]
+    partial void LogLaunchPromptConfirmedAfterResubmit(string agentId, double seconds);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId}'s launch prompt was not seen to arrive: no turn was reported within {Seconds}s of either Enter, and it may be sitting unsent in the composer")]
+    partial void LogLaunchPromptNotConfirmed(string agentId, double seconds);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} never settled ready for input; its launch prompt was pasted after {Seconds}s")]
     partial void LogLaunchPromptPastedBlind(string agentId, double seconds);

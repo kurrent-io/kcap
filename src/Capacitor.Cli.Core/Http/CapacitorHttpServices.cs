@@ -62,10 +62,10 @@ public static class CapacitorHttpServices {
             // The lifetime matters because an MCP server holds one of these for its whole life: the
             // factory rotates handlers, but not a handler this client already has, so the pool has to
             // retire its own sockets or a DNS change never reaches a process that never restarts.
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler {
+            .ConfigurePrimaryHttpMessageHandler(() => LoopbackConnect.Apply(new SocketsHttpHandler {
                 AllowAutoRedirect        = false,
                 PooledConnectionLifetime = TimeSpan.FromMinutes(2),
-            })
+            }))
             // Nothing is redacted by default, so a logging provider added later would print the bearer.
             .RedactLoggedHeaders(["Authorization", "Cookie", "Set-Cookie"]);
 
@@ -80,10 +80,10 @@ public static class CapacitorHttpServices {
             .AddHttpMessageHandler(sp => new UnauthorizedRecoveryHandler(
                 sp.GetRequiredService<ICredentialSource>(), recover: false))
             .AddHttpMessageHandler(Redirecting)
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler {
+            .ConfigurePrimaryHttpMessageHandler(() => LoopbackConnect.Apply(new SocketsHttpHandler {
                 AllowAutoRedirect        = false,
                 PooledConnectionLifetime = TimeSpan.FromMinutes(2),
-            })
+            }))
             .RedactLoggedHeaders(["Authorization", "Cookie", "Set-Cookie"]);
 
         // The session-start memory lane: the default chain, except a 3xx ends the fetch. What comes
@@ -96,10 +96,10 @@ public static class CapacitorHttpServices {
             .AddHttpMessageHandler<PlanEntitlementCaptureHandler>()
             .AddHttpMessageHandler<ObservationHeaderHandler>()
             .AddHttpMessageHandler<UnauthorizedRecoveryHandler>()
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler {
+            .ConfigurePrimaryHttpMessageHandler(() => LoopbackConnect.Apply(new SocketsHttpHandler {
                 AllowAutoRedirect        = false,
                 PooledConnectionLifetime = TimeSpan.FromMinutes(2),
-            })
+            }))
             .RedactLoggedHeaders(["Authorization", "Cookie", "Set-Cookie"]);
 
         // No recovery handler, because there is no credential to rotate; that is the whole point of
@@ -111,7 +111,7 @@ public static class CapacitorHttpServices {
             // With no bearer to strip there is nothing a redirect can break, and a download that
             // lands on an object store needs the hop followed.
             .AddHttpMessageHandler(Redirecting)
-            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+            .ConfigurePrimaryHttpMessageHandler(() => LoopbackConnect.Apply(new SocketsHttpHandler { AllowAutoRedirect = false }))
             // A caller may still set an Authorization header by hand on this lane.
             .RedactLoggedHeaders(["Authorization", "Cookie", "Set-Cookie"]);
 

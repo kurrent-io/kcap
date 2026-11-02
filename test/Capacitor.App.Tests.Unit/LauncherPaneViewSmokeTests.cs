@@ -84,9 +84,9 @@ public class LauncherPaneViewSmokeTests {
     [Test]
     public async Task Picker_search_matches_label_and_slug() {
         var m = new ModelChoice("github-copilot/claude-opus-5", "Claude Opus 5 · github-copilot");
-        await Assert.That(LauncherPaneView.RowMatches(m, "opus")).IsTrue();
-        await Assert.That(LauncherPaneView.RowMatches(m, "GitHub-Copilot/")).IsTrue();
-        await Assert.That(LauncherPaneView.RowMatches(m, "anthropic")).IsFalse();
+        await Assert.That(LaunchChipsView.RowMatches(m, "opus")).IsTrue();
+        await Assert.That(LaunchChipsView.RowMatches(m, "GitHub-Copilot/")).IsTrue();
+        await Assert.That(LaunchChipsView.RowMatches(m, "anthropic")).IsFalse();
     }
 
     /// Real-shaped agent ids (Guid("N"), 32 hex digits): a Started outcome carrying anything else
@@ -95,6 +95,8 @@ public class LauncherPaneViewSmokeTests {
     const string SecondLaunchedId = "fedcba9876543210fedcba9876543210";
 
     sealed class RecordingLaunchClient : ILaunchClient {
+        public Task<IReadOnlySet<string>?> GetLaunchFeaturesAsync(CancellationToken ct) =>
+            Task.FromResult<IReadOnlySet<string>?>(System.Collections.Frozen.FrozenSet<string>.Empty);
         public LaunchOutcome Next = new(true, LaunchedId, null);
         public int StartCount;
 
@@ -404,8 +406,8 @@ public class LauncherPaneViewSmokeTests {
 
     [Test]
     public async Task A_picker_row_names_its_selection() {
-        await Assert.That(LauncherPaneView.ChoiceName("High", selected: true)).IsEqualTo("High, selected");
-        await Assert.That(LauncherPaneView.ChoiceName("High", selected: false)).IsEqualTo("High");
+        await Assert.That(ChoiceMenus.ChoiceName("High", selected: true)).IsEqualTo("High, selected");
+        await Assert.That(ChoiceMenus.ChoiceName("High", selected: false)).IsEqualTo("High");
     }
 
     /// The button carries a glyph, not text, so assistive technology reads the automation name.
@@ -809,6 +811,32 @@ public class LauncherPaneViewSmokeTests {
         });
     }
 
+    /// At a width that cannot hold every chip, the attach button wraps with the chips: it shares a
+    /// row with the first chip rather than sitting alone above them.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_attach_button_shares_a_row_with_the_first_chip_at_a_narrow_width() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var (vm, _, _, tmp) = Build();
+            using var _tmp = tmp;
+            var window = new Window { Content = new LauncherPaneView { DataContext = vm }, Width = 360, Height = 700 };
+            window.Show();
+            Settle(window);
+
+            var attach = Find<Button>(window, "AttachButton")!;
+            var agent = Find<Button>(window, "AgentChip")!;
+            var permission = Find<Button>(window, "PermissionChip")!;
+            await Assert.That(attach.TranslatePoint(default, window)!.Value.Y + attach.Bounds.Height / 2)
+                .IsBetween(agent.TranslatePoint(default, window)!.Value.Y, agent.TranslatePoint(default, window)!.Value.Y + agent.Bounds.Height);
+            await Assert.That(permission.TranslatePoint(default, window)!.Value.Y)
+                .IsGreaterThan(agent.TranslatePoint(default, window)!.Value.Y);
+
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            vm.Dispose();
+        });
+    }
+
     /// Start is unusable while the files it would carry are still going up, so its tip says so
     /// rather than leaving the repository-gate wording standing.
     [Test]
@@ -845,7 +873,7 @@ public class LauncherPaneViewSmokeTests {
 
     static (Flyout Menu, List<AppIcon> Checks) OpenMenu(Window window, LauncherPaneView view, string chipName) {
         Click(window, Find<Button>(window, chipName)!);
-        var menu = view.OpenMenuForTesting!;
+        var menu = (chipName is "RepositoryChip" or "MachineChip" ? view.OpenMenuForTesting : view.GetVisualDescendants().OfType<LaunchChipsView>().Single().OpenMenuForTesting)!;
         var checks = ((Control)menu.Content!).GetVisualDescendants().OfType<AppIcon>()
             .Where(i => i.Kind == Lucide.Avalonia.LucideIconKind.Check).ToList();
         return (menu, checks);
@@ -1390,6 +1418,39 @@ public class LauncherPaneViewSmokeTests {
             window.Close();
             Dispatcher.UIThread.RunJobs();
             vm.Dispose();
+        });
+    }
+
+    /// The banner is a Border, which UI Automation leaves out unless it asks in; a screen reader then
+    /// finds the stopped server as a named region that holds its headline and Start button.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_stopped_local_server_banner_is_a_named_region_around_its_contents() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var (vm, _, _, tmp) = Build();
+            using var _tmp = tmp;
+            using var lane = new BehaviorSubject<ServerLaneStatus>(new(ServerLaneState.Retrying, "Connection refused"));
+            using var recovery = new LocalServerRecoveryViewModel(lane, isLocalServer: true,
+                _ => Task.FromResult(new ProcessResult(0, "", "", false)), () => Task.CompletedTask, CancellationToken.None);
+            vm.AttachLocalServerRecovery(recovery);
+            var window = new Window { Content = new LauncherPaneView { DataContext = vm }, Width = 900, Height = 700 };
+            window.Show();
+            try {
+                Settle(window);
+                await Assert.That(Find<Border>(window, "LocalServerBanner")!.IsEffectivelyVisible).IsTrue();
+
+                var banner = ControlView.Descendants(window).Single(peer => peer.GetAutomationId() == "LocalServerBanner");
+                await Assert.That(banner.GetName()).IsEqualTo("Local server");
+                await Assert.That(banner.GetAutomationControlType()).IsEqualTo(AutomationControlType.Group);
+                await Assert.That(banner.GetLandmarkType()).IsEqualTo(AutomationLandmarkType.Region);
+                var inside = ControlView.Descendants(banner).Select(peer => peer.GetAutomationId()).ToList();
+                await Assert.That(inside).Contains("LocalServerHeadline");
+                await Assert.That(inside).Contains("StartLocalServerButton");
+            } finally {
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+                vm.Dispose();
+            }
         });
     }
 }

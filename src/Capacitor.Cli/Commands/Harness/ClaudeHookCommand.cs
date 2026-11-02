@@ -65,8 +65,8 @@ public sealed class ClaudeHookCommand(
                 clock.Budget(Ceiling("session-start"))));
 
     public Task<int> Handle(TextReader stdin, TextWriter? stdout = null) {
-        var spool = new HookSpool(config, clock.Time);
-        spool.ReapOlderThan(TimeSpan.FromDays(30));
+        var spool = new HookSpool(config, clock.Time, Url);
+        spool.DeleteExpired();
 
         return HandleWithDeps(
             spool,
@@ -269,6 +269,7 @@ public sealed class ClaudeHookCommand(
         if (command == "session-end" && SessionEndFence.ShouldHold(hosted, sessionId)) return 0;
 
         var budget = clock.Budget(Ceiling(command));
+        HookTiming.Mark("parse");
 
         // Ahead of every gate below: the hosting daemon's hints are local, so neither the server's
         // reachability nor the credential may hold them back. They spend this hook's own budget,
@@ -306,6 +307,7 @@ public sealed class ClaudeHookCommand(
                 clock.Time.GetUtcNow().ToUnixTimeMilliseconds(), budget);
         else if (command switch { "stop" => true, "user-prompt-submit" or "pre-tool-use" => false, _ => (bool?) null } is { } waiting)
             await DaemonBridgeRelay.NotifyInputWaitAsync(hosted, "claude", sessionId, cwd, waiting, budget);
+        HookTiming.Mark("daemon-relay");
 
         // The tool events have no server route and no other work, so they end here — after both
         // notices above have had their chance to post.
@@ -332,7 +334,7 @@ public sealed class ClaudeHookCommand(
 
                 var rendered = hosted.IsRendered;
 
-                return await new Cli.Harness.Claude.ClaudePolicySeam(config, clock.Time, PolicyJudgeGateway.ForHook(http, Url, clock.Time))
+                return await new Cli.Harness.Claude.ClaudePolicySeam(config, clock.Time, new HookSpool(config, clock.Time, Url), PolicyJudgeGateway.ForHook(http, Url, clock.Time))
                     .HandlePreToolUseAsync(body, sessionId, rendered, stdout ?? Console.Out, JudgeShare(budget));
             } catch { return 0; }
         }
@@ -344,6 +346,7 @@ public sealed class ClaudeHookCommand(
             ? await BoundedAuth.CreateClientWithinAsync(
                 clientFactory, clientCap, clock.Time, () => RefreshTokenHandoff.Spawn(config, profiles.Name, starter))
             : null;
+        HookTiming.Mark("auth-client");
 
         if (created is null) {
             // The degraded arm bypasses HandleCore, so its disabled/exclusion gates must run here.
@@ -417,7 +420,7 @@ public sealed class ClaudeHookCommand(
                 node["ended_at"] = clock.Time.GetUtcNow().ToString("O");
             // Surface 3: the degraded arm spools via this path and bypasses HandleCore's stamp, so a
             // replayed session-start must still carry the harness inventory (the hook-ingest carrier).
-            if (command == "session-start") SessionStartInventory.Stamp(node.AsObject(), config, harnesses, clock.Time);
+            if (command == "session-start") SessionStartInventory.Stamp(node.AsObject(), config, harnesses, HarnessId.Claude, clock.Time, accounts: accounts);
             DefaultLastAssistantMessage(node, command);
             return node.ToJsonString();
         } catch { return body; }
@@ -582,7 +585,7 @@ public sealed class ClaudeHookCommand(
 
                 // Surface 3: attach this machine's harness inventory, session-start only (the
                 // injections above apply to every event; the inventory is a session-start signal).
-                if (command == "session-start") SessionStartInventory.Stamp(node.AsObject(), config, harnesses, clock.Time);
+                if (command == "session-start") SessionStartInventory.Stamp(node.AsObject(), config, harnesses, HarnessId.Claude, clock.Time, accounts: accounts);
 
                 DefaultLastAssistantMessage(node, command);
 
@@ -658,6 +661,7 @@ public sealed class ClaudeHookCommand(
             deferredRepoTask = RepositoryDetection.EnrichWithRepositoryInfo(router, config, body, clock.Time, budget.Remaining, detectPullRequest: false);
         } else {
             body = await RepositoryDetection.EnrichWithRepositoryInfo(router, config, body, clock.Time, detectPullRequest: false);
+            HookTiming.Mark("repo-enrich");
         }
 
         // Resolve the V2 profile once for repo/path exclusion and
@@ -671,6 +675,7 @@ public sealed class ClaudeHookCommand(
         if (await IsSessionExcludedAsync(activeProfile, body, budget)) {
             return 0;
         }
+        HookTiming.Mark("scope");
 
         // Auth lapsed: do not POST and do not drain — every request would 401, so the backlog just
         // waits for the login. Exit cleanly (0) so Claude shows no per-turn error banner; nudge once on
@@ -694,6 +699,7 @@ public sealed class ClaudeHookCommand(
             if (drainBudget > TimeSpan.Zero)
                 await spool.DrainAllAsync(curSid, ClaudePoster(client, drainBudget), drainBudget, CancellationToken.None);
         } catch { /* fail-open */ }
+        HookTiming.Mark("session-spool-drain");
 
         // default_visibility and plan_content injection for session-start happen INSIDE the
         // session-start block below, after EnsureWatcherRunning and the deferred repo enrichment
@@ -736,8 +742,10 @@ public sealed class ClaudeHookCommand(
                 } catch (Exception ex) {
                     Console.Error.WriteLine($"[kcap] session-end pre-hook failed: {ex.Message}");
                 }
+                HookTiming.Mark("watcher-stop-drain");
 
                 body = await AwaitEnrichmentWithinBudget(deferredRepoTask!, body, budget.Remaining, clock.Time);
+                HookTiming.Mark("repo-enrich");
 
                 break;
             }
@@ -805,6 +813,7 @@ public sealed class ClaudeHookCommand(
                 await watchers.EnsureWatcherRunning(sessionId, transcriptPath,
                     agentId: null, cwd: sessionCwd, skipTitle: isResumeOrCompact);
             }
+            HookTiming.Mark("watcher");
 
             // Opt-in background skills refresh: detached and never awaited (the hook's latency
             // budget must not pay for a sync); the child throttles itself off the manifest.
@@ -815,6 +824,7 @@ public sealed class ClaudeHookCommand(
             // probe could not have delayed capture start) and then inject default_visibility +
             // plan_content onto the enriched body before the POST.
             body = await deferredRepoTask!;
+            HookTiming.Mark("repo-enrich");
 
             // best-effort git-root discovery for the session's cwd, fed to the server's
             // plan-artifact discovery so a repo-file plan/spec found at the workspace root can be
@@ -838,6 +848,7 @@ public sealed class ClaudeHookCommand(
 
             // A degradation must reach the user, so it rides whatever this arm writes to stdout below.
             var policyNotice = sessionId is null ? null : FreezePolicySnapshot(sessionId, repoRoot);
+            HookTiming.Mark("policy-snapshot");
 
             // Inject default_visibility from the active V2 profile. The legacy top-level
             // LegacyV1Config.DefaultVisibility shape is not populated by v2 configs (the field
@@ -955,6 +966,7 @@ public sealed class ClaudeHookCommand(
                     resp = await client.PostOnceAsync($"{Url}/hooks/session-start", content, clock.Time, remaining, CancellationToken.None);
                 }
             } catch { resp = null; }
+            HookTiming.Mark("post");
 
             // Written after the POST, so a stalled stderr can neither spend the POST's time nor cost the body its capabilities.
             if (nextWorkWithheld)
@@ -1026,6 +1038,7 @@ public sealed class ClaudeHookCommand(
                     // join the parallel memory-index fetch, bounded by the remaining
                     // hook budget so a slow fetch can't delay the hook (fail-open → null).
                     var memoryFragment = await AwaitMemoryFragmentAsync(memoryIndexTask, budget);
+                    HookTiming.Mark("memory-and-flows");
                     if (!audience.GetsDriverGuidance) memoryFragment = null;
 
                     // Coordination notices ride the hook POST response (no extra fetch), same as the
@@ -1060,6 +1073,7 @@ public sealed class ClaudeHookCommand(
             resp.Dispose();
 
             WriteSessionStart(writer, envelope, policyNotice);
+            HookTiming.Mark("context");
 
             return 0;
         }
@@ -1107,6 +1121,7 @@ public sealed class ClaudeHookCommand(
                     resp = await client.PostOnceAsync($"{Url}/hooks/session-end", content, clock.Time, remaining, CancellationToken.None);
                 }
             } catch { resp = null; }
+            HookTiming.Mark("post");
 
             if (resp is null || !resp.IsSuccessStatusCode) {
                 var code      = resp is null ? 0 : (int)resp.StatusCode;
@@ -1197,6 +1212,7 @@ public sealed class ClaudeHookCommand(
 
             return 1;
         }
+        HookTiming.Mark("post");
 
         if (!response.IsSuccessStatusCode) {
             var code = (int)response.StatusCode;
@@ -1258,6 +1274,7 @@ public sealed class ClaudeHookCommand(
                 if (sessionId is not null && transcriptPath is not null) {
                     await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, cwd: sessionCwd);
                 }
+                HookTiming.Mark("watcher");
 
                 break;
             }

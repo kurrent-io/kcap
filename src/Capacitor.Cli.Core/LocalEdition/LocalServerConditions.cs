@@ -2,7 +2,9 @@ namespace Capacitor.Cli.Core.LocalEdition;
 
 public static class LocalServerConditions {
     /// <summary>The binary the unit runs, reached through <c>bin/current</c> so an upgrade switches it in place.</summary>
-    public static string ServerBinary(LocalRoot root) => Path.Combine(root.Directory, "bin", "current", "kcap-server");
+    public static string ServerBinary(LocalRoot root) => Path.Combine(root.Directory, "bin", "current", ServerFileName);
+
+    public static string ServerFileName => OperatingSystem.IsWindows() ? "kcap-server.exe" : "kcap-server";
 
     /// <summary>Lock-free and write-free, like <c>kcap local status</c>: the lock is probed, never taken, so a reader
     /// cannot hold up the command it reports on.</summary>
@@ -19,7 +21,6 @@ public static class LocalServerConditions {
             StateRead<InstallRegistry>.Present { Value.Active: not null } when !Directory.Exists(Path.Combine(root.Directory, "bin"))
                 => LocalServerCondition.Uninstalled,
             StateRead<InstallRegistry>.Present { Value.Active: not null } => File.Exists(ServerBinary(root))
-                                                                          || (OperatingSystem.IsWindows() && File.Exists(ServerBinary(root) + ".exe"))
                 ? LocalServerCondition.Installed
                 : LocalServerCondition.FilesMissing,
             StateRead<InstallRegistry>.Present { Value.Retired.Count: > 0 } => LocalServerCondition.Purged,
@@ -73,7 +74,29 @@ public static class LocalServerConditions {
             LocalServerCondition.Interrupted  => "An earlier local server command stopped part way. kcap local status says what to do.",
             LocalServerCondition.Unreadable   => "The local installation's records cannot be read. kcap local status says which file.",
             LocalServerCondition.PortTaken    => "Another program holds the local server's port, so it cannot start. Stop that program; kcap never stops a program it did not start.",
+            LocalServerCondition.Restarting   => "Its service is starting it again, and it reconnects once the server answers. kcap local logs shows why it stopped.",
+            LocalServerCondition.ServesAnother => "Its service runs another local installation, so this one cannot start. kcap local status names it.",
             _                                 => null,
         };
+
+        /// <summary>The name <c>kcap local status --json</c> gives the condition.</summary>
+        public string Wire => condition switch {
+            LocalServerCondition.NotInstalled => "not_installed",
+            LocalServerCondition.Purged       => "purged",
+            LocalServerCondition.Uninstalled  => "uninstalled",
+            LocalServerCondition.FilesMissing => "files_missing",
+            LocalServerCondition.Changing     => "changing",
+            LocalServerCondition.Interrupted  => "interrupted",
+            LocalServerCondition.Unreadable   => "unreadable",
+            LocalServerCondition.Installed    => "installed",
+            LocalServerCondition.PortTaken    => "port_taken",
+            LocalServerCondition.Restarting   => "restarting",
+            LocalServerCondition.ServesAnother => "serves_another",
+            _                                 => throw new ArgumentOutOfRangeException(nameof(condition), condition, null),
+        };
     }
+
+    /// <summary>Null for a name this build does not know, as a newer CLI may print.</summary>
+    public static LocalServerCondition? FromWire(string? wire) =>
+        Enum.GetValues<LocalServerCondition>().Cast<LocalServerCondition?>().FirstOrDefault(c => c!.Value.Wire == wire);
 }

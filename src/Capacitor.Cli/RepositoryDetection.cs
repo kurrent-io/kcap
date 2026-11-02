@@ -129,6 +129,7 @@ static class RepositoryDetection {
             ConfigRoot config, string cwd, TimeProvider time, TimeSpan? budget = null,
             bool detectPullRequest = true, CommandRunner? run = null) {
         if (budget is { } b0 && b0 <= TimeSpan.Zero) return null;
+        var probesInjected = run is not null;
         run ??= DefaultRunner(time);
         try {
             // Bound the git/gh probes by the remaining hook budget so a slow repo never
@@ -143,8 +144,12 @@ static class RepositoryDetection {
 
             string? userName, userEmail, remoteUrl, owner, repoName, branch, host;
 
-            // Always detect branch fresh — it changes frequently during a session
-            var branchTask = run("git", "branch --show-current", cwd, gitCap);
+            // Always detect branch fresh — it changes frequently during a session. On a cache hit it is
+            // the only probe left, so it comes from HEAD where that answers as git would: a git process
+            // costs every hook about 0.4 s on Windows.
+            var branchTask = cache is not null && !probesInjected && GitRepository.ShowCurrentBranch(cwd) is { } headBranch
+                ? Task.FromResult<string?>(headBranch)
+                : run("git", "branch --show-current", cwd, gitCap);
 
             if (cache is not null) {
                 userName  = cache.UserName;

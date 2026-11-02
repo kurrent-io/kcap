@@ -113,7 +113,7 @@ sealed class MistralVibeHookCommand(
         if (hosted.AgentId is { } agentHostId) forwarded["agent_host_id"] = agentHostId;
         if (activeProfile?.DefaultVisibility is { } visibility) forwarded["default_visibility"] = visibility;
 
-        SessionStartInventory.Stamp(forwarded, config, harnesses, clock.Time);
+        SessionStartInventory.Stamp(forwarded, config, harnesses, HarnessId.MistralVibe, clock.Time);
         var enriched = await RepositoryDetection.EnrichWithRepositoryInfo(router, config, forwarded.ToJsonString(), clock.Time);
 
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,
@@ -122,7 +122,7 @@ sealed class MistralVibeHookCommand(
             return;
         }
 
-        var spool   = new HookSpool(config, clock.Time);
+        var spool   = new HookSpool(config, clock.Time, Url);
         var outcome = await _poster.PostOrSpoolAsync("session-start/mistral-vibe", enriched, "mistral-vibe-hook",
             spool, sessionId, route: "session-start/mistral-vibe");
 

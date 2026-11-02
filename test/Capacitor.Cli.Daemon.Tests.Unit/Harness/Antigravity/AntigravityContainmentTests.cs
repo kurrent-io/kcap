@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Daemon.Harness.Antigravity;
 using Capacitor.Cli.Daemon.Services;
 
@@ -20,14 +22,16 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Antigravity;
 /// <para>1. Capture stays single-lane — no kcap hook fired for this conversation, so no second
 /// watcher recorded it alongside the runtime's own NDJSON parse.</para>
 /// <para>2. No watcher process was spawned for it.</para>
-/// <para>3. <c>agy</c> derives <c>~/Library</c> from <c>$HOME</c>, so its Library writes land INSIDE
-/// the per-launch home. This is the observation that makes "the reviewer's state is contained" a
+/// <para>3. On macOS <c>agy</c> derives <c>~/Library</c> from <c>$HOME</c>, so its Library writes land
+/// INSIDE the per-launch home. This is the observation that makes "the reviewer's state is contained" a
 /// measured fact rather than an assumption — if it were false, reviewer conversation state would
-/// pollute the operator's own agy history and containment would be a fiction.</para>
+/// pollute the operator's own agy history and containment would be a fiction. Every run prints the
+/// home's top two levels, which is the record of where a Windows or Linux run wrote.</para>
 /// <para>4. The operator's real agy conversation store gained no entry for this conversation.</para>
 ///
 /// <para><b>Read-only against the operator's tree.</b> This test never creates, modifies or deletes
-/// anything under the real <c>~/.config/kcap</c> or <c>~/.gemini</c>. It only reads them, and it keys
+/// anything under the real <c>~/.config/kcap</c> or <c>~/.gemini</c> (on Windows, the <c>.gemini</c>
+/// under <c>USERPROFILE</c>, which is the home a Go binary reads there). It only reads them, and it keys
 /// every observation on THIS run's conversation id so a concurrently-live daemon writing its own
 /// files cannot make it pass or fail.</para>
 ///
@@ -61,17 +65,16 @@ public class AntigravityContainmentTests {
     public async Task A_real_turn_under_the_per_launch_home_leaves_the_operators_tree_untouched() {
         var project = Gate();
 
-        Skip.Unless(!OperatingSystem.IsWindows(),
-            "The Antigravity reviewer is POSIX-only — its per-launch home cannot be created owner-only on Windows.");
-
         // Captured BEFORE anything overrides HOME: the operator's real tree is what the observations
         // are made against, and GOOGLE_APPLICATION_CREDENTIALS points into it (auth is an env path,
-        // not HOME-anchored file state — see the probe findings).
-        var realHome = Environment.GetEnvironmentVariable("HOME") ?? "";
-        await Assert.That(realHome).IsNotEmpty().Because("the observations are made against the operator's real HOME");
+        // not HOME-anchored file state — see the probe findings). agy is a Go binary, whose home on
+        // Windows is USERPROFILE; kcap's own root follows UserHome.
+        var realHome = Environment.GetEnvironmentVariable(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME") ?? "";
+        await Assert.That(realHome).IsNotEmpty().Because("the observations are made against the operator's real home");
 
-        var kcapLogs     = Path.Combine(realHome, ".config", "kcap", "logs");
-        var kcapWatchers = Path.Combine(realHome, ".config", "kcap", "watchers");
+        var kcapHome     = UserHome.FromEnvironment().Path;
+        var kcapLogs     = Path.Combine(kcapHome, ".config", "kcap", "logs");
+        var kcapWatchers = Path.Combine(kcapHome, ".config", "kcap", "watchers");
 
         var logsBefore     = SnapshotNames(kcapLogs);
         var watchersBefore = SnapshotNames(kcapWatchers);
@@ -83,6 +86,7 @@ public class AntigravityContainmentTests {
 
         var config = new DaemonConfig {
             AntigravityPath                       = "agy",
+            Binaries                              = BinaryProbe.FromEnvironment(),
             AntigravityUnattendedReviewerEnabled  = true,
             Name                                  = "containment-daemon",
             DaemonEpoch                           = "containment-epoch",
@@ -99,6 +103,9 @@ public class AntigravityContainmentTests {
                 config.Store.StateDirectory(config.Name), "containment-epoch", "containment-agent", [],
                 grantInjectedMcpTools: true);
 
+            foreach (var dir in AntigravityHostedAgentRuntimeFactory.LaunchDirectoriesIn(home, OperatingSystem.IsWindows()))
+                Directory.CreateDirectory(dir);
+
             var psi = AntigravityHostedAgentRuntimeFactory.BuildTurnPsi(
                 config: config,
                 ctx: Ctx(workspace),
@@ -114,12 +121,16 @@ public class AntigravityContainmentTests {
             psi.Environment["GOOGLE_CLOUD_PROJECT"] = project;
             psi.Environment["GOOGLE_APPLICATION_CREDENTIALS"] =
                 Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS")
-                ?? Path.Combine(realHome, ".config", "gcloud", "application_default_credentials.json");
+                ?? (OperatingSystem.IsWindows()
+                    ? Path.Combine(Environment.GetEnvironmentVariable("APPDATA") ?? "", "gcloud", "application_default_credentials.json")
+                    : Path.Combine(realHome, ".config", "gcloud", "application_default_credentials.json"));
 
-            var turn = await RunTurnAsync(psi);
+            // The daemon resolves the binary the same way, an npm shim included.
+            var turn = await RunTurnAsync(WindowsLaunchCommand.Apply(psi, config.Binaries));
 
             Console.WriteLine($"[agy-containment] conversation={turn.ConversationId} status={turn.Status} "
                             + $"exit={turn.ExitCode} detail={turn.Detail}");
+            Console.WriteLine($"[agy-containment] home shape:\n  {string.Join("\n  ", HomeShape(home))}");
 
             // ── the run must have HAPPENED before any absence is evidence ──────────────────────────
             // Without this, every observation below is satisfied by an agy that never started: no
@@ -153,13 +164,14 @@ public class AntigravityContainmentTests {
                 .Because("no process may carry this conversation id — the NDJSON stream is the only capture lane");
 
             // ── 3. agy's Library writes landed inside the per-launch home ─────────────────────────
-            // The sharpest containment question available: agy's own credential lives outside
+            // The sharpest containment question available on macOS: agy's own credential lives outside
             // ~/.gemini, under ~/Library, so if agy resolved ~/Library from the real user rather than
             // from $HOME the relocated home would contain nothing that matters. It does not — and
             // this is the assertion that keeps that a measured fact.
-            await Assert.That(Directory.Exists(Path.Combine(home, "Library"))).IsTrue()
-                .Because("agy must derive ~/Library from $HOME; if it stopped, reviewer state would land "
-                       + "in the operator's own tree and the containment claim would be false");
+            if (OperatingSystem.IsMacOS())
+                await Assert.That(Directory.Exists(Path.Combine(home, "Library"))).IsTrue()
+                    .Because("agy must derive ~/Library from $HOME; if it stopped, reviewer state would land "
+                           + "in the operator's own tree and the containment claim would be false");
 
             // ── 4. the operator's real agy conversation store gained no entry ─────────────────────
             // Both roots: the `agy` CLI writes ~/.gemini/antigravity-cli/, the GUI IDE writes
@@ -268,9 +280,17 @@ public class AntigravityContainmentTests {
     /// the watcher takes the dashless session id, agy uses the dashed one.</summary>
     static async Task<List<string>> ProcessesMentioningAsync(string id, string dashless) {
         try {
-            using var ps = Process.Start(new ProcessStartInfo("/bin/ps", ["-Ao", "args="]) {
-                RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false
-            });
+            var lister = OperatingSystem.IsWindows()
+                ? new ProcessStartInfo("powershell.exe",
+                      ["-NoProfile", "-NonInteractive", "-Command",
+                       "Get-CimInstance Win32_Process | ForEach-Object { $_.CommandLine }"])
+                : new ProcessStartInfo("/bin/ps", ["-Ao", "args="]);
+
+            lister.RedirectStandardOutput = true;
+            lister.RedirectStandardError  = true;
+            lister.UseShellExecute        = false;
+
+            using var ps = Process.Start(lister);
 
             if (ps is null) return [];
 
@@ -283,7 +303,8 @@ public class AntigravityContainmentTests {
                                     || l.Contains(dashless, StringComparison.Ordinal))
                            // Our own agy child carries the id only once it is resumed; exclude nothing
                            // else, so a `kcap watch` on this conversation cannot be filtered away.
-                           .Where(l => !l.Contains("/bin/ps", StringComparison.Ordinal))];
+                           .Where(l => !l.Contains("/bin/ps", StringComparison.Ordinal)
+                                    && !l.Contains("Win32_Process", StringComparison.Ordinal))];
         } catch {
             return [];
         }
@@ -301,6 +322,21 @@ public class AntigravityContainmentTests {
         DaemonId: "containment-daemon", DaemonEpoch: "containment-epoch");
 
     // ── observation helpers (read-only) ───────────────────────────────────────────────────────────
+
+    /// <summary>The home's entries two levels down, relative to it — what a run on a new platform
+    /// reports about where agy wrote.</summary>
+    static IEnumerable<string> HomeShape(string home) {
+        try {
+            return [.. Directory.EnumerateFileSystemEntries(home, "*", new EnumerationOptions {
+                    RecurseSubdirectories = true, MaxRecursionDepth = 1, IgnoreInaccessible = true,
+                    AttributesToSkip = FileAttributes.None
+                })
+                .Select(p => Path.GetRelativePath(home, p))
+                .Order(StringComparer.Ordinal)];
+        } catch (Exception ex) {
+            return [$"(unreadable: {ex.Message})"];
+        }
+    }
 
     static HashSet<string> SnapshotNames(string dir) {
         try {

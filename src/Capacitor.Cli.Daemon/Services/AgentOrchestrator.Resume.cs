@@ -388,7 +388,9 @@ internal partial class AgentOrchestrator {
             AccountId:              agent.Account?.AccountId,
             ScratchWorkspace:       cmd is { ScratchWorkspace: true } ? true : prior?.Launch.ScratchWorkspace,
             WorktreeOwnsBranch:     agent.Worktree.OwnsBranch,
-            AccountLabel:           agent.Account?.Label);
+            ApprovalsReviewer:      agent.ApprovalsReviewer,
+            AccountLabel:           agent.Account?.Label,
+            HandoffSource:          agent.HandoffSource);
 
         return NewRunningEntry(agent.Id, agent.Vendor, agent.RuntimeTransport, agent.SessionId, agent.VendorSession, launch, prior) with {
             HasTerminal = agent.Runtime.EmitsTerminalOutput, TranscriptFormat = TranscriptFormatOf(agent),
@@ -460,7 +462,9 @@ internal partial class AgentOrchestrator {
             AccountId:              account?.AccountId,
             ScratchWorkspace:       cmd.ScratchWorkspace ? true : null,
             WorktreeOwnsBranch:     worktree.OwnsBranch,
-            AccountLabel:           account?.Label);
+            ApprovalsReviewer:      cmd.CodexPosture?.ApprovalsReviewer,
+            AccountLabel:           account?.Label,
+            HandoffSource:          cmd.Handoff?.Source);
 
         return NewRunningEntry(cmd.AgentId, cmd.Vendor, PreStartTransport, null, pinnedSessionId ?? cmd.ResumeSessionId, launch, prior: null);
     }
@@ -1095,6 +1099,8 @@ internal partial class AgentOrchestrator {
     /// candidates at most <see cref="DaemonConfig.ResumeConcurrency"/> at a time. Never throws.</summary>
     internal async Task ResumeOnBootAsync(CancellationToken ct) {
         try {
+            foreach (var (entry, reason) in _interruptedAtBoot) LogResumeOutcome(entry.AgentId, DescribeResume(ResumeOutcome.Interrupted, reason));
+
             foreach (var (entry, reason) in _interruptedAtBoot.Where(i => !i.Entry.Launch.IsPrivate))
                 await ReportResumeFailedAsync(entry, reason, null, ct);
 
@@ -1124,7 +1130,8 @@ internal partial class AgentOrchestrator {
                 _resumeAttempts[entry.AgentId] = attempt;
             }
 
-            await ResumeEntryAsync(entry, attempt.Token);
+            var outcome = await ResumeEntryAsync(entry, attempt.Token);
+            LogResumeOutcome(entry.AgentId, DescribeResume(outcome, outcome == ResumeOutcome.Interrupted ? TryReadLedger(entry.AgentId)?.LastError : null));
         } catch (OperationCanceledException) when (attempt is not null && IsWithdrawn(entry.AgentId) && !ct.IsCancellationRequested) {
             // The withdrawal already removed the entry.
         } catch (Exception ex) when (ex is not OperationCanceledException) {
@@ -1460,7 +1467,9 @@ internal partial class AgentOrchestrator {
         var successor = entry with {
             AgentId = agentId, SessionId = null, VendorSession = null, Attempts = 0, LastError = null, CreatedAt = _time.GetUtcNow(),
             LaunchEpoch = _daemonEpoch,
-            InheritedAgentIds = [.. (entry.InheritedAgentIds ?? []), entry.AgentId]
+            InheritedAgentIds = [.. (entry.InheritedAgentIds ?? []), entry.AgentId],
+            // The server admits a repeated hand-off begin only for the session it continued the source as.
+            Launch = entry.Launch with { HandoffSource = null }
         };
         var launch  = new ResumeLaunch(successor, ResumedWorktree(entry)) { AttemptOf = entry.AgentId, DefersLedger = true, Token = ct };
         var cmd     = BuildResumeCommand(entry, LastAlive(entry, null), _server.CurrentConnectionId) with { AgentId = agentId, Prompt = prompt, ResumeSessionId = null };
@@ -1498,13 +1507,16 @@ internal partial class AgentOrchestrator {
         try {
             using var client = await _http.ForBackgroundAsync(ct);
             var result = await new SessionTakeover(new ProvenExitedLiveness(), _time)
-                .RunAsync(client, ServerBase, previous, current, force: false, ct);
+                .RunAsync(client, ServerBase, previous, current, TakeoverAdmission.Judged, ct: ct);
+
+            if (result is TakeoverResult.Interrupted && ct.IsCancellationRequested) return;
 
             LogContinueTakeover(agentId, previous, current, result switch {
                 TakeoverResult.Completed { Unsuccessful: false } => "completed",
                 TakeoverResult.Completed                         => "partial",
                 TakeoverResult.Refused r                         => $"refused: {r.Reason}",
                 TakeoverResult.Failed f                          => $"failed: {f.Reason}",
+                TakeoverResult.Interrupted i                     => $"failed: interrupted ({i.Code})",
                 _                                                => "unauthorized"
             });
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
@@ -1547,7 +1559,9 @@ internal partial class AgentOrchestrator {
             Vendor:              entry.Vendor,
             FlowRunId:           launch.FlowRunId,
             FlowRole:            launch.FlowRole,
-            CodexPosture:        launch is { SandboxPolicy: { } sandbox, ApprovalPolicy: { } approval } ? new CodexLaunchPosture(sandbox, approval) : null,
+            CodexPosture:        launch is { SandboxPolicy: { } sandbox, ApprovalPolicy: { } approval }
+                ? new CodexLaunchPosture(sandbox, approval, launch.ApprovalsReviewer)
+                : null,
             RequesterUserId:     launch.RequesterUserId,
             RequesterDisplay:    launch.RequesterDisplay,
             AcpPermissionPreset: launch.PermissionPreset,
@@ -1686,4 +1700,15 @@ internal partial class AgentOrchestrator {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Resume: flow participant {AgentId} was not resumed: {Reason}")]
     partial void LogParticipantNotResumed(string agentId, string reason);
+
+    /// <summary>What became of a predecessor's agent at boot, as the boot log reports it.</summary>
+    internal static string DescribeResume(ResumeOutcome outcome, string? reason) => outcome switch {
+        ResumeOutcome.Resumed   => "resumed its own session",
+        ResumeOutcome.Continued => "continued its work as a new agent",
+        ResumeOutcome.Stopped   => "was stopped before it came back",
+        _                       => reason is { Length: > 0 } ? $"was not resumed ({reason})" : "was not resumed",
+    };
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Resume: agent {AgentId} {Outcome}")]
+    partial void LogResumeOutcome(string agentId, string outcome);
 }

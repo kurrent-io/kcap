@@ -263,10 +263,11 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public bool HistoryImportRunning => HistoryImport is { Running: true };
     /// Counts against the same total setup showed, so the figure reads as one run across both windows.
     public string HistoryImportStatus => HistoryImport is not { } run ? ""
-        : run.Running ? $"Importing history · {run.ProcessedOfExpected} sessions processed"
+        : run.Running ? $"Importing history · {run.ProcessedOfExpected} {run.SessionsNoun} processed"
         : run.State is ImportRunState.Failed or ImportRunState.Cancelled
-            ? $"History import didn't finish · {run.ProcessedOfExpected} sessions processed. Reopen setup to retry"
-        : $"History imported · {run.Processed:N0} sessions processed";
+            ? $"History import didn't finish · {run.ProcessedOfExpected} {run.SessionsNoun} processed. Reopen setup to retry"
+        : $"History imported · {run.Processed:N0} {(run.Processed == 1 ? "session" : "sessions")} processed";
+
     public double HistoryImportProgress => HistoryImport?.Progress ?? 0;
 
     ObservableAsPropertyHelper<bool>? _signInVisible;
@@ -768,10 +769,24 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         };
     }
 
-    /// Opens what a rail click on the hit's session would, and pins the session. A listed session
-    /// opens at once and pins beside it; one the directory has no row for is pinned first, and opens
-    /// only if the page is still up and the intent still current when the pin lands.
-    public async Task<SearchOpenOutcome> OpenSearchHitAsync(string sessionId, PinPresentation presentation, CancellationToken ct) {
+    /// Opens what a rail click on the hit's session would, and pins the session; the open is
+    /// abandoned if the page is gone when the pin lands.
+    public Task<SearchOpenOutcome> OpenSearchHitAsync(string sessionId, PinPresentation presentation, CancellationToken ct) =>
+        OpenServerSessionAsync(sessionId, presentation, () => IsSearchOpen, ct);
+
+    /// The source of a hand-off that failed under its placeholder. Opening the placeholder released
+    /// the source's pin, so the directory may no longer hold its row. True when it opened; nothing
+    /// opens over a navigation made while the pin was reading.
+    public async Task<bool> ReopenServerSessionAsync(string sessionId, PinPresentation presentation) {
+        var generation = _navigation.Generation;
+        var outcome = await OpenServerSessionAsync(sessionId, presentation, () => _navigation.Generation == generation, CancellationToken.None);
+        return outcome == SearchOpenOutcome.Opened;
+    }
+
+    /// A listed session opens at once and pins beside it; one the directory has no row for is
+    /// pinned first, and opens only if `stillWanted` holds when the pin lands.
+    async Task<SearchOpenOutcome> OpenServerSessionAsync(
+            string sessionId, PinPresentation presentation, Func<bool> stillWanted, CancellationToken ct) {
         if (_directory is null) return SearchOpenOutcome.Failed;
         if (_directory.RowForSession(sessionId) is { } listed) {
             // Set after Navigate, whose release of an earlier pin would otherwise clear it.
@@ -795,7 +810,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             case PinOutcome.Superseded: return SearchOpenOutcome.Superseded;
         }
         _searchPinPresentation = presentation;
-        var current = !ct.IsCancellationRequested && IsSearchOpen;
+        var current = !ct.IsCancellationRequested && stillWanted();
         if (!current || _directory.RowForSession(sessionId) is not { } found) {
             ReleaseUnopenedPin(sessionId, restore);
             return current ? SearchOpenOutcome.Failed : SearchOpenOutcome.Superseded;
@@ -1209,6 +1224,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     internal const string LiveUpdatesText       = "Live updates may be missing";
     internal const string LocalStoppedText      = "Local server stopped";
     internal const string LocalChangingText     = "Local server changing…";
+    internal const string LocalRestartingText   = "Local server restarting…";
     internal const string LocalRemovedText      = "Local server removed";
     internal const string LocalNeedsAttentionText = "Local server needs attention";
     internal const string LocalPortTakenText    = "Local server port in use";
@@ -1273,6 +1289,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         : !stopped   ? null
         : condition switch {
             LocalServerCondition.Changing => new(LocalChangingText, StatusColors.Pending, Detail: condition.Value.Explanation),
+            LocalServerCondition.Restarting => new(LocalRestartingText, StatusColors.Pending, Detail: condition.Value.Explanation),
             LocalServerCondition.PortTaken => new(LocalPortTakenText, StatusColors.InProgress, Detail: condition.Value.Explanation),
             LocalServerCondition.Uninstalled or LocalServerCondition.Purged or LocalServerCondition.NotInstalled
                 => new(LocalRemovedText, StatusColors.InProgress, Detail: condition.Value.Explanation),

@@ -12,7 +12,8 @@ namespace Capacitor.Cli.Daemon.Services;
 /// The successor's flock acquire succeeds once our cleanup releases it.
 /// </summary>
 internal sealed partial class DetachedRespawnStrategy(
-        DaemonConfig config, IHostApplicationLifetime lifetime, ILogger<DetachedRespawnStrategy> logger
+        DaemonConfig config, IHostApplicationLifetime lifetime, ILogger<DetachedRespawnStrategy> logger,
+        StopCause? stopCause = null
     ) : IRestartStrategy {
 
     /// <summary>Pure: original argv + "--await-lock" (idempotent).</summary>
@@ -37,9 +38,14 @@ internal sealed partial class DetachedRespawnStrategy(
         return env;
     }
 
+    /// <summary>The binary the successor runs: the install path this daemon started from, which an update has
+    /// since given the new binary, never wherever the running image now sits.</summary>
+    internal static string? SuccessorBinary(string? launchPath, Func<string, bool> fileExists) =>
+        launchPath is null ? null : InstallPaths.Stabilize(launchPath, fileExists);
+
     public RestartOutcome Restart() {
-        var exe = Environment.ProcessPath is { } p ? InstallPaths.Stabilize(p) : null;
-        if (exe is null) { LogNoProcessPath(logger); return RestartOutcome.Retry; }
+        var exe = SuccessorBinary(config.LaunchPath, File.Exists);
+        if (exe is null) { LogNoLaunchPath(logger); return RestartOutcome.Retry; }
 
         var psi = new ProcessStartInfo {
             FileName               = exe,
@@ -65,13 +71,14 @@ internal sealed partial class DetachedRespawnStrategy(
             return RestartOutcome.Retry;
         }
 
+        stopCause?.Note("restarting after an update; a successor daemon takes over");
         lifetime.StopApplication();
 
         return RestartOutcome.Initiated;
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Restart-after-update: Environment.ProcessPath is null; cannot self-respawn")]
-    static partial void LogNoProcessPath(ILogger logger);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Restart-after-update: the path the daemon started from is unknown; cannot self-respawn")]
+    static partial void LogNoLaunchPath(ILogger logger);
     [LoggerMessage(Level = LogLevel.Information, Message = "Restart-after-update: respawned detached successor (PID {Pid}); shutting down")]
     static partial void LogRespawned(ILogger logger, int pid);
     [LoggerMessage(Level = LogLevel.Error, Message = "Restart-after-update: self-respawn failed; staying up")]

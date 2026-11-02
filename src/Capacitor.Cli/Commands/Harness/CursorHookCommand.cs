@@ -81,9 +81,9 @@ public sealed class CursorHookCommand(
         HandleWithDeps(stdin,
             http.ForHookAsync,
             () => {
-                var s = new HookSpool(config, clock.Time);
+                var s = new HookSpool(config, clock.Time, Url);
                 MigrateLegacyCursorSpool(s, harnesses.Of<CursorHarness>().Paths.SpoolDir);
-                s.ReapOlderThan(TimeSpan.FromDays(30));
+                s.DeleteExpired();
                 return s;
             });
 
@@ -298,7 +298,7 @@ public sealed class CursorHookCommand(
             if (agentHostId is not null) node["agent_host_id"] = agentHostId;
 
             // Surface 3: attach this machine's harness inventory, session-start only.
-            if (eventName == "sessionStart") SessionStartInventory.Stamp(node.AsObject(), config, harnesses, clock.Time);
+            if (eventName == "sessionStart") SessionStartInventory.Stamp(node.AsObject(), config, harnesses, HarnessId.Cursor, clock.Time);
 
             if (eventName == "afterAgentThought") {
                 var sid = TryGetString(node, "session_id") ?? "";

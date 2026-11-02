@@ -62,6 +62,22 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// output read loop for the chunk it was read from, before the next chunk is read.</summary>
     void NoteTerminalDialog(bool showing) { }
 
+    /// <summary>A hook relayed a turn starting or ending for this agent, which only a submitted prompt
+    /// causes.</summary>
+    void NoteTurnRelayed() { }
+
+    /// <summary>Sends one more submit Enter for input already in a terminal composer. False when nothing
+    /// was written: no composer, a dialog that would take the Enter, a stop, the agent gone, or
+    /// <paramref name="isCurrent"/> false once the input lane is held, because a newer input owns the
+    /// composer by then.</summary>
+    Task<bool> ResubmitAsync(Func<bool> isCurrent) => Task.FromResult(false);
+
+    /// <summary>The launch prompt pasted after spawn, or null when nothing is pasted.</summary>
+    Task<LaunchPromptOutcome>? LaunchPromptDelivery => null;
+
+    /// <summary>The launch prompt was not seen to arrive, and no turn has been relayed since.</summary>
+    bool LaunchPromptUnconfirmed => false;
+
     /// <summary>
     /// Terminal byte stream consumed by the orchestrator read loop. PTY runtimes yield real
     /// terminal output; the ACP runtime yields an empty stream until a follow-up adds a terminal

@@ -172,7 +172,7 @@ sealed class AntigravityHookCommand(
         if (activeProfile?.DefaultVisibility is { } visibility)
             forwarded["default_visibility"] = visibility;
 
-        SessionStartInventory.Stamp(forwarded, config, harnesses, clock.Time);
+        SessionStartInventory.Stamp(forwarded, config, harnesses, HarnessId.Antigravity, clock.Time);
         var enriched = await RepositoryDetection.EnrichWithRepositoryInfo(router, config, forwarded.ToJsonString(), clock.Time);
 
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,
@@ -205,7 +205,7 @@ sealed class AntigravityHookCommand(
         // unreachable server must never leave the once-per-conversation lease committed while the
         // fragment it paid for is still stuck behind the POST — the vendor kills the hook at its own
         // timeout, and that firing never retries.
-        var spool    = new HookSpool(config, clock.Time);
+        var spool    = new HookSpool(config, clock.Time, Url);
         var postTask = _poster.PostOrSpoolAsync("session-start/antigravity", enriched, "antigravity-hook",
             spool, sessionId, route: "session-start/antigravity");
 

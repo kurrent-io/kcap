@@ -12,6 +12,7 @@ using WireMock.Server;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.PrDetection;
 using Spectre.Console;
@@ -47,14 +48,14 @@ public class SetupCommandTests {
 
     SetupCommand Command(
             ISetupImportRunner imports, IBackgroundImportSpawner spawner, IHandoffAgentLauncher launcher,
-            string workdir, Func<IReadOnlyList<string>, string?>? pick = null) =>
+            string workdir, LocalRoot? localRoot = null, Func<IReadOnlyList<string>, string?>? pick = null) =>
         new(Config.Root, Resolutions.None(Config.Root),
             AuthFixtures.NewTokenStore(Config.Root), new RecordingBrowser(), Home,
             TestHarnesses.Under(Home, TestBinaries.Searching(Bin)),
             new AgentsPaths(Home), new FixedCapacitorHttpClient(), Provisioning, Discovery,
             NoTelemetry.Facade, AuthEndpoints.Defaults, RealFacades(), imports, spawner, launcher,
             new ChosenServerHttp(Config.Root, Resolutions.None(Config.Root), ProfileOverrides.None, MachineAuth.None, NoLocalInstallation.Root), router: new GitProviderRouter(), workdir: new WorkingDirectory(workdir), TimeProvider.System,
-            TestBinaries.None, TestAccounts.None, TestPluginEnvironment.For(Home, Home.PathTo("plugin")), NoLocalInstallation.Root, FakeLocalInstallerFactory.Unused) {
+            TestBinaries.None, TestAccounts.None, TestPluginEnvironment.For(Home, Home.PathTo("plugin")), localRoot ?? NoLocalInstallation.Root, FakeLocalInstallerFactory.Unused) {
             PickHandoffVendor = pick ?? (_ => "Skip")
         };
 
@@ -671,6 +672,14 @@ public class SetupCommandTests {
         await Assert.That(line).Contains("background service");
     }
 
+    [Test]
+    public async Task DaemonClosingLine_names_the_unit_the_daemon_runs_under() {
+        var line = SetupCommand.DaemonClosingLine(
+            new FirstRunMachineActionResult(FirstRunMachineActionOutcomes.Enabled, null), "Windows service kcap-service");
+
+        await Assert.That(line).Contains("background service, the Windows service kcap-service.");
+    }
+
     /// <summary>A failed ensure is retried as a service; only a platform without one gets the plain start.</summary>
     [Test]
     public async Task DaemonClosingLine_offers_a_plain_start_only_without_a_service_manager() {
@@ -1193,12 +1202,13 @@ public class SetupCommandTests {
             bool auth = true, bool skip = false, string visibility = "org_public",
             CodingAgentsStep.Paths? paths = null, bool browserFinished = false, Func<bool>? nameSessions = null,
             ImportSkip? leaveOut = null,
-            Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? choose = null) => new(
+            Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? choose = null,
+            Core.Setup.Intelligence.IntelligenceSetupResponse? intelligence = null, bool? outcomes = null) => new(
         AuthSatisfied: auth, SkipImport: skip, NoPrompt: noPrompt, PromptYesNo: prompt ?? (() => true),
         Profiles: Resolutions.At("https://example.test", Config.Root), ProfileName: "work", ServerUrl: "https://example.test",
         DefaultVisibility: visibility, CurrentRepo: null, WorkingDirectory: Config.Directory,
         Paths: paths ?? PathsWithEvalWatchFor(HarnessId.Codex), BrowserImport: browser, BrowserImportFailed: false,
-        BrowserFinished: browserFinished, PromptNameSessions: nameSessions, Skip: leaveOut, ChooseProjects: choose);
+        BrowserFinished: browserFinished, PromptNameSessions: nameSessions, Skip: leaveOut, Intelligence: intelligence, ImportOutcomes: outcomes, ChooseProjects: choose);
 
     /// <summary>Two repositories and one folder that matched none, plus a session with no folder recorded.</summary>
     static ImportCommand.ImportDiscoveryResult DiscoveredProjects() {
@@ -1314,6 +1324,90 @@ public class SetupCommandTests {
         await Assert.That(saidBeforeAsking).Contains("go to the model provider that agent uses");
         await Assert.That(runner.Captured!.SkipTitle).IsEqualTo(!answer);
         await Assert.That(spawner.Seen!.NameSessions).IsEqualTo(answer);
+    }
+
+    /// <summary>Once the server's own model titles imports, naming them here would run the user's agent on the same
+    /// sessions for nothing: it is not asked, the import leaves titling to the server, and the pace is said instead.</summary>
+    [Test, NotInParallel]
+    public async Task A_server_that_titles_is_not_doubled_by_naming_here() {
+        var runner  = FakeImportRunner.Succeeding().Discovering(Discovered(3, 20, 5));
+        var spawner = FakeBackgroundImportSpawner.Running();
+        using var console = new SpectreCapture();
+        Func<bool> mustNotAsk = () => throw new InvalidOperationException("must not ask about naming");
+
+        await Command(runner, spawner, FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(nameSessions: mustNotAsk,
+                intelligence: new("local_agent", "claude", null, true, 10, ["titles", "outcomes"])));
+
+        await Assert.That(runner.Captured!.SkipTitle).IsTrue();
+        await Assert.That(spawner.Seen!.NameSessions).IsFalse();
+        await Assert.That(console.Flat).Contains("works through 25 imported sessions at up to 10 a day: about 3 days");
+    }
+
+    [Test, NotInParallel]
+    public async Task A_server_with_no_title_model_still_offers_naming_here() {
+        var runner = FakeImportRunner.Succeeding().Discovering(Discovered(3, 20, 5));
+        var asked  = false;
+        using var console = new SpectreCapture();
+
+        await Command(runner, FakeBackgroundImportSpawner.Running(), FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(nameSessions: () => asked = true, intelligence: new("none", null, null, false, 10, [])));
+
+        await Assert.That(asked).IsTrue();
+        await Assert.That(console.Flat).DoesNotContain("a day: about");
+    }
+
+    /// <summary>An outcome flag the server did not take would import under its other choice, so the import waits for
+    /// the choice to be applied.</summary>
+    [Test, NotInParallel]
+    [Arguments(false, null)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    public async Task An_outcome_flag_the_server_did_not_take_skips_the_import(bool wanted, bool? applied) {
+        var runner = FakeImportRunner.Succeeding().Discovering(Discovered(3, 20, 5));
+        using var console = new SpectreCapture();
+        Core.Setup.Intelligence.IntelligenceSetupResponse? took = applied is { } a ? new("local_agent", "claude", null, a, 10, ["titles"]) : null;
+
+        var result = await Command(runner, FakeBackgroundImportSpawner.Running(), FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(noPrompt: true, intelligence: took, outcomes: wanted));
+
+        await Assert.That(result.Ran).IsFalse();
+        await Assert.That(runner.Captured).IsNull();
+        await Assert.That(console.Flat).Contains(wanted ? "--import-outcomes" : "--no-import-outcomes");
+    }
+
+    [Test]
+    public async Task An_outcome_flag_the_server_took_imports() {
+        var runner = FakeImportRunner.Succeeding().Discovering(Discovered(3, 20, 5));
+
+        await Command(runner, FakeBackgroundImportSpawner.Running(), FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(noPrompt: true, intelligence: new("local_agent", "claude", null, false, 10, ["titles"]), outcomes: false));
+
+        await Assert.That(runner.Captured).IsNotNull();
+    }
+
+    /// <summary>A project a flag leaves out is not imported, so the pace does not count it, chooser or not.</summary>
+    [Test, NotInParallel]
+    public async Task The_pace_leaves_out_what_a_flag_left_out() {
+        var runner = FakeImportRunner.Succeeding().Discovering(Discovered(1, 20, 0));
+        using var console = new SpectreCapture();
+
+        await Command(runner, FakeBackgroundImportSpawner.Running(), FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(noPrompt: true, leaveOut: new ImportSkip([("owner0", "repo0")], []),
+                intelligence: new("local_agent", "claude", null, true, 10, ["titles"])));
+
+        await Assert.That(console.Flat).DoesNotContain("a day: about");
+    }
+
+    [Test]
+    [Arguments(1, 200, "1 imported session at up to 200 a day: about 1 day.")]
+    [Arguments(450, 200, "450 imported sessions at up to 200 a day: about 3 days.")]
+    [Arguments(0, 200, null)]
+    public async Task The_pace_line_counts_whole_days(int sessions, int perDay, string? tail) {
+        var line = SetupCommand.ImportCostLine(sessions, new("provider", null, "anthropic", true, perDay, ["titles"]));
+
+        if (tail is null) await Assert.That(line).IsNull();
+        else await Assert.That(line).EndsWith(tail);
     }
 
     /// <summary>Declining the import is not a question about naming, and an unattended run cannot consent:
@@ -1762,6 +1856,39 @@ public class SetupCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(runner.Captured?.DefaultVisibility).IsEqualTo(expected);
+    }
+
+    /// <summary>A server URL the local registry names is the local edition even without <c>--local</c>: setup asks it
+    /// for no visibility offer and leaves the profile's stored value in place</summary>
+    [Test]
+    [NotInParallel]
+    public async Task HandleAsync_NoPrompt_against_a_local_server_url_keeps_the_profiles_visibility() {
+        using var server = WireMockServer.Start();
+        StubAuthProviderNone(server);
+        server.Given(Request.Create().WithPath("/api/users/me/visibility-options").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+                .WithBody("""{"options":[{"key":"private","label":"Only me"}],"default_visibility":"private"}"""));
+
+        var localRoot = new LocalRoot(Bin.CreateDir("local"));
+        LocalStateFiles.PublishRegistry(localRoot,
+            InstallRegistry.Empty.WithActive(new("0123456789abcdef0123456789abcdef", new Uri(server.Url!).Port, server.Url!, "1.3.0")));
+        await using var fixture = await HandleAsyncE2EFixture.CreateAsync("acme-local-visibility", "widgets", Config.Root);
+        await ConfigMutator.MutateAsync(Config.Root, c => c with {
+            Profiles = new Dictionary<string, Capacitor.Cli.Core.Config.Profile>(c.Profiles) {
+                [c.ActiveName] = (c.Profiles.GetValueOrDefault(c.ActiveName) ?? new Capacitor.Cli.Core.Config.Profile()) with { DefaultVisibility = "project" },
+            },
+        });
+
+        var runner = FakeImportRunner.Succeeding();
+        var exit = await Command(runner, FakeBackgroundImportSpawner.Running(), FakeHandoffAgentLauncher.Ran(), fixture.RepoDir, localRoot)
+            .HandleAsync(BuildArgs("--server-url", server.Url!, "--no-prompt"));
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(runner.Captured?.DefaultVisibility).IsEqualTo("project");
+        await Assert.That(server.LogEntries.Select(e => e.RequestMessage.Path)).DoesNotContain("/api/users/me/visibility-options");
+
+        var saved = await AppConfig.LoadProfileConfig(Config.Root);
+        await Assert.That(saved.Profiles[saved.ActiveName].DefaultVisibility).IsEqualTo("project");
     }
 
     [Test]

@@ -8,6 +8,7 @@ static class WindowsTaskUnit {
     const string Prefix = "kcap-daemon-";
     const string ActionCommand = "conhost.exe";
     const string ActionArgumentsPrefix = "--headless cmd.exe /d /s /v:off /c \"\"";
+    const string DaemonInstall = "`kcap daemon service install`";
 
     /// <summary>Every action a kcap release has registered, newest first. Tasks installed by an older
     /// release keep theirs until reinstalled, so each must still lead to its wrapper.</summary>
@@ -50,12 +51,8 @@ static class WindowsTaskUnit {
     /// trigger is a value that cannot be represented at all, <c>service install</c> is interactive, and the
     /// alternative is writing a file that might execute something.</para>
     /// </summary>
-    static void RequireRepresentable(string key, string value) {
-        // The KEY is interpolated into the same `set "K=V"` line, so it is exactly as dangerous as the
-        // value — a key containing a quote closes the assignment just the same. Review caught this: the
-        // first version checked only the value, while the stated rationale (callers add entries after
-        // ServiceEnvironment.Build, so the sink must validate) applies to both sides equally. `=` is
-        // rejected too, since it splits the assignment even without a quote.
+    internal static void RequireRepresentable(string key, string value, string rerun = DaemonInstall) {
+        // The key sits in the same `set "K=V"` line, so a quote or `=` in it ends the assignment just the same.
         ServiceText.RequireValidEnvName(key);
 
         if (!IsUnrepresentable(value)) return;
@@ -64,7 +61,7 @@ static class WindowsTaskUnit {
             $"Cannot write the service wrapper: the value of '{key}' contains a quote or newline, which "
           + $"this platform's `set \"K=V\"` wrapper cannot carry safely — the assignment would end early "
           + $"and the remainder would be interpreted as commands. Unset or correct '{key}', then re-run "
-          + $"`kcap daemon service install`.");
+          + $"{rerun}.");
     }
 
     // systemd's RestartSec=5, applied to every relaunch. No burst limit: systemd gives up after five quick
@@ -128,13 +125,13 @@ static class WindowsTaskUnit {
     }
 
     /// <summary>Guard, escape, then quote one value interpolated into the wrapper's exec line.</summary>
-    static string ExecValue(string what, string value) {
+    internal static string ExecValue(string what, string value, string rerun = DaemonInstall) {
         if (IsUnrepresentable(value))
             throw new InvalidOperationException(
                 $"Cannot write the service wrapper: {what} ('{value}') contains a quote or newline. Neither "
               + "can be carried safely on a batch exec line — a quote ends the quoted argument and a newline "
-              + "ends the command — so the wrapper would execute something other than the daemon. Correct it, "
-              + "then re-run `kcap daemon service install`.");
+              + "ends the command — so the wrapper would execute something other than intended. Correct it, "
+              + $"then re-run {rerun}.");
 
         return Quote(ServiceText.CmdValue(value));
     }
@@ -189,7 +186,7 @@ static class WindowsTaskUnit {
     /// account name; <c>KCAP_CONFIG_DIR</c> can set it outright. <c>&amp;</c> itself is handled by the
     /// nested-quote form below rather than refused, so an ordinary path keeps working.</para>
     /// </summary>
-    static void RequireSafeWrapperPath(string wrapperPath) {
+    static void RequireSafeWrapperPath(string wrapperPath, string remedy) {
         var bad = wrapperPath.Contains('%') ? "a percent sign"
                 : IsUnrepresentable(wrapperPath) ? "a quote or newline"
                 : null;
@@ -198,8 +195,7 @@ static class WindowsTaskUnit {
         throw new InvalidOperationException(
             $"Cannot register the scheduled task: the wrapper path '{wrapperPath}' contains {bad}, which "
           + "cannot be passed safely to `cmd /c` — a percent sign is expanded before the file is opened and "
-          + "has no escape on a command line. Set KCAP_CONFIG_DIR to a path without it, then re-run "
-          + "`kcap daemon service install`.");
+          + $"has no escape on a command line. {remedy}");
     }
 
     /// <summary>
@@ -222,15 +218,23 @@ static class WindowsTaskUnit {
     /// <para><c>conhost --headless</c> gives the daemon a console with no window. A plain <c>cmd.exe</c>
     /// action opens a visible console at every sign-in, and closing it stops the daemon.</para>
     /// </summary>
-    public static string TaskXml(ServiceSpec spec, string wrapperPath, string? userId = null) {
-        RequireSafeWrapperPath(wrapperPath);
-        var user = Guarded("the user name", userId ?? CurrentUser());
+    public static string TaskXml(ServiceSpec spec, string wrapperPath, string? userId = null) =>
+        TaskXml($"kcap daemon ({spec.ServiceId})", wrapperPath, userId, priority: null,
+            $"Set KCAP_CONFIG_DIR to a path without it, then re-run {DaemonInstall}.");
+
+    /// <param name="priority">Task Scheduler's 0-10 scale. Its default, 7, is below normal, and a process the action
+    /// starts inherits that class.</param>
+    /// <param name="remedy">The sentence telling the user how to reach a wrapper path this can register.</param>
+    internal static string TaskXml(string description, string wrapperPath, string? userId, int? priority, string remedy) {
+        RequireSafeWrapperPath(wrapperPath, remedy);
+        var user         = Guarded("the user name", userId ?? CurrentUser());
+        var priorityLine = priority is { } p ? $"<Priority>{p}</Priority>" : "";
 
         return $"""
         <?xml version="1.0" encoding="UTF-16"?>
         <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
           <RegistrationInfo>
-            <Description>kcap daemon ({Guarded("the service id", spec.ServiceId)})</Description>
+            <Description>{Guarded("the task description", description)}</Description>
           </RegistrationInfo>
           <Triggers>
             <LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger>
@@ -248,7 +252,7 @@ static class WindowsTaskUnit {
             <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
             <StartWhenAvailable>true</StartWhenAvailable>
             <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-            <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>
+            <RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure>{priorityLine}
           </Settings>
           <Actions Context="Author">
             <Exec>
@@ -284,6 +288,52 @@ static class WindowsTaskUnit {
     }
 
     /// <summary>
+    /// The wrapper with <paramref name="key"/> set to <paramref name="value"/>: its own <c>set</c> line replaced, or
+    /// a new one added after the last line of the preamble every kcap wrapper opens with. Null when the wrapper has
+    /// no such preamble, so it is not one kcap wrote.
+    /// </summary>
+    public static string? WithEnvironmentValue(string wrapperText, string key, string value) {
+        RequireRepresentable(key, value, "kcap setup");
+
+        var newline = wrapperText.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var line    = $"set \"{ServiceText.CmdValue(key)}={ServiceText.CmdValue(value)}\"";
+        var lines   = wrapperText.Split(newline).ToList();
+        var after   = -1;
+
+        for (var i = 0; i < lines.Count; i++) {
+            var text = lines[i];
+            var eq   = text.IndexOf('=');
+
+            if (text.StartsWith("set \"", StringComparison.Ordinal) && text.EndsWith('"') && eq > 5) {
+                var name = text[5..eq].Replace("%%", "%");
+                if (string.Equals(name, "ERRORLEVEL", StringComparison.OrdinalIgnoreCase)) break;
+
+                if (string.Equals(name, key, StringComparison.OrdinalIgnoreCase)) {
+                    lines[i] = line;
+                    return string.Join(newline, lines);
+                }
+
+                after = i;
+                continue;
+            }
+
+            if (text.Equals("@echo off", StringComparison.OrdinalIgnoreCase)
+             || text.StartsWith("chcp ", StringComparison.OrdinalIgnoreCase)
+             || text.StartsWith("setlocal ", StringComparison.OrdinalIgnoreCase)) {
+                after = i;
+                continue;
+            }
+
+            break;
+        }
+
+        if (after < 0) return null;
+
+        lines.Insert(after + 1, line);
+        return string.Join(newline, lines);
+    }
+
+    /// <summary>
     /// The daemon binary the wrapper exec's — the first quoted token of its exec
     /// line. <c>daemon doctor</c> checks THIS (not the wrapper's own existence),
     /// since the wrapper can survive while the baked kcap-daemon.exe path is stale.
@@ -294,6 +344,23 @@ static class WindowsTaskUnit {
         if (line is null) return null;
         var end = line.IndexOf('"', 1);
         return end > 1 ? line[1..end].Replace("%%", "%") : null;
+    }
+
+    /// <summary>The wrapper with the binary <see cref="BinaryFromWrapper"/> reads replaced and every other byte kept;
+    /// null when it has no such line.</summary>
+    public static string? WithDaemonBinary(string wrapperText, string binary) {
+        var newline = wrapperText.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var lines   = wrapperText.Split(newline);
+        var at      = Array.FindLastIndex(lines, l => l.Trim().StartsWith('"'));
+        if (at < 0) return null;
+
+        var line  = lines[at];
+        var start = line.IndexOf('"');
+        var end   = line.IndexOf('"', start + 1);
+        if (end <= start + 1) return null;
+
+        lines[at] = line[..start] + ExecValue("the daemon binary path", binary) + line[(end + 1)..];
+        return string.Join(newline, lines);
     }
 
     // ── command vectors (schtasks) ──

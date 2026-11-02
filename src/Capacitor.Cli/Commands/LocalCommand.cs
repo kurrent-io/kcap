@@ -8,10 +8,19 @@ namespace Capacitor.Cli.Commands;
 
 /// <summary>The <c>kcap local</c> group, for the installation <c>kcap setup --local</c> made.</summary>
 sealed class LocalCommand(
-    ILocalStackFactory stacks, LocalUpgradeCommand upgrade, IBrowserLauncher browser, IOutgoingRecorders recorders, ConfigRoot config, UserHome home) {
+    ILocalStackFactory stacks, LocalUpgradeCommand upgrade, LocalFetchCommand fetch, LocalIntelligenceCommand intelligence, IBrowserLauncher browser, IOutgoingRecorders recorders,
+    ConfigRoot config, UserHome home) {
     const int DefaultLogLines = 50;
 
-    static readonly string[] UninstallFlags = ["--purge", "--force", "--yes", "-y"];
+    static readonly string[] UninstallFlags = ["--purge", "--force", "--yes", "-y", QuickFlag];
+
+    const string QuickFlag = "--quick";
+
+    const string JsonFlag = "--json";
+
+    /// <summary>What <c>--quick</c> gives the whole uninstall, lock waits included, before the server's unit goes
+    /// regardless. With the unit's removal after it, the app uninstaller's 15-second step still covers it.</summary>
+    static readonly TimeSpan QuickGrace = TimeSpan.FromSeconds(8);
 
     public async Task<int> HandleAsync(string[] args) {
         var sub = args.Length > 1 ? args[1] : null;
@@ -19,6 +28,7 @@ sealed class LocalCommand(
         return sub switch {
             null or "help" => await PrintUsage(sub is null ? 1 : 0),
             "logs"         => await WithStack(s => LogsAsync(s, args)),
+            "status" when args is [_, _, JsonFlag] => await WithStack(StatusJsonAsync),
             "status" or "start" or "stop" or "restart" or "open" when args.Length > 2
                            => await FailAsync($"kcap local {sub} takes no arguments: {string.Join(' ', args[2..])}"),
             "status"       => await WithStack(StatusAsync),
@@ -28,6 +38,9 @@ sealed class LocalCommand(
             "open"         => await WithStack(OpenAsync),
             "uninstall"    => await UninstallAsync(args[2..]),
             "upgrade"      => await upgrade.HandleAsync(args),
+            "fetch"        => await fetch.HandleAsync(args),
+            "intelligence" => await intelligence.HandleAsync(args),
+            LocalConsoleBreakCommand.Name => LocalConsoleBreakCommand.Run(args[2..]),
             _              => await Unknown(sub),
         };
     }
@@ -46,6 +59,15 @@ sealed class LocalCommand(
 
     static Task<LocalStatusReport> ReadStatusAsync(LocalStack stack) =>
         new LocalStatusReader(stack, CapacitorVersion.CurrentDisplay(), PortHolder.Find).ReadAsync(CancellationToken.None);
+
+    /// <summary>One <see cref="LocalStatusJson"/> line, for the desktop app; the exit code is the plain command's.</summary>
+    static async Task<int> StatusJsonAsync(LocalStack stack) {
+        var report = await ReadStatusAsync(stack);
+
+        await Console.Out.WriteLineAsync(LocalStatusJson.From(report.Ready, report.Headline, report.Notes, report.Reading).Render());
+
+        return report.Ready ? 0 : 1;
+    }
 
     static async Task<int> StatusAsync(LocalStack stack) {
         var report = await ReadStatusAsync(stack);
@@ -131,11 +153,18 @@ sealed class LocalCommand(
             return await PrintUsage(1);
         }
 
+        var quick = args.Contains(QuickFlag);
+        // Only the Windows supervisors give the server a bounded grace; elsewhere the stop is waited out and verified.
+        if (quick && !OperatingSystem.IsWindows())
+            return await FailAsync($"{QuickFlag} is for the Windows app's uninstaller; run kcap local uninstall without it.");
+        if (quick && args.Contains("--purge"))
+            return await FailAsync($"{QuickFlag} leaves a server that is still stopping, so it cannot delete its data: drop --purge or {QuickFlag}.");
+
         return await WithStack(stack => UninstallAsync(stack, purge: args.Contains("--purge"), force: args.Contains("--force"),
-            yes: args.Contains("--yes") || args.Contains("-y")));
+            yes: args.Contains("--yes") || args.Contains("-y"), quick));
     }
 
-    async Task<int> UninstallAsync(LocalStack stack, bool purge, bool force, bool yes) {
+    async Task<int> UninstallAsync(LocalStack stack, bool purge, bool force, bool yes, bool quick) {
         var root = stack.Root.Directory;
 
         switch (stack.Read()) {
@@ -166,7 +195,7 @@ sealed class LocalCommand(
             }
         }
 
-        var uninstall = new LocalUninstall(stack.Service, home, recorders);
+        var uninstall = new LocalUninstall(stack.Service, home, recorders) { QuickGrace = quick ? QuickGrace : null };
 
         LocalUninstallOutcome outcome;
 
@@ -180,6 +209,8 @@ sealed class LocalCommand(
         await Console.Out.WriteLineAsync(outcome switch {
             LocalUninstallOutcome.Purged      => $"Purged the local installation in {root}.",
             LocalUninstallOutcome.Uninstalled => $"Uninstalled the local server. Its data in {root} is kept; kcap setup --local brings it back.",
+            LocalUninstallOutcome.Unloaded    => $"Removed the local server's service; the server is still stopping, so {Path.Combine(root, "bin")} and "
+                                               + $"{Path.Combine(root, "run")} are left. Its data in {root} is kept; kcap setup --local brings it back.",
             _                                 => $"There is no local installation in {root}.",
         });
 

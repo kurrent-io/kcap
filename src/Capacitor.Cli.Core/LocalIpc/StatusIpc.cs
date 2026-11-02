@@ -47,7 +47,10 @@ public sealed record DaemonInfoDto(
     Dictionary<string, VendorModelOption[]>? VendorModelsByAccount = null,
     // The signed-in account's stable subject, echoed back in a rename so the daemon can refuse
     // when the client was looking at another account. Null = older daemon or signed out.
-    string? UserSubject = null);
+    string? UserSubject = null,
+    // Harness tokens this daemon runs a local-edition server's headless prompts on, the list it advertises on
+    // DaemonConnect; gated by the headless/1 capability. Null from an older daemon, which a client reads as unknown.
+    string[]? HeadlessVendors = null);
 
 /// <summary>
 /// <see cref="Status"/> is the daemon's internal status string VERBATIM (PascalCase, open
@@ -130,7 +133,10 @@ public sealed record AgentStatusDto(
     // unproven, so a client must not send a keystroke that is safe only mid-turn.
     bool? TurnAttested = null,
     // The session is hidden from everyone but its owner. Null = older daemon, unknown.
-    bool? IsPrivate = null);
+    bool? IsPrivate = null,
+    // The launch prompt was pasted and submitted but no turn was reported after it, so it may still
+    // sit unsent in the agent's composer. Cleared by the next reported turn. Null = older daemon.
+    bool? LaunchPromptUnconfirmed = null);
 
 /// Wire tokens for <see cref="AgentStatusDto.WorkLocation"/>, compared literally by every
 /// client, so they never change.

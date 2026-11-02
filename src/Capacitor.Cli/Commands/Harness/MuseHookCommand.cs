@@ -160,7 +160,7 @@ sealed class MuseHookCommand(
         if (agentHostId is not null) forwarded["agent_host_id"] = agentHostId;
         if (activeProfile?.DefaultVisibility is { } visibility) forwarded["default_visibility"] = visibility;
 
-        SessionStartInventory.Stamp(forwarded, config, harnesses, clock.Time);
+        SessionStartInventory.Stamp(forwarded, config, harnesses, HarnessId.Muse, clock.Time);
         var enriched = await RepositoryDetection.EnrichWithRepositoryInfo(
             router, config, forwarded.ToJsonString(), clock.Time, budget.Remaining, detectPullRequest: false);
 
@@ -307,7 +307,7 @@ sealed class MuseHookCommand(
     /// <summary>Spools behind an undelivered backlog for the session rather than overtaking it, so a
     /// stranded session-start still reaches the server first; a spent budget spools too.</summary>
     async Task<HookPostOutcome> PostInOrderAsync(string route, string body, string sessionId, HookBudget budget) {
-        var spool = new HookSpool(config, clock.Time);
+        var spool = new HookSpool(config, clock.Time, Url);
 
         if (spool.HasBacklog(sessionId) || budget.Remaining <= TimeSpan.Zero)
             return spool.Append(sessionId, route, body) ? HookPostOutcome.Spooled : HookPostOutcome.Skipped;

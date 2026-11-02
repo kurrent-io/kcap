@@ -86,6 +86,38 @@ public class ClaudeStatusLineCommandTests {
         await Assert.That(shell).IsNull();
     }
 
+    [Test]
+    public async Task On_windows_a_standard_git_install_is_found_ahead_of_path() {
+        const string standard = @"C:\Program Files\Git\bin\bash.exe";
+        var path = Tmp.PathTo("MinGit", "cmd");
+        HashSet<string> existing = [standard, Tmp.PathTo("MinGit", "cmd", "git.exe")];
+
+        var shell = ClaudeStatusLineCommand.PosixShellPath(n => n == "PATH" ? path : null, windows: true, existing.Contains);
+
+        await Assert.That(shell).IsEqualTo(standard);
+    }
+
+    /// <summary>Claude takes bash only from beside the first git on PATH, so a later Git for Windows is no shell.</summary>
+    [Test]
+    public async Task On_windows_only_the_first_git_on_path_is_looked_beside() {
+        var later = Tmp.PathTo("Git", "bin", "bash.exe");
+        var path  = $"{Tmp.PathTo("MinGit", "cmd")};{Tmp.PathTo("Git", "cmd")}";
+        HashSet<string> existing = [Tmp.PathTo("MinGit", "cmd", "git.exe"), Tmp.PathTo("Git", "cmd", "git.exe"), later];
+
+        var shell = ClaudeStatusLineCommand.PosixShellPath(n => n == "PATH" ? path : null, windows: true, existing.Contains);
+
+        await Assert.That(shell).IsNull();
+    }
+
+    [Test]
+    public async Task On_windows_a_configured_path_that_is_not_a_shell_is_ignored() {
+        var notShell = Tmp.PathTo("tools", "git.exe");
+
+        var shell = ClaudeStatusLineCommand.PosixShellPath(n => n == "CLAUDE_CODE_GIT_BASH_PATH" ? notShell : null, windows: true, p => p == notShell);
+
+        await Assert.That(shell).IsNull();
+    }
+
     public static IEnumerable<Func<(string Original, string Expected)>> Originals() {
         yield return () => ("echo hi # a trailing comment", "hi\n");
         yield return () => ("echo 'single quoted' \"it's\"", "single quoted it's\n");

@@ -55,6 +55,27 @@ public class ChatTabViewModelTests {
         } finally { release.Set(); await chat.TeardownAsync(); }
     });
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_outcome_shows_in_a_newly_opened_live_view() => RunOnUiAsync(async () => {
+        using var session = new BehaviorSubject<ChatSessionInfo>(Session("s2"));
+        using var outcomes = new Subject<Capacitor.Cli.Core.Handoff.HandoffOutcomeDto>();
+        var time = new FakeTimeProvider();
+        var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, session, Observable.Return<string[]?>(null),
+            new AcceptingChatInput(), new NoAttachmentUploader(), _ => new HeldFeed(new ManualResetEventSlim(true), new ManualResetEventSlim(true)),
+            new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time), handoffOutcome: outcomes);
+        try {
+            await Assert.That(chat.HandoffOutcome).IsNull();
+
+            outcomes.OnNext(new("s1", "Old session", "done", null,
+                [new("plan", "Plan A", "carried", null)]));
+            await WaitUntilAsync(() => chat.HandoffOutcome is not null, what: "the outcome");
+
+            await Assert.That(chat.HandoffOutcome!.Header).IsEqualTo("Continued from Old session");
+            await Assert.That(chat.HandoffOutcome.Rows[0].Text).IsEqualTo("Plan A — carried over");
+        } finally { await chat.TeardownAsync(); }
+    });
+
     sealed class HeldFeed(ManualResetEventSlim entered, ManualResetEventSlim release) : IChatTranscriptFeed {
         public long? CurrentOffset => 0;
         public FeedRead ReadAppended() {
@@ -3513,6 +3534,25 @@ public class ChatTabViewModelTests {
             await Assert.That(await close.Choose.CanExecute.FirstAsync()).IsFalse();
         } finally { await h.TeardownAsync(); }
     });
+
+    /// A launch prompt no turn followed may still sit in the composer, so the empty chat says so and
+    /// keeps pointing at the terminal, until a turn is reported.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_empty_chat_says_when_the_first_message_may_not_have_been_sent() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(TranscriptChat.For("claude"));
+            try {
+                h.Chat.ShowTerminal = () => { };
+                await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with { Status = "Running", LaunchPromptUnconfirmed = true });
+                await Assert.That(h.Chat.PhaseNote).IsEqualTo(ChatTabViewModel.LaunchPromptUnconfirmedNote);
+                await Assert.That(h.Chat.ShowsTerminalOffer).IsTrue();
+
+                await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with { Status = "Running", LaunchPromptUnconfirmed = false });
+                await Assert.That(h.Chat.PhaseNote).IsEqualTo("Waiting for chat…");
+            } finally { await h.TeardownAsync(); }
+        });
+    }
 
     /// An empty chat can mean the agent is held at a prompt only its terminal shows, so it points
     /// there, unless the agent has no terminal or the dialog card already does.

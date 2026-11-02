@@ -61,18 +61,7 @@ public static class InstallProvenance {
         if (SnapLayout.FromBinary(processPath) is not null) return InstallKind.Snap;
         if (ScriptInstallLayout.FromBinary(processPath, fileExists) is not null) return InstallKind.Script;
 
-        return IsNpm(processPath, fileExists) ? InstallKind.Npm : InstallKind.Unknown;
-    }
-
-    /// <summary>The platform binary under <c>node_modules/@kurrent/kcap-&lt;platform&gt;/bin</c>, with the
-    /// <c>@kurrent/kcap</c> launcher either beside its package or around it (npm nests the optional
-    /// dependency inside the launcher's package on some layouts).</summary>
-    static bool IsNpm(string? processPath, Func<string, bool> fileExists) {
-        var bin = Path.GetDirectoryName(processPath);
-        if (string.IsNullOrEmpty(bin)) return false;
-
-        return fileExists(Path.GetFullPath(Path.Combine(bin, "..", "..", "kcap", "bin", "kcap.js")))
-            || fileExists(Path.GetFullPath(Path.Combine(bin, "..", "..", "..", "..", "bin", "kcap.js")));
+        return NpmInstallLayout.IsPlatformBinary(processPath, fileExists) ? InstallKind.Npm : InstallKind.Unknown;
     }
 
     internal static bool IsAppBundled(string? processPath, Func<string, bool> fileExists) {

@@ -37,6 +37,7 @@ using Capacitor.Cli.Core.PullRequests.Readers;
 using Capacitor.Cli.Core.PullRequests.Readers.GitHubCli;
 using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Core.Setup;
+using Capacitor.Cli.Core.Setup.Intelligence;
 using Capacitor.Remote.Models;
 using Capacitor.Cli.Core.Harness;
 using Microsoft.Extensions.DependencyInjection;
@@ -111,11 +112,16 @@ public partial class App : Application {
     readonly UninstallMode? _uninstallMode = Program.Uninstall;
     UninstallRunViewModel? _uninstallRun;
 
+    /// <summary>The machines a local edition bundle is built for, as the CLI's preflight decides it.</summary>
+    static bool LocalEditionSupported =>
+        (OperatingSystem.IsMacOS() && RuntimeInformation.OSArchitecture == Architecture.Arm64)
+     || (OperatingSystem.IsWindows() && RuntimeInformation.OSArchitecture == Architecture.X64);
+
     public App() {
         // A live facade creates the device id and the spool under the config root being removed.
         _telemetry   = CliTelemetry.Start(
             DesktopTelemetry(_uninstallMode, _endpoints.SignupUrl,
-                UsageDataEdition.ForDesktop(_config, _localRoot, OperatingSystem.IsMacOS() && RuntimeInformation.OSArchitecture == Architecture.Arm64)),
+                UsageDataEdition.ForDesktop(_config, _localRoot, LocalEditionSupported)),
             _config, _time);
         _usageNotice = new UsageDataNotice(_telemetry, _config);
         _foreignHttp = new ServiceCollection().AddAppForeignHttp(_config, _serverEnv).BuildValidated();
@@ -151,7 +157,7 @@ public partial class App : Application {
     ICredentialSource? ServerCredentials(ProfileContext? profiles) => ServerLane(profiles)?.GetRequiredService<ICredentialSource>();
 
     // And its one read of KCAP_APP_PTY_DUMP: a file every terminal feed frame is appended to as
-    // received, for seeing what the emulator was given.
+    // received, with sizes and attaches in a sibling .events file.
     static readonly string? PtyDumpPath = Environment.GetEnvironmentVariable("KCAP_APP_PTY_DUMP");
 
     // Both are app-lifetime and BOTH exist before any graph does: OnShutdownRequested latches and
@@ -208,6 +214,7 @@ public partial class App : Application {
     // last, since its transitions are what the feed subscribes to.
     ServerPermissionFeed? _permissionFeed;
     SessionAttentionTracker? _attention;
+    HandoffDrafts? _handoffDrafts;
     BackgroundCommandActivity? _commands;
     SessionAccessService? _sessionAccess;
     PullRequestToneCache? _pullRequestTones;
@@ -256,6 +263,8 @@ public partial class App : Application {
     // One per app run, shared by every wizard so a reopened one shows the settled outcome; every
     // close and a quit settle it before moving on.
     LocalInstallController? _localInstall;
+    // One fetch per app run, so a reopened wizard never fetches the bundle a second time.
+    LocalBundlePrefetch? _localPrefetch;
     Window? _wizardWindow;
     // The onboarding window once its flow has finished, waiting for BuildAndShowMainWindow to take
     // it over so the main surface opens in place rather than in a second window.
@@ -364,6 +373,7 @@ public partial class App : Application {
                     ("update_relaunch", Program.Host.UpdateRelaunch ? "true" : null),
                     ("installed_handoff", desktop.Args?.Contains("--kcap-installed", StringComparer.Ordinal) == true ? "true" : null));
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
+                if (await RunLegacyInstallGuardAsync(desktop)) return;
             }
             _updater = CreateUpdater(_betaUpdates);
             if (UpdateCoordinator.TryApplyPendingAtStartup(_updater, Program.Host.UpdateRelaunch,
@@ -401,6 +411,8 @@ public partial class App : Application {
                 if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
                 _ = RetirePreviousBundleAsync(InstallLocation.BundleRoot(Environment.ProcessPath));
             }
+            if (_legacyRetirement is { } retirement && !_shutdown.IsCancellationRequested)
+                _coordinator?.Window?.Notifier?.Notify(retirement.Message);
             if (_updateNotApplied is { } failed && !_shutdown.IsCancellationRequested)
                 _coordinator?.Window?.Notifier?.Notify(
                     $"kcap {failed.To} did not install. This is still kcap {CapacitorVersion.CurrentDisplay()}, and the update is offered again shortly.");
@@ -426,7 +438,7 @@ public partial class App : Application {
             await HandleStartupFailureAsync(
                 desktop, ex, _service, _shutdown,
                 [_tray, _trayVm, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
-                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _commands, _permissions, _accounts, _sessionAccess,
+                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
                     _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart],
                 _lifecycle, _lane, _localUpgrade, _localSearch, _menuBar, _coordinator);
             await DisposeServerClientsAsync(); // after _home above
@@ -449,6 +461,7 @@ public partial class App : Application {
             _notificationSettings = null;
             _permissionFeed = null;
             _attention = null;
+            _handoffDrafts = null;
             _commands = null;
             _permissions = null;
             _accounts = null;
@@ -505,6 +518,7 @@ public partial class App : Application {
     }
 
     AppUpdateTransition? _updateNotApplied;
+    Platform.Windows.LegacyRetirementOutcome? _legacyRetirement;
     Action? _closeUpdateFinishWindow;
     // Completes once no update is being finished: at once on an ordinary launch, else when its steps settle.
     // The command-line tool offer waits for it, since its prompt would otherwise land in the middle of the update.
@@ -803,6 +817,20 @@ public partial class App : Application {
         return true;
     }
 
+    /// Windows only: true when this copy handed its launch to the kcap install and is shutting down.
+    async Task<bool> RunLegacyInstallGuardAsync(IClassicDesktopStyleApplicationLifetime desktop) {
+        if (!OperatingSystem.IsWindows()) return false;
+        var (handedOver, retirement) = await Platform.Windows.WindowsLegacyInstallGuard.RunAsync(
+            Program.Host.CliDirectory, _config, [_config.Directory, _daemonStore.Directory, _localRoot.Directory],
+            new ProcessRunner(_time), LifecycleLog.Write, _shutdown.Token);
+        if (handedOver) {
+            desktop.Shutdown(0);
+            return true;
+        }
+        _legacyRetirement = retirement;
+        return false;
+    }
+
     async Task RetirePreviousBundleAsync(string? bundleRoot) {
         try {
             await Task.Run(() => new ApplicationRetirement(_config, _time).RunPendingAsync(bundleRoot, _shutdown.Token));
@@ -1026,7 +1054,8 @@ public partial class App : Application {
         var gh = new GitHubCliRunner(ghRunner, OperatingSystem.IsWindows() ? null : new LoginShellProbe(ghRunner, Environment.GetEnvironmentVariable), Environment.GetEnvironmentVariable);
         var serverClients = new ServerClients(serverLane, workContext, pullRequests, plans, planArtifacts, senders);
 
-        var machineId = new MachineId(_config).ReadPersisted();
+        var localMachine = new LocalMachine(new MachineId(_config));
+        var machineId = localMachine.Id;
         var sessionHttp = ServerHttp(profiles);
         var remoteAgents = new RemoteAgentsService(
             serverLane, RemoteAgentsService.HttpFetch(sessionHttp, profiles),
@@ -1035,7 +1064,8 @@ public partial class App : Application {
             onUnauthorized: serverLane.ParkSignedOut);
         var sessions = new ServerSessionsService(
             serverLane, ServerSessionsService.HttpFetch(sessionHttp, profiles), ServerSessionsService.HttpOwners(sessionHttp, profiles),
-            _time, onUnauthorized: serverLane.ParkSignedOut, fetchSummary: ServerSearchHttp.Summary(sessionHttp, profiles));
+            _time, onUnauthorized: serverLane.ParkSignedOut, fetchSummary: ServerSearchHttp.Summary(sessionHttp, profiles),
+            fetchHandoffContext: ServerSearchHttp.HandoffContext(sessionHttp, profiles));
         var repoIdentity = new RepoIdentityResolver();
         var directory = new AgentDirectory(
             service, remoteAgents, serverLane, repoIdentity, GitRepository.ResolveMainRepoRoot,
@@ -1118,9 +1148,7 @@ public partial class App : Application {
             _ = reportCliSetup(_shutdown.Token);
         });
 
-        // One attach client per attempt, dialed at the daemon's own control socket; 80x24 is a
-        // placeholder only — TerminalControl resizes its model to the real pane the moment it is
-        // attached to the visual tree (WorkspaceView's own header comment).
+        // One attach client per attempt, dialed at the daemon's own control socket.
         var attachFactory = CoreTerminalAttachClient.Factory(() => _daemonStore.SocketPath(service.DaemonName));
         var isLocalServer = IsLocalServer(profiles?.Resolution.ServerUrl, _localRoot);
         var requestSignIn = SignInRequestFor(isLocalServer, () => {
@@ -1154,8 +1182,12 @@ public partial class App : Application {
         if (localStack is not null) stackOwnsStart = localStack.WhenAnyValue(x => x.SuppressesServerStart);
         var localServer = new LocalServerRecoveryViewModel(
             serverLane.Status, isLocalServer, lifecycleCli.LocalStartAsync, () => serverLane.RestartAsync(), _shutdown.Token,
-            busy: stackOwnsStart, readCondition: ct => LocalServerConditions.ReadAsync(_localRoot, ct),
-            canStart: OperatingSystem.IsMacOS() || OperatingSystem.IsLinux());
+            busy: stackOwnsStart,
+            // A Windows supervisor relaunches a server that cannot yet listen; only kcap local status hears from it.
+            readCondition: OperatingSystem.IsWindows()
+                ? LocalServerRecoveryViewModel.PreferStatus(lifecycleCli.LocalStatusAsync, ct => LocalServerConditions.ReadAsync(_localRoot, ct))
+                : ct => LocalServerConditions.ReadAsync(_localRoot, ct),
+            canStart: OperatingSystem.IsMacOS() || OperatingSystem.IsLinux() || OperatingSystem.IsWindows());
         _localServer = localServer;
         var webWorkspace = new WebWorkspaceViewModel(profiles?.Resolution.ServerUrl, opener, notifier.Notify,
             _shutdown.Token, localServer);
@@ -1191,8 +1223,9 @@ public partial class App : Application {
         var transcripts = new LocalTranscripts();
         var readings = new AccountReadings(accounts.Snapshot, remoteAgents.DrawableDaemonAccounts, UsageClock.Create(_time));
         _usageClock = readings.Clock;
+        var handoffOutcomes = new HandoffOutcomeReader(service, ops, _time);
         WorkspaceViewModel BuildWorkspace(string agentId) => new(
-            agentId, service, actions, attachFactory, () => new XtermTerminalSurface(80, 24, PtyDumpPath), _time, workspaceOpener, permissions,
+            agentId, service, actions, attachFactory, () => XtermTerminalSurface.ForLocalPane(PtyDumpPath), _time, workspaceOpener, permissions,
             workContext, ops, uploader,
             requestSignIn: requestSignIn, signInCompleted: serverClients.SignInCompleted, pullRequests: readers,
             linkGitHub: linkGitHub,
@@ -1201,7 +1234,8 @@ public partial class App : Application {
             resumeLedger: id => ResumeLedgerStore.For(_daemonStore, service.DaemonName).TryRead(id),
             pullRequestSnapshots: pullRequestSnapshots, transcripts: transcripts,
             pullRequestLinksChanged: pullRequestTones.Refresh, readings: readings, senders: senders,
-            appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout);
+            appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
+            handoffOutcomes: handoffOutcomes);
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
         // host, and the click opens nothing.
@@ -1213,8 +1247,31 @@ public partial class App : Application {
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
-                    serverSessions: sessions, workContextLayout: workContextLayout)
+                    serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes)
                 : null;
+        // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
+        var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
+        _handoffDrafts = handoffDrafts;
+        var checkouts = new LocalCheckoutFinder(repoIdentity);
+        var knownRepos = new RepoPathStore(_config, _time);
+        async Task<IReadOnlyList<string>> HandoffCandidatesAsync(CancellationToken ct) {
+            var remembered = (await _appState.LoadAsync()).HarnessByRepo?.Keys ?? [];
+            var known = await knownRepos.GetSortedPathsAsync();
+            var agents = service.Agents.Items.Select(a => a.RepoPath).OfType<string>().Where(p => p.Length > 0);
+            return [.. remembered, .. known, .. agents];
+        }
+        MainWindowViewModel? OpenWindow() => _coordinator?.Window?.DataContext as MainWindowViewModel;
+        HandoffComposerViewModel BuildHandoff(AgentRow row) => new(
+            HandoffComposerViewModel.SourceOf(row), service, launch, sessions, ops, checkouts, HandoffCandidatesAsync,
+            handoffDrafts, serverLane.Status, uploader, directory,
+            navigationGeneration: () => OpenWindow()?.NavigationGeneration ?? 0,
+            openSessionIfCurrent: (agentId, origin, generation) => OpenWindow()?.OpenSessionIfCurrent(agentId, origin, generation),
+            closeFailedLaunch: agentId => OpenWindow()?.CloseFailedLaunch(agentId),
+            // Unconditional: the failed launch's close has just moved the navigation generation on.
+            reopenSource: (sessionId, presentation) =>
+                OpenWindow() is { } window ? window.ReopenServerSessionAsync(sessionId, presentation) : Task.FromResult(false),
+            notifier: notifier, appServerUrl: profiles?.Resolution.ServerUrl,
+            modelCatalog: modelCatalog.Catalog, onUnauthorized: serverLane.ParkSignedOut, time: _time, shutdown: _shutdown.Token);
         // A session the server lists with no daemon behind it: read-only, so no terminal surface.
         RemoteSessionViewModel? BuildServer(string sessionId) =>
             directory.Rows.Lookup($"server:{sessionId}") is { HasValue: true, Value: var row }
@@ -1224,7 +1281,8 @@ public partial class App : Application {
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
-                    workContextLayout: workContextLayout)
+                    workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
+                    handoffOutcomes: handoffOutcomes)
                 : null;
 
         _coordinator = new MainWindowCoordinator(
@@ -1710,6 +1768,7 @@ public partial class App : Application {
             shimInstaller is not null, shimTarget, ct => probe.KcapOnPathAsync(ct), _shutdown.Token);
         var bridges = WizardComposition.BuildBridges(action => Dispatcher.UIThread.Post(action), _telemetry, _endpoints);
         var surface = new WizardLifecycleSurface(ConfirmLifecyclePromptAsync, action => Dispatcher.UIThread.Post(action));
+        _localPrefetch ??= new LocalBundlePrefetch(() => NewWizardCli(_config, _serverEnv, _localRoot, runner, cliPath, probe), _shutdown.Token);
 
         var options = new WizardGraphOptions(
             _config,
@@ -1744,7 +1803,7 @@ public partial class App : Application {
             Time: _time,
             ShutdownToken: _shutdown.Token,
             LocalRoot: _localRoot,
-            LocalEditionSupported: OperatingSystem.IsMacOS() && RuntimeInformation.OSArchitecture == Architecture.Arm64,
+            LocalEditionSupported: LocalEditionSupported,
             AlreadyAuthenticated: alreadyAuthenticated,
             ConfiguredDaemonName: () => ResolveConfiguredDaemonName(_config, _serverEnv, _localRoot),
             HeldDaemonNames: HeldDaemonNamesAsync,
@@ -1752,11 +1811,20 @@ public partial class App : Application {
             UsageNotice: _usageNotice,
             ReportCliSetup: ReportWizardCliSetupAsync,
             ReadVisibilityOptions: ReadWizardVisibilityOptionsAsync,
-            RepairClients: StaleClientRepair.ForApp(runner, probe, shimTarget, _userHome).RunAsync,
+            // The repair relinks through a login shell and an administrator prompt, neither of which it has on Windows.
+            RepairClients: OperatingSystem.IsWindows() ? null : StaleClientRepair.ForApp(runner, probe, shimTarget, _userHome).RunAsync,
             MailSupport: report => FeedbackMail.Send(
                 new FeedbackSubmission(FeedbackCategory.Bug, report, Guid.NewGuid(), FeedbackSource.Desktop),
                 SystemBrowser.Instance, Capacitor.Cli.Core.Auth.Clipboard.TryCopy),
-            ResumeWebSignUp: WizardComposition.ResumesWebSignUp(await _appState.LoadAsync(), _time.GetUtcNow()));
+            ResumeWebSignUp: WizardComposition.ResumesWebSignUp(await _appState.LoadAsync(), _time.GetUtcNow()),
+            Prefetch: _localPrefetch,
+            HeadlessHarnesses: async (name, ct) => {
+                var binaries = BinaryProbe.Searching(await probe.TerminalPathAsync(ct));
+
+                return await HeadlessHarnessSource.ReadAsync(_daemonStore, name, _time,
+                    () => HeadlessHarnessProbe.Detect(HarnessRegistry.FromEnvironment(_userHome, binaries), binaries), ct);
+            },
+            OffersWindowsService: OperatingSystem.IsWindows());
         _localInstall ??= WizardComposition.NewInstallController(options);
         var graph = WizardComposition.BuildGraph(options with { Install = _localInstall });
 
@@ -2242,8 +2310,6 @@ public partial class App : Application {
         var lifecycle = new DaemonLifecycleController(
             service, cli, probe, surface, () => Task.FromResult(ValidProfileName(profile)), _time,
             canonicalServer, runMutation, autoActionsPermanentlyClosed, requiresAppRestart,
-            windowsServiceDeclined: async () => (await _appState.LoadAsync().ConfigureAwait(false)).WindowsServiceDeclined,
-            rememberWindowsServiceDeclined: () => _appState.UpdateAsync(s => s with { WindowsServiceDeclined = true }),
             replacementCliVersion: replacementCliVersion);
 
         // The shim links to the RESOLVED ABSOLUTE path only — CliResolver's bare "kcap" PATH
@@ -2895,7 +2961,7 @@ public partial class App : Application {
             await Dispatcher.UIThread.InvokeAsync(async () => {
                 IDisposable?[] ui = [
                     _tray, _trayVm, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
-                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _commands, _permissions, _accounts, _sessionAccess,
+                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
                     _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart,
                 ];
                 if (shutdown) {

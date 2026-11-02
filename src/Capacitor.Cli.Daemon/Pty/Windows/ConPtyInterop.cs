@@ -73,6 +73,10 @@ internal static partial class ConPtyInterop
 
     internal static readonly IntPtr PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016;
 
+    // Stops a classic conhost repainting the whole viewport on a resize. A conhost too old to know it
+    // or new enough to have dropped it ignores the bit.
+    internal const uint PSEUDOCONSOLE_RESIZE_QUIRK = 0x2;
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct COORD
     {
