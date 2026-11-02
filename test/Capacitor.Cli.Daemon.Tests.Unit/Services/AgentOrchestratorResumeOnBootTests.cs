@@ -294,20 +294,24 @@ public class AgentOrchestratorResumeOnBootTests {
     }
 
     /// <summary>An in-place entry is authorized again before its restart resume: a directory replaced by a link to
-    /// somewhere else while the daemon was down is neither resumed nor continued, and an intact one resumes.</summary>
+    /// somewhere else, or no longer allowed, while the daemon was down is neither resumed nor continued, and an intact one
+    /// resumes.</summary>
     [Test]
-    [Arguments(true)]
-    [Arguments(false)]
-    public async Task An_in_place_directory_is_authorized_again_before_its_restart_resume(bool replaced) {
-        var f = Build(new ResumableFactory { PtyStyle = true });
+    [Arguments("replaced")]
+    [Arguments("disallowed")]
+    [Arguments("intact")]
+    public async Task An_in_place_directory_is_authorized_again_before_its_restart_resume(string change) {
+        // Allowed as resolved, the form the entry records: a Mac's temp root is a symlink into /private.
+        var allowed = ResolvedDirectory("own");
+        var f = Build(new ResumableFactory { PtyStyle = true }, c => c.AllowedRepoPaths = [.. c.AllowedRepoPaths, allowed]);
         await using var _ = f.Orch;
-        Directory.CreateDirectory(Path.Combine(f.Repo, "own"));
-        var own = Tmp.GetResolvedPath(Path.Combine("repo", "own"));
+        var own = change == "disallowed" ? ResolvedDirectory("outside") : allowed;
         Entry(f, "in-place-1", worktree: own, work: WorkLocation.InPlace);
-        if (replaced) {
+        if (change == "replaced") {
             Directory.Delete(own);
             Directory.CreateSymbolicLink(own, Tmp.CreateDir("elsewhere"));
         }
+        var replaced = change != "intact";
         var continued = 0;
         f.Orch.ContinueEntry = (_, _, _) => {
             Interlocked.Increment(ref continued);
@@ -325,6 +329,12 @@ public class AgentOrchestratorResumeOnBootTests {
         } else {
             await Assert.That(after.State).IsEqualTo(ResumeState.Running);
         }
+    }
+
+    string ResolvedDirectory(string name) {
+        Tmp.CreateDir(name);
+
+        return Tmp.GetResolvedPath(name);
     }
 
     /// <summary>A refused registration whose runtime will not die is not continued under a new id beside it.</summary>
@@ -345,6 +355,8 @@ public class AgentOrchestratorResumeOnBootTests {
 
         await Assert.That(continued).IsEqualTo(0);
         await Assert.That(f.Orch.ResumeLedger!.TryRead("refused-stuck-1")!.LastError).IsEqualTo("runtime_unstopped");
+        // Its runtime lives, and a status for the refused id would overwrite what the server recorded.
+        await Assert.That(f.Server.ShutdownReports.Where(r => r.AgentId == "refused-stuck-1")).IsEmpty();
     }
 
     /// <summary>A server that has the lease but does not answer for it leaves the session unfenced: after the retry

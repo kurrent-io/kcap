@@ -1273,7 +1273,9 @@ internal partial class AgentOrchestrator {
         }
 
         InterruptEntry(entry.AgentId, LastErrorOf(reason, exitCode));
-        if (!entry.Launch.IsPrivate && reason != RegistrationRefusedReason) await ReportResumeFailedAsync(entry, reason, exitCode, ct);
+        // A refused id's status would overwrite the failure the server recorded, and an unstopped runtime is not ended.
+        if (!entry.Launch.IsPrivate && reason is not (RegistrationRefusedReason or RuntimeUnstoppedReason))
+            await ReportResumeFailedAsync(entry, reason, exitCode, ct);
 
         return ResumeOutcome.Interrupted;
     }
@@ -1301,9 +1303,10 @@ internal partial class AgentOrchestrator {
         var silent  = entry.Participant is null && entry.AwaitingInput == true
                    && _runtimeFactories.TryGetValue(entry.Vendor, out var factory) && factory.ResumesIdleWithoutPrompt(entry.Transport);
         // Authorized again, as the in-place launch was: the directory may have been replaced while the daemon was down.
-        if (entry.Launch.Work == WorkLocation.InPlace
-         && (await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(entry.Launch.WorktreePath)).CanonicalCwd != entry.Launch.WorktreePath)
-            return (ResumeInPlaceRefusals.DirectoryNotAllowed, null);
+        if (entry.Launch.Work == WorkLocation.InPlace) {
+            var authorized = await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(entry.Launch.WorktreePath);
+            if (!authorized.Allowed || authorized.CanonicalCwd != entry.Launch.WorktreePath) return (ResumeInPlaceRefusals.DirectoryNotAllowed, null);
+        }
 
         // The lease a hand-off takeover would need, held until the readiness window passes, so the session is not taken
         // over from under the agent re-registering on it.

@@ -268,7 +268,10 @@ internal partial class AgentOrchestrator {
             try {
                 while (!runtime.HasExited && !_lost) await Task.Delay(ExitPoll, _owner._time, _owner._shutdownCts.Token);
             } catch (OperationCanceledException) {
-                // The daemon is stopping; the lease lapses on its own.
+                // The daemon is stopping with the runtime perhaps still alive: the lease lapses on its own, never ended early.
+                await _stop.CancelAsync();
+
+                return;
             }
 
             await EndAsync();
