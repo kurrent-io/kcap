@@ -1648,13 +1648,19 @@ kcap daemon start -d --name "$(whoami)"          # or: kcap daemon service insta
 
 The daemon needs all three of `GOOGLE_CLOUD_PROJECT`, `AGY_ADC_AUTH=1` and
 `GOOGLE_APPLICATION_CREDENTIALS`. The CLI captures any you exported and silently derives the rest:
-the credential path from ADC's well-known location (only when the file is actually there), `AGY_ADC_AUTH=1`
+the credential path from ADC's well-known location — `application_default_credentials.json` in gcloud's
+configuration directory, which is `CLOUDSDK_CONFIG` when you set it, else `~/.config/gcloud` (macOS, Linux)
+or `%APPDATA%\gcloud` (Windows), and only when the file is actually there — `AGY_ADC_AUTH=1`
 alongside it, and the project from your environment or gcloud's own active configuration. Exported values
 always win. Only the canonical `GOOGLE_CLOUD_PROJECT` counts here — `GOOGLE_CLOUD_PROJECT_ID` is carried
 for Gemini, which honours both, and does not satisfy agy's project leg. The explicit path looks redundant — ADC has a well-known default location — but a reviewer
-launch redirects `HOME` to a per-launch state directory, so the default location is not visible to the
-child. Derivation happens in the CLI, at your command; the daemon itself still never reads a credential
-location of its own accord — it only forwards what it was started with.
+launch redirects `HOME` (and on Windows `APPDATA`) to a per-launch state directory, so the default
+location is not visible to the child. Derivation happens in the CLI, at your command; the daemon itself
+still never reads a credential location of its own accord — it only forwards what it was started with.
+
+On Windows, `service install` derives nothing and never carries the credential path, as it carries no
+secret-capable value into a Windows unit, so a Windows daemon gets the trio from `kcap daemon start`/`-d`
+— which is how the desktop app starts it.
 
 A daemon already running from before you logged in needs a fresh start to pick the trio up — `kcap daemon
 stop` then `kcap daemon start`/`-d` (or re-run `service install`). `kcap daemon restart` reuses the running
