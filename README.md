@@ -1619,8 +1619,14 @@ IDE installed never offers the vendor at all.
 **Everything in the Gemini warning above applies.** Reviews run in a daemon-owned worktree under a
 per-launch, owner-only `HOME` (removed when the reviewer is disposed), so your own `~/.gemini` config and
 the kcap capture plugin inside it do not reach the reviewer, and your interactive Antigravity sessions are
-unaffected. POSIX only, for the same reason as Kiro: that home holds the reviewer's own transcript, and
-therefore the review context, and cannot be created owner-only on Windows.
+unaffected. The restriction is read back before every launch, and a home that cannot be made owner-only
+refuses the launch rather than running with review context other users could read.
+
+**Not offered on Windows yet.** A Windows daemon withholds Antigravity, hosted agents and reviewers alike,
+with `antigravity_reviewer_unsupported_platform`. The home itself is ready there — a protected ACL admitting
+only you and SYSTEM, with `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and `TEMP`/`TMP` redirected into it
+alongside `HOME` — but no real `agy` run on Windows has yet confirmed that `agy` writes nothing outside it,
+and containment here is proven by a real run, not assumed.
 
 That home also carries a small `settings.json` holding `permissions.allow` rules for exactly the MCP tools
 the launch injected — the `kcap-flow-result` submit channel, plus any read-only servers the flow definition
@@ -1767,7 +1773,8 @@ consents specifically to an *unattended review*, whose risk is that it runs unde
 and returns what it read to whoever asked for the review — someone who need not be you. A hosted agent has
 no such gap: the server only ever launches on a daemon you own, so the person launching it is you.
 
-What a hosted launch *does* share with the reviewer is the **minimum `agy` version** (and POSIX), because
+What a hosted launch *does* share with the reviewer is the **minimum `agy` version** (and not being offered
+on Windows yet), because
 the containment that protects is the isolated `HOME` both shapes rely on. Your daemon records that minimum
 at startup whenever `agy` resolves, so there is normally nothing to do; if you installed `agy` after the
 daemon started, restart it or run `kcap daemon reviewer affirm --vendor antigravity`.

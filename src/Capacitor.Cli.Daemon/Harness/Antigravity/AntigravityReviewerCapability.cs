@@ -65,16 +65,11 @@ internal enum AntigravityReviewerDecision {
 /// </summary>
 internal static class AntigravityReviewerCapability {
     /// <summary>
-    /// The decision, with the platform passed IN rather than read from the ambient OS. There is
-    /// deliberately no ambient-reading overload: the one production caller holds a platform seam of its
-    /// own, and an overload that read the OS here would be the obvious thing to reach for next.
-    ///
-    /// <para>Kiro's gate records why it must be a parameter: reading the OS inside the decision
-    /// short-circuited every consent and version arm to
-    /// <see cref="AntigravityReviewerDecision.UnsupportedPlatform"/> on the Windows CI leg, so a dozen
-    /// tests failed for a reason unrelated to what they asserted. As a parameter, every arm is
-    /// reachable from any host — including the Windows one, which is otherwise unassertable on
-    /// POSIX.</para>
+    /// The decision, with the platform passed IN rather than read from the ambient OS, so every arm is
+    /// reachable from any host. There is deliberately no ambient-reading overload: the one production
+    /// caller holds a platform seam of its own. Reading the OS in here would short-circuit every
+    /// consent and version test to <see cref="AntigravityReviewerDecision.UnsupportedPlatform"/> on a
+    /// Windows test host.
     /// </summary>
     internal static AntigravityReviewerDecision Decide(
             bool posixHost, bool operatorEnabled, string? installedVersion, string? minimumVersion) {
@@ -82,8 +77,9 @@ internal static class AntigravityReviewerCapability {
         // alone stall a daemon start — for a feature the operator switched off.
         if (!operatorEnabled) return AntigravityReviewerDecision.Disabled;
 
-        // Windows has no 0700, so the per-launch home that holds the reviewer's own transcript — and
-        // therefore the review context — cannot be made owner-only.
+        // The Windows home is owner-only and agy's profile variables point into it, but no real agy run
+        // has confirmed that agy writes nothing outside it there. Containment is proven by a real
+        // process run, never assumed, so Windows stays refused until one does.
         if (!posixHost) return AntigravityReviewerDecision.UnsupportedPlatform;
 
         // No discard: `_ => Allowed` would silently ADMIT any arm added later, which is the wrong
@@ -115,8 +111,10 @@ internal static class AntigravityReviewerCapability {
               + "for the never-gated Claude, Codex, Cursor and Copilot reviewers.",
 
             AntigravityReviewerDecision.UnsupportedPlatform =>
-                "antigravity_reviewer_unsupported_platform: the per-launch home holds the agent's own "
-              + "conversation transcript and cannot be created owner-only on Windows.",
+                "antigravity_reviewer_unsupported_platform: Antigravity is not offered on Windows yet. "
+              + "A launch runs agy under an owner-only per-launch home that holds its conversation "
+              + "transcript, and no real agy run on Windows has yet confirmed that agy writes nothing "
+              + "outside that home.",
 
             AntigravityReviewerDecision.VersionUnresolved =>
                 $"antigravity_reviewer_version_unresolved: the version of '{binaryPath}' could not be "
