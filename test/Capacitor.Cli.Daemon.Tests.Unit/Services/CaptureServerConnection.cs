@@ -103,8 +103,12 @@ sealed class CaptureServerConnection : ServerConnection {
 
     public ConcurrentQueue<string> ResumeBegins { get; } = new();
 
+    /// <summary>When set, the lease call never completes, as a server holding the invocation open would.</summary>
+    public bool BeginResumeHangs { get; init; }
+
     internal override Task<HandoffTakeoverAdmission?> InvokeBeginSourceResumeRawAsync(string sessionId, CancellationToken ct) {
         ResumeBegins.Enqueue(sessionId);
+        if (BeginResumeHangs) return new TaskCompletionSource<HandoffTakeoverAdmission?>().Task;
 
         return BeginResume is { } answer
             ? Task.FromResult(answer(sessionId))

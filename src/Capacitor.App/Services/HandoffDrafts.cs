@@ -77,8 +77,13 @@ public sealed class HandoffDrafts : IDisposable {
             // Nothing confirms a resume that worked, so its hold, prompt text included, ends on a timer.
             if (resume) ExpireLater(id, held);
         }
+        // A resume's row that landed before its hold still shows it started.
+        if (resume) {
+            if (RowExists(id)) lock (_lock) _resumesSeen.Add(id);
+            return HandoffHold.Pending;
+        }
         // The row can land between the first check and the registration.
-        if (resume || !RowExists(id)) return HandoffHold.Pending;
+        if (!RowExists(id)) return HandoffHold.Pending;
         Confirm(id);
         return HandoffHold.AlreadyStarted;
     }
@@ -156,7 +161,9 @@ public sealed class HandoffDrafts : IDisposable {
     void ConfirmStarted(string agentId) {
         var id = Key(agentId);
         lock (_lock) {
-            if (_pending.TryGetValue(id, out var held) && held.Resume) {
+            // With no hold yet, a failure buffered for it stays: a row proves nothing against a failure already in.
+            if (!_pending.TryGetValue(id, out var held)) return;
+            if (held.Resume) {
                 _resumesSeen.Add(id);
                 return;
             }
@@ -164,9 +171,16 @@ public sealed class HandoffDrafts : IDisposable {
         Confirm(id);
     }
 
+    /// Whether the launch's hold is still waiting for its verdict.
+    public bool IsHolding(string agentId) {
+        var id = Key(agentId);
+        lock (_lock) return _pending.ContainsKey(id);
+    }
+
     public void Confirm(string agentId) {
         var id = Key(agentId);
         lock (_lock) {
+            _resumesSeen.Remove(id);
             _pending.Remove(id);
             _recentFailures.Remove(id);
         }

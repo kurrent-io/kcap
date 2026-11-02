@@ -527,6 +527,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             return;
         }
         var sourceId = _session.SessionId;
+        string? heldAgent = null;
         IsLaunching = true;
         Progress = Resuming;
         try {
@@ -556,6 +557,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
                 if (!_disposed) Error = HomeViewModel.UnusableIdMessage;
                 return;
             }
+            heldAgent = agentId;
             if (_drafts.HoldResume(sourceId, agentId, draft) == HandoffHold.AlreadyFailed) {
                 if (!_disposed && _drafts.TakeFailed(sourceId) is { } failed) Apply(failed);
                 _recheckAfterLaunch = true;
@@ -570,6 +572,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
                     Apply(failed);
                     _recheckAfterLaunch = true;
                 }
+                // This resume's own failure can settle its hold before here, and the draft taken above is then its own.
+                if (IsResuming && heldAgent is not null && !_drafts.IsHolding(heldAgent)) IsResuming = false;
                 Progress = IsResuming ? Resuming : null;
                 if (_recheckAfterLaunch) {
                     _recheckAfterLaunch = false;

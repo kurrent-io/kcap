@@ -48,12 +48,46 @@ public class HandoffDraftsTests {
         using var drafts = new HandoffDrafts(failures, directory, time);
 
         drafts.HoldResume("source-1", "agent-1", Draft);
-        directory.Rows.AddOrUpdate(AgentRow.FromLocal(
-            new AgentStatusDto("agent-1", "agent", "codex", "/repo", "Running",
-                FlowRunId: null, FlowRole: null, Requester: null, CreatedAt: DateTime.UtcNow, Model: null, RequesterDisplay: null),
-            new RepoIdentity("path:/repo", "repo")));
+        directory.Rows.AddOrUpdate(LocalRow("agent-1"));
         time.Advance(TimeSpan.FromMinutes(10));
 
         await Assert.That(drafts.TakeFailed("source-1")).IsNull();
+    }
+
+    static AgentRow LocalRow(string id) => AgentRow.FromLocal(
+        new AgentStatusDto(id, "agent", "codex", "/repo", "Running",
+            FlowRunId: null, FlowRole: null, Requester: null, CreatedAt: DateTime.UtcNow, Model: null, RequesterDisplay: null),
+        new RepoIdentity("path:/repo", "repo"));
+
+    /// <summary>A failure that lands before the hold is kept for it even when a row shows up first: a row is no
+    /// evidence against a failure already in.</summary>
+    [Test]
+    public async Task A_failure_before_the_hold_outlives_a_row_that_arrives_before_it() {
+        var time = new FakeTimeProvider();
+        using var failures = new Subject<LaunchFailure>();
+        var directory = new FakeAgentDirectory();
+        using var drafts = new HandoffDrafts(failures, directory, time);
+
+        failures.OnNext(new LaunchFailure("agent-1", "resume_failed: runtime_exited"));
+        directory.Rows.AddOrUpdate(LocalRow("agent-1"));
+
+        await Assert.That(drafts.HoldResume("source-1", "agent-1", Draft)).IsEqualTo(HandoffHold.AlreadyFailed);
+    }
+
+    /// <summary>A row that is already there when the resume is held shows it started, so its expiry returns nothing.</summary>
+    [Test]
+    public async Task A_row_before_the_hold_counts_as_started() {
+        var time = new FakeTimeProvider();
+        using var failures = new Subject<LaunchFailure>();
+        var directory = new FakeAgentDirectory();
+        using var drafts = new HandoffDrafts(failures, directory, time);
+        directory.Rows.AddOrUpdate(LocalRow("agent-1"));
+
+        drafts.HoldResume("source-1", "agent-1", Draft);
+        await Assert.That(drafts.IsHolding("agent-1")).IsTrue();
+        time.Advance(TimeSpan.FromMinutes(10));
+
+        await Assert.That(drafts.TakeFailed("source-1")).IsNull();
+        await Assert.That(drafts.IsHolding("agent-1")).IsFalse();
     }
 }

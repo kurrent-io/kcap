@@ -590,6 +590,9 @@ internal partial class AgentOrchestrator {
         /// <summary>The instance the launch built, once it exists.</summary>
         public AgentInstance? Agent { get; set; }
 
+        /// <summary>The launch failed after publishing and its runtime could not be confirmed gone.</summary>
+        public bool Unstopped { get; set; }
+
         /// <summary>The ledger entry whose resume this launch is: a withdrawal of it stops the launch.</summary>
         public string AttemptOf { get; init; } = Entry.AgentId;
 
@@ -1342,6 +1345,12 @@ internal partial class AgentOrchestrator {
 
         // The server holds no live entry under this id, so the resume goes on under a new one, unless a stop
         // came first: it gave up the worktree, and the teardown has removed it.
+        if (resume is { Unstopped: true, Agent: { } stuck }) {
+            lease?.KeepUntilExit(stuck.Runtime);
+
+            return (RuntimeUnstoppedReason, null);
+        }
+
         if (resume.RefusedRegistration is not null) {
             if (resume.Agent?.StopRequested == true) return (StoppedDuringResume, null);
 
@@ -1366,28 +1375,25 @@ internal partial class AgentOrchestrator {
 
         if (agent.StopRequested) return (StoppedDuringResume, null);
 
-        // A lapsed lease may already have let a hand-off take the session over.
-        // Settled as failed only once the runtime is gone: a live one stays registered on the source, which refuses a
-        // takeover, and carries on as the resumed agent.
-        // A runtime that will not die is never continued beside: it is settled as the resumed agent.
-        var unkillable = false;
+        // A lapsed lease may already have let a hand-off take the session over, so the resume fails once its runtime is
+        // gone. One that will not die stays registered on the source, which refuses a takeover, and carries on.
         if (lease?.IsLost == true) {
             if (await TerminateConfirmedAsync(agent)) return (SourceLeaseLostReason, null);
 
             LogInPlaceRetireUnconfirmed(agent.Id);
-            unkillable = true;
+        } else if (!survived) {
+            // Settled as failed, and so continued, only once the runtime is gone; until then the lease fences it.
+            if (!await TerminateConfirmedAsync(agent)) {
+                LogInPlaceRetireUnconfirmed(agent.Id);
+                lease?.KeepUntilExit(agent.Runtime);
+
+                return (RuntimeUnstoppedReason, null);
+            }
+
+            // A refused transcript's first turn was never sent, so kcap continue repeats nothing; still pending its
+            // resume, the teardown keeps the worktree for it.
+            return TranscriptRefused(agent) ? (TranscriptRefusedReason, null) : ("runtime_exited", agent.Runtime.ExitCode);
         }
-
-        if (!unkillable && !survived && TranscriptRefused(agent)) {
-            // Its first turn was never sent, so kcap continue repeats nothing; still pending its resume,
-            // the teardown this starts keeps the worktree for it.
-            if (await TerminateConfirmedAsync(agent)) return (TranscriptRefusedReason, null);
-
-            LogInPlaceRetireUnconfirmed(agent.Id);
-            unkillable = true;
-        }
-
-        if (!unkillable && !survived) return ("runtime_exited", agent.Runtime.ExitCode);
 
         lock (_ledgerLock) {
             // A shutdown that began meanwhile has marked the agent for its own resume.
@@ -1432,10 +1438,25 @@ internal partial class AgentOrchestrator {
         var deadline = _time.GetUtcNow() + HandoffSuccessorWindow;
 
         while (true) {
-            var begin = await _server.BeginSourceResumeAsync(session, ct);
+            var begin = await BeginSourceResumeOnceAsync(session, deadline - _time.GetUtcNow(), ct);
             if (begin is not HandoffBeginResult.Unreachable || _time.GetUtcNow() + HandoffSuccessorRetry > deadline) return begin;
 
             await Task.Delay(HandoffSuccessorRetry, _time, ct);
+        }
+    }
+
+    /// <summary>A call the server holds open past the window reads as unreachable; the caller's own cancellation still
+    /// throws.</summary>
+    async Task<HandoffBeginResult> BeginSourceResumeOnceAsync(string session, TimeSpan left, CancellationToken ct) {
+        if (left <= TimeSpan.Zero) return new HandoffBeginResult.Unreachable();
+
+        using var window = new CancellationTokenSource(left, _time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, window.Token);
+
+        try {
+            return await _server.BeginSourceResumeAsync(session, linked.Token).WaitAsync(linked.Token);
+        } catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
+            return new HandoffBeginResult.Unreachable();
         }
     }
 

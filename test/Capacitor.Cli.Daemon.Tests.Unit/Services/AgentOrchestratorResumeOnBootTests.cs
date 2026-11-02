@@ -37,6 +37,7 @@ public class AgentOrchestratorResumeOnBootTests {
         public bool ExitBeforeHandshake { get; init; }
         public bool PtyStyle { get; init; }
         public bool Unkillable { get; init; }
+        public bool ThrowsAfterRegistration { get; init; }
         public string? ResumeToken { get; init; }
         public bool ReopensSession { get; init; }
         public FakeAcpRuntime? LastAcpRuntime { get; private set; }
@@ -61,7 +62,9 @@ public class AgentOrchestratorResumeOnBootTests {
                 }
 
                 if (PtyStyle)
-                    return new HostedRuntimeStart(new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) { IgnoresTerminate = Unkillable },
+                    return new HostedRuntimeStart(new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) {
+                        IgnoresTerminate = Unkillable, ThrowsOnCommandsAttach = ThrowsAfterRegistration,
+                    },
                         McpConfigPath: null, Transcript: null);
 
                 var runtime = ReopensSession && ctx.ResumeSessionId is { } reopened
@@ -365,6 +368,42 @@ public class AgentOrchestratorResumeOnBootTests {
 
         await Assert.That(continued).IsEqualTo(0);
         await Assert.That(f.Orch.ResumeLedger!.TryRead("early-1")!.LastError).IsEqualTo("source_lease_lost");
+    }
+
+    /// <summary>A launch that throws after publishing, with a runtime that will not die, is not continued beside it.</summary>
+    [Test]
+    public async Task A_post_publication_failure_with_a_survivor_is_not_continued() {
+        var f = Build(new ResumableFactory { PtyStyle = true, Unkillable = true, ThrowsAfterRegistration = true });
+        await using var _ = f.Orch;
+        Entry(f, "thrown-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("thrown-1")!.LastError).IsEqualTo("runtime_unstopped");
+    }
+
+    /// <summary>A server that holds the lease call open without answering is bounded by the retry window, so the entry
+    /// is interrupted rather than holding the resume lane.</summary>
+    [Test]
+    public async Task A_lease_call_the_server_never_answers_is_bounded_by_the_window() {
+        var server = new CaptureServerConnection { BeginResumeHangs = true };
+        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        await using var _ = f.Orch;
+        f.Orch.HandoffSuccessorWindow = TimeSpan.FromMilliseconds(300);
+        f.Orch.HandoffSuccessorRetry  = TimeSpan.FromMilliseconds(50);
+        Entry(f, "hung-1");
+
+        f.Orch.LoadResumeLedger();
+        await WaitHarness.WaitBoundedAsync(f.Orch.ResumeOnBootAsync(CancellationToken.None), "the resume lane");
+
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("hung-1")!.LastError).IsEqualTo("source_lease_unreachable");
     }
 
     /// <summary>A refused registration whose runtime will not die is not continued under a new id beside it.</summary>

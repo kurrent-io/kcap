@@ -3527,6 +3527,15 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // find agentId already occupied by a DIFFERENT, live incarnation, and CleanupAgentAsync
             // would then tear down that unrelated agent while leaking this launch's own journal.
             if (published) {
+                // A resume is never reported failed, nor torn down, while its runtime may still be resuming the session:
+                // the caller fences it instead.
+                if (resume?.Agent is { } resumed && !await TerminateConfirmedAsync(resumed)) {
+                    LogInPlaceRetireUnconfirmed(agentId);
+                    resume.Unstopped = true;
+
+                    return new CommandOutcome(CommandOutcomeKind.LaunchFailedCleaned, agentId);
+                }
+
                 await CleanupAgentAsync(agentId);
                 // §3.5: never forward a null/whitespace ex.Message raw.
                 await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, AcpHostedAgentRuntimeFactory.DescribeLaunchFailure(ex));

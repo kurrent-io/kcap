@@ -34,6 +34,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         public bool   ExitsLater         { get; init; }
         public TimeSpan StartDelay       { get; init; }
         public bool     Unkillable       { get; init; }
+        public bool     ThrowsAfterRegistration { get; init; }
 
         public RuntimeStartContext? Context    { get; private set; }
         public FakeAcpRuntime?      AcpRuntime { get; private set; }
@@ -55,7 +56,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
                 return new HostedRuntimeStart(AcpRuntime, McpConfigPath: null, Transcript: AcpRuntime);
             }
 
-            PtyRuntime = new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) { ExitCode = ExitWith ?? 0, IgnoresTerminate = Unkillable };
+            PtyRuntime = new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) { ExitCode = ExitWith ?? 0, IgnoresTerminate = Unkillable, ThrowsOnCommandsAttach = ThrowsAfterRegistration };
             if (ExitWith is not null) PtyRuntime.ExitGate.SetResult();
             if (ExitsLater) _ = Task.Delay(100, CancellationToken.None).ContinueWith(_ => PtyRuntime.ExitGate.TrySetResult(), TaskScheduler.Default);
 
@@ -257,6 +258,8 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await Assert.That(f.Failures()).IsEmpty();
         await Assert.That(f.Factory.PtyRuntime!.HasExited).IsFalse();
         await Assert.That(f.Server.StatusChangedCalls.Where(c => c.AgentId == AgentId).Select(c => c.Status)).DoesNotContain("Failed");
+        // Nothing was reported, so nothing may keep it from registering again after a reconnect.
+        await Assert.That(f.Orch.GetAgentForTest(AgentId)!.LaunchFailureVerdictReported).IsEqualTo(0);
     }
 
     /// <summary>Consent judges the directory the resume runs in: a rule naming only the symlink does not admit its
@@ -292,6 +295,35 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
 
         f.Factory.PtyRuntime!.ExitGate.TrySetResult();
         await WaitHarness.PollUntilAsync(() => f.Server.HandoffEnds.Contains(Token));
+    }
+
+    /// <summary>A launch that throws after publishing, with a runtime that will not die, is neither reported nor torn
+    /// down: the lease fences the survivor until it exits.</summary>
+    [Test]
+    public async Task A_post_publication_failure_with_a_survivor_keeps_the_lease() {
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude") { Unkillable = true, ThrowsAfterRegistration = true });
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.Failures()).IsEmpty();
+        await Assert.That(f.Server.HandoffEnds).IsEmpty();
+    }
+
+    /// <summary>A failed renewal is no proof the server dropped the lease, so a survivor's lease is not ended because
+    /// of one.</summary>
+    [Test]
+    public async Task A_survivors_lease_is_not_ended_by_a_failed_renewal() {
+        var factory = new LoadableFactory("claude") { Unkillable = true };
+        var server  = new CaptureServerConnection {
+            RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_yours"),
+            RenewHandoff         = (_, _) => Task.FromResult(factory.Starts == 0),
+        };
+        await using var f = new Fixture(Tmp, factory, server);
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+
+        await Assert.That(f.Server.HandoffEnds).IsEmpty();
     }
 
     /// <summary>A token that lapsed while the command queued, before any renewal was due, starts nothing.</summary>

@@ -15,11 +15,6 @@ public sealed record LaunchRequest(
     ResumeLaunchPayload? Resume = null,
     string? AccountId = null);
 
-/// An in-place resume of an ended session: the server reads the store it was recorded under itself.
-public sealed record ResumeLaunchPayload(
-    [property: JsonPropertyName("source_session_id")] string SourceSessionId,
-    [property: JsonPropertyName("directory")]         string Directory);
-
 /// Unauthorized marks a server 401 — the caller routes it to sign-in instead of rendering the
 /// raw transport message.
 public sealed record LaunchOutcome(bool Started, string? AgentId, string? Error, bool Unauthorized = false);
