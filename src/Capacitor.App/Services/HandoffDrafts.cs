@@ -29,6 +29,8 @@ public sealed class HandoffDrafts : IDisposable {
     readonly HashSet<string> _resumeFailed = new(StringComparer.Ordinal);
     readonly Dictionary<string, ITimer> _resumeExpiries = new(StringComparer.Ordinal);
     readonly HashSet<string> _resumesSeen = new(StringComparer.Ordinal);
+    // Expired resumes nothing settled, by agent id: their source offers only the hand-off until the agent shows up.
+    readonly Dictionary<string, string> _resumesUnsettled = new(StringComparer.Ordinal);
     readonly IAgentDirectory? _directory;
     readonly TimeProvider _time;
     readonly CompositeDisposable _subscriptions = new();
@@ -124,7 +126,7 @@ public sealed class HandoffDrafts : IDisposable {
 
     /// Whether a resume of the source failed in this app's lifetime, so its composers offer only the hand-off.
     public bool ResumeFailed(string sourceSessionId) {
-        lock (_lock) return _resumeFailed.Contains(sourceSessionId);
+        lock (_lock) return _resumeFailed.Contains(sourceSessionId) || _resumesUnsettled.ContainsValue(sourceSessionId);
     }
 
     /// A resume refused before any agent existed.
@@ -144,7 +146,7 @@ public sealed class HandoffDrafts : IDisposable {
                     if (!_resumesSeen.Remove(id)) {
                         StoreFailed(held.SourceSessionId, Failed(held.Draft, "", resume: true));
                         // Offered again, Resume could start a second launch beside one that may still be starting.
-                        _resumeFailed.Add(held.SourceSessionId);
+                        _resumesUnsettled[id] = held.SourceSessionId;
                         unsettled = true;
                     }
                 }
@@ -171,8 +173,12 @@ public sealed class HandoffDrafts : IDisposable {
     void ConfirmStarted(string agentId) {
         var id = Key(agentId);
         lock (_lock) {
-            // With no hold yet, a failure buffered for it stays: a row proves nothing against a failure already in.
-            if (!_pending.TryGetValue(id, out var held)) return;
+            // With no hold yet, a failure buffered for it stays: a row proves nothing against a failure already in. A row
+            // for a resume whose hold expired unsettled shows it did start, so its source may offer Resume again.
+            if (!_pending.TryGetValue(id, out var held)) {
+                _resumesUnsettled.Remove(id);
+                return;
+            }
             if (held.Resume) {
                 _resumesSeen.Add(id);
                 return;

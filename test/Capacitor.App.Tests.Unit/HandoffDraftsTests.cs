@@ -110,4 +110,21 @@ public class HandoffDraftsTests {
             return 0;
         });
     }
+
+    /// <summary>A silent expiry offers only the hand-off, but only until that resume's agent turns up after all.</summary>
+    [Test]
+    public async Task A_resume_that_turns_up_after_its_expiry_is_offered_again() {
+        var time = new FakeTimeProvider();
+        using var failures = new Subject<LaunchFailure>();
+        var directory = new FakeAgentDirectory();
+        using var drafts = new HandoffDrafts(failures, directory, time);
+
+        drafts.HoldResume("source-1", "agent-1", Draft);
+        time.Advance(TimeSpan.FromMinutes(10));
+        await Assert.That(drafts.ResumeFailed("source-1")).IsTrue();
+
+        directory.Rows.AddOrUpdate(LocalRow("agent-1"));
+
+        await Assert.That(drafts.ResumeFailed("source-1")).IsFalse();
+    }
 }
