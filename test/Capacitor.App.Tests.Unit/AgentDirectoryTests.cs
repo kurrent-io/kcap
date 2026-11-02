@@ -882,20 +882,24 @@ public class AgentDirectoryTests {
     }
 
     /// The listing's worktree fills a registry row's gap only when it is a worktree of the repository that row named;
-    /// another checkout's worktree must not pair with it.
+    /// another checkout's worktree must not pair with it. The daemon's machine decides path identity, not this host:
+    /// a repository that differs only in case is another repository there.
     [Test]
-    public async Task The_listings_worktree_from_another_repository_is_not_paired_with_a_registry_row() {
+    [Arguments("/elsewhere")]
+    [Arguments("/home/R")]
+    public async Task The_listings_worktree_from_another_repository_is_not_paired_with_a_registry_row(string listedRepo) {
         var (_, remote, sessions, _, dir) = BuildWithSessions();
         using var _d = dir;
         using var _s = sessions;
+        var cwd = $"{listedRepo}/.capacitor/worktrees/agent-b1";
         remote.Cache.AddOrUpdate(Remote("b1", daemon: "home-pc", owner: "me", sessionId: "S") with { RepoPath = "/home/r" });
-        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = "/elsewhere/.capacitor/worktrees/agent-b1" });
-        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = "/elsewhere/.capacitor/worktrees/agent-b1" });
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = cwd });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = cwd });
 
         remote.Cache.RemoveKey("b1");
         sessions.LiveCache.RemoveKey("S");
         sessions.MineLiveCache.RemoveKey("S");
-        sessions.EndedCache.AddOrUpdate(Listed("S") with { Cwd = "/elsewhere/.capacitor/worktrees/agent-b1" });
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Cwd = cwd });
 
         var row = dir.Rows.Lookup("server:S").Value;
         await Assert.That(row.RepoPath).IsEqualTo("/home/r");
