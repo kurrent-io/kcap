@@ -12,7 +12,7 @@ internal static class CodexTransportDecision {
     /// <summary>Whether app-server stands in for a <c>codex-app-server</c> switch the profile never set.
     /// Under ConPTY Codex sees no bracketed paste, so the Enter after a pasted follow-up round inserts a
     /// newline instead of submitting it; app-server takes the round as a <c>turn/start</c>.</summary>
-    public static bool AppServerByDefault => OperatingSystem.IsWindows();
+    public static bool AppServerByDefault => Core.Config.ExperimentalFeatures.CodexAppServer.OnByDefault;
 
     /// <summary>Why a launch's expected transport cannot be honoured, or null when it can. Only a
     /// Codex launch has more than one transport, so every other vendor ignores the field.</summary>

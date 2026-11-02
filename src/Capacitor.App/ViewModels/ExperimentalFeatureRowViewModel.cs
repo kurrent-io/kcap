@@ -18,6 +18,8 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
     bool _canChange;
     bool _changedHere;
 
+    internal ExperimentalFeature Feature => _feature;
+
     internal ExperimentalFeatureRowViewModel(ExperimentalFeature feature, bool enabled, bool canChange, Func<ExperimentalFeatureRowViewModel, bool, Task> save) {
         _feature = feature;
         _enabled = enabled;

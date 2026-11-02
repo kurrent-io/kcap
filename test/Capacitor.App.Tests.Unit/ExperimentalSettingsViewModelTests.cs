@@ -9,6 +9,9 @@ namespace Capacitor.App.Tests.Unit;
 public class ExperimentalSettingsViewModelTests {
     const string Id = "codex-app-server";
 
+    // These tests are about saving and status, and start from a switch that reads off on every platform.
+    static readonly IReadOnlyList<ExperimentalFeature> OffByDefault = [.. ExperimentalFeatures.All.Select(f => f with { OnByDefault = false })];
+
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
     static FakeDaemonClientService Connected() {
@@ -28,7 +31,7 @@ public class ExperimentalSettingsViewModelTests {
     [Test]
     public Task Toggling_saves_to_the_attached_profile_only() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
-        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected());
+        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected(), OffByDefault);
         await vm.Loaded;
         var row = vm.Features.Single();
 
@@ -36,9 +39,19 @@ public class ExperimentalSettingsViewModelTests {
 
         await WorkspaceFixtures.WaitUntilAsync(() => store.Load("work").IsEnabled(Id), what: "the save");
         await Assert.That(store.Load("another").IsEnabled(Id)).IsFalse();
-        using var reopened = new ExperimentalSettingsViewModel(store, "work", Connected());
+        using var reopened = new ExperimentalSettingsViewModel(store, "work", Connected(), OffByDefault);
         await reopened.Loaded;
         await Assert.That(reopened.Features.Single().IsEnabled).IsTrue();
+    });
+
+    [Test]
+    public Task A_switch_the_profile_never_set_shows_the_features_default() => AvaloniaSession.RunOnUiAsync(async () => {
+        var store = new ExperimentalSettingsStore(Config.Root);
+        IReadOnlyList<ExperimentalFeature> onByDefault = [.. ExperimentalFeatures.All.Select(f => f with { OnByDefault = true })];
+        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected(), onByDefault);
+        await vm.Loaded;
+
+        await Assert.That(vm.Features.Single().IsEnabled).IsTrue();
     });
 
     /// <summary>The store is read off the UI thread, so the constructor cannot know the saved value: the
@@ -47,7 +60,7 @@ public class ExperimentalSettingsViewModelTests {
     public Task The_switches_unlock_with_the_first_read() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
         await store.SetAsync("work", Id, true, CancellationToken.None);
-        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected());
+        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected(), OffByDefault);
         var row = vm.Features.Single();
 
         await Assert.That(row.CanChange).IsFalse();
@@ -67,7 +80,7 @@ public class ExperimentalSettingsViewModelTests {
             var store = new ExperimentalSettingsStore(Config.Root);
             if (on) await store.SetAsync("work", Id, true, CancellationToken.None);
             var service = Connected();
-            using var vm = new ExperimentalSettingsViewModel(store, "work", service);
+            using var vm = new ExperimentalSettingsViewModel(store, "work", service, OffByDefault);
             await vm.Loaded;
             var row = vm.Features.Single();
 
@@ -91,7 +104,7 @@ public class ExperimentalSettingsViewModelTests {
     public Task Status_text_follows_each_snapshot() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
         var service = Connected();
-        using var vm = new ExperimentalSettingsViewModel(store, "work", service);
+        using var vm = new ExperimentalSettingsViewModel(store, "work", service, OffByDefault);
         await vm.Loaded;
         var row = vm.Features.Single();
         await Assert.That(row.StatusText).IsEqualTo("");
@@ -131,7 +144,7 @@ public class ExperimentalSettingsViewModelTests {
     public Task A_snapshot_emitted_on_the_ui_thread_reads_the_store_off_it() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
         var service = Connected();
-        using var vm = new ExperimentalSettingsViewModel(store, "work", service);
+        using var vm = new ExperimentalSettingsViewModel(store, "work", service, OffByDefault);
         await vm.Loaded;
         var row = vm.Features.Single();
         await store.SetAsync("work", Id, true, CancellationToken.None);
@@ -145,7 +158,7 @@ public class ExperimentalSettingsViewModelTests {
     [Test]
     public Task An_off_switch_on_a_stopped_daemon_shows_no_status() => AvaloniaSession.RunOnUiAsync(async () => {
         var service = Connected();
-        using var vm = new ExperimentalSettingsViewModel(new ExperimentalSettingsStore(Config.Root), "work", service);
+        using var vm = new ExperimentalSettingsViewModel(new ExperimentalSettingsStore(Config.Root), "work", service, OffByDefault);
         await vm.Loaded;
         var row = vm.Features.Single();
 
@@ -160,7 +173,7 @@ public class ExperimentalSettingsViewModelTests {
     public Task Each_snapshot_rereads_the_store() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
         var service = Connected();
-        using var vm = new ExperimentalSettingsViewModel(store, "work", service);
+        using var vm = new ExperimentalSettingsViewModel(store, "work", service, OffByDefault);
         await vm.Loaded;
         var row = vm.Features.Single();
         service.SnapshotsSubject.OnNext(Reporting(resolved: false, active: false));
@@ -190,7 +203,7 @@ public class ExperimentalSettingsViewModelTests {
         var store = new ExperimentalSettingsStore(Config.Root);
         await store.SetAsync("work", Id, false, CancellationToken.None);
         var service = Connected();
-        using var vm = new ExperimentalSettingsViewModel(store, "work", service);
+        using var vm = new ExperimentalSettingsViewModel(store, "work", service, OffByDefault);
         await vm.Loaded;
         var row = vm.Features.Single();
         var written = File.GetLastWriteTimeUtc(store.Path);
@@ -214,7 +227,7 @@ public class ExperimentalSettingsViewModelTests {
     [Test]
     public Task A_read_that_predates_a_save_does_not_flip_the_row_back() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
-        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected());
+        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected(), OffByDefault);
         await vm.Loaded;
         var row = vm.Features.Single();
         await store.SetAsync("work", Id, false, CancellationToken.None);
@@ -234,7 +247,7 @@ public class ExperimentalSettingsViewModelTests {
     [Test]
     public Task A_read_that_lands_after_a_newer_one_is_dropped() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
-        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected());
+        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected(), OffByDefault);
         await vm.Loaded;
         var row = vm.Features.Single();
         await store.SetAsync("work", Id, true, CancellationToken.None);
@@ -253,7 +266,7 @@ public class ExperimentalSettingsViewModelTests {
     public Task Corrupt_store_disables_the_toggles_with_the_problem() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
         await File.WriteAllTextAsync(store.Path, "{ not json");
-        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected());
+        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected(), OffByDefault);
         await vm.Loaded;
         var row = vm.Features.Single();
 
@@ -270,7 +283,7 @@ public class ExperimentalSettingsViewModelTests {
     [Test]
     public Task A_save_the_store_refuses_puts_the_toggle_back() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
-        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected());
+        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected(), OffByDefault);
         await vm.Loaded;
         var row = vm.Features.Single();
         await File.WriteAllTextAsync(store.Path, "[1]");

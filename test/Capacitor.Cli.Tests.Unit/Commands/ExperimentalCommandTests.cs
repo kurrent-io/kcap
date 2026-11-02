@@ -188,6 +188,14 @@ public class ExperimentalCommandTests {
     }
 
     [Test]
+    [Arguments(true, false, "on by default")]
+    [Arguments(true, true, "on")]
+    [Arguments(false, true, "off")]
+    [Arguments(false, false, "off")]
+    public async Task The_switch_reads_on_by_default_only_when_the_profile_never_set_it(bool on, bool set, string expected) =>
+        await Assert.That(ExperimentalCommand.SwitchText(on, set)).IsEqualTo(expected);
+
+    [Test]
     public async Task An_unknown_subcommand_prints_usage_and_fails() {
         var (exit, _, error) = await Run(_ => NotRunning, "frobnicate");
 

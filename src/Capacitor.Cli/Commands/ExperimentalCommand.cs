@@ -61,9 +61,9 @@ public sealed class ExperimentalCommand {
 
         await Console.Out.WriteLineAsync($"Profile: {profile}");
         foreach (var feature in ExperimentalFeatures.All) {
-            var on = saved.IsEnabled(feature.Id);
+            var on = saved.IsOn(feature);
             var (kind, reason) = Classify(on, probe, feature.Id);
-            await Console.Out.WriteLineAsync($"{feature.Id}  {(on ? "on" : "off")}  {StateText(kind, reason)}");
+            await Console.Out.WriteLineAsync($"{feature.Id}  {SwitchText(on, saved.IsSet(feature.Id))}  {StateText(kind, reason)}");
             await Console.Out.WriteLineAsync($"  {feature.Description}");
         }
 
@@ -128,6 +128,12 @@ public sealed class ExperimentalCommand {
         probe.Reachable && (probe.Snapshot is null || !probe.IdentityConsistent)
             ? (ExperimentalFeatureStateKind.Applying, null)
             : ExperimentalFeatureState.Classify(saved, probe.Reachable, probe.Snapshot, featureId);
+
+    internal static string SwitchText(bool on, bool set) => (on, set) switch {
+        (true, false) => "on by default",
+        (true, true)  => "on",
+        _             => "off",
+    };
 
     static string StateText(ExperimentalFeatureStateKind kind, string? reason) => kind switch {
         ExperimentalFeatureStateKind.Off              => "applied",
