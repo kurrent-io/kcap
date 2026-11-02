@@ -1,37 +1,35 @@
 namespace Capacitor.Cli.Daemon.Services;
 
-/// <summary>Memorable <c>adjective-verb-animal</c> names for daemon-owned worktree directories.</summary>
+/// <summary>Short <c>adjective-noun</c> names for daemon-owned worktree directories. Every word is three to five
+/// letters and easy to say, spell and type, because people read these names aloud and type them into paths.</summary>
 static class WorktreeNames {
-    static readonly string[] Adjectives = [
-        "amber", "bold", "brave", "bright", "brisk", "calm", "clever", "cosy", "crisp", "curious",
-        "daring", "eager", "fair", "fancy", "gentle", "glad", "golden", "grand", "happy", "hardy",
-        "humble", "jolly", "keen", "kind", "lively", "lucky", "merry", "mighty", "misty", "nimble",
-        "noble", "polished", "proud", "quick", "quiet", "rapid", "rosy", "rustic", "shiny", "silent",
-        "silver", "sleek", "smooth", "snowy", "spry", "steady", "sunny", "swift", "tidy", "trusty",
-        "vivid", "warm", "wise", "witty", "zesty", "zippy"
+    internal static readonly string[] Adjectives = [
+        "bold", "brave", "brisk", "busy", "calm", "clean", "clear", "cool", "crisp", "eager",
+        "easy", "epic", "fair", "fancy", "fast", "fine", "fond", "free", "fresh", "full",
+        "fuzzy", "glad", "good", "grand", "green", "happy", "hardy", "jolly", "keen", "kind",
+        "lucky", "lush", "merry", "mild", "neat", "new", "nice", "noble", "open", "pink",
+        "plain", "plush", "proud", "pure", "quick", "quiet", "red", "rich", "ripe", "rosy",
+        "safe", "shiny", "silky", "sleek", "smart", "snug", "soft", "still", "sunny", "sweet",
+        "swift", "tall", "tidy", "tiny", "true", "vast", "warm", "wavy", "wild", "wise",
+        "witty", "young", "zesty", "zippy"
     ];
 
-    static readonly string[] Verbs = [
-        "baking", "bouncing", "building", "chasing", "climbing", "coasting", "crafting", "dancing",
-        "darting", "diving", "drifting", "dreaming", "floating", "flying", "foraging", "gliding",
-        "hopping", "humming", "hunting", "jumping", "juggling", "leaping", "marching", "mending",
-        "napping", "painting", "pondering", "prancing", "racing", "roaming", "rolling", "running",
-        "sailing", "singing", "skating", "sliding", "soaring", "spinning", "sprinting", "strolling",
-        "surfing", "swimming", "tinkering", "trotting", "wandering", "weaving", "whistling", "zooming"
-    ];
-
-    static readonly string[] Animals = [
-        "badger", "beaver", "bison", "crane", "dolphin", "eagle", "falcon", "ferret", "finch", "fox",
-        "gecko", "heron", "ibis", "jaguar", "koala", "lark", "lemur", "lynx", "marmot", "meerkat",
-        "mole", "moose", "newt", "octopus", "orca", "otter", "owl", "panda", "pelican", "penguin",
-        "puffin", "quail", "rabbit", "raven", "robin", "salmon", "seal", "sparrow", "squirrel", "stoat",
-        "swan", "tapir", "tiger", "toucan", "turtle", "walrus", "weasel", "wombat", "wren", "yak", "zebra"
+    internal static readonly string[] Nouns = [
+        "ant", "apple", "ball", "bean", "bear", "bee", "bell", "bike", "boat", "book",
+        "bowl", "box", "bread", "bus", "cake", "camel", "car", "cat", "chair", "coat",
+        "coin", "corn", "cow", "crab", "crow", "cup", "deer", "desk", "dog", "door",
+        "drum", "duck", "egg", "fan", "fish", "fork", "fox", "frog", "goat", "hare",
+        "hat", "hen", "honey", "horse", "jam", "jar", "jug", "key", "kite", "koala",
+        "lamb", "lamp", "leaf", "lime", "lion", "map", "mat", "milk", "mole", "moth",
+        "mouse", "mug", "nest", "note", "otter", "owl", "pan", "panda", "pear", "pen",
+        "pie", "pig", "plum", "pot", "ring", "robin", "rope", "rug", "seal", "sheep",
+        "ship", "shoe", "sock", "sofa", "spoon", "star", "swan", "table", "tea", "tent",
+        "tiger", "tile", "toad", "toy", "tray", "tree", "vase", "whale", "wolf", "zebra"
     ];
 
     const int Attempts = 32;
 
-    internal static string Generate(Random random) =>
-        $"{Pick(Adjectives, random)}-{Pick(Verbs, random)}-{Pick(Animals, random)}";
+    internal static string Generate(Random random) => $"{Pick(Adjectives, random)}-{Pick(Nouns, random)}";
 
     /// <summary>A name <paramref name="isTaken"/> rejects is drawn again. After that many collisions a
     /// random suffix is added, so the caller always gets a name and never loops.</summary>

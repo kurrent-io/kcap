@@ -464,7 +464,7 @@ public class WorktreeManagerTests {
 
         try {
             await Assert.That(Directory.Exists(worktree.Path)).IsTrue();
-            await Assert.That(Path.GetFileName(worktree.Path)).Matches("^[a-z]+-[a-z]+-[a-z]+$");
+            await Assert.That(Path.GetFileName(worktree.Path)).Matches("^[a-z]{3,5}-[a-z]{3,5}$");
         } finally {
             await WorktreeManager.RemoveAsync(worktree, TimeProvider.System);
         }
