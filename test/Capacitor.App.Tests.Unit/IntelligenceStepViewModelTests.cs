@@ -84,6 +84,20 @@ public class IntelligenceStepViewModelTests {
         await Assert.That(call.Key).IsEqualTo("sk-typed");
     }
 
+    /// A key belongs to the provider it was typed for; sending it to another would hand it to that provider's probe.
+    [Test]
+    public async Task Changing_the_provider_clears_the_key() {
+        var h = new Harness();
+        await h.EnterAsync();
+        h.Option(IntelligenceOption.ProviderToken).IsSelected = true;
+        h.Vm.ApiKey = "sk-ant";
+
+        h.Vm.SelectedVendor = IntelligenceVendor.OpenAI;
+
+        await Assert.That(h.Vm.ApiKey).IsEmpty();
+        await Assert.That(h.Vm.CanContinue).IsFalse();
+    }
+
     [Test]
     public async Task An_edited_model_is_sent() {
         var h = new Harness();

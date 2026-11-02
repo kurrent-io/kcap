@@ -90,7 +90,8 @@ public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IIm
         set {
             if (value == _vendor) return;
             this.RaiseAndSetIfChanged(ref _vendor, value);
-            Model = value.DefaultModel;
+            Model  = value.DefaultModel;
+            ApiKey = "";
             this.RaisePropertyChanged(nameof(KeyHint));
         }
     }
