@@ -153,9 +153,10 @@ Subcommands for service (per-user; restarts the daemon if it crashes, starts it 
                           --keep-agents stops them so the next start relaunches
                           them on their saved sessions (a turn in progress is
                           cut off). The desktop app starts a stopped daemon
-                          service when it opens, not while it is open. start
-                          and stop wait up to a minute for another operation
-                          on the service to finish.
+                          service when it opens, not while it is open. Plain
+                          start (without --verify) and stop wait up to a
+                          minute for another operation on the service to
+                          finish.
   ensure [--name N] [--profile P] [--json]
                           Flow-driven ladder: from a fresh status read, install
                           when there is no unit (baking the born-prompt consent

@@ -1355,7 +1355,7 @@ kcap daemon service status                 # installed / running state
 kcap daemon service status --json          # machine-readable status (pids, binary paths, txn-marker state)
 kcap daemon service stop                   # stop the running service (stays installed), ending its hosted agents
 kcap daemon service stop --keep-agents     # stop it and its agents; the next start relaunches them on their saved sessions (a turn in progress is cut off)
-kcap daemon service start                  # start it again; start and stop wait up to a minute for another operation on the service (the desktop app restarting it, say) to finish
+kcap daemon service start                  # start it again; plain start (without --verify) and stop wait up to a minute for another operation on the service (the desktop app restarting it, say) to finish
 kcap daemon service start --verify         # start, then verify readiness/ownership before exiting 0
 kcap daemon service ensure                 # install-or-start from a fresh status read (flow-driven)
 kcap daemon service refresh                # bring installed units up to this version and onto a script install's `current` path; a reload stops the daemon with its agents kept and the reloaded daemon resumes them, and waits for the next update while an eval or a launch is in progress (runs after `kcap update`)

@@ -1073,7 +1073,7 @@ sealed class DaemonServiceCommands(
         static string Agents(int n) => n == 1 ? "1 agent" : $"{n} agents";
     }
 
-    /// <summary>How long <c>start</c> and <c>stop</c> wait out another operation on the same service. The
+    /// <summary>How long plain <c>start</c> and <c>stop</c> wait out another operation on the same service. The
     /// desktop app starts a daemon service it sees stopped and holds the lock through that daemon's boot, so a
     /// start typed straight after a stop can find the lock taken.</summary>
     internal static readonly TimeSpan WaitOutOthers = TimeSpan.FromSeconds(60);
