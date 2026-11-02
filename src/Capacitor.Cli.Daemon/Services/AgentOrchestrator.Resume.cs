@@ -1314,7 +1314,8 @@ internal partial class AgentOrchestrator {
         // The lease a hand-off takeover would need, held until the readiness window passes, so the session is not taken
         // over from under the agent re-registering on it.
         string? leaseToken = null;
-        if (entry.Participant is null && entry.SessionId is { } leasedSession) {
+        // A private agent never registers, so the server knows no session to lease and would refuse it.
+        if (entry.Participant is null && !entry.Launch.IsPrivate && entry.SessionId is { } leasedSession) {
             switch (await BeginSourceResumeAsync(leasedSession, ct)) {
                 case HandoffBeginResult.Unreachable:
                     return (SourceLeaseUnreachableReason, null);

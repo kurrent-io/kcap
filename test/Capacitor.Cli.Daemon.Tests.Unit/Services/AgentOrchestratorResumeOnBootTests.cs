@@ -177,6 +177,21 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(f.Orch.ResumeLedger!.TryRead("leased-1")!.State).IsEqualTo(ResumeState.Running);
     }
 
+    /// <summary>A private agent's session is unknown to the server, so its restart resume takes no lease and resumes.</summary>
+    [Test]
+    public async Task A_private_restart_resume_takes_no_lease() {
+        var server = new CaptureServerConnection { BeginResume = _ => new HandoffTakeoverAdmission(null, "source_unavailable", 0) };
+        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        await using var _ = f.Orch;
+        Entry(f, "private-1", isPrivate: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(server.ResumeBegins).IsEmpty();
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("private-1")!.State).IsEqualTo(ResumeState.Running);
+    }
+
     /// <summary>A session a hand-off holds is being taken over: neither resumed nor continued, which would take it over
     /// a second time.</summary>
     [Test]

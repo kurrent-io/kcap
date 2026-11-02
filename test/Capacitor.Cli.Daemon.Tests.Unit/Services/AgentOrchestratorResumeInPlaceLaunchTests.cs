@@ -356,6 +356,18 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await Assert.That(f.Server.HandoffRenews.Count).IsGreaterThan(renewed);
     }
 
+    /// <summary>The launch looks its factory up by the command's vendor exactly as sent, so a vendor no factory is keyed
+    /// by is refused before anything starts, not lost to a lookup that throws.</summary>
+    [Test]
+    public async Task A_vendor_no_factory_is_keyed_by_is_refused() {
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude"));
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch() with { Vendor = "Claude" });
+
+        await Assert.That(f.Failures()).IsEquivalentTo([ResumeInPlaceRefusals.UnsupportedVendor]);
+        await Assert.That(f.Factory.Starts).IsEqualTo(0);
+    }
+
     /// <summary>A token that lapsed while the command queued, before any renewal was due, starts nothing.</summary>
     [Test]
     public async Task A_lease_lapsed_before_the_launch_starts_nothing() {

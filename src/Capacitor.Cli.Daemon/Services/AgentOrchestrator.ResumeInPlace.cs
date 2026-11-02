@@ -85,6 +85,9 @@ internal partial class AgentOrchestrator {
          || !string.Equals(cmd.RepoPath, inPlace.Directory, StringComparison.Ordinal))
             return ResumeInPlaceRefusals.Invalid;
 
+        // The launch looks its factory up by the command's own vendor, so the check must too.
+        if (!_runtimeFactories.ContainsKey(cmd.Vendor)) return ResumeInPlaceRefusals.UnsupportedVendor;
+
         return await InPlaceResumeRefusalAsync(cmd.Vendor, inPlace.SourceSessionId, inPlace.Directory, inPlace.AccountId, inPlace.ConfigDir);
     }
 
