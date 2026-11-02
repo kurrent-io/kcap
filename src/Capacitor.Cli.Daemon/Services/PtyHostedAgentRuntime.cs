@@ -476,8 +476,8 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// master fd regardless, and the lane must never be what keeps the stop from being asked for.
     /// </summary>
     public async Task RequestGracefulStopAsync() {
-        _stopRequestedDuringDialog = DialogGone is not null;
-        _stopRequested             = true;
+        if (DialogGone is not null) _stopRequestedDuringDialog = true;
+        _stopRequested = true;
         var holdsLane  = await _lane.WaitAsync(GracefulStopLaneWait, CancellationToken.None);
 
         try {

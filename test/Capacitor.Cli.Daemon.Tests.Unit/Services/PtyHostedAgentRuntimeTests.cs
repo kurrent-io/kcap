@@ -710,6 +710,28 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    /// <summary>A repeated stop after the dialog closed does not undo the first stop, which was asked
+    /// for while the dialog held the message.</summary>
+    [Test]
+    public async Task A_second_stop_after_the_dialog_closed_still_withholds_the_submit() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        var send = runtime.SendUserInputAsync("carry on");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+        await AdvanceAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 4);
+
+        _ = runtime.RequestGracefulStopAsync();
+        runtime.NoteTerminalDialog(false);
+        _ = runtime.RequestGracefulStopAsync();
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted);
+
+        await Assert.That(async () => await send).Throws<IOException>();
+        pty.Exit();
+    }
+
     /// <summary>The unattended spray stops at an exit before asking about dialogs, so an exit while a
     /// dialog held the pasted message fails it there too.</summary>
     [Test]
