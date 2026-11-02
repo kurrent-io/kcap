@@ -256,6 +256,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
 
         await Assert.That(f.Failures()).IsEmpty();
         await Assert.That(f.Factory.PtyRuntime!.HasExited).IsFalse();
+        await Assert.That(f.Server.StatusChangedCalls.Where(c => c.AgentId == AgentId).Select(c => c.Status)).DoesNotContain("Failed");
     }
 
     /// <summary>Consent judges the directory the resume runs in: a rule naming only the symlink does not admit its

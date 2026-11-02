@@ -171,16 +171,24 @@ internal partial class AgentOrchestrator {
     const string SourceLeaseLostReason = "source_lease_lost";
 
     /// <summary>Ends a failed resume's agent unless its own exit teardown already has.</summary>
-    /// <summary>Stops the resumed agent; true only once its process is confirmed gone.</summary>
+    /// <summary>Stops the resumed agent; true only once its process is confirmed gone. It is killed before the stop
+    /// path runs, because that path tells the server the agent stopped, which must not happen while it lives.</summary>
     async Task<bool> RetireAsync(AgentInstance agent) {
         try {
-            if (_agents.TryGetValue(agent.Id, out var live) && ReferenceEquals(live, agent) && !agent.IsCleanupStarted)
-                return await StopAgentCoreAsync(agent);
+            if (!await TerminateConfirmedAsync(agent)) return false;
 
-            if (!agent.Runtime.HasExited) await agent.Runtime.TerminateAsync(ShutdownTerminateGrace);
+            if (_agents.TryGetValue(agent.Id, out var live) && ReferenceEquals(live, agent) && !agent.IsCleanupStarted)
+                await StopAgentCoreAsync(agent);
         } catch (Exception ex) when (ex is not OperationCanceledException) {
             LogInPlaceRetireFailed(ex, agent.Id);
         }
+
+        return agent.Runtime.HasExited;
+    }
+
+    static async Task<bool> TerminateConfirmedAsync(AgentInstance agent) {
+        if (!agent.Runtime.HasExited) await agent.Runtime.TerminateAsync(StopTerminateGrace);
+        if (!agent.Runtime.HasExited) await agent.Runtime.WaitForExitAsync(StopExitPoll);
 
         return agent.Runtime.HasExited;
     }

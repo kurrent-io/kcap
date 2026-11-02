@@ -1342,10 +1342,12 @@ internal partial class AgentOrchestrator {
         if (agent.StopRequested) return (StoppedDuringResume, null);
 
         // A lapsed lease may already have let a hand-off take the session over.
+        // Settled as failed only once the runtime is gone: a live one stays registered on the source, which refuses a
+        // takeover, and carries on as the resumed agent.
         if (lease?.IsLost == true) {
-            await agent.Runtime.TerminateAsync(ShutdownTerminateGrace);
+            if (await TerminateConfirmedAsync(agent)) return (SourceLeaseLostReason, null);
 
-            return (SourceLeaseLostReason, null);
+            LogInPlaceRetireUnconfirmed(agent.Id);
         }
 
         if (!survived && TranscriptRefused(agent)) {

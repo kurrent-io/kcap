@@ -36,6 +36,7 @@ public class AgentOrchestratorResumeOnBootTests {
         public TaskCompletionSource? Gate { get; set; }
         public bool ExitBeforeHandshake { get; init; }
         public bool PtyStyle { get; init; }
+        public bool Unkillable { get; init; }
         public string? ResumeToken { get; init; }
         public bool ReopensSession { get; init; }
         public FakeAcpRuntime? LastAcpRuntime { get; private set; }
@@ -60,7 +61,8 @@ public class AgentOrchestratorResumeOnBootTests {
                 }
 
                 if (PtyStyle)
-                    return new HostedRuntimeStart(new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true), McpConfigPath: null, Transcript: null);
+                    return new HostedRuntimeStart(new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) { IgnoresTerminate = Unkillable },
+                        McpConfigPath: null, Transcript: null);
 
                 var runtime = ReopensSession && ctx.ResumeSessionId is { } reopened
                     ? new FakeAcpRuntime { Vendor = Vendor, Cwd = ctx.Worktree.Path, AcpSessionId = reopened, Reopened = true }
@@ -238,6 +240,25 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(continued).IsEqualTo(0);
         var after = f.Orch.ResumeLedger!.TryRead("lost-1")!;
         await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "source_lease_lost"));
+    }
+
+    /// <summary>A lease lost while a runtime that will not die resumes is not settled as failed: the live agent stays the
+    /// session's, rather than being reported gone beside a hand-off.</summary>
+    [Test]
+    public async Task A_lost_lease_on_a_runtime_that_will_not_stop_keeps_it_running() {
+        var server = new CaptureServerConnection {
+            BeginResume  = _ => new HandoffTakeoverAdmission("lease-1", null, 60),
+            RenewHandoff = (_, _) => Task.FromResult(false),
+        };
+        var f = Build(new ResumableFactory { PtyStyle = true, Unkillable = true }, c => c.ResumeReadinessWindow = TimeSpan.FromSeconds(1), server: server);
+        await using var _ = f.Orch;
+        f.Orch.SourceLeaseRenewal = TimeSpan.FromMilliseconds(50);
+        Entry(f, "stuck-1");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("stuck-1")!.State).IsEqualTo(ResumeState.Running);
     }
 
     /// <summary>A server that has the lease but does not answer for it leaves the session unfenced: after the retry
