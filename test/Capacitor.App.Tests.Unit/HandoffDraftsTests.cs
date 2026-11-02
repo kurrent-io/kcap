@@ -127,4 +127,24 @@ public class HandoffDraftsTests {
 
         await Assert.That(drafts.ResumeFailed("source-1")).IsFalse();
     }
+
+    /// <summary>A failure that still arrives for an expired resume rules Resume out, whether or not its agent's row came
+    /// first.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_late_failure_for_an_expired_resume_rules_it_out(bool rowFirst) {
+        var time = new FakeTimeProvider();
+        using var failures = new Subject<LaunchFailure>();
+        var directory = new FakeAgentDirectory();
+        using var drafts = new HandoffDrafts(failures, directory, time);
+
+        drafts.HoldResume("source-1", "agent-1", Draft);
+        time.Advance(TimeSpan.FromMinutes(10));
+        if (rowFirst) directory.Rows.AddOrUpdate(LocalRow("agent-1"));
+        failures.OnNext(new LaunchFailure("agent-1", "resume_failed: runtime_exited"));
+        if (!rowFirst) directory.Rows.AddOrUpdate(LocalRow("agent-1"));
+
+        await Assert.That(drafts.ResumeFailed("source-1")).IsTrue();
+    }
 }
