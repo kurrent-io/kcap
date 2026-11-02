@@ -119,8 +119,11 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
             var resumeFromLn  = 0;
 
             if (serverLastLine is { } srv) {
-                if (srv >= lastLineIndex) status = ImportCommand.ClassificationStatus.AlreadyLoaded;
-                else { status = ImportCommand.ClassificationStatus.Partial; resumeFromLn = srv + 1; }
+                var ledger = ctx.Reimport ? null : ctx.TranscriptLedger;
+                resumeFromLn = ledger?.ResumeFrom(ctx.BaseUrl, s.SessionId, srv) ?? srv + 1;
+                status = resumeFromLn > lastLineIndex
+                    ? ImportCommand.ClassificationStatus.AlreadyLoaded
+                    : ImportCommand.ClassificationStatus.Partial;
             }
 
             results.Add(new ImportCommand.SessionClassification {
@@ -155,11 +158,13 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
         // SendTranscriptBatches reads a file; a legacy session already is one, a unified session is
         // flattened into a temporary file that is deleted once sent.
         var (filePath, isTemp) = ResolveTranscriptFile(classification.SourceMeta!, lines);
+        var checkpoint = new TranscriptImportCheckpoint(ctx);
         int sent;
         try {
             sent = await SessionImporter.SendTranscriptBatches(
                 httpClient: ctx.HttpClient, baseUrl: ctx.BaseUrl, sessionId: classification.SessionId,
-                filePath: filePath, agentId: null, startLine: startLine, time: time, vendor: Vendor, progress: ctx.Progress);
+                filePath: filePath, agentId: null, startLine: startLine, time: time, vendor: Vendor,
+                progress: checkpoint, completeLines: checkpoint.CompleteLines);
         } catch {
             return ImportOutcome.Failed;
         } finally {
@@ -168,6 +173,8 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
 
         if (!await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-end/mistral-vibe",
                 BuildSessionEndPayload(classification.SessionId, SessionDir(classification), classification.Meta.Cwd, classification.Meta.LastTimestamp), ct)) return ImportOutcome.Failed;
+
+        await checkpoint.RecordAsync(classification.SessionId, ct);
 
         if (sent == 0) return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped;
         return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Loaded;

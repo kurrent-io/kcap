@@ -13,7 +13,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// so lines that produce no event never move it.
 /// </summary>
 sealed class EventStoringTranscriptServer : IDisposable {
-    static readonly HashSet<string> NoiseTypes = ["system", "last-prompt", "file-history-snapshot", "progress"];
+    static readonly HashSet<string> NoiseTypes = ["system", "last-prompt", "file-history-snapshot", "progress", "turn_ended", "session.end"];
 
     readonly WireMockServer                     _server = WireMockServer.Start();
     readonly Dictionary<string, SortedSet<int>> _stored = new(StringComparer.Ordinal);
@@ -36,6 +36,8 @@ sealed class EventStoringTranscriptServer : IDisposable {
     }
 
     public string Url => _server.Url!;
+
+    public bool RejectTranscripts { get; set; }
 
     public int StoredEvents(string sessionId) { lock (_gate) return _stored.TryGetValue(sessionId, out var s) ? s.Count : 0; }
 
@@ -63,6 +65,7 @@ sealed class EventStoringTranscriptServer : IDisposable {
     }
 
     ResponseMessage Transcript(IRequestMessage request) {
+        if (RejectTranscripts) return Json(400, "{}");
         using var doc     = JsonDocument.Parse(request.Body!);
         var       root    = doc.RootElement;
         var       session = root.GetProperty("session_id").GetString()!;
@@ -84,7 +87,11 @@ sealed class EventStoringTranscriptServer : IDisposable {
     static bool StoresEvent(string line) {
         try {
             using var doc = JsonDocument.Parse(line);
-            return !NoiseTypes.Contains(doc.RootElement.GetProperty("type").GetString()!);
+            var root = doc.RootElement;
+            var type = root.TryGetProperty("type", out var t) ? t
+                : root.TryGetProperty("role", out var r) ? r
+                : root.GetProperty("payload_type");
+            return !NoiseTypes.Contains(type.GetString()!);
         } catch (JsonException) {
             return false;
         }

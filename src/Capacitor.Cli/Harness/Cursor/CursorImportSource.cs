@@ -399,12 +399,11 @@ internal sealed class CursorImportSource : IImportSource {
             var resumeFromLn = 0;
 
             if (serverLastLine is { } srv) {
-                if (srv >= lastNonBlankIndex.Value) {
-                    status = ImportCommand.ClassificationStatus.AlreadyLoaded;
-                } else {
-                    status       = ImportCommand.ClassificationStatus.Partial;
-                    resumeFromLn = srv + 1;
-                }
+                var ledger = ctx.Reimport ? null : ctx.TranscriptLedger;
+                resumeFromLn = ledger?.ResumeFrom(ctx.BaseUrl, s.SessionId, srv) ?? srv + 1;
+                status = resumeFromLn > lastNonBlankIndex.Value
+                    ? ImportCommand.ClassificationStatus.AlreadyLoaded
+                    : ImportCommand.ClassificationStatus.Partial;
             }
 
             results.Add(new ImportCommand.SessionClassification {
@@ -515,14 +514,10 @@ internal sealed class CursorImportSource : IImportSource {
             ct);
         if (!startOk) return ImportOutcome.Failed;
 
-        // Partial → resume from server watermark + 1. AlreadyLoaded → nothing
-        // past the watermark, so SendTranscriptBatches returns 0 immediately.
-        // The routed-phase filter at ImportCommand.cs:749 now includes
-        // AlreadyLoaded for Cursor so legacy lifecycle-less sessions get
-        // re-synced; the transcript leg becomes a no-op in that case.
+        // AlreadyLoaded still replays lifecycle and children; its own frontier is a physical line count
         var startLine = classification.Status switch {
             ImportCommand.ClassificationStatus.Partial       => classification.ResumeFromLine,
-            ImportCommand.ClassificationStatus.AlreadyLoaded => classification.TotalLines,
+            ImportCommand.ClassificationStatus.AlreadyLoaded => Math.Max(classification.ResumeFromLine, classification.TotalLines),
             _                                                => 0,
         };
 
@@ -562,6 +557,7 @@ internal sealed class CursorImportSource : IImportSource {
             return ImportOutcome.Failed;
         }
 
+        var checkpoint = new TranscriptImportCheckpoint(ctx);
         int sent;
         try {
             // abortDelivery re-checks the ALREADY-resolved
@@ -577,8 +573,9 @@ internal sealed class CursorImportSource : IImportSource {
                 agentId:       null,
                 startLine:     startLine, time: _time,
                 vendor:        Vendor,
-                progress:      ctx.Progress,
-                abortDelivery: () => _markers.IsQuarantined(quarantineIdentity));
+                progress:      checkpoint,
+                abortDelivery: () => _markers.IsQuarantined(quarantineIdentity),
+                completeLines: checkpoint.CompleteLines);
         } catch (SessionImporter.TranscriptDeliveryAbortedException) {
             // Quarantine tripped, or the server blocked a batch at a gap: no remaining batches or
             // children, so a re-run resumes from the server's watermark.
@@ -639,6 +636,8 @@ internal sealed class CursorImportSource : IImportSource {
             BuildSessionEndPayload(classification.SessionId, transcriptPath, durationMs, modifiedUtc),
             ct);
         if (!endOk) return ImportOutcome.Failed;
+
+        await checkpoint.RecordAsync(classification.SessionId, ct);
 
         if (sent == 0) {
             var noOwnContentOutcome = startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped;

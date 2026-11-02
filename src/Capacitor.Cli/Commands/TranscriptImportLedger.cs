@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Skills;
@@ -5,7 +6,7 @@ using Capacitor.Cli.Core.Skills;
 namespace Capacitor.Cli.Commands;
 
 /// <summary>
-/// Per-server record of how far each Claude and Codex transcript was imported. The server's last-line
+/// Per-server record of how far each transcript was imported. The server's last-line
 /// watermark only counts lines that produced an event, so a transcript ending in lines it ignores reads
 /// as unfinished forever; a mark taken at that same watermark says those lines were already sent.
 /// A mark applies only while the server still answers the watermark it recorded, so a server that lost
@@ -43,6 +44,18 @@ internal sealed class TranscriptImportLedger {
 
     public void Record(string server, string sessionId, TranscriptImportMark mark) {
         lock (_gate) _pending[(server, sessionId)] = mark;
+    }
+
+    public async Task RecordAsync(HttpClient httpClient, string baseUrl, string sessionId, int completeLines, CancellationToken ct) {
+        try {
+            using var resp = await httpClient.GetAsync($"{baseUrl}/api/sessions/{sessionId}/last-line", ct);
+            if (resp.StatusCode != HttpStatusCode.OK) return;
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            if (doc.RootElement.Num("last_line_number") is { } watermark && completeLines > watermark)
+                Record(baseUrl, sessionId, new TranscriptImportMark(completeLines, (int)watermark));
+        } catch (Exception e) when (e is HttpRequestException or JsonException or InvalidOperationException
+                                || e is OperationCanceledException && !ct.IsCancellationRequested) { }
     }
 
     /// <summary>Merges this run's marks into the file. Best effort: a mark that never lands costs only a

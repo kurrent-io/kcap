@@ -252,8 +252,11 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
             var resumeFromLn = 0;
 
             if (serverLastLine is { } srv) {
-                if (srv >= lastIdx) status = ImportCommand.ClassificationStatus.AlreadyLoaded;
-                else { status = ImportCommand.ClassificationStatus.Partial; resumeFromLn = srv + 1; }
+                var ledger = ctx.Reimport ? null : ctx.TranscriptLedger;
+                resumeFromLn = ledger?.ResumeFrom(ctx.BaseUrl, s.SessionId, srv) ?? srv + 1;
+                status = resumeFromLn > lastIdx
+                    ? ImportCommand.ClassificationStatus.AlreadyLoaded
+                    : ImportCommand.ClassificationStatus.Partial;
             }
 
             results.Add(new ImportCommand.SessionClassification {
@@ -283,11 +286,13 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
             _                                                => 0,
         };
 
+        var checkpoint = new TranscriptImportCheckpoint(ctx);
         int sent;
         try {
             sent = await SessionImporter.SendTranscriptBatches(
                 httpClient: ctx.HttpClient, baseUrl: ctx.BaseUrl, sessionId: classification.SessionId,
-                filePath: log, agentId: null, startLine: startLine, time: time, vendor: Vendor, progress: ctx.Progress);
+                filePath: log, agentId: null, startLine: startLine, time: time, vendor: Vendor,
+                progress: checkpoint, completeLines: checkpoint.CompleteLines);
         } catch {
             return ImportOutcome.Failed;
         }
@@ -305,6 +310,8 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
          && !await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-end/muse",
                 BuildSessionEndPayload(classification.SessionId, classification.Meta.Cwd, endedAt), ct))
             return ImportOutcome.Failed;
+
+        await checkpoint.RecordAsync(classification.SessionId, ct);
 
         var outcome = startLine > 0 ? ImportOutcome.Resumed : sent == 0 ? ImportOutcome.Skipped : ImportOutcome.Loaded;
 
