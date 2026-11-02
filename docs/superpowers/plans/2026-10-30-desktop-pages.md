@@ -1,6 +1,6 @@
 # Desktop Pages Implementation Plan
 
-> **As built:** in-app rendering is macOS-only; on Windows and Linux a page opens in the browser. WebRTC is disabled through the WKWebView configuration, since CSP cannot stop it. An outbound link the page tries to follow goes through an Open/Dismiss prompt, and a navigation to a URL `System.Uri` cannot parse is cancelled before the WebView package sees it.
+> **As built:** in-app rendering sits behind the experimental feature `in-app-pages`, off by default, and is macOS-only; otherwise a page opens in the browser. WebRTC is disabled through the WKWebView configuration, since CSP cannot stop it. An outbound link the page tries to follow goes through an Open/Dismiss prompt, and a navigation to a URL `System.Uri` cannot parse is cancelled before the WebView package sees it.
 >
 > The page list comes from #2201, not Tasks 1–3 below; the viewer plugs into that list's `IPageViewer`.
 
