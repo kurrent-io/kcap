@@ -65,8 +65,8 @@ public sealed class ExperimentalCommand {
         await Console.Out.WriteLineAsync($"Profile: {profile}");
         foreach (var feature in _features) {
             var on = saved.IsOn(feature);
-            var (kind, reason) = Classify(saved.IsEnabled(feature.Id), on, probe, feature.Id);
-            await Console.Out.WriteLineAsync($"{feature.Id}  {SwitchText(on, saved.IsSet(feature.Id))}  {StateText(kind, reason)}");
+            var state = feature.DesktopAppOnly ? DesktopAppOnlyText : StateText(Classify(saved.IsEnabled(feature.Id), on, probe, feature.Id));
+            await Console.Out.WriteLineAsync($"{feature.Id}  {SwitchText(on, saved.IsSet(feature.Id))}  {state}");
             await Console.Out.WriteLineAsync($"  {feature.Description}");
         }
 
@@ -91,7 +91,7 @@ public sealed class ExperimentalCommand {
             return await RefuseCorruptAsync(store, store.Load(profile));
 
         await Console.Out.WriteLineAsync($"{(enable ? "Enabled" : "Disabled")} {feature.Id} (profile: {profile})");
-        await Console.Out.WriteLineAsync(await ConfirmAsync(enable, daemonName, feature.Id));
+        await Console.Out.WriteLineAsync(feature.DesktopAppOnly ? AppliesInDesktopAppText : await ConfirmAsync(enable, daemonName, feature.Id));
 
         return 0;
     }
@@ -138,15 +138,18 @@ public sealed class ExperimentalCommand {
         _             => "off",
     };
 
-    static string StateText(ExperimentalFeatureStateKind kind, string? reason) => kind switch {
+    internal const string DesktopAppOnlyText = "desktop app only";
+    internal const string AppliesInDesktopAppText = "Applies in the desktop app; the daemon does not use it";
+
+    static string StateText((ExperimentalFeatureStateKind Kind, string? Reason) state) => state.Kind switch {
         ExperimentalFeatureStateKind.Off              => "applied",
         ExperimentalFeatureStateKind.Active           => "active",
-        ExperimentalFeatureStateKind.OnNotActive      => $"not active: {reason}",
+        ExperimentalFeatureStateKind.OnNotActive      => $"not active: {state.Reason}",
         ExperimentalFeatureStateKind.Applying         => "applying",
         ExperimentalFeatureStateKind.AppliedLocally   => "applied locally; the server has not been told yet",
         ExperimentalFeatureStateKind.Unknown          => "the running daemon is too old to report it",
         ExperimentalFeatureStateKind.DaemonNotRunning => "daemon not running; applies when it starts",
-        _                                             => kind.ToString()
+        _                                             => state.Kind.ToString()
     };
 
     static async Task<int> RefuseCorruptAsync(ExperimentalSettingsStore store, ExperimentalSettingsRead read) {

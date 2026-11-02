@@ -12,6 +12,9 @@ Features:
   codex-app-server        Run Codex reviewers and interactive Codex agents over codex app-server instead
                           of the terminal. Needs Codex 0.146.0 or later. On Windows it applies to a
                           profile that never set it; disable it to keep that profile on the terminal
+  in-app-pages            Open kcap Pages inside the desktop app instead of the browser, where interactive
+                          pages can be answered. macOS only. Read by the desktop app, not the daemon, so
+                          the list shows it as desktop app only and enable/disable do not wait to confirm
 
 The profile in use is the one KCAP_PROFILE names, or else the active profile
 A change reaches the running daemon without a restart; kcap waits a few seconds for it to confirm.
