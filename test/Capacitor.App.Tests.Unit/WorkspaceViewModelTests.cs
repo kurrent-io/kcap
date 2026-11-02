@@ -28,12 +28,13 @@ public class WorkspaceViewModelTests {
             FakeDaemonClientService daemon, AgentActionService actions, FakeTerminalAttachClientFactory factory,
             FakeTimeProvider time, string agentId = "a1", IPermissionService? permissions = null,
             SessionAccessService? access = null, IPlanArtifactSource? planArtifacts = null, IUrlOpener? opener = null, IPlanSource? plans = null,
-            BackgroundCommandActivity? commands = null, IPageContentSource? pageContent = null, bool? webView = null) =>
+            BackgroundCommandActivity? commands = null, IPageContentSource? pageContent = null, bool? webView = null,
+            bool inAppPages = true) =>
         new(agentId, daemon, actions, factory.Factory, () => new FakeTerminalSurface(), time, opener ?? new RecordingOpener(),
             permissions ?? new FakePermissionService(), new FakeWorkContextSource(), new ScriptedLocalControlOps(),
             new NoAttachmentUploader(), access: access, plans: plans, planArtifacts: planArtifacts, commands: commands,
             pageContent: pageContent, pageLinks: webView is null ? null : new PageLinkRouter(() => "https://a.kcap.ai"),
-            webView: webView is { } available ? new FixedWebViewAvailability(available) : null);
+            webView: webView is { } available ? new FixedWebViewAvailability(available) : null, inAppPages: () => inAppPages);
 
     const string Session = "0123456789abcdef0123456789abcdef";
 
@@ -314,6 +315,30 @@ public class WorkspaceViewModelTests {
             await vm.Chat!.OpenLinkCommand.Execute("https://a.kcap.ai/pages/pg-chat");
 
             await Assert.That(opener.Opened).IsEquivalentTo(new[] { "https://a.kcap.ai/pages/pg-chat" });
+            await Assert.That(vm.Artefacts.PageViewer).IsNull();
+            await Assert.That(content.ContentRequested).IsEmpty();
+            await vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task With_the_switch_off_chat_and_card_page_links_open_the_browser_and_read_nothing() {
+        await RunOnUiAsync(async () => {
+            var daemon = new FakeDaemonClientService();
+            var opener = new RecordingOpener();
+            var content = new FakePageContentSource();
+            var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), opener), new FakeTerminalAttachClientFactory(),
+                new FakeTimeProvider(), planArtifacts: new FakePlanArtifactSource(), opener: opener, pageContent: content, webView: true,
+                inAppPages: false);
+            daemon.Agents.AddOrUpdate(Agent("a1", "cursor", hasTerminal: false, sessionId: Session) with { TranscriptFormat = TranscriptFormats.Envelopes });
+            await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+            await ArtefactReadsSettledAsync(vm);
+
+            await vm.Chat!.OpenLinkCommand.Execute("https://a.kcap.ai/pages/pg-chat");
+            vm.OpenCard(new ToolCard(ToolCardKind.Page, "Published page", "Brief", "v1 · Org", "https://a.kcap.ai/artefacts/pg-card", null));
+
+            await Assert.That(opener.Opened).IsEquivalentTo(new[] { "https://a.kcap.ai/pages/pg-chat", "https://a.kcap.ai/artefacts/pg-card" });
             await Assert.That(vm.Artefacts.PageViewer).IsNull();
             await Assert.That(content.ContentRequested).IsEmpty();
             await vm.TeardownAsync();

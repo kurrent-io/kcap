@@ -27,7 +27,7 @@ public class ArtefactsViewSmokeTests {
         var source = new FakePlanArtifactSource();
         source.EnqueuePages(new SessionPagesRead(SessionPlansReadKind.Ready, [page]));
         var vm = new ArtefactsTabViewModel(source, new PlanActivity(), TimeProvider.System, opener: new RecordingOpener(),
-            pageContent: new FakePageContentSource(), webView: new FixedWebViewAvailability(true));
+            pageContent: new FakePageContentSource(), webView: new FixedWebViewAvailability(true), inAppPages: () => true);
         var window = new Window { Content = new ArtefactsView { DataContext = vm }, Width = 900, Height = 600 };
         window.Show();
         vm.SwitchSession(Session, "/repo");

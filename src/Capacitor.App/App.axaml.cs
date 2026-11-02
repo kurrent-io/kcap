@@ -1221,6 +1221,7 @@ public partial class App : Application {
                 && vm.OpenSession(AgentLinkLabels.HeldIdOf(directory.Rows, agentId) ?? agentId));
         var pageLinks = new PageLinkRouter(() => profiles?.Resolution.ServerUrl);
         var webView = new WebViewAvailability();
+        var inAppPages = new InAppPagesSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName);
         var drafts = new ComposerDrafts();
         var workContextLayout = new WorkContextLayout();
         var transcripts = new LocalTranscripts();
@@ -1238,7 +1239,8 @@ public partial class App : Application {
             pullRequestSnapshots: pullRequestSnapshots, transcripts: transcripts,
             pullRequestLinksChanged: pullRequestTones.Refresh, readings: readings, senders: senders,
             appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
-            handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView);
+            handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
+            inAppPages: () => inAppPages.IsOn);
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
         // host, and the click opens nothing.
@@ -1251,7 +1253,8 @@ public partial class App : Application {
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
-                    pageContent: planArtifacts, pageLinks: pageLinks, webView: webView)
+                    pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
+                    inAppPages: () => inAppPages.IsOn)
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
         var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
@@ -1286,7 +1289,8 @@ public partial class App : Application {
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
-                    handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView)
+                    handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
+                    inAppPages: () => inAppPages.IsOn)
                 : null;
 
         _coordinator = new MainWindowCoordinator(

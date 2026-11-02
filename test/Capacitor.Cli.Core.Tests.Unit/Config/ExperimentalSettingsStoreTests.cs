@@ -91,4 +91,13 @@ public class ExperimentalSettingsStoreTests {
         await Assert.That(ExperimentalFeatures.Find("Codex-App-Server")).IsNull();
         await Assert.That(ExperimentalFeatures.All).Contains(ExperimentalFeatures.CodexAppServer);
     }
+
+    [Test]
+    public async Task In_app_pages_is_a_desktop_app_feature_off_by_default() {
+        await Assert.That(ExperimentalFeatures.Find("in-app-pages")).IsEqualTo(ExperimentalFeatures.InAppPages);
+        await Assert.That(ExperimentalFeatures.InAppPages.DesktopAppOnly).IsTrue();
+        await Assert.That(ExperimentalFeatures.InAppPages.OnByDefault).IsFalse();
+        await Assert.That(ExperimentalFeatures.CodexAppServer.DesktopAppOnly).IsFalse();
+        await Assert.That(ExperimentalSettingsRead.Empty.IsOn(ExperimentalFeatures.InAppPages)).IsFalse();
+    }
 }

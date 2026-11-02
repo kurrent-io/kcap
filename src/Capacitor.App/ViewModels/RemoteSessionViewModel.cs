@@ -287,7 +287,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             IServerSessionsService? serverSessions = null, WorkContextLayout? workContextLayout = null,
             Func<AgentRow, HandoffComposerViewModel>? handoff = null, LocalMachine? localMachine = null,
             HandoffOutcomeReader? handoffOutcomes = null,
-            IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null) {
+            IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
+            Func<bool>? inAppPages = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -305,7 +306,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
 
         var planActivity = new PlanActivity();
         Artefacts = new ArtefactsTabViewModel(planArtifacts, planActivity, time, opener: opener,
-            pageContent: pageContent, pageLinks: pageLinks, webView: webView);
+            pageContent: pageContent, pageLinks: pageLinks, webView: webView, inAppPages: inAppPages);
         Artefacts.OpenRequested += ShowArtefacts;
         Artefacts.WhenAnyValue(a => a.HasAny, a => a.IsLoading, (has, loading) => has || (loading && ShowsArtefactsTab))
             .Subscribe(show => {

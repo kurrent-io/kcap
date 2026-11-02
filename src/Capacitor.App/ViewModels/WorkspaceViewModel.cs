@@ -202,7 +202,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             IObservable<string?>? appSubject = null, IAppNotifier? notifier = null,
             IObservable<ServerLaneStatus>? serverLane = null, WorkContextLayout? workContextLayout = null,
             HandoffOutcomeReader? handoffOutcomes = null,
-            IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null) {
+            IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
+            Func<bool>? inAppPages = null) {
         AgentId = agentId;
         _drafts = drafts;
         _opener = opener;
@@ -231,7 +232,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         commands?.Track($"local:{agentId}", runs, () => Chat?.ReleaseFeed()).DisposeWith(_disposables);
         var planActivity = new PlanActivity();
         Artefacts = new ArtefactsTabViewModel(planArtifacts, planActivity, time, opener: opener,
-            pageContent: pageContent, pageLinks: pageLinks, webView: webView);
+            pageContent: pageContent, pageLinks: pageLinks, webView: webView, inAppPages: inAppPages);
         Artefacts.OpenRequested += ShowArtefacts;
         _disposables.Add(Disposable.Create(() => Artefacts.OpenRequested -= ShowArtefacts));
         // Keep the tab while a visible session's read is in flight; do not force it on for a

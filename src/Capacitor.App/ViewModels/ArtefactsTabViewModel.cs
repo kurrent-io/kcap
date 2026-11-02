@@ -23,7 +23,10 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     readonly PlanActivity _activity;
     readonly TimeProvider _time;
     readonly IUrlOpener? _opener;
-    readonly IPageViewer? _pageViewer;
+    readonly IPageViewer? _injectedViewer;
+    readonly InAppPageViewer? _inAppViewer;
+    readonly BrowserPageViewer? _browserViewer;
+    readonly Func<bool>? _inAppPages;
     readonly IPageContentSource? _pageContent;
     readonly PageLinkRouter? _pageLinks;
     CancellationTokenSource? _viewerLifetime;
@@ -99,7 +102,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
 
     public bool ShowsReaderNote => Reader is null && PageViewer is null;
     /// Page rows open in the right pane rather than the browser.
-    public bool PagesOpenInApp => _pageViewer is InAppPageViewer;
+    public bool PagesOpenInApp => CurrentViewer() is InAppPageViewer;
 
     bool _isShown;
     /// Set by the workspace while the tab is the active one; the pane's poll refreshes only then.
@@ -119,7 +122,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
 
     public ArtefactsTabViewModel(IPlanArtifactSource? source, PlanActivity activity, TimeProvider time, Func<string, Stream?>? openWorkingCopy = null,
             IUrlOpener? opener = null, IPageViewer? pageViewer = null, IPageContentSource? pageContent = null,
-            PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null) {
+            PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null, Func<bool>? inAppPages = null) {
         _source = source;
         _opener = opener;
         _pageContent = pageContent;
@@ -154,13 +157,14 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             "document drift");
         SelectCommand = ReactiveCommand.Create<DocumentRow>(Select);
         OpenLinkCommand = ReactiveCommand.Create<string>(OpenLink);
+        _injectedViewer = pageViewer;
         // In-app only where a WebView can confine the page; elsewhere the browser shows it. Without a source
         // SwitchSession never resets the pages lease, so an open page would outlive the session.
-        pageViewer ??= source is not null && pageContent is not null && opener is not null && webView?.IsAvailable == true
-            ? new InAppPageViewer(this)
-            : opener is null ? null : new BrowserPageViewer(opener);
-        _pageViewer = pageViewer;
-        OpenPageCommand = ReactiveCommand.Create<PageRow>(row => _pageViewer?.Open(row.Id, row.Url));
+        _inAppViewer = source is not null && pageContent is not null && opener is not null && webView?.IsAvailable == true
+            ? new InAppPageViewer(this) : null;
+        _browserViewer = opener is null ? null : new BrowserPageViewer(opener);
+        _inAppPages = inAppPages;
+        OpenPageCommand = ReactiveCommand.Create<PageRow>(row => OpenInViewer(row.Id, row.Url));
         _settle = time.CreateTimer(_ => RxSchedulers.MainThreadScheduler.Schedule(Refresh), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _activity.PlanWritten += OnArtefactWritten;
         _activity.PagePublished += OnArtefactWritten;
@@ -198,8 +202,21 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     /// A link from this session: a page on the profile's server goes to the page viewer, anything
     /// else to the browser.
     public void OpenLink(string url) {
-        if (_pageLinks?.PageIdFor(url) is { } id && _pageViewer is not null) _pageViewer.Open(id, url);
+        if (_pageLinks?.PageIdFor(url) is { } id && CurrentViewer() is not null) OpenInViewer(id, url);
         else if (_opener is not null) LinkPolicy.Open(_opener, url);
+    }
+
+    /// The experimental switch is read on every call, so turning it off takes effect at the next open.
+    IPageViewer? CurrentViewer() =>
+        _injectedViewer ?? (_inAppViewer is not null && _inAppPages?.Invoke() == true ? _inAppViewer : _browserViewer);
+
+    void OpenInViewer(string pageId, string url) {
+        var viewer = CurrentViewer();
+        // A page shown before the switch went off closes rather than sit beside the browser's copy.
+        if (viewer is not InAppPageViewer) ClosePage();
+        viewer?.Open(pageId, url);
+        this.RaisePropertyChanged(nameof(PagesOpenInApp));
+        this.RaisePropertyChanged(nameof(EmptyReaderNote));
     }
 
     /// Shows the page in the right pane, its row selected when the session lists it, and asks for
@@ -414,6 +431,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(HasPages));
         this.RaisePropertyChanged(nameof(HasAny));
         this.RaisePropertyChanged(nameof(EmptyReaderNote));
+        this.RaisePropertyChanged(nameof(PagesOpenInApp));
         this.RaisePropertyChanged(nameof(PagesNote));
         this.RaisePropertyChanged(nameof(HasPagesNote));
     }

@@ -29,11 +29,13 @@ public class ArtefactsTabViewModelTests {
         public Dictionary<string, byte[]> Disk { get; } = new(StringComparer.Ordinal);
         public RecordingOpener Opener { get; } = new();
         public FakePageContentSource Content { get; } = new();
+        /// The experimental switch, read at each open.
+        public bool InAppPages { get; set; } = true;
         public ArtefactsTabViewModel Vm { get; }
 
         public Harness(bool realFiles = false, IPageViewer? pageViewer = null, bool webView = false) => Vm = new ArtefactsTabViewModel(Source, Activity, Time,
             realFiles ? null : path => Disk.TryGetValue(path.Replace('\\', '/'), out var bytes) ? new MemoryStream(bytes) : null,
-            Opener, pageViewer, Content, new PageLinkRouter(() => "https://kcap.test"), new FixedWebViewAvailability(webView));
+            Opener, pageViewer, Content, new PageLinkRouter(() => "https://kcap.test"), new FixedWebViewAvailability(webView), () => InAppPages);
 
         public Task PageLoadedAsync() => Vm.PendingPageLoadForTesting ?? Task.CompletedTask;
 
@@ -1000,6 +1002,68 @@ public class ArtefactsTabViewModelTests {
         });
     }
 
+    /// The switch is off unless set, and while off nothing reads page content, so no WebView is built.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task With_the_switch_never_set_a_row_and_a_link_open_the_browser_and_read_nothing() {
+        await RunOnUiAsync(async () => {
+            var source = new FakePlanArtifactSource();
+            var time = new FakeTimeProvider();
+            var opener = new RecordingOpener();
+            var content = new FakePageContentSource();
+            source.EnqueuePages(Pages(Page("a", "Poll", time.GetUtcNow())));
+            var vm = new ArtefactsTabViewModel(source, new PlanActivity(), time, opener: opener,
+                pageContent: content, pageLinks: new PageLinkRouter(() => "https://kcap.test"),
+                webView: new FixedWebViewAvailability(true));
+            vm.SwitchSession(SessionA, "/repo");
+            await (vm.PendingPagesForTesting ?? Task.CompletedTask);
+            var row = vm.Pages[0];
+
+            await vm.OpenPageCommand.Execute(row);
+            vm.OpenLink("https://kcap.test/pages/x");
+
+            await Assert.That(opener.Opened).IsEquivalentTo(new[] { row.Url, "https://kcap.test/pages/x" });
+            await Assert.That(vm.PageViewer).IsNull();
+            await Assert.That(vm.PagesOpenInApp).IsFalse();
+            await Assert.That(vm.EmptyReaderNote).IsEqualTo("Pages open in your browser.");
+            await Assert.That(content.ContentRequested).IsEmpty();
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// The switch is read at each open: off closes the page shown in-app and opens the browser,
+    /// back on opens in-app again.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Turning_the_switch_off_closes_the_open_page_at_the_next_open() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var now = h.Time.GetUtcNow();
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", now), Page("b", "Report", now)));
+            await h.SwitchAsync(SessionA);
+            await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[0]);
+            await h.PageLoadedAsync();
+            var viewer = h.Vm.PageViewer!;
+            await Assert.That(h.Vm.PagesOpenInApp).IsTrue();
+
+            h.InAppPages = false;
+            await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[1]);
+
+            await Assert.That(viewer.IsClosed).IsTrue();
+            await Assert.That(h.Vm.PageViewer).IsNull();
+            await Assert.That(h.Vm.PagesOpenInApp).IsFalse();
+            await Assert.That(h.Vm.Pages.Select(p => p.IsSelected)).IsEquivalentTo(new[] { false, false }, CollectionOrdering.Matching);
+            await Assert.That(h.Opener.Opened).IsEquivalentTo(new[] { h.Vm.Pages[1].Url });
+
+            h.InAppPages = true;
+            h.Vm.OpenLink("https://kcap.test/pages/a");
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("a");
+            await Assert.That(h.Opener.Opened.Count).IsEqualTo(1);
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     /// SwitchSession ignores a tab with no plan-artifact source, so a viewer it opened would never close.
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -1009,7 +1073,7 @@ public class ArtefactsTabViewModelTests {
             var content = new FakePageContentSource();
             var vm = new ArtefactsTabViewModel(null, new PlanActivity(), new FakeTimeProvider(), opener: opener,
                 pageContent: content, pageLinks: new PageLinkRouter(() => "https://kcap.test"),
-                webView: new FixedWebViewAvailability(true));
+                webView: new FixedWebViewAvailability(true), inAppPages: () => true);
 
             vm.OpenLink("https://kcap.test/pages/x");
             vm.SwitchSession(SessionB, "/repo");

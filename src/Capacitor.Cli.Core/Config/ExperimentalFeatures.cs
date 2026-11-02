@@ -8,7 +8,15 @@ public static class ExperimentalFeatures {
         AppliesLive: true,
         OnByDefault: OperatingSystem.IsWindows());
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer];
+    public static ExperimentalFeature InAppPages { get; } = new(
+        "in-app-pages",
+        "In-app pages",
+        "Open kcap Pages inside the desktop app instead of the browser, where interactive pages can be answered. macOS only.",
+        AppliesLive: true,
+        DesktopAppOnly: true,
+        OnByDefault: false);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

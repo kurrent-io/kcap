@@ -107,7 +107,7 @@ When the agent declares a plan through the `kcap-plans` tools, the work-context 
 
 The **Pages** tab appears in the centre switch when the session has a plan, spec or design document, declared or reconstructed from the transcript, or a published page; a remote session gets the same tab in its own switch. It lists them on the left and renders the chosen one on the right as the agent declared or published it, with a chip when the server holds only a truncated body or none; for a local session the document reader says when the working copy has moved on from the declared text.
 
-A published page listed there (see [Pages](#pages)) opens, on macOS, in an in-app viewer in the right-hand pane, where an interactive page can be answered without leaving the app; on Windows and Linux it opens in your system browser for now. A link inside a page asks before it opens the browser, and every viewer keeps **Open in browser**.
+A published page listed there (see [Pages](#pages)), and a page link in the chat, opens in your system browser. On macOS the experimental **In-app pages** feature (Settings → Experimental, or `kcap experimental enable in-app-pages`) opens it instead in an in-app viewer in the right-hand pane, where an interactive page can be answered without leaving the app; the switch applies to the next page you open. A link inside an in-app page asks before it opens the browser, and the viewer keeps **Open in browser**.
 
 Calls to the `kcap-*` MCP tools read in plain words in the chat ("Attached work item · AI-3084", "Saved memory · …", "Searched sessions · …") instead of the raw tool name, grouped and folded as other tool calls are. A call that produced something you can open becomes a card once its result lands: a published page carries Copy link and Open, a declared document carries Open into the Pages tab. Tools from other MCP servers read as "Server · tool name" with their first argument.
 
@@ -2122,6 +2122,8 @@ kcap experimental disable codex-app-server # roll back
 - PR reviews (`kcap review`) and `kcap agent start` local spawns always use the terminal.
 - On the terminal, a review-flow reviewer whose round starts no turn within 30 seconds gets one more Enter; if 30 more seconds pass without one, the daemon ends the reviewer so the round fails at once (`participant_died`, detail `codex_reviewer_turn_not_started`) instead of waiting out the flow's inactivity bound.
 - The former `KCAP_CODEX_TRANSPORT` environment variable is removed; a daemon that still sees it logs a warning naming the command above.
+
+`kcap experimental` also lists `in-app-pages`, which the desktop app reads on its own (see [the desktop app's Pages tab](#desktop-app)): the list labels it `desktop app only` rather than asking the daemon, and `enable`/`disable` save it without waiting for a daemon to confirm.
 
 The Cursor CLI path (`cursor-agent` by default, used to spawn the `cursor` hosted-agent vendor) is env-only for now — there is no `daemon.cursor_path` profile key yet, so set it per-launch:
 

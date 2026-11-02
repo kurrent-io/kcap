@@ -193,6 +193,31 @@ public class ExperimentalCommandTests {
             await Assert.That(output).Contains(feature.Id);
     }
 
+    /// The daemon reports nothing for a desktop-app feature, so reading its silence would call the daemon too old.
+    [Test]
+    public async Task List_labels_a_desktop_app_feature_instead_of_asking_the_daemon() {
+        await new ExperimentalSettingsStore(new ConfigRoot(Tmp.Path)).SetAsync("default", "in-app-pages", true, CancellationToken.None);
+
+        var (exit, output, _) = await RunWith(
+            Resolutions.None(new ConfigRoot(Tmp.Path)), (_, _) => Running(Status([Feature(false, false)])), ExperimentalFeatures.All);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(output).Contains($"in-app-pages  on  {ExperimentalCommand.DesktopAppOnlyText}");
+        await Assert.That(output).Contains($"{Id}  off  applied");
+    }
+
+    [Test]
+    public async Task Enabling_a_desktop_app_feature_saves_it_without_waiting_on_the_daemon() {
+        var probes = 0;
+
+        var (exit, output, _) = await Run(_ => { probes++; return NotRunning; }, "enable", "in-app-pages");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(output).Contains(ExperimentalCommand.AppliesInDesktopAppText);
+        await Assert.That(probes).IsEqualTo(0);
+        await Assert.That(new ExperimentalSettingsStore(new ConfigRoot(Tmp.Path)).Load("default").IsEnabled("in-app-pages")).IsTrue();
+    }
+
     [Test]
     [Arguments(true, false, "on by default")]
     [Arguments(true, true, "on")]
