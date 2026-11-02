@@ -681,11 +681,14 @@ public class PtyHostedAgentRuntimeTests {
     }
 
     /// <summary>A message pasted before a dialog opened, and left unsubmitted because the agent stopped
-    /// or exited while the dialog showed, is a failed delivery, not a delivered one.</summary>
+    /// or exited while the dialog showed, is a failed delivery, not a delivered one, even when the
+    /// dialog closes before the submit gets the lane back.</summary>
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task A_message_whose_submit_a_dialog_withheld_until_the_agent_ended_fails(bool exits) {
+    [Arguments(false, false)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    [Arguments(true, true)]
+    public async Task A_message_whose_submit_a_dialog_withheld_until_the_agent_ended_fails(bool exits, bool dialogCloses) {
         var time    = new FakeTimeProvider();
         var pty     = new RecordingScriptedPtyProcess();
         var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
@@ -697,10 +700,13 @@ public class PtyHostedAgentRuntimeTests {
 
         if (exits) pty.Exit();
         else _ = runtime.RequestGracefulStopAsync();
+        if (dialogCloses) runtime.NoteTerminalDialog(false);
         await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted);
+        await AdvanceAsync(time, TimeSpan.FromSeconds(1));
 
         await Assert.That(async () => await send).Throws<IOException>();
-        await Assert.That(pty.Writes.TakeWhile(w => w != "/exit").Count(w => w == "\r")).IsEqualTo(0);
+        var expected = exits ? "\x1b[200~carry on\x1b[201~" : "\x1b[200~carry on\x1b[201~|/exit|\r";
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(expected);
         pty.Exit();
     }
 

@@ -394,10 +394,12 @@ internal sealed partial class PtyHostedAgentRuntime(
         try {
             await pty.WriteAsync(BracketedPaste.Frame(text));
             // Unlike the launch prompt, a stop alone does not withhold the Enter: the stop's "/exit"
-            // would land in the composer behind the unsent paste.
+            // would land in the composer behind the unsent paste. A stop that cut a dialog's wait
+            // short does, even once that dialog has closed: the stop wrote meanwhile.
             var submitted = await SubmitAsync(async () => {
+                var dialogShowed = DialogGone is not null;
                 await WaitOutDialogsAsync();
-                return DialogGone is null;
+                return DialogGone is null && !(dialogShowed && Ending);
             });
             if (!submitted) throw AgentEnding();
         } finally {
