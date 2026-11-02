@@ -16,6 +16,10 @@ static unsafe class WebView2Com {
         return hr >= 0 ? result : 0;
     }
 
+    public static void AddRef(nint self) {
+        if (self != 0) ((delegate* unmanaged[Stdcall]<nint, uint>)Slot(self, WebView2Abi.AddRef))(self);
+    }
+
     public static void Release(nint self) {
         if (self != 0) ((delegate* unmanaged[Stdcall]<nint, uint>)Slot(self, WebView2Abi.Release))(self);
     }

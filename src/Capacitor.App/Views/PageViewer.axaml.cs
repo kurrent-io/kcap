@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Capacitor.App.Platform.Mac;
+using Capacitor.App.Platform.Windows;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 
@@ -11,9 +12,10 @@ namespace Capacitor.App.Views;
 
 /// Hosts a ready page in a NativeWebView. The WebView exists only while the page is Ready, which
 /// the view model reaches only where IWebViewAvailability allows it, so a runtime without a usable
-/// WebView never constructs one. A page loads only into a native web view whose WebRTC is off and
-/// whose navigations pass WebKitNavigationGuard, and every handler the WebView raises catches what it throws: they run from native callbacks, where
-/// an escaping exception ends the process.
+/// WebView never constructs one. A page loads only into a WKWebView or WebView2 whose WebRTC is
+/// shown to be off and whose navigations, in every frame, pass the platform's guard; anything less
+/// falls back to the browser. Every handler the WebView raises catches what it throws: they run
+/// from native callbacks, where an escaping exception ends the process.
 public partial class PageViewer : UserControl {
     PageViewerViewModel? _vm;
     NativeWebView? _webView;
@@ -84,9 +86,13 @@ public partial class PageViewer : UserControl {
     NativeWebView EnsureWebView() {
         if (_webView is not null) return _webView;
         var webView = new NativeWebView();
+        // WebView2's adapter raises NavigationStarted for the top-level document only.
+        var webView2 = false;
         webView.EnvironmentRequested += (_, e) => {
             try {
                 if (e is AppleWKWebViewEnvironmentRequestedEventArgs apple) apple.NonPersistentDataStore = true;
+                else if (e is WindowsWebView2EnvironmentRequestedEventArgs windows)
+                    WebView2PageEnvironment.Configure(windows, Environment.GetEnvironmentVariable("LOCALAPPDATA"));
             } catch (Exception ex) {
                 Console.Error.WriteLine($"kcap: page web view setup failed: {ex.Message}");
             }
@@ -94,18 +100,18 @@ public partial class PageViewer : UserControl {
         webView.AdapterCreated += (_, e) => {
             try {
                 if (!ReferenceEquals(webView, _webView)) return;
-                if (e.TryGetPlatformHandle() is not IAppleWKWebViewPlatformHandle apple) {
-                    Console.Error.WriteLine("kcap: the page web view is not a WKWebView; pages open in the browser");
-                    _vm?.WebViewUnusable();
-                } else if (!WebKitPeerConnection.TryDisable(apple.WKWebView)) {
-                    Console.Error.WriteLine("kcap: could not turn WebRTC off in the page web view; pages open in the browser");
-                    _vm?.WebViewUnusable();
-                } else if (!WebKitNavigationGuard.TryInstall(apple.WKWebView)) {
-                    Console.Error.WriteLine("kcap: could not guard the page web view's navigations; pages open in the browser");
-                    _vm?.WebViewUnusable();
-                } else {
-                    _webViewSafe = true;
-                    Show();
+                switch (e.TryGetPlatformHandle()) {
+                    case IAppleWKWebViewPlatformHandle apple:
+                        SecureWebKit(apple);
+                        break;
+                    case IWindowsWebView2PlatformHandle windows:
+                        webView2 = true;
+                        _ = SecureWebView2Async(webView, windows);
+                        break;
+                    default:
+                        Console.Error.WriteLine("kcap: the page web view is neither a WKWebView nor a WebView2; pages open in the browser");
+                        _vm?.WebViewUnusable();
+                        break;
                 }
             } catch (Exception ex) {
                 Console.Error.WriteLine($"kcap: page web view setup failed: {ex.Message}");
@@ -127,7 +133,8 @@ public partial class PageViewer : UserControl {
         webView.NavigationStarted += (_, e) => {
             e.Cancel = true;
             try {
-                e.Cancel = _vm?.CancelNavigation(e.Request) ?? true;
+                e.Cancel = !(webView2 && WebView2NavigationGuard.IsHostLoad(e.Request?.OriginalString))
+                    && (_vm?.CancelNavigation(e.Request) ?? true);
             } catch (Exception ex) {
                 Console.Error.WriteLine($"kcap: page navigation check failed: {ex.Message}");
             }
@@ -150,5 +157,67 @@ public partial class PageViewer : UserControl {
         _webView = webView;
         WebHost.Content = webView;
         return webView;
+    }
+
+    void SecureWebKit(IAppleWKWebViewPlatformHandle apple) {
+        if (!WebKitPeerConnection.TryDisable(apple.WKWebView)) {
+            Console.Error.WriteLine("kcap: could not turn WebRTC off in the page web view; pages open in the browser");
+            _vm?.WebViewUnusable();
+        } else if (!WebKitNavigationGuard.TryInstall(apple.WKWebView)) {
+            Console.Error.WriteLine("kcap: could not guard the page web view's navigations; pages open in the browser");
+            _vm?.WebViewUnusable();
+        } else {
+            _webViewSafe = true;
+            Show();
+        }
+    }
+
+    /// The handlers WebView2 keeps hold a weak reference only: the runtime may outlive this view.
+    async Task SecureWebView2Async(NativeWebView webView, IWindowsWebView2PlatformHandle windows) {
+        var self = new WeakReference<PageViewer>(this);
+        var view = new WeakReference<NativeWebView>(webView);
+        var lostFrame = false;
+        nint core = 0;
+        try {
+            // The package's getter does not say whether it hands over a reference, so this takes its own.
+            core = windows.CoreWebView2;
+            WebView2Com.AddRef(core);
+            string? problem =
+                core == 0 ? "the page web view has no WebView2 core"
+                : !WebView2Settings.TryHarden(core) ? "could not lock the page web view's settings"
+                : !WebView2NavigationGuard.TryInstall(core, uri => Cancels(self, uri), () => {
+                    lostFrame = true;
+                    Dispatcher.UIThread.Post(() => Unusable(self, view));
+                }) ? "could not guard the page web view's navigations"
+                : !await WebView2PeerConnection.TryDisableAsync(core) ? "could not turn WebRTC off in the page web view"
+                : null;
+            // The WebRTC probe's nested frames are the guard's first frames to follow.
+            if (problem is null && lostFrame) problem = "could not guard the page web view's frames";
+            if (!ReferenceEquals(webView, _webView)) return;
+            if (problem is not null) {
+                Console.Error.WriteLine($"kcap: {problem}; pages open in the browser");
+                _vm?.WebViewUnusable();
+                return;
+            }
+            _webViewSafe = true;
+            Show();
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: page web view setup failed: {ex.Message}");
+            if (ReferenceEquals(webView, _webView)) _vm?.WebViewUnusable();
+        } finally {
+            WebView2Com.Release(core);
+        }
+    }
+
+    static bool Cancels(WeakReference<PageViewer> self, Uri request) =>
+        !self.TryGetTarget(out var viewer) || viewer._vm is not { } vm || vm.CancelNavigation(request);
+
+    static void Unusable(WeakReference<PageViewer> self, WeakReference<NativeWebView> view) {
+        try {
+            if (self.TryGetTarget(out var viewer) && view.TryGetTarget(out var webView) && ReferenceEquals(webView, viewer._webView))
+                viewer._vm?.WebViewUnusable();
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: page web view teardown failed: {ex.Message}");
+        }
     }
 }
