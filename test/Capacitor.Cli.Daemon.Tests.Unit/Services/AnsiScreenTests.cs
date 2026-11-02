@@ -39,6 +39,15 @@ public class AnsiScreenTests {
     public async Task Lines_are_deleted_inserted_and_scrolled(string bytes, string expected) =>
         await Assert.That(Draw(20, 4, "one\r\ntwo\r\nthree" + bytes)).IsEqualTo(expected);
 
+    /// Rows 2 and 3 are the region; a move down or up from inside it stops at its margin.
+    [Test]
+    [Arguments("\x1b[2;3r\x1b[2;1H\x1b[5BX", "a\nb\nX\nd")]
+    [Arguments("\x1b[2;3r\x1b[3;1H\x1b[5EX", "a\nb\nX\nd")]
+    [Arguments("\x1b[2;3r\x1b[3;1H\x1b[5AX", "a\nX\nc\nd")]
+    [Arguments("\x1b[2;3r\x1b[3;1H\x1b[5FX", "a\nX\nc\nd")]
+    public async Task A_relative_move_stops_at_the_scroll_margins(string bytes, string expected) =>
+        await Assert.That(Draw(20, 4, "a\r\nb\r\nc\r\nd" + bytes)).IsEqualTo(expected);
+
     [Test]
     public async Task A_line_feed_at_the_bottom_margin_scrolls_only_the_region() =>
         await Assert.That(Draw(20, 4, "a\r\nb\r\nc\r\nd\x1b[2;3r\x1b[3;1H\n")).IsEqualTo("a\nc\n\nd");
