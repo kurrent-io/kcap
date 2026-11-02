@@ -488,29 +488,25 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         _disposables.Add(_lease);
     }
 
-    /// <summary>The rights the held list reads under. This session outlives a sign-out and a profile switch, and a row's
+    /// <summary>The rights the held list reads under. A remote row outlives sign-outs and profile switches, and its
     /// rights were read for whoever was connected when it arrived, so a row counts only while the lane is connected as
-    /// that same account, or before it has connected at all. Otherwise the list has no rights and empties, and the last
-    /// owner's list, with its Approve and Reject, never reaches the next person.</summary>
+    /// the account it arrived under; any other time the list has no rights and empties, and an earlier owner's list,
+    /// with its Approve and Reject, never reaches the next person. Status is subscribed first, so the row this session
+    /// opens with is stamped with the account the lane is connected as right then.</summary>
     static IObservable<AgentViewerAccess> HeldViewer(IObservable<ServerLaneStatus> status, IObservable<AgentRow> rows) =>
-        Observable.Merge(rows.Select(row => (Row: (AgentRow?)row, Status: (ServerLaneStatus?)null)),
-                status.Select(s => (Row: (AgentRow?)null, Status: (ServerLaneStatus?)s)))
-            .Scan(new HeldRights(null, null, null, Connected: false), (held, e) => e.Row is { } row
+        Observable.Merge(status.Select(s => (Row: (AgentRow?)null, Status: (ServerLaneStatus?)s)),
+                rows.Select(row => (Row: (AgentRow?)row, Status: (ServerLaneStatus?)null)))
+            .Scan(new HeldRights(null, null, null), (held, e) => e.Row is { } row
                 ? held with { Row = row, RowAccount = held.Account }
-                : e.Status!.State == ServerLaneState.Connected
-                    ? held with {
-                        Account = e.Status.Subject ?? "", Connected = true,
-                        RowAccount = held.Account is null && held.RowAccount is null ? e.Status.Subject ?? "" : held.RowAccount,
-                    }
-                    : held with { Connected = false })
+                : held with { Account = e.Status!.State == ServerLaneState.Connected ? e.Status.Subject ?? "" : null })
             .Where(held => held.Row is not null)
-            .Select(held => held.Account is null || (held.Connected && held.RowAccount == held.Account)
+            .Select(held => held.Account is not null && held.RowAccount == held.Account
                 ? AgentViewerAccess.From(held.Row!.ViewerRights)
                 : AgentViewerAccess.Unrestricted);
 
-    /// <summary>The newest row, the account it was read under, the last account the lane connected as, and whether it is
-    /// connected now. Null accounts mean the lane has not connected yet.</summary>
-    sealed record HeldRights(AgentRow? Row, string? RowAccount, string? Account, bool Connected);
+    /// <summary>The newest row, the account the lane was connected as when it arrived, and the account it is connected as
+    /// now; null when it was not or is not connected.</summary>
+    sealed record HeldRights(AgentRow? Row, string? RowAccount, string? Account);
 
     void Apply(AgentRow row) {
         _row = row;

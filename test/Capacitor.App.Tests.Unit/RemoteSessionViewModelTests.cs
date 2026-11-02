@@ -1973,6 +1973,7 @@ public class RemoteSessionViewModelTests {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
             var api = new FakeHeldMessagesApi();
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 1));
             var vm = h.Build(RowWith(HeldParticipant), heldMessages: api);
             await Assert.That(vm.Chat.Held).IsNotNull();
             await WaitUntilAsync(() => api.Reads.Count == 1, what: "the first read");
@@ -1981,9 +1982,9 @@ public class RemoteSessionViewModelTests {
             await vm.ShowChatCommand.Execute();
             await WaitUntilAsync(() => api.Reads.Count == 2, what: "the read on showing the chat");
 
-            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Epoch: 1));
-            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 2));
-            await WaitUntilAsync(() => api.Reads.Count == 3, what: "the read after reconnecting");
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Epoch: 2));
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 3));
+            await WaitUntilAsync(() => api.Reads.Count >= 3, what: "the read after reconnecting");
             await vm.TeardownAsync();
         });
     }
@@ -2000,10 +2001,11 @@ public class RemoteSessionViewModelTests {
             var owner = new AgentViewerRightsDto {
                 IsOwner = true, Reaches = true, AnswerQuestions = true, ApproveToolUse = true, SendWithoutApproval = true, HoldMessages = true,
             };
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 1));
             var vm = h.Build(RowWith(owner), heldMessages: api);
             await WaitUntilAsync(() => vm.Chat.Held!.HasItems, what: "the owner's held list");
 
-            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut, Epoch: 1));
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut, Epoch: 2));
             await WaitUntilAsync(() => !vm.Chat.Held!.HasItems, what: "the list to clear on sign-out");
             await vm.TeardownAsync();
         });
@@ -2042,6 +2044,36 @@ public class RemoteSessionViewModelTests {
 
             h.Directory.Rows.AddOrUpdate(row with { ViewerRights = HeldParticipant });
             await WaitUntilAsync(() => vm.Chat.Held!.HasItems, what: "the list read under the new account's rights");
+            await Assert.That(vm.Chat.Held!.Items.Single().CanDecide).IsFalse();
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// A remote row outlives the lane, so its session can be opened while signed out or reconnecting: its rights were
+    /// read for an earlier account, and nothing is read or shown until a row arrives for the one now connected.
+    [Test]
+    [Arguments(ServerLaneState.SignedOut)]
+    [Arguments(ServerLaneState.Connecting)]
+    public async Task A_session_opened_while_the_account_is_unknown_waits_for_a_row_read_for_it(ServerLaneState state) {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var api = new FakeHeldMessagesApi {
+                ListHandler = _ => Task.FromResult(new HeldMessagesRead([FakeHeldMessagesApi.Message(Guid.NewGuid())])),
+            };
+            var owner = new AgentViewerRightsDto {
+                IsOwner = true, Reaches = true, AnswerQuestions = true, ApproveToolUse = true, SendWithoutApproval = true, HoldMessages = true,
+            };
+            var row = RowWith(owner);
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(state, Epoch: 1));
+            var vm = h.Build(row, heldMessages: api);
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u2", Epoch: 2));
+            await Task.Delay(200);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.Chat.Held!.HasItems).IsFalse();
+            await Assert.That(api.Reads).IsEmpty();
+
+            h.Directory.Rows.AddOrUpdate(row with { ViewerRights = HeldParticipant });
+            await WaitUntilAsync(() => vm.Chat.Held!.HasItems, what: "the list read under the connected account's rights");
             await Assert.That(vm.Chat.Held!.Items.Single().CanDecide).IsFalse();
             await vm.TeardownAsync();
         });
