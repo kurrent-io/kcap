@@ -88,6 +88,14 @@ internal record AgentInstance(
     /// The agent this one continues, announced on every registration so the server can follow its wake-ups here.
     public string?              ContinuesAgentId  { get; init; }
 
+    /// The session a native resume of this agent reopened.
+    public string?              ResumedSessionId  { get; init; }
+
+    /// What every registration announces as the resumed session: only while it is still the agent's session,
+    /// since the server reads it as proof the session is running again.
+    public string?              AnnouncedResumedSessionId =>
+        ResumedSessionId is { } resumed && SessionIds.Canonical(SessionId) == SessionIds.Canonical(resumed) ? resumed : null;
+
     /// Set once any stop has been asked of this agent; a resume still being judged then ends as stopped.
     public bool                 StopRequested     { get; set; }
 
@@ -3354,6 +3362,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 StartTitle          = startTitle,
                 IsPrivate           = isPrivate,
                 ContinuesAgentId    = resume?.Entry.InheritedAgentIds is [.., var predecessor] ? predecessor : null,
+                ResumedSessionId    = ResumedSessionOf(resume?.Entry, cmd.ResumeSessionId),
                 HandoffSource       = cmd.Handoff?.Source ?? resume?.Entry.Launch.HandoffSource,
                 // Keeps the worktree and the entry through any failure until the resume is judged.
                 ResumePending       = resume is { KeepsNothing: false }
@@ -3378,7 +3387,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // routes it through the single-flight cleanup (the agent is already in _agents).
             PersistPidRecordOrThrow(agent, runtime.Pid, runtime.StartIdentity);
 
-            var registration = await RegisterAgentAsync(agent);
+            var registration = await RegisterAgentAsync(agent, firstAnnounce: resume is not null);
 
             // A resume the server refused must not run under an id it holds no entry for; the resume
             // lane takes it from here, and the pending resume keeps the worktree and ledger entry.
@@ -5515,11 +5524,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// (hosted = HostedPtyCols/Rows; local = the client's terminal size). A refusal sends nothing
     /// further: the server holds no entry for the dims or the run to attach to.
     /// </summary>
-    async Task<AgentRegisteredResponse> RegisterAgentAsync(AgentInstance agent) {
+    async Task<AgentRegisteredResponse> RegisterAgentAsync(AgentInstance agent, bool firstAnnounce = false) {
         if (agent.IsPrivate) return AgentRegisteredResponse.Accepted;
 
+        var resumed      = agent.AnnouncedResumedSessionId;
         var registration = await _server.AgentRegisteredAsync(agent.Id, agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.SandboxPolicy, agent.ApprovalPolicy, agent.PermissionPreset, agent.RuntimeTransport, agent.Vendor, agent.StartTitle, agent.ContinuesAgentId,
-            agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label));
+            agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label),
+            resumed, resumeFirstAnnounce: firstAnnounce && resumed is not null);
 
         if (!registration.Registered) {
             agent.RegistrationRefused = true;
@@ -6018,7 +6029,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             for (var attempt = 1; ; attempt++) {
                 try {
                     var registration = await _server.AgentRegisteredAsync(agent.Id, agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.SandboxPolicy, agent.ApprovalPolicy, agent.PermissionPreset, agent.RuntimeTransport, agent.Vendor, agent.StartTitle, agent.ContinuesAgentId,
-                        agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label));
+                        agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label),
+                        agent.AnnouncedResumedSessionId);
 
                     // A refusal is the server's answer, not a transient failure: it is not retried, and the agent is
                     // left out of later re-registrations too. A status sent for the refused id could clear the

@@ -123,6 +123,37 @@ public class ServerConnectionAgentRegisteredTests {
         await Assert.That(ordinary).DoesNotContain("continues_agent_id");
     }
 
+    /// <summary>The resume rides on both methods, so a server without the acked one still learns it.</summary>
+    [Test]
+    public async Task The_resumed_session_rides_on_the_acked_and_the_legacy_call() {
+        var acked  = new TestServerConnection();
+        var legacy = new TestServerConnection { Acked = UnknownMethod };
+
+        await acked.AgentRegisteredAsync("agent-1", "prompt", "model", null, "/repo", resumedSessionId: "session-1", resumeFirstAnnounce: true);
+        await legacy.AgentRegisteredAsync("agent-1", "prompt", "model", null, "/repo", resumedSessionId: "session-1", resumeFirstAnnounce: true);
+
+        await Assert.That((acked.AckedCalls.Single().ResumedSessionId, acked.AckedCalls.Single().ResumeFirstAnnounce)).IsEqualTo(((string?)"session-1", true));
+        await Assert.That((legacy.LegacyCalls.Single().ResumedSessionId, legacy.LegacyCalls.Single().ResumeFirstAnnounce)).IsEqualTo(((string?)"session-1", true));
+    }
+
+    /// <summary>Serialized as the hub sends it: a registration that reopens nothing carries neither field.</summary>
+    [Test]
+    public async Task The_hub_payload_names_a_resumed_session_and_omits_the_fields_otherwise() {
+        var options = new JsonHubProtocolOptions().PayloadSerializerOptions;
+        ServerConnection.ConfigureHubPayload(options);
+
+        var first   = JsonSerializer.Serialize(new AgentRegistered("a1", null, "opus", null, "/r", ResumedSessionId: "s1", ResumeFirstAnnounce: true), options);
+        var again   = JsonSerializer.Serialize(new AgentRegistered("a1", null, "opus", null, "/r", ResumedSessionId: "s1"), options);
+        var ordinary = JsonSerializer.Serialize(new AgentRegistered("a1", null, "opus", null, "/r"), options);
+
+        await Assert.That(first).Contains("\"resumed_session_id\":\"s1\"");
+        await Assert.That(first).Contains("\"resume_first_announce\":true");
+        await Assert.That(again).Contains("\"resumed_session_id\":\"s1\"");
+        await Assert.That(again).DoesNotContain("resume_first_announce");
+        await Assert.That(ordinary).DoesNotContain("resumed_session_id");
+        await Assert.That(ordinary).DoesNotContain("resume_first_announce");
+    }
+
     /// <summary>The missing method is remembered per connection: a reconnect may reach an upgraded server.</summary>
     [Test]
     public async Task The_missing_method_is_not_probed_again_until_the_connection_changes() {

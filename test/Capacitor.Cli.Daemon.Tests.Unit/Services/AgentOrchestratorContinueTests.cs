@@ -191,6 +191,8 @@ public class AgentOrchestratorContinueTests : IDisposable {
 
         await Assert.That(f.Server.AgentRegisteredContinues.Where(r => r.AgentId == successor).Select(r => r.ContinuesAgentId))
             .IsEquivalentTo(new string?[] { OldAgent, OldAgent });
+        await Assert.That(f.Server.AgentRegisteredResumes.Where(r => r.AgentId == successor).Select(r => (r.ResumedSessionId, r.FirstAnnounce)))
+            .IsEquivalentTo(new (string?, bool)[] { (null, false), (null, false) });
     }
 
     /// <summary>The summary is server-held text, so the prompt fences it off as data.</summary>

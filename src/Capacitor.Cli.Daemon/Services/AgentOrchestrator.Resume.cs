@@ -1685,6 +1685,11 @@ internal partial class AgentOrchestrator {
             ScratchWorkspace:    launch.ScratchWorkspace == true);
     }
 
+    /// <summary>The session a launch reopens as the daemon's resume of its own agent: the vendor process restarts
+    /// on the entry's vendor session. A continuation, a participant and a launch the server asked for reopen none.</summary>
+    internal static string? ResumedSessionOf(ResumeLedgerEntry? resumed, string? resumeSessionId) =>
+        resumed is { Participant: null, VendorSession: { } vendorSession } && resumeSessionId == vendorSession ? resumed.SessionId : null;
+
     /// <summary>The ledger's worktree as the launch path names it.</summary>
     static WorktreeInfo ResumedWorktree(ResumeLedgerEntry entry) {
         var launch = entry.Launch;

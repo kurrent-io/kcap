@@ -671,6 +671,40 @@ public class AgentOrchestratorResumeOnBootTests {
             .IsEqualTo(continues);
     }
 
+    /// <summary>A native resume names the session it reopened on its launch registration, flagged as the first, and on
+    /// every re-announcement after a reconnect, unflagged, so a restarted server can learn it again.</summary>
+    [Test]
+    public async Task A_native_resume_announces_its_session_first_on_launch_then_on_every_reannouncement() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-announce");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await f.Orch.ReRegisterAgentsAsync();
+        await f.Orch.ReRegisterAgentsAsync();
+
+        await Assert.That(f.Server.AgentRegisteredResumes.Where(r => r.AgentId == "resume-announce").Select(r => (r.ResumedSessionId, r.FirstAnnounce)))
+            .IsEquivalentTo(new (string?, bool)[] { ("session-resume-announce", true), ("session-resume-announce", false), ("session-resume-announce", false) },
+                            TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    /// <summary>Once the agent runs another session, the one its resume reopened is no longer announced.</summary>
+    [Test]
+    public async Task A_resumed_agent_that_moves_to_another_session_stops_announcing_the_reopened_one() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-cleared");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        f.Orch.GetAgentForTest("resume-cleared")!.SessionId = "session-after-clear";
+        await f.Orch.ReRegisterAgentsAsync();
+
+        await Assert.That(f.Server.AgentRegisteredResumes.Last(r => r.AgentId == "resume-cleared"))
+            .IsEqualTo(("resume-cleared", (string?)null, false));
+    }
+
     /// <summary>A stop that missed the live table while the resume published finds the agent inside the
     /// discard's lock: nothing is discarded, and the agent comes back to be stopped as live.</summary>
     [Test]
