@@ -163,6 +163,31 @@ public class MainWindowViewModelTests {
         return shown;
     }
 
+    /// The rail leaves an open session to its cards by this id, so a remote workspace opened
+    /// before the registry names its session must still publish the id once it arrives.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_open_session_id_follows_a_remote_session_that_arrives_after_the_open() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var host = new RemoteHost();
+            var workspace = host.New("a1");
+            var vm = NewVm(new FakeDaemonClientService(),
+                remoteWorkspaceFactory: _ => workspace,
+                trackWorkspaceTeardown: teardown => _ = teardown(), directory: host.Directory);
+            string? open = "unset";
+            using var sub = vm.OpenSessionId.Subscribe(id => open = id);
+
+            vm.OpenSession("a1", AgentOrigin.Remote);
+            await Assert.That(open).IsNull();
+
+            host.Directory.Rows.AddOrUpdate(AgentRow.FromRemote(new AgentInstanceDto {
+                AgentId = "a1", SessionId = "s1", Status = "Running", DaemonName = "work-mac", OwnerUserId = "u1",
+                Vendor = "claude", RegisteredAt = DateTime.UtcNow,
+            }));
+            await Assert.That(open).IsEqualTo("s1");
+        });
+    }
+
     /// A remote launch opens on its placeholder, which the launcher's failure wording would sit
     /// behind; once the registry has listed the agent, a trailing failure report leaves it open.
     [Test]

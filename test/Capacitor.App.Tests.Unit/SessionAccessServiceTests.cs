@@ -226,6 +226,30 @@ public class SessionAccessServiceTests {
         await WaitUntilAsync(() => h.Lane.ChatSubscribes.Count(s => s == "s1") == 2, what: "re-subscribed after reconnect");
     }
 
+    /// The set the rail reads to leave an open session's pending items to its own cards: in while
+    /// access stands, out once it is refused or the last lease goes.
+    [Test]
+    public async Task Established_sessions_track_access_from_grant_to_denial_and_release() {
+        using var h = new Harness();
+        IReadOnlySet<string> open = new HashSet<string>();
+        using var sub = h.Service.EstablishedSessions.Subscribe(s => open = s);
+        h.Connect();
+        var lease = h.Service.Acquire("s1");
+        await WaitUntilAsync(() => open.Contains("s1"), what: "established session listed");
+
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Denied("Session not visible to caller"));
+        h.Lane.SessionAccessChangedSubject.OnNext("s1");
+        await WaitUntilAsync(async () => await Harness.Current(lease) == SessionAccessState.Denied, "denied");
+        await Assert.That(open).DoesNotContain("s1");
+
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+        h.Service.RecheckDenied("s1");
+        await WaitUntilAsync(() => open.Contains("s1"), what: "re-granted session listed");
+
+        lease.Dispose();
+        await WaitUntilAsync(() => !open.Contains("s1"), what: "released session dropped");
+    }
+
     [Test]
     public async Task Access_changed_ping_rechecks_and_a_denial_moves_the_lease_to_denied() {
         using var h = new Harness();

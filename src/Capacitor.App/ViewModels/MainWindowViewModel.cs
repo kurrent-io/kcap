@@ -162,6 +162,16 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         private set => this.RaiseAndSetIfChanged(ref _currentWorkspace, value);
     }
 
+    /// The session id of the open workspace, null while none is open or its session is unknown.
+    public IObservable<string?> OpenSessionId => Observable.Switch(this.WhenAnyValue(x => x.CurrentWorkspace)
+            .Select(open => open switch {
+                WorkspaceViewModel local => local.WhenAnyValue(x => x.SessionId),
+                RemoteSessionViewModel { IsSessionOnly: true } session => Observable.Return<string?>(session.AgentId),
+                RemoteSessionViewModel remote => remote.SessionIds,
+                _ => Observable.Return<string?>(null),
+            }))
+        .DistinctUntilChanged();
+
     /// The Sessions rail (repo → worktree → session over daemon.Agents) — null for a caller
     /// without one, same nullable-seam shape as Home/workspaceFactory above.
     public SessionRailViewModel? Rail { get; }

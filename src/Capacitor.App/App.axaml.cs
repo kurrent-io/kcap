@@ -1,3 +1,4 @@
+using DynamicData;
 using Capacitor.Cli.Core.Telemetry;
 using System.Collections.Frozen;
 using System.ComponentModel;
@@ -208,6 +209,9 @@ public partial class App : Application {
     IDisposable? _notificationAccessPrompt;
     DesktopNotificationCoordinator? _desktopNotifications;
     readonly Subject<string?> _viewedAgent = new();
+    /// Sessions with a workspace open in the main window; notification leases establish access
+    /// to every session, so established access alone does not mean open.
+    readonly BehaviorSubject<IReadOnlySet<string>> _openSessions = new(FrozenSet<string>.Empty);
     NotificationSessionSubscriptions? _notificationSessions;
     // The server lane's half of the permission graph. Disposed as a group with _permissions: the
     // feed and the tracker first (both push into the cache and hold timers), the access service
@@ -1117,13 +1121,11 @@ public partial class App : Application {
         // nothing, so anything pushed before the feed and the tracker are subscribed is lost.
         serverLane.Start();
 
-        // The rail pips on both halves: agents with a card in the cache, plus sessions the tracker
-        // knows are waiting but the app has never opened, mapped back to their agent.
+        var unopenedAttention = attention.SessionsWithAttention
+            .CombineLatest(sessionAccess.EstablishedSessions, _openSessions, PendingAttention.Unopened)
+            .Replay(1).RefCount();
         var agentsWithPending = permissions.AgentsWithPending.CombineLatest(
-            attention.SessionsWithAttention, directory.SessionAgents,
-            (cards, sessions, map) => (IReadOnlySet<string>)cards
-                .Concat(sessions.Select(s => map.GetValueOrDefault(s, "")).Where(a => a.Length > 0))
-                .ToHashSet(StringComparer.Ordinal));
+            unopenedAttention, directory.SessionAgents, PendingAttention.Agents);
 
         // The signed-in user's own id (JwtClaims sub claim), read fresh per call — never cached,
         // since a re-auth or profile switch must be reflected on the very next read.
@@ -1427,7 +1429,10 @@ public partial class App : Application {
             quit: () => desktop.TryShutdown(), openReviewPrompts: _promptCoordinator.ShowPromptWindow,
             lifecycleAttention: lifecycleAttention, shimOfferable: shimOffer.Offerable,
             installShim: shimOffer.RunManualInstallAsync, permissions: permissions,
-            remote: TrayViewModel.SummaryFrom(directory, attention.SessionsWithAttention),
+            remote: TrayViewModel.SummaryFrom(directory, unopenedAttention.CombineLatest(
+                permissions.Pending.QueryWhenChanged(q => (IReadOnlyList<PendingPermissionRequest>)[.. q.Items])
+                    .StartWith((IReadOnlyList<PendingPermissionRequest>)[]),
+                PendingAttention.TraySessions)),
             updateMenu: _updates.MenuItem, updateAction: RunUpdateMenuActionAsync,
             restartPending: restartPending.Pending, openSettings: openSettings, openLaunchApprovals: launchApprovals.Show);
         _tray = new TrayIconManager(this, _trayVm);
@@ -2297,7 +2302,14 @@ public partial class App : Application {
             })
             .DistinctUntilChanged()
             .Subscribe(_viewedAgent.OnNext);
-        window.Closed += (_, _) => subscription.Dispose();
+        var open = vm.OpenSessionId
+            .Select(id => id is { Length: > 0 } ? (IReadOnlySet<string>)new HashSet<string>(StringComparer.Ordinal) { id } : FrozenSet<string>.Empty)
+            .Subscribe(_openSessions.OnNext);
+        window.Closed += (_, _) => {
+            subscription.Dispose();
+            open.Dispose();
+            _openSessions.OnNext(FrozenSet<string>.Empty);
+        };
         return window;
     }
 
