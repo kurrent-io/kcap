@@ -288,6 +288,52 @@ static class WindowsTaskUnit {
     }
 
     /// <summary>
+    /// The wrapper with <paramref name="key"/> set to <paramref name="value"/>: its own <c>set</c> line replaced, or
+    /// a new one added after the last line of the preamble every kcap wrapper opens with. Null when the wrapper has
+    /// no such preamble, so it is not one kcap wrote.
+    /// </summary>
+    public static string? WithEnvironmentValue(string wrapperText, string key, string value) {
+        RequireRepresentable(key, value, "kcap setup");
+
+        var newline = wrapperText.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var line    = $"set \"{ServiceText.CmdValue(key)}={ServiceText.CmdValue(value)}\"";
+        var lines   = wrapperText.Split(newline).ToList();
+        var after   = -1;
+
+        for (var i = 0; i < lines.Count; i++) {
+            var text = lines[i];
+            var eq   = text.IndexOf('=');
+
+            if (text.StartsWith("set \"", StringComparison.Ordinal) && text.EndsWith('"') && eq > 5) {
+                var name = text[5..eq].Replace("%%", "%");
+                if (string.Equals(name, "ERRORLEVEL", StringComparison.OrdinalIgnoreCase)) break;
+
+                if (string.Equals(name, key, StringComparison.OrdinalIgnoreCase)) {
+                    lines[i] = line;
+                    return string.Join(newline, lines);
+                }
+
+                after = i;
+                continue;
+            }
+
+            if (text.Equals("@echo off", StringComparison.OrdinalIgnoreCase)
+             || text.StartsWith("chcp ", StringComparison.OrdinalIgnoreCase)
+             || text.StartsWith("setlocal ", StringComparison.OrdinalIgnoreCase)) {
+                after = i;
+                continue;
+            }
+
+            break;
+        }
+
+        if (after < 0) return null;
+
+        lines.Insert(after + 1, line);
+        return string.Join(newline, lines);
+    }
+
+    /// <summary>
     /// The daemon binary the wrapper exec's — the first quoted token of its exec
     /// line. <c>daemon doctor</c> checks THIS (not the wrapper's own existence),
     /// since the wrapper can survive while the baked kcap-daemon.exe path is stale.
@@ -298,6 +344,23 @@ static class WindowsTaskUnit {
         if (line is null) return null;
         var end = line.IndexOf('"', 1);
         return end > 1 ? line[1..end].Replace("%%", "%") : null;
+    }
+
+    /// <summary>The wrapper with the binary <see cref="BinaryFromWrapper"/> reads replaced and every other byte kept;
+    /// null when it has no such line.</summary>
+    public static string? WithDaemonBinary(string wrapperText, string binary) {
+        var newline = wrapperText.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var lines   = wrapperText.Split(newline);
+        var at      = Array.FindLastIndex(lines, l => l.Trim().StartsWith('"'));
+        if (at < 0) return null;
+
+        var line  = lines[at];
+        var start = line.IndexOf('"');
+        var end   = line.IndexOf('"', start + 1);
+        if (end <= start + 1) return null;
+
+        lines[at] = line[..start] + ExecValue("the daemon binary path", binary) + line[(end + 1)..];
+        return string.Join(newline, lines);
     }
 
     // ── command vectors (schtasks) ──

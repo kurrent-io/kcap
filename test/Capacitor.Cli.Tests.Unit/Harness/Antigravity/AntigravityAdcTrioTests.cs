@@ -3,6 +3,25 @@ using Capacitor.Cli.Harness.Antigravity;
 namespace Capacitor.Cli.Tests.Unit.Harness.Antigravity;
 
 public class AntigravityAdcTrioTests {
+    /// <summary>The credential path is gcloud's configuration directory plus the ADC file name, the
+    /// directory being whatever <c>GcloudConfig.ConfigDir</c> resolved for the platform.</summary>
+    [Test]
+    public async Task The_credentials_path_is_the_adc_file_in_gcloud_config_dir() {
+        using var tmp = new TempDir();
+        var file = tmp.CreateFile(["gcloud", "application_default_credentials.json"], "{}");
+
+        await Assert.That(AntigravityAdcTrio.ExistingCredentialsPath(tmp.PathTo("gcloud"))).IsEqualTo(file);
+    }
+
+    /// <summary>A path to a file that is not there would bake a half-configuration agy cannot use.</summary>
+    [Test]
+    public async Task No_file_or_no_config_dir_derives_nothing() {
+        using var tmp = new TempDir();
+
+        await Assert.That(AntigravityAdcTrio.ExistingCredentialsPath(tmp.PathTo("gcloud"))).IsNull();
+        await Assert.That(AntigravityAdcTrio.ExistingCredentialsPath(null)).IsNull();
+    }
+
     [Test]
     public async Task AgyTrio_reports_complete_partial_and_absent() {
         var complete = AntigravityAdcTrio.Status(new Dictionary<string, string> {

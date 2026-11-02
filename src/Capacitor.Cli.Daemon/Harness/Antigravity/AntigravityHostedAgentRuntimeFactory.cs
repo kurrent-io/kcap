@@ -77,20 +77,10 @@ internal interface IAgyTurnDiagnostics {
 /// Production passes null, which spawns the configured binary to read its own reported version — the
 /// same resolver every other gated reviewer uses. The MINIMUM it is compared against is never seamed:
 /// it is a real record on disk, so a test moves it by writing one.</param>
-/// <param name="posixHost">Test seam ONLY, for the platform half of the gate. Production passes null,
-/// which reads the ambient OS.
-///
-/// <para><b>This exists because reading the ambient OS here made two arms unreachable on one
-/// platform, and it is the second time this repository has paid for that.</b>
-/// <see cref="AntigravityReviewerCapability.Decide"/> already takes the platform as a parameter,
-/// and its own comment records why: an earlier Kiro revision called
-/// <c>OperatingSystem.IsWindows()</c> inside a method claiming to be pure, and on the Windows CI leg
-/// a dozen consent and version tests short-circuited to <c>UnsupportedPlatform</c> — failing for a
-/// reason that had nothing to do with what they asserted. Collapsing this factory's ladder onto that
-/// decision reintroduced the ambient read one layer up, and CI caught exactly two tests
-/// (binary-missing, below-minimum) refusing on platform before reaching the arm under test. Taking the
-/// platform as an argument makes every arm reachable from any host — including the Windows arm
-/// itself, which is otherwise unassertable on POSIX.</para></param>
+/// <param name="windowsHost">Test seam ONLY, for the platform: the gate's Windows refusal and the
+/// platform-specific launch environment (see <see cref="BuildTurnPsi"/>). Production passes null, which
+/// reads the ambient OS. A parameter so every arm of the ladder, and both environments, are reachable
+/// from any host.</param>
 internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         DaemonConfig                                                     config,
         ILoggerFactory                                                   loggerFactory,
@@ -98,7 +88,7 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         Func<ProcessStartInfo, CancellationToken, Task<IAgyTurnProcess>>? turnSource = null,
         Func<string, bool>?                                              binaryExists = null,
         Func<string, string?>?                                           resolveVersion = null,
-        bool?                                                            posixHost = null
+        bool?                                                            windowsHost = null
     ) : IHostedAgentRuntimeFactory {
     readonly ILogger _logger = loggerFactory.CreateLogger<AntigravityHostedAgentRuntimeFactory>();
 
@@ -112,7 +102,7 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     readonly Func<string, string?> _resolveVersion =
         resolveVersion ?? (path => new VendorVersionResolver(config.Binaries).Resolve(path));
 
-    readonly bool _posixHost = posixHost ?? !OperatingSystem.IsWindows();
+    readonly bool _windowsHost = windowsHost ?? OperatingSystem.IsWindows();
 
 
     /// <summary>The vendor token, never <c>agy</c>: the server routes on this exact string and the
@@ -123,7 +113,7 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
 
     // A Windows host refuses every launch (LaunchRefusal's platform arm), so offering it there would
     // put a vendor in the launcher that can only fail.
-    public bool IsAvailable() => _posixHost && _binaryExists(config.AntigravityPath);
+    public bool IsAvailable() => !_windowsHost && _binaryExists(config.AntigravityPath);
 
     public bool SupportsUnattended => DescribeUnattendedSupport().Supported;
 
@@ -187,8 +177,6 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// recorded build minimum all exist to protect the per-launch isolated <c>HOME</c>, which a hosted
     /// launch depends on exactly as a review does.</para></param>
     internal string? LaunchRefusal(bool reviewFlow) {
-        var posixHost = _posixHost;
-
         // The one parameterised arm. `true` for a hosted launch means "consent is not a question
         // here", so Decide's consent arm cannot fire and the ladder continues at platform.
         var consented = !reviewFlow || config.AntigravityUnattendedReviewerEnabled;
@@ -201,7 +189,7 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         // installed side first), so that verdict is precisely "consent and platform passed", and the
         // ORDER between them stays owned by Decide rather than restated here.
         var beforeProbe = AntigravityReviewerCapability.Decide(
-            posixHost, consented, installedVersion: null, minimumVersion: null);
+            !_windowsHost, consented, installedVersion: null, minimumVersion: null);
 
         if (beforeProbe != AntigravityReviewerDecision.VersionUnresolved)
             return AntigravityReviewerCapability.DenialReason(
@@ -217,7 +205,7 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         var installed = _resolveVersion(config.AntigravityPath);
         var minimum   = VersionStoreFor(config).Affirmed;
 
-        var decision = AntigravityReviewerCapability.Decide(posixHost, consented, installed, minimum);
+        var decision = AntigravityReviewerCapability.Decide(!_windowsHost, consented, installed, minimum);
 
         return decision == AntigravityReviewerDecision.Allowed
             ? null
@@ -300,9 +288,10 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
             stateDir, config.DaemonEpoch ?? "unpinned", ctx.AgentId, injected,
             grantInjectedMcpTools: ctx.IsReviewFlow, _logger);
 
-        // Created here rather than left to agy: TMPDIR must exist before the child writes into it, and
-        // it is inside the home precisely so it is removed with it.
-        Directory.CreateDirectory(TempDirIn(home));
+        // Created here rather than left to agy: the temp and profile directories the environment names
+        // must exist before the child writes into them, and they sit inside the home so they inherit its
+        // restriction and are removed with it.
+        foreach (var dir in LaunchDirectoriesIn(home, _windowsHost)) Directory.CreateDirectory(dir);
 
         var model = ResolveModel(config, ctx);
 
@@ -313,7 +302,7 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         IAgyTurnProcess? firstTurnProcess = null;
 
         async Task<IAgyTurnProcess> SpawnTurnAsync(string prompt, string? conversationId, CancellationToken turnCt) {
-            var psi     = BuildTurnPsi(config, ctx, prompt, conversationId, home);
+            var psi     = BuildTurnPsi(config, ctx, prompt, conversationId, home, _windowsHost);
             var process = await _turnSource(psi, turnCt).ConfigureAwait(false);
 
             firstTurnProcess ??= process;
@@ -425,9 +414,9 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// export.
     ///
     /// <para><b>Naming GOOGLE_APPLICATION_CREDENTIALS is still load-bearing.</b> ADC's default
-    /// location is <c>$HOME/.config/gcloud/application_default_credentials.json</c>, and this launch
-    /// redirects <c>HOME</c> to a per-launch state directory, so the credential <c>gcloud auth
-    /// application-default login</c> wrote is invisible to the child unless the path is explicit.</para>
+    /// location hangs off <c>HOME</c> (<c>%APPDATA%</c> on Windows), and this launch redirects both to a
+    /// per-launch state directory, so the credential <c>gcloud auth application-default login</c> wrote
+    /// is invisible to the child unless the path is explicit.</para>
     ///
     /// <para>The daemon deliberately does NOT synthesize the path from its own <c>HOME</c>. Per the
     /// borrowed-review auth design it never goes <i>looking</i> for a credential — it forwards what the
@@ -441,7 +430,7 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
               + "agy has no way to complete an interactive login (its stdin is closed). Give the "
               + "daemon durable credentials: `gcloud auth application-default login`, then stop and "
               + "start it (`kcap daemon stop` then `kcap daemon start` or `-d`) — or re-run `kcap "
-              + "daemon service install` for a supervised daemon. That derives AGY_ADC_AUTH=1 and "
+              + "daemon service install` for a supervised macOS or Linux daemon. That derives AGY_ADC_AUTH=1 and "
               + "GOOGLE_APPLICATION_CREDENTIALS from the credential you just wrote, and "
               + "GOOGLE_CLOUD_PROJECT from your active gcloud project — so set one first if you have "
               + "not (`gcloud config set project <id>`). The explicit credentials path matters even "
@@ -493,6 +482,57 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
 
     internal static string TempDirIn(string home) => Path.Combine(home, "tmp");
 
+    /// <summary><c>%APPDATA%</c> for a Windows launch, where a real profile puts it.</summary>
+    internal static string RoamingAppDataIn(string home) => Path.Combine(home, "AppData", "Roaming");
+
+    /// <summary><c>%LOCALAPPDATA%</c> for a Windows launch, where a real profile puts it.</summary>
+    internal static string LocalAppDataIn(string home) => Path.Combine(home, "AppData", "Local");
+
+    /// <summary>Every directory the launch environment points agy at, which must exist before it runs.</summary>
+    internal static IReadOnlyList<string> LaunchDirectoriesIn(string home, bool windowsHost) {
+        if (!windowsHost) return [TempDirIn(home)];
+
+        return [TempDirIn(home), RoamingAppDataIn(home), LocalAppDataIn(home)];
+    }
+
+    /// <summary>
+    /// Points every variable <c>agy</c> could derive a per-user directory from at the per-launch home,
+    /// so neither its own state nor anything a library caches lands in the operator's profile.
+    ///
+    /// <para><c>agy</c> is a Go binary. On Windows Go's home is <c>USERPROFILE</c>, its config and cache
+    /// directories are <c>APPDATA</c> and <c>LOCALAPPDATA</c>, and its temp directory is <c>TMP</c> then
+    /// <c>TEMP</c>; <c>HOME</c> and <c>HOMEDRIVE</c>/<c>HOMEPATH</c> are what other home lookups read
+    /// first. <c>PATH</c>, <c>SystemRoot</c> and the <c>ProgramFiles</c> family stay inherited so the
+    /// binary and the OS it needs still resolve. The XDG base directories are dropped everywhere: on
+    /// Linux Go's config and cache directories honour them ahead of <c>HOME</c>.</para>
+    /// </summary>
+    internal static void RedirectUserDirectories(IDictionary<string, string?> env, string home, bool windowsHost) {
+        env["HOME"]   = home;
+        env["TMPDIR"] = TempDirIn(home);
+
+        foreach (var xdg in XdgBaseDirectoryVars) env.Remove(xdg);
+
+        if (!windowsHost) return;
+
+        env["USERPROFILE"]  = home;
+        env["APPDATA"]      = RoamingAppDataIn(home);
+        env["LOCALAPPDATA"] = LocalAppDataIn(home);
+        env["TEMP"]         = TempDirIn(home);
+        env["TMP"]          = TempDirIn(home);
+
+        // A drive-letter home splits the way Windows splits a profile; any other shape cannot, so the
+        // pair is dropped rather than left naming the operator's own profile.
+        if (home.Length >= 3 && char.IsAsciiLetter(home[0]) && home[1] == ':' && home[2] is '\\' or '/') {
+            env["HOMEDRIVE"] = home[..2];
+            env["HOMEPATH"]  = home[2..];
+        } else {
+            env.Remove("HOMEDRIVE");
+            env.Remove("HOMEPATH");
+        }
+    }
+
+    static readonly string[] XdgBaseDirectoryVars = ["XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"];
+
     /// <summary>
     /// PURE builder for ONE turn's spawn shape — no process, no filesystem side effects. The real
     /// spawn path and the launch tests both go through it, so an assertion here certifies the vector
@@ -527,8 +567,10 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// <c>5m0s</c> default — a vendor change would otherwise silently move a bound we did not
     /// choose.</para>
     /// </summary>
+    /// <param name="windowsHost">Which platform's environment to build; null reads the ambient OS.</param>
     internal static ProcessStartInfo BuildTurnPsi(
-            DaemonConfig config, RuntimeStartContext ctx, string prompt, string? conversationId, string home) {
+            DaemonConfig config, RuntimeStartContext ctx, string prompt, string? conversationId, string home,
+            bool? windowsHost = null) {
         var argv = new List<string> {
             "-p", prompt,
             "--output-format", "stream-json",
@@ -570,10 +612,9 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
             CreateNoWindow  = true
         };
 
-        // Containment: the whole HOME is the per-launch isolated one, and TMPDIR sits inside it so
-        // agy's temp writes are removed with the home rather than left in the operator's tree.
-        psi.Environment["HOME"]   = home;
-        psi.Environment["TMPDIR"] = TempDirIn(home);
+        // Containment: every per-user directory is the per-launch isolated one, temp included, so agy's
+        // writes are removed with the home rather than left in the operator's tree.
+        RedirectUserDirectories(psi.Environment, home, windowsHost ?? OperatingSystem.IsWindows());
 
         // The home is only where a nested kcap would DERIVE its root, so an operator with
         // KCAP_CONFIG_DIR exported had agy's own hooks reading the real profile by inheritance.

@@ -1,8 +1,10 @@
+using System.Runtime.Versioning;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Acp;
 using Capacitor.Cli.Daemon.Harness.Antigravity;
 using Capacitor.Cli.Daemon.Tests.Unit.Harness.Kiro;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Antigravity;
 
@@ -18,7 +20,6 @@ public class AntigravityReviewerHomeTests {
 
     [Test]
     public async Task The_home_carries_only_the_injected_mcp_server() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
         var home = AntigravityReviewerHome.Create(
             root.Path, "epoch1", "agent1", [ResultChannel], grantInjectedMcpTools: true);
@@ -47,7 +48,6 @@ public class AntigravityReviewerHomeTests {
     /// </summary>
     [Test]
     public async Task A_refused_create_leaves_no_home_behind() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
 
         var unclassifiable = new AcpMcpServerSpec("not-a-known-kcap-server", "kcap", ["mcp", "nope"], []);
@@ -71,7 +71,6 @@ public class AntigravityReviewerHomeTests {
     /// </summary>
     [Test]
     public async Task An_accepted_create_does_leave_a_home() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
 
         var home = AntigravityReviewerHome.Create(
@@ -83,9 +82,9 @@ public class AntigravityReviewerHomeTests {
             AntigravityReviewerHome.NameFor("epoch1", "agent1")));
     }
 
-    [Test]
+    [Test, ExcludeOn(OS.Windows)]
+    [UnsupportedOSPlatform("windows")]
     public async Task The_home_is_owner_only_from_creation() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
         var home = AntigravityReviewerHome.Create(root.Path, "epoch1", "agent1", [], grantInjectedMcpTools: true);
         var mode = File.GetUnixFileMode(home);
@@ -94,9 +93,27 @@ public class AntigravityReviewerHomeTests {
         await Assert.That(mode.HasFlag(UnixFileMode.OtherRead)).IsFalse();
     }
 
+    /// <summary>The Users grant on the state directory is what makes this mean anything: without the
+    /// protected DACL the home and the transcript agy writes into it would inherit it.</summary>
+    [Test, RunOn(OS.Windows)]
+    [SupportedOSPlatform("windows")]
+    public async Task On_windows_the_home_and_what_agy_writes_into_it_admit_only_the_user_and_SYSTEM() {
+        using var root = new TempDir();
+        WindowsAcl.GrantUsersRead(root.Path);
+
+        var home       = AntigravityReviewerHome.Create(root.Path, "epoch1", "agent1", [], grantInjectedMcpTools: true);
+        var transcript = Path.Combine(home, ".gemini", "antigravity-cli", "brain", "c1", "transcript_full.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(transcript)!);
+        await File.WriteAllTextAsync(transcript, "review context");
+
+        foreach (var path in (string[])[AntigravityReviewerHome.RootFor(root.Path), home, transcript])
+            await Assert.That(WindowsAcl.Identities(path)).IsEquivalentTo(WindowsAcl.OwnerOnly);
+
+        await Assert.That(WindowsAcl.IsProtected(home)).IsTrue();
+    }
+
     [Test]
     public async Task Sweep_removes_foreign_epochs_and_keeps_the_current_one() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
         var stale   = AntigravityReviewerHome.Create(root.Path, "old",     "a1", [], grantInjectedMcpTools: true);
         var current = AntigravityReviewerHome.Create(root.Path, "current", "a2", [], grantInjectedMcpTools: true);
@@ -105,6 +122,22 @@ public class AntigravityReviewerHomeTests {
 
         await Assert.That(Directory.Exists(stale)).IsFalse();
         await Assert.That(Directory.Exists(current)).IsTrue();
+    }
+
+    /// <summary>Windows refuses to delete a read-only file, so without clearing the attribute a home
+    /// holding one would outlive its launch with the review context still in it.</summary>
+    [Test]
+    public async Task Delete_removes_a_home_holding_a_read_only_file() {
+        using var root = new TempDir();
+        var home = AntigravityReviewerHome.Create(root.Path, "epoch1", "agent1", [], grantInjectedMcpTools: true);
+        var file = Path.Combine(home, "cache", "driver.bin");
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        await File.WriteAllTextAsync(file, "x");
+        File.SetAttributes(file, File.GetAttributes(file) | FileAttributes.ReadOnly);
+
+        AntigravityReviewerHome.Delete(home, root.Path);
+
+        await Assert.That(Directory.Exists(home)).IsFalse();
     }
 
     // ── permissions.allow: the reviewer can still DO ITS JOB ───────────────────────────────────────
@@ -140,7 +173,6 @@ public class AntigravityReviewerHomeTests {
     /// </summary>
     [Test]
     public async Task The_home_grants_the_reviewers_own_result_channel() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
 
         var home = AntigravityReviewerHome.Create(
@@ -153,7 +185,6 @@ public class AntigravityReviewerHomeTests {
     /// <c>send_flow_message</c> loses the out-of-band message lane the same silent way.</summary>
     [Test]
     public async Task The_grant_covers_every_unattended_safe_tool_the_channel_serves() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
 
         var home = AntigravityReviewerHome.Create(
@@ -173,7 +204,6 @@ public class AntigravityReviewerHomeTests {
     /// </summary>
     [Test]
     public async Task The_grant_is_exactly_the_classified_tools_and_never_a_wildcard() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
 
         var home = AntigravityReviewerHome.Create(
@@ -197,7 +227,6 @@ public class AntigravityReviewerHomeTests {
     /// </summary>
     [Test]
     public async Task An_allowlisted_read_only_server_is_granted_its_own_tools_too() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
 
         var home = AntigravityReviewerHome.Create(
@@ -219,7 +248,6 @@ public class AntigravityReviewerHomeTests {
     /// below would refuse outright.</summary>
     [Test]
     public async Task A_hosted_launch_home_carries_no_permission_grants() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
 
         var home = AntigravityReviewerHome.Create(
@@ -234,7 +262,6 @@ public class AntigravityReviewerHomeTests {
     /// its first call — a wedged round with nothing an operator can act on. The refusal names it.</summary>
     [Test]
     public async Task A_review_grant_for_an_unclassified_server_refuses_the_launch() {
-        if (OperatingSystem.IsWindows()) return;
         using var root = new TempDir();
 
         var ex = Assert.Throws<InvalidOperationException>(() => AntigravityReviewerHome.Create(
@@ -256,7 +283,6 @@ public class AntigravityReviewerHomeTests {
     [Test]
     [NotInParallel]
     public async Task A_daemon_wide_gemini_cli_home_does_not_move_the_homes_writes() {
-        if (OperatingSystem.IsWindows()) return;
         using var root      = new TempDir();
         using var elsewhere = new TempDir();
 

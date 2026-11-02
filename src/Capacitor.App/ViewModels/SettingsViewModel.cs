@@ -301,8 +301,8 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         private set => this.RaiseAndSetIfChanged(ref _windowsServiceVisible, value);
     }
 
-    /// A Scheduled Task supervises the daemon and this install carries the Windows service: the way back to
-    /// the service after its one-time offer was declined.
+    /// A Scheduled Task supervises the daemon and this install carries the Windows service. The app never
+    /// interrupts a launch to offer the move, so this is where it is offered.
     public bool WindowsServiceOffered {
         get => _windowsServiceOffered;
         private set => this.RaiseAndSetIfChanged(ref _windowsServiceOffered, value);

@@ -175,7 +175,7 @@
           {
             "type": "command",
             "command": "kcap hook --claude --title-prompt --no-update-check",
-            "timeout": 2
+            "timeout": 5
           }
         ]
       }

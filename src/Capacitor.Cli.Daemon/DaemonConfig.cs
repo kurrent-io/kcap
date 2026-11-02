@@ -16,6 +16,11 @@ public class DaemonConfig {
     public string[] AllowedRepoPaths    { get; set; } = [];
     public int      MaxConcurrentAgents { get; set; } = 5;
 
+    /// <summary>The path this daemon's binary was started from, read at process start. The restart poll watches it and
+    /// a self-respawn runs it: on Windows <c>kcap update</c> moves the running image elsewhere, so the process's own
+    /// path cannot be trusted to name the install afterwards.</summary>
+    public string? LaunchPath { get; set; }
+
     /// <summary>The daemon's own binary as it stood at process start, the restart poll's first baseline.</summary>
     public BinaryStat? LaunchBinary { get; set; }
 
@@ -215,6 +220,11 @@ public class DaemonConfig {
     /// it begins watching. Replaced by reference.</summary>
     public IReadOnlyDictionary<string, Services.CatalogPathStat[]>? VendorCatalogBaselines { get; set; }
 
+    /// <summary>Catalog keys whose startup probe overran its limit and answered afterwards. The vendor CLI
+    /// watcher asks for a refresh when one is added, and a refresh probes these vendors though they have no
+    /// catalog yet.</summary>
+    public System.Collections.Concurrent.ConcurrentDictionary<string, byte> LateCatalogKeys { get; } = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Vendor tokens this daemon accepts a launch-time ACP permission preset for — the installed
     /// hostable vendors (a subset of <see cref="SupportedVendors"/>) that route permissions through
@@ -263,6 +273,10 @@ public class DaemonConfig {
     }
 
     Harness.Codex.CodexTransportResolution _codexResolution = Harness.Codex.CodexTransportResolution.Unresolved;
+
+    /// <summary>Whether app-server applies when the profile never set the <c>codex-app-server</c>
+    /// switch. Set from the platform at boot; off for a config built anywhere else.</summary>
+    internal bool CodexAppServerByDefault { get; set; }
 
     /// <summary>The last resolution a registration carried to the server. A launch that names no
     /// transport follows this one, since it is what the server dispatched against.</summary>

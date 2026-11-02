@@ -21,6 +21,29 @@ public class AgentOrchestratorInputWaitTests {
         await Assert.That(agent.ActivityClock.AwaitingInput).IsFalse();
     }
 
+    /// Only a submitted prompt starts a turn, so the relayed verdict is what confirms the launch
+    /// prompt reached the agent.
+    [Test]
+    public async Task A_relayed_verdict_confirms_the_agents_launch_prompt() {
+        var             pty     = new RecordingScriptedPtyProcess();
+        var             runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System, confirmsLaunchPrompt: true);
+        await using var orch    = AgentOrchestratorHarness.BuildOrchestrator(new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+        var             agent   = orch.SeedAgentForTest("relay-3", vendor: "claude", runtime: runtime);
+
+        runtime.DeliverLaunchPrompt("build it");
+        _ = Task.Run(async () => { await foreach (var _ in runtime.ReadOutputAsync()) { } });
+        pty.Emit("banner");
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (pty.Writes.Count < 2 && DateTime.UtcNow < deadline) await Task.Delay(25);
+
+        orch.PermissionBridgeForTest.InputWaitHandler!(agent.Id, false);
+        var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.Confirmed);
+        await Assert.That(pty.Writes.Count).IsEqualTo(2);
+        pty.Exit();
+    }
+
     /// A locally attached client — the desktop composer and terminal alike — reaches the PTY as
     /// raw bytes on the attach socket, never through the server-origin send path, so the submit
     /// key is the clearing edge there.

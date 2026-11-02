@@ -6,8 +6,8 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// <summary>
 /// <c>DaemonCommands.ApplySpawnEnvironment</c> is what <c>kcap daemon start</c> (foreground and
 /// <c>-d</c>) overlays onto the spawned daemon's <c>ProcessStartInfo.Environment</c> — the daemon/config
-/// roots, plus the same Antigravity ADC trio derivation <c>ServiceEnvironment.Capture</c> runs at
-/// service install, so a daemon started any other way is not left without it.
+/// roots, plus the Antigravity ADC trio derivation <c>ServiceEnvironment.Capture</c> runs at service
+/// install, so a daemon started any other way — the desktop app's included — is not left without it.
 /// </summary>
 public class DaemonSpawnEnvironmentTests {
     [Test]
@@ -38,17 +38,36 @@ public class DaemonSpawnEnvironmentTests {
         await Assert.That(env.ContainsKey("GOOGLE_CLOUD_PROJECT")).IsFalse();
     }
 
+    /// <summary>A spawned daemon's environment is never written to disk, so Windows derives the trio
+    /// here as POSIX does; only a service unit keeps the credential path out on Windows.</summary>
     [Test]
-    public async Task Never_derives_on_windows_even_when_adc_and_project_are_given() {
+    public async Task Derives_on_windows_too() {
         var env = new Dictionary<string, string?>();
 
         DaemonCommands.ApplySpawnEnvironment(
             env, "/daemons", "/config", isWindows: true,
-            adcCredentialsPath: "/derived/adc.json", gcloudProject: "gcloud-proj");
+            adcCredentialsPath: @"C:\Users\op\AppData\Roaming\gcloud\application_default_credentials.json",
+            gcloudProject: "gcloud-proj");
 
-        await Assert.That(env.ContainsKey("GOOGLE_APPLICATION_CREDENTIALS")).IsFalse();
-        await Assert.That(env.ContainsKey("AGY_ADC_AUTH")).IsFalse();
-        await Assert.That(env.ContainsKey("GOOGLE_CLOUD_PROJECT")).IsFalse();
+        await Assert.That(env["GOOGLE_APPLICATION_CREDENTIALS"])
+            .IsEqualTo(@"C:\Users\op\AppData\Roaming\gcloud\application_default_credentials.json");
+        await Assert.That(env["AGY_ADC_AUTH"]).IsEqualTo("1");
+        await Assert.That(env["GOOGLE_CLOUD_PROJECT"]).IsEqualTo("gcloud-proj");
+    }
+
+    /// <summary>Windows variable names are case-insensitive, so an export spelled differently is still
+    /// the operator's value and still wins.</summary>
+    [Test]
+    public async Task On_windows_an_export_in_another_case_still_wins() {
+        var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) {
+            ["Google_Cloud_Project"] = "operator-proj"
+        };
+
+        DaemonCommands.ApplySpawnEnvironment(
+            env, "/daemons", "/config", isWindows: true,
+            adcCredentialsPath: null, gcloudProject: "gcloud-proj");
+
+        await Assert.That(env["GOOGLE_CLOUD_PROJECT"]).IsEqualTo("operator-proj");
     }
 
     [Test]

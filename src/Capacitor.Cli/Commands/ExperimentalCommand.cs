@@ -14,6 +14,7 @@ public sealed class ExperimentalCommand {
     readonly TimeProvider _time;
     readonly Func<string, CancellationToken, Task<ProbeResult>> _probe;
     readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    readonly IReadOnlyList<ExperimentalFeature> _features;
 
     public ExperimentalCommand(ConfigRoot config, ProfileContext profiles, DaemonStore daemons, TimeProvider time)
         : this(config, profiles, time,
@@ -23,12 +24,14 @@ public sealed class ExperimentalCommand {
     internal ExperimentalCommand(
             ConfigRoot config, ProfileContext profiles, TimeProvider time,
             Func<string, CancellationToken, Task<ProbeResult>> probe,
-            Func<TimeSpan, CancellationToken, Task> delay) {
+            Func<TimeSpan, CancellationToken, Task> delay,
+            IReadOnlyList<ExperimentalFeature>? features = null) {
         _config   = config;
         _profiles = profiles;
-        _time   = time;
-        _probe  = probe;
-        _delay  = delay;
+        _time     = time;
+        _probe    = probe;
+        _delay    = delay;
+        _features = features ?? ExperimentalFeatures.All;
     }
 
     public async Task<int> HandleAsync(string[] args) {
@@ -60,10 +63,10 @@ public sealed class ExperimentalCommand {
         var probe = await _probe(daemonName, CancellationToken.None);
 
         await Console.Out.WriteLineAsync($"Profile: {profile}");
-        foreach (var feature in ExperimentalFeatures.All) {
-            var on = saved.IsEnabled(feature.Id);
-            var (kind, reason) = Classify(on, probe, feature.Id);
-            await Console.Out.WriteLineAsync($"{feature.Id}  {(on ? "on" : "off")}  {StateText(kind, reason)}");
+        foreach (var feature in _features) {
+            var on = saved.IsOn(feature);
+            var (kind, reason) = Classify(saved.IsEnabled(feature.Id), on, probe, feature.Id);
+            await Console.Out.WriteLineAsync($"{feature.Id}  {SwitchText(on, saved.IsSet(feature.Id))}  {StateText(kind, reason)}");
             await Console.Out.WriteLineAsync($"  {feature.Description}");
         }
 
@@ -99,7 +102,7 @@ public sealed class ExperimentalCommand {
         // Applied locally keeps polling too: a reconnect within the window still tells the server.
         while (true) {
             var probe = await _probe(daemonName, CancellationToken.None);
-            var (kind, reason) = Classify(saved, probe, featureId);
+            var (kind, reason) = Classify(saved, saved, probe, featureId);
 
             switch (kind) {
                 case ExperimentalFeatureStateKind.Active or ExperimentalFeatureStateKind.Off:
@@ -124,10 +127,16 @@ public sealed class ExperimentalCommand {
 
     // A reachable daemon whose snapshot did not arrive is still settling, not too old; one whose hello and
     // snapshot may come from different processes (a restart between the dials) confirms nothing.
-    static (ExperimentalFeatureStateKind Kind, string? Reason) Classify(bool saved, ProbeResult probe, string featureId) =>
+    static (ExperimentalFeatureStateKind Kind, string? Reason) Classify(bool saved, bool on, ProbeResult probe, string featureId) =>
         probe.Reachable && (probe.Snapshot is null || !probe.IdentityConsistent)
             ? (ExperimentalFeatureStateKind.Applying, null)
-            : ExperimentalFeatureState.Classify(saved, probe.Reachable, probe.Snapshot, featureId);
+            : ExperimentalFeatureState.Classify(saved, on, probe.Reachable, probe.Snapshot, featureId);
+
+    internal static string SwitchText(bool on, bool set) => (on, set) switch {
+        (true, false) => "on by default",
+        (true, true)  => "on",
+        _             => "off",
+    };
 
     static string StateText(ExperimentalFeatureStateKind kind, string? reason) => kind switch {
         ExperimentalFeatureStateKind.Off              => "applied",

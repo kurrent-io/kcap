@@ -1,4 +1,5 @@
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.LocalEdition;
 using Capacitor.Cli.Tests.Unit.LocalEdition.Fakes;
 
@@ -18,7 +19,7 @@ public class LocalWindowsServiceStepTests {
             return exit;
         }, () => {
             _migrations++;
-            return Task.FromResult<string?>("moved");
+            return Task.FromResult<LocalServerMove?>(new("moved"));
         });
 
     Task RunAsync(LocalWindowsServiceStep step) => step.RunAsync(_progress, _said.Add);
@@ -33,6 +34,19 @@ public class LocalWindowsServiceStepTests {
         await Assert.That(_said).IsEquivalentTo(["moved"]);
     }
 
+    /// <summary>The install that follows would only wait for the same server again.</summary>
+    [Test]
+    public async Task A_moved_server_that_does_not_come_back_fails_the_step() {
+        var step = new LocalWindowsServiceStep(() => true, () => true, () => 0,
+            () => Task.FromResult<LocalServerMove?>(new("Moved it. It did not come back.", Failed: true)));
+
+        var failure = await Assert.ThrowsAsync<LocalInstallFailure>(() => RunAsync(step));
+
+        await Assert.That(failure!.Code).IsEqualTo(LocalInstallFailureCode.StartFailed);
+        await Assert.That(failure.Message).Contains("did not come back");
+        await Assert.That(_said).IsEmpty();
+    }
+
     [Test]
     public async Task A_missing_service_is_installed_then_the_server_moves_to_it() {
         var installed = false;
@@ -43,7 +57,7 @@ public class LocalWindowsServiceStepTests {
             return 0;
         }, () => {
             _migrations++;
-            return Task.FromResult<string?>(null);
+            return Task.FromResult<LocalServerMove?>(null);
         }));
 
         await Assert.That(_elevations).IsEqualTo(1);

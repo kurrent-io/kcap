@@ -96,7 +96,9 @@ partial class WatchCommand(
                     // started with.
                     options.AccessTokenProvider = async () => (await credentials.ResolveAsync(default)).Bearer;
                     options.HttpMessageHandlerFactory = inner =>
-                        new BearerRejectionReportHandler(time, report => Log(time, report)) { InnerHandler = inner };
+                        new BearerRejectionReportHandler(time, report => Log(time, report)) {
+                            InnerHandler = LoopbackConnect.ForHub(new Uri(hubUrl), inner),
+                        };
                     HttpClientExtensions.AddObservationHeaders(options.Headers, profiles.Effective?.UpdateCheck == false);
                     options.WebSocketFactory = (context, ct) => BearerRejectionReportHandler.ConnectWebSocketAsync(
                         context.Uri, context.Options.AccessTokenProvider, time, report => Log(time, report), ct);
@@ -470,6 +472,10 @@ partial class WatchCommand(
             cts.Cancel();
             ctx.Cancel = true;
         });
+        using var stopRequest = WatcherStopSignal.Listen(Environment.ProcessId, () => {
+            Log(time, "Stop requested; shutting down watcher");
+            cts.Cancel();
+        });
 
         // SIGHUP defense-in-depth: setsid above should prevent the kernel from
         // delivering SIGHUP to us, but if a shell forwards SIGHUP explicitly to
@@ -519,7 +525,7 @@ partial class WatchCommand(
 
         // Task 8: the dedicated undelivered-transcript-tail spool, shared by the final-drain
         // needs-import marker below and the shutdown-during-outage tail spool.
-        var transcriptSpool = new TranscriptSpool(config, time);
+        var transcriptSpool = new TranscriptSpool(config, time, Url);
 
         // Watch the spawning coding-agent process. If it dies without firing
         // session-end (crash, force-kill, IDE-detach), self-terminate within ~5s and
@@ -2351,7 +2357,7 @@ partial class WatchCommand(
             RepositoryPayload?    repository,
             MuseSessionEndRequest handed
         ) {
-        if (!new HookSpool(config, time).HasBacklog(sessionId)
+        if (!new HookSpool(config, time, Url).HasBacklog(sessionId)
          && await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, repository, "hook_handed")) {
             MuseSessionEndRequest.Release(handed.ClaimedPath);
 
@@ -2411,7 +2417,7 @@ partial class WatchCommand(
 
         var route   = $"session-end/{vendor}";
         var body    = endHook.ToJsonString();
-        var spool   = new HookSpool(config, time);
+        var spool   = new HookSpool(config, time, Url);
         var outcome = spool.HasBacklog(sessionId)
             ? (spool.Append(sessionId, route, body) ? HookPostOutcome.Spooled : HookPostOutcome.Skipped)
             : await new AgentHookPoster(config, profiles, http, watchers, time)

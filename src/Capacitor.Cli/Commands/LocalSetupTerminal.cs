@@ -84,10 +84,9 @@ sealed class LocalSetupTerminal(ILocalInstallerFactory factory, LocalSetupArgs a
         }
 
         if (beforeInstall is not null) {
-            await beforeInstall(progress);
-
             // An installer built before would still pick the supervisor the machine had then.
             try {
+                await beforeInstall(progress);
                 installer = factory.Create();
             } catch (Exception ex) {
                 return await FailAsync(LocalSetupJsonLines.Classify(ex));

@@ -59,12 +59,22 @@ public static class ClaudeStatusLineCommand {
 
     public static string? PosixShellPath(Func<string, string?> env) => PosixShellPath(env, OperatingSystem.IsWindows(), File.Exists);
 
-    /// <summary>The POSIX shell to run a status line with, null for none. Claude runs a status line through Git
-    /// Bash when it finds one, and through PowerShell otherwise; on Windows <c>sh</c> need not be on PATH.</summary>
+    static readonly string[] ShellNames = ["bash.exe", "sh.exe", "bash", "sh"];
+
+    static readonly string[] StandardGitBash = [@"C:\Program Files\Git\bin\bash.exe", @"C:\Program Files (x86)\Git\bin\bash.exe"];
+
+    /// <summary>The POSIX shell Claude runs hooks and the status line with, null when it falls back to PowerShell.
+    /// Claude's own lookup, in its order: the configured shell, the standard Git install folders, then bash beside
+    /// the first <c>git.exe</c> on PATH only. Looking further than Claude does would claim a Bash it does not have.</summary>
     internal static string? PosixShellPath(Func<string, string?> env, bool windows, Func<string, bool> fileExists) {
         if (!windows) return "sh";
 
-        if (env("CLAUDE_CODE_GIT_BASH_PATH") is { Length: > 0 } configured && fileExists(configured)) return configured;
+        if (env("CLAUDE_CODE_GIT_BASH_PATH") is { Length: > 0 } configured
+         && ShellNames.Contains(Path.GetFileName(configured).ToLowerInvariant()) && fileExists(configured))
+            return configured;
+
+        foreach (var standard in StandardGitBash)
+            if (fileExists(standard)) return standard;
 
         foreach (var dir in (env("PATH") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
             if (!fileExists(Path.Combine(dir, "git.exe"))) continue;

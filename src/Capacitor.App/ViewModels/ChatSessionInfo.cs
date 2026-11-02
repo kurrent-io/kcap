@@ -25,7 +25,9 @@ public sealed record ChatSessionInfo(
         string? AccountId = null,
         string? AccountLabel = null,
         // The local daemon's proof that a turn is running. Null on the remote lane and from an older daemon.
-        bool? TurnAttested = null) {
+        bool? TurnAttested = null,
+        // The local daemon saw no turn follow the launch prompt. Null on the remote lane and from an older daemon.
+        bool? LaunchPromptUnconfirmed = null) {
     /// True when this session is waiting on the user. Independent of the status word.
     public bool WaitsOnUser { get; init; }
 
@@ -45,7 +47,7 @@ public sealed record ChatSessionInfo(
         dto.WorktreePath ?? dto.RepoPath, dto.AwaitingInput,
         ended || SessionStatusDots.IsTerminal(dto.Status), ChatTabViewModel.ParticipantNotice(dto), dto.TranscriptPath,
         dto.LiveSubagents, dto.UsageLimit, dto.TerminalDialog, dto.Interruption, dto.WorkingSince,
-        dto.AccountDirectory, dto.AccountId, dto.AccountLabel, dto.TurnAttested) {
+        dto.AccountDirectory, dto.AccountId, dto.AccountLabel, dto.TurnAttested, dto.LaunchPromptUnconfirmed) {
         WaitsOnUser = SessionStatusDots.WaitsOnUser(dto), TakesAttachments = dto.Kind == "agent",
     };
 

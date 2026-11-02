@@ -170,7 +170,8 @@ internal partial class AgentOrchestrator {
                     ? (_time.GetUtcNow() - working).UtcDateTime : null,
                 AccountDirectory: a.Account?.Directory, AccountId: a.Account?.AccountId, AccountLabel: CurrentAccountLabel(a.Account?.AccountId, a.Account?.Label),
                 TurnAttested: a.Status == "Running" && a.ActivityClock.TurnAttested,
-                IsPrivate: a.IsPrivate))];
+                IsPrivate: a.IsPrivate,
+                LaunchPromptUnconfirmed: a.Status == "Running" && a.Runtime.LaunchPromptUnconfirmed))];
 
     /// The checkout is resolved as the live agent's is, so a row keeps its rail group across the handoff.
     AgentStatusDto LedgerStatusRow(ResumeLedgerEntry entry, string status) {
@@ -893,8 +894,11 @@ internal partial class AgentOrchestrator {
     }
 
     async Task SafeSendDimsAsync(AgentInstance agent) {
+        // A shutdown detaches every client; nobody is left to re-lock to the size it would announce.
+        if (_shutdownCts.IsCancellationRequested) return;
+
         try { await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows); }
-        catch (Exception ex) { LogTerminalDimsSendFailed(ex, agent.Id); }
+        catch (Exception ex) { ReportDimsSendFailed(ex, agent.Id); }
     }
 
     /// <summary>

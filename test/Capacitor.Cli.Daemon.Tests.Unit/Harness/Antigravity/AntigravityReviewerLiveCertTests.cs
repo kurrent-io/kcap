@@ -64,8 +64,8 @@ public class AntigravityReviewerLiveCertTests {
           + "AGY_ADC_AUTH=1). Re-run it against a new agy before recommending that build to operators.");
 
         Skip.Unless(!OperatingSystem.IsWindows(),
-            "The Antigravity reviewer is POSIX-only: its per-launch home holds review context and cannot "
-          + "be created owner-only on Windows.");
+            "The production factory withholds Antigravity on Windows until a real agy run confirms "
+          + "containment there — AntigravityContainmentTests is that run.");
 
         if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GOOGLE_CLOUD_PROJECT")))
             throw new InvalidOperationException(
