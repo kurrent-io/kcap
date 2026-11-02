@@ -522,8 +522,16 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                 // A read taken under another scope or page count answers a question no longer asked,
                 // and one admitted while the lane is down answers for a lane that is not there.
                 if (generation == _generation && _connected && !_disposed && scope == _scope.Value && pages == _pages) {
-                    if (snapshot is not null) Publish(snapshot, pages, readSeq, titleSeq);
-                    _current.OnNext(snapshot is { EndedPartial: false });
+                    if (snapshot is not null && EndsUnlisted(snapshot)) {
+                        // Its waiters are served by the full read that publishes, not by this one.
+                        _fullRequested = true;
+                        _rerun = true;
+                        _waiting.InsertRange(0, _serving);
+                        _serving = [];
+                    } else {
+                        if (snapshot is not null) Publish(snapshot, pages, readSeq, titleSeq);
+                        _current.OnNext(snapshot is { EndedPartial: false });
+                    }
                     if (unauthorized) notifyUnauthorized = true;
                 }
                 if (refused is { } wait && account == _account) {
@@ -546,6 +554,15 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
             if (rerun) continue;
             return;
         }
+    }
+
+    /// A live-only read that stops listing a session the ended prefix does not hold yet. Published as
+    /// is, the session would be in neither set until the next full read, and the server pushes the
+    /// end only after its removal delay.
+    bool EndsUnlisted(Snapshot snapshot) {
+        if (snapshot.Ended is not null) return false;
+        var listed = snapshot.Live.Concat(snapshot.MineLive ?? []).Select(r => r.SessionId).ToHashSet(StringComparer.Ordinal);
+        return _live.Keys.Concat(_mineLive.Keys).Any(id => !listed.Contains(id) && !_ended.Lookup(id).HasValue);
     }
 
     void Publish(Snapshot snapshot, int pages, long readSeq, long titleSeq) {
