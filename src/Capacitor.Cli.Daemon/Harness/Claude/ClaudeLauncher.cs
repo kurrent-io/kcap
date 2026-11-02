@@ -276,8 +276,11 @@ internal sealed partial class ClaudeLauncher(
     }
 
     public void Cleanup(AgentInstance agent) {
-        try { RemoveClaudeProjectSymlink(agent.Worktree.Path, PathsFor(agent.Account)); } catch (Exception ex) {
-            LogCleanupSymlinkFailed(ex, agent.Id);
+        // Prepare links nothing into a directory that is the user's, so a link found there is theirs.
+        if (agent.Work is not (WorkLocation.BorrowedCwd or WorkLocation.InPlace)) {
+            try { RemoveClaudeProjectSymlink(agent.Worktree.Path, PathsFor(agent.Account)); } catch (Exception ex) {
+                LogCleanupSymlinkFailed(ex, agent.Id);
+            }
         }
 
         if (agent.McpConfigPath is not null) {

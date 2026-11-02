@@ -80,7 +80,9 @@ internal partial class AgentOrchestrator {
     async Task<string?> InPlaceLaunchRefusalAsync(LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace) {
         if (cmd.Kind != LaunchKind.Default || cmd.Borrowed || cmd.Handoff is not null || cmd.ScratchWorkspace
          || !string.IsNullOrEmpty(cmd.ResumeSessionId) || string.IsNullOrWhiteSpace(cmd.Vendor)
-         || string.IsNullOrWhiteSpace(inPlace.SourceSessionId) || string.IsNullOrWhiteSpace(inPlace.ReservationToken))
+         || string.IsNullOrWhiteSpace(inPlace.SourceSessionId) || string.IsNullOrWhiteSpace(inPlace.ReservationToken)
+            // Consent judges the command's path, so the runtime may only start where consent looked.
+         || !string.Equals(cmd.RepoPath, inPlace.Directory, StringComparison.Ordinal))
             return ResumeInPlaceRefusals.Invalid;
 
         return await InPlaceResumeRefusalAsync(cmd.Vendor, inPlace.SourceSessionId, inPlace.Directory, inPlace.AccountId, inPlace.ConfigDir);
@@ -104,8 +106,9 @@ internal partial class AgentOrchestrator {
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, cmd.AgentId, RejectReason: CommandRejectedReason.Semantic);
         }
 
-        // Until the resumed agent registers on the source, only the lease keeps a hand-off from taking it over.
-        if (lease.IsLost) {
+        // Until the resumed agent registers on the source, only the lease keeps a hand-off from taking it over. Renewed
+        // here rather than trusted: the token may have lapsed while the command queued, before any renewal was due.
+        if (!await lease.ConfirmAsync()) {
             await _server.LaunchFailedAsync(cmd.AgentId, $"{ResumeInPlaceRefusals.Failed}: {SourceLeaseLostReason}");
 
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, cmd.AgentId, RejectReason: CommandRejectedReason.Semantic);
@@ -227,9 +230,21 @@ internal partial class AgentOrchestrator {
 
         public bool IsLost => _lost;
 
+        /// <summary>Renews the lease now; false, and lost from then on, when the server no longer holds it.</summary>
+        public async Task<bool> ConfirmAsync() {
+            if (_lost) return false;
+            if (await _owner.RenewHandoffLeaseOnceAsync(_token, RenewTimeout, _stop.Token)) return true;
+
+            _lost = true;
+
+            return false;
+        }
+
+        TimeSpan RenewTimeout => _owner.SourceLeaseRenewal / 2 < _owner.HandoffRenewTimeout ? _owner.SourceLeaseRenewal / 2 : _owner.HandoffRenewTimeout;
+
         async Task RenewAsync(string source) {
             var interval = _owner.SourceLeaseRenewal;
-            var timeout  = interval / 2 < _owner.HandoffRenewTimeout ? interval / 2 : _owner.HandoffRenewTimeout;
+            var timeout  = RenewTimeout;
 
             try {
                 while (true) {

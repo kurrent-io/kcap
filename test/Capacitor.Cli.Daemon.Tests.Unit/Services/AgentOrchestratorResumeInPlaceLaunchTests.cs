@@ -89,7 +89,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         public AgentOrchestrator       Orch     { get; }
 
         public LaunchAgentCommand Launch(string? prompt = "carry on", string session = Session, string? store = null, string? directory = null) =>
-            new(AgentId: AgentId, Prompt: prompt, Model: "", Effort: null, RepoPath: Checkout, Tools: null, AttachmentIds: null,
+            new(AgentId: AgentId, Prompt: prompt, Model: "", Effort: null, RepoPath: directory ?? Checkout, Tools: null, AttachmentIds: null,
                 Vendor: Factory.Vendor) {
                 ResumeInPlace = new ResumeInPlaceLaunch(session, directory ?? Checkout, Token, null, store ?? Store),
             };
@@ -209,7 +209,8 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
     /// the agent starts fails the resume.</summary>
     [Test]
     public async Task A_lease_lost_while_the_agent_starts_retires_it_and_reports_it() {
-        var server = new CaptureServerConnection { RenewHandoff = (_, _) => Task.FromResult(false) };
+        var renewals = 0;
+        var server   = new CaptureServerConnection { RenewHandoff = (_, _) => Task.FromResult(Interlocked.Increment(ref renewals) == 1) };
         await using var f = new Fixture(Tmp, new LoadableFactory("claude") { StartDelay = TimeSpan.FromMilliseconds(400) }, server,
             readiness: TimeSpan.FromSeconds(5));
 
@@ -220,6 +221,18 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await WaitHarness.PollUntilAsync(() => f.Orch.GetAgentForTest(AgentId)?.Status is null or "Completed" or "Failed");
         await Assert.That(f.Orch.ResumeLedger!.TryRead(AgentId)).IsNull();
         await Assert.That(File.Exists(Path.Combine(f.Checkout, "work.txt"))).IsTrue();
+    }
+
+    /// <summary>A token that lapsed while the command queued, before any renewal was due, starts nothing.</summary>
+    [Test]
+    public async Task A_lease_lapsed_before_the_launch_starts_nothing() {
+        var server = new CaptureServerConnection { RenewHandoff = (_, _) => Task.FromResult(false) };
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude"), server);
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.Failures()).IsEquivalentTo([$"{ResumeInPlaceRefusals.Failed}: source_lease_lost"]);
+        await Assert.That(f.Factory.Starts).IsEqualTo(0);
     }
 
     /// <summary>Ending the lease is best effort: a release that times out must not replace the launch's outcome.</summary>
@@ -252,6 +265,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
     [Arguments("borrowed")]
     [Arguments("resume-session")]
     [Arguments("review")]
+    [Arguments("other-directory")]
     public async Task A_resume_block_on_another_launch_shape_is_refused(string shape) {
         await using var f = new Fixture(Tmp, new LoadableFactory("claude"));
         var plain = f.Launch();
@@ -259,6 +273,8 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await f.Orch.HandleLaunchAgentForTest(shape switch {
             "borrowed"       => plain with { Borrowed = true, BorrowCwd = f.Checkout },
             "resume-session" => plain with { ResumeSessionId = Dashed },
+            // Consent would judge a directory the runtime does not start in.
+            "other-directory" => plain with { RepoPath = Tmp.CreateDir("elsewhere") },
             _                => plain with { Kind = LaunchKind.ReviewFlow },
         });
 
