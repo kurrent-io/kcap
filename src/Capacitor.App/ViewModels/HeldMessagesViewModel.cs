@@ -31,15 +31,14 @@ public sealed class HeldMessagesViewModel : ReactiveObject, IDisposable {
     public HeldMessagesViewModel(string agentId, IHeldMessagesApi api, IObservable<string> changed, IObservable<AgentViewerAccess> viewer) {
         _agentId = agentId;
         _api = api;
+        // A list read under other rights is never shown under these: an owner's list carries every
+        // sender's messages and their Approve and Reject.
         viewer.DistinctUntilChanged().ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(v => {
             _viewer = v;
-            if (v.HasRights) {
-                Refresh();
-                return;
-            }
             _generation++;
             ErrorText = null;
             Replace([]);
+            Refresh();
         }).DisposeWith(_disposables);
         changed.Where(id => id == agentId).ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(_ => Refresh()).DisposeWith(_disposables);

@@ -69,6 +69,23 @@ public class HeldMessagesViewModelTests {
         });
     }
 
+    /// The list read under one set of rights is not shown under another: an owner's list, with its
+    /// Approve and Reject, goes the moment the viewer stops being the owner, even when the new read fails.
+    [Test]
+    public async Task A_change_of_rights_drops_the_list_read_under_the_old_ones() {
+        await RunOnUiAsync(async () => {
+            var api = new FakeHeldMessagesApi { ListHandler = _ => Task.FromResult(new HeldMessagesRead([FakeHeldMessagesApi.Message(First)])) };
+            var viewer = new BehaviorSubject<AgentViewerAccess>(Owner);
+            using var held = new HeldMessagesViewModel("a1", api, new Subject<string>(), viewer);
+            await WaitUntilAsync(() => held.HasItems, what: "the owner's read");
+
+            api.ListHandler = _ => Task.FromResult(HeldMessagesRead.Failed);
+            viewer.OnNext(Sender);
+            await WaitUntilAsync(() => api.Reads.Count == 2, what: "the read under the new rights");
+            await Assert.That(held.HasItems).IsFalse();
+        });
+    }
+
     [Test]
     [Arguments(true, "Bea", "Waiting for your approval", true, false)]
     [Arguments(false, "You", "Waiting for the owner's approval", false, true)]
