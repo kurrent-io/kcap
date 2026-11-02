@@ -372,6 +372,7 @@ public partial class App : Application {
                     ("update_relaunch", Program.Host.UpdateRelaunch ? "true" : null),
                     ("installed_handoff", desktop.Args?.Contains("--kcap-installed", StringComparer.Ordinal) == true ? "true" : null));
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
+                if (await RunLegacyInstallGuardAsync(desktop)) return;
             }
             _updater = CreateUpdater(_betaUpdates);
             if (UpdateCoordinator.TryApplyPendingAtStartup(_updater, Program.Host.UpdateRelaunch,
@@ -409,6 +410,8 @@ public partial class App : Application {
                 if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
                 _ = RetirePreviousBundleAsync(InstallLocation.BundleRoot(Environment.ProcessPath));
             }
+            if (_legacyRetirement is { } retirement && !_shutdown.IsCancellationRequested)
+                _coordinator?.Window?.Notifier?.Notify(retirement.Message);
             if (_updateNotApplied is { } failed && !_shutdown.IsCancellationRequested)
                 _coordinator?.Window?.Notifier?.Notify(
                     $"kcap {failed.To} did not install. This is still kcap {CapacitorVersion.CurrentDisplay()}, and the update is offered again shortly.");
@@ -514,6 +517,7 @@ public partial class App : Application {
     }
 
     AppUpdateTransition? _updateNotApplied;
+    Platform.Windows.LegacyRetirementOutcome? _legacyRetirement;
     Action? _closeUpdateFinishWindow;
     // Completes once no update is being finished: at once on an ordinary launch, else when its steps settle.
     // The command-line tool offer waits for it, since its prompt would otherwise land in the middle of the update.
@@ -810,6 +814,20 @@ public partial class App : Application {
         if (Program.Host.UpdateRelaunch && directories.Count == 1 && plan.Action != ApplicationsInstallAction.Blocked)
             Dispatcher.UIThread.Post(window.StartMove);
         return true;
+    }
+
+    /// Windows only: true when this copy handed its launch to the kcap install and is shutting down.
+    async Task<bool> RunLegacyInstallGuardAsync(IClassicDesktopStyleApplicationLifetime desktop) {
+        if (!OperatingSystem.IsWindows()) return false;
+        var (handedOver, retirement) = await Platform.Windows.WindowsLegacyInstallGuard.RunAsync(
+            Program.Host.CliDirectory, _config, [_config.Directory, _daemonStore.Directory, _localRoot.Directory],
+            new ProcessRunner(_time), LifecycleLog.Write, _shutdown.Token);
+        if (handedOver) {
+            desktop.Shutdown(0);
+            return true;
+        }
+        _legacyRetirement = retirement;
+        return false;
     }
 
     async Task RetirePreviousBundleAsync(string? bundleRoot) {

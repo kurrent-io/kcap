@@ -141,6 +141,18 @@ finishes the update by moving to `kcap.app` in the same Applications folder, rep
 `kcap` terminal link and the daemon's background service. Opening the kcap disk image does the
 same for a Kurrent Capacitor app that has not updated yet, and quits it first if it is running.
 
+On Windows a **Kurrent Capacitor** install in `%LocalAppData%\KurrentCapacitor` keeps
+updating itself in place, so installing kcap beside it would leave two apps sharing one daemon.
+Each launch of kcap from `%LocalAppData%\kcap` finds such an install and replaces it: it ends
+the old app and its updater, points the daemon's Scheduled Task at its own daemon (`kcap daemon
+service repoint`, which restarts a running daemon with its agents kept), removes the old
+shortcuts and any sign-in entry, moves the old folder off your user PATH, points the `kcap`
+entry in **Installed apps** at itself, and deletes the old folder. Settings, sign-in and the
+daemon's data are kept. A daemon busy with an eval, or a file still in use, leaves the old
+folder for the next launch to try again. A Kurrent Capacitor copy that has already updated
+itself to this release opens kcap instead when kcap is installed. A Kurrent Capacitor install
+newer than kcap is left until kcap updates.
+
 The connection skill is now `connect-kcap` (`kcap-connect-kcap` in the shared
 agent skill tree), and the Muse recording skill is `kcap-recording`. Refreshing
 agent skills replaces the former `kcap-connect-capacitor` installation. Muse
