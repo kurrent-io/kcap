@@ -82,10 +82,12 @@ public static class TranscriptChat {
         var parts = new List<ChatProjectionResult>(envelopes.Count);
         foreach (var envelope in envelopes) {
             var kept = rules is null ? envelope : rules.Filter(evt, envelope);
-            var text = rules is null
+            // The server's record of a send the agent never received cannot acknowledge that send.
+            var undelivered = envelope.ToolKind == ChatDisplayKind.Undelivered;
+            var text = undelivered ? null : rules is null
                 ? kept is { Kind: AcpEventKind.UserMessage } user ? user.Text : null
                 : rules.SubmittedInput(evt, envelope, kept);
-            var literal = envelope.Kind == AcpEventKind.UserMessage ? rules?.LiteralInputs(evt, envelope) ?? [] : [];
+            var literal = envelope.Kind == AcpEventKind.UserMessage && !undelivered ? rules?.LiteralInputs(evt, envelope) ?? [] : [];
             if (kept == envelope && literal.All(candidate => candidate == envelope.Text)) literal = [];
             parts.Add(new(kept is { } visible ? [visible] : [], text is { Length: > 0 } ? [text] : [], rules?.Runs(evt, envelope) ?? []) {
                 OriginalInput = literal.Count > 0 ? envelope : null,

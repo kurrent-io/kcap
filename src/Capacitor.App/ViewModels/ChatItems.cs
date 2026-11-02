@@ -10,8 +10,12 @@ namespace Capacitor.App.ViewModels;
 /// One row of the Chat tab. Matched by DataTemplates on the concrete type.
 public abstract class ChatItemViewModel : ReactiveObject { }
 
-public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? attachments = null, SenderLabel? sender = null) : ChatItemViewModel {
+public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? attachments = null, SenderLabel? sender = null, bool undelivered = false) : ChatItemViewModel {
+    public const string UndeliveredNote = "Not delivered: the agent never received this message";
+
     public string Text { get; } = text;
+    /// Recorded by the server for a queued message the agent never picked up.
+    public bool IsUndelivered { get; } = undelivered;
     public SenderLabel Sender { get; } = sender ?? new SenderLabel(default, null);
     public bool HasText => !string.IsNullOrWhiteSpace(Text);
     public IReadOnlyList<UserAttachment> Attachments { get; } = attachments ?? [];

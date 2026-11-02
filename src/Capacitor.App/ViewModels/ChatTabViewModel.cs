@@ -1707,7 +1707,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                         cursor.OpenShell = null;
                         var (typed, files) = AttachmentTrailer.Split(e.Text ?? "");
                         cursor.Fresh.Add(new UserTurnItem(typed, [.. files.Select(file => UserAttachment.From(file, _origin == AgentOrigin.Local ? _root : null))],
-                            SenderOf(e, offset)));
+                            SenderOf(e, offset), undelivered: e.ToolKind == ChatDisplayKind.Undelivered));
                         break;
                     case AcpEventKind.AssistantText:
                         cursor.OpenGroup = null;
