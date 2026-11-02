@@ -154,10 +154,7 @@ sealed class DaemonServiceCommands(
         var name = enrollment.Name;
 
         using var txn = await ServiceTxnLock.TryAcquireAsync(store, name, TimeSpan.FromSeconds(10), time);
-        if (txn is null) {
-            await Console.Error.WriteLineAsync($"Another service operation is in progress for '{name}'. Try again shortly. The Windows service was not changed.");
-            return 1;
-        }
+        if (txn is null) return await RefuseContendedAsync(name, "The Windows service was not changed.");
 
         var daemonPath = File.Exists(enrollment.DaemonPath) ? enrollment.DaemonPath : UnitIdentity.ResolveDaemonBinary();
         if (daemonPath is null) {
@@ -741,10 +738,7 @@ sealed class DaemonServiceCommands(
     internal async Task<int> InstallPlain(ServiceSpec spec, bool startNow) {
         using var txn = await ServiceTxnLock.TryAcquireAsync(store, spec.ServiceId, TimeSpan.FromSeconds(10), time);
 
-        if (txn is null) {
-            await Console.Error.WriteLineAsync($"Another service operation is in progress for '{spec.ServiceId}'. Try again shortly.");
-            return 1;
-        }
+        if (txn is null) return await RefuseContendedAsync(spec.ServiceId);
 
         var before = TryQuery(spec.ServiceId);
         if (manager.Install(spec, startNow, out var error)) return 0;
@@ -793,10 +787,7 @@ sealed class DaemonServiceCommands(
     internal async Task<int> Uninstall() {
         using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
 
-        if (txn is null) {
-            await Console.Error.WriteLineAsync($"Another service operation is in progress for '{id}'. Try again shortly.");
-            return 1;
-        }
+        if (txn is null) return await RefuseContendedAsync(id);
 
         var ended = await ServiceRemoval.EndAgentsAsync(store, id, time);
 
@@ -830,7 +821,7 @@ sealed class DaemonServiceCommands(
 
                 using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
                 if (txn is null) {
-                    await Console.Error.WriteLineAsync($"Another service operation is in progress for '{unit}'. Try again shortly.");
+                    await RefuseContendedAsync(unit);
                     failed = true;
                 } else if (!Owned(unit)) {
                     // An install holding the lock may have repointed the unit at another copy of kcap.
@@ -883,7 +874,7 @@ sealed class DaemonServiceCommands(
     /// <summary>Routes plain vs <c>--verify</c> starts: launchd through its transaction engine, every
     /// other manager through <see cref="PollingServiceVerify"/>.</summary>
     internal async Task<int> Start(string[] args) {
-        if (!args.Contains("--verify")) return await StartPlain();
+        if (!args.Contains("--verify")) return await StartPlain(waitOutOthers: true);
         if (manager is LaunchdServiceManager) return await StartVerified();
 
         var exit = await NewPollingVerify().StartVerifiedAsync(id);
@@ -901,13 +892,14 @@ sealed class DaemonServiceCommands(
                 ? n => WindowsTaskUnit.StderrPath(root.Path($"daemon-{n}.log"))
                 : null);
 
-    async Task<int> StartPlain() {
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
+    /// <param name="waitOutOthers">The verb a person typed, which waits out another operation rather than
+    /// failing on it; the ensure ladder keeps the short wait its callers budget for.</param>
+    async Task<int> StartPlain(bool waitOutOthers = false) {
+        using var txn = waitOutOthers
+            ? await AcquireWaitingOutOthersAsync()
+            : await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
 
-        if (txn is null) {
-            await Console.Error.WriteLineAsync($"Another service operation is in progress for '{id}'. Try again shortly.");
-            return 1;
-        }
+        if (txn is null) return await RefuseContendedAsync(id);
 
         if (!manager.Start(id, out var error)) {
             await Console.Error.WriteLineAsync($"Could not start service '{id}': {error}");
@@ -939,12 +931,9 @@ sealed class DaemonServiceCommands(
     }
 
     internal async Task<int> Stop(string[] args) {
-        using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, TimeSpan.FromSeconds(10), time);
+        using var txn = await AcquireWaitingOutOthersAsync();
 
-        if (txn is null) {
-            await Console.Error.WriteLineAsync($"Another service operation is in progress for '{id}'. Try again shortly.");
-            return 1;
-        }
+        if (txn is null) return await RefuseContendedAsync(id);
 
         var request = new ShutdownRequestDto(args.Contains("--keep-agents") ? "keep" : "end", "final");
         var outcome = DaemonPidProbe.ValidatedPid(store, id) is null

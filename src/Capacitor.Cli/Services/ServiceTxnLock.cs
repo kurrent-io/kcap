@@ -5,12 +5,16 @@ namespace Capacitor.Cli.Services;
 /// <summary>
 /// Per-label cross-process lock for serializing mutating <c>kcap daemon service</c> verbs.
 /// Lock file lives in the daemons directory, distinct from <see cref="DaemonStore.LockPath"/>,
-/// and is never unlinked.
+/// and is never unlinked. Its holder records itself in <see cref="DaemonStore.ServiceLockHolderPath"/>.
 /// </summary>
 sealed class ServiceTxnLock : IDisposable {
     readonly FileStream _stream;
+    readonly string? _holderPath;
 
-    ServiceTxnLock(FileStream stream) => _stream = stream;
+    ServiceTxnLock(FileStream stream, string? holderPath) {
+        _stream     = stream;
+        _holderPath = holderPath;
+    }
 
     /// <summary>
     /// Non-blocking probe: true iff some process currently holds the lock.
@@ -45,7 +49,7 @@ sealed class ServiceTxnLock : IDisposable {
         while (true) {
             try {
                 var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-                return new ServiceTxnLock(stream);
+                return new ServiceTxnLock(stream, ServiceTxnHolder.Record(store, daemonName, time));
             } catch (IOException) {
                 if (time.GetUtcNow() >= deadline) return null;
 
@@ -54,5 +58,25 @@ sealed class ServiceTxnLock : IDisposable {
         }
     }
 
-    public void Dispose() => _stream.Dispose();
+    /// <summary>
+    /// <see cref="TryAcquireAsync"/> for a verb a person is waiting on: when the lock is still held after
+    /// <paramref name="quiet"/>, <paramref name="waiting"/> is told who holds it, once, and the wait goes
+    /// on to <paramref name="wait"/> in all.
+    /// </summary>
+    public static async Task<ServiceTxnLock?> AcquireWaitingAsync(
+            DaemonStore store, string daemonName, TimeSpan wait, TimeSpan quiet, TimeProvider time,
+            Func<ServiceTxnHolder?, Task> waiting) {
+        if (wait <= quiet) return await TryAcquireAsync(store, daemonName, wait, time).ConfigureAwait(false);
+
+        if (await TryAcquireAsync(store, daemonName, quiet, time).ConfigureAwait(false) is { } taken) return taken;
+
+        await waiting(ServiceTxnHolder.Read(store, daemonName)).ConfigureAwait(false);
+
+        return await TryAcquireAsync(store, daemonName, wait - quiet, time).ConfigureAwait(false);
+    }
+
+    public void Dispose() {
+        ServiceTxnHolder.Clear(_holderPath);
+        _stream.Dispose();
+    }
 }
