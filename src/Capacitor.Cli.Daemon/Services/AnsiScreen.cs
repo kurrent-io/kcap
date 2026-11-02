@@ -264,11 +264,11 @@ internal sealed class AnsiScreen {
     int Param(int index, int missing) =>
         index < _paramCount && _params[index] > 0 ? _params[index] : missing;
 
-    /// A relative move that starts inside the scroll region stops at its margins, as a terminal's does.
+    /// A move up stops at the top margin when it starts at or below it, and a move down at the bottom
+    /// margin when it starts at or above it, as ConPTY's does: each margin binds on its own.
     void Move(int dCol, int dRow) {
         _col = Math.Clamp(_col + dCol, 0, _cols - 1);
-        var inRegion = _row >= _top && _row <= _bottom;
-        _row = Math.Clamp(_row + dRow, inRegion ? _top : 0, inRegion ? _bottom : _rows - 1);
+        _row = Math.Clamp(_row + dRow, _row >= _top ? _top : 0, _row <= _bottom ? _bottom : _rows - 1);
     }
 
     void EraseDisplay(int mode) {
