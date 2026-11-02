@@ -90,6 +90,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     long                             _lastOutputAt;
     volatile bool                    _sawOutput;
     volatile bool                    _stopRequested;
+    volatile bool                    _stopRequestedDuringDialog;
     bool                             _deliveryHoldsLane;
     TaskCompletionSource?            _dialogGone;
     TaskCompletionSource?            _arrival;
@@ -339,11 +340,21 @@ internal sealed partial class PtyHostedAgentRuntime(
         return true;
     }
 
-    /// <summary>Called by the launch delivery holding the input lane, before each submit Enter. A dialog
+    /// <summary>Called by a delivery holding the input lane, before each submit Enter. A dialog
     /// that came up after the paste would take the Enter, and answering it takes the lane, so each one is
     /// waited out with the lane released. Returns holding the lane; false when a stop was asked for.</summary>
     async Task<bool> WaitOutDialogsAsync() {
+        await WaitOutDialogsReportingAsync();
+
+        return !_stopRequested;
+    }
+
+    /// <summary><see cref="WaitOutDialogsAsync"/>, saying whether any dialog was waited out.</summary>
+    async Task<bool> WaitOutDialogsReportingAsync() {
+        var waited = false;
+
         while (DialogGone is not null && !pty.HasExited && !_stopRequested) {
+            waited = true;
             _lane.Release();
             _deliveryHoldsLane = false;
             await WaitWhileDialogShowsAsync(_disposal.Token);
@@ -351,7 +362,7 @@ internal sealed partial class PtyHostedAgentRuntime(
             _deliveryHoldsLane = true;
         }
 
-        return !_stopRequested;
+        return waited;
     }
 
     /// <summary>Returns once no dialog is on screen, or the agent has exited or been asked to stop.</summary>
@@ -365,19 +376,50 @@ internal sealed partial class PtyHostedAgentRuntime(
 
     /// <summary>
     /// Delivers <paramref name="text"/> as a bracketed paste (ESC[200~ … ESC[201~) so the TUI treats
-    /// it as one block, then submits it (see <see cref="SubmitAsync"/>).
+    /// it as one block, then submits it (see <see cref="SubmitAsync"/>). Text typed into an open dialog
+    /// would answer it, and the server may have refused this sender that answer, so the paste and each
+    /// submit Enter wait for any dialog to close, with the lane released so the dialog can be answered.
     /// </summary>
+    /// <exception cref="IOException">The agent was stopping or had exited before the message could be sent.</exception>
     public async Task SendUserInputAsync(string text) {
         await WaitForLaunchPromptAsync();
-        await _lane.WaitAsync();
+
+        // Once a stop is asked for, a paste would land behind its "/exit", whatever dialog came and
+        // went while this waited for the lane.
+        while (true) {
+            await WaitWhileDialogShowsAsync(_disposal.Token);
+            await _lane.WaitAsync(_disposal.Token);
+
+            if (Ending) {
+                _lane.Release();
+                throw AgentEnding();
+            }
+
+            if (DialogGone is null) break;
+
+            _lane.Release();
+        }
+
+        _deliveryHoldsLane = true;
 
         try {
             await pty.WriteAsync(BracketedPaste.Frame(text));
-            await SubmitAsync();
+            // Unlike the launch prompt, a stop alone does not withhold the Enter: the stop's "/exit"
+            // would land in the composer behind the unsent paste. A stop asked for while a dialog this
+            // waited on was open does, even once that dialog has closed: the stop wrote meanwhile.
+            var submitted = await SubmitAsync(async () => {
+                var waited = await WaitOutDialogsReportingAsync();
+                return DialogGone is null && !pty.HasExited && !(waited && _stopRequestedDuringDialog);
+            });
+            if (!submitted) throw AgentEnding();
         } finally {
-            _lane.Release();
+            ReleaseDeliveryLane();
         }
     }
+
+    bool Ending => _stopRequested || pty.HasExited;
+
+    static IOException AgentEnding() => new("The agent is stopping or has exited, so the message was not sent.");
 
     public async Task SendSpecialKeyAsync(string key) {
         var isWheel = TerminalScrollKey.TryDecode(key, out var bytes);
@@ -434,6 +476,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// master fd regardless, and the lane must never be what keeps the stop from being asked for.
     /// </summary>
     public async Task RequestGracefulStopAsync() {
+        if (DialogGone is not null) _stopRequestedDuringDialog = true;
         _stopRequested = true;
         var holdsLane  = await _lane.WaitAsync(GracefulStopLaneWait, CancellationToken.None);
 
