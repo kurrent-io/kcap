@@ -14,7 +14,9 @@ public class ConPtyScreenTests {
     [Arguments("[Console]::Write(\"`r$e[K\")")]
     [Arguments("[Console]::Write(\"$e[2J$e[H\")")]
     public async Task Text_the_child_erased_leaves_the_screen(string erase) {
-        var script  = $"$e = [char]27; [Console]::Write('kcap-erase-probe'); Start-Sleep -Milliseconds 600; {erase}; Start-Sleep -Milliseconds 600";
+        // The erase waits for a key the test sends once the line is on its screen, so one read cannot
+        // carry both; ReadKey does not echo, which would move the cursor off the line.
+        var script  = $"$e = [char]27; [Console]::Write('kcap-erase-probe'); [void][Console]::ReadKey($true); {erase}; Start-Sleep -Milliseconds 600";
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
 
         await using var proc = ConPtyProcess.Spawn(
@@ -29,8 +31,12 @@ public class ConPtyScreenTests {
             await foreach (var chunk in proc.ReadOutputAsync(cts.Token)) {
                 screen.Write(chunk);
                 seen.Append(Encoding.UTF8.GetString(chunk));
-                drawn |= screen.Text().Contains("kcap-erase-probe", StringComparison.Ordinal);
-                if (drawn && !screen.Text().Contains("kcap-erase-probe", StringComparison.Ordinal)) break;
+                var shown = screen.Text().Contains("kcap-erase-probe", StringComparison.Ordinal);
+                if (shown && !drawn) {
+                    drawn = true;
+                    await proc.WriteAsync("x");
+                }
+                if (drawn && !shown) break;
             }
         } catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
 

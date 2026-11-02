@@ -21,6 +21,15 @@ public class AnsiScreenTests {
     public async Task Characters_are_erased_deleted_and_inserted_at_the_cursor(string bytes, string expected) =>
         await Assert.That(Draw(20, 3, bytes)).IsEqualTo(expected);
 
+    /// A full row leaves the cursor waiting to wrap; an edit there acts on the last cell, and the next
+    /// character lands there instead of on the next row.
+    [Test]
+    [Arguments("abcde\x1b[XZ", "abcdZ")]
+    [Arguments("abcde\x1b[PZ", "abcdZ")]
+    [Arguments("abcde\x1b[@Z", "abcdZ")]
+    public async Task An_edit_after_a_full_row_acts_on_its_last_cell(string bytes, string expected) =>
+        await Assert.That(Draw(5, 3, bytes)).IsEqualTo(expected);
+
     [Test]
     [Arguments("\x1b[1;1H\x1b[M", "two\nthree")]
     [Arguments("\x1b[1;1H\x1b[L", "\none\ntwo\nthree")]

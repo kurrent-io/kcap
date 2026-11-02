@@ -220,13 +220,18 @@ internal sealed class AnsiScreen {
             case 'K':
                 EraseLine(Param(0, 0));
                 break;
+            // A write to the last column leaves the cursor past it until the next character wraps; these
+            // edit that last cell, as a terminal does, and cancel the pending wrap.
             case 'X':
+                _col = Math.Min(_col, _cols - 1);
                 Fill(_row * _cols + _col, _row * _cols + Math.Min(_cols, _col + Param(0, 1)));
                 break;
             case 'P':
+                _col = Math.Min(_col, _cols - 1);
                 ShiftLine(-Param(0, 1));
                 break;
             case '@':
+                _col = Math.Min(_col, _cols - 1);
                 ShiftLine(Param(0, 1));
                 break;
             case 'L':
