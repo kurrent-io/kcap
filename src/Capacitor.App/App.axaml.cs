@@ -1036,7 +1036,8 @@ public partial class App : Application {
         var gh = new GitHubCliRunner(ghRunner, OperatingSystem.IsWindows() ? null : new LoginShellProbe(ghRunner, Environment.GetEnvironmentVariable), Environment.GetEnvironmentVariable);
         var serverClients = new ServerClients(serverLane, workContext, pullRequests, plans, planArtifacts, senders);
 
-        var machineId = new MachineId(_config).ReadPersisted();
+        var localMachine = new LocalMachine(new MachineId(_config));
+        var machineId = localMachine.Id;
         var sessionHttp = ServerHttp(profiles);
         var remoteAgents = new RemoteAgentsService(
             serverLane, RemoteAgentsService.HttpFetch(sessionHttp, profiles),
@@ -1165,7 +1166,11 @@ public partial class App : Application {
         if (localStack is not null) stackOwnsStart = localStack.WhenAnyValue(x => x.SuppressesServerStart);
         var localServer = new LocalServerRecoveryViewModel(
             serverLane.Status, isLocalServer, lifecycleCli.LocalStartAsync, () => serverLane.RestartAsync(), _shutdown.Token,
-            busy: stackOwnsStart, readCondition: ct => LocalServerConditions.ReadAsync(_localRoot, ct),
+            busy: stackOwnsStart,
+            // A Windows supervisor relaunches a server that cannot yet listen; only kcap local status hears from it.
+            readCondition: OperatingSystem.IsWindows()
+                ? LocalServerRecoveryViewModel.PreferStatus(lifecycleCli.LocalStatusAsync, ct => LocalServerConditions.ReadAsync(_localRoot, ct))
+                : ct => LocalServerConditions.ReadAsync(_localRoot, ct),
             canStart: OperatingSystem.IsMacOS() || OperatingSystem.IsLinux() || OperatingSystem.IsWindows());
         _localServer = localServer;
         var webWorkspace = new WebWorkspaceViewModel(profiles?.Resolution.ServerUrl, opener, notifier.Notify,
@@ -1225,7 +1230,7 @@ public partial class App : Application {
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
-                    serverSessions: sessions, workContextLayout: workContextLayout, handoffOutcomes: handoffOutcomes)
+                    serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes)
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
         var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
@@ -1259,7 +1264,8 @@ public partial class App : Application {
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
-                    workContextLayout: workContextLayout, handoff: BuildHandoff, handoffOutcomes: handoffOutcomes)
+                    workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
+                    handoffOutcomes: handoffOutcomes)
                 : null;
 
         _coordinator = new MainWindowCoordinator(

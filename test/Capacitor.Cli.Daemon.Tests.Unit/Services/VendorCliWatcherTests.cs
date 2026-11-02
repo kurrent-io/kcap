@@ -197,6 +197,23 @@ public class VendorCliWatcherTests {
         await Assert.That(refreshes.Count).IsEqualTo(1);
     }
 
+    [Test]
+    public async Task A_catalog_probe_that_answers_after_startup_asks_for_one_refresh() {
+        var refreshes = new List<string>();
+        var late      = new List<string>();
+        var watcher   = VendorCliWatcher.ForTest([("claude", "/bin/claude", [])], refreshes.Add, _ => Old, TimeProvider.System);
+        watcher.LateCatalogs = () => late;
+        watcher.PrimeBaselines();
+
+        watcher.Tick();
+        late.Add("codex");
+        watcher.Tick();
+        watcher.Tick();
+
+        await Assert.That(refreshes.Count).IsEqualTo(1);
+        await Assert.That(refreshes[0]).Contains("codex");
+    }
+
     // The fingerprint follows every link to the file that actually runs: a bare command name is
     // resolved on PATH, and a symlink chain is walked to its final target.
     [Test]

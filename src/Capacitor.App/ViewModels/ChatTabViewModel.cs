@@ -241,12 +241,17 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// A working agent's chat is never empty for long, so an empty one is still waiting, read or not,
     /// until the session ends.
     public string PhaseNote => _items.Count > 0 ? "" : Phase switch {
+        ChatTabPhase.Waiting or ChatTabPhase.Reading when !_ended && _launchPromptUnconfirmed => LaunchPromptUnconfirmedNote,
         ChatTabPhase.Waiting or ChatTabPhase.Reading when !_ended => "Waiting for chat…",
         ChatTabPhase.Missing     => _missingNote ?? "The transcript file is missing",
         ChatTabPhase.Unavailable => _unavailableNote ?? "No chat view for this harness",
         ChatTabPhase.Failed      => FailureNote(_failureNote),
         _                        => "",
     };
+
+    internal const string LaunchPromptUnconfirmedNote = "Your first message may not have been sent";
+
+    bool _launchPromptUnconfirmed;
 
     /// Nothing in the chat yet can mean the agent is held at a prompt only its terminal shows, so
     /// the empty chat's note points there, unless the terminal-menu card already does.
@@ -1138,6 +1143,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         _interruption = info.Interruption;
         if (_ended != info.Ended) {
             _ended = info.Ended;
+            RaisePhaseNote();
+        }
+        if (_launchPromptUnconfirmed != (info.LaunchPromptUnconfirmed == true)) {
+            _launchPromptUnconfirmed = info.LaunchPromptUnconfirmed == true;
             RaisePhaseNote();
         }
         _waitsOnUser = info.WaitsOnUser;

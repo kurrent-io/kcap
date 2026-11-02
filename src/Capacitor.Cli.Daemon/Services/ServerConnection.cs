@@ -296,11 +296,14 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             };
 
         _eventQueue = new(
-            config, credentials, time, loggerFactory.CreateLogger<AgentRunEventQueue>(), new HttpClient(Guarded(new HttpClientHandler(), ReportRejection)));
+            config, credentials, time, loggerFactory.CreateLogger<AgentRunEventQueue>(),
+            new HttpClient(Guarded(LoopbackConnect.Apply(new SocketsHttpHandler()), ReportRejection)));
+
+        var hubUrl = $"{config.ServerUrl.TrimEnd('/')}/hubs/sessions";
 
         _hub = new HubConnectionBuilder()
             .WithUrl(
-                $"{config.ServerUrl.TrimEnd('/')}/hubs/sessions",
+                hubUrl,
                 options => {
                     options.AccessTokenProvider = async () => {
                         var state = await credentials.ResolveAsync(default);
@@ -310,7 +313,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
                         else Volatile.Write(ref _lastUnavailable, null);
                         return state.Bearer;
                     };
-                    options.HttpMessageHandlerFactory = inner => Guarded(inner, ReportHubRejection);
+                    options.HttpMessageHandlerFactory = inner => Guarded(LoopbackConnect.ForHub(new Uri(hubUrl), inner), ReportHubRejection);
                     HttpClientExtensions.AddObservationHeaders(options.Headers, config.UpdateCheckOff);
                     options.WebSocketFactory = (context, ct) => {
                         LocalDestination.Check(context.Uri, config.LocalRoot, config.ServerUrl, refusal);

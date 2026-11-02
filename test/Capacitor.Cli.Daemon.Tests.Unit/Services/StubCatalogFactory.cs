@@ -19,6 +19,9 @@ internal sealed class StubCatalogFactory(string vendor, IReadOnlyList<VendorMode
     /// An account directory's catalog files; unset, they are the default ones.
     public Func<string, IReadOnlyList<string>>? PathsFor { get; init; }
 
+    /// Answers the default probe in place of <c>models</c>.
+    public Func<Task<IReadOnlyList<VendorModelOption>?>>? Probe { get; init; }
+
     public ConcurrentQueue<string> ProbedDirectories { get; } = new();
 
     public IReadOnlyList<string> CatalogFingerprintPaths { get; } = paths ?? [];
@@ -27,7 +30,7 @@ internal sealed class StubCatalogFactory(string vendor, IReadOnlyList<VendorMode
 
     public Task<IReadOnlyList<VendorModelOption>?> ProbeModelsAsync(CancellationToken ct) {
         ProbeCalls++;
-        return Task.FromResult(models);
+        return Probe?.Invoke() ?? Task.FromResult(models);
     }
 
     public Task<IReadOnlyList<VendorModelOption>?> ProbeModelsAsync(string? configDirectory, CancellationToken ct) {

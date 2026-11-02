@@ -71,6 +71,9 @@ Options:
                               runs the server while you are signed in. Under
                               --json that is a windows_service_declined or
                               windows_service_unavailable line, not a failure.
+                              A running server its Scheduled Task had moves to
+                              the service restarted; setup waits until it is
+                              ready again, and fails when it does not come back.
   --intelligence <answer>     With --local: who runs the server's background
                               model calls (titles, outcomes, evals). claude or
                               codex runs your own agent through this machine's

@@ -242,7 +242,7 @@ sealed class KiroHookCommand(
 
         // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
         // `case "hook":` before dispatch — no longer wired here (removes the double-wire).
-        var spool = new HookSpool(config, clock.Time);
+        var spool = new HookSpool(config, clock.Time, Url);
 
         var cwd           = TryGetString(node, "cwd");
         var activeProfile = profiles.Effective;
@@ -313,7 +313,7 @@ sealed class KiroHookCommand(
             forwarded["subagent_session_ids"] = KiroCrewParentResolver.SessionIdArray(children.Take(KiroCrewParentResolver.MaxChildrenPerStart));
         }
 
-        SessionStartInventory.Stamp(forwarded, config, harnesses, clock.Time);
+        SessionStartInventory.Stamp(forwarded, config, harnesses, HarnessId.Kiro, clock.Time);
         var enriched = await RepositoryDetection.EnrichWithRepositoryInfo(router, config, forwarded.ToJsonString(), clock.Time);
 
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,

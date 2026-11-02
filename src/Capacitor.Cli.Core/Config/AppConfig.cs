@@ -115,7 +115,24 @@ public static class AppConfig {
         {
             var config = await LoadProfileConfig(root);
 
-            var repoRoot = GetGitRepoRoot(workdir.Path, gitTimeoutMs) ?? workdir.Path;
+            // A named profile outranks every repository input, and remotes only matter to a profile that
+            // lists some: each git probe costs a process start, paid by every hook.
+            if (!string.IsNullOrEmpty(env.Profile)) {
+                var named = new ProfileResolver(config, cliServerUrl, env.Url, env.Profile, null, [], null, local).Resolve();
+                if (named.Warning is not null) await Console.Error.WriteLineAsync($"Warning: {named.Warning}");
+
+                return new(named, config);
+            }
+
+            var remotesProbe = config.Profiles.Values.Any(p => p.Remotes is { Length: > 0 })
+                ? Task.Run(() => GetGitRemoteUrls(workdir.Path, gitTimeoutMs))
+                : Task.FromResult<string[]>([]);
+
+            // The root only places `.kcap.json` and keys a `kcap use` binding, and git's root is the
+            // working directory or one of its ancestors: with neither present, the probe changes nothing.
+            var repoRoot = config.ProfileBindings is { Count: > 0 } || GitLocationOverridden() || RepoConfigAtOrAbove(workdir.Path)
+                ? GetGitRepoRoot(workdir.Path, gitTimeoutMs) ?? workdir.Path
+                : workdir.Path;
 
             RepoConfig? repoConfig     = null;
             var         repoConfigPath = Path.Combine(repoRoot, ".kcap.json");
@@ -129,7 +146,7 @@ public static class AppConfig {
                 }
             }
 
-            var remoteUrls = GetGitRemoteUrls(workdir.Path, gitTimeoutMs);
+            var remoteUrls = await remotesProbe;
 
             var resolver = new ProfileResolver(
                 config,
@@ -149,6 +166,22 @@ public static class AppConfig {
             }
 
             return new(resolved, config);
+        }
+    }
+
+    static bool GitLocationOverridden() =>
+        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GIT_DIR"))
+     || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GIT_WORK_TREE"));
+
+    internal static bool RepoConfigAtOrAbove(string directory) {
+        try {
+            for (var dir = new DirectoryInfo(directory); dir is not null; dir = dir.Parent)
+                if (File.Exists(Path.Combine(dir.FullName, ".kcap.json"))) return true;
+
+            return false;
+        } catch {
+            // Unreadable: let git decide, as it always did.
+            return true;
         }
     }
 

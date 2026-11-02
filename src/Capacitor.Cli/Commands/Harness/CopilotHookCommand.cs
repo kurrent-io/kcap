@@ -193,7 +193,7 @@ sealed class CopilotHookCommand(
 
         // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
         // `case "hook":` before dispatch — no longer wired here (removes the double-wire).
-        var spool = new HookSpool(config, clock.Time);
+        var spool = new HookSpool(config, clock.Time, Url);
 
         var cwd           = TryGetString(node, "cwd");
         var activeProfile = profiles.Effective;
@@ -262,7 +262,7 @@ sealed class CopilotHookCommand(
             forwarded["default_visibility"] = visibility;
         }
 
-        SessionStartInventory.Stamp(forwarded, config, harnesses, clock.Time);
+        SessionStartInventory.Stamp(forwarded, config, harnesses, HarnessId.Copilot, clock.Time);
         var enriched = await RepositoryDetection.EnrichWithRepositoryInfo(router, config, forwarded.ToJsonString(), clock.Time);
 
         // Repo exclusion after enrichment (fast in-payload path) — mark the

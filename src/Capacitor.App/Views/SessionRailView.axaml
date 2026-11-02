@@ -512,10 +512,11 @@
                                                                             <!-- Another user's row shows their picture, or their initials until it loads or when it never does. -->
                                                                             <Border Width="16" Height="16" CornerRadius="8" Margin="0,0,6,0" VerticalAlignment="Center" ClipToBounds="True"
                                                                                     Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
-                                                                                    IsVisible="{Binding ShowsOwner}" ToolTip.Tip="{Binding OwnerTooltip}" AutomationProperties.Name="{Binding OwnerTooltip}">
+                                                                                    IsVisible="{Binding ShowsOwner}" ToolTip.Tip="{Binding OwnerTooltip}"
+                                                                                    AutomationProperties.Name="{Binding OwnerName}" AutomationProperties.AccessibilityView="Content">
                                                                                 <Panel>
                                                                                     <TextBlock Text="{Binding OwnerInitials}" FontSize="8" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                                               Foreground="{StaticResource KcapMutedBrush}" />
+                                                                                               Foreground="{StaticResource KcapMutedBrush}" AutomationProperties.AccessibilityView="Raw" />
                                                                                     <views:RemoteAvatar Url="{Binding OwnerAvatarUrl}" AutomationProperties.AccessibilityView="Raw" />
                                                                                 </Panel>
                                                                             </Border>

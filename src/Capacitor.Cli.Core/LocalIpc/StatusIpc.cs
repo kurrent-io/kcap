@@ -133,7 +133,10 @@ public sealed record AgentStatusDto(
     // unproven, so a client must not send a keystroke that is safe only mid-turn.
     bool? TurnAttested = null,
     // The session is hidden from everyone but its owner. Null = older daemon, unknown.
-    bool? IsPrivate = null);
+    bool? IsPrivate = null,
+    // The launch prompt was pasted and submitted but no turn was reported after it, so it may still
+    // sit unsent in the agent's composer. Cleared by the next reported turn. Null = older daemon.
+    bool? LaunchPromptUnconfirmed = null);
 
 /// Wire tokens for <see cref="AgentStatusDto.WorkLocation"/>, compared literally by every
 /// client, so they never change.

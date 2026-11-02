@@ -113,12 +113,14 @@
                                             Click="OnHitClick" PointerEntered="OnHitPointerEntered"
                                             AutomationProperties.Name="{Binding TitleText}">
                                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                            <!-- The avatar is read as its owner's name; the initials stay out, or a bare letter is announced. -->
                                             <Border Width="22" Height="22" CornerRadius="11" VerticalAlignment="Top" ClipToBounds="True"
-                                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
+                                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                                                    AutomationProperties.Name="{Binding OwnerName}" AutomationProperties.AccessibilityView="{Binding OwnerAvatarView}">
                                                 <Panel>
                                                     <TextBlock Text="{Binding OwnerInitials}" FontSize="9" FontWeight="SemiBold"
                                                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
+                                                               Foreground="{StaticResource KcapMutedBrush}" AutomationProperties.AccessibilityView="Raw" />
                                                     <views:RemoteAvatar Url="{Binding OwnerAvatarUrl}" AutomationProperties.AccessibilityView="Raw" />
                                                 </Panel>
                                             </Border>

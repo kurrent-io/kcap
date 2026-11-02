@@ -537,6 +537,126 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    /// <summary>Starts a launch whose hooks report its turns and runs it to the first submit.</summary>
+    static async Task<(PtyHostedAgentRuntime Runtime, RecordingScriptedPtyProcess Pty)> SubmittedConfirmingLaunchAsync(FakeTimeProvider time) {
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false, confirmsLaunchPrompt: true);
+
+        runtime.DeliverLaunchPrompt("build it");
+        _ = PumpAsync(runtime);
+        pty.Emit("banner");
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => pty.Writes.Count >= 2);
+
+        return (runtime, pty);
+    }
+
+    const string PastedAndSubmitted = "\x1b[200~build it\x1b[201~|\r";
+
+    /// <summary>A turn reported after the paste proves the prompt went, so no second Enter follows:
+    /// it would submit an empty turn.</summary>
+    [Test]
+    public async Task A_relayed_turn_confirms_the_launch_prompt_without_a_second_enter() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingLaunchAsync(time);
+
+        runtime.NoteTurnRelayed();
+        var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait * 2);
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.Confirmed);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted);
+        await Assert.That(await runtime.LaunchPromptSubmitted).IsTrue();
+        pty.Exit();
+    }
+
+    /// <summary>Under ConPTY a later Enter submits a paste the first one missed, so a prompt no turn
+    /// followed is submitted once more. A turn reported before the paste is no evidence for it.</summary>
+    [Test]
+    public async Task A_launch_prompt_no_turn_followed_is_submitted_once_more() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false, confirmsLaunchPrompt: true);
+
+        runtime.DeliverLaunchPrompt("build it");
+        runtime.NoteTurnRelayed();
+        _ = PumpAsync(runtime);
+        pty.Emit("banner");
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => pty.Writes.Count >= 2);
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait - TimeSpan.FromSeconds(1));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted);
+
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => pty.Writes.Count >= 3);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted + "|\r");
+
+        runtime.NoteTurnRelayed();
+        var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.ConfirmedAfterResubmit);
+        await Assert.That(runtime.LaunchPromptUnconfirmed).IsFalse();
+        pty.Exit();
+    }
+
+    /// <summary>A prompt no turn followed even after the second Enter is reported unconfirmed, and gets
+    /// no third; the report stands until a turn is relayed.</summary>
+    [Test]
+    public async Task A_launch_prompt_unseen_after_the_second_enter_is_reported_unconfirmed() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingLaunchAsync(time);
+
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait * 2, () => runtime.LaunchPromptDelivery!.IsCompleted);
+        var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.NotConfirmed);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted + "|\r");
+        await Assert.That(runtime.LaunchPromptUnconfirmed).IsTrue();
+
+        runtime.NoteTurnRelayed();
+        await Assert.That(runtime.LaunchPromptUnconfirmed).IsFalse();
+        pty.Exit();
+    }
+
+    /// <summary>An Enter sent while a dialog shows would pick one of its options, so none goes until it
+    /// closes, and the wait for a turn starts over from then.</summary>
+    [Test]
+    public async Task No_second_enter_is_sent_while_a_dialog_shows() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingLaunchAsync(time);
+
+        runtime.NoteTerminalDialog(true);
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait * 3);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted);
+
+        runtime.NoteTerminalDialog(false);
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait - TimeSpan.FromSeconds(1));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted);
+
+        runtime.NoteTurnRelayed();
+        var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.Confirmed);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted);
+        pty.Exit();
+    }
+
+    /// <summary>A follow-up waits until the launch prompt is confirmed, so it is never pasted into a
+    /// composer the launch prompt still sits in.</summary>
+    [Test]
+    public async Task A_follow_up_waits_for_the_launch_prompt_to_be_confirmed() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingLaunchAsync(time);
+
+        var followUp = runtime.SendUserInputAsync("and test it");
+        await Task.Delay(100);
+        await Assert.That(followUp.IsCompleted).IsFalse();
+
+        runtime.NoteTurnRelayed();
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => followUp.IsCompleted);
+
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted + "|\x1b[200~and test it\x1b[201~|\r");
+        pty.Exit();
+    }
+
     /// <summary>Holds raw writes until released, so a test can keep the input lane busy.</summary>
     sealed class GatedRawPty : IPtyProcess {
         readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
