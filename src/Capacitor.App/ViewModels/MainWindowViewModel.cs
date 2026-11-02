@@ -166,7 +166,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public IObservable<string?> OpenSessionId => Observable.Switch(this.WhenAnyValue(x => x.CurrentWorkspace)
             .Select(open => open switch {
                 WorkspaceViewModel local => local.WhenAnyValue(x => x.SessionId),
-                RemoteSessionViewModel remote => remote.WhenAnyValue(x => x.SessionId),
+                RemoteSessionViewModel { IsSessionOnly: true } session => Observable.Return<string?>(session.AgentId),
+                RemoteSessionViewModel remote => remote.SessionIds,
                 _ => Observable.Return<string?>(null),
             }))
         .DistinctUntilChanged();
