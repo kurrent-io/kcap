@@ -356,13 +356,9 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             : new ServerChatInput(row.Id, lane, _accessStates, _session, HostedHarnessCatalog.ShowsTerminal(null, row.Vendor),
                 WorkContext.WhenAnyValue(context => context.ViewerIdentity), viewer);
         viewer.Subscribe(access => StopRefusal = access.CanPressKeys ? null : access.ControlRefusal).DisposeWith(_disposables);
-        // Signed out, the held list has no rights to read under, so it empties: this session outlives the
-        // sign-out, and an owner's list would show the next person every sender's messages.
-        var heldViewer = viewer.CombineLatest(lane.Status.Select(s => s.State == ServerLaneState.SignedOut).DistinctUntilChanged(),
-            (access, signedOut) => signedOut ? AgentViewerAccess.Unrestricted : access);
         _held = heldMessages is null || row.Origin == AgentOrigin.Server
             ? null
-            : new HeldMessagesViewModel(row.Id, heldMessages, lane.HeldMessagesChanged, heldViewer);
+            : new HeldMessagesViewModel(row.Id, heldMessages, lane.HeldMessagesChanged, HeldViewer(lane.Status, _rows));
         Chat = new ChatTabViewModel(
             row.Id, AgentOrigin.Remote, _session, Observable.Return<string[]?>(null), input, new NoAttachmentUploader(),
             key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readDetail, lane, time, Log),
@@ -491,6 +487,29 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         _disposables.Add(ShowArtefactsCommand);
         _disposables.Add(_lease);
     }
+
+    /// <summary>The rights the held list reads under. This session outlives a sign-out, and a row's rights were read
+    /// for whoever was signed in then: signed out, the list has none and empties; once another account connects, the
+    /// cached row is skipped and the list waits for one read for that account, so the last owner's list and its Approve
+    /// and Reject never reach the next person.</summary>
+    static IObservable<AgentViewerAccess> HeldViewer(IObservable<ServerLaneStatus> status, IObservable<AgentRow> rows) =>
+        Observable.Switch(status.Scan((Trust: HeldTrust.Cached, Subject: (string?)null), (held, s) => s.State switch {
+                ServerLaneState.SignedOut => (HeldTrust.None, held.Subject),
+                ServerLaneState.Connected when held.Subject is null || held.Subject == (s.Subject ?? "") => (HeldTrust.Cached, s.Subject ?? ""),
+                ServerLaneState.Connected => (HeldTrust.Fresh, s.Subject ?? ""),
+                _ => held,
+            })
+            .DistinctUntilChanged()
+            .Select(held => {
+                var rights = rows.Select(r => AgentViewerAccess.From(r.ViewerRights));
+                return held.Trust switch {
+                    HeldTrust.None => Observable.Return(AgentViewerAccess.Unrestricted),
+                    HeldTrust.Fresh => rights.Skip(1),
+                    _ => rights,
+                };
+            }));
+
+    enum HeldTrust { Cached, None, Fresh }
 
     void Apply(AgentRow row) {
         _row = row;

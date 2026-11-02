@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
@@ -2004,6 +2005,40 @@ public class RemoteSessionViewModelTests {
 
             h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut, Epoch: 1));
             await WaitUntilAsync(() => !vm.Chat.Held!.HasItems, what: "the list to clear on sign-out");
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// The rights this session holds were read for whoever was signed in. Another account signing in waits for a
+    /// row read for it before the list is read again, so the last owner's flag never decides what the next one sees.
+    [Test]
+    public async Task Another_account_signing_in_waits_for_its_own_rights() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var api = new FakeHeldMessagesApi {
+                ListHandler = _ => Task.FromResult(new HeldMessagesRead([FakeHeldMessagesApi.Message(Guid.NewGuid())])),
+            };
+            var owner = new AgentViewerRightsDto {
+                IsOwner = true, Reaches = true, AnswerQuestions = true, ApproveToolUse = true, SendWithoutApproval = true, HoldMessages = true,
+            };
+            var row = RowWith(owner);
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 1));
+            var vm = h.Build(row, heldMessages: api);
+            await WaitUntilAsync(() => vm.Chat.Held!.HasItems, what: "the owner's held list");
+
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut, Epoch: 2));
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connecting, Epoch: 3));
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u2", Epoch: 3));
+            await WaitUntilAsync(() => !vm.Chat.Held!.HasItems, what: "the list to stay cleared");
+            var reads = api.Reads.Count;
+            await Task.Delay(200);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.Chat.Held!.HasItems).IsFalse();
+            await Assert.That(api.Reads.Count).IsEqualTo(reads);
+
+            h.Directory.Rows.AddOrUpdate(row with { ViewerRights = HeldParticipant });
+            await WaitUntilAsync(() => vm.Chat.Held!.HasItems, what: "the list read under the new account's rights");
+            await Assert.That(vm.Chat.Held!.Items.Single().CanDecide).IsFalse();
             await vm.TeardownAsync();
         });
     }
