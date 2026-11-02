@@ -192,6 +192,54 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "source_reserved"));
     }
 
+    /// <summary>Any refusal leaves the session unfenced, not only a reservation: neither resumed nor continued.</summary>
+    [Test]
+    public async Task A_refused_lease_is_interrupted_without_a_resume_or_a_continuation() {
+        var server = new CaptureServerConnection { BeginResume = _ => new HandoffTakeoverAdmission(null, "source_unavailable", 0) };
+        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        await using var _ = f.Orch;
+        Entry(f, "refused-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts).IsEmpty();
+        await Assert.That(continued).IsEqualTo(0);
+        var after = f.Orch.ResumeLedger!.TryRead("refused-1")!;
+        await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "source_lease_refused: source_unavailable"));
+    }
+
+    /// <summary>A lease lost before the readiness window passes may have let a hand-off in: the resumed agent is
+    /// ended and the entry interrupted, not continued.</summary>
+    [Test]
+    public async Task A_lease_lost_during_readiness_ends_the_resume_without_a_continuation() {
+        var server = new CaptureServerConnection {
+            BeginResume  = _ => new HandoffTakeoverAdmission("lease-1", null, 60),
+            RenewHandoff = (_, _) => Task.FromResult(false),
+        };
+        var f = Build(new ResumableFactory { PtyStyle = true }, c => c.ResumeReadinessWindow = TimeSpan.FromSeconds(2), server: server);
+        await using var _ = f.Orch;
+        f.Orch.SourceLeaseRenewal = TimeSpan.FromMilliseconds(50);
+        Entry(f, "lost-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(continued).IsEqualTo(0);
+        var after = f.Orch.ResumeLedger!.TryRead("lost-1")!;
+        await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "source_lease_lost"));
+    }
+
     /// <summary>A server that has the lease but does not answer for it leaves the session unfenced: after the retry
     /// window the entry is interrupted, neither resumed nor continued.</summary>
     [Test]

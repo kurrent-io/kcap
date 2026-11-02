@@ -1258,10 +1258,11 @@ internal partial class AgentOrchestrator {
             return ResumeOutcome.Interrupted;
         }
 
-        // A continuation resolves the same recorded account, so it would be refused too; a reserved session is being
-        // handed off, and a continuation would take it over a second time, as it might one left unfenced.
+        // A continuation resolves the same recorded account, so it would be refused too; a session without its lease may
+        // be being handed off, and a continuation would take it over a second time.
         if (!reason.StartsWith(AccountResolution.Unavailable, StringComparison.Ordinal)
-         && reason is not (SourceReservedReason or SourceLeaseUnreachableReason)) {
+         && reason is not (SourceReservedReason or SourceLeaseUnreachableReason or SourceLeaseLostReason)
+         && !reason.StartsWith(SourceLeaseRefusedReason, StringComparison.Ordinal)) {
             var outcome = await ContinueEntry(entry, reason, ct);
             if (outcome != ResumeOutcome.Interrupted) return outcome;
             if (IsWithdrawn(entry.AgentId)) return ResumeOutcome.Stopped;
@@ -1307,6 +1308,8 @@ internal partial class AgentOrchestrator {
                 case HandoffBeginResult.Answered { Admission.Token: { } token }:
                     leaseToken = token;
                     break;
+                case HandoffBeginResult.Answered { Admission.Refusal: var refused }:
+                    return ($"{SourceLeaseRefusedReason}: {refused}", null);
             }
         }
         await using var lease = leaseToken is not null ? KeepSourceLease(leaseToken, entry.SessionId!) : null;
@@ -1334,6 +1337,13 @@ internal partial class AgentOrchestrator {
         var survived = outcome.Kind == CommandOutcomeKind.LaunchExecuted && await SurvivesReadinessAsync(agent, ct, judgeTranscript: true);
 
         if (agent.StopRequested) return (StoppedDuringResume, null);
+
+        // A lapsed lease may already have let a hand-off take the session over.
+        if (lease?.IsLost == true) {
+            await agent.Runtime.TerminateAsync(ShutdownTerminateGrace);
+
+            return (SourceLeaseLostReason, null);
+        }
 
         if (!survived && TranscriptRefused(agent)) {
             // Its first turn was never sent, so kcap continue repeats nothing; still pending its resume,
@@ -1377,6 +1387,8 @@ internal partial class AgentOrchestrator {
     internal const string SourceReservedReason = "source_reserved";
 
     internal const string SourceLeaseUnreachableReason = "source_lease_unreachable";
+
+    const string SourceLeaseRefusedReason = "source_lease_refused";
 
     /// <summary>A begin that did not reach the server is retried for <see cref="HandoffSuccessorWindow"/>; a server
     /// that never answers leaves the session unfenced, so neither the resume nor a continuation may go on.</summary>
