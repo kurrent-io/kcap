@@ -8,11 +8,15 @@ namespace Capacitor.Cli.Core.LocalEdition;
 /// <param name="HolderPid">The process the OS names on the port, with <paramref name="HolderCommand"/>, when the
 /// condition is <see cref="LocalServerCondition.PortTaken"/>.</param>
 /// <param name="Answer">What answered on the port as another program, when the OS names none.</param>
+/// <param name="VectorsState">A <see cref="VectorStorageState"/> by its wire name, when a running server reported one;
+/// <c>failing</c> means search falls back to keywords although the model is usable.</param>
 public sealed record LocalStatusJson(
     bool Ready, string Headline, string Condition, string[] Notes,
-    int? Port = null, int? HolderPid = null, string? HolderCommand = null, string? Answer = null) {
-    public static LocalStatusJson From(bool ready, string headline, IEnumerable<string> notes, LocalServerReading reading) =>
-        new(ready, headline, reading.Condition.Wire, [.. notes], reading.Port, reading.Holder?.Pid, reading.Holder?.Command, reading.Answer);
+    int? Port = null, int? HolderPid = null, string? HolderCommand = null, string? Answer = null,
+    string? VectorsState = null, DateTimeOffset? VectorsLastStoredAt = null, DateTimeOffset? VectorsLastFailureAt = null) {
+    public static LocalStatusJson From(bool ready, string headline, IEnumerable<string> notes, LocalServerReading reading, EmbeddingVectors? vectors = null) =>
+        new(ready, headline, reading.Condition.Wire, [.. notes], reading.Port, reading.Holder?.Pid, reading.Holder?.Command, reading.Answer,
+            vectors?.State.Wire(), vectors?.LastStoredAt, vectors?.LastFailureAt);
 
     public string Render() => JsonSerializer.Serialize(this, LocalStatusJsonContext.Default.LocalStatusJson);
 

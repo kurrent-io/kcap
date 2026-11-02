@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Media;
 using Capacitor.App.Services;
 using Capacitor.App.Platform;
+using Capacitor.App.Platform.Mac;
 using Capacitor.App.Platform.Windows;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Install;
@@ -48,6 +49,12 @@ internal static class Program
                 if (e.ExceptionObject is Exception ex) _crashLog?.Record("unhandled", ex);
             };
         }
+
+        if (OperatingSystem.IsMacOS())
+            WedgedForkReaper.Start(new LibprocChildProcessProbe(), TimeProvider.System, message => {
+                Console.Error.WriteLine(message);
+                _crashLog?.Record("fork-reaper", new InvalidOperationException(message));
+            });
 
         if (DesktopHost.Start(args, updateRelaunch) is not { } host) return;
         Host = host;

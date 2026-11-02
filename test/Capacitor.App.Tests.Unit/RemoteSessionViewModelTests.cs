@@ -61,10 +61,13 @@ public class RemoteSessionViewModelTests {
         public RemoteSessionViewModel Build(AgentRow row, IPlanArtifactSource? planArtifacts = null,
                 Capacitor.Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,
                 BackgroundCommandActivity? commands = null, SubagentEventsReader? readSubagent = null, AccountReadings? readings = null,
-                Func<AgentRow, HandoffComposerViewModel>? handoff = null, HandoffOutcomeReader? handoffOutcomes = null) {
+                Func<AgentRow, HandoffComposerViewModel>? handoff = null, HandoffOutcomeReader? handoffOutcomes = null,
+                IPageContentSource? pageContent = null, IUrlOpener? opener = null, bool? webView = null, bool inAppPages = true) {
             Directory.Rows.AddOrUpdate(row);
-            return new RemoteSessionViewModel(row, Directory, Access, Permissions, Actions, Lane, (_, _) => Task.FromResult(Detail), new RecordingOpener(), Time, WorkSource, () => new FakeTerminalSurface(), planArtifacts, commands, pullRequests: pullRequests, plans: plans, readSubagent: readSubagent, readings: readings,
-                remoteAgents: Remote, notifier: Notifier, serverSessions: Sessions, handoff: handoff, handoffOutcomes: handoffOutcomes);
+            return new RemoteSessionViewModel(row, Directory, Access, Permissions, Actions, Lane, (_, _) => Task.FromResult(Detail), opener ?? new RecordingOpener(), Time, WorkSource, () => new FakeTerminalSurface(), planArtifacts, commands, pullRequests: pullRequests, plans: plans, readSubagent: readSubagent, readings: readings,
+                remoteAgents: Remote, notifier: Notifier, serverSessions: Sessions, handoff: handoff, handoffOutcomes: handoffOutcomes,
+                pageContent: pageContent, pageLinks: webView is null ? null : new PageLinkRouter(() => "https://a.kcap.ai"),
+                webView: webView is { } available ? new FixedWebViewAvailability(available) : null, inAppPages: () => inAppPages);
         }
 
         /// One chat poll: the pane reads its feed on the timer this harness owns.
@@ -276,10 +279,17 @@ public class RemoteSessionViewModelTests {
             var liveState = SessionAccessState.Establishing;
             using var watch = live.State.Subscribe(s => liveState = s);
             await WaitUntilAsync(() => liveState == SessionAccessState.Denied, what: "the live lease refused");
-            h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+            var answer = new TaskCompletionSource<HubCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Lane.AccessWatchHandler = _ => answer.Task;
 
             var recorded = h.Build(Harness.ServerRow("s1"));
             try {
+                // While the server is asked again, the recorded session shows it connecting, not the live lease's refusal.
+                await WaitUntilAsync(() => h.Lane.AccessWatches.Count == 2, what: "asked again");
+                await Task.Delay(50);
+                await Assert.That(recorded.Access).IsEqualTo(RemoteSessionAccess.Connecting);
+
+                answer.SetResult(HubCallOutcome.Ok);
                 await WaitUntilAsync(() => recorded.Access == RemoteSessionAccess.Ready, what: "the recorded session readable");
                 await Assert.That(recorded.ShowsPanes).IsTrue();
                 await Assert.That(recorded.AccessNote).IsEqualTo("");
@@ -302,8 +312,7 @@ public class RemoteSessionViewModelTests {
 
             var recorded = h.Build(Harness.ServerRow("s1"));
             try {
-                await WaitUntilAsync(() => recorded.Access == RemoteSessionAccess.Denied, what: "still refused");
-                await Assert.That(h.Lane.AccessWatches.Count).IsEqualTo(2);
+                await WaitUntilAsync(() => h.Lane.AccessWatches.Count == 2 && recorded.Access == RemoteSessionAccess.Denied, what: "asked again and still refused");
                 await Assert.That(recorded.ShowsPanes).IsFalse();
                 await WaitUntilAsync(() => !recorded.WorkContext.HasSession, what: "the work context cleared");
 
@@ -1907,5 +1916,79 @@ public class RemoteSessionViewModelTests {
             await Assert.That(vm.TitleEditor.ShowsPencil).IsEqualTo(shows);
             await vm.TeardownAsync();
         });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Page_links_from_chat_and_cards_open_in_the_viewer() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var opener = new RecordingOpener();
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), new FakePlanArtifactSource(), pageContent: new FakePageContentSource(),
+                opener: opener, webView: true);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await ArtefactReadsSettledAsync(vm);
+
+            await vm.Chat.OpenLinkCommand.Execute("https://a.kcap.ai/pages/pg-chat");
+            await Assert.That(vm.Artefacts.PageViewer!.ArtefactId).IsEqualTo("pg-chat");
+            await Assert.That(vm.ActiveTab).IsEqualTo(RemoteTab.Artefacts);
+
+            vm.OpenCard(new ToolCard(ToolCardKind.Page, "Published page", "Brief", "v1 · Org", "https://a.kcap.ai/artefacts/pg-card", null));
+            await Assert.That(vm.Artefacts.PageViewer!.ArtefactId).IsEqualTo("pg-card");
+
+            vm.OpenCard(new ToolCard(ToolCardKind.Page, "Published page", "Brief", "v1 · Org", "https://evil.test/pages/pg-card", null));
+            await vm.Chat.OpenLinkCommand.Execute("https://evil.test/pages/pg-chat");
+            await Assert.That(opener.Opened).IsEquivalentTo(new[] { "https://evil.test/pages/pg-card", "https://evil.test/pages/pg-chat" });
+            await (vm.Artefacts.PendingPageLoadForTesting ?? Task.CompletedTask);
+            await vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Without_a_webview_a_chat_page_link_opens_the_browser_and_reads_nothing() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var opener = new RecordingOpener();
+            var content = new FakePageContentSource();
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), new FakePlanArtifactSource(), pageContent: content,
+                opener: opener, webView: false);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await ArtefactReadsSettledAsync(vm);
+
+            await vm.Chat.OpenLinkCommand.Execute("https://a.kcap.ai/pages/pg-chat");
+
+            await Assert.That(opener.Opened).IsEquivalentTo(new[] { "https://a.kcap.ai/pages/pg-chat" });
+            await Assert.That(vm.Artefacts.PageViewer).IsNull();
+            await Assert.That(content.ContentRequested).IsEmpty();
+            await vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task With_the_switch_off_chat_and_card_page_links_open_the_browser_and_read_nothing() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var opener = new RecordingOpener();
+            var content = new FakePageContentSource();
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), new FakePlanArtifactSource(), pageContent: content,
+                opener: opener, webView: true, inAppPages: false);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await ArtefactReadsSettledAsync(vm);
+
+            await vm.Chat.OpenLinkCommand.Execute("https://a.kcap.ai/pages/pg-chat");
+            vm.OpenCard(new ToolCard(ToolCardKind.Page, "Published page", "Brief", "v1 · Org", "https://a.kcap.ai/artefacts/pg-card", null));
+
+            await Assert.That(opener.Opened).IsEquivalentTo(new[] { "https://a.kcap.ai/pages/pg-chat", "https://a.kcap.ai/artefacts/pg-card" });
+            await Assert.That(vm.Artefacts.PageViewer).IsNull();
+            await Assert.That(content.ContentRequested).IsEmpty();
+            await vm.TeardownAsync();
+        });
+    }
+
+    static async Task ArtefactReadsSettledAsync(RemoteSessionViewModel vm) {
+        await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+        await (vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);
     }
 }

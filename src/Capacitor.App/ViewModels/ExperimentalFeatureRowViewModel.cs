@@ -98,7 +98,8 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
     }
 
     void Recompute() {
-        if (!_hasStatus) {
+        // The daemon reports nothing for an app-only feature, so the switch alone is its state.
+        if (!_hasStatus || _feature.DesktopAppOnly) {
             StatusText = "";
             StatusIsWarning = false;
             return;

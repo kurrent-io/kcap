@@ -109,13 +109,13 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
 
     void ShowArtefacts() { if (ShowsArtefactsTab) ActiveTab = RemoteTab.Artefacts; }
 
-    /// A chat card's Open: a declared document selects in the tab, a page goes to the browser.
+    /// A chat card's Open: a declared document selects in the tab, a page link goes where the tab sends it.
     internal void OpenCard(ToolCard card) {
         if (card.DocumentPath is { } path) {
             if (Artefacts.OpenDocument(path)) return;
             if (Artefacts.HasAny) { Artefacts.RequestOpen(); return; }
         }
-        if (card.Url is { } url) LinkPolicy.Open(_opener, url);
+        if (card.Url is { } url) Artefacts.OpenLink(url);
     }
 
     string _title = "";
@@ -169,6 +169,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     public IObservable<bool> SessionEndedChanges => _sessionEndedChanges.AsObservable();
     /// The session this workspace is on, as the row last named it.
     public string? SessionId => _sessionIds.Value;
+    /// SessionId and every later change to it; the property raises no change notification.
+    public IObservable<string?> SessionIds => _sessionIds.AsObservable();
     // A transient empty registry snapshot also removes a live row, so only a removal after an
     // accepted stop counts as an end. Either may arrive first.
     bool _stopAccepted;
@@ -286,7 +288,9 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             IRemoteAgentsService? remoteAgents = null, IAppNotifier? notifier = null, IObservable<string?>? appSubject = null,
             IServerSessionsService? serverSessions = null, WorkContextLayout? workContextLayout = null,
             Func<AgentRow, HandoffComposerViewModel>? handoff = null, LocalMachine? localMachine = null,
-            HandoffOutcomeReader? handoffOutcomes = null) {
+            HandoffOutcomeReader? handoffOutcomes = null,
+            IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
+            Func<bool>? inAppPages = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -303,7 +307,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         _session = new BehaviorSubject<ChatSessionInfo>(SessionInfo(row, ended: row.IsEndedSession));
 
         var planActivity = new PlanActivity();
-        Artefacts = new ArtefactsTabViewModel(planArtifacts, planActivity, time, opener: opener);
+        Artefacts = new ArtefactsTabViewModel(planArtifacts, planActivity, time, opener: opener,
+            pageContent: pageContent, pageLinks: pageLinks, webView: webView, inAppPages: inAppPages);
         Artefacts.OpenRequested += ShowArtefacts;
         Artefacts.WhenAnyValue(a => a.HasAny, a => a.IsLoading, (has, loading) => has || (loading && ShowsArtefactsTab))
             .Subscribe(show => {
@@ -358,7 +363,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             accountReadings: row.MachineBadge is { } daemon ? readings?.Remote(daemon) : null, usageClock: readings?.Clock,
             signInCompleted: signInCompleted,
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
-                .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid)))) { InputSending = inputSending };
+                .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
+            openLink: Artefacts.OpenLink) { InputSending = inputSending };
         lane.Status.Select(s => s.Subject).DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(subject => {

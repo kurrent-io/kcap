@@ -598,6 +598,216 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("server:S").Value.RepoPath).IsEqualTo("/Users/me/shop-api");
     }
 
+    /// Until the twin is proven both lanes can list one session; the registry row carries no
+    /// worktree, so it must not replace the checkout the local row reported.
+    [Test]
+    public async Task An_unproven_twins_registry_row_leaves_the_local_checkout_in_place() {
+        var (local, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { WorktreePath = "/r/.wt/a1", WorkLocation = "owned" });
+        remote.Cache.AddOrUpdate(Remote("a1", daemon: "unproven", owner: "me", sessionId: "S") with { RepoPath = "/r" });
+        MineLive(sessions, "S");
+        await Assert.That(dir.Rows.Lookup("remote:a1").HasValue).IsTrue();
+
+        local.Agents.RemoveKey("a1");
+        remote.Cache.RemoveKey("a1");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S"));
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.WorktreePath).IsEqualTo("/r/.wt/a1");
+    }
+
+    /// Another daemon's registry row for the same session is not a twin, and its repository is a path on
+    /// its own machine: it must not pair with the local row's worktree, in either arrival order.
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_registry_row_from_another_machine_does_not_split_the_local_checkout(bool remoteFirst) {
+        var (local, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        MineLive(sessions, "S");
+        void AddLocal() => local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { WorktreePath = "/r/.wt/a1", WorkLocation = "owned" });
+        void AddRemote() => remote.Cache.AddOrUpdate(Remote("z9", daemon: "elsewhere", owner: "me", sessionId: "S") with { RepoPath = "/home/other/r" });
+        if (remoteFirst) { AddRemote(); AddLocal(); } else { AddLocal(); AddRemote(); }
+
+        local.Agents.RemoveKey("a1");
+        remote.Cache.RemoveKey("z9");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S"));
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/r");
+        await Assert.That(row.WorktreePath).IsEqualTo("/r/.wt/a1");
+    }
+
+    /// A resumed session reported from another worktree is another checkout: the branch the earlier one
+    /// was on does not carry over to it when nothing reports one, while the same worktree keeps its branch.
+    [Test]
+    [Arguments("/r/.wt/a2", null)]
+    [Arguments("/r/.wt/a1", "feature")]
+    public async Task A_kept_branch_carries_over_only_within_the_same_worktree(string resumedWorktree, string? expectedBranch) {
+        var (local, _, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        MineLive(sessions, "S");
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { WorktreePath = "/r/.wt/a1", Branch = "feature" });
+        local.Agents.RemoveKey("a1");
+        local.Agents.AddOrUpdate(LocalAgent("a2", sessionId: "S") with { WorktreePath = resumedWorktree });
+
+        local.Agents.RemoveKey("a2");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S"));
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.WorktreePath).IsEqualTo(resumedWorktree);
+        await Assert.That(row.Branch).IsEqualTo(expectedBranch);
+    }
+
+    /// A local row is the daemon's own account of the checkout: an agent resumed in the checkout itself names no
+    /// worktree, and that replaces the worktree an earlier launch of the session reported.
+    [Test]
+    public async Task A_local_row_running_in_place_replaces_a_kept_worktree() {
+        var (local, _, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        MineLive(sessions, "S");
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { WorktreePath = "/r/.wt/a1", WorkLocation = "owned", Branch = "feature" });
+        local.Agents.RemoveKey("a1");
+        local.Agents.AddOrUpdate(LocalAgent("a2", sessionId: "S"));
+
+        local.Agents.RemoveKey("a2");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S"));
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/r");
+        await Assert.That(row.WorktreePath).IsNull();
+        await Assert.That(row.Branch).IsNull();
+    }
+
+    /// A registry row never names a worktree, so it says nothing about a local agent running in place: it replaces
+    /// neither that checkout nor its branch, whichever row arrives first.
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_registry_row_leaves_a_local_in_place_checkout_and_its_branch(bool remoteFirst) {
+        var (local, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        MineLive(sessions, "S");
+        void AddLocal() => local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { Branch = "feature" });
+        void AddRemote() => remote.Cache.AddOrUpdate(Remote("z9", daemon: "elsewhere", owner: "me", sessionId: "S") with { RepoPath = "/home/other/r" });
+        if (remoteFirst) { AddRemote(); AddLocal(); } else { AddLocal(); AddRemote(); }
+
+        local.Agents.RemoveKey("a1");
+        remote.Cache.RemoveKey("z9");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S"));
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/r");
+        await Assert.That(row.Branch).IsEqualTo("feature");
+    }
+
+    /// Without a worktree the repository is the checkout: a registry row for another repository does not inherit the
+    /// branch an earlier registry row's listing reported.
+    [Test]
+    public async Task A_branch_does_not_carry_over_between_repositories_without_worktrees() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Branch = "feature" });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Branch = "feature" });
+        remote.Cache.AddOrUpdate(Remote("b1", daemon: "home-pc", owner: "me", sessionId: "S") with { RepoPath = "/home/a" });
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active"));
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active"));
+        remote.Cache.RemoveKey("b1");
+        remote.Cache.AddOrUpdate(Remote("b2", daemon: "home-pc", owner: "me", sessionId: "S") with { RepoPath = "/home/b" });
+
+        remote.Cache.RemoveKey("b2");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S"));
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/home/b");
+        await Assert.That(row.Branch).IsNull();
+    }
+
+    /// A registry row still listing the session as running lags the local daemon that finished it, so it does not
+    /// undo the local completion; a live local row does.
+    [Test]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    public async Task Only_a_live_local_row_undoes_a_local_completion(bool localResumes, bool ended) {
+        var (local, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        remote.CurrentSubject.OnNext(true);
+        MineLive(sessions, "S");
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S", status: "Completed"));
+        // The daemon drops its completed row before the lagging registry row arrives.
+        local.Agents.RemoveKey("a1");
+        remote.Cache.AddOrUpdate(Remote("z9", daemon: "unproven", owner: "me", sessionId: "S"));
+        remote.Cache.RemoveKey("z9");
+        if (localResumes) {
+            local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+            local.Agents.RemoveKey("a1");
+        }
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.IsEndedSession).IsEqualTo(ended);
+    }
+
+    /// The finished mark covers the listing's lag, not the session's future: once the daemon has dropped its completed
+    /// row and the hold has passed, a listing that still says active stands, as for a session resumed in a terminal.
+    [Test]
+    public async Task A_finished_mark_lapses_once_the_listing_has_had_time_to_fold_the_end() {
+        var (local, _, sessions, time, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        MineLive(sessions, "S");
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S", status: "Completed"));
+        local.Agents.RemoveKey("a1");
+
+        time.Advance(AgentDirectory.FinishedHold - TimeSpan.FromSeconds(1));
+        await Assert.That(dir.Rows.Lookup("server:S").Value.IsEndedSession).IsTrue();
+
+        time.Advance(TimeSpan.FromSeconds(2));
+        await Assert.That(dir.Rows.Lookup("server:S").Value.IsEndedSession).IsFalse();
+    }
+
+    /// While the daemon still reports the agent completed its evidence is current, so the mark holds past the hold.
+    [Test]
+    public async Task A_completed_row_the_daemon_still_holds_keeps_the_session_ended() {
+        var (local, _, sessions, time, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        MineLive(sessions, "S");
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S", status: "Completed"));
+
+        time.Advance(AgentDirectory.FinishedHold * 3);
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.IsEndedSession).IsTrue();
+    }
+
     /// The daemon's paths are protected session content like the listing's own branch: a viewer the
     /// server now lists below full access gets none of them.
     [Test]
@@ -686,6 +896,90 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("server:S").Value.IsTerminalSession).IsTrue();
     }
 
+    /// A registry row names no worktree; the listing's cwd fills that in, while the repository the
+    /// daemon reported still stands.
+    [Test]
+    public async Task The_server_row_that_replaces_a_registry_row_takes_the_listings_worktree() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        remote.Cache.AddOrUpdate(Remote("b1", daemon: "home-pc", owner: "me", sessionId: "S") with { RepoPath = "/home/r" });
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = "/home/r/.capacitor/worktrees/agent-b1" });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = "/home/r/.capacitor/worktrees/agent-b1" });
+
+        remote.Cache.RemoveKey("b1");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Cwd = "/home/r/.capacitor/worktrees/agent-b1" });
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/home/r");
+        await Assert.That(row.WorktreePath).IsEqualTo("/home/r/.capacitor/worktrees/agent-b1");
+    }
+
+    /// The listing's worktree fills a registry row's gap only when it is a worktree of the repository that row named;
+    /// another checkout's worktree must not pair with it. The daemon's machine decides path identity, not this host:
+    /// a repository that differs only in case is another repository there.
+    [Test]
+    [Arguments("/elsewhere")]
+    [Arguments("/home/R")]
+    public async Task The_listings_worktree_from_another_repository_is_not_paired_with_a_registry_row(string listedRepo) {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        var cwd = $"{listedRepo}/.capacitor/worktrees/agent-b1";
+        remote.Cache.AddOrUpdate(Remote("b1", daemon: "home-pc", owner: "me", sessionId: "S") with { RepoPath = "/home/r" });
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = cwd });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = cwd });
+
+        remote.Cache.RemoveKey("b1");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Cwd = cwd });
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/home/r");
+        await Assert.That(row.WorktreePath).IsNull();
+    }
+
+    /// A local agent that resumed in the checkout itself names no worktree; the listing's older worktree cwd must not
+    /// stand in for it once the local row is gone.
+    [Test]
+    public async Task The_listings_worktree_does_not_replace_a_local_in_place_checkout() {
+        var (local, _, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        const string cwd = "/r/.capacitor/worktrees/agent-1";
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = cwd });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = cwd });
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+
+        local.Agents.RemoveKey("a1");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Cwd = cwd });
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/r");
+        await Assert.That(row.WorktreePath).IsNull();
+    }
+
+    /// A directory that never saw the daemon row, as after an app restart, describes the session
+    /// from the listing alone.
+    [Test]
+    public async Task An_ended_session_no_daemon_row_reported_takes_its_checkout_from_the_listing() {
+        var (_, _, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Cwd = "/r/.capacitor/worktrees/agent-1", Branch = "capacitor/agent-1" });
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/r");
+        await Assert.That(row.WorktreePath).IsEqualTo("/r/.capacitor/worktrees/agent-1");
+        await Assert.That(row.Branch).IsEqualTo("capacitor/agent-1");
+    }
+
     [Test]
     public async Task Mine_hides_a_teammates_hosted_row_and_keeps_unknown_local_rows() {
         var (local, remote, sessions, _, dir) = BuildWithSessions();
@@ -747,5 +1041,70 @@ public class AgentDirectoryTests {
 
         await Assert.That(dir.Rows.Lookup("server:ABC").HasValue).IsTrue();
         await Assert.That(dir.Rows.Lookup("server:abc").HasValue).IsTrue();
+    }
+
+    /// A short run can leave before the listing first names its session; the checkout its daemon row reported is kept
+    /// all the same, under the spelling the server lists the session by.
+    [Test]
+    public async Task A_row_that_leaves_before_its_first_listing_keeps_its_checkout() {
+        var (local, _, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        const string guid = "0d1e2f30-4455-6677-8899-aabbccddeeff";
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: guid) with { WorktreePath = "/r/.wt/a1", WorkLocation = "owned", Branch = "feature" });
+
+        local.Agents.RemoveKey("a1");
+        sessions.EndedCache.AddOrUpdate(Listed("0d1e2f30445566778899aabbccddeeff"));
+
+        var row = dir.Rows.Lookup("server:0d1e2f30445566778899aabbccddeeff").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/r");
+        await Assert.That(row.WorktreePath).IsEqualTo("/r/.wt/a1");
+        await Assert.That(row.Branch).IsEqualTo("feature");
+    }
+
+    /// A registry row beside a local row for the same session replaces nothing the local row reported, not even the
+    /// branch: the registry carries the listing's branch, which must not displace the daemon's own.
+    [Test]
+    public async Task A_registry_row_does_not_displace_the_local_daemons_branch() {
+        var (local, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Branch = "main" });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Branch = "main" });
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { Branch = "feature" });
+        remote.Cache.AddOrUpdate(Remote("z9", daemon: "unproven", owner: "me", sessionId: "S") with { RepoPath = "/r" });
+
+        local.Agents.RemoveKey("a1");
+        remote.Cache.RemoveKey("z9");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Branch = "main" });
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.Branch).IsEqualTo("feature");
+    }
+
+    /// A registry row carries the listing's branch, not its own, so the branch kept from it is only an earlier
+    /// listing's: a newer listing's branch replaces it, while a branch the local daemon reported still stands.
+    [Test]
+    [Arguments(false, "renamed")]
+    [Arguments(true, "feature")]
+    public async Task Only_a_daemon_reported_branch_outranks_a_newer_listing(bool local, string expected) {
+        var (localDaemon, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(localDaemon);
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Branch = "feature" });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Branch = "feature" });
+        if (local) localDaemon.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { Branch = "feature" });
+        else remote.Cache.AddOrUpdate(Remote("b1", daemon: "home-pc", owner: "me", sessionId: "S") with { RepoPath = "/home/r" });
+
+        if (local) localDaemon.Agents.RemoveKey("a1"); else remote.Cache.RemoveKey("b1");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Branch = "renamed" });
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.Branch).IsEqualTo(expected);
     }
 }

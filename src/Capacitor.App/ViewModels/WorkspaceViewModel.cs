@@ -162,13 +162,13 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         ActiveTab = WorkspaceTab.Chat;
     }
 
-    /// A chat card's Open: a declared document selects in the tab, a page goes to the browser.
+    /// A chat card's Open: a declared document selects in the tab, a page link goes where the tab sends it.
     internal void OpenCard(ToolCard card) {
         if (card.DocumentPath is { } path) {
             if (Artefacts.OpenDocument(path)) return;
             if (Artefacts.HasAny) { Artefacts.RequestOpen(); return; }
         }
-        if (card.Url is { } url) LinkPolicy.Open(_opener, url);
+        if (card.Url is { } url) Artefacts.OpenLink(url);
     }
 
     public ReactiveCommand<Unit, Unit> OpenInWebCommand { get; }
@@ -201,7 +201,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             IMessageSenderSource? senders = null,
             IObservable<string?>? appSubject = null, IAppNotifier? notifier = null,
             IObservable<ServerLaneStatus>? serverLane = null, WorkContextLayout? workContextLayout = null,
-            HandoffOutcomeReader? handoffOutcomes = null) {
+            HandoffOutcomeReader? handoffOutcomes = null,
+            IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
+            Func<bool>? inAppPages = null) {
         AgentId = agentId;
         _drafts = drafts;
         _opener = opener;
@@ -229,7 +231,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         var runs = _runs = new SessionRuns(time);
         commands?.Track($"local:{agentId}", runs, () => Chat?.ReleaseFeed()).DisposeWith(_disposables);
         var planActivity = new PlanActivity();
-        Artefacts = new ArtefactsTabViewModel(planArtifacts, planActivity, time, opener: opener);
+        Artefacts = new ArtefactsTabViewModel(planArtifacts, planActivity, time, opener: opener,
+            pageContent: pageContent, pageLinks: pageLinks, webView: webView, inAppPages: inAppPages);
         Artefacts.OpenRequested += ShowArtefacts;
         _disposables.Add(Disposable.Create(() => Artefacts.OpenRequested -= ShowArtefacts));
         // Keep the tab while a visible session's read is in flight; do not force it on for a
@@ -374,7 +377,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     agentId, daemon, input, uploader, projection, opener, time, permissions, runs, note, sessionIds, localDaemonOnAppServer, planActivity, OpenCard, drafts, transcripts,
                     senders, readings?.Local, readings?.Clock, signInCompleted,
                     handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(sessionIds
-                        .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid)))) {
+                        .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
+                    openLink: Artefacts.OpenLink) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
                     InputSending = inputSending,
                 };

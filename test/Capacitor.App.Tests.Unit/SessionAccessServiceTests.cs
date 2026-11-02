@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using Capacitor.App.Services;
 using Microsoft.Extensions.Time.Testing;
 using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
@@ -31,6 +32,46 @@ public class SessionAccessServiceTests {
         await WaitUntilAsync(async () => await Harness.Current(lease) == SessionAccessState.Established, "established");
         lease.Dispose();
         await WaitUntilAsync(() => h.Lane.ChatUnsubscribes.Contains("s1"), what: "unsubscribe on last release");
+    }
+
+    /// States reach the transition stream in the order they were published, across entries too: an entry replaced from
+    /// inside its own observer still delivers its refusal before its successor's establishment, or a reader ordering by
+    /// session would let the stale refusal win.
+    [Test]
+    public async Task A_replaced_entrys_last_state_reaches_transitions_before_its_successors() {
+        using var h = new Harness();
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Denied("Session not visible to caller"));
+        h.Connect();
+        var seen = new List<SessionAccessState>();
+        using var transitions = h.Service.Transitions.Where(t => t.SessionId == "s1").Subscribe(t => { lock (seen) seen.Add(t.State); });
+        var old = h.Service.Acquire("s1");
+        SessionAccessLease? successor = null;
+        using var replace = old.State.Where(s => s == SessionAccessState.Denied).Take(1).Subscribe(_ => {
+            h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+            old.Dispose();
+            successor = h.Service.Acquire("s1");
+        });
+
+        await WaitUntilAsync(() => { lock (seen) return seen.Contains(SessionAccessState.Established); }, what: "the successor established");
+
+        List<SessionAccessState> order;
+        lock (seen) order = [.. seen];
+        await Assert.That(order.IndexOf(SessionAccessState.Denied)).IsLessThan(order.IndexOf(SessionAccessState.Established));
+        successor?.Dispose();
+    }
+
+    /// An observer that throws keeps the state from neither the transition stream nor later states.
+    [Test]
+    public async Task A_throwing_observer_does_not_hide_the_state_from_transitions() {
+        using var h = new Harness();
+        var seen = new List<SessionAccessState>();
+        using var transitions = h.Service.Transitions.Where(t => t.SessionId == "s1").Subscribe(t => { lock (seen) seen.Add(t.State); });
+        // Subscribed while the lane is down, so the throwing observer is in place before anything is established.
+        using var lease = h.Service.Acquire("s1");
+        using var thrower = lease.State.Subscribe(s => { if (s == SessionAccessState.Established) throw new InvalidOperationException("observer"); });
+        h.Connect();
+
+        await WaitUntilAsync(() => { lock (seen) return seen.Contains(SessionAccessState.Established); }, what: "established on the transition stream");
     }
 
     [Test]
@@ -97,6 +138,81 @@ public class SessionAccessServiceTests {
         await WaitUntilAsync(async () => await Harness.Current(lease) == SessionAccessState.Established, "re-asked once refused");
     }
 
+    /// The re-ask must not lift a refusal it has not overturned: a failed attempt or a lane drop
+    /// would read as Offline, which shows the withheld transcript again.
+    [Test]
+    public async Task A_refusal_stands_through_a_failed_re_ask_and_a_lane_drop_until_access_is_established() {
+        using var h = new Harness();
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Denied("Session not visible to caller"));
+        h.Connect();
+        using var first = h.Service.Acquire("s1");
+        await WaitUntilAsync(async () => await Harness.Current(first) == SessionAccessState.Denied, "first denied");
+        var seen = new List<SessionAccessState>();
+        using var watch = first.State.Subscribe(s => { lock (seen) seen.Add(s); });
+
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Failed("transient"));
+        using var second = h.Service.Acquire("s1");
+        // The ladder's retry is armed in the same section that publishes the failed verdict, so a
+        // third ask proves the second was answered.
+        await WaitUntilAsync(() => {
+            h.Time.Advance(Slice);
+            return h.Lane.AccessWatches.Count(s => s == "s1") >= 3;
+        }, what: "the failed re-ask retried");
+        h.Drop();
+        List<SessionAccessState> states;
+        lock (seen) states = [.. seen];
+        // Asking again may show Establishing, which shows nothing; Unavailable would show the withheld transcript.
+        await Assert.That(states).DoesNotContain(SessionAccessState.Unavailable);
+        await Assert.That(states[^1]).IsEqualTo(SessionAccessState.Denied);
+
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+        h.Connect(epoch: 2);
+        await WaitUntilAsync(async () => await Harness.Current(second) == SessionAccessState.Established, "established");
+    }
+
+    /// An observer runs with none of the service's locks held, so one that blocks, or calls back in
+    /// from another thread, cannot stall every other lease.
+    [Test]
+    public async Task A_blocked_observer_holds_no_lock_the_service_needs() {
+        using var h = new Harness();
+        using var lease = h.Service.Acquire("s1");
+        using var entered = new ManualResetEventSlim();
+        using var resume = new ManualResetEventSlim();
+        using var watch = lease.State.Subscribe(s => {
+            if (s != SessionAccessState.Established) return;
+            entered.Set();
+            resume.Wait();
+        });
+        h.Connect();
+        await Task.Run(entered.Wait);
+
+        var other = await Task.Run(() => {
+            using var l = h.Service.Acquire("s2");
+            h.Service.RecheckDenied("s1");
+            return l.SessionId;
+        }).WaitAsync(TimeSpan.FromSeconds(30));
+        resume.Set();
+
+        await Assert.That(other).IsEqualTo("s2");
+    }
+
+    /// A throwing observer must not wedge delivery: a later refusal still reaches the lease.
+    [Test]
+    public async Task A_throwing_observer_does_not_stop_later_states() {
+        using var h = new Harness();
+        using var lease = h.Service.Acquire("s1");
+        using var thrower = lease.State.Subscribe(s => {
+            if (s == SessionAccessState.Established) throw new InvalidOperationException("observer bug");
+        });
+        h.Connect();
+        await WaitUntilAsync(() => h.Lane.ChatSubscribes.Contains("s1"), what: "established");
+
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Denied("Session not visible to caller"));
+        h.Lane.SessionAccessChangedSubject.OnNext("s1");
+
+        await WaitUntilAsync(async () => await Harness.Current(lease) == SessionAccessState.Denied, "the refusal delivered");
+    }
+
     [Test]
     public async Task Lane_down_is_unavailable_and_reconnect_re_establishes() {
         using var h = new Harness();
@@ -108,6 +224,30 @@ public class SessionAccessServiceTests {
         await WaitUntilAsync(async () => await Harness.Current(lease) == SessionAccessState.Unavailable, "unavailable on drop");
         h.Connect(epoch: 2);
         await WaitUntilAsync(() => h.Lane.ChatSubscribes.Count(s => s == "s1") == 2, what: "re-subscribed after reconnect");
+    }
+
+    /// The set the rail reads to leave an open session's pending items to its own cards: in while
+    /// access stands, out once it is refused or the last lease goes.
+    [Test]
+    public async Task Established_sessions_track_access_from_grant_to_denial_and_release() {
+        using var h = new Harness();
+        IReadOnlySet<string> open = new HashSet<string>();
+        using var sub = h.Service.EstablishedSessions.Subscribe(s => open = s);
+        h.Connect();
+        var lease = h.Service.Acquire("s1");
+        await WaitUntilAsync(() => open.Contains("s1"), what: "established session listed");
+
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Denied("Session not visible to caller"));
+        h.Lane.SessionAccessChangedSubject.OnNext("s1");
+        await WaitUntilAsync(async () => await Harness.Current(lease) == SessionAccessState.Denied, "denied");
+        await Assert.That(open).DoesNotContain("s1");
+
+        h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+        h.Service.RecheckDenied("s1");
+        await WaitUntilAsync(() => open.Contains("s1"), what: "re-granted session listed");
+
+        lease.Dispose();
+        await WaitUntilAsync(() => !open.Contains("s1"), what: "released session dropped");
     }
 
     [Test]

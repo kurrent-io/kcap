@@ -63,7 +63,7 @@ public static class GitRepository {
             // I/O errors — same "heuristic, not authoritative" stance as FindRoot.
         }
 
-        return StripAgentWorktreeTail(path);
+        return AgentWorktreeOf(path)?.Owner ?? path;
     }
 
     /// <summary>The git directory belonging to THIS working tree: <c>.git</c> in a main checkout,
@@ -167,14 +167,20 @@ public static class GitRepository {
     static bool IsObjectId(string text) =>
         text.Length is 40 or 64 && text.All(char.IsAsciiHexDigit);
 
-    static string StripAgentWorktreeTail(string path) {
+    /// <summary>The checkout that owns an agent worktree (<c>&lt;repo&gt;/.claude/worktrees/&lt;leaf&gt;</c>,
+    /// <c>&lt;repo&gt;/.capacitor/worktrees/&lt;leaf&gt;</c>) and that worktree's root, read from the path
+    /// alone, so it holds for a path on another machine or one already removed. Null for any other path.</summary>
+    public static (string Owner, string Worktree)? AgentWorktreeOf(string path) {
         var normalized = path.Replace('\\', '/');
+        // The innermost marker wins: an agent worktree can itself live inside another's.
+        var (at, length) = (-1, 0);
         foreach (var infra in (string[])["/.claude/worktrees/", "/.capacitor/worktrees/"]) {
             var i = normalized.LastIndexOf(infra, StringComparison.Ordinal);
-            if (i > 0 && i + infra.Length < normalized.Length)
-                return path[..i];
+            if (i > at && i > 0 && i + infra.Length < normalized.Length) (at, length) = (i, infra.Length);
         }
+        if (at < 0) return null;
 
-        return path;
+        var end = normalized.IndexOf('/', at + length);
+        return (path[..at], end < 0 ? path : path[..end]);
     }
 }

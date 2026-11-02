@@ -117,12 +117,13 @@ internal sealed class MacOsDesktopNotificationSink : IDesktopNotificationSink, I
 
     public void OpenSystemSettings() {
         if (_bundleId is null) return;
-        try {
-            using var process = Process.Start(new ProcessStartInfo("/usr/bin/open") {
-                ArgumentList = { "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=" + _bundleId },
-                UseShellExecute = false,
-            });
-        } catch (Exception error) { DesktopNotifications.Report(error); }
+        var target = "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=" + _bundleId;
+        // Off the caller's thread: Process.Start can block while another spawn in the app is stalled.
+        _ = Task.Run(() => {
+            try {
+                using var process = Process.Start(new ProcessStartInfo("/usr/bin/open") { ArgumentList = { target }, UseShellExecute = false });
+            } catch (Exception error) { DesktopNotifications.Report(error); }
+        });
     }
 
     // UNAuthorizationStatus: provisional and ephemeral grants deliver too.

@@ -1,3 +1,4 @@
+using DynamicData;
 using Capacitor.Cli.Core.Telemetry;
 using System.Collections.Frozen;
 using System.ComponentModel;
@@ -208,6 +209,9 @@ public partial class App : Application {
     IDisposable? _notificationAccessPrompt;
     DesktopNotificationCoordinator? _desktopNotifications;
     readonly Subject<string?> _viewedAgent = new();
+    /// Sessions with a workspace open in the main window; notification leases establish access
+    /// to every session, so established access alone does not mean open.
+    readonly BehaviorSubject<IReadOnlySet<string>> _openSessions = new(FrozenSet<string>.Empty);
     NotificationSessionSubscriptions? _notificationSessions;
     // The server lane's half of the permission graph. Disposed as a group with _permissions: the
     // feed and the tracker first (both push into the cache and hold timers), the access service
@@ -1048,7 +1052,8 @@ public partial class App : Application {
         var workContext = new ServerWorkContextSource(_config, profiles, _serverEnv, _machineEnv, localRoot: _localRoot);
         var pullRequests = new ServerPullRequestSource(_config, profiles, _serverEnv, _machineEnv, _time, localRoot: _localRoot);
         var plans = new ServerPlanSource(_config, profiles, _serverEnv, _machineEnv, localRoot: _localRoot);
-        var planArtifacts = new ServerPlanArtifactSource(_config, profiles, _serverEnv, _machineEnv, localRoot: _localRoot);
+        var planArtifacts = new ServerPlanArtifactSource(_config, profiles, _serverEnv, _machineEnv, localRoot: _localRoot,
+            viewerName: ServerPlanArtifactSource.StoredSignInName(_foreignHttp.GetRequiredService<TokenStore>(), profiles));
         var senders = new ServerMessageSenderSource(_config, profiles, _serverEnv, _machineEnv, localRoot: _localRoot);
         var ghRunner = new ProcessRunner(_time);
         var gh = new GitHubCliRunner(ghRunner, OperatingSystem.IsWindows() ? null : new LoginShellProbe(ghRunner, Environment.GetEnvironmentVariable), Environment.GetEnvironmentVariable);
@@ -1116,13 +1121,11 @@ public partial class App : Application {
         // nothing, so anything pushed before the feed and the tracker are subscribed is lost.
         serverLane.Start();
 
-        // The rail pips on both halves: agents with a card in the cache, plus sessions the tracker
-        // knows are waiting but the app has never opened, mapped back to their agent.
+        var unopenedAttention = attention.SessionsWithAttention
+            .CombineLatest(sessionAccess.EstablishedSessions, _openSessions, PendingAttention.Unopened)
+            .Replay(1).RefCount();
         var agentsWithPending = permissions.AgentsWithPending.CombineLatest(
-            attention.SessionsWithAttention, directory.SessionAgents,
-            (cards, sessions, map) => (IReadOnlySet<string>)cards
-                .Concat(sessions.Select(s => map.GetValueOrDefault(s, "")).Where(a => a.Length > 0))
-                .ToHashSet(StringComparer.Ordinal));
+            unopenedAttention, directory.SessionAgents, PendingAttention.Agents);
 
         // The signed-in user's own id (JwtClaims sub claim), read fresh per call — never cached,
         // since a re-auth or profile switch must be reflected on the very next read.
@@ -1170,12 +1173,16 @@ public partial class App : Application {
         localSearch = localUpgrade is null ? null
             : new LocalSearchController(() => lifecycleCli, action => Dispatcher.UIThread.Post(action), held: () => localUpgrade.Running);
         _localSearch = localSearch;
+        Func<CancellationToken, Task<EmbeddingHealthAnswer?>>? localEmbeddingHealth = profiles?.Resolution.ServerUrl is { Length: > 0 } localUrl
+            ? ct => EmbeddingHealthAnswer.ReadAsync(localUrl, ct)
+            : null;
         var localStack = localUpgrade is null ? null : new LocalStackViewModel(
             () => LocalEndpoints.Read(_localRoot).Active?.Version, serverLane.Status, localUpgrade, lifecycleCli.LocalStartAsync,
             () => serverLane.RestartAsync(), _shutdown.Token, searchChange: localSearch) {
             Search = localSearch is null ? null : new LocalSearchViewModel(
                 () => LocalEmbeddingFile.Read(_localRoot), ct => LocalBuiltinOffer.LookupAsync(_localRoot, ct), serverLane.Status, localSearch, localUpgrade, () => serverLane.RestartAsync(),
-                _shutdown.Token, openSettings: _openSearchSettings, builtinModelReady: () => LocalBuiltinOffer.InstalledModelReady(_localRoot)),
+                _shutdown.Token, openSettings: _openSearchSettings, builtinModelReady: () => LocalBuiltinOffer.InstalledModelReady(_localRoot),
+                readHealth: localEmbeddingHealth),
         };
         _localStack = localStack;
         IObservable<bool>? stackOwnsStart = null;
@@ -1216,7 +1223,11 @@ public partial class App : Application {
         };
         // Workspace links only: the explicit "Open in web" actions keep the browser.
         var workspaceOpener = new AgentLinkOpener(opener, profiles?.Resolution.ServerUrl,
-            agentId => _coordinator?.Window?.DataContext is MainWindowViewModel vm && vm.OpenSession(agentId));
+            agentId => _coordinator?.Window?.DataContext is MainWindowViewModel vm
+                && vm.OpenSession(AgentLinkLabels.HeldIdOf(directory.Rows, agentId) ?? agentId));
+        var pageLinks = new PageLinkRouter(() => profiles?.Resolution.ServerUrl);
+        var webView = new WebViewAvailability();
+        var inAppPages = new InAppPagesSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName);
         var drafts = new ComposerDrafts();
         var workContextLayout = new WorkContextLayout();
         var transcripts = new LocalTranscripts();
@@ -1234,7 +1245,8 @@ public partial class App : Application {
             pullRequestSnapshots: pullRequestSnapshots, transcripts: transcripts,
             pullRequestLinksChanged: pullRequestTones.Refresh, readings: readings, senders: senders,
             appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
-            handoffOutcomes: handoffOutcomes);
+            handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
+            inAppPages: () => inAppPages.IsOn);
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
         // host, and the click opens nothing.
@@ -1246,7 +1258,9 @@ public partial class App : Application {
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
-                    serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes)
+                    serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
+                    pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
+                    inAppPages: () => inAppPages.IsOn)
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
         var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
@@ -1282,7 +1296,8 @@ public partial class App : Application {
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
-                    handoffOutcomes: handoffOutcomes)
+                    handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
+                    inAppPages: () => inAppPages.IsOn)
                 : null;
 
         _coordinator = new MainWindowCoordinator(
@@ -1415,7 +1430,10 @@ public partial class App : Application {
             quit: () => desktop.TryShutdown(), openReviewPrompts: _promptCoordinator.ShowPromptWindow,
             lifecycleAttention: lifecycleAttention, shimOfferable: shimOffer.Offerable,
             installShim: shimOffer.RunManualInstallAsync, permissions: permissions,
-            remote: TrayViewModel.SummaryFrom(directory, attention.SessionsWithAttention),
+            remote: TrayViewModel.SummaryFrom(directory, unopenedAttention.CombineLatest(
+                permissions.Pending.QueryWhenChanged(q => (IReadOnlyList<PendingPermissionRequest>)[.. q.Items])
+                    .StartWith((IReadOnlyList<PendingPermissionRequest>)[]),
+                PendingAttention.TraySessions)),
             updateMenu: _updates.MenuItem, updateAction: RunUpdateMenuActionAsync,
             restartPending: restartPending.Pending, openSettings: openSettings, openLaunchApprovals: launchApprovals.Show);
         _tray = new TrayIconManager(this, _trayVm);
@@ -2256,6 +2274,11 @@ public partial class App : Application {
         var window = adopt?.Window ?? new MainWindow();
         window.DataContext = vm;
         window.Closed += (_, _) => vm.Search?.Dispose();
+        // An adopted window still holds the labels over the directory it was built with.
+        window.GetValue(MarkdownView.AgentLinksProperty)?.Dispose();
+        var agentLinks = new AgentLinkLabels(appServerUrl, resolvedDirectory.Rows, RxSchedulers.MainThreadScheduler);
+        MarkdownView.SetAgentLinks(window, agentLinks);
+        window.Closed += (_, _) => agentLinks.Dispose();
         window.Notifier = notifier;
         window.ContentScale = uiScale;
         window.Onboarding = null;
@@ -2280,7 +2303,14 @@ public partial class App : Application {
             })
             .DistinctUntilChanged()
             .Subscribe(_viewedAgent.OnNext);
-        window.Closed += (_, _) => subscription.Dispose();
+        var open = vm.OpenSessionId
+            .Select(id => id is { Length: > 0 } ? (IReadOnlySet<string>)new HashSet<string>(StringComparer.Ordinal) { id } : FrozenSet<string>.Empty)
+            .Subscribe(_openSessions.OnNext);
+        window.Closed += (_, _) => {
+            subscription.Dispose();
+            open.Dispose();
+            _openSessions.OnNext(FrozenSet<string>.Empty);
+        };
         return window;
     }
 

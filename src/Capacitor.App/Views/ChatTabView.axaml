@@ -11,6 +11,18 @@
                          Button#AttachButton.kcapGhost:not(:disabled):pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
         </Style>
+        <!-- The bubble's fill is set here, not on the Border, so the undelivered style can replace it. -->
+        <Style Selector="Border.userTurn">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        </Style>
+        <Style Selector="Border.userTurn.undelivered">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Border.userTurn.undelivered views|MarkdownView">
+            <Setter Property="Opacity" Value="0.6" />
+        </Style>
         <Style Selector="Border.toolGroup">
             <Setter Property="Margin" Value="0,4,0,22" />
         </Style>
@@ -187,8 +199,8 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.DataTemplates>
                 <DataTemplate x:DataType="vm:UserTurnItem">
-                    <Border HorizontalAlignment="Right" MaxWidth="520" Margin="0,8,0,12" Padding="14,11" CornerRadius="10"
-                            Background="{StaticResource KcapSurfaceRaisedBrush}">
+                    <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
+                            HorizontalAlignment="Right" MaxWidth="520" Margin="0,8,0,12" Padding="14,11" CornerRadius="10">
                         <StackPanel Spacing="6">
                             <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
                                 <TextBlock.Text>
@@ -230,6 +242,12 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" IsVisible="{Binding IsUndelivered}">
+                                <views:AppIcon Kind="CircleMinus" Size="14" VerticalAlignment="Center"
+                                               Foreground="{StaticResource KcapMutedBrush}" />
+                                <TextBlock Grid.Column="1" Text="{x:Static vm:UserTurnItem.UndeliveredNote}" FontSize="12" TextWrapping="Wrap"
+                                           VerticalAlignment="Center" Foreground="{StaticResource KcapMutedBrush}" />
+                            </Grid>
                         </StackPanel>
                     </Border>
                 </DataTemplate>

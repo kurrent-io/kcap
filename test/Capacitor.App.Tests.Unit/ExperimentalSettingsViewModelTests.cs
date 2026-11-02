@@ -10,7 +10,7 @@ public class ExperimentalSettingsViewModelTests {
     const string Id = "codex-app-server";
 
     // These tests are about saving and status, and start from a switch that reads off on every platform.
-    static readonly IReadOnlyList<ExperimentalFeature> OffByDefault = [.. ExperimentalFeatures.All.Select(f => f with { OnByDefault = false })];
+    static readonly IReadOnlyList<ExperimentalFeature> OffByDefault = [ExperimentalFeatures.CodexAppServer with { OnByDefault = false }];
 
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
@@ -47,7 +47,7 @@ public class ExperimentalSettingsViewModelTests {
     [Test]
     public Task A_switch_the_profile_never_set_shows_the_features_default() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
-        IReadOnlyList<ExperimentalFeature> onByDefault = [.. ExperimentalFeatures.All.Select(f => f with { OnByDefault = true })];
+        IReadOnlyList<ExperimentalFeature> onByDefault = [ExperimentalFeatures.CodexAppServer with { OnByDefault = true }];
         using var vm = new ExperimentalSettingsViewModel(store, "work", Connected(), onByDefault);
         await vm.Loaded;
 
@@ -59,7 +59,7 @@ public class ExperimentalSettingsViewModelTests {
     [Test]
     public Task A_switch_on_by_default_shows_the_daemons_state_for_it() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
-        IReadOnlyList<ExperimentalFeature> onByDefault = [.. ExperimentalFeatures.All.Select(f => f with { OnByDefault = true })];
+        IReadOnlyList<ExperimentalFeature> onByDefault = [ExperimentalFeatures.CodexAppServer with { OnByDefault = true }];
         var service = Connected();
         using var vm = new ExperimentalSettingsViewModel(store, "work", service, onByDefault);
         await vm.Loaded;
@@ -314,5 +314,31 @@ public class ExperimentalSettingsViewModelTests {
         await WorkspaceFixtures.WaitUntilAsync(() => vm.Problem is not null, what: "the refused save's reload");
         await Assert.That(row.IsEnabled).IsFalse();
         await Assert.That(vm.Problem).Contains("not a JSON object");
+    });
+
+    /// The daemon reports nothing for an app-only feature: reading its silence as an old daemon, or a
+    /// stopped daemon as a change still to apply, would misstate a switch that already took effect.
+    [Test]
+    public Task An_app_only_row_shows_its_saved_switch_whatever_the_daemon_reports() => AvaloniaSession.RunOnUiAsync(async () => {
+        var store = new ExperimentalSettingsStore(Config.Root);
+        await store.SetAsync("work", ExperimentalFeatures.InAppPages.Id, true, CancellationToken.None);
+        using var vm = new ExperimentalSettingsViewModel(store, "work", Connected(), [ExperimentalFeatures.InAppPages]);
+        await vm.Loaded;
+        var row = vm.Features.Single();
+
+        await Assert.That(row.IsEnabled).IsTrue();
+        await Assert.That(row.CanChange).IsTrue();
+
+        row.Observe(daemonRunning: true, hasStatus: true, Reporting(resolved: true, active: true));
+        await Assert.That(row.StatusText).IsEqualTo("");
+        await Assert.That(row.StatusIsWarning).IsFalse();
+
+        row.Observe(daemonRunning: false, hasStatus: true, null);
+        await Assert.That(row.StatusText).IsEqualTo("");
+
+        row.IsEnabled = false;
+        await WorkspaceFixtures.WaitUntilAsync(() => !store.Load("work").IsEnabled(ExperimentalFeatures.InAppPages.Id), what: "the save");
+        await Assert.That(row.StatusText).IsEqualTo("");
+        await Assert.That(row.StatusIsWarning).IsFalse();
     });
 }

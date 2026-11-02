@@ -26,6 +26,27 @@ public class LocalStatusJsonTests {
     }
 
     [Test]
+    public async Task The_vectors_state_rides_beside_the_reading() {
+        var failed  = new DateTimeOffset(2026, 11, 2, 9, 14, 5, TimeSpan.Zero);
+        var reading = new LocalServerReading(LocalServerCondition.Installed, 9473);
+
+        var line = LocalStatusJson.From(true, "Ready on http://localhost:9473.", [], reading,
+            new EmbeddingVectors(VectorStorageState.Failing, null, failed)).Render();
+
+        await Assert.That(line).Contains("\"vectors_state\":\"failing\"")
+            .And.Contains("\"vectors_last_stored_at\":null")
+            .And.Contains("\"vectors_last_failure_at\":\"2026-11-02T09:14:05");
+        await Assert.That(LocalStatusJson.Parse(line)).IsEqualTo(reading);
+    }
+
+    [Test]
+    public async Task No_vectors_report_leaves_the_fields_null() {
+        var line = LocalStatusJson.From(false, "Stopped.", [], new(LocalServerCondition.Installed, 9473)).Render();
+
+        await Assert.That(line).Contains("\"vectors_state\":null");
+    }
+
+    [Test]
     [Arguments("")]
     [Arguments("Usage: kcap local <subcommand>")]
     [Arguments("{\"ready\":false,\"headline\":\"x\",\"condition\":\"sleeping\",\"notes\":[]}")]

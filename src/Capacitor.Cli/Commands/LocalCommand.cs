@@ -64,7 +64,7 @@ sealed class LocalCommand(
     static async Task<int> StatusJsonAsync(LocalStack stack) {
         var report = await ReadStatusAsync(stack);
 
-        await Console.Out.WriteLineAsync(LocalStatusJson.From(report.Ready, report.Headline, report.Notes, report.Reading).Render());
+        await Console.Out.WriteLineAsync(LocalStatusJson.From(report.Ready, report.Headline, report.Notes, report.Reading, report.Vectors).Render());
 
         return report.Ready ? 0 : 1;
     }
