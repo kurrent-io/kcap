@@ -127,17 +127,11 @@ internal partial class AgentOrchestrator {
         var outcome = await LaunchAdmittedAsync(command, consent, hold, resume, cancel, onPublished);
 
         // Every failure before this point that reached LaunchAdmittedAsync's own paths was reported there.
-        if (resume is { Unstopped: true, Agent: { } stuck }) {
-            lease.KeepUntilExit(stuck.Runtime);
-
-            return outcome;
-        }
-
         if (resume.RefusedRegistration is not null) {
             // Refused, the server holds no live agent on the source, so only the lease fences a runtime that will not die.
-            if (resume.Agent?.Runtime is { HasExited: false } survivor) {
+            if (resume is { Survivor: { } survivor, Agent: { } refused }) {
                 LogInPlaceRetireUnconfirmed(cmd.AgentId);
-                lease.KeepUntilExit(survivor);
+                lease.KeepUntilExit(refused.Runtime, survivor);
 
                 return outcome;
             }
@@ -204,12 +198,28 @@ internal partial class AgentOrchestrator {
         return agent.Runtime.HasExited;
     }
 
-    static async Task<bool> TerminateConfirmedAsync(AgentInstance agent) {
-        if (!agent.Runtime.HasExited) await agent.Runtime.TerminateAsync(StopTerminateGrace);
-        if (!agent.Runtime.HasExited) await agent.Runtime.WaitForExitAsync(StopExitPoll);
+    /// <summary>A kill that throws is one that was not confirmed.</summary>
+    async Task<bool> TerminateConfirmedAsync(AgentInstance agent) {
+        try {
+            if (!agent.Runtime.HasExited) await agent.Runtime.TerminateAsync(StopTerminateGrace);
+            if (!agent.Runtime.HasExited) await agent.Runtime.WaitForExitAsync(StopExitPoll);
+        } catch (Exception ex) when (ex is not OperationCanceledException) {
+            LogCleanupStepFailed(ex, "terminating a resume", agent.Id);
+        }
 
         return agent.Runtime.HasExited;
     }
+
+    /// <summary>Whether the process still looks like this agent's, by the evidence cleanup's quarantine uses. Without
+    /// a recorded identity nothing proves it is, so it is taken as gone.</summary>
+    internal Func<int, string, bool> ProcessStillOurs { get; set; } =
+        static (pid, identity) => ProcessIdentity.IsAlive(pid) && ProcessIdentity.MatchesTri(pid, identity) != false;
+
+    ProcessEvidence? SurvivorOf(AgentInstance agent) =>
+        !agent.Runtime.HasExited && agent.Runtime.Pid is > 0 and var pid && agent.StartIdentity is { } identity
+     && ProcessStillOurs(pid, identity)
+            ? new ProcessEvidence(pid, identity)
+            : null;
 
     ResumeLedgerEntry InPlaceEntry(LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace, string directory, string native, LaunchConsentOutcome consent) {
         var now    = _time.GetUtcNow();
@@ -270,14 +280,16 @@ internal partial class AgentOrchestrator {
 
         /// <summary>Keeps renewing until <paramref name="runtime"/> exits, then ends the lease; disposing it before then
         /// does nothing.</summary>
-        public void KeepUntilExit(IHostedAgentRuntime runtime) {
-            if (Interlocked.Exchange(ref _handedOff, 1) == 0) _ = EndOnExitAsync(runtime, runtime.Pid, runtime.StartIdentity);
+        public void KeepUntilExit(IHostedAgentRuntime runtime, ProcessEvidence process) {
+            if (Interlocked.Exchange(ref _handedOff, 1) == 0) _ = EndOnExitAsync(runtime, process);
         }
 
-        // A failed renewal is no proof the server dropped the lease, so only the process's exit ends it.
-        async Task EndOnExitAsync(IHostedAgentRuntime runtime, int pid, string? identity) {
+        // A failed renewal is no proof the server dropped the lease, so only the process's exit ends it. A disposed
+        // runtime stops updating HasExited, so its process is asked as well.
+        async Task EndOnExitAsync(IHostedAgentRuntime runtime, ProcessEvidence process) {
             try {
-                while (!Exited(runtime, pid, identity)) await Task.Delay(ExitPoll, _owner._time, _owner._shutdownCts.Token);
+                while (!runtime.HasExited && _owner.ProcessStillOurs(process.Pid, process.Identity))
+                    await Task.Delay(ExitPoll, _owner._time, _owner._shutdownCts.Token);
             } catch (OperationCanceledException) {
                 // The daemon is stopping with the runtime perhaps still alive: the lease lapses on its own, never ended early.
                 await _stop.CancelAsync();
@@ -289,11 +301,6 @@ internal partial class AgentOrchestrator {
         }
 
         static readonly TimeSpan ExitPoll = TimeSpan.FromSeconds(1);
-
-        // A disposed runtime stops updating HasExited, so the pid is asked as well.
-        static bool Exited(IHostedAgentRuntime runtime, int pid, string? identity) =>
-            runtime.HasExited
-         || pid > 0 && (identity is { Length: > 0 } ? ProcessIdentity.MatchesTri(pid, identity) == false : !ProcessIdentity.IsAlive(pid));
 
         /// <summary>Renews the lease now; false, and lost from then on, when the server no longer holds it.</summary>
         public async Task<bool> ConfirmAsync() {

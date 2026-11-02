@@ -590,8 +590,8 @@ internal partial class AgentOrchestrator {
         /// <summary>The instance the launch built, once it exists.</summary>
         public AgentInstance? Agent { get; set; }
 
-        /// <summary>The launch failed after publishing and its runtime could not be confirmed gone.</summary>
-        public bool Unstopped { get; set; }
+        /// <summary>A refused registration's process, still alive by its pid and start identity after the kill.</summary>
+        public ProcessEvidence? Survivor { get; set; }
 
         /// <summary>The ledger entry whose resume this launch is: a withdrawal of it stops the launch.</summary>
         public string AttemptOf { get; init; } = Entry.AgentId;
@@ -1345,20 +1345,14 @@ internal partial class AgentOrchestrator {
 
         // The server holds no live entry under this id, so the resume goes on under a new one, unless a stop
         // came first: it gave up the worktree, and the teardown has removed it.
-        if (resume is { Unstopped: true, Agent: { } stuck }) {
-            lease?.KeepUntilExit(stuck.Runtime);
-
-            return (RuntimeUnstoppedReason, null);
-        }
-
         if (resume.RefusedRegistration is not null) {
             if (resume.Agent?.StopRequested == true) return (StoppedDuringResume, null);
 
             // The server holds no live agent on the source, so only the lease fences a runtime that will not die, and a
             // continuation would run beside it.
-            if (resume.Agent?.Runtime is { HasExited: false } survivor) {
+            if (resume is { Survivor: { } survivor, Agent: { } refused }) {
                 LogInPlaceRetireUnconfirmed(entry.AgentId);
-                lease?.KeepUntilExit(survivor);
+                lease?.KeepUntilExit(refused.Runtime, survivor);
 
                 return (RuntimeUnstoppedReason, null);
             }
@@ -1383,9 +1377,9 @@ internal partial class AgentOrchestrator {
             LogInPlaceRetireUnconfirmed(agent.Id);
         } else if (!survived) {
             // Settled as failed, and so continued, only once the runtime is gone; until then the lease fences it.
-            if (!await TerminateConfirmedAsync(agent)) {
+            if (!await TerminateConfirmedAsync(agent) && SurvivorOf(agent) is { } survivor) {
                 LogInPlaceRetireUnconfirmed(agent.Id);
-                lease?.KeepUntilExit(agent.Runtime);
+                lease?.KeepUntilExit(agent.Runtime, survivor);
 
                 return (RuntimeUnstoppedReason, null);
             }

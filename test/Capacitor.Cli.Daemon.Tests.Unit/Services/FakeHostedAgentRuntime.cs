@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -13,7 +12,8 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// WHILE the agent is still live, before ever driving it to completion.</summary>
 sealed class FakeHostedAgentRuntime(string vendor, bool emitsTerminalOutput) : IHostedAgentRuntime {
     public string Vendor              => vendor;
-    public int    Pid                 => 0;
+    public int    Pid                 { get; init; }
+    public string? StartIdentity      { get; init; }
     public bool   HasExited           => ExitGate.Task.IsCompleted;
     public int?   ExitCode            { get; init; } = 0;
     public bool   EmitsTerminalOutput => emitsTerminalOutput;
@@ -71,16 +71,6 @@ sealed class FakeHostedAgentRuntime(string vendor, bool emitsTerminalOutput) : I
 
     public async Task WaitForExitAsync(TimeSpan? timeout = null) {
         if (NeverExitsOnItsOwn) await Task.WhenAny(ExitGate.Task, Task.Delay(timeout ?? Timeout.InfiniteTimeSpan));
-    }
-
-    /// <summary>When set, attaching the commands callback throws, a failure after the agent registered.</summary>
-    public bool ThrowsOnCommandsAttach { get; init; }
-
-    public Action<IReadOnlyList<HostedAgentCommand>>? OnCommandsAvailable {
-        get => null;
-        set {
-            if (ThrowsOnCommandsAttach) throw new InvalidOperationException("the commands callback could not be attached");
-        }
     }
 
     /// <summary>When set, the process survives even a terminate, like one the daemon cannot kill.</summary>

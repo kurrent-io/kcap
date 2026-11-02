@@ -34,7 +34,6 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         public bool   ExitsLater         { get; init; }
         public TimeSpan StartDelay       { get; init; }
         public bool     Unkillable       { get; init; }
-        public bool     ThrowsAfterRegistration { get; init; }
 
         public RuntimeStartContext? Context    { get; private set; }
         public FakeAcpRuntime?      AcpRuntime { get; private set; }
@@ -56,7 +55,11 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
                 return new HostedRuntimeStart(AcpRuntime, McpConfigPath: null, Transcript: AcpRuntime);
             }
 
-            PtyRuntime = new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) { ExitCode = ExitWith ?? 0, IgnoresTerminate = Unkillable, ThrowsOnCommandsAttach = ThrowsAfterRegistration };
+            PtyRuntime = new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) {
+                ExitCode = ExitWith ?? 0, IgnoresTerminate = Unkillable,
+                // A pid no real process can have, so cleanup's own liveness check never reaches one.
+                Pid = Unkillable ? int.MaxValue : 0, StartIdentity = Unkillable ? "test-identity" : null,
+            };
             if (ExitWith is not null) PtyRuntime.ExitGate.SetResult();
             if (ExitsLater) _ = Task.Delay(100, CancellationToken.None).ContinueWith(_ => PtyRuntime.ExitGate.TrySetResult(), TaskScheduler.Default);
 
@@ -287,6 +290,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
     public async Task A_refused_registration_on_a_runtime_that_will_not_stop_keeps_the_lease_until_it_exits() {
         var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_yours") };
         await using var f = new Fixture(Tmp, new LoadableFactory("claude") { Unkillable = true }, server);
+        f.Orch.ProcessStillOurs = (_, _) => true;
 
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 
@@ -297,16 +301,18 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await WaitHarness.PollUntilAsync(() => f.Server.HandoffEnds.Contains(Token));
     }
 
-    /// <summary>A launch that throws after publishing, with a runtime that will not die, is neither reported nor torn
-    /// down: the lease fences the survivor until it exits.</summary>
+    /// <summary>Only evidence that the process is still ours holds the lease: without it the refusal is reported and
+    /// the lease ends, rather than renewing for a process that may be long gone.</summary>
     [Test]
-    public async Task A_post_publication_failure_with_a_survivor_keeps_the_lease() {
-        await using var f = new Fixture(Tmp, new LoadableFactory("claude") { Unkillable = true, ThrowsAfterRegistration = true });
+    public async Task A_refused_registration_with_no_live_process_is_reported() {
+        var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_yours") };
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude") { Unkillable = true }, server);
+        f.Orch.ProcessStillOurs = (_, _) => false;
 
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 
-        await Assert.That(f.Failures()).IsEmpty();
-        await Assert.That(f.Server.HandoffEnds).IsEmpty();
+        await Assert.That(f.Failures()).IsEquivalentTo([$"{ResumeInPlaceRefusals.Failed}: registration_refused"]);
+        await Assert.That(f.Server.HandoffEnds.ToArray()).IsEquivalentTo([Token]);
     }
 
     /// <summary>A failed renewal is no proof the server dropped the lease, so a survivor's lease is not ended because
@@ -319,6 +325,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
             RenewHandoff         = (_, _) => Task.FromResult(factory.Starts == 0),
         };
         await using var f = new Fixture(Tmp, factory, server);
+        f.Orch.ProcessStillOurs = (_, _) => true;
 
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
         await Task.Delay(TimeSpan.FromMilliseconds(400));
