@@ -356,9 +356,13 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             : new ServerChatInput(row.Id, lane, _accessStates, _session, HostedHarnessCatalog.ShowsTerminal(null, row.Vendor),
                 WorkContext.WhenAnyValue(context => context.ViewerIdentity), viewer);
         viewer.Subscribe(access => StopRefusal = access.CanPressKeys ? null : access.ControlRefusal).DisposeWith(_disposables);
+        // Signed out, the held list has no rights to read under, so it empties: this session outlives the
+        // sign-out, and an owner's list would show the next person every sender's messages.
+        var heldViewer = viewer.CombineLatest(lane.Status.Select(s => s.State == ServerLaneState.SignedOut).DistinctUntilChanged(),
+            (access, signedOut) => signedOut ? AgentViewerAccess.Unrestricted : access);
         _held = heldMessages is null || row.Origin == AgentOrigin.Server
             ? null
-            : new HeldMessagesViewModel(row.Id, heldMessages, lane.HeldMessagesChanged, viewer);
+            : new HeldMessagesViewModel(row.Id, heldMessages, lane.HeldMessagesChanged, heldViewer);
         Chat = new ChatTabViewModel(
             row.Id, AgentOrigin.Remote, _session, Observable.Return<string[]?>(null), input, new NoAttachmentUploader(),
             key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readDetail, lane, time, Log),

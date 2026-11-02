@@ -1987,6 +1987,27 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// A retained session outlives a sign-out, and its owner's held list would show the next person at the
+    /// machine every sender's messages, with Approve and Reject.
+    [Test]
+    public async Task Signing_out_clears_the_held_list() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var api = new FakeHeldMessagesApi {
+                ListHandler = _ => Task.FromResult(new HeldMessagesRead([FakeHeldMessagesApi.Message(Guid.NewGuid())])),
+            };
+            var owner = new AgentViewerRightsDto {
+                IsOwner = true, Reaches = true, AnswerQuestions = true, ApproveToolUse = true, SendWithoutApproval = true, HoldMessages = true,
+            };
+            var vm = h.Build(RowWith(owner), heldMessages: api);
+            await WaitUntilAsync(() => vm.Chat.Held!.HasItems, what: "the owner's held list");
+
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut, Epoch: 1));
+            await WaitUntilAsync(() => !vm.Chat.Held!.HasItems, what: "the list to clear on sign-out");
+            await vm.TeardownAsync();
+        });
+    }
+
     [Test]
     public async Task A_server_without_rights_is_never_asked_for_held_messages() {
         await RunOnUiAsync(async () => {
