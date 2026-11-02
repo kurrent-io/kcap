@@ -963,6 +963,47 @@ public class LauncherPaneViewSmokeTests {
         });
     }
 
+    /// The branch chip opens on a focused field: a name git would reject keeps the menu open with
+    /// its reason, a good one closes it and becomes the chip's label.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_branch_chip_takes_a_typed_ref_and_refuses_a_malformed_one() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var (vm, _, _, tmp) = Build();
+            using var _tmp = tmp;
+            var view = new LauncherPaneView { DataContext = vm };
+            var window = new Window { Content = view, Width = 900, Height = 700 };
+            window.Show();
+            Settle(window);
+            await Assert.That(Find<Button>(window, "BaseRefChip")!.IsVisible).IsFalse();
+
+            await vm.SelectRepositoryAsync("/repos/kcap-cli");
+            Click(window, Find<Button>(window, "BaseRefChip")!);
+            var menu = view.OpenMenuForTesting!;
+            var content = (Control)menu.Content!;
+            var field = content.GetVisualDescendants().OfType<TextBox>().Single();
+            await Assert.That(field.IsFocused).IsTrue();
+
+            window.KeyTextInput("bad name");
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Settle(window);
+            await Assert.That(menu.IsOpen).IsTrue();
+            await Assert.That(content.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsVisible && t.Text == BaseRefName.Problem("bad name"))).IsTrue();
+            await Assert.That(vm.SelectedBaseRef).IsNull();
+
+            field.Text = "feature/x";
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Settle(window);
+            await Assert.That(menu.IsOpen).IsFalse();
+            await Assert.That(vm.SelectedBaseRef).IsEqualTo("feature/x");
+            await Assert.That(AutomationProperties.GetName(Find<Button>(window, "BaseRefChip")!)).IsEqualTo("Branch from · feature/x");
+
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            vm.Dispose();
+        });
+    }
+
     /// Pins that a harness the daemon does not advertise says why on hover; a disabled control
     /// shows no tooltip unless it opts in.
     [Test]

@@ -41,6 +41,8 @@ public sealed record AppState(
     IReadOnlyDictionary<string, bool>? HarnessToolsByVendor = null,
     // Absolute repo path -> ClaudePermissionModes token, keyed like HarnessByRepo.
     IReadOnlyDictionary<string, string>? PermissionModeByRepo = null,
+    // Recent launch base refs per machine and repository, written by BaseRefMemory.
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? BaseRefsByRepo = null,
     // A setup attempt is unverified until its command and recording check both succeed.
     IReadOnlyList<string>? UnverifiedHarnessSetups = null);
 

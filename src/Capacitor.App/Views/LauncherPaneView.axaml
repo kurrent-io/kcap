@@ -293,6 +293,21 @@
                                                    TextTrimming="CharacterEllipsis"
                                                    Foreground="{StaticResource KcapTextBrush}" />
                                     </Button>
+
+                                    <Button x:Name="BaseRefChip" Classes="kcapChip" Click="OnBaseRefChipClick"
+                                            HorizontalAlignment="Left" MaxWidth="260"
+                                            Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                                            Foreground="{StaticResource KcapTextBrush}" CornerRadius="999" Padding="11,5"
+                                            ToolTip.Tip="Where the session's own branch starts"
+                                            AutomationProperties.Name="{Binding SelectedBaseRef, Converter={x:Static views:BaseRefLabelConverter.Instance}}"
+                                            IsVisible="{Binding SelectedRepoPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <views:AppIcon Kind="GitBranch" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                                            <TextBlock Text="{Binding SelectedBaseRef, Converter={x:Static views:BaseRefLabelConverter.Instance}}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{StaticResource KcapTextBrush}" />
+                                        </StackPanel>
+                                    </Button>
                                 </StackPanel>
 
                                 <Grid ColumnDefinitions="*,Auto">

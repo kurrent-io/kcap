@@ -14,6 +14,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
+using Lucide.Avalonia;
 
 namespace Capacitor.App.Views;
 
@@ -309,6 +310,110 @@ public partial class LauncherPaneView : UserControl {
         ShowMenu(flyout, anchor);
     }
 
+    // Base-ref picker: a typed name, then Current HEAD, then the refs sessions here recently started
+    // from, each removable. Nothing lists the machine's branches: a remote machine's are not
+    // readable from here, and both machines get the same picker.
+    async void OnBaseRefChipClick(object? sender, RoutedEventArgs e) {
+        if (DataContext is not HomeViewModel vm || sender is not Control anchor) return;
+
+        var input = new TextBox { PlaceholderText = "Branch, tag or commit", MinWidth = 280, Text = vm.SelectedBaseRef };
+        input.Classes.Add("kcapField");
+        AutomationProperties.SetName(input, "Branch, tag or commit to start from");
+        var error = new TextBlock {
+            FontSize = 11.5, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
+            TextWrapping = TextWrapping.Wrap, MaxWidth = 280,
+        };
+
+        var rows = new StackPanel { Spacing = 2, Margin = new Thickness(6) };
+        var field = new StackPanel { Spacing = 6, Margin = new Thickness(4, 4, 4, 6) };
+        field.Children.Add(input);
+        field.Children.Add(error);
+        rows.Children.Add(field);
+        var flyout = ChoiceMenus.PanelFlyout(rows, minWidth: 300);
+
+        rows.Children.Add(this.ChoiceRow("Current HEAD", vm.SelectedBaseRef is null, () => {
+            flyout.Hide();
+            vm.ChooseBaseRef(null);
+        }));
+
+        input.KeyDown += (_, args) => {
+            if (args.Key == Key.Escape) {
+                args.Handled = true;
+                flyout.Hide();
+                return;
+            }
+            if (args.Key != Key.Enter) return;
+            args.Handled = true;
+            var problem = vm.ChooseBaseRef(input.Text);
+            error.Text = problem;
+            error.IsVisible = problem is not null;
+            if (problem is null) flyout.Hide();
+        };
+        flyout.Opened += (_, _) => {
+            input.Focus();
+            input.SelectAll();
+        };
+
+        // Opened before the state read, which goes to disk: the field is usable at once.
+        ShowMenu(flyout, anchor);
+
+        IReadOnlyList<string> recent;
+        try { recent = await vm.ListRecentBaseRefsAsync(); }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: list recent base refs failed: {ex}");
+            return;
+        }
+        if (recent.Count > 0) rows.Children.Add(this.ChoiceSeparator());
+        foreach (var baseRef in recent)
+            rows.Children.Add(RecentBaseRefRow(vm, baseRef, rows, flyout));
+    }
+
+    Control RecentBaseRefRow(HomeViewModel vm, string baseRef, Panel rows, Flyout flyout) {
+        var selected = vm.SelectedBaseRef == baseRef;
+        var title = new TextBlock {
+            Text = baseRef, FontSize = 13.5, Foreground = this.Brush("KcapTextBrush"),
+            TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        };
+        var grid = new Grid {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"), MinWidth = 220,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+        };
+        grid.Children.Add(title);
+        var check = this.SelectionCheck(selected);
+        Grid.SetColumn(check, 1);
+        grid.Children.Add(check);
+
+        var pick = ChoiceMenus.ChoiceButton(grid, () => {
+            flyout.Hide();
+            vm.ChooseBaseRef(baseRef);
+        });
+        AutomationProperties.SetName(pick, ChoiceMenus.ChoiceName(baseRef, selected));
+
+        var remove = new Button {
+            Width = 24, Height = 24, Padding = new Thickness(0), Margin = new Thickness(4, 0, 0, 0),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            Content = new AppIcon { Kind = LucideIconKind.X, Size = 12, Foreground = this.Brush("KcapMutedBrush") },
+        };
+        remove.Classes.Add("kcapGhost");
+        ToolTip.SetTip(remove, "Remove from this list");
+        AutomationProperties.SetName(remove, $"Remove {baseRef} from recent branches");
+
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        row.Children.Add(pick);
+        Grid.SetColumn(remove, 1);
+        row.Children.Add(remove);
+
+        remove.Click += async (_, _) => {
+            rows.Children.Remove(row);
+            if (rows.Children[^1] is Border separator) rows.Children.Remove(separator);
+            try { await vm.ForgetBaseRefAsync(baseRef); }
+            catch (Exception ex) { Console.Error.WriteLine($"kcap: forget base ref failed: {ex}"); }
+        };
+        return row;
+    }
+
     void ShowMenu(Flyout flyout, Control anchor) {
         _openMenu = flyout;
         flyout.ShowAt(anchor);
@@ -344,6 +449,17 @@ public sealed class MachineLabelConverter : IValueConverter {
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value is string { Length: > 0 } name ? $"Machine · {name}" : "Machine";
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// BaseRefChip's label: "Branch from · …", HEAD when nothing is chosen.
+public sealed class BaseRefLabelConverter : IValueConverter {
+    public static readonly BaseRefLabelConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        $"Branch from · {(value is string { Length: > 0 } name ? name : "HEAD")}";
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();
