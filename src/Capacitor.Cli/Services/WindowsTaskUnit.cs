@@ -346,6 +346,23 @@ static class WindowsTaskUnit {
         return end > 1 ? line[1..end].Replace("%%", "%") : null;
     }
 
+    /// <summary>The wrapper with the binary <see cref="BinaryFromWrapper"/> reads replaced and every other byte kept;
+    /// null when it has no such line.</summary>
+    public static string? WithDaemonBinary(string wrapperText, string binary) {
+        var newline = wrapperText.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var lines   = wrapperText.Split(newline);
+        var at      = Array.FindLastIndex(lines, l => l.Trim().StartsWith('"'));
+        if (at < 0) return null;
+
+        var line  = lines[at];
+        var start = line.IndexOf('"');
+        var end   = line.IndexOf('"', start + 1);
+        if (end <= start + 1) return null;
+
+        lines[at] = line[..start] + ExecValue("the daemon binary path", binary) + line[(end + 1)..];
+        return string.Join(newline, lines);
+    }
+
     // ── command vectors (schtasks) ──
     public static string[] CreateArgs(string id, string xmlPath) => ["/Create", "/TN", TaskName(id), "/XML", xmlPath, "/F"];
     public static string[] DeleteArgs(string id)                 => ["/Delete", "/TN", TaskName(id), "/F"];

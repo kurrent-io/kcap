@@ -1350,6 +1350,7 @@ kcap daemon service refresh                # bring installed units up to this ve
 kcap daemon service refresh --name N --force   # reload daemon N now, even mid-eval; prints refresh_outcome=<token> on stderr (launchd only; elsewhere `unsupported`, exit 1)
 kcap daemon service uninstall              # stop and remove the service, ending its hosted agents
 kcap daemon service uninstall --under DIR  # stop and remove every unit whose daemon binary is inside DIR, ending their hosted agents
+kcap daemon service repoint --from DIR     # Windows: point every Scheduled Task whose daemon binary is inside DIR at this install's daemon; a running one restarts with its agents kept, a busy one is left and the command exits 1
 ```
 
 On **Linux**, to run the daemon as a service requires systemd. Without systemd, as in most containers and sandboxes, every `kcap daemon service` verb exits 1 saying so, `kcap daemon status` and `stop` skip the service, and setup tells you to run `kcap daemon start -d`. Nothing starts that daemon again after a restart: run it again, and it resumes the agents it was hosting that were alive within `KCAP_RESUME_MAX_AGE_SECONDS` (default 24 hours). Uninstall leaves a unit installed while systemd ran, and keeps the config directory, until you delete the unit file it names.

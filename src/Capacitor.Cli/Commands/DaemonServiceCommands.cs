@@ -94,6 +94,10 @@ sealed class DaemonServiceCommands(
             "ensure"    => await verbs.Ensure(rest),
             "status"    => rest.Contains("--json") ? await verbs.StatusJson() : await verbs.Status(),
             "refresh"   => await verbs.Refresh(force: rest.Contains("--force")),
+            "repoint"   => DirectoryArg(rest, "--from") switch {
+                null or "" => Usage(),
+                var dir    => await verbs.RepointFrom(dir),
+            },
             _           => Usage(),
         };
 
@@ -854,11 +858,93 @@ sealed class DaemonServiceCommands(
     }
 
     /// <summary>
-    /// The folder <c>--under</c> names: null without the flag, empty when its value is missing,
-    /// blank or another flag.
+    /// Points every Scheduled Task whose daemon binary lies under <paramref name="dir"/> at this install's daemon,
+    /// keeping the rest of its unit, so another install's folder can be deleted without stranding the daemon. A
+    /// running daemon is stopped with its agents kept for the repointed one to resume; a busy one stays on the old
+    /// binary and fails the run, so the caller keeps that folder.
     /// </summary>
-    internal static string? UnderArg(string[] rest) {
-        var at = Array.IndexOf(rest, "--under");
+    /// <param name="daemonPath">Test seam; production resolves this install's daemon.</param>
+    internal async Task<int> RepointFrom(string dir, string? daemonPath = null) {
+        daemonPath ??= UnitIdentity.ResolveDaemonBinary();
+        if (daemonPath is null) {
+            await Console.Error.WriteLineAsync(DaemonCommands.DaemonNotFoundMessage());
+            return 1;
+        }
+
+        if (IsUnder(daemonPath, dir, OperatingSystem.IsWindows())) {
+            await Console.Error.WriteLineAsync($"This install's daemon ({daemonPath}) is inside {dir}; nothing was repointed.");
+            return 1;
+        }
+
+        if (manager.TryListInstalled() is not { } units) {
+            await Console.Error.WriteLineAsync($"Could not list the installed services ({manager.Describe()}); nothing was repointed.");
+            return 1;
+        }
+
+        var failed = false;
+
+        foreach (var unit in units) {
+            try {
+                if (!Owned(unit)) continue;
+
+                if (manager is not WindowsScheduledTaskServiceManager tasks) {
+                    await Console.Error.WriteLineAsync(
+                        $"Daemon '{unit}': {manager.Describe()} runs it from {dir}, and only a Scheduled Task can be repointed. Run `kcap daemon service install --replace --verify{SystemFlag} --name {unit}` from this install.");
+                    failed = true;
+                    continue;
+                }
+
+                if ((HostsCaller ?? HostsCallerOf(store))(unit)) {
+                    await Console.Error.WriteLineAsync(HostedCaller.Refusal(unit, $"`kcap daemon service repoint --from {dir}`"));
+                    failed = true;
+                    continue;
+                }
+
+                using var txn = await ServiceTxnLock.TryAcquireAsync(store, unit, TimeSpan.FromSeconds(5), time);
+                if (txn is null) {
+                    await RefuseContendedAsync(unit);
+                    failed = true;
+                    continue;
+                }
+
+                // An install holding the lock may have repointed the unit already.
+                if (!Owned(unit)) continue;
+
+                var outcome = tasks.RepointDaemon(unit, daemonPath, () => Proceeds(StopForReload(unit, "now", whenIdle: true)), out var error);
+                switch (outcome) {
+                    case UnitRefresh.Reloaded:
+                        await Console.Out.WriteLineAsync($"Daemon '{unit}': now runs {daemonPath}; it restarted and resumes its agents.");
+                        break;
+                    case UnitRefresh.NotLoaded or UnitRefresh.Current:
+                        await Console.Out.WriteLineAsync($"Daemon '{unit}': runs {daemonPath} from its next start.");
+                        break;
+                    case UnitRefresh.Deferred:
+                        await Console.Error.WriteLineAsync($"Daemon '{unit}' is busy, so it still runs from {dir}. Try again once it is idle.");
+                        failed = true;
+                        break;
+                    default:
+                        await Console.Error.WriteLineAsync($"Daemon '{unit}': could not repoint it ({error ?? RefreshToken(outcome)}).");
+                        failed = true;
+                        break;
+                }
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException) {
+                await Console.Error.WriteLineAsync($"Could not repoint service '{unit}': {ex.Message}");
+                failed = true;
+            }
+        }
+
+        return failed ? 1 : 0;
+
+        bool Owned(string unit) =>
+            manager.Status(unit).BinaryPath is { } binary && IsUnder(binary, dir, OperatingSystem.IsWindows());
+    }
+
+    internal static string? UnderArg(string[] rest) => DirectoryArg(rest, "--under");
+
+    /// <summary>The folder <paramref name="flag"/> names: null without the flag, empty when its value is missing,
+    /// blank or another flag.</summary>
+    internal static string? DirectoryArg(string[] rest, string flag) {
+        var at = Array.IndexOf(rest, flag);
         if (at < 0) return null;
         var value = at + 1 < rest.Length ? rest[at + 1] : "";
         return string.IsNullOrWhiteSpace(value) || value.StartsWith("--", StringComparison.Ordinal) ? "" : value;
@@ -1401,7 +1487,7 @@ sealed class DaemonServiceCommands(
     }
 
     static int Usage() {
-        Console.Error.WriteLine("Usage: kcap daemon service <install|uninstall|start|stop|ensure|status|refresh> [--name N]");
+        Console.Error.WriteLine("Usage: kcap daemon service <install|uninstall|start|stop|ensure|status|refresh|repoint> [--name N]");
         Console.Error.WriteLine();
         Console.Error.WriteLine("  install [--name N] [--profile P] [--max-agents N] [--no-start] [--replace] [--verify] [--retire ID]");
         Console.Error.WriteLine("                          --verify polls readiness/version/ownership and rolls back on failure");
@@ -1420,6 +1506,7 @@ sealed class DaemonServiceCommands(
         Console.Error.WriteLine("                          (bakes the born-prompt consent seed; gate refusals emit recovery_surface=)");
         Console.Error.WriteLine("  status [--name N] [--json]   Show installed/running state (--json for machine-readable output)");
         Console.Error.WriteLine("  refresh                Update installed units to this version's format; a reload resumes the daemon's agents");
+        Console.Error.WriteLine("  repoint --from DIR     Windows: point every Scheduled Task whose daemon binary is inside DIR at this install's daemon");
         return 1;
     }
 }

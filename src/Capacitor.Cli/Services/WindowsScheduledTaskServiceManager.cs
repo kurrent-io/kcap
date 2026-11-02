@@ -170,7 +170,25 @@ sealed class WindowsScheduledTaskServiceManager(
     /// stopped through <paramref name="stopDaemon"/> and ended before the wrapper is rewritten, then run again.
     /// A daemon that does not accept the stop leaves the wrapper as it was.
     /// </summary>
-    public UnitRefresh SetEnvironment(string serviceId, string key, string value, Func<bool> stopDaemon, out string? error) {
+    public UnitRefresh SetEnvironment(string serviceId, string key, string value, Func<bool> stopDaemon, out string? error) =>
+        RewriteWrapper(serviceId, stopDaemon, out error, (wrapper, previous) =>
+            WindowsTaskUnit.EnvFromWrapper(previous).TryGetValue(key, out var current) && current == value
+                ? previous
+                : WindowsTaskUnit.WithEnvironmentValue(previous, key, value)
+                  ?? throw new InvalidOperationException($"{wrapper} is not a wrapper kcap wrote, so it was left unchanged"));
+
+    /// <summary>Points the task's wrapper at <paramref name="daemonBinary"/>, its environment and arguments kept, under
+    /// the same stop-and-run-again rule as <see cref="SetEnvironment"/>: how one install of kcap takes over a task
+    /// another install wrote.</summary>
+    public UnitRefresh RepointDaemon(string serviceId, string daemonBinary, Func<bool> stopDaemon, out string? error) =>
+        RewriteWrapper(serviceId, stopDaemon, out error, (wrapper, previous) =>
+            string.Equals(WindowsTaskUnit.BinaryFromWrapper(previous), daemonBinary, StringComparison.OrdinalIgnoreCase)
+                ? previous
+                : WindowsTaskUnit.WithDaemonBinary(previous, daemonBinary)
+                  ?? throw new InvalidOperationException($"{wrapper} names no daemon binary, so it was left unchanged"));
+
+    /// <param name="amend">The wrapper's new text from its path and current text; the same text when it is current.</param>
+    UnitRefresh RewriteWrapper(string serviceId, Func<bool> stopDaemon, out string? error, Func<string, string, string> amend) {
         error = null;
 
         var (code, stdout, err) = _schtasks(WindowsTaskUnit.QueryArgs(serviceId));
@@ -183,11 +201,9 @@ sealed class WindowsScheduledTaskServiceManager(
         var wrapper = WrapperOf(serviceId, taskExists: true);
         if (!File.Exists(wrapper)) return UnitRefresh.UnitMissing;
 
-        var previous = File.ReadAllText(wrapper);
-        if (WindowsTaskUnit.EnvFromWrapper(previous).TryGetValue(key, out var current) && current == value) return UnitRefresh.Current;
-
-        var rewritten = WindowsTaskUnit.WithEnvironmentValue(previous, key, value)
-            ?? throw new InvalidOperationException($"{wrapper} is not a wrapper kcap wrote, so it was left unchanged");
+        var previous  = File.ReadAllText(wrapper);
+        var rewritten = amend(wrapper, previous);
+        if (rewritten == previous) return UnitRefresh.Current;
 
         if (WindowsTaskUnit.StatusFromQuery(code, stdout) != ServiceState.Running) {
             _writeUnit(wrapper, rewritten, WrapperEncoding);
