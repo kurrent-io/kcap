@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Resume;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -9,8 +10,17 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 public class SessionEndSpoolTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
-    static ExitedSession Exited(string id, string? vendor = "claude", string? server = "https://kcap.example") =>
-        new(SessionId.Parse(id)!, new ClaimOrigin(vendor, server, "/t/x.jsonl", "/repo"));
+    [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
+
+    static ExitedSession Exited(
+            string id, string? vendor = "claude", string? server = "https://kcap.example", string? agentId = null, string? epoch = null) =>
+        new(SessionId.Parse(id)!, new ClaimOrigin(vendor, server, "/t/x.jsonl", "/repo", agentId, epoch));
+
+    static async Task<JsonNode?> SpooledEnd(HookSpool spool, string id) {
+        string? body = null;
+        await spool.DrainAllAsync(id, (_, b) => { body = b; return Task.FromResult(DrainOutcome.Delivered); }, TimeSpan.FromSeconds(5), CancellationToken.None);
+        return body is null ? null : JsonNode.Parse(body);
+    }
 
     [Test]
     public async Task Only_a_session_recorded_against_this_server_is_queued() {
@@ -32,7 +42,7 @@ public class SessionEndSpoolTests {
     [Test]
     public async Task The_end_is_a_parent_exited_session_end_for_the_vendor() {
         var spool = new HookSpool(Config.Root, TimeProvider.System, server: null);
-        AgentHookPoster.SpoolEnds([Exited("here", vendor: "codex")], "https://kcap.example", spool, TimeProvider.System);
+        AgentHookPoster.SpoolEnds([Exited("here", vendor: "codex", agentId: "agent-1", epoch: "epoch-1")], "https://kcap.example", spool, TimeProvider.System);
 
         string? route = null, body = null;
         await spool.DrainAllAsync("here", (r, b) => { route = r; body = b; return Task.FromResult(DrainOutcome.Delivered); }, TimeSpan.FromSeconds(5), CancellationToken.None);
@@ -45,6 +55,41 @@ public class SessionEndSpoolTests {
         await Assert.That(node["hook_event_name"]!.GetValue<string>()).IsEqualTo("SessionEnd");
         await Assert.That(node["reason"]!.GetValue<string>()).IsEqualTo("parent_exited");
         await Assert.That(node["ended_at"]).IsNotNull();
+        await Assert.That(node["agent_host_id"]!.GetValue<string>()).IsEqualTo("agent-1");
+        await Assert.That(node["daemon_epoch"]!.GetValue<string>()).IsEqualTo("epoch-1");
+    }
+
+    /// The exit sweep racing a daemon resume, against a real ledger: the predecessor ran under epoch-1 and
+    /// the restarted daemon, epoch-2, resumes it. The fence holds the predecessor's end while the entry is
+    /// Resuming and once it runs under epoch-2, but while the daemon holds the entry lock to write that
+    /// transition the fence cannot decide and fails open on its lock timeout. The end it lets through
+    /// names the predecessor's agent and epoch, which is what the server refuses it by.
+    [Test]
+    public async Task A_sweep_while_the_resuming_daemon_holds_the_entry_lock_posts_the_predecessors_end() {
+        const string session = "2aa834d09c294410b64c177c75d32358";
+        var ledger  = ResumeLedgerStore.For(Daemons.Store, "d1");
+        var spool   = new HookSpool(Config.Root, TimeProvider.System, server: null);
+        var exited  = Exited(session, agentId: "agent-1", epoch: "epoch-1");
+        var entry   = ResumeLedgerEntries.For("agent-1", ResumeState.Running) with { LaunchEpoch = "epoch-1", RunEpoch = "epoch-1", SessionId = session };
+        int Sweep() => AgentHookPoster.SpoolEnds([exited], "https://kcap.example", spool, TimeProvider.System,
+                                                 s => SessionEndFence.ShouldHold(s, Daemons.Store, TimeProvider.System));
+
+        ledger.Write(entry with { State = ResumeState.Resuming });
+        await Assert.That(Sweep()).IsEqualTo(0);
+
+        var resumed = entry with { RunEpoch = "epoch-2" };
+        using (ResumeEntryLock.TryAcquire(ledger.EntryPath("agent-1"), TimeSpan.FromSeconds(1))) {
+            ledger.Write(resumed);
+            await Assert.That(ledger.TryUpdateUnderLock("agent-1", _ => null, TimeSpan.FromMilliseconds(20))).IsEqualTo(LockedUpdate.LockTimeout);
+            await Assert.That(Sweep()).IsEqualTo(1);
+        }
+
+        var posted = (await SpooledEnd(spool, session))!;
+        await Assert.That(posted["reason"]!.GetValue<string>()).IsEqualTo("parent_exited");
+        await Assert.That(posted["agent_host_id"]!.GetValue<string>()).IsEqualTo("agent-1");
+        await Assert.That(posted["daemon_epoch"]!.GetValue<string>()).IsEqualTo("epoch-1");
+
+        await Assert.That(Sweep()).IsEqualTo(0);
     }
 
     /// A session ended once and then resumed holds the spool's ended marker, which would discard its

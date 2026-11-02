@@ -577,11 +577,8 @@ public sealed class ClaudeHookCommand(
 
                 node["home_dir"] = home.Path;
 
-                var agentHostId = hosted.AgentId;
-
-                if (agentHostId is not null) {
-                    node["agent_host_id"] = agentHostId;
-                }
+                if (command == "session-end") SessionEndIncarnation.Stamp(node, hosted);
+                else if (hosted.AgentId is { } agentHostId) node["agent_host_id"] = agentHostId;
 
                 // Surface 3: attach this machine's harness inventory, session-start only (the
                 // injections above apply to every event; the inventory is a session-start signal).

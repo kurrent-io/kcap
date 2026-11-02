@@ -322,9 +322,9 @@ public class MuseHookCommandTests : IDisposable {
         await Assert.That(body.TryGetProperty("agent_host_id", out _)).IsFalse();
     }
 
-    /// <summary>The end is linked to the same agent as the start, through the marker it then deletes.</summary>
+    /// <summary>The end is linked to the same agent and daemon epoch as the start, through the marker it then deletes.</summary>
     [Test]
-    public async Task SessionEnd_takes_agent_host_id_from_the_marker_then_deletes_it() {
+    public async Task SessionEnd_takes_agent_host_id_and_daemon_epoch_from_the_marker_then_deletes_it() {
         StubHooks();
         MuseHostedSessionMarker.Write(Home,
             new MuseHostedSessionMarker(ParentId, "agent-from-marker", "daemon-1", "epoch-1", DateTimeOffset.UtcNow));
@@ -335,6 +335,7 @@ public class MuseHookCommandTests : IDisposable {
 
         var body = JsonDocument.Parse(HookPosts("/hooks/session-end/muse").Single()).RootElement;
         await Assert.That(body.GetProperty("agent_host_id").GetString()).IsEqualTo("agent-from-marker");
+        await Assert.That(body.GetProperty("daemon_epoch").GetString()).IsEqualTo("epoch-1");
         await Assert.That(MuseHostedSessionMarker.TryRead(Home, ParentId)).IsNull();
     }
 

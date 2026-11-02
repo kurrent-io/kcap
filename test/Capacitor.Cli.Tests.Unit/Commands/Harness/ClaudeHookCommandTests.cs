@@ -239,6 +239,18 @@ public class ClaudeHookCommandTests {
         await Assert.That(body!["policy_pass_through_count"]!.GetValue<long>()).IsEqualTo(1L);
     }
 
+    [Test]
+    public async Task A_hosted_session_end_names_its_agent_and_daemon_epoch() {
+        using var fx = new Fixture(Config.Root) { Hosted = new HostedAgent("agent-1", false, DaemonBridge.None) { DaemonEpoch = "epoch-1" } };
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        var posted = fx.Sent.Single(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal));
+        var body   = JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!;
+        await Assert.That(body["agent_host_id"]!.GetValue<string>()).IsEqualTo("agent-1");
+        await Assert.That(body["daemon_epoch"]!.GetValue<string>()).IsEqualTo("epoch-1");
+    }
+
     [Test, NotInParallel]
     public async Task Session_end_for_a_resuming_hosted_agent_posts_nothing() {
         using var daemons = new TempDaemonStore();

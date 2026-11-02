@@ -254,8 +254,8 @@ sealed class MuseHookCommand(
         };
 
         if (cwd is not null) forwarded["cwd"] = cwd;
-        if ((hosted.AgentId ?? MuseHostedSessionMarker.TryRead(home, sessionId)?.AgentId) is { } agentHostId)
-            forwarded["agent_host_id"] = agentHostId;
+        if (hosted.AgentId is not null) SessionEndIncarnation.Stamp(forwarded, hosted);
+        else if (MuseHostedSessionMarker.TryRead(home, sessionId) is { } marker) SessionEndIncarnation.Stamp(forwarded, marker.AgentId, marker.DaemonEpoch);
 
         if (Paths.ResolveSessionLog(session.ToString("D"), today) is { } log && HookHttp.IsPostable(Url)) {
             MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString());
