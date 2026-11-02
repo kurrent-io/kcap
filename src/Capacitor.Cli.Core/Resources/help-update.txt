@@ -34,13 +34,17 @@ the local stack to the new version; a failed upgrade makes kcap update
 exit 1. A release whose server bundle is not published yet only says so:
 the stack stays on its version until kcap local upgrade is run again. Other installs run kcap local upgrade themselves after updating.
 
-On macOS and Linux a running daemon restarts on the new version by itself;
-its agents are stopped and resumed.
+A daemon running in the background or as a service restarts on the new
+version by itself, on every platform: it waits for its agents' active
+turns (at most KCAP_RESTART_TURN_WAIT_SECONDS, default 300), then its
+agents are stopped and resumed. kcap daemon status shows the pending
+restart meanwhile. A daemon started in a terminal needs kcap daemon
+restart. An npm-installed Windows daemon started on a release that did
+not watch for npm updates needs kcap daemon restart once.
 
 On Windows the update also works while agent sessions or the daemon keep
 the binary locked: the old executable is moved aside and cleaned up later.
-Running processes keep the old version until they restart (for a running
-daemon: kcap daemon restart).
+Other running kcap processes keep the old version until they restart.
 
 Options:
   --check    Print a machine-readable {current, latest, newer} JSON line

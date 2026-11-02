@@ -59,14 +59,15 @@ Options for restart:
                           Claude reviewer), parked (Codex) or ended. An eval or a
                           launch in progress still holds the restart.
 
-Updating: after `kcap update`, a running daemon on macOS/Linux detects the new
-binary and restarts itself, stopping its hosted agents and resuming them on the
-new version. It waits until no eval, launch or flow round is in progress and
+Updating: after `kcap update`, a running daemon detects the new binary and
+restarts itself, stopping its hosted agents and resuming them on the new
+version. It waits until no eval, launch or flow round is in progress and
 every interactive agent is waiting on input, the last for at most
 KCAP_RESTART_TURN_WAIT_SECONDS. `kcap daemon status` reports the running
 daemon's version plus any pending restart, so you can confirm a self-update took
-effect. On Windows, stop the daemon before `kcap update` (a running daemon locks
-its binary).
+effect. A daemon started in a terminal restarts only by hand. On Windows a
+daemon started on a release that did not watch for updates there needs
+`kcap daemon restart` once.
 
 Resume after a restart: `kcap agent ls` shows each agent's state (running,
 resuming, interrupted), and `kcap agent resume <id>` retries an interrupted one.

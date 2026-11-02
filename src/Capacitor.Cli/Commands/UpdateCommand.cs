@@ -180,9 +180,8 @@ public sealed class UpdateCommand(
             await Console.Error.WriteLineAsync("Some agent integrations were not refreshed. Run `kcap refresh` to retry.");
 
         await Console.Out.WriteLineAsync($"kcap updated to {target}.");
-        await Console.Out.WriteLineAsync(OperatingSystem.IsWindows()
-            ? "Run `kcap daemon restart` if you run the daemon."
-            : "The daemon waits for active turns. It restarts when the configured wait ends. Long turns may be interrupted. Eligible agents resume if auto-resume is on. Other sessions may need attention. Daemons started in a terminal need a manual restart.");
+        await Console.Out.WriteLineAsync(
+            "The daemon waits for active turns. It restarts when the configured wait ends. Long turns may be interrupted. Eligible agents resume if auto-resume is on. Other sessions may need attention. Daemons started in a terminal need a manual restart.");
 
         return await UpgradeLocalAsync(exe);
     }

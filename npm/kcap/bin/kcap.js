@@ -350,8 +350,8 @@ function runUpdate(binaryPath, updArgs) {
   }
 
   // Detect a running daemon up front (short-lived child; it exits before npm
-  // runs). Used only for the post-update notice — the update itself no longer
-  // needs the daemon stopped on any platform. `--no-update-check` keeps this
+  // runs). Used only for the post-update notice — the update itself does not
+  // need the daemon stopped on any platform. `--no-update-check` keeps this
   // child's "update available" nudge from landing mid-update.
   let daemonRunning = false;
   try {
@@ -415,24 +415,18 @@ function runUpdate(binaryPath, updArgs) {
     // fire-and-forget: the server will observe on the next request anyway
   }
 
-  // A running daemon keeps executing the old image until restarted. On
-  // macOS/Linux a background daemon self-detects the new binary and restarts,
-  // preferring a turn boundary for a bounded wait, then resumes the agents it
-  // can; a foreground daemon only restarts by hand. On Windows self-detection
-  // is off (the running image was moved, not replaced), so the user applies it
-  // explicitly.
+  // A running daemon keeps executing the old image until restarted. A
+  // background daemon notices the new binary at the path it started from (on
+  // Windows the old image was moved aside above, so npm wrote a new file
+  // there) and restarts, preferring a turn boundary for a bounded wait, then
+  // resumes the agents it can; a foreground daemon only restarts by hand.
   if (daemonRunning) {
-    if (process.platform === "win32") {
-      console.log("A kcap daemon is running and still uses the old version. Apply the");
-      console.log("update with `kcap daemon restart` (add --force if agents are running).");
-    } else {
-      console.log("The daemon is still on the old version. A background daemon updates automatically.");
-      console.log("It waits for active turns. Long turns may be interrupted when the wait ends.");
-      console.log("A running evaluation or agent launch can delay the restart.");
-      console.log("Eligible agents resume if auto-resume is on. Other sessions may need attention.");
-      console.log("Daemons started in a terminal need a manual restart.");
-      console.log("Check with `kcap daemon status`. Apply now with `kcap daemon restart --force`.");
-    }
+    console.log("The daemon is still on the old version. A background daemon updates automatically.");
+    console.log("It waits for active turns. Long turns may be interrupted when the wait ends.");
+    console.log("A running evaluation or agent launch can delay the restart.");
+    console.log("Eligible agents resume if auto-resume is on. Other sessions may need attention.");
+    console.log("Daemons started in a terminal need a manual restart.");
+    console.log("Check with `kcap daemon status`. Apply now with `kcap daemon restart --force`.");
   }
 
   process.exit(exitCode);

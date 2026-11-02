@@ -16,6 +16,11 @@ public class DaemonConfig {
     public string[] AllowedRepoPaths    { get; set; } = [];
     public int      MaxConcurrentAgents { get; set; } = 5;
 
+    /// <summary>The path this daemon's binary was started from, read at process start. The restart poll watches it and
+    /// a self-respawn runs it: on Windows <c>kcap update</c> moves the running image elsewhere, so the process's own
+    /// path cannot be trusted to name the install afterwards.</summary>
+    public string? LaunchPath { get; set; }
+
     /// <summary>The daemon's own binary as it stood at process start, the restart poll's first baseline.</summary>
     public BinaryStat? LaunchBinary { get; set; }
 
