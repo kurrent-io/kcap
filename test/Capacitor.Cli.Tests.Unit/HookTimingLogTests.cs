@@ -62,6 +62,19 @@ public class HookTimingLogTests {
     }
 
     [Test]
+    public async Task Arguments_cannot_break_a_line() {
+        var log  = new HookTimingLog(new FakeTimeProvider(Start), null, 1, "--claude\r\nforged");
+        var path = Tmp.PathTo("logs", HookTimingLog.FileName);
+        log.Open(path);
+
+        log.Mark("post");
+
+        var lines = Lines(path);
+        await Assert.That(lines.Length).IsEqualTo(1);
+        await Assert.That(lines[0]).EndsWith("[--claude\\r\\nforged]");
+    }
+
+    [Test]
     [Arguments("1", true)]
     [Arguments("true", true)]
     [Arguments("0", false)]

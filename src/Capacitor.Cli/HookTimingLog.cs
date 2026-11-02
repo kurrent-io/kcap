@@ -11,6 +11,8 @@ namespace Capacitor.Cli;
 public sealed class HookTimingLog(TimeProvider time, DateTimeOffset? processStart, int pid, string invocation) {
     public const string FileName = "hook-timing.log";
 
+    // Hook arguments too can break a record across lines.
+    readonly string       _invocation = invocation.Replace("\r", "\\r").Replace("\n", "\\n");
     readonly Lock         _gate    = new();
     readonly List<string> _pending = [];
     long?                 _last;
@@ -56,7 +58,7 @@ public sealed class HookTimingLog(TimeProvider time, DateTimeOffset? processStar
         var since = processStart is { } started ? $" @{Ms(wall - started)}ms" : "";
 
         return string.Create(CultureInfo.InvariantCulture,
-            $"{wall:O} pid={pid} {Token(_event)} {Token(_session)} {phase} +{Ms(step)}ms{since} [{invocation}]");
+            $"{wall:O} pid={pid} {Token(_event)} {Token(_session)} {phase} +{Ms(step)}ms{since} [{_invocation}]");
     }
 
     // Payload text, so one line per mark holds only if nothing in it can break the line.
