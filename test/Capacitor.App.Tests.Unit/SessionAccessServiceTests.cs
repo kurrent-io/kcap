@@ -160,8 +160,10 @@ public class SessionAccessServiceTests {
         }, what: "the failed re-ask retried");
         h.Drop();
         List<SessionAccessState> states;
-        lock (seen) states = [.. seen.Distinct()];
-        await Assert.That(states).IsEquivalentTo([SessionAccessState.Denied]);
+        lock (seen) states = [.. seen];
+        // Asking again may show Establishing, which shows nothing; Unavailable would show the withheld transcript.
+        await Assert.That(states).DoesNotContain(SessionAccessState.Unavailable);
+        await Assert.That(states[^1]).IsEqualTo(SessionAccessState.Denied);
 
         h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
         h.Connect(epoch: 2);

@@ -26,6 +26,8 @@ public sealed class SessionAccessService : IDisposable {
         /// The last state published, read under _lock instead of State.Value: the subject replays to
         /// a new subscriber under its own gate, and that subscriber can release its lease.
         public SessionAccessState Current = SessionAccessState.Establishing;
+        /// A refusal stands until an attempt establishes access; set by Denied, cleared by Established.
+        public bool Refused;
     }
 
     readonly IServerLane _lane;
@@ -243,10 +245,16 @@ public sealed class SessionAccessService : IDisposable {
 
     // Caller holds _lock.
     void Publish(Entry entry, SessionAccessState state) {
+        // A refusal stands until an attempt establishes access. Asking again may show Establishing, which shows
+        // nothing, but a failed attempt or a lane drop in between reads as Denied, never as Unavailable: that maps
+        // to Offline, which shows the transcript the refusal withheld.
+        if (state == SessionAccessState.Unavailable && entry.Refused) state = SessionAccessState.Denied;
         if (entry.Current == state && state != SessionAccessState.Establishing) return;
-        // A refusal stands until an attempt is answered: a retry or a lane drop in between would read
-        // as Offline, which shows the transcript the refusal withheld.
-        if (entry.Current == SessionAccessState.Denied && state is SessionAccessState.Establishing or SessionAccessState.Unavailable) return;
+        entry.Refused = state switch {
+            SessionAccessState.Denied => true,
+            SessionAccessState.Established => false,
+            _ => entry.Refused,
+        };
         entry.Current = state;
         Enqueue(entry, state);
     }

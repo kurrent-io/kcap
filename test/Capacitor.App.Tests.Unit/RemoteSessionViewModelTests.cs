@@ -276,10 +276,17 @@ public class RemoteSessionViewModelTests {
             var liveState = SessionAccessState.Establishing;
             using var watch = live.State.Subscribe(s => liveState = s);
             await WaitUntilAsync(() => liveState == SessionAccessState.Denied, what: "the live lease refused");
-            h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+            var answer = new TaskCompletionSource<HubCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Lane.AccessWatchHandler = _ => answer.Task;
 
             var recorded = h.Build(Harness.ServerRow("s1"));
             try {
+                // While the server is asked again, the recorded session shows it connecting, not the live lease's refusal.
+                await WaitUntilAsync(() => h.Lane.AccessWatches.Count == 2, what: "asked again");
+                await Task.Delay(50);
+                await Assert.That(recorded.Access).IsEqualTo(RemoteSessionAccess.Connecting);
+
+                answer.SetResult(HubCallOutcome.Ok);
                 await WaitUntilAsync(() => recorded.Access == RemoteSessionAccess.Ready, what: "the recorded session readable");
                 await Assert.That(recorded.ShowsPanes).IsTrue();
                 await Assert.That(recorded.AccessNote).IsEqualTo("");
@@ -302,8 +309,7 @@ public class RemoteSessionViewModelTests {
 
             var recorded = h.Build(Harness.ServerRow("s1"));
             try {
-                await WaitUntilAsync(() => recorded.Access == RemoteSessionAccess.Denied, what: "still refused");
-                await Assert.That(h.Lane.AccessWatches.Count).IsEqualTo(2);
+                await WaitUntilAsync(() => h.Lane.AccessWatches.Count == 2 && recorded.Access == RemoteSessionAccess.Denied, what: "asked again and still refused");
                 await Assert.That(recorded.ShowsPanes).IsFalse();
                 await WaitUntilAsync(() => !recorded.WorkContext.HasSession, what: "the work context cleared");
 
