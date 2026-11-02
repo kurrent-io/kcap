@@ -1350,9 +1350,9 @@ internal partial class AgentOrchestrator {
 
             // The server holds no live agent on the source, so only the lease fences a runtime that will not die, and a
             // continuation would run beside it.
-            if (resume is { Survivor: { } survivor, Agent: { } refused }) {
+            if (resume.Survivor is { } survivor) {
                 LogInPlaceRetireUnconfirmed(entry.AgentId);
-                lease?.KeepUntilExit(refused.Runtime, survivor);
+                lease?.KeepUntilExit(survivor);
 
                 return (RuntimeUnstoppedReason, null);
             }
@@ -1379,7 +1379,7 @@ internal partial class AgentOrchestrator {
             // Settled as failed, and so continued, only once the runtime is gone; until then the lease fences it.
             if (!await TerminateConfirmedAsync(agent) && SurvivorOf(agent) is { } survivor) {
                 LogInPlaceRetireUnconfirmed(agent.Id);
-                lease?.KeepUntilExit(agent.Runtime, survivor);
+                lease?.KeepUntilExit(survivor);
 
                 return (RuntimeUnstoppedReason, null);
             }

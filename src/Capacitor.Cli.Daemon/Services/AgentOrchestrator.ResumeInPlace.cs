@@ -129,9 +129,9 @@ internal partial class AgentOrchestrator {
         // Every failure before this point that reached LaunchAdmittedAsync's own paths was reported there.
         if (resume.RefusedRegistration is not null) {
             // Refused, the server holds no live agent on the source, so only the lease fences a runtime that will not die.
-            if (resume is { Survivor: { } survivor, Agent: { } refused }) {
+            if (resume.Survivor is { } survivor) {
                 LogInPlaceRetireUnconfirmed(cmd.AgentId);
-                lease.KeepUntilExit(refused.Runtime, survivor);
+                lease.KeepUntilExit(survivor);
 
                 return outcome;
             }
@@ -278,17 +278,17 @@ internal partial class AgentOrchestrator {
 
         int _handedOff;
 
-        /// <summary>Keeps renewing until <paramref name="runtime"/> exits, then ends the lease; disposing it before then
+        /// <summary>Keeps renewing until <paramref name="process"/> exits, then ends the lease; disposing it before then
         /// does nothing.</summary>
-        public void KeepUntilExit(IHostedAgentRuntime runtime, ProcessEvidence process) {
-            if (Interlocked.Exchange(ref _handedOff, 1) == 0) _ = EndOnExitAsync(runtime, process);
+        public void KeepUntilExit(ProcessEvidence process) {
+            if (Interlocked.Exchange(ref _handedOff, 1) == 0) _ = EndOnExitAsync(process);
         }
 
-        // A failed renewal is no proof the server dropped the lease, so only the process's exit ends it. A disposed
-        // runtime stops updating HasExited, so its process is asked as well.
-        async Task EndOnExitAsync(IHostedAgentRuntime runtime, ProcessEvidence process) {
+        // A failed renewal is no proof the server dropped the lease, so only the process's exit ends it. Asked of the
+        // process itself: a disposed runtime's HasExited says nothing about it.
+        async Task EndOnExitAsync(ProcessEvidence process) {
             try {
-                while (!runtime.HasExited && _owner.ProcessStillOurs(process.Pid, process.Identity))
+                while (_owner.ProcessStillOurs(process.Pid, process.Identity))
                     await Task.Delay(ExitPoll, _owner._time, _owner._shutdownCts.Token);
             } catch (OperationCanceledException) {
                 // The daemon is stopping with the runtime perhaps still alive: the lease lapses on its own, never ended early.

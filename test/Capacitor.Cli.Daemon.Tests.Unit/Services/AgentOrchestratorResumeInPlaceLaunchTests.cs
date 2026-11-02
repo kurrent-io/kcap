@@ -290,15 +290,34 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
     public async Task A_refused_registration_on_a_runtime_that_will_not_stop_keeps_the_lease_until_it_exits() {
         var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_yours") };
         await using var f = new Fixture(Tmp, new LoadableFactory("claude") { Unkillable = true }, server);
-        f.Orch.ProcessStillOurs = (_, _) => true;
+        var alive = true;
+        f.Orch.ProcessStillOurs = (_, _) => Volatile.Read(ref alive);
 
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 
         await Assert.That(f.Failures()).IsEmpty();
         await Assert.That(f.Server.HandoffEnds).IsEmpty();
 
+        // A disposed runtime can call itself exited while its process lives; only the process ends the lease.
         f.Factory.PtyRuntime!.ExitGate.TrySetResult();
+        await Task.Delay(TimeSpan.FromMilliseconds(1500));
+        await Assert.That(f.Server.HandoffEnds).IsEmpty();
+
+        Volatile.Write(ref alive, false);
         await WaitHarness.PollUntilAsync(() => f.Server.HandoffEnds.Contains(Token));
+    }
+
+    /// <summary>Cleanup kills once more, so a survivor it finishes off is reported like any refused resume.</summary>
+    [Test]
+    public async Task A_survivor_that_cleanup_kills_is_reported() {
+        var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_yours") };
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude") { Unkillable = true }, server);
+        var asked = 0;
+        f.Orch.ProcessStillOurs = (_, _) => Interlocked.Increment(ref asked) == 1;
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.Failures()).IsEquivalentTo([$"{ResumeInPlaceRefusals.Failed}: registration_refused"]);
     }
 
     /// <summary>Only evidence that the process is still ours holds the lease: without it the refusal is reported and

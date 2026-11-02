@@ -3376,10 +3376,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             if (!registration.Registered && resume is not null) {
                 resume.RefusedRegistration = registration.RefusedReason ?? "";
 
-                // Read before cleanup: a disposed runtime no longer knows its process.
+                // Read before cleanup, since a disposed runtime no longer knows its process, and checked again after it,
+                // since cleanup kills once more.
                 if (!await TerminateConfirmedAsync(agent)) resume.Survivor = SurvivorOf(agent);
 
                 await CleanupAgentAsync(agentId);
+
+                if (resume.Survivor is { } survivor && !ProcessStillOurs(survivor.Pid, survivor.Identity)) resume.Survivor = null;
 
                 return new CommandOutcome(CommandOutcomeKind.LaunchFailedCleaned, agentId);
             }
