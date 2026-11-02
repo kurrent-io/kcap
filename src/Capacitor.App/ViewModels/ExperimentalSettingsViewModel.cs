@@ -102,9 +102,12 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         Problem = read.Problem ?? _saveProblem;
     }
 
-    // Reads off the UI thread; constructed and saved on it, so each continuation applies back on it.
+    // Reads off the UI thread; constructed and saved on it, so each continuation applies back on it. A read that
+    // finishes before it is awaited would otherwise apply inside the constructor and unlock the switches early.
     async Task LoadAsync() {
-        Apply((await Task.Run(() => Read(onlyIfChanged: false)))!.Value);
+        var read = await Task.Run(() => Read(onlyIfChanged: false))
+            .ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.ForceYielding);
+        Apply(read!.Value);
     }
 
     (bool, DateTime, long) Fingerprint() {
