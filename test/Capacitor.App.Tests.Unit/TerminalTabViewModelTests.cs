@@ -894,6 +894,31 @@ public class TerminalTabViewModelTests {
         });
     }
 
+    /// The flushed remainder of a split code point is held behind output the unmeasured pane has not
+    /// taken yet, so it never renders ahead of it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_flushed_remainder_waits_behind_output_held_for_an_unmeasured_surface() {
+        await RunOnUiAsync(async () => {
+            var surface = new FakeTerminalSurface { Measured = false };
+            var (_, _, time, vm, client) = await BuildConnectingAsync(surfaceFactory: () => surface);
+            var euro = "€"u8.ToArray();
+
+            await client.TriggerAttached("ring"u8.ToArray());
+            await client.TriggerOutput([.. "live"u8.ToArray(), .. euro[..2]]);
+            client.Result.SetResult(new AttachOutcome.Exited(0));
+            await vm.CurrentRunForTesting!;
+            await Assert.That(surface.Fed).IsEmpty();
+
+            time.Advance(TerminalTabViewModel.HiddenFeedInterval);
+
+            var fed = string.Concat(surface.Fed);
+            await Assert.That(fed).StartsWith("ringlive");
+            await Assert.That(fed).EndsWith("�");
+            await vm.TeardownAsync();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Has_terminal_false_over_rpc_renders_a_bare_note_with_no_family_token() {

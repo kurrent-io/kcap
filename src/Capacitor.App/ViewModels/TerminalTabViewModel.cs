@@ -931,17 +931,13 @@ public sealed class TerminalTabViewModel : ReactiveObject {
     // cancelled but the attempt is not yet retired (e.g. a graceful Detached racing
     // TeardownAsync's early cts.Cancel(), which lands before its generation bump).
     //
-    // Flushes the decoder here too, not just on every live frame: a terminal completion (Exited,
-    // ConnectionLost, a mapped Failed) can land with a multibyte code point still buffered inside
-    // the decoder's own carry-over state (Utf8StreamDecoder.Decode never flushes on its own), and
-    // nothing else in this VM ever calls Flush -- without it, that trailing partial sequence is
-    // silently dropped instead of rendering (typically as U+FFFD, same as any other genuinely
-    // truncated stream).
+    // Decode never flushes, so a code point still split at the end is only shown by flushing here; it
+    // goes through Deliver so it lands after any output still held for an unmeasured surface.
     Task<bool> FinishAttemptAsync(int generation, int openingToken, ITerminalSurface surface, Utf8StreamDecoder decoder, TerminalSessionState state) =>
         Dispatcher.UIThread.InvokeAsync(() => {
             if (Retired(generation)) return false;
             var remainder = decoder.Flush();
-            if (remainder.Length > 0) surface.Feed(remainder);
+            if (remainder.Length > 0) Deliver(generation, surface, remainder);
             Publish(state, openingToken);
             return true;
         }, DispatcherPriority.Default, CancellationToken.None).GetTask();
