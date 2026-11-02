@@ -348,8 +348,12 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
 
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
         await Task.Delay(TimeSpan.FromMilliseconds(400));
+        var renewed = f.Server.HandoffRenews.Count;
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
 
         await Assert.That(f.Server.HandoffEnds).IsEmpty();
+        // Renewing goes on past the failures, so the server-side lease does not lapse under the survivor.
+        await Assert.That(f.Server.HandoffRenews.Count).IsGreaterThan(renewed);
     }
 
     /// <summary>A token that lapsed while the command queued, before any renewal was due, starts nothing.</summary>
