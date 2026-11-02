@@ -49,13 +49,15 @@ public class HistoryStepViewModelTests {
         public Cli.Core.Setup.Intelligence.IntelligenceSetupResponse? Applied { get; set; }
         public readonly List<bool> Reposted = [];
         public Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome? Refusal;
+        public TaskCompletionSource? Gate;
 
-        public Task<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome?> ApplyImportOutcomesAsync(bool importOutcomes, CancellationToken ct) {
+        public async Task<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome?> ApplyImportOutcomesAsync(bool importOutcomes, CancellationToken ct) {
             Reposted.Add(importOutcomes);
-            if (Refusal is { } refusal) return Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome?>(refusal);
+            if (Gate is { } gate) await gate.Task;
+            if (Refusal is { } refusal) return refusal;
             Applied = Applied! with { ImportOutcomes = importOutcomes };
 
-            return Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome?>(new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Applied(Applied));
+            return new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Applied(Applied);
         }
     }
 
@@ -1001,6 +1003,24 @@ public class HistoryStepViewModelTests {
         await Assert.That(await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None)).IsTrue();
 
         await Assert.That(h.Intelligence.Reposted).IsEquivalentTo([false, true]);
+        await Assert.That(h.Cli.ImportRequests).IsNotEmpty();
+    }
+
+    /// The send carries the box as it was when Next was pressed, so the box cannot change under it.
+    [Test]
+    public async Task The_summarise_choice_is_frozen_while_it_is_sent() {
+        var h = new Harness(Report(), onLocalPath: true);
+        h.Intelligence.Applied = Took("local_agent", harness: "codex");
+        h.Intelligence.Gate = new TaskCompletionSource();
+        await h.EnterAsync();
+        h.Vm.SummariseOutcomes = false;
+
+        var leaving = h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None);
+        await Assert.That(h.Vm.SummariseEditable).IsFalse();
+
+        h.Intelligence.Gate.SetResult();
+        await leaving;
+        await Assert.That(h.Vm.SummariseEditable).IsFalse();
         await Assert.That(h.Cli.ImportRequests).IsNotEmpty();
     }
 

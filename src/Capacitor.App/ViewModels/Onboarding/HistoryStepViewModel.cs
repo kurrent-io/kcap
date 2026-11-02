@@ -36,6 +36,7 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     bool                     _summariseOutcomes = true;
     string?                  _summariseError;
     bool                     _summariseUnknown;
+    bool                     _sendingSummary;
     bool                     _customizing;
     int                      _unmatched;
     ImportDiscoveryReport?   _report;
@@ -251,6 +252,17 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
         }
     }
 
+    bool SendingSummary {
+        get => _sendingSummary;
+        set {
+            _sendingSummary = value;
+            this.RaisePropertyChanged(nameof(SummariseEditable));
+        }
+    }
+
+    /// The send carries the box as Next found it, so it cannot change until the send is done.
+    public bool SummariseEditable => !ImportStarted && !SendingSummary;
+
     /// Why the server did not take the summary choice; the import waits until it does or the box matches the server.
     public string? SummariseError {
         get => _summariseError;
@@ -333,6 +345,7 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     void OnRunChanged(object? sender, PropertyChangedEventArgs e) {
         if (e.PropertyName != nameof(HistoryImportRun.State)) return;
         this.RaisePropertyChanged(nameof(ImportStarted));
+        this.RaisePropertyChanged(nameof(SummariseEditable));
         this.RaisePropertyChanged(nameof(SharingLine));
         this.RaisePropertyChanged(nameof(Skippable));
         this.RaisePropertyChanged(nameof(NextLabel));
@@ -556,7 +569,13 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     /// the page. A refusal stored nothing, so putting the box back lets the import go ahead; a failure may have been
     /// stored, so until a send is confirmed every Next sends the box again.
     async Task<bool> SendSummariseAsync(CancellationToken ct) {
-        var outcome = await _intelligence!.ApplyImportOutcomesAsync(SummariseOutcomes, ct).ConfigureAwait(true);
+        SendingSummary = true;
+        IntelligenceSetupOutcome? outcome;
+        try {
+            outcome = await _intelligence!.ApplyImportOutcomesAsync(SummariseOutcomes, ct).ConfigureAwait(true);
+        } finally {
+            SendingSummary = false;
+        }
         if (outcome is IntelligenceSetupOutcome.Applied) _summariseUnknown = false;
         else if (outcome is IntelligenceSetupOutcome.Failed) _summariseUnknown = true;
 

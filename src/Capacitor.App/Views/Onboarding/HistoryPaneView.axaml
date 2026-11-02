@@ -207,7 +207,7 @@
                 <Border Classes="onboardingCallout" IsVisible="{Binding SummariseOffered}" Margin="0,4,0,0">
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="11">
                         <CheckBox x:Name="SummariseOutcomesCheckBox" Classes="onboardingCheck" VerticalAlignment="Top" Margin="0,1,0,0"
-                                  IsChecked="{Binding SummariseOutcomes, Mode=TwoWay}" IsEnabled="{Binding !ImportStarted}"
+                                  IsChecked="{Binding SummariseOutcomes, Mode=TwoWay}" IsEnabled="{Binding SummariseEditable}"
                                   AutomationProperties.Name="Also summarise what each session achieved" />
                         <StackPanel Grid.Column="1" Spacing="3">
                             <TextBlock Classes="onboardingLabel" FontSize="13" Text="Also summarise what each session achieved" />
