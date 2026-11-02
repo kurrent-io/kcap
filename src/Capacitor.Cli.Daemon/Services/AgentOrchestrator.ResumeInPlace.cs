@@ -287,14 +287,14 @@ internal partial class AgentOrchestrator {
         // A failed renewal is no proof the server dropped the lease, so only the process's exit ends it. Asked of the
         // process itself: a disposed runtime's HasExited says nothing about it.
         async Task EndOnExitAsync(ProcessEvidence process) {
-            var due = _owner._time.GetUtcNow() + _owner.SourceLeaseRenewal;
+            var renewedAt = _owner._time.GetTimestamp();
 
             try {
                 while (_owner.ProcessStillOurs(process.Pid, process.Identity)) {
                     // The periodic loop stops at its first failed renewal; the survivor still needs the lease after it.
-                    if (_lost && _owner._time.GetUtcNow() >= due) {
+                    if (_lost && _owner._time.GetElapsedTime(renewedAt) >= _owner.SourceLeaseRenewal) {
                         await _owner.RenewHandoffLeaseOnceAsync(_token, RenewTimeout, _owner._shutdownCts.Token);
-                        due = _owner._time.GetUtcNow() + _owner.SourceLeaseRenewal;
+                        renewedAt = _owner._time.GetTimestamp();
                     }
 
                     await Task.Delay(ExitPoll < _owner.SourceLeaseRenewal ? ExitPoll : _owner.SourceLeaseRenewal, _owner._time,
