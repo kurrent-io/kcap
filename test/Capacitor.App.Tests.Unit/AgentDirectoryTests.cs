@@ -906,6 +906,29 @@ public class AgentDirectoryTests {
         await Assert.That(row.WorktreePath).IsNull();
     }
 
+    /// A local agent that resumed in the checkout itself names no worktree; the listing's older worktree cwd must not
+    /// stand in for it once the local row is gone.
+    [Test]
+    public async Task The_listings_worktree_does_not_replace_a_local_in_place_checkout() {
+        var (local, _, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        const string cwd = "/r/.capacitor/worktrees/agent-1";
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = cwd });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Cwd = cwd });
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+
+        local.Agents.RemoveKey("a1");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Cwd = cwd });
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/r");
+        await Assert.That(row.WorktreePath).IsNull();
+    }
+
     /// A directory that never saw the daemon row, as after an app restart, describes the session
     /// from the listing alone.
     [Test]
