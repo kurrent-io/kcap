@@ -772,6 +772,42 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("server:S").Value.IsEndedSession).IsEqualTo(ended);
     }
 
+    /// The finished mark covers the listing's lag, not the session's future: once the daemon has dropped its completed
+    /// row and the hold has passed, a listing that still says active stands, as for a session resumed in a terminal.
+    [Test]
+    public async Task A_finished_mark_lapses_once_the_listing_has_had_time_to_fold_the_end() {
+        var (local, _, sessions, time, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        MineLive(sessions, "S");
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S", status: "Completed"));
+        local.Agents.RemoveKey("a1");
+
+        time.Advance(AgentDirectory.FinishedHold - TimeSpan.FromSeconds(1));
+        await Assert.That(dir.Rows.Lookup("server:S").Value.IsEndedSession).IsTrue();
+
+        time.Advance(TimeSpan.FromSeconds(2));
+        await Assert.That(dir.Rows.Lookup("server:S").Value.IsEndedSession).IsFalse();
+    }
+
+    /// While the daemon still reports the agent completed its evidence is current, so the mark holds past the hold.
+    [Test]
+    public async Task A_completed_row_the_daemon_still_holds_keeps_the_session_ended() {
+        var (local, _, sessions, time, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        MineLive(sessions, "S");
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S", status: "Completed"));
+
+        time.Advance(AgentDirectory.FinishedHold * 3);
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.IsEndedSession).IsTrue();
+    }
+
     /// The daemon's paths are protected session content like the listing's own branch: a viewer the
     /// server now lists below full access gets none of them.
     [Test]
