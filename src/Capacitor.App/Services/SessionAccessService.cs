@@ -23,6 +23,11 @@ public sealed class SessionAccessService : IDisposable {
         public int Failures;
         public ITimer? RetryTimer;
         public string? LastDiagnostic;
+        /// The last state published, read under _lock instead of State.Value: the subject replays to
+        /// a new subscriber under its own gate, and that subscriber can release its lease.
+        public SessionAccessState Current = SessionAccessState.Establishing;
+        /// A refusal stands until an attempt establishes access; set by Denied, cleared by Established.
+        public bool Refused;
     }
 
     readonly IServerLane _lane;
@@ -35,6 +40,9 @@ public sealed class SessionAccessService : IDisposable {
     readonly SessionGates _chatGates = new();
     readonly Subject<(string SessionId, SessionAccessState State)> _transitions = new();
     readonly Lock _lock = new();
+    /// States published under _lock, delivered after it is released in the order they were published; null completes.
+    readonly Queue<(Entry Entry, SessionAccessState? State)> _outbox = new();
+    bool _delivering;
     readonly IDisposable _subscriptions;
     bool _connected;
     bool _disposed;
@@ -51,6 +59,7 @@ public sealed class SessionAccessService : IDisposable {
                 if (_disposed) return;
                 if (_entries.TryGetValue(sid, out var e)) Begin(e);
             }
+            Deliver();
         });
         _subscriptions = new CompositeDisposable(status, changed);
     }
@@ -67,9 +76,10 @@ public sealed class SessionAccessService : IDisposable {
                 entry = new Entry(sessionId);
                 _entries[sessionId] = entry;
                 Begin(entry);
-            } else if (entry.State.Value == SessionAccessState.Denied) Begin(entry);
+            } else if (entry.Current == SessionAccessState.Denied) Begin(entry);
             entry.Leases++;
         }
+        Deliver();
         return new SessionAccessLease(sessionId, entry.State, Release);
     }
 
@@ -77,12 +87,12 @@ public sealed class SessionAccessService : IDisposable {
     public void RecheckDenied(string sessionId) {
         lock (_lock) {
             if (_disposed || !_entries.TryGetValue(sessionId, out var entry)) return;
-            if (entry.State.Value == SessionAccessState.Denied) Begin(entry);
+            if (entry.Current == SessionAccessState.Denied) Begin(entry);
         }
+        Deliver();
     }
 
     void Release(SessionAccessLease lease) {
-        Entry gone;
         lock (_lock) {
             if (_disposed) return; // Dispose already completed and cleared every entry
             if (!_entries.TryGetValue(lease.SessionId, out var entry)) return;
@@ -91,9 +101,9 @@ public sealed class SessionAccessService : IDisposable {
             _chatOwners.Remove(lease.SessionId);
             entry.Attempt++;
             entry.RetryTimer?.Dispose();
-            gone = entry;
+            Complete(entry);
         }
-        gone.State.OnCompleted();
+        Deliver();
         if (_connected) _ = GiveBackChatAsync(lease.SessionId);
     }
 
@@ -121,6 +131,7 @@ public sealed class SessionAccessService : IDisposable {
                 else { e.Attempt++; e.RetryTimer?.Dispose(); e.RetryTimer = null; Publish(e, SessionAccessState.Unavailable); }
             }
         }
+        Deliver();
     }
 
     // Caller holds _lock. Always publishes Establishing first, even when already establishing —
@@ -176,10 +187,14 @@ public sealed class SessionAccessService : IDisposable {
                     entry.Failures = 0;
                 } else {
                     var delay = Retry[Math.Min(entry.Failures++, Retry.Length - 1)];
-                    entry.RetryTimer = _time.CreateTimer(_ => { lock (_lock) { if (entry.Attempt == attempt) Begin(entry); } }, null, delay, Timeout.InfiniteTimeSpan);
+                    entry.RetryTimer = _time.CreateTimer(_ => {
+                        lock (_lock) { if (entry.Attempt == attempt) Begin(entry); }
+                        Deliver();
+                    }, null, delay, Timeout.InfiniteTimeSpan);
                 }
             }
         }
+        Deliver();
         if (report is not null) Console.Error.WriteLine(report);
         if (staleJoin) await GiveBackStaleChatAsync(entry, attempt).ConfigureAwait(false);
     }
@@ -230,9 +245,58 @@ public sealed class SessionAccessService : IDisposable {
 
     // Caller holds _lock.
     void Publish(Entry entry, SessionAccessState state) {
-        if (entry.State.Value == state && state != SessionAccessState.Establishing) return;
-        entry.State.OnNext(state);
-        _transitions.OnNext((entry.SessionId, state));
+        // A refusal stands until an attempt establishes access. Asking again may show Establishing, which shows
+        // nothing, but a failed attempt or a lane drop in between reads as Denied, never as Unavailable: that maps
+        // to Offline, which shows the transcript the refusal withheld.
+        if (state == SessionAccessState.Unavailable && entry.Refused) state = SessionAccessState.Denied;
+        if (entry.Current == state && state != SessionAccessState.Establishing) return;
+        entry.Refused = state switch {
+            SessionAccessState.Denied => true,
+            SessionAccessState.Established => false,
+            _ => entry.Refused,
+        };
+        entry.Current = state;
+        Enqueue(entry, state);
+    }
+
+    // Caller holds _lock.
+    void Complete(Entry entry) => Enqueue(entry, null);
+
+    // Caller holds _lock.
+    void Enqueue(Entry entry, SessionAccessState? state) {
+        lock (_outbox) _outbox.Enqueue((entry, state));
+    }
+
+    /// Called with _lock released, after every section that published. A subscriber may acquire or
+    /// release a lease from inside a delivery, so nothing is held while one runs. One queue for the
+    /// whole service, drained by one thread at a time, keeps every state in the order it was published
+    /// under _lock — across entries too, so a replaced entry's last state never lands after its successor's.
+    void Deliver() {
+        lock (_outbox) {
+            if (_delivering) return;
+            _delivering = true;
+        }
+        while (true) {
+            (Entry Entry, SessionAccessState? State) next;
+            lock (_outbox) {
+                if (_outbox.Count == 0) { _delivering = false; return; }
+                next = _outbox.Dequeue();
+            }
+            var entry = next.Entry;
+            if (next.State is not { } state) { Notify(entry, entry.State.OnCompleted); continue; }
+            // Each notification on its own: an observer that throws must not keep the state from the rest.
+            Notify(entry, () => entry.State.OnNext(state));
+            Notify(entry, () => _transitions.OnNext((entry.SessionId, state)));
+        }
+    }
+
+    static void Notify(Entry entry, Action notify) {
+        try {
+            notify();
+        } catch (ObjectDisposedException) {
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: session access observer for {entry.SessionId} failed: {ex.Message}");
+        }
     }
 
     public void Dispose() {
@@ -241,11 +305,11 @@ public sealed class SessionAccessService : IDisposable {
             if (_disposed) return;
             _disposed = true;
             entries = [.. _entries.Values];
-            foreach (var e in entries) { e.Attempt++; e.RetryTimer?.Dispose(); }
+            foreach (var e in entries) { e.Attempt++; e.RetryTimer?.Dispose(); Complete(e); }
             _entries.Clear();
             _chatOwners.Clear();
         }
-        foreach (var e in entries) e.State.OnCompleted();
+        Deliver();
         _subscriptions.Dispose();
         _transitions.Dispose();
     }

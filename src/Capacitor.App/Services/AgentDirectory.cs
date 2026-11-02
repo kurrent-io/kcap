@@ -95,7 +95,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     readonly Dictionary<string, DateTime> _hostedUntil = new(StringComparer.Ordinal);
     /// Listed session id → the checkout facts its daemon row last reported, for the server row
     /// that stands for the session once the daemon row is gone.
-    readonly Dictionary<string, (string? RepoPath, string? WorktreePath, string? WorkLocation, string? BorrowedFrom, string? Branch)> _hostedFacts =
+    readonly Dictionary<string, (string? RepoPath, string? WorktreePath, string? WorkLocation, string? BorrowedFrom, string? Branch, bool FromLocal)> _hostedFacts =
         new(StringComparer.Ordinal);
     /// Sessions whose hosted agent is known to have finished while the listing may still say live:
     /// a local row seen Completed, or a stop the app saw accepted. A live daemon row for the session
@@ -450,9 +450,23 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             if (!Matchable(row) || listedIdOf.GetValueOrDefault(row.Key) is not { } sid || !listed.TryGetValue(sid, out var dto)) continue;
             // A daemon row carries the listing's branch, never its own; the local daemon's is on its dto.
             var daemonBranch = row.Origin == AgentOrigin.Local ? _localAgents.FirstOrDefault(a => a.Id == row.Id)?.Branch : null;
-            if (row.RepoPath is not null || row.WorktreePath is not null)
-                _hostedFacts[sid] = (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom,
-                    string.IsNullOrWhiteSpace(daemonBranch) ? row.Branch ?? dto.Branch : daemonBranch);
+            // The checkout, branch included, is one unit from one row. A local row is the daemon's own account,
+            // so a worktree it leaves out means the agent runs in the checkout itself; a registry row never names
+            // a worktree, and a local and a registry row can both list one session, twins or not. So a local row
+            // replaces the kept checkout, a registry row replaces only one a registry row reported, and a branch
+            // the row lacks carries over only within the same checkout: the same worktree, or with none, the
+            // same repository.
+            if (row.RepoPath is not null || row.WorktreePath is not null) {
+                var known = _hostedFacts.GetValueOrDefault(sid);
+                var fromLocal = row.Origin == AgentOrigin.Local;
+                var reported = string.IsNullOrWhiteSpace(daemonBranch) ? row.Branch ?? dto.Branch : daemonBranch;
+                var replaces = fromLocal || !known.FromLocal;
+                var sameCheckout = !replaces || string.Equals(row.WorktreePath ?? row.RepoPath, known.WorktreePath ?? known.RepoPath, StringComparison.Ordinal);
+                var branch = reported ?? (sameCheckout ? known.Branch : null);
+                _hostedFacts[sid] = replaces
+                    ? (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom, branch, fromLocal)
+                    : known with { Branch = branch };
+            }
             next[i] = row with {
                 OwnerUserId = dto.Owner?.UserId,
                 OwnerName = dto.Owner?.DisplayName ?? dto.Owner?.Username,
@@ -481,6 +495,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             var serverEnded = dto.Status != "active";
             var suppressServer = false;
             var hostedNow = false;
+            var hostedLocally = false;
             next.RemoveAll(row => {
                 if (row.Origin is not (AgentOrigin.Local or AgentOrigin.Remote) || listedIdOf.GetValueOrDefault(row.Key) != sid || !Matchable(row)) return false;
                 if (row.Origin == AgentOrigin.Remote) {
@@ -503,13 +518,13 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                 switch (row.Status) {
                     case "Completed": return true;
                     case "Failed": suppressServer = true; return false;
-                    default: suppressServer = true; hostedNow = true; return false;
+                    default: suppressServer = true; hostedNow = hostedLocally = true; return false;
                 }
             });
-            if (hostedNow) {
-                _hostedUntil[sid] = now + HandoverGrace;
-                _finished.Remove(sid);
-            }
+            if (hostedNow) _hostedUntil[sid] = now + HandoverGrace;
+            // Only the daemon that finished the agent can say it runs again: a registry row, unproven twin or another
+            // daemon's, can lag that daemon's completion, so it keeps the grace without undoing the end.
+            if (hostedLocally) _finished.Remove(sid);
             if (serverEnded) _finished.Remove(sid);
             if (suppressServer) continue;
             var hosted = _hostedUntil.TryGetValue(sid, out var until) && until > now;
