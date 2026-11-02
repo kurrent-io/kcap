@@ -2281,8 +2281,6 @@ public partial class App : Application {
         var lifecycle = new DaemonLifecycleController(
             service, cli, probe, surface, () => Task.FromResult(ValidProfileName(profile)), _time,
             canonicalServer, runMutation, autoActionsPermanentlyClosed, requiresAppRestart,
-            windowsServiceDeclined: async () => (await _appState.LoadAsync().ConfigureAwait(false)).WindowsServiceDeclined,
-            rememberWindowsServiceDeclined: () => _appState.UpdateAsync(s => s with { WindowsServiceDeclined = true }),
             replacementCliVersion: replacementCliVersion);
 
         // The shim links to the RESOLVED ABSOLUTE path only — CliResolver's bare "kcap" PATH
