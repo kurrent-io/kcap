@@ -2081,7 +2081,9 @@ kcap experimental disable codex-app-server # roll back
 
 - The running daemon applies the change to its next launch without a restart, and `kcap experimental enable` waits a few seconds for it to confirm. Agents already running keep the transport they started with.
 - It takes effect only when the installed Codex meets the minimum version (**0.146.0**); otherwise the feature is saved but reported as not active, with the reason, and new launches take the terminal. A launch the server already pinned to app-server is refused instead, since it is never moved to another transport
+- On Windows a profile that never set the switch runs app-server: through the Windows console, Codex submits a pasted follow-up review round as newlines, so the round never starts on the terminal. `kcap experimental` still lists the switch as off, with the daemon's state as active; `kcap experimental disable codex-app-server` keeps that profile on the terminal.
 - PR reviews (`kcap review`) and `kcap agent start` local spawns always use the terminal.
+- On the terminal, a review-flow reviewer whose round starts no turn within 30 seconds gets one more Enter; if 30 more seconds pass without one, the daemon ends the reviewer so the round fails at once (`participant_died`, detail `codex_reviewer_turn_not_started`) instead of waiting out the flow's inactivity bound.
 - The former `KCAP_CODEX_TRANSPORT` environment variable is removed; a daemon that still sees it logs a warning naming the command above.
 
 The Cursor CLI path (`cursor-agent` by default, used to spawn the `cursor` hosted-agent vendor) is env-only for now — there is no `daemon.cursor_path` profile key yet, so set it per-launch:

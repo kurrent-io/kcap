@@ -56,6 +56,10 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// </summary>
     internal static readonly TimeSpan GracefulStopLaneWait = TimeSpan.FromSeconds(1);
 
+    /// <summary>How long a resubmit waits for the input lane: past a submit spray, short of a write
+    /// wedged in <c>write(2)</c>, which would otherwise hold the round's verdict.</summary>
+    internal static readonly TimeSpan ResubmitLaneWait = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// How long output must have been silent, once the TUI looks ready, before the launch prompt is
     /// pasted: a TUI still drawing its banner or startup spinner is not reading its composer yet.
@@ -399,6 +403,23 @@ internal sealed partial class PtyHostedAgentRuntime(
             await pty.WriteAsync(data);
         } finally {
             _lane.Release();
+        }
+    }
+
+    /// <summary>Withheld while a dialog shows, since its default option would take the Enter.</summary>
+    public async Task<bool> ResubmitAsync() {
+        try {
+            if (!await _lane.WaitAsync(ResubmitLaneWait, _disposal.Token)) return false;
+        } catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) {
+            return false;
+        }
+
+        try {
+            if (_stopRequested || DialogGone is not null) return false;
+
+            return await WriteSubmitCarriageReturnAsync();
+        } finally {
+            try { _lane.Release(); } catch (ObjectDisposedException) { }
         }
     }
 

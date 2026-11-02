@@ -90,6 +90,20 @@ public class CodexTurnObserverTests {
     }
 
     [Test]
+    public async Task A_relayed_turn_is_observed_without_growth() {
+        var  time     = new FakeTimeProvider();
+        var  attested = false;
+
+        var task = CodexTurnObserver.ObserveGrowthAsync(
+            () => 10, baseline: 10, Timeout, Poll, time, CancellationToken.None, turnAttested: () => attested);
+
+        attested = true;
+        time.Advance(Poll);
+
+        await Assert.That(await task).IsEqualTo(CodexTurnObserver.Outcome.TurnObserved);
+    }
+
+    [Test]
     public async Task Cancellation_is_reported() {
         var       time = new FakeTimeProvider();
         using var cts  = new CancellationTokenSource();

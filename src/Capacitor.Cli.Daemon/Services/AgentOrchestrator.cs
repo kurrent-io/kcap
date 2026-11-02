@@ -4857,6 +4857,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         public const string ReaperClaimedLate = "reaper_claimed_late";
         public const string QueueFull         = "queue_full";
         public const string DeliveryFailed    = "delivery_failed";
+        /// <summary>Written, but the agent started no turn from it: the input never reached the model.</summary>
+        public const string TurnNotStarted    = "turn_not_started";
     }
 
     /// <summary>Reports a drop to the server, when the dispatch carried an id to name. Never throws:
@@ -4978,7 +4980,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
 
         // Armed outside the section, and only for a write that actually landed.
-        if (isCodex && outcome.Kind is InputDeliveryKind.Delivered) ArmCodexTurnProbe(agent, codexBaseline, codexGen);
+        if (isCodex && outcome.Kind is InputDeliveryKind.Delivered) ArmCodexTurnProbe(agent, codexBaseline, codexGen, dispatchId);
 
         return outcome;
 
@@ -5134,60 +5136,71 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     /// <summary>
-    /// Codex turn diagnostic: schedule a bounded, off-handler probe that watches the reviewer's
-    /// rollout for growth past <paramref name="baseline"/> (the length captured just before this
-    /// round's input was delivered) and logs whether a turn began — the only clean turn-start signal
-    /// a PTY runtime gives the daemon (see <see cref="CodexTurnObserver"/>).
+    /// Schedules the off-handler probe that watches a PTY Codex agent's rollout for growth past
+    /// <paramref name="baseline"/>, the length sampled just before this input was delivered: the only
+    /// turn-start signal a PTY runtime gives the daemon (see <see cref="CodexTurnObserver"/>). For a
+    /// review-flow reviewer the probe also resubmits and fails a round that never starts (see
+    /// <see cref="CodexRoundConfirmation"/>); for anyone else it only logs.
     ///
-    /// <para>Single-flight is by GENERATION, established in <see cref="DeliverInputAsync"/> before
-    /// delivery: <paramref name="gen"/> is this round's generation, and the probe emits a verdict
-    /// only while it is still the agent's latest — so a later round's growth is never credited to an
-    /// earlier round even during that earlier probe's own poll. This method itself does no I/O and
-    /// touches no disposable of the (already torn-down?) agent: it only schedules onto the pool, so
-    /// it cannot throw a teardown fault back onto the just-completed send. A null
-    /// <paramref name="baseline"/> (path not cached yet, or the pre-delivery stat failed) is logged
-    /// and skipped — never a false "no turn"; the generation was still bumped, so any prior probe is
-    /// already invalidated.</para>
+    /// <para><paramref name="gen"/> was bumped under the send gate before delivery, and a probe acts only
+    /// while it is still the agent's latest, so a later round's growth is never credited to this one. A
+    /// null baseline is logged and skipped, never read as "no turn".</para>
     /// </summary>
-    void ArmCodexTurnProbe(AgentInstance agent, long? baseline, long gen) {
+    void ArmCodexTurnProbe(AgentInstance agent, long? baseline, long gen, Guid? dispatchId) {
         Interlocked.Increment(ref _codexProbesArmed);
         if (agent.TranscriptPath is not { } rolloutPath || baseline is not { } b) {
             LogCodexTurnRolloutUnresolved(agent.Id);
             return;
         }
 
-        _ = Task.Run(() => ObserveCodexTurnAsync(agent, rolloutPath, b, gen));
+        _ = Task.Run(() => ObserveCodexTurnAsync(agent, rolloutPath, b, gen, dispatchId));
     }
 
-    async Task ObserveCodexTurnAsync(AgentInstance agent, string rolloutPath, long baseline, long gen) {
+    async Task ObserveCodexTurnAsync(AgentInstance agent, string rolloutPath, long baseline, long gen, Guid? dispatchId) {
         try {
-            // The linked token is created HERE (on the pool), not on the send handler, so a
-            // concurrent teardown that has disposed ReadCts faults this best-effort probe rather
-            // than the send. Bounded by the agent's stop, daemon shutdown, and the observe timeout.
+            // Linked here, on the pool, so a teardown that already disposed ReadCts faults this probe
+            // rather than the send.
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(agent.ReadCts.Token, _shutdownCts.Token);
 
             long CurrentLength() {
                 try { return new FileInfo(rolloutPath).Length; } catch { return -1; } // <0 ⇒ momentarily unreadable
             }
 
-            // Monotonic elapsed measurement (same clock domain the observer uses) — DateTime.UtcNow
-            // could skew or go negative if the wall clock shifts mid-observation.
+            bool IsCurrent() => Volatile.Read(ref agent.CodexTurnProbeGen) == gen;
+
             var startTs = _time.GetTimestamp();
 
-            // Single-flight: this round's generation was bumped (under the send gate) before its
-            // input was delivered, so a newer round instantly makes this one stale. The predicate is
-            // checked inside the poll loop, so a superseded probe stops within one interval instead
-            // of polling to the timeout; the generation stays the sole verdict authority.
-            var outcome = await CodexTurnObserver.ObserveGrowthAsync(
-                CurrentLength, baseline, CodexTurnObserveTimeout, CodexTurnObserveInterval, _time, cts.Token,
-                isCurrent: () => Volatile.Read(ref agent.CodexTurnProbeGen) == gen);
+            if (agent.Kind == LaunchKind.ReviewFlow) {
+                var result = await CodexRoundConfirmation.ConfirmAsync(
+                    CurrentLength, baseline, () => agent.ActivityClock.TurnAttested, agent.Runtime.ResubmitAsync,
+                    CodexRoundConfirmation.Window, CodexTurnObserveInterval, _time, cts.Token, IsCurrent);
 
-            // Verdict authority: the in-loop predicate stops a superseded probe promptly, but it is
-            // checked BEFORE each length stat — so a newer round could bump the generation AND grow
-            // the rollout between that check and the read, yielding a TurnObserved that belongs to
-            // the newer round. Re-check the generation HERE, immediately before logging, so a stale
-            // round never emits a verdict (leaving only the sub-microsecond check-to-log window).
-            if (Volatile.Read(ref agent.CodexTurnProbeGen) != gen) return;
+                // Re-checked after the verdict: the in-loop check runs before each stat, so a newer
+                // round's growth can still land in between.
+                if (!IsCurrent()) return;
+
+                switch (result.Verdict) {
+                    case CodexRoundConfirmation.Verdict.Started:
+                        LogCodexTurnStarted(agent.Id, (long)_time.GetElapsedTime(startTs).TotalMilliseconds);
+                        break;
+                    case CodexRoundConfirmation.Verdict.StartedAfterResubmit:
+                        LogCodexTurnStartedAfterResubmit(agent.Id, (long)_time.GetElapsedTime(startTs).TotalMilliseconds);
+                        break;
+                    case CodexRoundConfirmation.Verdict.NotStarted:
+                        await FailUnstartedCodexRoundAsync(agent, dispatchId, result.ResubmitWritten);
+                        break;
+                    case CodexRoundConfirmation.Verdict.Unavailable:
+                        LogCodexTurnRolloutUnavailable(agent.Id);
+                        break;
+                }
+
+                return;
+            }
+
+            var outcome = await CodexTurnObserver.ObserveGrowthAsync(
+                CurrentLength, baseline, CodexTurnObserveTimeout, CodexTurnObserveInterval, _time, cts.Token, IsCurrent);
+
+            if (!IsCurrent()) return;
 
             switch (outcome) {
                 case CodexTurnObserver.Outcome.TurnObserved:
@@ -5197,16 +5210,40 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     LogCodexTurnNotObserved(agent.Id, CodexTurnObserveTimeout.TotalSeconds);
                     break;
                 case CodexTurnObserver.Outcome.Unavailable:
-                    // The rollout became unreadable and never showed growth — a measurement gap, NOT
-                    // evidence the reviewer ignored the input. Do not emit the strong "no turn" line.
+                    // A rollout that became unreadable is a measurement gap, not evidence of no turn.
                     LogCodexTurnRolloutUnavailable(agent.Id);
                     break;
-                // Superseded: a newer round took over — it reports; no verdict here.
-                // Cancelled: the agent stopped or the daemon is shutting down — no verdict to report.
             }
         } catch (Exception ex) {
             LogCodexTurnObserveFailed(ex, agent.Id);
         }
+    }
+
+    /// <summary>The stop detail a review-flow reviewer is ended with when its round never started a turn.</summary>
+    internal const string CodexRoundNotStartedReason = "codex_reviewer_turn_not_started";
+
+    /// <summary>
+    /// Ends a review-flow reviewer whose round never started a turn, so the flow fails the round now, with
+    /// this reason, rather than at its inactivity bound. The server settles a round on its participant's
+    /// stop; a rejected dispatch only retires the message, so it is reported first and the reviewer is
+    /// then terminated. No graceful <c>/exit</c>: typed behind the unsent round, it would submit both.
+    /// </summary>
+    async Task FailUnstartedCodexRoundAsync(AgentInstance agent, Guid? dispatchId, bool resubmitWritten) {
+        if (agent.IsCleanupStarted || agent.IsReapClaimed || agent.Runtime.HasExited) return;
+
+        LogCodexRoundNotStarted(agent.Id, (CodexRoundConfirmation.Window * 2).TotalSeconds, resubmitWritten);
+
+        if (dispatchId is { } dispatch && !agent.IsServerSilent) {
+            try {
+                await _server.SendInputRejectedAsync(dispatch, agent.Id, SendInputDropReason.TurnNotStarted);
+            } catch (Exception ex) {
+                LogSendInputRejectReportFailed(ex, agent.Id, SendInputDropReason.TurnNotStarted);
+            }
+        }
+
+        agent.StopDetail ??= CodexRoundNotStartedReason;
+        agent.PendingEndReason = CodexRoundNotStartedReason;
+        try { await agent.Runtime.TerminateAsync(TimeSpan.FromSeconds(10)); } catch (Exception ex) { LogStopError(ex, agent.Id); }
     }
 
     static long? TryFileLength(string path) {
@@ -6875,6 +6912,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Codex produced NO turn for agent {AgentId} within {Seconds}s of input delivery — the reviewer received the prompt but did not act on it")]
     partial void LogCodexTurnNotObserved(string agentId, double seconds);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Codex turn started for agent {AgentId} after one more submit ({ElapsedMs}ms after delivery)")]
+    partial void LogCodexTurnStartedAfterResubmit(string agentId, long elapsedMs);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Codex started no turn for review-flow agent {AgentId} within {Seconds}s of delivery, one more submit included (written: {ResubmitWritten}); ending it so the flow fails the round")]
+    partial void LogCodexRoundNotStarted(string agentId, double seconds, bool resubmitWritten);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Codex turn observer: could not resolve a rollout for agent {AgentId} — skipping turn-start diagnostic for this round")]
     partial void LogCodexTurnRolloutUnresolved(string agentId);

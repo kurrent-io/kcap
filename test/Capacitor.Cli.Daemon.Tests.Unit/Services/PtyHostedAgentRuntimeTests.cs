@@ -91,6 +91,29 @@ public class PtyHostedAgentRuntimeTests {
     }
 
     [Test]
+    public async Task Resubmit_writes_one_carriage_return() {
+        var pty     = new RecordingPty();
+        var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: true);
+
+        await Assert.That(await runtime.ResubmitAsync()).IsTrue();
+
+        await Assert.That(pty.StringWrites.Count).IsEqualTo(1);
+        await Assert.That(pty.StringWrites[0]).IsEqualTo("\r");
+    }
+
+    /// <summary>A dialog's default option would take the Enter.</summary>
+    [Test]
+    public async Task Resubmit_is_withheld_while_a_dialog_shows() {
+        var pty     = new RecordingPty();
+        var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: true);
+        runtime.NoteTerminalDialog(true);
+
+        await Assert.That(await runtime.ResubmitAsync()).IsFalse();
+
+        await Assert.That(pty.StringWrites.Count).IsEqualTo(0);
+    }
+
+    [Test]
     [Arguments(9)]
     [Arguments(1000)]
     [Arguments(1002)]

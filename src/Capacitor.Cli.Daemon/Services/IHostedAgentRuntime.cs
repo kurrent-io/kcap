@@ -66,6 +66,10 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// causes.</summary>
     void NoteTurnRelayed() { }
 
+    /// <summary>Sends one more submit Enter for input already in a terminal composer. False when nothing
+    /// was written: no composer, a dialog that would take the Enter, a stop, or the agent gone.</summary>
+    Task<bool> ResubmitAsync() => Task.FromResult(false);
+
     /// <summary>The launch prompt pasted after spawn, or null when nothing is pasted.</summary>
     Task<LaunchPromptOutcome>? LaunchPromptDelivery => null;
 
