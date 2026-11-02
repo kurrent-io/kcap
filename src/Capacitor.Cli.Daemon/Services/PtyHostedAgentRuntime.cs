@@ -339,7 +339,7 @@ internal sealed partial class PtyHostedAgentRuntime(
         return true;
     }
 
-    /// <summary>Called by the launch delivery holding the input lane, before each submit Enter. A dialog
+    /// <summary>Called by a delivery holding the input lane, before each submit Enter. A dialog
     /// that came up after the paste would take the Enter, and answering it takes the lane, so each one is
     /// waited out with the lane released. Returns holding the lane; false when a stop was asked for.</summary>
     async Task<bool> WaitOutDialogsAsync() {
@@ -365,17 +365,35 @@ internal sealed partial class PtyHostedAgentRuntime(
 
     /// <summary>
     /// Delivers <paramref name="text"/> as a bracketed paste (ESC[200~ … ESC[201~) so the TUI treats
-    /// it as one block, then submits it (see <see cref="SubmitAsync"/>).
+    /// it as one block, then submits it (see <see cref="SubmitAsync"/>). Text typed into an open dialog
+    /// would answer it, and the server may have refused this sender that answer, so the paste and each
+    /// submit Enter wait for any dialog to close, with the lane released so the dialog can be answered.
     /// </summary>
+    /// <exception cref="IOException">A stop was asked for while a dialog was still open.</exception>
     public async Task SendUserInputAsync(string text) {
         await WaitForLaunchPromptAsync();
-        await _lane.WaitAsync();
+
+        while (true) {
+            await WaitWhileDialogShowsAsync(_disposal.Token);
+            await _lane.WaitAsync(_disposal.Token);
+            if (DialogGone is null) break;
+
+            _lane.Release();
+            if (_stopRequested || pty.HasExited) throw new IOException("The agent is stopping with a dialog open.");
+        }
+
+        _deliveryHoldsLane = true;
 
         try {
             await pty.WriteAsync(BracketedPaste.Frame(text));
-            await SubmitAsync();
+            // Unlike the launch prompt, a stop alone does not withhold the Enter: the stop's "/exit"
+            // would land in the composer behind the unsent paste.
+            await SubmitAsync(async () => {
+                await WaitOutDialogsAsync();
+                return DialogGone is null;
+            });
         } finally {
-            _lane.Release();
+            ReleaseDeliveryLane();
         }
     }
 

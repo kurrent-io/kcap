@@ -583,6 +583,74 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    /// <summary>A message the daemon already holds when a dialog opens would be typed into the dialog
+    /// and taken as its answer, so it waits until the dialog closes, and the answer is not held behind
+    /// it.</summary>
+    [Test]
+    public async Task A_message_waits_for_an_open_dialog_to_close_before_it_is_pasted() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        runtime.NoteTerminalDialog(true);
+        var send = runtime.SendUserInputAsync("carry on");
+
+        await AdvanceAsync(time, TimeSpan.FromSeconds(5));
+        await Assert.That(pty.Writes).IsEmpty();
+
+        await runtime.SendRawInputAsync("1"u8.ToArray()).WaitAsync(TimeSpan.FromSeconds(2));
+        runtime.NoteTerminalDialog(false);
+
+        await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 2, () => send.IsCompleted);
+        await send;
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("1|\x1b[200~carry on\x1b[201~|\r");
+        pty.Exit();
+    }
+
+    /// <summary>A dialog drawn between a message's paste and its submit holds the submit Enter, which
+    /// would otherwise pick the dialog's default option.</summary>
+    [Test]
+    public async Task A_message_submit_waits_for_a_dialog_that_appears_after_the_paste() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        var send = runtime.SendUserInputAsync("carry on");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 4);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~carry on\x1b[201~");
+
+        await runtime.SendRawInputAsync([0x1b]).WaitAsync(TimeSpan.FromSeconds(2));
+        runtime.NoteTerminalDialog(false);
+
+        await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 2, () => send.IsCompleted);
+        await send;
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~carry on\x1b[201~|\x1b|\r");
+        pty.Exit();
+    }
+
+    /// <summary>A stop while a message waits on a dialog fails the message rather than typing it into
+    /// the dialog.</summary>
+    [Test]
+    public async Task A_message_waiting_on_a_dialog_is_not_pasted_once_a_stop_is_asked_for() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        runtime.NoteTerminalDialog(true);
+        var send = runtime.SendUserInputAsync("carry on");
+        await AdvanceAsync(time, TimeSpan.FromSeconds(1));
+
+        var stop = runtime.RequestGracefulStopAsync();
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted && stop.IsCompleted);
+
+        await Assert.That(async () => await send).Throws<IOException>();
+        await Assert.That(pty.Writes.Any(w => w.Contains("carry on"))).IsFalse();
+        pty.Exit();
+    }
+
     /// <summary>Starts a launch whose hooks report its turns and runs it to the first submit.</summary>
     static async Task<(PtyHostedAgentRuntime Runtime, RecordingScriptedPtyProcess Pty)> SubmittedConfirmingLaunchAsync(FakeTimeProvider time) {
         var pty     = new RecordingScriptedPtyProcess();
