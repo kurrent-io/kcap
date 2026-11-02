@@ -9,6 +9,7 @@ using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Telemetry;
 using Capacitor.Cli.Harness.Claude;
@@ -161,7 +162,8 @@ if (isHook && args.Contains("--claude")) {
     HookTiming.Mark("stdin");
 
     if (args.Contains(ClaudeTitlePrompt.Flag)) {
-        var titled = ClaudeTitlePrompt.Handle(claudeHookBody, config, WatcherPaths.FromEnvironment(config), Console.Out, Console.Error);
+        var titled = ClaudeTitlePrompt.Handle(claudeHookBody, config, WatcherPaths.FromEnvironment(config),
+            ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable), Console.Out, Console.Error);
         HookTiming.Mark("title-prompt");
 
         return titled;

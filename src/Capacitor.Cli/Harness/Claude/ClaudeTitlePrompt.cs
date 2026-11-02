@@ -20,7 +20,11 @@ static partial class ClaudeTitlePrompt {
       + "The title should describe WHAT the user wants done, not HOW. Use imperative form (e.g. \"Fix authentication timeout in login flow\"). No period at the end.\n"
       + "</system-instructions>";
 
-    public static int Handle(string body, ConfigRoot config, WatcherPaths watchers, TextWriter stdout, TextWriter stderr) {
+    /// <param name="bashTool">False on Windows without Git Bash: Claude has no Bash tool there, and asking for the
+    /// command anyway sends it through PowerShell, which a manual-permission session stops to approve.</param>
+    public static int Handle(string body, ConfigRoot config, WatcherPaths watchers, bool bashTool, TextWriter stdout, TextWriter stderr) {
+        if (!bashTool) return 0;
+
         string? sessionId;
         try {
             sessionId = JsonNode.Parse(body) is JsonObject hook && hook["session_id"] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;

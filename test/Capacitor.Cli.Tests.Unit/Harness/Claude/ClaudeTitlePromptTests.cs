@@ -14,9 +14,9 @@ public class ClaudeTitlePromptTests {
     static string Prompt(string sessionId) =>
         new JsonObject { ["hook_event_name"] = "UserPromptSubmit", ["session_id"] = sessionId, ["prompt"] = "hi" }.ToJsonString();
 
-    string Run(string body, TextWriter? stderr = null) {
+    string Run(string body, TextWriter? stderr = null, bool bashTool = true) {
         using var stdout = new StringWriter();
-        var exit = ClaudeTitlePrompt.Handle(body, Config.Root, Watchers, stdout, stderr ?? TextWriter.Null);
+        var exit = ClaudeTitlePrompt.Handle(body, Config.Root, Watchers, bashTool, stdout, stderr ?? TextWriter.Null);
         if (exit != 0) throw new InvalidOperationException($"exit {exit}");
         return stdout.ToString();
     }
@@ -48,6 +48,12 @@ public class ClaudeTitlePromptTests {
 
         await Assert.That(Run(Prompt(Sid), stderr)).IsEqualTo("");
         await Assert.That(stderr.ToString()).Contains(Sid);
+    }
+
+    [Test]
+    public async Task Asks_nothing_when_claude_has_no_bash_tool() {
+        await Assert.That(Run(Prompt(Sid), bashTool: false)).IsEqualTo("");
+        await Assert.That(Directory.Exists(Watchers.Directory)).IsFalse();
     }
 
     [Test]
