@@ -1488,12 +1488,14 @@ public class ChatTabViewSmokeTests {
             await Assert.That(you.HorizontalAlignment).IsEqualTo(Avalonia.Layout.HorizontalAlignment.Left);
             var times = host.View.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.Classes.Contains("chatTime") && t.IsEffectivelyVisible)
-                .Select(t => t.Text ?? "")
+                .Select(t => (t.Text ?? "", ToolTip.GetTip(t) as string ?? ""))
                 .ToList();
+            var userTime = host.Chat.Items.OfType<UserTurnItem>().Single().Time!;
+            var assistantTime = host.Chat.Items.OfType<AssistantTextItem>().Single().Time!;
             await Assert.That(times).IsEquivalentTo([
-                host.Chat.Items.OfType<UserTurnItem>().Single().Time!.Label,
-                host.Chat.Items.OfType<AssistantTextItem>().Single().Time!.Label,
-            ]);
+                (userTime.Label, userTime.Tip),
+                (assistantTime.Label, assistantTime.Tip),
+            ], CollectionOrdering.Matching);
 
             host.Chat.Items.OfType<UserTurnItem>().Single().Sender.Title = "Tony";
             host.Settle();
