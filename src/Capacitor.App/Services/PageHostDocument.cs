@@ -23,7 +23,14 @@ public static class PageHostDocument {
     const string NoncePlaceholder = "\"__KCAP_NONCE__\"";
     /// CSP does not govern DNS prefetch, which a link's host would otherwise trigger with no request.
     const string DnsPrefetchOff = "<meta http-equiv=\"x-dns-prefetch-control\" content=\"off\">";
-    const string PolicyMeta = $"<meta http-equiv=\"Content-Security-Policy\" content=\"{ContentPolicy}\">{DnsPrefetchOff}";
+    /// A srcdoc page resolves `#id` against the host's about:blank, a navigation the view cancels, so an
+    /// in-page link the page left unhandled scrolls here instead. Bubble phase: the page's handlers run first.
+    public const string FragmentLinks =
+        "<script>document.addEventListener('click',function(e){if(e.defaultPrevented)return;" +
+        "var a=e.target&&e.target.closest?e.target.closest('a[href^=\"#\"]'):null;if(!a||(a.target&&a.target!=='_self'))return;" +
+        "e.preventDefault();var id;try{id=decodeURIComponent(a.getAttribute('href').slice(1));}catch(_){return;}" +
+        "if(!id){scrollTo(0,0);return;}var el=document.getElementById(id)||document.getElementsByName(id)[0];if(el)el.scrollIntoView();});</script>";
+    const string PolicyMeta = $"<meta http-equiv=\"Content-Security-Policy\" content=\"{ContentPolicy}\">{DnsPrefetchOff}{FragmentLinks}";
 
     static readonly Lazy<string> HostScript = new(() => {
         using var stream = typeof(PageHostDocument).Assembly.GetManifestResourceStream("Capacitor.App.Assets.page-host.js")

@@ -206,6 +206,19 @@ public class PageBridgeTests {
     }
 
     [Test]
+    public async Task Results_without_an_etag_are_pushed_on_every_tick() {
+        await using var h = new Harness();
+        const string noEtag = """{"mode":"aggregate","version":3,"closed":false,"revealed":true,"tallies":{"a":1}}""";
+        h.Source.EnqueueReply("results", Reply(200, noEtag), Reply(200, noEtag));
+        h.Bridge(PageResultsAccess.Visible);
+
+        await h.Tick();
+        await h.Tick();
+
+        await Assert.That(h.Types()).IsEquivalentTo(new[] { "results", "results" });
+    }
+
+    [Test]
     public async Task Ready_pushes_results_even_when_a_tick_already_sent_the_same_etag() {
         await using var h = new Harness();
         h.Source.EnqueueReply("results", Reply(200, Results("e1")), Reply(200, Results("e1")));

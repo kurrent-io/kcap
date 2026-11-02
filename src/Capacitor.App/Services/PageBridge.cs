@@ -202,7 +202,8 @@ public sealed class PageBridge : IAsyncDisposable {
         if (reply.Status is < 200 or >= 300 || reply.Body is not { } body || !body.IsObject) return;
 
         var etag = body.Prop("etag")?.GetRawText();
-        if (!_sentResults || etag != _lastEtag) {
+        // No etag says nothing about whether the results moved, so every such answer is delivered.
+        if (!_sentResults || etag is null || etag != _lastEtag) {
             _sentResults = true;
             _lastEtag = etag;
             await PostAsync(w => {

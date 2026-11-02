@@ -36,11 +36,20 @@ public class PageHostDocumentTests {
         var srcdoc = Srcdoc(PageHostDocument.Build("<p>x</p>", Nonce));
 
         await Assert.That(srcdoc).StartsWith(
-            $"<meta http-equiv=\"Content-Security-Policy\" content=\"{PageHostDocument.ContentPolicy}\"><meta http-equiv=\"x-dns-prefetch-control\" content=\"off\"><p>");
+            $"<meta http-equiv=\"Content-Security-Policy\" content=\"{PageHostDocument.ContentPolicy}\"><meta http-equiv=\"x-dns-prefetch-control\" content=\"off\">{PageHostDocument.FragmentLinks}<p>");
         await Assert.That(PageHostDocument.ContentPolicy).Contains("connect-src 'none'");
         await Assert.That(PageHostDocument.ContentPolicy).Contains("default-src 'none'");
         await Assert.That(PageHostDocument.ContentPolicy).DoesNotContain("frame-ancestors");
         await Assert.That(PageHostDocument.ContentPolicy).DoesNotContain("sandbox");
+    }
+
+    /// In-page links scroll only when the page left the click alone, and never by capturing it first.
+    [Test]
+    public async Task Fragment_links_are_handled_after_the_page_and_only_when_unhandled() {
+        await Assert.That(PageHostDocument.FragmentLinks).Contains("if(e.defaultPrevented)return;");
+        await Assert.That(PageHostDocument.FragmentLinks).Contains("});</script>");
+        await Assert.That(PageHostDocument.FragmentLinks).DoesNotContain(",true)");
+        await Assert.That(PageHostDocument.FragmentLinks).DoesNotContain("capture");
     }
 
     [Test]
