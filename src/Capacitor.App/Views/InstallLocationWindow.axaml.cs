@@ -118,13 +118,14 @@ public partial class InstallLocationWindow : Window {
         if (!_moving && _canMove && _startMove is { } start) _ = start();
     }
 
-    static void Reveal(string path) {
+    // Off the UI thread: Process.Start can block while another spawn in the app is stalled.
+    static void Reveal(string path) => _ = Task.Run(() => {
         try {
             Process.Start(new ProcessStartInfo("open", ["-R", path]) { UseShellExecute = false })?.Dispose();
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: could not show {path} in Finder: {ex.Message}");
         }
-    }
+    });
 
     void SetMoving(bool moving) {
         _moving = moving;
