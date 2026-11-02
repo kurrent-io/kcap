@@ -1011,8 +1011,8 @@ switch (command) {
                 sp.GetRequiredService<ICapacitorHttpClient>(), sp.GetRequiredService<WatcherManager>(), time);
 
             await poster.DrainSpoolsAsync(
-                new HookSpool(config, time),
-                new TranscriptSpool(config, time),
+                new HookSpool(config, time, baseUrl),
+                new TranscriptSpool(config, time, baseUrl),
                 sessionId: null);
             HookTiming.Mark("global-spool-drain");
         }
