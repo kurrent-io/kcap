@@ -116,9 +116,11 @@ public class AgentOrchestratorResumeOnBootTests {
             string vendor = "cursor", string? permissionMode = null, string title = "the thing", bool? titleDerived = null,
             IReadOnlyList<string>? inherited = null, bool? awaitingInput = null, WorkLocation work = WorkLocation.OwnedWorktree) {
         var stamp = at ?? TimeProvider.System.GetUtcNow();
+        var path  = worktree ?? Tmp.CreateDir($"wt-{agentId}");
+        // An in-place entry records its directory as both, as the launch does.
         var launch = new ResumeLaunchDescriptor(
-            Prompt: "build the thing", Model: "auto", Effort: null, RepoPath: f.Repo,
-            WorktreePath: worktree ?? Tmp.CreateDir($"wt-{agentId}"), Work: work,
+            Prompt: "build the thing", Model: "auto", Effort: null, RepoPath: work == WorkLocation.InPlace ? path : f.Repo,
+            WorktreePath: path, Work: work,
             GitRelativeCwd: null, SandboxPolicy: null, ApprovalPolicy: null, PermissionPreset: null,
             McpConfigPath: null, Title: title, IsPrivate: isPrivate, Origin: "server",
             RequesterUserId: "user-1", RequesterDisplay: "User One", ConsentSource: "default",
@@ -351,6 +353,21 @@ public class AgentOrchestratorResumeOnBootTests {
         } else {
             await Assert.That(after.State).IsEqualTo(ResumeState.Running);
         }
+    }
+
+    /// <summary>An in-place entry that goes straight to a continuation, having no session to resume natively, is still
+    /// authorized: a directory no longer allowed starts nothing.</summary>
+    [Test]
+    public async Task An_in_place_continuation_in_a_directory_no_longer_allowed_starts_nothing() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "in-place-cont-1", worktree: ResolvedDirectory("outside-cont"), vendorSession: null, work: WorkLocation.InPlace);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts).IsEmpty();
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("in-place-cont-1")!.State).IsEqualTo(ResumeState.Interrupted);
     }
 
     string ResolvedDirectory(string name) {

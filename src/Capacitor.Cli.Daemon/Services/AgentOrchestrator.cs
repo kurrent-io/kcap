@@ -2573,6 +2573,14 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             : AccountResolution.ResolveForResume(registry, vendor, resumed.AccountId, resumed.AccountDirectory, defaultDirectory);
     }
 
+    async Task<bool> RepoAllowedAsync(string repoPath, ResumeLaunch? resume) {
+        if (resume is not { Work: WorkLocation.InPlace }) return _config.IsRepoAllowed(repoPath);
+
+        var authorized = await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(repoPath);
+
+        return authorized.Allowed && authorized.CanonicalCwd == repoPath;
+    }
+
     /// <summary>The server's start title, or — from a server that sends none — one derived from the prompt, or
     /// for a hand-off with no text, one naming its source.</summary>
     internal static AgentStartTitle? StartTitleOf(LaunchAgentCommand cmd) =>
@@ -2856,10 +2864,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             }
 
             // A local spawn was never held to the allowed-repo list, so neither is its resume. A scratch
-            // launch names no repository to allow, find or report on. An in-place resume was authorized the way
-            // a borrowed directory is, which also admits a path below an allowed git root.
-            if (!cmd.ScratchWorkspace && resume is not { Origin: "local" } && resume is not { Work: WorkLocation.InPlace }
-             && !_config.IsRepoAllowed(repoPath)) {
+            // launch names no repository to allow, find or report on. Every in-place route is authorized here the
+            // way a borrowed directory is, which also admits a path below an allowed git root.
+            if (!cmd.ScratchWorkspace && resume is not { Origin: "local" } && !await RepoAllowedAsync(repoPath, resume)) {
                 await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path not allowed: {repoPath}");
 
                 return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
