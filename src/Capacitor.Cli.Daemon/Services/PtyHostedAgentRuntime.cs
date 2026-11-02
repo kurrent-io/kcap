@@ -369,16 +369,21 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// would answer it, and the server may have refused this sender that answer, so the paste and each
     /// submit Enter wait for any dialog to close, with the lane released so the dialog can be answered.
     /// </summary>
-    /// <exception cref="IOException">The agent stopped or exited while a dialog held the message.</exception>
+    /// <exception cref="IOException">The agent was stopping or had exited before the message could be sent.</exception>
     public async Task SendUserInputAsync(string text) {
         await WaitForLaunchPromptAsync();
 
+        // Once a stop is asked for, a paste would land behind its "/exit", whatever dialog came and
+        // went while this waited for the lane.
         while (true) {
-            var dialogShowed = DialogGone is not null;
             await WaitWhileDialogShowsAsync(_disposal.Token);
-            if (dialogShowed && Ending) throw DialogOutlivedAgent();
-
             await _lane.WaitAsync(_disposal.Token);
+
+            if (Ending) {
+                _lane.Release();
+                throw AgentEnding();
+            }
+
             if (DialogGone is null) break;
 
             _lane.Release();
@@ -394,7 +399,7 @@ internal sealed partial class PtyHostedAgentRuntime(
                 await WaitOutDialogsAsync();
                 return DialogGone is null;
             });
-            if (!submitted) throw DialogOutlivedAgent();
+            if (!submitted) throw AgentEnding();
         } finally {
             ReleaseDeliveryLane();
         }
@@ -402,7 +407,7 @@ internal sealed partial class PtyHostedAgentRuntime(
 
     bool Ending => _stopRequested || pty.HasExited;
 
-    static IOException DialogOutlivedAgent() => new("The agent stopped or exited while a dialog held the message.");
+    static IOException AgentEnding() => new("The agent is stopping or has exited, so the message was not sent.");
 
     public async Task SendSpecialKeyAsync(string key) {
         var isWheel = TerminalScrollKey.TryDecode(key, out var bytes);

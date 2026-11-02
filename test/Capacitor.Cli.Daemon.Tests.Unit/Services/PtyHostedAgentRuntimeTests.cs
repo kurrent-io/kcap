@@ -654,6 +654,32 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    /// <summary>A dialog can open and close while a message waits for the lane behind a viewer's key,
+    /// and a stop asked for meanwhile writes "/exit" without the lane: the message must not follow it.</summary>
+    [Test]
+    public async Task A_message_that_gets_the_lane_after_a_stop_is_not_pasted() {
+        var time    = new FakeTimeProvider();
+        var pty     = new GatedRawPty();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        var key = runtime.SendRawInputAsync([0x1b]);
+        await pty.RawWriteEntered.WaitAsync(TimeSpan.FromSeconds(5));
+        var send = runtime.SendUserInputAsync("carry on");
+
+        runtime.NoteTerminalDialog(true);
+        var stop = runtime.RequestGracefulStopAsync();
+        runtime.NoteTerminalDialog(false);
+        await StepAsync(time, PtyHostedAgentRuntime.GracefulStopLaneWait * 2, () => stop.IsCompleted);
+
+        pty.ReleaseRawWrites();
+        await key.WaitAsync(TimeSpan.FromSeconds(5));
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted);
+
+        await Assert.That(async () => await send).Throws<IOException>();
+        await Assert.That(pty.Inner.Writes.Any(w => w.Contains("carry on"))).IsFalse();
+        pty.Inner.Exit();
+    }
+
     /// <summary>A message pasted before a dialog opened, and left unsubmitted because the agent stopped
     /// or exited while the dialog showed, is a failed delivery, not a delivered one.</summary>
     [Test]
@@ -845,7 +871,7 @@ public class PtyHostedAgentRuntimeTests {
     }
 
     /// <summary>An agent that is already gone gets nothing pasted, and the lane is released for
-    /// whoever asks next.</summary>
+    /// whoever asks next: the next message gets it and is refused, rather than waiting forever.</summary>
     [Test]
     public async Task Launch_prompt_is_dropped_when_the_agent_exited_before_startup_settled() {
         var pty     = new RecordingScriptedPtyProcess();
@@ -856,8 +882,9 @@ public class PtyHostedAgentRuntimeTests {
         var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
 
         await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.AgentExited);
+        await Assert.That(async () => await runtime.SendUserInputAsync("later").WaitAsync(TimeSpan.FromSeconds(5)))
+            .Throws<IOException>();
         await Assert.That(pty.Writes).IsEmpty();
-        await runtime.SendUserInputAsync("later").WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     /// <summary>A viewer's keystrokes must reach the TUI while the launch prompt is still waiting for
