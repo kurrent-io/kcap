@@ -983,7 +983,24 @@ public class HistoryStepViewModelTests {
 
         h.Vm.SummariseOutcomes = true;
         await Assert.That(h.Vm.SummariseError).IsNull();
+        await Assert.That(await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None)).IsEqualTo(refused);
+    }
+
+    /// A send that failed may still have been stored, so the server's choice is unknown until one is confirmed.
+    [Test]
+    public async Task After_a_failed_send_the_choice_is_sent_again_even_when_it_matches_the_last_known() {
+        var h = new Harness(Report(), onLocalPath: true);
+        h.Intelligence.Applied = Took("local_agent", harness: "codex");
+        h.Intelligence.Refusal = new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Failed("response lost");
+        await h.EnterAsync();
+        h.Vm.SummariseOutcomes = false;
+        await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None);
+
+        h.Intelligence.Refusal = null;
+        h.Vm.SummariseOutcomes = true;
         await Assert.That(await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None)).IsTrue();
+
+        await Assert.That(h.Intelligence.Reposted).IsEquivalentTo([false, true]);
         await Assert.That(h.Cli.ImportRequests).IsNotEmpty();
     }
 

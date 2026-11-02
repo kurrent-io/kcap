@@ -35,6 +35,7 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     bool                     _titleLocally;
     bool                     _summariseOutcomes = true;
     string?                  _summariseError;
+    bool                     _summariseUnknown;
     bool                     _customizing;
     int                      _unmatched;
     ImportDiscoveryReport?   _report;
@@ -542,7 +543,7 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
         if (direction == WizardNavigation.Next && HasRepos && SelectedCount + SelectedFolderCount > 0
             && Run is not { State: ImportRunState.Running or ImportRunState.Finished }) {
             // Before the first session lands, so the server applies the choice to all of them.
-            if (Model is { } model && model.ImportOutcomes != SummariseOutcomes && !await SendSummariseAsync(ct).ConfigureAwait(true))
+            if (Model is { } model && (_summariseUnknown || model.ImportOutcomes != SummariseOutcomes) && !await SendSummariseAsync(ct).ConfigureAwait(true))
                 return false;
 
             StartImport();
@@ -552,9 +553,14 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     }
 
     /// Importing under the server's other choice would go against the box the user left, so a choice not taken holds
-    /// the page; putting the box back to the server's choice lets the import go ahead.
+    /// the page. A refusal stored nothing, so putting the box back lets the import go ahead; a failure may have been
+    /// stored, so until a send is confirmed every Next sends the box again.
     async Task<bool> SendSummariseAsync(CancellationToken ct) {
-        SummariseError = await _intelligence!.ApplyImportOutcomesAsync(SummariseOutcomes, ct).ConfigureAwait(true) switch {
+        var outcome = await _intelligence!.ApplyImportOutcomesAsync(SummariseOutcomes, ct).ConfigureAwait(true);
+        if (outcome is IntelligenceSetupOutcome.Applied) _summariseUnknown = false;
+        else if (outcome is IntelligenceSetupOutcome.Failed) _summariseUnknown = true;
+
+        SummariseError = outcome switch {
             IntelligenceSetupOutcome.Applied                         => null,
             IntelligenceSetupOutcome.Refused { Error: var code }     => IntelligenceRefusals.Describe(code),
             IntelligenceSetupOutcome.Failed { Problem: var problem } => $"Could not reach the local server: {problem}",
