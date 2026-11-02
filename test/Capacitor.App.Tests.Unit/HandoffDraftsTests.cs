@@ -90,4 +90,23 @@ public class HandoffDraftsTests {
         await Assert.That(drafts.TakeFailed("source-1")).IsNull();
         await Assert.That(drafts.IsHolding("agent-1")).IsFalse();
     }
+
+    /// <summary>An expiry's notification queued for the UI thread does nothing once the drafts are disposed, rather than
+    /// throwing into whatever runs that queue next.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_expiry_notification_queued_past_disposal_does_not_throw() {
+        var time = new FakeTimeProvider();
+        using var failures = new Subject<LaunchFailure>();
+        var drafts = new HandoffDrafts(failures, directory: null, time);
+        drafts.HoldResume("source-1", "agent-1", Draft);
+
+        time.Advance(TimeSpan.FromMinutes(10));
+        drafts.Dispose();
+
+        await AvaloniaSession.DispatchAsync(() => {
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            return 0;
+        });
+    }
 }

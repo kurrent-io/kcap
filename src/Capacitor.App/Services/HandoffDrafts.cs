@@ -33,6 +33,7 @@ public sealed class HandoffDrafts : IDisposable {
     readonly TimeProvider _time;
     readonly CompositeDisposable _subscriptions = new();
     readonly Subject<string> _failedFor = new();
+    bool _disposed;
 
     public HandoffDrafts(IObservable<LaunchFailure> failures, IAgentDirectory? directory, TimeProvider time) {
         _directory = directory;
@@ -150,7 +151,12 @@ public sealed class HandoffDrafts : IDisposable {
                     timer.Dispose();
                 }
             }
-            if (unsettled) RxSchedulers.MainThreadScheduler.Schedule(() => _failedFor.OnNext(held.SourceSessionId));
+            // Disposal cancels a notification still queued, and one already running sees it.
+            if (unsettled)
+                _subscriptions.Add(RxSchedulers.MainThreadScheduler.Schedule(() => {
+                    lock (_lock) if (_disposed) return;
+                    _failedFor.OnNext(held.SourceSessionId);
+                }));
         }, null, PendingTtl, Timeout.InfiniteTimeSpan);
     }
 
@@ -221,6 +227,7 @@ public sealed class HandoffDrafts : IDisposable {
 
     public void Dispose() {
         lock (_lock) {
+            _disposed = true;
             foreach (var timer in _resumeExpiries.Values) timer.Dispose();
             _resumeExpiries.Clear();
         }
