@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -39,6 +40,8 @@ public sealed class SessionAccessService : IDisposable {
     /// Serializes one session's chat-group calls. Held across a hub call, never with _lock.
     readonly SessionGates _chatGates = new();
     readonly Subject<(string SessionId, SessionAccessState State)> _transitions = new();
+    /// Written only from Deliver, which one thread drains at a time.
+    readonly BehaviorSubject<IReadOnlySet<string>> _established = new(FrozenSet<string>.Empty);
     readonly Lock _lock = new();
     /// States published under _lock, delivered after it is released in the order they were published; null completes.
     readonly Queue<(Entry Entry, SessionAccessState? State)> _outbox = new();
@@ -65,6 +68,10 @@ public sealed class SessionAccessService : IDisposable {
     }
 
     public IObservable<(string SessionId, SessionAccessState State)> Transitions => _transitions.AsObservable();
+
+    /// Sessions whose access currently stands, maintained from the same ordered delivery as
+    /// Transitions, so a release (which completes rather than transitions) drops its session too.
+    public IObservable<IReadOnlySet<string>> EstablishedSessions => _established.AsObservable();
 
     /// A newcomer re-asks a refused session rather than inheriting the refusal: an earlier lease may
     /// have asked before the server had the session, which it answers exactly as a hidden one.
@@ -283,11 +290,24 @@ public sealed class SessionAccessService : IDisposable {
                 next = _outbox.Dequeue();
             }
             var entry = next.Entry;
-            if (next.State is not { } state) { Notify(entry, entry.State.OnCompleted); continue; }
+            if (next.State is not { } state) {
+                Notify(entry, entry.State.OnCompleted);
+                Notify(entry, () => SetEstablished(entry.SessionId, false));
+                continue;
+            }
             // Each notification on its own: an observer that throws must not keep the state from the rest.
             Notify(entry, () => entry.State.OnNext(state));
             Notify(entry, () => _transitions.OnNext((entry.SessionId, state)));
+            Notify(entry, () => SetEstablished(entry.SessionId, state == SessionAccessState.Established));
         }
+    }
+
+    void SetEstablished(string sessionId, bool established) {
+        var current = _established.Value;
+        if (current.Contains(sessionId) == established) return;
+        var next = new HashSet<string>(current, StringComparer.Ordinal);
+        if (established) next.Add(sessionId); else next.Remove(sessionId);
+        _established.OnNext(next.Count == 0 ? FrozenSet<string>.Empty : next);
     }
 
     static void Notify(Entry entry, Action notify) {
@@ -312,5 +332,6 @@ public sealed class SessionAccessService : IDisposable {
         Deliver();
         _subscriptions.Dispose();
         _transitions.Dispose();
+        _established.Dispose();
     }
 }

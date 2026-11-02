@@ -1116,13 +1116,9 @@ public partial class App : Application {
         // nothing, so anything pushed before the feed and the tracker are subscribed is lost.
         serverLane.Start();
 
-        // The rail pips on both halves: agents with a card in the cache, plus sessions the tracker
-        // knows are waiting but the app has never opened, mapped back to their agent.
         var agentsWithPending = permissions.AgentsWithPending.CombineLatest(
-            attention.SessionsWithAttention, directory.SessionAgents,
-            (cards, sessions, map) => (IReadOnlySet<string>)cards
-                .Concat(sessions.Select(s => map.GetValueOrDefault(s, "")).Where(a => a.Length > 0))
-                .ToHashSet(StringComparer.Ordinal));
+            attention.SessionsWithAttention, sessionAccess.EstablishedSessions, directory.SessionAgents,
+            RailPendingAgents.Compose);
 
         // The signed-in user's own id (JwtClaims sub claim), read fresh per call — never cached,
         // since a re-auth or profile switch must be reflected on the very next read.
