@@ -2009,10 +2009,13 @@ public class RemoteSessionViewModelTests {
         });
     }
 
-    /// The rights this session holds were read for whoever was signed in. Another account signing in waits for a
-    /// row read for it before the list is read again, so the last owner's flag never decides what the next one sees.
+    /// The rights this session holds were read for whoever was signed in. Another account connecting, after a
+    /// sign-out or a profile switch, empties the list and waits for a row read for that account, however often the lane
+    /// reports it connected, so the last owner's flag never decides what the next one sees.
     [Test]
-    public async Task Another_account_signing_in_waits_for_its_own_rights() {
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Another_account_connecting_waits_for_its_own_rights(bool signsOutFirst) {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
             var api = new FakeHeldMessagesApi {
@@ -2026,10 +2029,11 @@ public class RemoteSessionViewModelTests {
             var vm = h.Build(row, heldMessages: api);
             await WaitUntilAsync(() => vm.Chat.Held!.HasItems, what: "the owner's held list");
 
-            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut, Epoch: 2));
+            if (signsOutFirst) h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut, Epoch: 2));
             h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connecting, Epoch: 3));
+            await WaitUntilAsync(() => !vm.Chat.Held!.HasItems, what: "the list to clear while the account is unknown");
             h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u2", Epoch: 3));
-            await WaitUntilAsync(() => !vm.Chat.Held!.HasItems, what: "the list to stay cleared");
+            h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u2", Epoch: 4));
             var reads = api.Reads.Count;
             await Task.Delay(200);
             Dispatcher.UIThread.RunJobs();

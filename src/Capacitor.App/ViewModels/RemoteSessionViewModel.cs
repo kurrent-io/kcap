@@ -488,28 +488,29 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         _disposables.Add(_lease);
     }
 
-    /// <summary>The rights the held list reads under. This session outlives a sign-out, and a row's rights were read
-    /// for whoever was signed in then: signed out, the list has none and empties; once another account connects, the
-    /// cached row is skipped and the list waits for one read for that account, so the last owner's list and its Approve
-    /// and Reject never reach the next person.</summary>
+    /// <summary>The rights the held list reads under. This session outlives a sign-out and a profile switch, and a row's
+    /// rights were read for whoever was connected when it arrived, so a row counts only while the lane is connected as
+    /// that same account, or before it has connected at all. Otherwise the list has no rights and empties, and the last
+    /// owner's list, with its Approve and Reject, never reaches the next person.</summary>
     static IObservable<AgentViewerAccess> HeldViewer(IObservable<ServerLaneStatus> status, IObservable<AgentRow> rows) =>
-        Observable.Switch(status.Scan((Trust: HeldTrust.Cached, Subject: (string?)null), (held, s) => s.State switch {
-                ServerLaneState.SignedOut => (HeldTrust.None, held.Subject),
-                ServerLaneState.Connected when held.Subject is null || held.Subject == (s.Subject ?? "") => (HeldTrust.Cached, s.Subject ?? ""),
-                ServerLaneState.Connected => (HeldTrust.Fresh, s.Subject ?? ""),
-                _ => held,
-            })
-            .DistinctUntilChanged()
-            .Select(held => {
-                var rights = rows.Select(r => AgentViewerAccess.From(r.ViewerRights));
-                return held.Trust switch {
-                    HeldTrust.None => Observable.Return(AgentViewerAccess.Unrestricted),
-                    HeldTrust.Fresh => rights.Skip(1),
-                    _ => rights,
-                };
-            }));
+        Observable.Merge(rows.Select(row => (Row: (AgentRow?)row, Status: (ServerLaneStatus?)null)),
+                status.Select(s => (Row: (AgentRow?)null, Status: (ServerLaneStatus?)s)))
+            .Scan(new HeldRights(null, null, null, Connected: false), (held, e) => e.Row is { } row
+                ? held with { Row = row, RowAccount = held.Account }
+                : e.Status!.State == ServerLaneState.Connected
+                    ? held with {
+                        Account = e.Status.Subject ?? "", Connected = true,
+                        RowAccount = held.Account is null && held.RowAccount is null ? e.Status.Subject ?? "" : held.RowAccount,
+                    }
+                    : held with { Connected = false })
+            .Where(held => held.Row is not null)
+            .Select(held => held.Account is null || (held.Connected && held.RowAccount == held.Account)
+                ? AgentViewerAccess.From(held.Row!.ViewerRights)
+                : AgentViewerAccess.Unrestricted);
 
-    enum HeldTrust { Cached, None, Fresh }
+    /// <summary>The newest row, the account it was read under, the last account the lane connected as, and whether it is
+    /// connected now. Null accounts mean the lane has not connected yet.</summary>
+    sealed record HeldRights(AgentRow? Row, string? RowAccount, string? Account, bool Connected);
 
     void Apply(AgentRow row) {
         _row = row;
