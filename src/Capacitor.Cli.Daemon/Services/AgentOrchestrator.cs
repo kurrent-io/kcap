@@ -2856,8 +2856,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             }
 
             // A local spawn was never held to the allowed-repo list, so neither is its resume. A scratch
-            // launch names no repository to allow, find or report on.
-            if (!cmd.ScratchWorkspace && resume is not { Origin: "local" } && !_config.IsRepoAllowed(repoPath)) {
+            // launch names no repository to allow, find or report on. An in-place resume was authorized the way
+            // a borrowed directory is, which also admits a path below an allowed git root.
+            if (!cmd.ScratchWorkspace && resume is not { Origin: "local" } && resume is not { Work: WorkLocation.InPlace }
+             && !_config.IsRepoAllowed(repoPath)) {
                 await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path not allowed: {repoPath}");
 
                 return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);

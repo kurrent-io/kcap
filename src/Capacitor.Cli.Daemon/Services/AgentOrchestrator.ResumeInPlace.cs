@@ -109,6 +109,13 @@ internal partial class AgentOrchestrator {
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, cmd.AgentId, RejectReason: CommandRejectedReason.Semantic);
         }
 
+        // The recorded store is checked again for the same reason: consent can outlast a rename or a retargeted link.
+        if (StoreRefusal(cmd.Vendor, inPlace.AccountId, inPlace.ConfigDir) is { } storeRefusal) {
+            await _server.LaunchFailedAsync(cmd.AgentId, storeRefusal);
+
+            return new CommandOutcome(CommandOutcomeKind.LaunchRejected, cmd.AgentId, RejectReason: CommandRejectedReason.Semantic);
+        }
+
         // Until the resumed agent registers on the source, only the lease keeps a hand-off from taking it over. Renewed
         // here rather than trusted: the token may have lapsed while the command queued, before any renewal was due.
         if (!await lease.ConfirmAsync()) {

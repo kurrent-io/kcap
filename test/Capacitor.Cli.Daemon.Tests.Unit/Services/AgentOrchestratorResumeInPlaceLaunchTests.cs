@@ -368,6 +368,55 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await Assert.That(f.Factory.Starts).IsEqualTo(0);
     }
 
+    sealed class ActingPrompter(Action during) : ILaunchConsentPrompter {
+        public bool HasSubscriber => true;
+
+        public Task<bool> WaitForSubscriberAsync(TimeSpan wait, TimeProvider time, CancellationToken ct) => Task.FromResult(true);
+
+        public Task<bool?> PromptAsync(LaunchConsentPromptRequest req, TimeSpan timeout, TimeProvider time, CancellationToken ct) {
+            during();
+
+            return Task.FromResult<bool?>(true);
+        }
+    }
+
+    static LaunchConsentGate PromptingGate(string dir, Action during) {
+        var store = new LaunchConsentStore(dir, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeProvider.System);
+        store.TryReplace(new LaunchConsentPolicy(LaunchConsentDefault.Prompt, 5, []), out _);
+
+        return new LaunchConsentGate(store, new LaunchConsentDecisionLog(dir, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+            new ActingPrompter(during), TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<LaunchConsentGate>.Instance);
+    }
+
+    /// <summary>The recorded store is checked again after consent: one gone while the owner was asked is refused rather
+    /// than resumed under whatever the path names now.</summary>
+    [Test]
+    public async Task A_store_that_changes_during_consent_is_refused() {
+        string? store = null;
+        var gate = PromptingGate(Tmp.CreateDir("consent"), () => Directory.Delete(store!, recursive: true));
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude"), consent: gate);
+        store = f.Store;
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.Failures()).IsEquivalentTo([ResumeInPlaceRefusals.StoreChanged]);
+        await Assert.That(f.Factory.Starts).IsEqualTo(0);
+    }
+
+    /// <summary>A session recorded below an allowed git root resumes: the launch takes the authorization the probe gave
+    /// it rather than demanding the exact allowed path.</summary>
+    [Test]
+    public async Task A_session_below_an_allowed_git_root_resumes() {
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude"));
+        Directory.CreateDirectory(Path.Combine(f.Checkout, ".git"));
+        var below = Directory.CreateDirectory(Path.Combine(f.Checkout, "src")).FullName;
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch(directory: below));
+
+        await Assert.That(f.Failures()).IsEmpty();
+        await Assert.That(f.Factory.Context!.Worktree.Path).IsEqualTo(below);
+    }
+
     /// <summary>A token that lapsed while the command queued, before any renewal was due, starts nothing.</summary>
     [Test]
     public async Task A_lease_lapsed_before_the_launch_starts_nothing() {
