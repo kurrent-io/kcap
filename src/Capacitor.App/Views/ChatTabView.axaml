@@ -242,12 +242,12 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsUndelivered}">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" IsVisible="{Binding IsUndelivered}">
                                 <views:AppIcon Kind="CircleMinus" Size="14" VerticalAlignment="Center"
                                                Foreground="{StaticResource KcapMutedBrush}" />
-                                <TextBlock Text="{x:Static vm:UserTurnItem.UndeliveredNote}" FontSize="12" TextWrapping="Wrap"
+                                <TextBlock Grid.Column="1" Text="{x:Static vm:UserTurnItem.UndeliveredNote}" FontSize="12" TextWrapping="Wrap"
                                            VerticalAlignment="Center" Foreground="{StaticResource KcapMutedBrush}" />
-                            </StackPanel>
+                            </Grid>
                         </StackPanel>
                     </Border>
                 </DataTemplate>
