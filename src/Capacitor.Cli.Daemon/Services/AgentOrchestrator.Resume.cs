@@ -1334,6 +1334,10 @@ internal partial class AgentOrchestrator {
 
         if (resume.Agent is null && IsWithdrawn(entry.AgentId)) return (StoppedDuringResume, null);
 
+        // With no live runtime left, a lease lost while the launch ran may already have let a hand-off in, so no
+        // continuation may follow; a live one is settled below once it is confirmed gone.
+        if (lease?.IsLost == true && resume.Agent?.Runtime is not { HasExited: false }) return (SourceLeaseLostReason, null);
+
         if (resume.AccountRefusal is { } refusal) return (refusal, null);
 
         // The server holds no live entry under this id, so the resume goes on under a new one, unless a stop

@@ -1,3 +1,4 @@
+using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
@@ -27,6 +28,7 @@ public sealed class HandoffDrafts : IDisposable {
     readonly Dictionary<string, HandoffDraft> _unsent = new(StringComparer.Ordinal);
     readonly HashSet<string> _resumeFailed = new(StringComparer.Ordinal);
     readonly Dictionary<string, ITimer> _resumeExpiries = new(StringComparer.Ordinal);
+    readonly HashSet<string> _resumesSeen = new(StringComparer.Ordinal);
     readonly IAgentDirectory? _directory;
     readonly TimeProvider _time;
     readonly CompositeDisposable _subscriptions = new();
@@ -124,17 +126,26 @@ public sealed class HandoffDrafts : IDisposable {
         lock (_lock) _resumeFailed.Add(sourceSessionId);
     }
 
-    /// Under _lock.
+    /// Under _lock. A resume whose agent never showed up as a row by then did not start as far as anything here
+    /// knows, so its draft goes back to the source rather than being dropped with the hold.
     void ExpireLater(string id, Held held) {
         if (_resumeExpiries.Remove(id, out var earlier)) earlier.Dispose();
         _resumeExpiries[id] = _time.CreateTimer(_ => {
+            var unsettled = false;
             lock (_lock) {
-                if (_pending.TryGetValue(id, out var current) && ReferenceEquals(current, held)) _pending.Remove(id);
+                if (_pending.TryGetValue(id, out var current) && ReferenceEquals(current, held)) {
+                    _pending.Remove(id);
+                    if (!_resumesSeen.Remove(id)) {
+                        StoreFailed(held.SourceSessionId, Failed(held.Draft, "", resume: true));
+                        unsettled = true;
+                    }
+                }
                 if (_resumeExpiries.TryGetValue(id, out var timer) && !_pending.ContainsKey(id)) {
                     _resumeExpiries.Remove(id);
                     timer.Dispose();
                 }
             }
+            if (unsettled) RxSchedulers.MainThreadScheduler.Schedule(() => _failedFor.OnNext(held.SourceSessionId));
         }, null, PendingTtl, Timeout.InfiniteTimeSpan);
     }
 
@@ -145,7 +156,10 @@ public sealed class HandoffDrafts : IDisposable {
     void ConfirmStarted(string agentId) {
         var id = Key(agentId);
         lock (_lock) {
-            if (_pending.TryGetValue(id, out var held) && held.Resume) return;
+            if (_pending.TryGetValue(id, out var held) && held.Resume) {
+                _resumesSeen.Add(id);
+                return;
+            }
         }
         Confirm(id);
     }
@@ -162,6 +176,7 @@ public sealed class HandoffDrafts : IDisposable {
         var id = Key(failure.AgentId);
         lock (_lock) {
             var now = _time.GetUtcNow();
+            _resumesSeen.Remove(id);
             if (_pending.Remove(id, out var held) && now - held.At <= PendingTtl) {
                 var failed = Failed(held.Draft, failure.Reason, held.Resume);
                 var worded = failed.Error!;

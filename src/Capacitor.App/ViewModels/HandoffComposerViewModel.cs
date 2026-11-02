@@ -565,6 +565,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         } finally {
             IsLaunching = false;
             if (!_disposed) {
+                // A failure of an earlier launch from this source that arrived during this one.
+                if (_drafts.TakeFailed(_session.SessionId) is { } failed) {
+                    Apply(failed);
+                    _recheckAfterLaunch = true;
+                }
                 Progress = IsResuming ? Resuming : null;
                 if (_recheckAfterLaunch) {
                     _recheckAfterLaunch = false;

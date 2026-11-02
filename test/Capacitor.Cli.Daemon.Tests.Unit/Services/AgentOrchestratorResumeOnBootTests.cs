@@ -337,6 +337,36 @@ public class AgentOrchestratorResumeOnBootTests {
         return Tmp.GetResolvedPath(name);
     }
 
+    /// <summary>A lease lost while the start was still running, before any agent existed, may have let a hand-off in:
+    /// the start that then fails is not continued.</summary>
+    [Test]
+    public async Task A_lease_lost_before_a_failed_start_is_not_continued() {
+        var gate   = new TaskCompletionSource();
+        var server = new CaptureServerConnection {
+            BeginResume  = _ => new HandoffTakeoverAdmission("lease-1", null, 60),
+            RenewHandoff = (_, _) => Task.FromResult(false),
+        };
+        var f = Build(new ResumableFactory { Gate = gate, ExitBeforeHandshake = true }, server: server);
+        await using var _ = f.Orch;
+        f.Orch.SourceLeaseRenewal = TimeSpan.FromMilliseconds(50);
+        Entry(f, "early-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        var lane = f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => !server.HandoffRenews.IsEmpty);
+        await Task.Delay(200);
+        gate.SetResult();
+        await WaitHarness.WaitBoundedAsync(lane, "the resume lane");
+
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("early-1")!.LastError).IsEqualTo("source_lease_lost");
+    }
+
     /// <summary>A refused registration whose runtime will not die is not continued under a new id beside it.</summary>
     [Test]
     public async Task A_refused_registration_on_a_runtime_that_will_not_stop_is_not_continued() {

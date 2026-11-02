@@ -1294,6 +1294,21 @@ public class HandoffComposerViewModelTests {
         await Assert.That(rig.Drafts.ResumeFailed(SessionId)).IsTrue();
     });
 
+    /// <summary>An earlier launch's failure that lands while a resume is being sent is taken back once it returns.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_earlier_failed_draft_is_restored_after_a_resume_launch() => Run(async rig => {
+        OfferResume(rig);
+        rig.Launch.During = _ => rig.Drafts.KeepFailed(SessionId, new HandoffDraft("earlier", [], "codex", "", null, null, null, null));
+        var vm = await rig.ReadyAsync();
+        vm.Text = "carry on";
+
+        await vm.ResumeCommand.Execute().ToTask();
+        await vm.PendingEvaluationForTesting;
+
+        await Assert.That(vm.Text).IsEqualTo("earlier");
+    });
+
     /// <summary>The daemon's owner declining the resume is an attempt that failed: Resume gives way to the hand-off.</summary>
     [Test]
     [NotInParallel("AvaloniaSession")]
