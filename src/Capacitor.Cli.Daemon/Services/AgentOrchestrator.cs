@@ -40,7 +40,7 @@ namespace Capacitor.Cli.Daemon.Services;
 /// </summary>
 internal sealed record AgentCheckout(string Repository, string Worktree, string? BorrowedFrom) {
     public static AgentCheckout Resolve(WorktreeInfo worktree, WorkLocation work, string? borrowedSnapshotSource) {
-        var borrowed   = work == WorkLocation.BorrowedCwd || borrowedSnapshotSource is not null;
+        var borrowed   = work is WorkLocation.BorrowedCwd or WorkLocation.InPlace || borrowedSnapshotSource is not null;
         // The source is a cwd for a borrow, which may sit below its checkout root.
         var sourceRoot = GitRepository.FindRoot(worktree.SourceRepo) ?? worktree.SourceRepo;
         var repository = GitRepository.ResolveMainRepoRoot(sourceRoot);
@@ -2570,11 +2570,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // Held from arrival: the server took the lease before sending, and consent can take minutes.
         await using var lease = KeepSourceLease(inPlace.ReservationToken, inPlace.SourceSessionId);
 
-        return await HandleAdmittedLaunchAsync(cmd, hold, inPlace, cancel, onPublished);
+        return await HandleAdmittedLaunchAsync(cmd, hold, (inPlace, lease), cancel, onPublished);
     }
 
     async Task<CommandOutcome> HandleAdmittedLaunchAsync(
-            LaunchAgentCommand cmd, LaunchHold hold, ResumeInPlaceLaunch? inPlace, CancellationToken cancel, Action<AgentInstance>? onPublished) {
+            LaunchAgentCommand cmd, LaunchHold hold, (ResumeInPlaceLaunch Launch, SourceLeaseKeeper Lease)? inPlace, CancellationToken cancel,
+            Action<AgentInstance>? onPublished) {
         var agentId = cmd.AgentId;
 
         // A caller-selected ACP permission preset is a pure, side-effect-free rejection (wrong-vendor /
@@ -2601,7 +2602,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
         }
 
-        if (inPlace is not null && await InPlaceLaunchRefusalAsync(cmd, inPlace) is { } inPlaceRefusal) {
+        if (inPlace is { } refused && await InPlaceLaunchRefusalAsync(cmd, refused.Launch) is { } inPlaceRefusal) {
             await _server.LaunchFailedAsync(cmd.AgentId, inPlaceRefusal);
 
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
@@ -2633,8 +2634,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
         }
 
-        return inPlace is not null
-            ? await LaunchInPlaceAsync(cmd, inPlace, consent, hold, cancel, onPublished)
+        return inPlace is { } resuming
+            ? await LaunchInPlaceAsync(cmd, resuming.Launch, resuming.Lease, consent, hold, cancel, onPublished)
             : await LaunchAdmittedAsync(cmd, consent, hold, cancel: cancel, onPublished: onPublished);
     }
 
@@ -3313,7 +3314,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 ContinuesAgentId    = resume?.Entry.InheritedAgentIds is [.., var predecessor] ? predecessor : null,
                 HandoffSource       = cmd.Handoff?.Source ?? resume?.Entry.Launch.HandoffSource,
                 // Keeps the worktree and the entry through any failure until the resume is judged.
-                ResumePending       = resume is not null
+                ResumePending       = resume is { KeepsNothing: false }
             };
             if (resume is null) {
                 capacity.Publish(agent);

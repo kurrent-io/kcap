@@ -97,7 +97,8 @@ sealed class CaptureServerConnection : ServerConnection {
         return Task.FromResult(admission);
     }
 
-    /// <summary>The server's answer to each restart-resume lease begin; unset, the server lacks the method.</summary>
+    /// <summary>The server's answer to each restart-resume lease begin, which may throw as the hub would; unset, the
+    /// server lacks the method.</summary>
     public Func<string, HandoffTakeoverAdmission?>? BeginResume { get; set; }
 
     public ConcurrentQueue<string> ResumeBegins { get; } = new();
@@ -117,10 +118,13 @@ sealed class CaptureServerConnection : ServerConnection {
         return RenewHandoff?.Invoke(token, ct) ?? Task.FromResult(true);
     }
 
+    /// <summary>The server's answer to each lease release; unset, every release succeeds.</summary>
+    public Func<string, Task>? EndHandoff { get; set; }
+
     public override Task EndHandoffTakeoverAsync(string token) {
         HandoffEnds.Enqueue(token);
 
-        return Task.CompletedTask;
+        return EndHandoff?.Invoke(token) ?? Task.CompletedTask;
     }
 
     public override async Task LaunchFailedAsync(string agentId, string reason) {

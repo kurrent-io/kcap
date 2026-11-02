@@ -32,6 +32,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         public bool   Reopens            { get; init; }
         public int?   ExitWith           { get; init; }
         public bool   ExitsLater         { get; init; }
+        public TimeSpan StartDelay       { get; init; }
 
         public RuntimeStartContext? Context    { get; private set; }
         public FakeAcpRuntime?      AcpRuntime { get; private set; }
@@ -42,21 +43,22 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         public bool SupportsRestartResume(string? runtimeTransport) => true;
         public bool ResumesIdleWithoutPrompt(string? runtimeTransport) => ResumesIdle;
 
-        public Task<HostedRuntimeStart> StartAsync(RuntimeStartContext ctx, CancellationToken ct) {
+        public async Task<HostedRuntimeStart> StartAsync(RuntimeStartContext ctx, CancellationToken ct) {
             Starts++;
             Context = ctx;
+            if (StartDelay > TimeSpan.Zero) await Task.Delay(StartDelay, ct);
 
             if (Reopens) {
                 AcpRuntime = new FakeAcpRuntime { Vendor = Vendor, Cwd = ctx.Worktree.Path, AcpSessionId = ctx.ResumeSessionId!, Reopened = true };
 
-                return Task.FromResult(new HostedRuntimeStart(AcpRuntime, McpConfigPath: null, Transcript: AcpRuntime));
+                return new HostedRuntimeStart(AcpRuntime, McpConfigPath: null, Transcript: AcpRuntime);
             }
 
             PtyRuntime = new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) { ExitCode = ExitWith ?? 0 };
             if (ExitWith is not null) PtyRuntime.ExitGate.SetResult();
             if (ExitsLater) _ = Task.Delay(100, CancellationToken.None).ContinueWith(_ => PtyRuntime.ExitGate.TrySetResult(), TaskScheduler.Default);
 
-            return Task.FromResult(new HostedRuntimeStart(PtyRuntime, McpConfigPath: null, Transcript: null));
+            return new HostedRuntimeStart(PtyRuntime, McpConfigPath: null, Transcript: null);
         }
     }
 
@@ -112,6 +114,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await Assert.That(agent.ResumePending).IsFalse();
         var ledgered = f.Orch.ResumeLedger!.TryRead(AgentId)!;
         await Assert.That((ledgered.Launch.Work, ledgered.State, ledgered.VendorSession)).IsEqualTo((WorkLocation.InPlace, ResumeState.Running, Dashed));
+        await Assert.That(agent.Checkout.BorrowedFrom).IsEqualTo(f.Checkout);
     }
 
     [Test]
@@ -198,6 +201,51 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
 
         await Assert.That(f.Failures()).Contains($"{ResumeInPlaceRefusals.Failed}: registration_refused");
         await WaitHarness.PollUntilAsync(() => f.Orch.GetAgentForTest(AgentId)?.Status is null or "Completed" or "Failed");
+        await Assert.That(f.Orch.ResumeLedger!.TryRead(AgentId)).IsNull();
+        await Assert.That(f.Orch.PidRecordsForTest().Select(r => r.AgentId)).DoesNotContain(AgentId);
+    }
+
+    /// <summary>Until the agent registers on the source only the lease keeps a hand-off off it, so a lease lost while
+    /// the agent starts fails the resume.</summary>
+    [Test]
+    public async Task A_lease_lost_while_the_agent_starts_retires_it_and_reports_it() {
+        var server = new CaptureServerConnection { RenewHandoff = (_, _) => Task.FromResult(false) };
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude") { StartDelay = TimeSpan.FromMilliseconds(400) }, server,
+            readiness: TimeSpan.FromSeconds(5));
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.Failures()).IsEquivalentTo([$"{ResumeInPlaceRefusals.Failed}: source_lease_lost"]);
+        await Assert.That(f.Factory.PtyRuntime!.HasExited).IsTrue();
+        await WaitHarness.PollUntilAsync(() => f.Orch.GetAgentForTest(AgentId)?.Status is null or "Completed" or "Failed");
+        await Assert.That(f.Orch.ResumeLedger!.TryRead(AgentId)).IsNull();
+        await Assert.That(File.Exists(Path.Combine(f.Checkout, "work.txt"))).IsTrue();
+    }
+
+    /// <summary>Ending the lease is best effort: a release that times out must not replace the launch's outcome.</summary>
+    [Test]
+    public async Task Ending_the_lease_never_throws() {
+        var server = new CaptureServerConnection { EndHandoff = _ => Task.FromException(new OperationCanceledException()) };
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude"), server);
+
+        await f.Orch.KeepSourceLease(Token, Session).DisposeAsync();
+
+        await Assert.That(f.Server.HandoffEnds.ToArray()).IsEquivalentTo([Token]);
+    }
+
+    /// <summary>The directory is resolved again after consent and the runtime runs where it resolved, not at the
+    /// symlink the session recorded, which could have been retargeted meanwhile.</summary>
+    [Test]
+    public async Task A_symlinked_directory_runs_where_it_resolves() {
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude"));
+        var link = Tmp.PathTo("link");
+        Directory.CreateSymbolicLink(link, f.Checkout);
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch(directory: link));
+
+        await Assert.That(f.Failures()).IsEmpty();
+        await Assert.That(f.Factory.Context!.Worktree.Path).IsEqualTo(f.Checkout);
+        await Assert.That(f.Orch.ResumeLedger!.TryRead(AgentId)!.Launch.WorktreePath).IsEqualTo(f.Checkout);
     }
 
     [Test]

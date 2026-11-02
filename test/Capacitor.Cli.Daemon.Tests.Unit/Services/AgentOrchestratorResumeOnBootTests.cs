@@ -192,6 +192,32 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "source_reserved"));
     }
 
+    /// <summary>A server that has the lease but does not answer for it leaves the session unfenced: after the retry
+    /// window the entry is interrupted, neither resumed nor continued.</summary>
+    [Test]
+    public async Task A_lease_begin_that_never_reaches_the_server_is_interrupted_without_a_continuation() {
+        var server = new CaptureServerConnection { BeginResume = _ => throw new InvalidOperationException("connection lost") };
+        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        await using var _ = f.Orch;
+        f.Orch.HandoffSuccessorWindow = TimeSpan.FromMilliseconds(200);
+        f.Orch.HandoffSuccessorRetry  = TimeSpan.FromMilliseconds(50);
+        Entry(f, "unreached-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(server.ResumeBegins.Count).IsGreaterThan(1);
+        await Assert.That(f.Factory.Contexts).IsEmpty();
+        await Assert.That(continued).IsEqualTo(0);
+        var after = f.Orch.ResumeLedger!.TryRead("unreached-1")!;
+        await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "source_lease_unreachable"));
+    }
+
     /// <summary>A silently resumed agent is waiting from the moment anything can reach it, so a turn that starts
     /// while the resume is still registering is not overwritten as waiting.</summary>
     [Test]

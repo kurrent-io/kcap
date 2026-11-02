@@ -3,7 +3,6 @@ using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Continuation;
-using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Core.WorkItems;
@@ -603,6 +602,9 @@ internal partial class AgentOrchestrator {
         /// <summary>The agent was waiting when its predecessor stopped it and resumes with no turn: it is published
         /// waiting, before anything can deliver it input.</summary>
         public bool StartsWaiting { get; init; }
+
+        /// <summary>A failure keeps no worktree, ledger entry or PID record for a later resume.</summary>
+        public bool KeepsNothing { get; init; }
 
         /// <summary>The server's reason, empty when it gave none, once it refused the registration.</summary>
         public string? RefusedRegistration { get; set; }
@@ -1257,8 +1259,9 @@ internal partial class AgentOrchestrator {
         }
 
         // A continuation resolves the same recorded account, so it would be refused too; a reserved session is being
-        // handed off, and a continuation would take it over a second time.
-        if (!reason.StartsWith(AccountResolution.Unavailable, StringComparison.Ordinal) && reason != SourceReservedReason) {
+        // handed off, and a continuation would take it over a second time, as it might one left unfenced.
+        if (!reason.StartsWith(AccountResolution.Unavailable, StringComparison.Ordinal)
+         && reason is not (SourceReservedReason or SourceLeaseUnreachableReason)) {
             var outcome = await ContinueEntry(entry, reason, ct);
             if (outcome != ResumeOutcome.Interrupted) return outcome;
             if (IsWithdrawn(entry.AgentId)) return ResumeOutcome.Stopped;
@@ -1294,12 +1297,19 @@ internal partial class AgentOrchestrator {
                    && _runtimeFactories.TryGetValue(entry.Vendor, out var factory) && factory.ResumesIdleWithoutPrompt(entry.Transport);
         // The lease a hand-off takeover would need, held until the readiness window passes, so the session is not taken
         // over from under the agent re-registering on it.
-        HandoffTakeoverAdmission? leased = null;
+        string? leaseToken = null;
         if (entry.Participant is null && entry.SessionId is { } leasedSession) {
-            leased = await _server.BeginSourceResumeAsync(leasedSession, ct);
-            if (leased?.Refusal == SourceReservedReason) return (SourceReservedReason, null);
+            switch (await BeginSourceResumeAsync(leasedSession, ct)) {
+                case HandoffBeginResult.Unreachable:
+                    return (SourceLeaseUnreachableReason, null);
+                case HandoffBeginResult.Answered { Admission.Refusal: SourceReservedReason }:
+                    return (SourceReservedReason, null);
+                case HandoffBeginResult.Answered { Admission.Token: { } token }:
+                    leaseToken = token;
+                    break;
+            }
         }
-        await using var lease = leased?.Token is { } token ? KeepSourceLease(token, entry.SessionId!) : null;
+        await using var lease = leaseToken is not null ? KeepSourceLease(leaseToken, entry.SessionId!) : null;
 
         var resume  = new ResumeLaunch(entry, ResumedWorktree(entry)) { Token = ct, StartsWaiting = silent };
         var command = BuildResumeCommand(entry, LastAlive(entry, null), _server.CurrentConnectionId) is var built && silent
@@ -1365,6 +1375,21 @@ internal partial class AgentOrchestrator {
     const string SupersededReason = "superseded";
 
     internal const string SourceReservedReason = "source_reserved";
+
+    internal const string SourceLeaseUnreachableReason = "source_lease_unreachable";
+
+    /// <summary>A begin that did not reach the server is retried for <see cref="HandoffSuccessorWindow"/>; a server
+    /// that never answers leaves the session unfenced, so neither the resume nor a continuation may go on.</summary>
+    async Task<HandoffBeginResult> BeginSourceResumeAsync(string session, CancellationToken ct) {
+        var deadline = _time.GetUtcNow() + HandoffSuccessorWindow;
+
+        while (true) {
+            var begin = await _server.BeginSourceResumeAsync(session, ct);
+            if (begin is not HandoffBeginResult.Unreachable || _time.GetUtcNow() + HandoffSuccessorRetry > deadline) return begin;
+
+            await Task.Delay(HandoffSuccessorRetry, _time, ct);
+        }
+    }
 
     internal TimeSpan ContinueSummaryBudget { get; set; } = TimeSpan.FromSeconds(10);
 
