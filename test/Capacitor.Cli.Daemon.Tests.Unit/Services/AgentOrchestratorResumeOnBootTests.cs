@@ -108,11 +108,11 @@ public class AgentOrchestratorResumeOnBootTests {
             bool isPrivate = false, ResumeState state = ResumeState.Resuming, DateTimeOffset? at = null,
             string? predecessor = "instance-old", string? daemonInstanceId = null, bool standalone = false,
             string vendor = "cursor", string? permissionMode = null, string title = "the thing", bool? titleDerived = null,
-            IReadOnlyList<string>? inherited = null, bool? awaitingInput = null) {
+            IReadOnlyList<string>? inherited = null, bool? awaitingInput = null, WorkLocation work = WorkLocation.OwnedWorktree) {
         var stamp = at ?? TimeProvider.System.GetUtcNow();
         var launch = new ResumeLaunchDescriptor(
             Prompt: "build the thing", Model: "auto", Effort: null, RepoPath: f.Repo,
-            WorktreePath: worktree ?? Tmp.CreateDir($"wt-{agentId}"), Work: WorkLocation.OwnedWorktree,
+            WorktreePath: worktree ?? Tmp.CreateDir($"wt-{agentId}"), Work: work,
             GitRelativeCwd: null, SandboxPolicy: null, ApprovalPolicy: null, PermissionPreset: null,
             McpConfigPath: null, Title: title, IsPrivate: isPrivate, Origin: "server",
             RequesterUserId: "user-1", RequesterDisplay: "User One", ConsentSource: "default",
@@ -291,6 +291,60 @@ public class AgentOrchestratorResumeOnBootTests {
 
         await Assert.That(continued).IsEqualTo(0);
         await Assert.That(f.Factory.LastAcpRuntime!.HasExited).IsFalse();
+    }
+
+    /// <summary>An in-place entry is authorized again before its restart resume: a directory replaced by a link to
+    /// somewhere else while the daemon was down is neither resumed nor continued, and an intact one resumes.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_in_place_directory_is_authorized_again_before_its_restart_resume(bool replaced) {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Directory.CreateDirectory(Path.Combine(f.Repo, "own"));
+        var own = Tmp.GetResolvedPath(Path.Combine("repo", "own"));
+        Entry(f, "in-place-1", worktree: own, work: WorkLocation.InPlace);
+        if (replaced) {
+            Directory.Delete(own);
+            Directory.CreateSymbolicLink(own, Tmp.CreateDir("elsewhere"));
+        }
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var after = f.Orch.ResumeLedger!.TryRead("in-place-1")!;
+        await Assert.That(continued).IsEqualTo(0);
+        if (replaced) {
+            await Assert.That(f.Factory.Contexts).IsEmpty();
+            await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "resume_directory_not_allowed"));
+        } else {
+            await Assert.That(after.State).IsEqualTo(ResumeState.Running);
+        }
+    }
+
+    /// <summary>A refused registration whose runtime will not die is not continued under a new id beside it.</summary>
+    [Test]
+    public async Task A_refused_registration_on_a_runtime_that_will_not_stop_is_not_continued() {
+        var f = Build(new ResumableFactory { PtyStyle = true, Unkillable = true });
+        await using var _ = f.Orch;
+        f.Server.RegistrationResponse = _ => new AgentRegisteredResponse(false, "recorded_failure");
+        Entry(f, "refused-stuck-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("refused-stuck-1")!.LastError).IsEqualTo("runtime_unstopped");
     }
 
     /// <summary>A server that has the lease but does not answer for it leaves the session unfenced: after the retry

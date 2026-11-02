@@ -3377,7 +3377,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 resume.RefusedRegistration = registration.RefusedReason ?? "";
 
                 try {
-                    await runtime.TerminateAsync(ShutdownTerminateGrace);
+                    await TerminateConfirmedAsync(agent);
                 } catch (Exception ex) {
                     LogCleanupStepFailed(ex, "terminating a resume whose registration was refused", agentId);
                 }

@@ -1264,7 +1264,8 @@ internal partial class AgentOrchestrator {
         // A continuation resolves the same recorded account, so it would be refused too; a session without its lease may
         // be being handed off, and a continuation would take it over a second time.
         if (!reason.StartsWith(AccountResolution.Unavailable, StringComparison.Ordinal)
-         && reason is not (SourceReservedReason or SourceLeaseUnreachableReason or SourceLeaseLostReason)
+         && reason is not (SourceReservedReason or SourceLeaseUnreachableReason or SourceLeaseLostReason or RuntimeUnstoppedReason
+                        or ResumeInPlaceRefusals.DirectoryNotAllowed)
          && !reason.StartsWith(SourceLeaseRefusedReason, StringComparison.Ordinal)) {
             var outcome = await ContinueEntry(entry, reason, ct);
             if (outcome != ResumeOutcome.Interrupted) return outcome;
@@ -1299,6 +1300,11 @@ internal partial class AgentOrchestrator {
         // always gets its nudge, which is how it learns it was relaunched mid-flow.
         var silent  = entry.Participant is null && entry.AwaitingInput == true
                    && _runtimeFactories.TryGetValue(entry.Vendor, out var factory) && factory.ResumesIdleWithoutPrompt(entry.Transport);
+        // Authorized again, as the in-place launch was: the directory may have been replaced while the daemon was down.
+        if (entry.Launch.Work == WorkLocation.InPlace
+         && (await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(entry.Launch.WorktreePath)).CanonicalCwd != entry.Launch.WorktreePath)
+            return (ResumeInPlaceRefusals.DirectoryNotAllowed, null);
+
         // The lease a hand-off takeover would need, held until the readiness window passes, so the session is not taken
         // over from under the agent re-registering on it.
         string? leaseToken = null;
@@ -1329,8 +1335,20 @@ internal partial class AgentOrchestrator {
 
         // The server holds no live entry under this id, so the resume goes on under a new one, unless a stop
         // came first: it gave up the worktree, and the teardown has removed it.
-        if (resume.RefusedRegistration is not null)
-            return resume.Agent?.StopRequested == true ? (StoppedDuringResume, null) : (RegistrationRefusedReason, null);
+        if (resume.RefusedRegistration is not null) {
+            if (resume.Agent?.StopRequested == true) return (StoppedDuringResume, null);
+
+            // The server holds no live agent on the source, so only the lease fences a runtime that will not die, and a
+            // continuation would run beside it.
+            if (resume.Agent?.Runtime is { HasExited: false } survivor) {
+                LogInPlaceRetireUnconfirmed(entry.AgentId);
+                lease?.KeepUntilExit(survivor);
+
+                return (RuntimeUnstoppedReason, null);
+            }
+
+            return (RegistrationRefusedReason, null);
+        }
 
         if (outcome.Kind == CommandOutcomeKind.LaunchRejected)
             return (outcome.RejectReason == CommandRejectedReason.DaemonCapacity ? "daemon_capacity" : "launch_rejected", null);
@@ -1396,6 +1414,8 @@ internal partial class AgentOrchestrator {
     internal const string SourceReservedReason = "source_reserved";
 
     internal const string SourceLeaseUnreachableReason = "source_lease_unreachable";
+
+    const string RuntimeUnstoppedReason = "runtime_unstopped";
 
     const string SourceLeaseRefusedReason = "source_lease_refused";
 

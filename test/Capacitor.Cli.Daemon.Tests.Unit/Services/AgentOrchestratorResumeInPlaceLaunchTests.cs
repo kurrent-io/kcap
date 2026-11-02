@@ -278,6 +278,22 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await Assert.That(f.Factory.Starts).IsEqualTo(0);
     }
 
+    /// <summary>Refused, the server holds no live agent on the source, so a runtime that will not die is not reported and
+    /// keeps the lease until it exits.</summary>
+    [Test]
+    public async Task A_refused_registration_on_a_runtime_that_will_not_stop_keeps_the_lease_until_it_exits() {
+        var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_yours") };
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude") { Unkillable = true }, server);
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.Failures()).IsEmpty();
+        await Assert.That(f.Server.HandoffEnds).IsEmpty();
+
+        f.Factory.PtyRuntime!.ExitGate.TrySetResult();
+        await WaitHarness.PollUntilAsync(() => f.Server.HandoffEnds.Contains(Token));
+    }
+
     /// <summary>A token that lapsed while the command queued, before any renewal was due, starts nothing.</summary>
     [Test]
     public async Task A_lease_lapsed_before_the_launch_starts_nothing() {

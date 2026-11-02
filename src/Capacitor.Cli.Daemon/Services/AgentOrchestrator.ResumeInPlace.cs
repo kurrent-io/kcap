@@ -128,6 +128,14 @@ internal partial class AgentOrchestrator {
 
         // Every failure before this point that reached LaunchAdmittedAsync's own paths was reported there.
         if (resume.RefusedRegistration is not null) {
+            // Refused, the server holds no live agent on the source, so only the lease fences a runtime that will not die.
+            if (resume.Agent?.Runtime is { HasExited: false } survivor) {
+                LogInPlaceRetireUnconfirmed(cmd.AgentId);
+                lease.KeepUntilExit(survivor);
+
+                return outcome;
+            }
+
             await _server.LaunchFailedAsync(cmd.AgentId, $"{ResumeInPlaceRefusals.Failed}: {RegistrationRefusedReason}");
 
             return outcome;
@@ -248,6 +256,26 @@ internal partial class AgentOrchestrator {
 
         public bool IsLost => _lost;
 
+        int _handedOff;
+
+        /// <summary>Keeps renewing until <paramref name="runtime"/> exits, then ends the lease; disposing it before then
+        /// does nothing.</summary>
+        public void KeepUntilExit(IHostedAgentRuntime runtime) {
+            if (Interlocked.Exchange(ref _handedOff, 1) == 0) _ = EndOnExitAsync(runtime);
+        }
+
+        async Task EndOnExitAsync(IHostedAgentRuntime runtime) {
+            try {
+                while (!runtime.HasExited && !_lost) await Task.Delay(ExitPoll, _owner._time, _owner._shutdownCts.Token);
+            } catch (OperationCanceledException) {
+                // The daemon is stopping; the lease lapses on its own.
+            }
+
+            await EndAsync();
+        }
+
+        static readonly TimeSpan ExitPoll = TimeSpan.FromSeconds(1);
+
         /// <summary>Renews the lease now; false, and lost from then on, when the server no longer holds it.</summary>
         public async Task<bool> ConfirmAsync() {
             if (_lost) return false;
@@ -280,7 +308,9 @@ internal partial class AgentOrchestrator {
             }
         }
 
-        public async ValueTask DisposeAsync() {
+        public ValueTask DisposeAsync() => Volatile.Read(ref _handedOff) == 1 ? ValueTask.CompletedTask : new(EndAsync());
+
+        async Task EndAsync() {
             await _stop.CancelAsync();
             await _loop;
             _stop.Dispose();
