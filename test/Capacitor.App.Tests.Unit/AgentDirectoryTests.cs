@@ -1006,4 +1006,46 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("server:ABC").HasValue).IsTrue();
         await Assert.That(dir.Rows.Lookup("server:abc").HasValue).IsTrue();
     }
+
+    /// A short run can leave before the listing first names its session; the checkout its daemon row reported is kept
+    /// all the same, under the spelling the server lists the session by.
+    [Test]
+    public async Task A_row_that_leaves_before_its_first_listing_keeps_its_checkout() {
+        var (local, _, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        const string guid = "0d1e2f30-4455-6677-8899-aabbccddeeff";
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: guid) with { WorktreePath = "/r/.wt/a1", WorkLocation = "owned" });
+
+        local.Agents.RemoveKey("a1");
+        sessions.EndedCache.AddOrUpdate(Listed("0d1e2f30445566778899aabbccddeeff"));
+
+        var row = dir.Rows.Lookup("server:0d1e2f30445566778899aabbccddeeff").Value;
+        await Assert.That(row.RepoPath).IsEqualTo("/r");
+        await Assert.That(row.WorktreePath).IsEqualTo("/r/.wt/a1");
+    }
+
+    /// A registry row carries the listing's branch, not its own, so the branch kept from it is only an earlier
+    /// listing's: a newer listing's branch replaces it, while a branch the local daemon reported still stands.
+    [Test]
+    [Arguments(false, "renamed")]
+    [Arguments(true, "feature")]
+    public async Task Only_a_daemon_reported_branch_outranks_a_newer_listing(bool local, string expected) {
+        var (localDaemon, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(localDaemon);
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Branch = "feature" });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Branch = "feature" });
+        if (local) localDaemon.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { Branch = "feature" });
+        else remote.Cache.AddOrUpdate(Remote("b1", daemon: "home-pc", owner: "me", sessionId: "S") with { RepoPath = "/home/r" });
+
+        if (local) localDaemon.Agents.RemoveKey("a1"); else remote.Cache.RemoveKey("b1");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Branch = "renamed" });
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.Branch).IsEqualTo(expected);
+    }
 }
