@@ -11,6 +11,14 @@ public class WebView2PageEnvironmentTests {
         await Assert.That(WebView2PageEnvironment.UserDataFolder(root)).IsEqualTo(Path.Combine(root, "kcap", "PageWebView2"));
     }
 
+    /// Every connection, loopback too, goes to a proxy nothing listens on, beside the WebRTC policy.
+    [Test]
+    public async Task The_browser_arguments_send_every_connection_to_a_dead_proxy() {
+        await Assert.That(WebView2PageEnvironment.BrowserArguments).Contains("--proxy-server=http://127.0.0.1:1");
+        await Assert.That(WebView2PageEnvironment.BrowserArguments).Contains("--proxy-bypass-list=<-loopback>");
+        await Assert.That(WebView2PageEnvironment.BrowserArguments).Contains(WebView2PeerConnection.BrowserArguments);
+    }
+
     [Test]
     [Arguments(null)]
     [Arguments("")]

@@ -8,11 +8,18 @@ namespace Capacitor.App.Platform.Windows;
 /// beside the executable, which an update replaces, and because every environment sharing a data
 /// folder must start with the same browser arguments.
 public static class WebView2PageEnvironment {
+    /// A page needs no network, and Chromium opens a socket for a frame's navigation before the guard
+    /// can cancel it, so every connection, loopback included, goes to a proxy that is not there. No
+    /// host is resolved or reached, and WebRTC, held to proxied transports, has no route either.
+    public const string NoNetworkArguments = "--proxy-server=http://127.0.0.1:1 --proxy-bypass-list=<-loopback>";
+
+    public static string BrowserArguments => $"{NoNetworkArguments} {WebView2PeerConnection.BrowserArguments}";
+
     public static void Configure(WindowsWebView2EnvironmentRequestedEventArgs e, string? localAppData) {
         e.IsInPrivateModeEnabled = true;
         e.EnableDevTools = false;
         e.AllowSingleSignOnUsingOSPrimaryAccount = false;
-        e.AdditionalBrowserArguments = WebView2PeerConnection.BrowserArguments;
+        e.AdditionalBrowserArguments = BrowserArguments;
         if (UserDataFolder(localAppData) is { } folder) e.UserDataFolder = folder;
     }
 
