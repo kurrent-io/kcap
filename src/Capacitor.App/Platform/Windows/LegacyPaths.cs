@@ -7,8 +7,11 @@ namespace Capacitor.App.Platform.Windows;
 public static class LegacyPaths {
     public static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
+    /// A blank side is never the same path: <see cref="Path.GetFullPath(string)"/> throws on one, and a registry value
+    /// can be stored empty.
     public static bool Same(string? a, string? b) =>
-        a is not null && b is not null && string.Equals(Normalize(a), Normalize(b), StringComparison.OrdinalIgnoreCase);
+        !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
+        && string.Equals(Normalize(a), Normalize(b), StringComparison.OrdinalIgnoreCase);
 
     /// <paramref name="root"/> itself or anything inside it.
     public static bool Within(string path, string root) {

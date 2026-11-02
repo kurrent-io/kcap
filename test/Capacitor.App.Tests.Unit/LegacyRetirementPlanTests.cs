@@ -82,4 +82,14 @@ public class LegacyRetirementPlanTests {
         await Assert.That(steps.Select(step => step.GetType().Name))
             .IsEquivalentTo([nameof(RepointDaemons), nameof(RemoveRoot)], CollectionOrdering.Matching);
     }
+
+    [Test]
+    public async Task An_entry_with_an_empty_install_location_names_no_root() {
+        var facts = Facts with { UninstallEntries = [new(UninstallEntry.KcapKey, ""), new("Other", " ")] };
+
+        var steps = LegacyRetirementPlan.Build(facts, ownPid: 1);
+
+        await Assert.That(steps.Select(step => step.GetType().Name))
+            .IsEquivalentTo([nameof(RepointDaemons), nameof(RemoveRoot)], CollectionOrdering.Matching);
+    }
 }
