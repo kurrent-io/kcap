@@ -50,6 +50,7 @@ public class PageHostDocumentTests {
         await Assert.That(PageHostDocument.FragmentLinks).Contains("});</script>");
         await Assert.That(PageHostDocument.FragmentLinks).DoesNotContain(",true)");
         await Assert.That(PageHostDocument.FragmentLinks).DoesNotContain("capture");
+        await Assert.That(PageHostDocument.FragmentLinks).Contains("el.focus({preventScroll:true})");
     }
 
     [Test]

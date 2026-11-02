@@ -29,7 +29,7 @@ public static class PageHostDocument {
         "<script>document.addEventListener('click',function(e){if(e.defaultPrevented)return;" +
         "var a=e.target&&e.target.closest?e.target.closest('a[href^=\"#\"]'):null;if(!a||(a.target&&a.target!=='_self'))return;" +
         "e.preventDefault();var id;try{id=decodeURIComponent(a.getAttribute('href').slice(1));}catch(_){return;}" +
-        "if(!id){scrollTo(0,0);return;}var el=document.getElementById(id)||document.getElementsByName(id)[0];if(el)el.scrollIntoView();});</script>";
+        "if(!id){scrollTo(0,0);return;}var el=document.getElementById(id)||document.getElementsByName(id)[0];if(!el)return;if(!el.hasAttribute('tabindex')&&el.tabIndex<0)el.setAttribute('tabindex','-1');el.scrollIntoView();el.focus({preventScroll:true});});</script>";
     const string PolicyMeta = $"<meta http-equiv=\"Content-Security-Policy\" content=\"{ContentPolicy}\">{DnsPrefetchOff}{FragmentLinks}";
 
     static readonly Lazy<string> HostScript = new(() => {
