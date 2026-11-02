@@ -86,6 +86,8 @@ public class AntigravityContainmentTests {
 
         var config = new DaemonConfig {
             AntigravityPath                       = "agy",
+            // agy under ADC sign-in refuses a turn with no model, so the run takes the daemon's own setting.
+            AntigravityModel                      = Environment.GetEnvironmentVariable("KCAP_ANTIGRAVITY_MODEL"),
             Binaries                              = BinaryProbe.FromEnvironment(),
             AntigravityUnattendedReviewerEnabled  = true,
             Name                                  = "containment-daemon",

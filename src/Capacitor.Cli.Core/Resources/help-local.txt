@@ -6,10 +6,12 @@ Subcommands:
   status [--json]           Explain the installation's state: version, port, service, search, each store, what to do.
                             Names a stopped, changing, uninstalled, purged or port-blocked server apart
                             (a port another program answers on is blocked, even when the OS cannot name it)
-                            and suggests start only when a start can bring it up
+                            and suggests start only when a start can bring it up. Search says when a usable
+                            model's session vectors are not being stored, so search falls back to keywords
       --json                One JSON object on stdout, for the desktop app: the verdict and a condition,
                             such as installed, restarting, port_taken (with the holder's pid and command,
-                            or what answered when the OS names none) or serves_another.
+                            or what answered when the OS names none) or serves_another, and from a running
+                            server vectors_state (not_run, ok or failing) with its last stored and failed times.
   start                     Start the server and wait until it is ready
   stop                      Stop the server and wait until nothing of it is left; it stays stopped until start
   restart                   Stop, then start

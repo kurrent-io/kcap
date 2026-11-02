@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reactive;
 using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
@@ -20,7 +21,10 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
     static readonly string[] Derived = [
         nameof(Running), nameof(StateText), nameof(CurrentText), nameof(CanApply), nameof(ApplyLabel), nameof(Embeddings),
         nameof(FailureText), nameof(ShowsSettingsLink), nameof(ShowsInlineSettings), nameof(SettingApplied),
+        nameof(VectorsFailing), nameof(VectorsWarning), nameof(VectorsFailedText),
     ];
+
+    public const string VectorsWarningName = "Search needs attention: session vectors are not being stored";
 
     readonly LocalSearchController _search;
     readonly LocalUpgradeController _upgrade;
@@ -28,12 +32,15 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
     readonly Func<bool>? _builtinModelReady;
     readonly Func<CancellationToken, Task<LocalEmbeddingModelManifest?>> _builtinOffer;
     readonly Func<Task> _reconnect;
+    readonly Func<CancellationToken, Task<EmbeddingHealthAnswer?>>? _readHealth;
     readonly CancellationToken _shutdown;
     readonly IScheduler _readScheduler;
     readonly CompositeDisposable _disposables = new();
     readonly SerialDisposable _read = new();
     readonly SerialDisposable _offer = new();
+    readonly SerialDisposable _health = new();
     LocalEmbeddingSetting? _current;
+    EmbeddingHealthAnswer? _healthAnswer;
     bool _canOpenSettings;
     bool _loaded;
     bool _builtinNeedsRetry;
@@ -44,25 +51,31 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
     /// which follows an upgrade.</param>
     /// <param name="openSettings">What opens Settings on its Search tab, null while no Settings window can open.</param>
     /// <param name="builtinModelReady">Validates installed model files off the UI thread. Pending or failed setup still needs a retry.</param>
+    /// <param name="readHealth">The server's own embeddings report, asked again on every reconnect and whenever the
+    /// search controls are shown; null leaves the state of its session vectors unknown.</param>
     public LocalSearchViewModel(
             Func<LocalEmbeddingSetting?> readSetting, Func<CancellationToken, Task<LocalEmbeddingModelManifest?>> builtinOffer,
             IObservable<ServerLaneStatus> status, LocalSearchController search,
             LocalUpgradeController upgrade, Func<Task> reconnect, CancellationToken shutdown, IScheduler? readScheduler = null,
-            IObservable<Action?>? openSettings = null, Func<bool>? builtinModelReady = null) {
+            IObservable<Action?>? openSettings = null, Func<bool>? builtinModelReady = null,
+            Func<CancellationToken, Task<EmbeddingHealthAnswer?>>? readHealth = null) {
         _search        = search;
         _upgrade       = upgrade;
         _readSetting   = readSetting;
         _builtinModelReady = builtinModelReady;
         _builtinOffer  = builtinOffer;
         _reconnect     = reconnect;
+        _readHealth    = readHealth;
         _shutdown      = shutdown;
         _readScheduler = readScheduler ?? RxSchedulers.TaskpoolScheduler;
         _read.DisposeWith(_disposables);
         _offer.DisposeWith(_disposables);
+        _health.DisposeWith(_disposables);
 
         Choice = new SearchChoiceViewModel { Reconfiguring = true };
         ReadSetting();
         LookUpOffer();
+        ReadHealth();
 
         Observable.Switch(search.WhenAnyValue(x => x.Progress)
                 .Select(p => p.Embeddings.Changed.Select(_ => Unit.Default).StartWith(Unit.Default)))
@@ -87,6 +100,7 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
             .Subscribe(_ => {
                 ReadSetting();
                 LookUpOffer();
+                ReadHealth();
             })
             .DisposeWith(_disposables);
 
@@ -136,6 +150,18 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
         ? failed.Affordance == LocalInstallAffordance.Busy ? BusyText : TerminalAdvice.Strip(failed.Message) ?? "Setup did not finish."
         : null;
 
+    /// The server's model is usable, yet its last session-vector pass failed and stored nothing.
+    public bool VectorsFailing =>
+        _loaded && !Running && _current is not { Pending: true } && _healthAnswer is { Usable: true, Vectors.State: VectorStorageState.Failing };
+
+    public string? VectorsWarning => VectorsFailing
+        ? "Session vectors are not being stored, so search falls back to keywords. The Embeddings page in the server's admin settings says why."
+        : null;
+
+    public string? VectorsFailedText => VectorsFailing && _healthAnswer?.Vectors?.LastFailureAt is { } at
+        ? $"Last failed {at.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)}"
+        : null;
+
     public ReactiveCommand<Unit, Unit> ApplyCommand { get; }
 
     public ReactiveCommand<Unit, Unit> OpenSettingsCommand { get; }
@@ -160,6 +186,8 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
 
     void OnSettled(LocalInstallOutcome outcome) {
         if (outcome is LocalInstallOutcome.Installed) {
+            // The report was about the model this change replaced; the reconnect asks again.
+            _healthAnswer = null;
             if (_search.Progress.Embeddings is { Configured: true } or { SkipCode: "declined" }) _builtinNeedsRetry = false;
             _ = ReconnectAsync();
         }
@@ -205,6 +233,17 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
                 Console.Error.WriteLine($"kcap app: looking up the built-in search model failed: {ex.Message}");
                 Choice.OfferBuiltin(null);
             });
+
+    public void ReadHealth() {
+        if (_readHealth is not { } read) return;
+
+        _health.Disposable = Observable.FromAsync(read)
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
+            .Subscribe(answer => {
+                _healthAnswer = answer;
+                Refresh();
+            }, ex => Console.Error.WriteLine($"kcap app: reading the local server's embeddings report failed: {ex.Message}"));
+    }
 
     // A changed model restarts the server; the lane would find it on its own backoff.
     async Task ReconnectAsync() {
