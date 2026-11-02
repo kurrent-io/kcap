@@ -1016,7 +1016,7 @@ public class AgentDirectoryTests {
         using var _s = sessions;
         LocalConnected(local);
         const string guid = "0d1e2f30-4455-6677-8899-aabbccddeeff";
-        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: guid) with { WorktreePath = "/r/.wt/a1", WorkLocation = "owned" });
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: guid) with { WorktreePath = "/r/.wt/a1", WorkLocation = "owned", Branch = "feature" });
 
         local.Agents.RemoveKey("a1");
         sessions.EndedCache.AddOrUpdate(Listed("0d1e2f30445566778899aabbccddeeff"));
@@ -1024,6 +1024,29 @@ public class AgentDirectoryTests {
         var row = dir.Rows.Lookup("server:0d1e2f30445566778899aabbccddeeff").Value;
         await Assert.That(row.RepoPath).IsEqualTo("/r");
         await Assert.That(row.WorktreePath).IsEqualTo("/r/.wt/a1");
+        await Assert.That(row.Branch).IsEqualTo("feature");
+    }
+
+    /// A registry row beside a local row for the same session replaces nothing the local row reported, not even the
+    /// branch: the registry carries the listing's branch, which must not displace the daemon's own.
+    [Test]
+    public async Task A_registry_row_does_not_displace_the_local_daemons_branch() {
+        var (local, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        sessions.LiveCache.AddOrUpdate(Listed("S", "active") with { Branch = "main" });
+        sessions.MineLiveCache.AddOrUpdate(Listed("S", "active") with { Branch = "main" });
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S") with { Branch = "feature" });
+        remote.Cache.AddOrUpdate(Remote("z9", daemon: "unproven", owner: "me", sessionId: "S") with { RepoPath = "/r" });
+
+        local.Agents.RemoveKey("a1");
+        remote.Cache.RemoveKey("z9");
+        sessions.LiveCache.RemoveKey("S");
+        sessions.MineLiveCache.RemoveKey("S");
+        sessions.EndedCache.AddOrUpdate(Listed("S") with { Branch = "main" });
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.Branch).IsEqualTo("feature");
     }
 
     /// A registry row carries the listing's branch, not its own, so the branch kept from it is only an earlier

@@ -465,12 +465,12 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             var fromDaemon = !string.IsNullOrWhiteSpace(daemonBranch);
             var reported = fromDaemon ? daemonBranch : row.Branch ?? listedDto?.Branch;
             var replaces = fromLocal || !known.FromLocal;
-            var sameCheckout = !replaces || string.Equals(row.WorktreePath ?? row.RepoPath, known.WorktreePath ?? known.RepoPath, StringComparison.Ordinal);
+            var sameCheckout = string.Equals(row.WorktreePath ?? row.RepoPath, known.WorktreePath ?? known.RepoPath, StringComparison.Ordinal);
             var (branch, branchFromDaemon) = reported is not null ? (reported, fromDaemon)
                 : sameCheckout ? (known.Branch, known.BranchFromDaemon) : (null, false);
-            var facts = replaces
-                ? (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom, branch, fromLocal, branchFromDaemon)
-                : known with { Branch = branch, BranchFromDaemon = branchFromDaemon };
+            // A row that does not replace the kept checkout leaves all of it, branch included: a registry row's branch is
+            // only the listing's, and must not displace the one the local daemon reported.
+            var facts = replaces ? (row.RepoPath, row.WorktreePath, row.WorkLocation, row.BorrowedFrom, branch, fromLocal, branchFromDaemon) : known;
             _hostedFacts[own] = facts;
             _hostedFacts[SessionIds.ServerToken(own)] = facts;
         }
