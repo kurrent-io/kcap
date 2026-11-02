@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>In-app pages probe</title>
+<link rel="stylesheet" href="http://127.0.0.1:8765/css-link">
+<style>
+@import url("http://127.0.0.1:8765/css-import");
+body { font: 14px system-ui, sans-serif; margin: 16px; background: url("http://127.0.0.1:8765/css-background"); }
+li { margin: 4px 0; }
+iframe { width: 320px; height: 60px; border: 1px solid #999; }
+</style>
+</head>
+<body>
+<h1>In-app pages probe</h1>
+<p>Start <code>listener.ps1</code> before opening this page. The listener must print nothing, whatever you click.</p>
+
+<h2>Requests made on load</h2>
+<ul id="auto"></ul>
+
+<h2>WebRTC</h2>
+<ul id="rtc"></ul>
+
+<h2>Click each one</h2>
+<p>Each must end in the app's Open / Dismiss prompt, or nothing, and never load here or crash the app.</p>
+<ul>
+<li><a href="http://127.0.0.1:8765/link">A link</a></li>
+<li><a href="http://127.0.0.1:8765/link-blank" target="_blank">A target=_blank link</a></li>
+<li><button onclick="location.href='http://127.0.0.1:8765/self-navigation'">This frame navigates itself</button></li>
+<li><button onclick="window.open('http://127.0.0.1:8765/window-open')">window.open</button></li>
+<li><button onclick="navigateNested('http://127.0.0.1:8765/nested-navigation')">A nested frame navigates</button></li>
+<li>Malformed links:
+  <a href="mailto:%">mailto:%</a>,
+  <a href="foo://a%zz/">foo://a%zz/</a>,
+  <a href="foo://x:99999/">foo://x:99999/</a>,
+  <a href="foo://exa%25mple/">foo://exa%25mple/</a>,
+  <a href="mailto:a%zz" target="_blank">mailto:a%zz (new window)</a></li>
+<li>Malformed by script:
+  <button onclick="location.href='foo://a%zz/'">location.href</button>
+  <button onclick="window.open('mailto:%')">window.open</button>
+  <button onclick="navigateNested('mailto:%')">nested frame</button></li>
+</ul>
+
+<h2>Frames</h2>
+<iframe id="nested" srcdoc="<p>nested frame</p><iframe src='http://127.0.0.1:8765/nested-frame'></iframe>"></iframe>
+<iframe src="http://127.0.0.1:8765/frame"></iframe>
+
+<script>
+var listener = 'http://127.0.0.1:8765/';
+
+function log(list, text) {
+    var item = document.createElement('li');
+    item.textContent = text;
+    document.getElementById(list).appendChild(item);
+}
+
+function attempt(name, run) {
+    try { run(); log('auto', name + ': attempted'); }
+    catch (e) { log('auto', name + ': refused (' + e.name + ')'); }
+}
+
+attempt('img', function () { new Image().src = listener + 'img'; });
+attempt('fetch', function () {
+    fetch(listener + 'fetch').then(
+        function () { log('auto', 'fetch: ANSWERED'); },
+        function () { log('auto', 'fetch: refused'); });
+});
+attempt('XHR', function () { var x = new XMLHttpRequest(); x.open('GET', listener + 'xhr'); x.send(); });
+attempt('WebSocket', function () { new WebSocket('ws://127.0.0.1:8765/websocket'); });
+attempt('beacon', function () { navigator.sendBeacon(listener + 'beacon', 'probe'); });
+attempt('prefetch', function () {
+    var link = document.createElement('link');
+    link.rel = 'prefetch';
+    link.href = listener + 'prefetch';
+    document.head.appendChild(link);
+});
+
+var constructors = ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel'];
+function reportRtc(win, label) {
+    log('rtc', label + ': ' + constructors.map(function (n) {
+        try { return n + ' ' + typeof win[n]; } catch (e) { return n + ' unreadable'; }
+    }).join(', '));
+}
+
+reportRtc(window, 'this page');
+var fresh = document.createElement('iframe');
+document.body.appendChild(fresh);
+reportRtc(fresh.contentWindow, 'a frame created by script');
+try { reportRtc(document.getElementById('nested').contentWindow, 'the nested frame'); } catch (e) { log('rtc', 'the nested frame: ' + e.name); }
+
+var PeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection
+    || (fresh.contentWindow && (fresh.contentWindow.RTCPeerConnection || fresh.contentWindow.webkitRTCPeerConnection));
+if (PeerConnection) {
+    try {
+        var pc = new PeerConnection({ iceServers: [
+            { urls: 'stun:127.0.0.1:8766' },
+            { urls: 'turn:127.0.0.1:8765?transport=tcp', username: 'probe', credential: 'probe' }] });
+        pc.createDataChannel('probe');
+        pc.createOffer().then(function (offer) { return pc.setLocalDescription(offer); });
+        log('rtc', 'A PEER CONNECTION WAS CREATED: STUN to udp/8766 and TURN to tcp/8765 attempted');
+    } catch (e) { log('rtc', 'peer connection refused (' + e.name + ')'); }
+} else {
+    log('rtc', 'no peer connection constructor is reachable');
+}
+
+function navigateNested(url) {
+    try { document.getElementById('nested').contentWindow.location.href = url; }
+    catch (e) { log('auto', 'nested navigation refused (' + e.name + ')'); }
+}
+</script>
+</body>
+</html>
