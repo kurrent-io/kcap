@@ -151,12 +151,14 @@ public sealed class HandoffDrafts : IDisposable {
                     timer.Dispose();
                 }
             }
-            // Disposal cancels a notification still queued, and one already running sees it.
+            // Under the lock disposal takes, so a notification queued past disposal does nothing. The lock is reentrant
+            // for a subscriber that takes the draft back.
             if (unsettled)
-                _subscriptions.Add(RxSchedulers.MainThreadScheduler.Schedule(() => {
-                    lock (_lock) if (_disposed) return;
-                    _failedFor.OnNext(held.SourceSessionId);
-                }));
+                RxSchedulers.MainThreadScheduler.Schedule(() => {
+                    lock (_lock) {
+                        if (!_disposed) _failedFor.OnNext(held.SourceSessionId);
+                    }
+                });
         }, null, PendingTtl, Timeout.InfiniteTimeSpan);
     }
 
@@ -226,12 +228,12 @@ public sealed class HandoffDrafts : IDisposable {
     static string Key(string agentId) => AgentIds.Normalize(agentId) ?? agentId;
 
     public void Dispose() {
+        _subscriptions.Dispose();
         lock (_lock) {
             _disposed = true;
             foreach (var timer in _resumeExpiries.Values) timer.Dispose();
             _resumeExpiries.Clear();
+            _failedFor.Dispose();
         }
-        _subscriptions.Dispose();
-        _failedFor.Dispose();
     }
 }
