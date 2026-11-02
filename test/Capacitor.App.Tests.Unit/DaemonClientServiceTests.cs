@@ -293,11 +293,13 @@ public class DaemonClientServiceTests {
         await svc.RestartLoopAsync();
         await WaitUntilAsync(() => script.LiveEnumerations >= 1, TimeSpan.FromSeconds(5), what: "fresh enumeration after restart");
 
-        // The pump publishes on its own thread while Subscribe replays the current status on this one.
+        // The pump publishes on its own thread while Subscribe replays the current status on this one. The replay is
+        // already Connecting, so only a status after it shows the fresh enumeration handled the fed event.
         var statuses = new ConcurrentQueue<AttachStatus>();
         using var sub = svc.Status.Subscribe(statuses.Enqueue);
+        var replayed = statuses.Count;
         script.Feed(new LocalControlEvent.Connecting());
-        await WaitUntilAsync(() => statuses.Contains(new AttachStatus(AttachState.Connecting, null, null)),
+        await WaitUntilAsync(() => statuses.Skip(replayed).Contains(new AttachStatus(AttachState.Connecting, null, null)),
             what: "Connecting status from the fresh enumeration");
 
         // DisposeAsync must also complete cleanly (not throw, not skip cleanup) even though a
