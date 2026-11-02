@@ -1276,6 +1276,59 @@ public class HandoffComposerViewModelTests {
         await Assert.That((vm.ResumeOffered, vm.IsStripOpen)).IsEqualTo((false, true));
     });
 
+    /// <summary>A hub refusal reaches the app behind SignalR's own lead, and is worded and remembered all the same.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_refusal_behind_the_hub_lead_is_worded_and_remembered() => Run(async rig => {
+        OfferResume(rig);
+        rig.Launch.Next = new(false, null,
+            "An unexpected error occurred invoking 'RequestLaunchAgentV2' on the server. HubException: resume_source_active: The session is active again.");
+        var vm = await rig.ReadyAsync();
+        vm.Text = "carry on";
+
+        await vm.ResumeCommand.Execute().ToTask();
+        await vm.PendingEvaluationForTesting;
+
+        await Assert.That(vm.Error).IsEqualTo(
+            "Couldn't resume this session here (it's active again). Hand off starts a new session with its context.");
+        await Assert.That(rig.Drafts.ResumeFailed(SessionId)).IsTrue();
+    });
+
+    /// <summary>Nothing was tried when the launch never reached the server or needed a sign-in, so Resume stays.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments("unauthorized")]
+    [Arguments("not-connected")]
+    public Task A_launch_that_never_reached_a_resume_keeps_it_offered(string failure) => Run(async rig => {
+        OfferResume(rig);
+        rig.Launch.Next = failure == "unauthorized"
+            ? new(false, null, "Not signed in to the server.", Unauthorized: true)
+            : new(false, null, "Not connected to the server.");
+        var vm = await rig.ReadyAsync();
+        vm.Text = "carry on";
+
+        await vm.ResumeCommand.Execute().ToTask();
+        await vm.PendingEvaluationForTesting;
+
+        await Assert.That(vm.Text).IsEqualTo("carry on");
+        await Assert.That(rig.Drafts.ResumeFailed(SessionId)).IsFalse();
+    });
+
+    /// <summary>A probe the daemon did not answer is asked again later, as a failed hand-off probe is.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_resume_probe_with_no_answer_is_retried() => Run(async rig => {
+        OfferResume(rig);
+        rig.Ops.ResumeNext = null;
+        var vm = await rig.ReadyAsync();
+        await Assert.That(vm.ResumeOffered).IsFalse();
+
+        rig.Ops.ResumeNext = new(null);
+        rig.Time.Advance(HandoffComposerViewModel.TransientRetry);
+
+        await WaitUntilAsync(() => vm.ResumeOffered, what: "the retried resume probe");
+    });
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Resume_with_files_staged_asks_for_a_hand_off_instead() => Run(async rig => {

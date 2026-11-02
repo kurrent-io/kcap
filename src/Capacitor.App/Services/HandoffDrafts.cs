@@ -26,6 +26,7 @@ public sealed class HandoffDrafts : IDisposable {
     readonly Dictionary<string, HandoffDraft> _failed = new(StringComparer.Ordinal);
     readonly Dictionary<string, HandoffDraft> _unsent = new(StringComparer.Ordinal);
     readonly HashSet<string> _resumeFailed = new(StringComparer.Ordinal);
+    readonly Dictionary<string, ITimer> _resumeExpiries = new(StringComparer.Ordinal);
     readonly IAgentDirectory? _directory;
     readonly TimeProvider _time;
     readonly CompositeDisposable _subscriptions = new();
@@ -70,7 +71,9 @@ public sealed class HandoffDrafts : IDisposable {
                 if (resume) _resumeFailed.Add(sourceSessionId);
                 return HandoffHold.AlreadyFailed;
             }
-            _pending[id] = new Held(sourceSessionId, draft, now, onFailed, resume);
+            var held = _pending[id] = new Held(sourceSessionId, draft, now, onFailed, resume);
+            // Nothing confirms a resume that worked, so its hold, prompt text included, ends on a timer.
+            if (resume) ExpireLater(id, held);
         }
         // The row can land between the first check and the registration.
         if (resume || !RowExists(id)) return HandoffHold.Pending;
@@ -119,6 +122,24 @@ public sealed class HandoffDrafts : IDisposable {
     /// A resume refused before any agent existed.
     public void MarkResumeFailed(string sourceSessionId) {
         lock (_lock) _resumeFailed.Add(sourceSessionId);
+    }
+
+    /// Under _lock.
+    void ExpireLater(string id, Held held) {
+        if (_resumeExpiries.Remove(id, out var earlier)) earlier.Dispose();
+        _resumeExpiries[id] = _time.CreateTimer(_ => {
+            lock (_lock) {
+                if (_pending.TryGetValue(id, out var current) && ReferenceEquals(current, held)) _pending.Remove(id);
+                if (_resumeExpiries.TryGetValue(id, out var timer) && !_pending.ContainsKey(id)) {
+                    _resumeExpiries.Remove(id);
+                    timer.Dispose();
+                }
+            }
+        }, null, PendingTtl, Timeout.InfiniteTimeSpan);
+    }
+
+    internal int PendingCountForTesting {
+        get { lock (_lock) return _pending.Count; }
     }
 
     void ConfirmStarted(string agentId) {
@@ -170,6 +191,10 @@ public sealed class HandoffDrafts : IDisposable {
     static string Key(string agentId) => AgentIds.Normalize(agentId) ?? agentId;
 
     public void Dispose() {
+        lock (_lock) {
+            foreach (var timer in _resumeExpiries.Values) timer.Dispose();
+            _resumeExpiries.Clear();
+        }
         _subscriptions.Dispose();
         _failedFor.Dispose();
     }

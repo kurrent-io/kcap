@@ -385,10 +385,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         IsProbing = true;
         Progress = IsResuming ? Resuming : Checking;
         Evaluation result;
+        bool? offered = false;
         try {
-            var offered = await ResumeOfferedAsync(cts.Token);
+            offered = await ResumeOfferedAsync(cts.Token);
             if (_disposed || cts.IsCancellationRequested || !ReferenceEquals(cts, _evaluation)) return;
-            ResumeOffered = offered;
+            ResumeOffered = offered == true;
             result = await EvaluateAsync(cts.Token);
         } catch (OperationCanceledException) when (cts.IsCancellationRequested) {
             return;
@@ -405,7 +406,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         CompletenessNote = result.CompletenessNote;
         ProbedStart = result.Reason is null ? result.Start : null;
         // Nothing else re-checks a failed read while the lane and the daemon stay connected.
-        if (result.Reason is ContextUnavailable or ProbeFailed or ServerUnreachable) _ = RetryAsync(cts.Token);
+        if (result.Reason is ContextUnavailable or ProbeFailed or ServerUnreachable || offered is null) _ = RetryAsync(cts.Token);
     }
 
     internal static readonly TimeSpan TransientRetry = TimeSpan.FromSeconds(30);
@@ -494,23 +495,25 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
 
     /// The table's Resume row: the viewer's own session (the listing gives a recording to the owner only),
     /// recorded on this machine under a known store, with both hops able to carry it and the daemon's probe
-    /// finding the vendor, the directory and that store still usable here.
-    async Task<bool> ResumeOfferedAsync(CancellationToken ct) {
+    /// finding the vendor, the directory and that store still usable here. Null when the server or the daemon did not
+    /// answer, which nothing else re-checks while both stay connected.
+    async Task<bool?> ResumeOfferedAsync(CancellationToken ct) {
         if (_drafts.ResumeFailed(_session.SessionId)) return false;
         if (_session is not {
                 Status: "ended", Cwd: { Length: > 0 } cwd, Vendor: { Length: > 0 } vendor,
                 Recording: { MachineId: { Length: > 0 } machine, ConfigDir: { Length: > 0 } store } recording,
             }) return false;
         if (_localMachineId?.Invoke() != machine || !_serverConnected) return false;
-        if (await FeaturesAsync(ct) is not { } features || !features.Contains(ResumeInPlaceWire.Capability)) return false;
+        if (await FeaturesAsync(ct) is not { } features) return null;
+        if (!features.Contains(ResumeInPlaceWire.Capability)) return false;
         if (_attach is not { } attach || !HasResume(attach)) return false;
         if (_snapshot is not { } snapshot || !ServerIdentity.SameServer(snapshot.Daemon.ServerUrl, _appServerUrl)) return false;
 
         var request = new ResumeProbeRequestDto(_session.SessionId, vendor, cwd, recording.AccountId, store);
         try {
-            return await Task.Run(() => _ops.ProbeResumeAsync(request, ct), ct) is { Refusal: null };
+            return await Task.Run(() => _ops.ProbeResumeAsync(request, ct), ct) is { } reply ? reply.Refusal is null : null;
         } catch (Exception ex) when (ex is not OperationCanceledException) {
-            return false;
+            return null;
         }
     }
 
@@ -538,7 +541,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             if (!outcome.Started) {
                 if (outcome.Unauthorized) _onUnauthorized?.Invoke(launchEpoch);
                 var notice = outcome.Unauthorized ? SignInToHandOff : HandoffFailureText.ResumeFallback(outcome.Error);
-                _drafts.MarkResumeFailed(sourceId);
+                // Only a refusal rules Resume out: after a sign-in or a dropped connection, nothing was tried.
+                if (!outcome.Unauthorized && HandoffFailureText.IsResumeRefusal(outcome.Error)) _drafts.MarkResumeFailed(sourceId);
                 if (_disposed) _drafts.HoldFailed(sourceId, draft with { Error = notice });
                 else Error = notice;
                 _recheckAfterLaunch = true;

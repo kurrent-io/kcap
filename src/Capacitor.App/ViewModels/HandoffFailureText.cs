@@ -33,13 +33,17 @@ public static partial class HandoffFailureText {
         }
         var friendly = HomeViewModel.FriendlyLaunchFailure(reason);
         if (friendly != reason || code is null) return friendly;
-        var detail = reason[match.Length..].Trim();
+        var detail = reason[(match.Index + match.Length)..].Trim();
         return detail.Length > 0 ? HomeViewModel.FriendlyLaunchFailure(detail) : Generic;
     }
 
     /// A failed resume, worded as the fallback the composer then offers.
     public static string ResumeFallback(string? reason) =>
         $"Couldn't resume this session here ({ResumeReason(reason)}). Hand off starts a new session with its context.";
+
+    /// Whether the launch was refused as a resume, rather than failing to reach the server at all.
+    public static bool IsResumeRefusal(string? reason) =>
+        reason is not null && CodePrefix().Match(reason) is { Success: true } match && match.Groups["code"].Value.StartsWith("resume_", StringComparison.Ordinal);
 
     static string ResumeReason(string? reason) {
         if (string.IsNullOrWhiteSpace(reason)) return "it didn't start";
@@ -57,6 +61,7 @@ public static partial class HandoffFailureText {
         };
     }
 
-    [GeneratedRegex(@"^(?<code>[a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?::|$)")]
+    // SignalR delivers a hub's refusal behind its own "… on the server. HubException: " lead.
+    [GeneratedRegex(@"(?:^|HubException: )(?<code>[a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?::|$)")]
     private static partial Regex CodePrefix();
 }
