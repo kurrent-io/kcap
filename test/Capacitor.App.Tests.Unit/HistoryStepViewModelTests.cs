@@ -48,9 +48,11 @@ public class HistoryStepViewModelTests {
     sealed class Answer : IImportIntelligence {
         public Cli.Core.Setup.Intelligence.IntelligenceSetupResponse? Applied { get; set; }
         public readonly List<bool> Reposted = [];
+        public Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome? Refusal;
 
         public Task<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome?> ApplyImportOutcomesAsync(bool importOutcomes, CancellationToken ct) {
             Reposted.Add(importOutcomes);
+            if (Refusal is { } refusal) return Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome?>(refusal);
             Applied = Applied! with { ImportOutcomes = importOutcomes };
 
             return Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome?>(new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Applied(Applied));
@@ -959,6 +961,29 @@ public class HistoryStepViewModelTests {
         await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None);
 
         await Assert.That(h.Intelligence.Reposted).IsEquivalentTo([false]);
+        await Assert.That(h.Cli.ImportRequests).IsNotEmpty();
+    }
+
+    /// Importing under the server's old choice would summarise sessions the user asked not to.
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_summarise_choice_the_server_did_not_take_holds_the_import(bool refused) {
+        var h = new Harness(Report(), onLocalPath: true);
+        h.Intelligence.Applied = Took("local_agent", harness: "codex");
+        h.Intelligence.Refusal = refused
+            ? new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Refused("import_outcomes_pinned_above_store")
+            : new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Failed("connection refused");
+        await h.EnterAsync();
+        h.Vm.SummariseOutcomes = false;
+
+        await Assert.That(await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None)).IsFalse();
+        await Assert.That(h.Cli.ImportRequests).IsEmpty();
+        await Assert.That(h.Vm.SummariseError).IsNotNull();
+
+        h.Vm.SummariseOutcomes = true;
+        await Assert.That(h.Vm.SummariseError).IsNull();
+        await Assert.That(await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None)).IsTrue();
         await Assert.That(h.Cli.ImportRequests).IsNotEmpty();
     }
 

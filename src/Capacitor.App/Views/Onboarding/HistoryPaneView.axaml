@@ -214,6 +214,9 @@
                             <TextBlock x:Name="ImportPaceText" Classes="onboardingDetail" Foreground="{StaticResource OnboardingMutedBrush}"
                                        TextWrapping="Wrap" Text="{Binding PaceLine}"
                                        IsVisible="{Binding PaceLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            <TextBlock x:Name="SummariseErrorText" Classes="onboardingError"
+                                       TextWrapping="Wrap" Text="{Binding SummariseError}"
+                                       IsVisible="{Binding SummariseError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                     </Grid>
                 </Border>

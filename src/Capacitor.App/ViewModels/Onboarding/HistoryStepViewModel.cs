@@ -34,6 +34,7 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     HistoryState             _state = HistoryState.Looking;
     bool                     _titleLocally;
     bool                     _summariseOutcomes = true;
+    string?                  _summariseError;
     bool                     _customizing;
     int                      _unmatched;
     ImportDiscoveryReport?   _report;
@@ -243,7 +244,16 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     /// On until the user turns it off: the server's own default for the local edition.
     public bool SummariseOutcomes {
         get => _summariseOutcomes;
-        set => this.RaiseAndSetIfChanged(ref _summariseOutcomes, value);
+        set {
+            this.RaiseAndSetIfChanged(ref _summariseOutcomes, value);
+            SummariseError = null;
+        }
+    }
+
+    /// Why the server did not take the summary choice; the import waits until it does or the box matches the server.
+    public string? SummariseError {
+        get => _summariseError;
+        private set => this.RaiseAndSetIfChanged(ref _summariseError, value);
     }
 
     /// How long the server's background work on the selected sessions takes at its daily pace.
@@ -532,7 +542,8 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
         if (direction == WizardNavigation.Next && HasRepos && SelectedCount + SelectedFolderCount > 0
             && Run is not { State: ImportRunState.Running or ImportRunState.Finished }) {
             // Before the first session lands, so the server applies the choice to all of them.
-            if (Model is { } model && model.ImportOutcomes != SummariseOutcomes) await SendSummariseAsync(ct).ConfigureAwait(true);
+            if (Model is { } model && model.ImportOutcomes != SummariseOutcomes && !await SendSummariseAsync(ct).ConfigureAwait(true))
+                return false;
 
             StartImport();
         }
@@ -540,14 +551,17 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
         return true;
     }
 
-    /// A failed send leaves the server's own choice in place; the import goes ahead either way.
-    async Task SendSummariseAsync(CancellationToken ct) {
-        try {
-            if (await _intelligence!.ApplyImportOutcomesAsync(SummariseOutcomes, ct).ConfigureAwait(true) is not IntelligenceSetupOutcome.Applied)
-                Console.Error.WriteLine("kcap: the server did not take the import-outcome choice");
-        } catch (Exception ex) when (ex is not OperationCanceledException) {
-            Console.Error.WriteLine($"kcap: could not send the import-outcome choice: {ex.Message}");
-        }
+    /// Importing under the server's other choice would go against the box the user left, so a choice not taken holds
+    /// the page; putting the box back to the server's choice lets the import go ahead.
+    async Task<bool> SendSummariseAsync(CancellationToken ct) {
+        SummariseError = await _intelligence!.ApplyImportOutcomesAsync(SummariseOutcomes, ct).ConfigureAwait(true) switch {
+            IntelligenceSetupOutcome.Applied                         => null,
+            IntelligenceSetupOutcome.Refused { Error: var code }     => IntelligenceRefusals.Describe(code),
+            IntelligenceSetupOutcome.Failed { Problem: var problem } => $"Could not reach the local server: {problem}",
+            _                                                        => "The summary choice was not sent.",
+        };
+
+        return SummariseError is null;
     }
 
     void StartImport() {
