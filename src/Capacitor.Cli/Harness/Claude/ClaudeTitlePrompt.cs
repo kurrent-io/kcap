@@ -8,8 +8,7 @@ namespace Capacitor.Cli.Harness.Claude;
 /// <summary>
 /// <c>kcap hook --claude --title-prompt</c>: on a session's first <c>UserPromptSubmit</c>, asks the
 /// agent to name the session with <c>kcap set-title --auto</c>, which never replaces a start title or
-/// a rename. Local only, and dispatched before repository resolution, because Claude gives this hook
-/// two seconds.
+/// a rename. Local only, and dispatched before repository resolution, because every prompt waits for it.
 /// </summary>
 static partial class ClaudeTitlePrompt {
     public const string Flag = "--title-prompt";
