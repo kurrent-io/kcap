@@ -343,7 +343,17 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// that came up after the paste would take the Enter, and answering it takes the lane, so each one is
     /// waited out with the lane released. Returns holding the lane; false when a stop was asked for.</summary>
     async Task<bool> WaitOutDialogsAsync() {
+        await WaitOutDialogsReportingAsync();
+
+        return !_stopRequested;
+    }
+
+    /// <summary><see cref="WaitOutDialogsAsync"/>, saying whether any dialog was waited out.</summary>
+    async Task<bool> WaitOutDialogsReportingAsync() {
+        var waited = false;
+
         while (DialogGone is not null && !pty.HasExited && !_stopRequested) {
+            waited = true;
             _lane.Release();
             _deliveryHoldsLane = false;
             await WaitWhileDialogShowsAsync(_disposal.Token);
@@ -351,7 +361,7 @@ internal sealed partial class PtyHostedAgentRuntime(
             _deliveryHoldsLane = true;
         }
 
-        return !_stopRequested;
+        return waited;
     }
 
     /// <summary>Returns once no dialog is on screen, or the agent has exited or been asked to stop.</summary>
@@ -397,9 +407,8 @@ internal sealed partial class PtyHostedAgentRuntime(
             // would land in the composer behind the unsent paste. A stop that cut a dialog's wait
             // short does, even once that dialog has closed: the stop wrote meanwhile.
             var submitted = await SubmitAsync(async () => {
-                var dialogShowed = DialogGone is not null;
-                await WaitOutDialogsAsync();
-                return DialogGone is null && !(dialogShowed && Ending);
+                var waited = await WaitOutDialogsReportingAsync();
+                return DialogGone is null && !(waited && Ending);
             });
             if (!submitted) throw AgentEnding();
         } finally {
