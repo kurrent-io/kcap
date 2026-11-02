@@ -1116,9 +1116,11 @@ public partial class App : Application {
         // nothing, so anything pushed before the feed and the tracker are subscribed is lost.
         serverLane.Start();
 
+        var unopenedAttention = attention.SessionsWithAttention
+            .CombineLatest(sessionAccess.EstablishedSessions, PendingAttention.Unopened)
+            .Replay(1).RefCount();
         var agentsWithPending = permissions.AgentsWithPending.CombineLatest(
-            attention.SessionsWithAttention, sessionAccess.EstablishedSessions, directory.SessionAgents,
-            RailPendingAgents.Compose);
+            unopenedAttention, directory.SessionAgents, PendingAttention.Agents);
 
         // The signed-in user's own id (JwtClaims sub claim), read fresh per call — never cached,
         // since a re-auth or profile switch must be reflected on the very next read.
@@ -1411,7 +1413,7 @@ public partial class App : Application {
             quit: () => desktop.TryShutdown(), openReviewPrompts: _promptCoordinator.ShowPromptWindow,
             lifecycleAttention: lifecycleAttention, shimOfferable: shimOffer.Offerable,
             installShim: shimOffer.RunManualInstallAsync, permissions: permissions,
-            remote: TrayViewModel.SummaryFrom(directory, attention.SessionsWithAttention),
+            remote: TrayViewModel.SummaryFrom(directory, unopenedAttention),
             updateMenu: _updates.MenuItem, updateAction: RunUpdateMenuActionAsync,
             restartPending: restartPending.Pending, openSettings: openSettings, openLaunchApprovals: launchApprovals.Show);
         _tray = new TrayIconManager(this, _trayVm);
