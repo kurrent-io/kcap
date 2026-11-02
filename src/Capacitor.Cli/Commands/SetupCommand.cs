@@ -1442,6 +1442,7 @@ sealed class SetupCommand(
             BrowserBackground:   browserAnswers.Background,
             Skip:                importSkip,
             Intelligence:        intelligence,
+            ImportOutcomes:      local?.ImportOutcomes,
             // A run that cannot ask imports what the flags chose; it never opens a prompt to find out.
             ChooseProjects:      AnsiConsole.Profile.Capabilities.Interactive ? ChooseProjectsPrompt : null));
 
@@ -1740,6 +1741,7 @@ sealed class SetupCommand(
         Func<bool>?                   PromptNameSessions = null,
         ImportSkip?                   Skip = null,
         IntelligenceSetupResponse?    Intelligence = null,
+        bool?                         ImportOutcomes = null,
         Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? ChooseProjects = null);
 
     /// <summary><see cref="RunId"/> and <see cref="Handoff"/> are null whenever the foreground pass
@@ -1818,6 +1820,15 @@ sealed class SetupCommand(
             PrintDiscovery(repos, attributed, unattributedOnDisk);
         }
 
+        // Importing under the server's other choice would summarise, or not, against the flag the user gave.
+        if (inputs.ImportOutcomes is { } wanted && inputs.Intelligence?.ImportOutcomes != wanted) {
+            var flag = wanted ? LocalSetupArgs.ImportOutcomesFlag : LocalSetupArgs.NoImportOutcomesFlag;
+            AnsiConsole.MarkupLine($"  [dim]Skipping import — the server did not take {flag}. "
+              + "Set it with [cyan]kcap local intelligence[/], then run [cyan]kcap import --all[/].[/]");
+
+            return new ImportStepResult(false, null, null, null);
+        }
+
         var decision = SetupDecisions.DecideImport(
             inputs.AuthSatisfied, inputs.SkipImport, inputs.NoPrompt, inputs.PromptYesNo);
 
@@ -1829,8 +1840,7 @@ sealed class SetupCommand(
             return new ImportStepResult(false, null, null, null);
         }
 
-        var skip    = inputs.Skip ?? ImportSkip.None;
-        var leftOut = 0;
+        var skip = inputs.Skip ?? ImportSkip.None;
 
         if (!inputs.NoPrompt && found is not null && inputs.ChooseProjects is { } choose) {
             var choices = SetupImportChoice.From(found, skip);
@@ -1846,12 +1856,12 @@ sealed class SetupCommand(
                 }
 
                 skip = SetupImportChoice.SkipFor(choices, kept, skip);
-                leftOut = choices.Where(c => !kept.Contains(c)).Sum(c => c.Sessions);
             }
         }
 
         if (found is not null && inputs.Intelligence is { Mode: not IntelligenceModes.None } applied
-         && ImportCostLine(found.Repos.Sum(r => r.SessionCount) + found.UnmatchedCount - leftOut, applied) is { } cost)
+         && ImportCostLine(found.Repos.Sum(r => r.SessionCount) + found.UnmatchedCount
+              - SetupImportChoice.From(found, skip).Where(c => !c.Included).Sum(c => c.Sessions), applied) is { } cost)
             AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(cost)}[/]");
 
         if (!skip.IsEmpty) {

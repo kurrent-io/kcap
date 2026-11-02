@@ -1195,12 +1195,12 @@ public class SetupCommandTests {
             CodingAgentsStep.Paths? paths = null, bool browserFinished = false, Func<bool>? nameSessions = null,
             ImportSkip? leaveOut = null,
             Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? choose = null,
-            Core.Setup.Intelligence.IntelligenceSetupResponse? intelligence = null) => new(
+            Core.Setup.Intelligence.IntelligenceSetupResponse? intelligence = null, bool? outcomes = null) => new(
         AuthSatisfied: auth, SkipImport: skip, NoPrompt: noPrompt, PromptYesNo: prompt ?? (() => true),
         Profiles: Resolutions.At("https://example.test", Config.Root), ProfileName: "work", ServerUrl: "https://example.test",
         DefaultVisibility: visibility, CurrentRepo: null, WorkingDirectory: Config.Directory,
         Paths: paths ?? PathsWithEvalWatchFor(HarnessId.Codex), BrowserImport: browser, BrowserImportFailed: false,
-        BrowserFinished: browserFinished, PromptNameSessions: nameSessions, Skip: leaveOut, Intelligence: intelligence, ChooseProjects: choose);
+        BrowserFinished: browserFinished, PromptNameSessions: nameSessions, Skip: leaveOut, Intelligence: intelligence, ImportOutcomes: outcomes, ChooseProjects: choose);
 
     /// <summary>Two repositories and one folder that matched none, plus a session with no folder recorded.</summary>
     static ImportCommand.ImportDiscoveryResult DiscoveredProjects() {
@@ -1346,6 +1346,48 @@ public class SetupCommandTests {
             .RunImportStepAsync(Inputs(nameSessions: () => asked = true, intelligence: new("none", null, null, false, 10, [])));
 
         await Assert.That(asked).IsTrue();
+        await Assert.That(console.Flat).DoesNotContain("a day: about");
+    }
+
+    /// <summary>An outcome flag the server did not take would import under its other choice, so the import waits for
+    /// the choice to be applied.</summary>
+    [Test, NotInParallel]
+    [Arguments(false, null)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    public async Task An_outcome_flag_the_server_did_not_take_skips_the_import(bool wanted, bool? applied) {
+        var runner = FakeImportRunner.Succeeding().Discovering(Discovered(3, 20, 5));
+        using var console = new SpectreCapture();
+        Core.Setup.Intelligence.IntelligenceSetupResponse? took = applied is { } a ? new("local_agent", "claude", null, a, 10, ["titles"]) : null;
+
+        var result = await Command(runner, FakeBackgroundImportSpawner.Running(), FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(noPrompt: true, intelligence: took, outcomes: wanted));
+
+        await Assert.That(result.Ran).IsFalse();
+        await Assert.That(runner.Captured).IsNull();
+        await Assert.That(console.Flat).Contains(wanted ? "--import-outcomes" : "--no-import-outcomes");
+    }
+
+    [Test]
+    public async Task An_outcome_flag_the_server_took_imports() {
+        var runner = FakeImportRunner.Succeeding().Discovering(Discovered(3, 20, 5));
+
+        await Command(runner, FakeBackgroundImportSpawner.Running(), FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(noPrompt: true, intelligence: new("local_agent", "claude", null, false, 10, ["titles"]), outcomes: false));
+
+        await Assert.That(runner.Captured).IsNotNull();
+    }
+
+    /// <summary>A project a flag leaves out is not imported, so the pace does not count it, chooser or not.</summary>
+    [Test, NotInParallel]
+    public async Task The_pace_leaves_out_what_a_flag_left_out() {
+        var runner = FakeImportRunner.Succeeding().Discovering(Discovered(1, 20, 0));
+        using var console = new SpectreCapture();
+
+        await Command(runner, FakeBackgroundImportSpawner.Running(), FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(noPrompt: true, leaveOut: new ImportSkip([("owner0", "repo0")], []),
+                intelligence: new("local_agent", "claude", null, true, 10, ["titles"])));
+
         await Assert.That(console.Flat).DoesNotContain("a day: about");
     }
 
