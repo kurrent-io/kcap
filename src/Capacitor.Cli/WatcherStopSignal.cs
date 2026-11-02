@@ -42,8 +42,9 @@ static class WatcherStopSignal {
     }
 
     sealed class Listener(EventWaitHandle signal, RegisteredWaitHandle registration) : IDisposable {
-        // The pool's wait thread holds its own handle to the event until the unregistration completes, so the
-        // name stays openable until then. Bounded: Dispose may be called from inside the stop callback itself.
+        // The pool's wait thread holds its own handle to the event until the unregistration completes, and can for a
+        // moment after, so the name stays openable briefly past Dispose. Bounded: Dispose may be called from inside
+        // the stop callback itself.
         static readonly TimeSpan UnregisterWait = TimeSpan.FromSeconds(2);
 
         public void Dispose() {

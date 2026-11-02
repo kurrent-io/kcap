@@ -18,7 +18,8 @@ public class WatcherStopSignalTests {
         await asked.Task.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
-    /// <summary>False is what sends the stopper on to the hard kill.</summary>
+    /// <summary>False is what sends the stopper on to the hard kill. The pool's wait thread can keep a disposed
+    /// listener's event openable for a moment, so the answer after a dispose is awaited, not read once.</summary>
     [Test, RunOn(OS.Windows)]
     public async Task Nobody_listening_reports_the_request_undelivered() {
         var pid = UnusedPid();
@@ -26,6 +27,9 @@ public class WatcherStopSignalTests {
         await Assert.That(WatcherStopSignal.TryRequest(pid)).IsFalse();
 
         WatcherStopSignal.Listen(pid, () => { })!.Dispose();
+
+        var deadline = DateTime.UtcNow + BoundedWait.Deadline;
+        while (WatcherStopSignal.TryRequest(pid) && DateTime.UtcNow < deadline) await Task.Delay(20);
 
         await Assert.That(WatcherStopSignal.TryRequest(pid)).IsFalse();
     }
