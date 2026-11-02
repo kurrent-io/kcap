@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Capacitor.App.Services;
@@ -292,11 +293,14 @@ public class DaemonClientServiceTests {
         await svc.RestartLoopAsync();
         await WaitUntilAsync(() => script.LiveEnumerations >= 1, TimeSpan.FromSeconds(5), what: "fresh enumeration after restart");
 
-        var statuses = new List<AttachStatus>();
-        using var sub = svc.Status.Subscribe(statuses.Add);
+        // The pump publishes on its own thread while Subscribe replays the current status on this one. The replay is
+        // already Connecting, so only a status after it shows the fresh enumeration handled the fed event.
+        var statuses = new ConcurrentQueue<AttachStatus>();
+        using var sub = svc.Status.Subscribe(statuses.Enqueue);
+        var replayed = statuses.Count;
         script.Feed(new LocalControlEvent.Connecting());
-        await WaitUntilAsync(() => statuses.Count >= 1, what: "Connecting status from the fresh enumeration");
-        await Assert.That(statuses[^1]).IsEqualTo(new AttachStatus(AttachState.Connecting, null, null));
+        await WaitUntilAsync(() => statuses.Skip(replayed).Contains(new AttachStatus(AttachState.Connecting, null, null)),
+            what: "Connecting status from the fresh enumeration");
 
         // DisposeAsync must also complete cleanly (not throw, not skip cleanup) even though a
         // fault occurred earlier in this service's lifetime.
@@ -339,9 +343,9 @@ public class DaemonClientServiceTests {
         await using var svc = new DaemonClientService("daemon-a", script.Run, NoOpStart());
         svc.Start();
 
-        var statuses = new List<AttachStatus>();
-        using var sub = svc.Status.Subscribe(statuses.Add);
-        await WaitUntilAsync(() => statuses.Count >= 1, what: "initial Connecting status");
+        var statuses = new ConcurrentQueue<AttachStatus>();
+        using var sub = svc.Status.Subscribe(statuses.Enqueue);
+        await WaitUntilAsync(() => !statuses.IsEmpty, what: "initial Connecting status");
 
         var caps = new List<string> { "status/1" };
         var snap = Snap("daemon-a", "a1", "a2");
