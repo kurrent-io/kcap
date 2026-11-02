@@ -41,9 +41,13 @@ public static partial class HandoffFailureText {
     public static string ResumeFallback(string? reason) =>
         $"Couldn't resume this session here ({ResumeReason(reason)}). Hand off starts a new session with its context.";
 
-    /// Whether the launch was refused as a resume, rather than failing to reach the server at all.
+    /// Whether the resume was attempted and refused, by the server, the daemon or its owner, rather than failing to
+    /// reach the server at all.
     public static bool IsResumeRefusal(string? reason) =>
-        reason is not null && CodePrefix().Match(reason) is { Success: true } match && match.Groups["code"].Value.StartsWith("resume_", StringComparison.Ordinal);
+        reason is not null && CodePrefix().Match(reason) is { Success: true } match
+     && (match.Groups["code"].Value.StartsWith("resume_", StringComparison.Ordinal) || match.Groups["code"].Value == OwnerDenied);
+
+    const string OwnerDenied = "launch_denied_by_owner";
 
     static string ResumeReason(string? reason) {
         if (string.IsNullOrWhiteSpace(reason)) return "it didn't start";

@@ -33,6 +33,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         public int?   ExitWith           { get; init; }
         public bool   ExitsLater         { get; init; }
         public TimeSpan StartDelay       { get; init; }
+        public bool     Unkillable       { get; init; }
 
         public RuntimeStartContext? Context    { get; private set; }
         public FakeAcpRuntime?      AcpRuntime { get; private set; }
@@ -54,7 +55,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
                 return new HostedRuntimeStart(AcpRuntime, McpConfigPath: null, Transcript: AcpRuntime);
             }
 
-            PtyRuntime = new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) { ExitCode = ExitWith ?? 0 };
+            PtyRuntime = new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) { ExitCode = ExitWith ?? 0, IgnoresTerminate = Unkillable };
             if (ExitWith is not null) PtyRuntime.ExitGate.SetResult();
             if (ExitsLater) _ = Task.Delay(100, CancellationToken.None).ContinueWith(_ => PtyRuntime.ExitGate.TrySetResult(), TaskScheduler.Default);
 
@@ -209,10 +210,9 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
     /// the agent starts fails the resume.</summary>
     [Test]
     public async Task A_lease_lost_while_the_agent_starts_retires_it_and_reports_it() {
-        var renewals = 0;
-        var server   = new CaptureServerConnection { RenewHandoff = (_, _) => Task.FromResult(Interlocked.Increment(ref renewals) == 1) };
-        await using var f = new Fixture(Tmp, new LoadableFactory("claude") { StartDelay = TimeSpan.FromMilliseconds(400) }, server,
-            readiness: TimeSpan.FromSeconds(5));
+        var factory = new LoadableFactory("claude") { StartDelay = TimeSpan.FromMilliseconds(400) };
+        var server  = new CaptureServerConnection { RenewHandoff = (_, _) => Task.FromResult(factory.Starts == 0) };
+        await using var f = new Fixture(Tmp, factory, server, readiness: TimeSpan.FromSeconds(5));
 
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 
@@ -221,6 +221,60 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await WaitHarness.PollUntilAsync(() => f.Orch.GetAgentForTest(AgentId)?.Status is null or "Completed" or "Failed");
         await Assert.That(f.Orch.ResumeLedger!.TryRead(AgentId)).IsNull();
         await Assert.That(File.Exists(Path.Combine(f.Checkout, "work.txt"))).IsTrue();
+    }
+
+    /// <summary>A lease lost while the readiness window runs, after the agent started, still fails the resume.</summary>
+    [Test]
+    public async Task A_lease_lost_during_readiness_retires_the_agent() {
+        var factory = new LoadableFactory("claude");
+        DateTimeOffset? failFrom = null;
+        var server = new CaptureServerConnection {
+            RenewHandoff = (_, _) => {
+                if (factory.Starts == 0) return Task.FromResult(true);
+                failFrom ??= DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(300);
+
+                return Task.FromResult(DateTimeOffset.UtcNow < failFrom);
+            },
+        };
+        await using var f = new Fixture(Tmp, factory, server, readiness: TimeSpan.FromSeconds(3));
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.Failures()).IsEquivalentTo([$"{ResumeInPlaceRefusals.Failed}: source_lease_lost"]);
+        await Assert.That(f.Factory.PtyRuntime!.HasExited).IsTrue();
+    }
+
+    /// <summary>A failure is reported only once the runtime is confirmed gone; one that will not stop stays registered
+    /// on the source, which keeps a hand-off off it.</summary>
+    [Test]
+    public async Task A_failed_resume_that_cannot_be_stopped_is_not_reported() {
+        var factory = new LoadableFactory("claude") { StartDelay = TimeSpan.FromMilliseconds(200), Unkillable = true };
+        var server  = new CaptureServerConnection { RenewHandoff = (_, _) => Task.FromResult(factory.Starts == 0) };
+        await using var f = new Fixture(Tmp, factory, server, readiness: TimeSpan.FromSeconds(3));
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.Failures()).IsEmpty();
+        await Assert.That(f.Factory.PtyRuntime!.HasExited).IsFalse();
+    }
+
+    /// <summary>Consent judges the directory the resume runs in: a rule naming only the symlink does not admit its
+    /// target.</summary>
+    [Test]
+    public async Task Consent_judges_where_a_symlinked_directory_resolves() {
+        var link   = Tmp.PathTo("link");
+        var policy = Tmp.CreateDir("consent");
+        var store  = new LaunchConsentStore(policy, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeProvider.System);
+        store.TryReplace(new LaunchConsentPolicy(LaunchConsentDefault.Deny, 5, [new LaunchConsentRule("allow", null, null, link, null)]), out _);
+        var gate = new LaunchConsentGate(store, new LaunchConsentDecisionLog(policy, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+            prompter: null, TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<LaunchConsentGate>.Instance);
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude"), consent: gate);
+        Directory.CreateSymbolicLink(link, f.Checkout);
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch(directory: link));
+
+        await Assert.That(f.Failures().Single()).StartsWith(LaunchConsentGate.DeniedReasonPrefix);
+        await Assert.That(f.Factory.Starts).IsEqualTo(0);
     }
 
     /// <summary>A token that lapsed while the command queued, before any renewal was due, starts nothing.</summary>

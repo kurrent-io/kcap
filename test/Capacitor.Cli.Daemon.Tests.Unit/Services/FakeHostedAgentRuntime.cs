@@ -72,9 +72,12 @@ sealed class FakeHostedAgentRuntime(string vendor, bool emitsTerminalOutput) : I
         if (NeverExitsOnItsOwn) await Task.WhenAny(ExitGate.Task, Task.Delay(timeout ?? Timeout.InfiniteTimeSpan));
     }
 
+    /// <summary>When set, the process survives even a terminate, like one the daemon cannot kill.</summary>
+    public bool IgnoresTerminate { get; init; }
+
     public Task TerminateAsync(TimeSpan? timeout = null) {
         lock (StopCalls) StopCalls.Add("terminate");
-        ExitGate.TrySetResult();
+        if (!IgnoresTerminate) ExitGate.TrySetResult();
 
         return Task.CompletedTask;
     }

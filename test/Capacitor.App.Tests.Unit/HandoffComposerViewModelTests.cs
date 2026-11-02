@@ -1294,6 +1294,21 @@ public class HandoffComposerViewModelTests {
         await Assert.That(rig.Drafts.ResumeFailed(SessionId)).IsTrue();
     });
 
+    /// <summary>The daemon's owner declining the resume is an attempt that failed: Resume gives way to the hand-off.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_owner_declining_the_resume_rules_it_out() => Run(async rig => {
+        OfferResume(rig);
+        rig.Launch.Next = new(false, null, "launch_denied_by_owner: The daemon's owner declined this launch.");
+        var vm = await rig.ReadyAsync();
+        vm.Text = "carry on";
+
+        await vm.ResumeCommand.Execute().ToTask();
+        await vm.PendingEvaluationForTesting;
+
+        await Assert.That(rig.Drafts.ResumeFailed(SessionId)).IsTrue();
+    });
+
     /// <summary>Nothing was tried when the launch never reached the server or needed a sign-in, so Resume stays.</summary>
     [Test]
     [NotInParallel("AvaloniaSession")]

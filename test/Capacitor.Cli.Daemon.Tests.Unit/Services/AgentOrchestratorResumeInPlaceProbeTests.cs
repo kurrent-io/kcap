@@ -41,8 +41,9 @@ public class AgentOrchestratorResumeInPlaceProbeTests {
         public string CliPath            => "";
         public string Vendor             { get; } = vendor;
         public bool   SupportsUnattended => true;
+        public bool   Available          { get; init; } = true;
 
-        public bool IsAvailable() => true;
+        public bool IsAvailable() => Available;
 
         public bool SupportsRestartResume(string? runtimeTransport) => true;
 
@@ -50,11 +51,11 @@ public class AgentOrchestratorResumeInPlaceProbeTests {
             throw new NotSupportedException("not exercised by this test");
     }
 
-    AgentOrchestrator Build(string? allowedRepo = null) =>
+    AgentOrchestrator Build(string? allowedRepo = null, bool cursorAvailable = true) =>
         AgentOrchestratorHarness.BuildOrchestrator(
             new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher> { [_claude.Vendor] = _claude },
             allowedRepoPath: allowedRepo ?? Repo,
-            extraRuntimeFactories: [new LoadableAcp("cursor")],
+            extraRuntimeFactories: [new LoadableAcp("cursor") { Available = cursorAvailable }],
             configure: c => {
                 c.Accounts           = Store;
                 c.DefaultDirectories = new Dictionary<HarnessId, string> { [HarnessId.Claude] = ClaudeDefault };
@@ -152,5 +153,15 @@ public class AgentOrchestratorResumeInPlaceProbeTests {
         await Assert.That(await orch.InPlaceResumeRefusalAsync("cursor", "sess-1", Repo, null, AccountDirectory.Normalize(root))).IsNull();
         await Assert.That(await orch.InPlaceResumeRefusalAsync("cursor", "sess-1", Repo, null, ClaudeDefault))
             .IsEqualTo(ResumeInPlaceRefusals.StoreChanged);
+    }
+
+    /// <summary>A vendor whose executable has gone cannot start the resume, so the probe does not offer it.</summary>
+    [Test]
+    public async Task A_vendor_that_is_not_installed_is_refused() {
+        await using var orch = Build(cursorAvailable: false);
+        var root = Directory.CreateDirectory(orch.HarnessesForTest.Of<CursorHarness>().Paths.CursorDir).FullName;
+
+        await Assert.That(await orch.InPlaceResumeRefusalAsync("cursor", "sess-1", Repo, null, AccountDirectory.Normalize(root)))
+            .IsEqualTo(ResumeInPlaceRefusals.UnsupportedVendor);
     }
 }

@@ -2629,6 +2629,18 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
         }
 
+        // Consent judges where a resume will run, not the path recorded for it, which may be a symlink.
+        var consentPath = cmd.RepoPath;
+        if (inPlace is { } resolving) {
+            if ((await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(resolving.Launch.Directory)).CanonicalCwd is not { } canonical) {
+                await _server.LaunchFailedAsync(cmd.AgentId, ResumeInPlaceRefusals.DirectoryNotAllowed);
+
+                return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+            }
+
+            consentPath = canonical;
+        }
+
         // Owner consent gate. Server-driven launches only — the local 0600 socket path
         // (HandleLocalSpawnAsync) is the owner's by construction and never consults this.
         // NOTE: in prompt mode this can hold the sequenced slot up to PromptTimeoutSeconds (≤300s,
@@ -2637,7 +2649,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // messages to this daemon queue behind the prompt for the same window.
         var consentInput = new LaunchConsentInput(
             cmd.RequesterUserId, cmd.RequesterIsOwner ?? false,
-            LaunchConsentEngine.KindToken(cmd.Kind), cmd.RepoPath, cmd.Vendor, cmd.RequesterDisplay);
+            LaunchConsentEngine.KindToken(cmd.Kind), consentPath, cmd.Vendor, cmd.RequesterDisplay);
         CancellationTokenSource? consentCts = null;
         LaunchConsentOutcome consent;
         try {
@@ -2656,7 +2668,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
 
         return inPlace is { } resuming
-            ? await LaunchInPlaceAsync(cmd, resuming.Launch, resuming.Lease, consent, hold, cancel, onPublished)
+            ? await LaunchInPlaceAsync(cmd, resuming.Launch, resuming.Lease, consentPath!, consent, hold, cancel, onPublished)
             : await LaunchAdmittedAsync(cmd, consent, hold, cancel: cancel, onPublished: onPublished);
     }
 

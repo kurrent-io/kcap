@@ -37,7 +37,7 @@ internal partial class AgentOrchestrator {
     internal async Task<string?> InPlaceResumeRefusalAsync(string vendor, string sessionId, string directory, string? accountId, string? configDir) {
         if (NativeResumeId.For(vendor, sessionId) is null
          || !_runtimeFactories.TryGetValue(vendor.ToLowerInvariant(), out var factory)
-         || !factory.SupportsRestartResume(null))
+         || !factory.SupportsRestartResume(null) || !factory.IsAvailable())
             return ResumeInPlaceRefusals.UnsupportedVendor;
 
         if (SessionId.Parse(SessionIds.Canonical(sessionId)) is { } session && HostsSession(session)) return ResumeInPlaceRefusals.SourceActive;
@@ -95,12 +95,12 @@ internal partial class AgentOrchestrator {
     /// is kept for a later resume: the app falls back to a hand-off, and the directory was never the daemon's.
     /// </summary>
     async Task<CommandOutcome> LaunchInPlaceAsync(
-            LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace, SourceLeaseKeeper lease, LaunchConsentOutcome consent, LaunchHold hold,
+            LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace, SourceLeaseKeeper lease, string consented, LaunchConsentOutcome consent, LaunchHold hold,
             CancellationToken cancel, Action<AgentInstance>? onPublished) {
-        // Re-resolved after consent, which can take minutes, and run as resolved: a symlink retargeted meanwhile must
-        // not move the runtime outside what was authorized.
+        // Re-resolved after consent, which can take minutes: a symlink retargeted meanwhile must not move the runtime
+        // away from the directory consent judged.
         var authorized = await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(inPlace.Directory);
-        if (!authorized.Allowed || authorized.CanonicalCwd is not { } directory) {
+        if (!authorized.Allowed || authorized.CanonicalCwd is not { } directory || directory != consented) {
             await _server.LaunchFailedAsync(cmd.AgentId, ResumeInPlaceRefusals.DirectoryNotAllowed);
 
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, cmd.AgentId, RejectReason: CommandRejectedReason.Semantic);
@@ -138,7 +138,7 @@ internal partial class AgentOrchestrator {
 
         // Registered, so the server now refuses a takeover of the source while the agent lives; a lease lost before
         // then may already have let one in.
-        var survived = !lease.IsLost && await SurvivesReadinessAsync(agent, _shutdownCts.Token, judgeTranscript: true);
+        var survived = !lease.IsLost && await SurvivesReadinessAsync(agent, _shutdownCts.Token, judgeTranscript: true) && !lease.IsLost;
 
         // A stop that came first ends the agent through its own teardown.
         if (agent.StopRequested || survived) return outcome;
@@ -153,7 +153,15 @@ internal partial class AgentOrchestrator {
         var reports = Interlocked.CompareExchange(ref agent.LaunchFailureVerdictReported, 1, 0) == 0;
 
         agent.StopDetail ??= $"{ResumeInPlaceRefusals.Failed}: {reason}";
-        await RetireAsync(agent);
+
+        // A failure reported while the runtime lives would let the app hand the session off beside it. Left running, it
+        // stays registered on the source, which refuses a takeover, and remains the user's to stop.
+        if (!await RetireAsync(agent)) {
+            LogInPlaceRetireUnconfirmed(cmd.AgentId);
+
+            return outcome;
+        }
+
         lock (_ledgerLock) DeleteLedger(cmd.AgentId);
         if (reports) await _server.LaunchFailedAsync(cmd.AgentId, $"{ResumeInPlaceRefusals.Failed}: {reason}");
 
@@ -163,16 +171,18 @@ internal partial class AgentOrchestrator {
     const string SourceLeaseLostReason = "source_lease_lost";
 
     /// <summary>Ends a failed resume's agent unless its own exit teardown already has.</summary>
-    async Task RetireAsync(AgentInstance agent) {
+    /// <summary>Stops the resumed agent; true only once its process is confirmed gone.</summary>
+    async Task<bool> RetireAsync(AgentInstance agent) {
         try {
-            if (_agents.TryGetValue(agent.Id, out var live) && ReferenceEquals(live, agent) && !agent.IsCleanupStarted) {
-                await StopAgentCoreAsync(agent);
-            } else if (!agent.Runtime.HasExited) {
-                await agent.Runtime.TerminateAsync(ShutdownTerminateGrace);
-            }
+            if (_agents.TryGetValue(agent.Id, out var live) && ReferenceEquals(live, agent) && !agent.IsCleanupStarted)
+                return await StopAgentCoreAsync(agent);
+
+            if (!agent.Runtime.HasExited) await agent.Runtime.TerminateAsync(ShutdownTerminateGrace);
         } catch (Exception ex) when (ex is not OperationCanceledException) {
             LogInPlaceRetireFailed(ex, agent.Id);
         }
+
+        return agent.Runtime.HasExited;
     }
 
     ResumeLedgerEntry InPlaceEntry(LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace, string directory, string native, LaunchConsentOutcome consent) {
@@ -275,6 +285,9 @@ internal partial class AgentOrchestrator {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "In-place resume: agent {AgentId} could not be retired")]
     partial void LogInPlaceRetireFailed(Exception ex, string agentId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "In-place resume: agent {AgentId} failed but could not be confirmed stopped; left running")]
+    partial void LogInPlaceRetireUnconfirmed(string agentId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "In-place resume: the lease on session {Session} was lost")]
     partial void LogSourceLeaseLost(string session);
