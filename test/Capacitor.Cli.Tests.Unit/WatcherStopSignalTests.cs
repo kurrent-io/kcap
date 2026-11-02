@@ -26,7 +26,9 @@ public class WatcherStopSignalTests {
 
         await Assert.That(WatcherStopSignal.TryRequest(pid)).IsFalse();
 
-        WatcherStopSignal.Listen(pid, () => { })!.Dispose();
+        var listener = WatcherStopSignal.Listen(pid, () => { })!;
+        await Assert.That(WatcherStopSignal.TryRequest(pid)).IsTrue();
+        listener.Dispose();
 
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (WatcherStopSignal.TryRequest(pid) && DateTime.UtcNow < deadline) await Task.Delay(20);
