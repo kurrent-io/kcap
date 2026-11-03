@@ -402,6 +402,7 @@ internal sealed class AgentHookPoster(
                 using var resp = await client.PostWithRetryAsync($"{Url}/hooks/{endpoint}", content, time, timeout: budget?.Remaining);
 
                 if (resp.IsSuccessStatusCode) {
+                    if (route.StartsWith("session-start", StringComparison.Ordinal)) spool.NoteRunStarted(sessionId);
                     return HookPostOutcome.Posted;
                 }
 

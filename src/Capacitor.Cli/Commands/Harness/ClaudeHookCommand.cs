@@ -570,7 +570,7 @@ public sealed class ClaudeHookCommand(
         // clock, so both name the same deadline.
         var budget = clock.Budget(Ceiling(command));
 
-        // Inject home_dir and agent_host_id into all hook payloads, and normalize IDs.
+        // Inject home_dir and the hosted run into all hook payloads, and normalize IDs.
         try {
             var node = JsonNode.Parse(body);
 
@@ -580,8 +580,7 @@ public sealed class ClaudeHookCommand(
 
                 node["home_dir"] = home.Path;
 
-                if (command == "session-end") SessionEndIncarnation.Stamp(node, hosted);
-                else if (hosted.AgentId is { } agentHostId) node["agent_host_id"] = agentHostId;
+                SessionEndIncarnation.Stamp(node, hosted);
 
                 // Surface 3: attach this machine's harness inventory, session-start only (the
                 // injections above apply to every event; the inventory is a session-start signal).
@@ -990,6 +989,8 @@ public sealed class ClaudeHookCommand(
 
                 return 0;
             }
+
+            if (sessionId is not null) spool.NoteRunStarted(sessionId);
 
             // resp is 2xx — read the body ONCE for the envelope + plan-content emission.
             JsonNode? responseNode = null;

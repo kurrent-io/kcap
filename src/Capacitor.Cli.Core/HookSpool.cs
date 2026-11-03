@@ -171,18 +171,19 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     }
 
     // Recovered temps (oldest first) then the rotated live file. Returns true => stop the whole pass.
-    // NOTE: only ever recovers ITS OWN ".draining" temps — never the
-    // ordered drain's ".ordered-*" temps (see DrainRoutesAsync below). The ordered drain deliberately
-    // WITHHOLDS a phase's remainder mid-pass (e.g. a session-end held back until the transcript tail
-    // and the leading non-terminal run are done); if this route-agnostic FIFO recovered that withheld
-    // remainder it would happily re-deliver it immediately, out of order, via a different poster —
-    // reintroducing the exact race the ordered drain exists to prevent. Distinct temp namespaces keep
-    // the two drains from ever cross-consuming each other's in-flight files.
+    // Delivers only its own ".draining" temps, never the ordered drain's ".ordered-*" ones: those hold a phase
+    // the ordered drain withholds on purpose, which this drain would deliver out of order. Only the settling
+    // of earlier runs reads both, and it delivers nothing past the latest run's boundary.
     async Task<bool> DrainSessionAsync(
             string sid, Func<string, string, Task<DrainOutcome>> poster, Func<bool> expired, CancellationToken ct) {
+        if (!await SettleEarlierRunsAsync(sid, NewFifoTempName, poster, expired, ct)) return true;
+        if (IsMarkedEnded(sid)) return false;
+
         foreach (var temp in Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sid)}.*.draining").OrderBy(File.GetCreationTimeUtc)) {
             if (expired() || ct.IsCancellationRequested) return false;
-            if (await DrainFileAsync(temp, poster, expired, ct)) return true;
+            var (stop, ended) = await DrainFileAsync(temp, poster, expired, ct);
+            if (stop) return true;
+            if (ended is not null) { MarkEnded(sid, ended); return false; }
         }
 
         var live = Path.Combine(DirectoryPath, $"{EncodeKey(sid)}.jsonl");
@@ -191,15 +192,20 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         var rotated = Path.Combine(DirectoryPath, NewFifoTempName(EncodeKey(sid)));
         try { File.Move(live, rotated); }
         catch { return false; } // lost the atomic-rename race (or vanished) — the winner handles it
-        return await DrainFileAsync(rotated, poster, expired, ct);
+        var (stopped, end) = await DrainFileAsync(rotated, poster, expired, ct);
+        if (end is not null) MarkEnded(sid, end);
+        return stopped;
     }
 
-    // Drain a private temp. Delivered/Drop advance; TransientStop or budget stops and keeps the remainder.
-    static async Task<bool> DrainFileAsync(
+    // Drain a private temp. Delivered/Drop advance; TransientStop or budget stops and keeps the remainder. An end
+    // that is resolved stops the file too, so what follows it is judged against the marker on the next pass.
+    static async Task<(bool StopPass, string? Ended)> DrainFileAsync(
             string path, Func<string, string, Task<DrainOutcome>> poster, Func<bool> expired, CancellationToken ct) {
         string[] lines;
         try { lines = await File.ReadAllLinesAsync(path, ct); }
-        catch { return false; }
+        catch { return (false, null); }
+
+        string? ended = null;
 
         var i = 0;
         for (; i < lines.Length; i++) {
@@ -219,6 +225,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
             catch { outcome = DrainOutcome.TransientStop; }
 
             if (outcome == DrainOutcome.TransientStop) break;
+            if (IsTerminalRoute(route)) { ended = body; i++; break; }
         }
 
         if (i >= lines.Length) {
@@ -227,14 +234,14 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
             } catch {
                 // Ignore: a leftover temp drains again on the next pass
             }
-            return false;
+            return (false, ended);
         }
         try {
             await File.WriteAllLinesAsync(path, lines.Skip(i), ct);
         } catch {
             // Ignore: the temp still holds the remainder
         }
-        return true;
+        return (ended is null, ended);
     }
 
     /// <summary>True if this session still has undelivered spool entries: a live .jsonl, a
@@ -311,40 +318,57 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     }
 
     /// <summary>
-    /// Settles what a session's earlier runs left ahead of its latest run, before the ordered phases see it. A
-    /// spooled start opens a run; with none spooled, a marked session's latest end is a later run's, since its
-    /// earlier run's end was already delivered. Ahead of that boundary an end is dropped, as the run it closed
-    /// has started again, and so is anything of a run whose end was delivered; the rest is posted in order.
-    /// False when the pass stopped first, so the phases must wait for the next one.
+    /// Settles what a session's earlier runs left ahead of its latest run, before either drain delivers the
+    /// rest. The latest run begins at its spooled start, or at the note a start posted live leaves. With
+    /// neither, a marked session's later run begins at the first hook naming a run other than the one whose
+    /// end was delivered, or else at its latest end, as that earlier end was already delivered. Ahead of the
+    /// boundary an end is dropped, as the run it closed has started again, and so is a hook of the run
+    /// whose end was delivered; the rest is posted in order. False when the pass stopped first.
     /// </summary>
-    /// <remarks>Appenders share the live file with no lock, so it is only ever renamed into a drain temp,
-    /// never rewritten.</remarks>
-    public async Task<bool> SettleEarlierRunsAsync(
-            string sid, Func<string, string, Task<DrainOutcome>> poster, Func<bool> expired, CancellationToken ct) {
+    /// <remarks>Reads both drains' temps, so neither delivers an earlier run's end the other is holding.
+    /// Appenders share the live file with no lock, so it is only ever renamed into a temp, never rewritten.</remarks>
+    public Task<bool> SettleEarlierRunsAsync(
+            string sid, Func<string, string, Task<DrainOutcome>> poster, Func<bool> expired, CancellationToken ct) =>
+        SettleEarlierRunsAsync(sid, NewOrderedTempName, poster, expired, ct);
+
+    async Task<bool> SettleEarlierRunsAsync(
+            string sid, Func<string, string> tempName, Func<string, string, Task<DrainOutcome>> poster, Func<bool> expired, CancellationToken ct) {
         if (!SafeSessionId.IsMatch(sid) || !Directory.Exists(DirectoryPath)) return true;
 
-        var live = Path.Combine(DirectoryPath, $"{EncodeKey(sid)}.jsonl");
+        var key  = EncodeKey(sid);
+        var live = Path.Combine(DirectoryPath, $"{key}.jsonl");
         try {
-            if (File.Exists(live)) File.Move(live, Path.Combine(DirectoryPath, NewOrderedTempName(EncodeKey(sid))));
+            if (File.Exists(live)) File.Move(live, Path.Combine(DirectoryPath, tempName(key)));
         } catch {
             // Lost the rename to another drain, which settles what it took
         }
 
+        var temps = Directory.EnumerateFiles(DirectoryPath, $"{key}.ordered-*")
+            .Concat(Directory.EnumerateFiles(DirectoryPath, $"{key}.*.draining"))
+            .OrderBy(File.GetCreationTimeUtc);
+
         var files = new List<(string Path, string[] Lines, List<(int Line, string Route, string Body)> Entries)>();
-        foreach (var temp in Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sid)}.ordered-*").OrderBy(File.GetCreationTimeUtc)) {
+        foreach (var temp in temps) {
             string[] lines;
             try { lines = await File.ReadAllLinesAsync(temp, ct); }
             catch { continue; }
             files.Add((temp, lines, [.. lines.Select((l, i) => (i, Entry(l))).Where(e => e.Item2 is not null).Select(e => (e.i, e.Item2!.Value.Route, e.Item2!.Value.Body))]));
         }
 
-        var all      = files.SelectMany(f => f.Entries).ToList();
-        var marked   = IsMarkedEnded(sid);
-        var boundary = all.FindLastIndex(e => RouteHead(e.Route) == "session-start");
-        if (boundary < 0 && marked) boundary = all.FindLastIndex(e => IsTerminalRoute(e.Route));
+        var all    = files.SelectMany(f => f.Entries).ToList();
+        var marked = IsMarkedEnded(sid);
+        var ended  = marked ? EndedRun(sid) : default;
+        bool Straggler(string body) => marked && !NamesAnotherRun(body, ended);
+
+        var boundary = all.FindLastIndex(e => RouteHead(e.Route) is "session-start" or RunStartedRoute);
+        if (boundary < 0 && marked) {
+            boundary = all.FindIndex(e => !Straggler(e.Body));
+            if (boundary < 0) boundary = all.FindLastIndex(e => IsTerminalRoute(e.Route));
+        }
         if (boundary < 0 && !marked) return true;
 
-        var settle = boundary < 0 ? all.Count : boundary;
+        // A note is the boundary's position only: nothing is posted for it.
+        var settle = boundary < 0 ? all.Count : all[boundary].Route == RunStartedRoute ? boundary + 1 : boundary;
         poster = RecordingDeliveries(poster);
 
         var index = 0;
@@ -356,7 +380,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
                 if (index >= settle) { keepFrom = line; break; }
 
                 var outcome = DrainOutcome.Drop;
-                if (!marked && !IsTerminalRoute(route)) {
+                if (!IsTerminalRoute(route) && route != RunStartedRoute && !Straggler(body)) {
                     if (expired() || ct.IsCancellationRequested) outcome = DrainOutcome.TransientStop;
                     else {
                         try { outcome = await poster(route, body); }
@@ -381,6 +405,34 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
         if (boundary >= 0 && marked) ClearEnded(sid);
         return true;
+    }
+
+    /// <summary>The route of the note <see cref="NoteRunStarted"/> spools. It is never posted.</summary>
+    const string RunStartedRoute = "run-started";
+
+    /// <summary>
+    /// Records, for a session whose spooled end was delivered, that a start was just posted live: what is
+    /// spooled after it is the new run's, not a straggler of the ended one. A no-op otherwise, so it leaves
+    /// no backlog behind an ordinary start.
+    /// </summary>
+    public void NoteRunStarted(string sessionId) {
+        if (IsMarkedEnded(sessionId)) Append(sessionId, RunStartedRoute, "{}");
+    }
+
+    static (string? AgentId, string? Epoch) RunOf(string body) {
+        try {
+            var node = JsonNode.Parse(body);
+            return (node?["agent_host_id"]?.GetValue<string>(), node?["daemon_epoch"]?.GetValue<string>());
+        } catch {
+            return default;
+        }
+    }
+
+    // Only a field both name can tell two runs apart, so a hook that names no run is the ended run's.
+    static bool NamesAnotherRun(string body, (string? AgentId, string? Epoch) ended) {
+        var run = RunOf(body);
+        return (run.AgentId is not null && ended.AgentId is not null && run.AgentId != ended.AgentId)
+            || (run.Epoch is not null && ended.Epoch is not null && run.Epoch != ended.Epoch);
     }
 
     static async Task KeepFromAsync(string path, string[] lines, int from, CancellationToken ct) {
@@ -469,13 +521,26 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     /// filename is dot-prefixed so it is invisible to <see cref="SessionIdOf"/> / the session-id-keyed
     /// enumerations (matching the existing <c>.last-drain</c> throttle-stamp convention) — it is swept
     /// only by <see cref="DeleteExpired"/>'s unconditional file-age sweep.</summary>
-    public void MarkEnded(string sessionId) {
+    /// <param name="endBody">The end that was delivered: the marker keeps the run it names, so a later run's
+    /// hooks are not taken for that run's stragglers.</param>
+    public void MarkEnded(string sessionId, string? endBody = null) {
         if (!SafeSessionId.IsMatch(sessionId)) return;
         try {
             Directory.CreateDirectory(DirectoryPath);
-            File.WriteAllText(EndedMarkerPath(sessionId), "");
+            var (agentId, epoch) = endBody is null ? default : RunOf(endBody);
+            File.WriteAllText(EndedMarkerPath(sessionId),
+                new JsonObject { ["agent_host_id"] = agentId, ["daemon_epoch"] = epoch }.ToJsonString());
         } catch {
             // Ignore: unmarked, a straggler can still post after the end
+        }
+    }
+
+    // An empty marker, as an older kcap wrote it, names no run.
+    (string? AgentId, string? Epoch) EndedRun(string sessionId) {
+        try {
+            return RunOf(File.ReadAllText(EndedMarkerPath(sessionId)));
+        } catch {
+            return default;
         }
     }
 

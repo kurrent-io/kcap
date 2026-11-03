@@ -43,8 +43,13 @@ public static class LifecycleSpoolDrain {
             // Phase 3: session-end LAST. A non-zero consumed count means a terminal entry was truly
             // resolved (delivered or permanently dropped) in THIS call — not merely left for a retry
             // by a TransientStop/budget — so the session can be durably marked ended.
-            var consumed = await lifecycle.DrainRoutesAsync(sid, isTerminal: true, lifecyclePoster, Expired, ct);
-            if (consumed > 0) lifecycle.MarkEnded(sid);
+            string? ended = null;
+            var consumed = await lifecycle.DrainRoutesAsync(sid, isTerminal: true, async (route, body) => {
+                var outcome = await lifecyclePoster(route, body);
+                if (outcome != DrainOutcome.TransientStop) ended = body;
+                return outcome;
+            }, Expired, ct);
+            if (consumed > 0) lifecycle.MarkEnded(sid, ended);
         }
     }
 

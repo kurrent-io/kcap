@@ -152,6 +152,24 @@ public class AgentHookPosterTests : IDisposable {
         await Assert.That(spool.HasBacklog("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).IsTrue();
     }
 
+    /// <summary>A start posted live for a session whose spooled end was delivered leaves a note in the spool, so
+    /// the run's later spooled hooks are not taken for the ended run's stragglers.</summary>
+    [Test]
+    public async Task PostOrSpool_notes_a_start_posted_for_an_ended_session() {
+        _server.Given(Request.Create().WithPath("/hooks/session-start/kiro").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        using var tmp = new TempDir();
+        var spool = new HookSpool(tmp.Path, time: TimeProvider.System);
+        const string sid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        spool.MarkEnded(sid);
+
+        var outcome = await Poster.PostOrSpoolAsync(Factory(AuthStatus.Ok), "session-start/kiro", """{"session_id":"x"}""",
+            "kiro-hook", spool, sessionId: sid, route: "session-start/kiro");
+
+        await Assert.That(outcome).IsEqualTo(HookPostOutcome.Posted);
+        await Assert.That(spool.HasBacklog(sid)).IsTrue();
+    }
+
     /// <summary>The no-spool path is bounded the same way: past the cap it reports the lapse outcome
     /// its callers already exit cleanly on, instead of holding the hook until its host kills it.</summary>
     [Test]

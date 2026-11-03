@@ -221,56 +221,106 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(life.HasBacklog(Sid)).IsFalse(); // discarded, not left pending retry
     }
 
-    static async Task<List<string>> DrainAll(HookSpool life, TranscriptSpool tx) {
+    // The ordered drain every hook runs, and the route-agnostic one Claude's and Cursor's hooks run: the
+    // run-boundary rule is one rule, so each scenario below holds for both.
+    static async Task<List<string>> DrainAll(HookSpool life, TranscriptSpool tx, bool fifo = false) {
         var order = new List<string>();
-        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
-            lifecyclePoster: (_, body) => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
+        Task<DrainOutcome> Deliver(string _, string body) { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); }
+
+        if (fifo) await life.DrainAllAsync(null, Deliver, TimeSpan.FromSeconds(5), CancellationToken.None);
+        else await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+            lifecyclePoster: Deliver,
             transcriptPoster: body => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
         return order;
     }
 
-    static async Task DeliverRun1(HookSpool life, TranscriptSpool tx) {
-        life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
-        await DrainAll(life, tx);
+    static async Task DeliverEnd(HookSpool life, TranscriptSpool tx, bool fifo, string end = """{"run":1,"phase":"end"}""") {
+        life.Append(Sid, "session-end/kiro", end);
+        await DrainAll(life, tx, fifo);
     }
 
     /// <summary>A session resumed after its spooled end was delivered: the new run's start and end both
     /// arrive. The earlier run's ended marker must discard neither.</summary>
     [Test]
-    public async Task a_resumed_run_is_delivered_past_an_earlier_runs_ended_marker() {
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task a_resumed_run_is_delivered_past_an_earlier_runs_ended_marker(bool fifo) {
         using var tmp = new TempDir();
         var life = new HookSpool(tmp.Path, time: TimeProvider.System);
         var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
-        await DeliverRun1(life, tx);
+        await DeliverEnd(life, tx, fifo);
 
         life.Append(Sid, "session-start/kiro", """{"run":2,"phase":"start"}""");
         life.Append(Sid, "session-end/kiro", """{"run":2,"phase":"end"}""");
 
-        await Assert.That(string.Join(" ", await DrainAll(life, tx)))
+        await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo)))
             .IsEqualTo("""{"run":2,"phase":"start"} {"run":2,"phase":"end"}""");
     }
 
     /// <summary>A resumed run whose start was posted live spools only its end behind the earlier run's
     /// stragglers: the end is delivered, the stragglers are not.</summary>
     [Test]
-    public async Task a_later_runs_end_is_delivered_and_the_earlier_runs_stragglers_are_not() {
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task a_later_runs_end_is_delivered_and_the_earlier_runs_stragglers_are_not(bool fifo) {
         using var tmp = new TempDir();
         var life = new HookSpool(tmp.Path, time: TimeProvider.System);
         var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
-        await DeliverRun1(life, tx);
+        await DeliverEnd(life, tx, fifo);
 
         life.Append(Sid, "subagent-stop/kiro", """{"run":1,"phase":"straggler"}""");
         life.Append(Sid, "session-end/kiro", """{"run":2,"phase":"end"}""");
 
-        await Assert.That(string.Join(" ", await DrainAll(life, tx))).IsEqualTo("""{"run":2,"phase":"end"}""");
+        await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo))).IsEqualTo("""{"run":2,"phase":"end"}""");
     }
 
-    /// <summary>An end still spooled when the session starts again would be delivered after that start,
-    /// ending the resumed run, and the marker it left would then discard the run's own hooks.</summary>
+    /// <summary>A hosted run whose start was posted live is told from the run whose end was delivered by the
+    /// run it names, so its hooks spooled ahead of its own end are not taken for stragglers.</summary>
     [Test]
-    public async Task a_start_supersedes_an_end_spooled_before_it() {
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task a_later_run_named_by_its_hooks_is_not_taken_for_a_straggler(bool fifo) {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        await DeliverEnd(life, tx, fifo, """{"agent_host_id":"a","daemon_epoch":"e1","phase":"end"}""");
+
+        life.Append(Sid, "subagent-stop/kiro", """{"agent_host_id":"a","daemon_epoch":"e1","phase":"straggler"}""");
+        life.Append(Sid, "subagent-stop/kiro", """{"agent_host_id":"a","daemon_epoch":"e2","phase":"stop"}""");
+        life.Append(Sid, "session-end/kiro", """{"agent_host_id":"a","daemon_epoch":"e2","phase":"end"}""");
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo))).IsEqualTo(
+            """{"agent_host_id":"a","daemon_epoch":"e2","phase":"stop"} {"agent_host_id":"a","daemon_epoch":"e2","phase":"end"}""");
+    }
+
+    /// <summary>A run whose start was posted live and whose hooks name no run is told from the ended run by
+    /// the note that start left.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task hooks_after_a_noted_live_start_are_not_taken_for_stragglers(bool fifo) {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        await DeliverEnd(life, tx, fifo);
+
+        life.Append(Sid, "subagent-stop/kiro", """{"run":1,"phase":"straggler"}""");
+        life.NoteRunStarted(Sid);
+        life.Append(Sid, "subagent-stop/kiro", """{"run":2,"phase":"stop"}""");
+        life.Append(Sid, "session-end/kiro", """{"run":2,"phase":"end"}""");
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo)))
+            .IsEqualTo("""{"run":2,"phase":"stop"} {"run":2,"phase":"end"}""");
+    }
+
+    /// <summary>An end still spooled when the session starts again would be delivered ahead of or after that
+    /// start, ending the resumed run, and the marker it left would then discard the run's own hooks.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task a_start_supersedes_an_end_spooled_before_it(bool fifo) {
         using var tmp = new TempDir();
         var life = new HookSpool(tmp.Path, time: TimeProvider.System);
         var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
@@ -278,40 +328,48 @@ public class LifecycleSpoolDrainTests {
         life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
         life.Append(Sid, "session-start/kiro", """{"run":2,"phase":"start"}""");
 
-        await Assert.That(string.Join(" ", await DrainAll(life, tx)))
+        await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo)))
             .IsEqualTo("""{"run":1,"phase":"stop"} {"run":2,"phase":"start"}""");
         await Assert.That(life.IsMarkedEnded(Sid)).IsFalse();
     }
 
-    /// <summary>The same, with the earlier end already taken into a drain that could not deliver it.</summary>
+    /// <summary>The same, with the earlier end already taken into a drain that could not deliver it, of either kind.</summary>
     [Test]
-    public async Task a_start_supersedes_an_end_a_drain_holds_in_its_temp() {
+    [Arguments(false, false)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    [Arguments(true, true)]
+    public async Task a_start_supersedes_an_end_a_drain_holds_in_its_temp(bool heldByFifo, bool fifo) {
         using var tmp = new TempDir();
         var life = new HookSpool(tmp.Path, time: TimeProvider.System);
         var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
         life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
-        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
-            lifecyclePoster: (_, _) => Task.FromResult(DrainOutcome.TransientStop),
+        static Task<DrainOutcome> Refuse(string _, string __) => Task.FromResult(DrainOutcome.TransientStop);
+        if (heldByFifo) await life.DrainAllAsync(null, Refuse, TimeSpan.FromSeconds(5), CancellationToken.None);
+        else await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null, lifecyclePoster: Refuse,
             transcriptPoster: _ => Task.FromResult(DrainOutcome.Delivered),
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
         life.Append(Sid, "session-start/kiro", """{"run":2,"phase":"start"}""");
 
-        await Assert.That(string.Join(" ", await DrainAll(life, tx))).IsEqualTo("""{"run":2,"phase":"start"}""");
+        await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo))).IsEqualTo("""{"run":2,"phase":"start"}""");
+        await Assert.That(life.HasBacklog(Sid)).IsFalse();
     }
 
     /// <summary>A straggler of an ended run is never delivered after that end, not even ahead of a new start.</summary>
     [Test]
-    public async Task an_ended_runs_straggler_is_not_delivered_ahead_of_a_new_start() {
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task an_ended_runs_straggler_is_not_delivered_ahead_of_a_new_start(bool fifo) {
         using var tmp = new TempDir();
         var life = new HookSpool(tmp.Path, time: TimeProvider.System);
         var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
-        await DeliverRun1(life, tx);
+        await DeliverEnd(life, tx, fifo);
 
         life.Append(Sid, "subagent-stop/kiro", """{"run":1,"phase":"straggler"}""");
         life.Append(Sid, "session-start/kiro", """{"run":2,"phase":"start"}""");
 
-        await Assert.That(string.Join(" ", await DrainAll(life, tx))).IsEqualTo("""{"run":2,"phase":"start"}""");
+        await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo))).IsEqualTo("""{"run":2,"phase":"start"}""");
     }
 
     /// <summary>Other processes append to the same file with no lock, so an append that rewrote it could lose
