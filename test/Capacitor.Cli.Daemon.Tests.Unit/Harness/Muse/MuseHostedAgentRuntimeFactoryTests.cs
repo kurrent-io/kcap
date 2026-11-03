@@ -421,8 +421,8 @@ public class MuseHostedAgentRuntimeFactoryTests {
             await Assert.That((string?)server!["env"]![ConfigRoot.ConfigDirEnvVar]).IsEqualTo(expected);
     }
 
-    /// <summary>The marker names the started process as its owner, so only that process's hooks can prove they belong
-    /// to this run.</summary>
+    /// <summary>The marker names the started process as its owner, by id and start token, so only that process's hooks
+    /// can prove they belong to this run.</summary>
     [Test]
     public async Task Marker_names_the_started_process_as_its_owner() {
         var rig = NewRig(configure: host => host.Process.Pid = Environment.ProcessId);
@@ -432,7 +432,8 @@ public class MuseHostedAgentRuntimeFactoryTests {
 
         var minted = (string)Params(await rig.Host.WaitForWriteAsync("session/start"))["sessionId"]!;
 
-        await Assert.That(MuseHostedSessionMarker.TryRead(Home, minted)!.OwnerToken).IsEqualTo(ProcessStartToken.ForCurrent());
+        var marker = MuseHostedSessionMarker.TryRead(Home, minted)!;
+        await Assert.That((marker.OwnerPid, marker.OwnerToken)).IsEqualTo(((int?)Environment.ProcessId, ProcessStartToken.ForCurrent()));
     }
 
     async Task<MuseHostedSessionMarker> MarkerOfAsync(Rig rig) {

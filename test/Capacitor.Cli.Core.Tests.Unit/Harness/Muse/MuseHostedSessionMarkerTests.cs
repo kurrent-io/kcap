@@ -15,17 +15,19 @@ public class MuseHostedSessionMarkerTests {
     static MuseHostedSessionMarker MarkerWrittenAt(DateTimeOffset at, string session = Dashed) =>
         new(session, "agent-1", "daemon-1", "epoch-1", at);
 
-    /// <summary>Only a hook under the marker's own Muse process proves it belongs to the run; a pending marker proves
-    /// nothing, and one an older daemon wrote, naming no owner, is trusted as before.</summary>
+    /// <summary>Only a hook under the marker's own Muse process, matched by id and start token both, proves the
+    /// marker its own: a start token alone can be shared, and a pending marker or one an older daemon wrote names no
+    /// process.</summary>
     [Test]
     public async Task Only_a_hook_under_the_owning_process_proves_the_marker_its_own() {
-        var own = MarkerWrittenAt(Now) with { OwnerToken = ProcessStartToken.ForCurrent() };
+        var own = MarkerWrittenAt(Now) with { OwnerToken = ProcessStartToken.ForCurrent(), OwnerPid = Environment.ProcessId };
 
         await Assert.That(own.IsOwnedBy(Environment.ProcessId)).IsTrue();
         await Assert.That(own.IsOwnedBy(null)).IsFalse();
+        await Assert.That((own with { OwnerPid = Environment.ProcessId + 1 }).IsOwnedBy(Environment.ProcessId)).IsFalse();
+        await Assert.That((own with { OwnerPid = null }).IsOwnedBy(Environment.ProcessId)).IsFalse();
         await Assert.That((own with { OwnerToken = "lx:another-boot:1" }).IsOwnedBy(Environment.ProcessId)).IsFalse();
-        await Assert.That((own with { OwnerToken = "" }).IsOwnedBy(Environment.ProcessId)).IsFalse();
-        await Assert.That((own with { OwnerToken = null }).IsOwnedBy(null)).IsTrue();
+        await Assert.That((own with { OwnerToken = null }).IsOwnedBy(Environment.ProcessId)).IsFalse();
     }
 
     [Test]

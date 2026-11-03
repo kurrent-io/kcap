@@ -183,8 +183,7 @@ internal sealed partial class MuseHostedAgentRuntimeFactory : IHostedAgentRuntim
             string.IsNullOrEmpty(ctx.ServerUrl) ? null : ctx.ServerUrl,
             _config.Profiles.Resolution.ProfileName is { Length: > 0 } profile ? profile : null,
             (ctx.IsReviewFlow ? HostedSessionKind.FlowParticipant : HostedSessionKind.HostedAgent).ToWire(),
-            ctx.IsReviewFlow ? ctx.FlowRole : null,
-            OwnerToken: "");
+            ctx.IsReviewFlow ? ctx.FlowRole : null);
         MuseHostedSessionMarker.Write(_config.Home, marker);
 
         var relay        = !_hooksInstalled(_paths.SettingsJson);
@@ -196,7 +195,7 @@ internal sealed partial class MuseHostedAgentRuntimeFactory : IHostedAgentRuntim
         try {
             LogLaunching(ctx.AgentId, ctx.Worktree.Path, plan.IsReviewer);
             process = await _processSource(BuildPsi(_config, ctx, plan.IsReviewer), ct).ConfigureAwait(false);
-            if (ProcessStartToken.ForPid(process.Pid) is { } owner) MuseHostedSessionMarker.Write(_config.Home, marker with { OwnerToken = owner });
+            if (ProcessStartToken.ForPid(process.Pid) is { } owner) MuseHostedSessionMarker.Write(_config.Home, marker with { OwnerToken = owner, OwnerPid = process.Pid });
 
             var launch = ctx;
             runtime = new MuseMspHostedAgentRuntime(

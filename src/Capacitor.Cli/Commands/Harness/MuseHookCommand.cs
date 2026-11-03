@@ -255,12 +255,12 @@ sealed class MuseHookCommand(
 
         if (cwd is not null) forwarded["cwd"] = cwd;
 
-        // A hook that cannot prove it runs under the marker's run names the agent but not the epoch, so its end is
-        // judged as no particular run's, and it leaves the marker to the run that owns it.
+        // A hook that cannot prove it runs under the marker's run names no run at all, and leaves the marker to the
+        // run that owns it: the marker can belong to a later run, or to another agent.
         var marker = hosted.AgentId is null ? MuseHostedSessionMarker.TryRead(home, sessionId) : null;
         var owned  = marker?.IsOwnedBy(ProcessHelpers.GetCodingAgentPid(Vendor, allowFallback: false)) ?? true;
         if (hosted.AgentId is not null) SessionEndIncarnation.Stamp(forwarded, hosted);
-        else if (marker is not null) SessionEndIncarnation.Stamp(forwarded, marker.AgentId, owned ? marker.DaemonEpoch : null);
+        else if (marker is not null && owned) SessionEndIncarnation.Stamp(forwarded, marker.AgentId, marker.DaemonEpoch);
 
         if (Paths.ResolveSessionLog(session.ToString("D"), today) is { } log && HookHttp.IsPostable(Url)) {
             MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString());
