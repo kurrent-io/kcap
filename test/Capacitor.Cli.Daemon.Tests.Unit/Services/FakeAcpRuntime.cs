@@ -18,7 +18,8 @@ internal sealed class FakeAcpRuntime : IHostedAgentRuntime, IAcpTranscriptSource
     readonly Channel<AcpEventEnvelope> _envelopes = Channel.CreateUnbounded<AcpEventEnvelope>();
 
     public string Vendor              { get; init; } = "cursor";
-    public int    Pid                 => 0;
+    public int    Pid                 { get; init; }
+    public string? StartIdentity      { get; init; }
     public bool   HasExited           => ExitGate.Task.IsCompleted;
     public int?   ExitCode            => 0;
     public bool   EmitsTerminalOutput => false;

@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness.Claude;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Harness.Claude;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Pty;
@@ -121,5 +122,32 @@ public class ClaudeLauncherAccountTests {
 
         await Assert.That(Path.Exists(account.ProjectDir(worktree))).IsFalse();
         await Assert.That(Directory.Exists(account.ProjectDir(source))).IsTrue();
+    }
+
+    /// <summary>A launch in the user's own directory linked nothing, so a link there is the user's and stays.</summary>
+    [Test]
+    [Arguments(WorkLocation.InPlace)]
+    [Arguments(WorkLocation.BorrowedCwd)]
+    public async Task Teardown_in_the_users_directory_keeps_its_project_symlink(WorkLocation work) {
+        var directory  = Home.CreateDir("own");
+        var target     = Home.CreateDir("elsewhere");
+        var accountDir = Home.CreateDir("claude-work");
+        var account    = AccountLayouts.Claude(Home, accountDir);
+        var resolved   = new ResolvedAccount(accountDir, "acct-1", "Work");
+        Directory.CreateDirectory(Path.GetDirectoryName(account.ProjectDir(directory))!);
+        Directory.CreateSymbolicLink(account.ProjectDir(directory), target);
+
+        NewLauncher(configHome: true).Cleanup(new AgentInstance(
+            "a-1", "carry on", null, null, directory, "claude",
+            new PtyHostedAgentRuntime("claude", new StubPtyProcess(), TimeProvider.System),
+            WorktreeInfo.Borrowed(directory), new CancellationTokenSource(), resolved
+        ) {
+            ActivityClock = new AgentActivityClock(TimeProvider.System),
+            CreatedAt     = DateTime.UtcNow,
+            LastOutputAt  = DateTime.UtcNow,
+            Work          = work,
+        });
+
+        await Assert.That(new DirectoryInfo(account.ProjectDir(directory)).LinkTarget).IsNotNull();
     }
 }

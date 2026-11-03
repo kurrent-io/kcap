@@ -33,10 +33,39 @@ public static partial class HandoffFailureText {
         }
         var friendly = HomeViewModel.FriendlyLaunchFailure(reason);
         if (friendly != reason || code is null) return friendly;
-        var detail = reason[match.Length..].Trim();
+        var detail = reason[(match.Index + match.Length)..].Trim();
         return detail.Length > 0 ? HomeViewModel.FriendlyLaunchFailure(detail) : Generic;
     }
 
-    [GeneratedRegex(@"^(?<code>[a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?::|$)")]
+    /// A failed resume, worded as the fallback the composer then offers.
+    public static string ResumeFallback(string? reason) =>
+        $"Couldn't resume this session here ({ResumeReason(reason)}). Hand off starts a new session with its context.";
+
+    /// Whether the resume was attempted and refused, by the server, the daemon or its owner, rather than failing to
+    /// reach the server at all.
+    public static bool IsResumeRefusal(string? reason) =>
+        reason is not null && CodePrefix().Match(reason) is { Success: true } match
+     && (match.Groups["code"].Value.StartsWith("resume_", StringComparison.Ordinal) || match.Groups["code"].Value == OwnerDenied);
+
+    const string OwnerDenied = "launch_denied_by_owner";
+
+    static string ResumeReason(string? reason) {
+        if (string.IsNullOrWhiteSpace(reason)) return "it didn't start";
+        var match = CodePrefix().Match(reason);
+        return (match.Success ? match.Groups["code"].Value : null) switch {
+            "resume_source_active"         => "it's active again",
+            "resume_source_reserved"       => "it's being resumed or handed off elsewhere",
+            "resume_unsupported_daemon"    => "your local kcap daemon can't resume sessions yet",
+            "resume_directory_missing"     => "its directory is gone",
+            "resume_directory_not_allowed" => "your local kcap daemon isn't allowed to work in its directory",
+            "resume_failed"                => "the agent couldn't pick it up",
+            "resume_other_machine" or "resume_not_resumable" or "resume_store_changed" or "resume_unsupported_vendor"
+             or "resume_invalid" or "resume_not_owner" or "resume_source_unavailable" => "what it ran under isn't available here",
+            _ => HomeViewModel.FriendlyLaunchFailure(reason).TrimEnd('.'),
+        };
+    }
+
+    // SignalR delivers a hub's refusal behind its own "… on the server. HubException: " lead.
+    [GeneratedRegex(@"(?:^|HubException: )(?<code>[a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?::|$)")]
     private static partial Regex CodePrefix();
 }

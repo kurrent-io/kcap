@@ -12,7 +12,8 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// WHILE the agent is still live, before ever driving it to completion.</summary>
 sealed class FakeHostedAgentRuntime(string vendor, bool emitsTerminalOutput) : IHostedAgentRuntime {
     public string Vendor              => vendor;
-    public int    Pid                 => 0;
+    public int    Pid                 { get; init; }
+    public string? StartIdentity      { get; init; }
     public bool   HasExited           => ExitGate.Task.IsCompleted;
     public int?   ExitCode            { get; init; } = 0;
     public bool   EmitsTerminalOutput => emitsTerminalOutput;
@@ -72,12 +73,22 @@ sealed class FakeHostedAgentRuntime(string vendor, bool emitsTerminalOutput) : I
         if (NeverExitsOnItsOwn) await Task.WhenAny(ExitGate.Task, Task.Delay(timeout ?? Timeout.InfiniteTimeSpan));
     }
 
+    /// <summary>When set, the process survives even a terminate, like one the daemon cannot kill.</summary>
+    public bool IgnoresTerminate { get; init; }
+
     public Task TerminateAsync(TimeSpan? timeout = null) {
         lock (StopCalls) StopCalls.Add("terminate");
-        ExitGate.TrySetResult();
+        if (!IgnoresTerminate) ExitGate.TrySetResult();
 
         return Task.CompletedTask;
     }
 
-    public ValueTask DisposeAsync() => default;
+    /// <summary>When set, disposal marks the runtime exited whatever its process does, as an ACP runtime's does.</summary>
+    public bool ExitsOnDispose { get; init; }
+
+    public ValueTask DisposeAsync() {
+        if (ExitsOnDispose) ExitGate.TrySetResult();
+
+        return default;
+    }
 }

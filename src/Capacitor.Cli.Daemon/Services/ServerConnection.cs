@@ -7,6 +7,7 @@ using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Eval.Contracts;
 using Capacitor.Cli.Core.Handoff;
+using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -809,7 +810,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             Accounts: GetAccountsSnapshot?.Invoke(),
             HeadlessVendors: AdvertisedHeadlessVendors(),
             SupportsScratchWorkspace: true,
-            SupportsHandoffLaunch: true);
+            SupportsHandoffLaunch: true, SupportsResumeInPlace: true);
     }
 
     async Task DaemonConnectCoreAsync(RegistrationAttempt attempt) {
@@ -1275,6 +1276,27 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         _hub.InvokeAsync<HandoffTakeoverAdmission?>(BeginHandoffTakeoverMethod, new HandoffTakeoverBeginRequest(source, successor), ct);
 
     internal const string BeginHandoffTakeoverMethod = "BeginHandoffTakeover";
+
+    /// <summary>Takes the lease on a session this daemon is about to resume after a restart, so a hand-off cannot take
+    /// it over meanwhile. <see cref="HandoffBeginResult.Unsupported"/> only from a server without the method.</summary>
+    public virtual async Task<HandoffBeginResult> BeginSourceResumeAsync(string sessionId, CancellationToken ct) {
+        try {
+            return await InvokeBeginSourceResumeRawAsync(sessionId, ct) is { } admission
+                ? new HandoffBeginResult.Answered(admission)
+                : new HandoffBeginResult.Unreachable();
+        } catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) {
+            LogHandoffTakeoverFailed(ex, "resume begin");
+
+            return IsUnknownHubMethod(ex, BeginSourceResumeMethod)
+                ? new HandoffBeginResult.Unsupported()
+                : new HandoffBeginResult.Unreachable();
+        }
+    }
+
+    internal virtual Task<HandoffTakeoverAdmission?> InvokeBeginSourceResumeRawAsync(string sessionId, CancellationToken ct) =>
+        _hub.InvokeAsync<HandoffTakeoverAdmission?>(BeginSourceResumeMethod, new SourceResumeBeginRequest(sessionId), ct);
+
+    internal const string BeginSourceResumeMethod = "BeginSourceResume";
 
     /// <summary>Extends the takeover lease; false when the server no longer holds it or the call fails.</summary>
     public virtual async Task<bool> RenewHandoffTakeoverAsync(string token, CancellationToken ct) {

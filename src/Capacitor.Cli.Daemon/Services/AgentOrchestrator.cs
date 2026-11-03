@@ -40,7 +40,7 @@ namespace Capacitor.Cli.Daemon.Services;
 /// </summary>
 internal sealed record AgentCheckout(string Repository, string Worktree, string? BorrowedFrom) {
     public static AgentCheckout Resolve(WorktreeInfo worktree, WorkLocation work, string? borrowedSnapshotSource) {
-        var borrowed   = work == WorkLocation.BorrowedCwd || borrowedSnapshotSource is not null;
+        var borrowed   = work is WorkLocation.BorrowedCwd or WorkLocation.InPlace || borrowedSnapshotSource is not null;
         // The source is a cwd for a borrow, which may sit below its checkout root.
         var sourceRoot = GitRepository.FindRoot(worktree.SourceRepo) ?? worktree.SourceRepo;
         var repository = GitRepository.ResolveMainRepoRoot(sourceRoot);
@@ -2573,6 +2573,14 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             : AccountResolution.ResolveForResume(registry, vendor, resumed.AccountId, resumed.AccountDirectory, defaultDirectory);
     }
 
+    async Task<bool> RepoAllowedAsync(string repoPath, ResumeLaunch? resume) {
+        if (resume is not { Work: WorkLocation.InPlace }) return _config.IsRepoAllowed(repoPath);
+
+        var authorized = await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(repoPath);
+
+        return authorized.Allowed && authorized.CanonicalCwd == repoPath;
+    }
+
     /// <summary>The server's start title, or — from a server that sends none — one derived from the prompt, or
     /// for a hand-off with no text, one naming its source.</summary>
     internal static AgentStartTitle? StartTitleOf(LaunchAgentCommand cmd) =>
@@ -2586,6 +2594,17 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// that was cleaned up, is <c>launch_failed_cleaned</c>; a registered agent is <c>launch_executed</c>.</summary>
     async Task<CommandOutcome> HandleAdmittedLaunchAsync(
             LaunchAgentCommand cmd, LaunchHold hold, CancellationToken cancel = default, Action<AgentInstance>? onPublished = null) {
+        if (cmd.ResumeInPlace is not { } inPlace) return await HandleAdmittedLaunchAsync(cmd, hold, null, cancel, onPublished);
+
+        // Held from arrival: the server took the lease before sending, and consent can take minutes.
+        await using var lease = KeepSourceLease(inPlace.ReservationToken, inPlace.SourceSessionId);
+
+        return await HandleAdmittedLaunchAsync(cmd, hold, (inPlace, lease), cancel, onPublished);
+    }
+
+    async Task<CommandOutcome> HandleAdmittedLaunchAsync(
+            LaunchAgentCommand cmd, LaunchHold hold, (ResumeInPlaceLaunch Launch, SourceLeaseKeeper Lease)? inPlace, CancellationToken cancel,
+            Action<AgentInstance>? onPublished) {
         var agentId = cmd.AgentId;
 
         // A caller-selected ACP permission preset is a pure, side-effect-free rejection (wrong-vendor /
@@ -2612,6 +2631,24 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
         }
 
+        if (inPlace is { } refused && await InPlaceLaunchRefusalAsync(cmd, refused.Launch) is { } inPlaceRefusal) {
+            await _server.LaunchFailedAsync(cmd.AgentId, inPlaceRefusal);
+
+            return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+        }
+
+        // Consent judges where a resume will run, not the path recorded for it, which may be a symlink.
+        var consentPath = cmd.RepoPath;
+        if (inPlace is { } resolving) {
+            if ((await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(resolving.Launch.Directory)).CanonicalCwd is not { } canonical) {
+                await _server.LaunchFailedAsync(cmd.AgentId, ResumeInPlaceRefusals.DirectoryNotAllowed);
+
+                return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+            }
+
+            consentPath = canonical;
+        }
+
         // Owner consent gate. Server-driven launches only — the local 0600 socket path
         // (HandleLocalSpawnAsync) is the owner's by construction and never consults this.
         // NOTE: in prompt mode this can hold the sequenced slot up to PromptTimeoutSeconds (≤300s,
@@ -2620,7 +2657,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // messages to this daemon queue behind the prompt for the same window.
         var consentInput = new LaunchConsentInput(
             cmd.RequesterUserId, cmd.RequesterIsOwner ?? false,
-            LaunchConsentEngine.KindToken(cmd.Kind), cmd.RepoPath, cmd.Vendor, cmd.RequesterDisplay);
+            LaunchConsentEngine.KindToken(cmd.Kind), consentPath, cmd.Vendor, cmd.RequesterDisplay);
         CancellationTokenSource? consentCts = null;
         LaunchConsentOutcome consent;
         try {
@@ -2638,7 +2675,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
         }
 
-        return await LaunchAdmittedAsync(cmd, consent, hold, cancel: cancel, onPublished: onPublished);
+        return inPlace is { } resuming
+            ? await LaunchInPlaceAsync(cmd, resuming.Launch, resuming.Lease, consentPath!, consent, hold, cancel, onPublished)
+            : await LaunchAdmittedAsync(cmd, consent, hold, cancel: cancel, onPublished: onPublished);
     }
 
     /// <summary>The admitted launch after its consent decision. A <paramref name="resume"/> relaunches a
@@ -2825,8 +2864,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             }
 
             // A local spawn was never held to the allowed-repo list, so neither is its resume. A scratch
-            // launch names no repository to allow, find or report on.
-            if (!cmd.ScratchWorkspace && resume is not { Origin: "local" } && !_config.IsRepoAllowed(repoPath)) {
+            // launch names no repository to allow, find or report on. Every in-place route is authorized here the
+            // way a borrowed directory is, which also admits a path below an allowed git root.
+            if (!cmd.ScratchWorkspace && resume is not { Origin: "local" } && !await RepoAllowedAsync(repoPath, resume)) {
                 await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path not allowed: {repoPath}");
 
                 return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
@@ -2998,7 +3038,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 if (AttachmentIds.Validate(attachmentIds) is { } invalid)
                     throw new InvalidOperationException($"attachments_refused: {invalid}");
 
-                if (placement == AttachmentPlacement.Worktree && work == WorkLocation.BorrowedCwd)
+                if (placement == AttachmentPlacement.Worktree && work is WorkLocation.BorrowedCwd or WorkLocation.InPlace)
                     throw new InvalidOperationException(
                         $"attachments_refused: {AttachmentRefusals.NeedsOwnedWorktree}");
 
@@ -3244,7 +3284,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 string.Equals(cmd.Vendor, "codex", StringComparison.OrdinalIgnoreCase)
              && cmd.Kind == LaunchKind.Default
              && !cmd.Borrowed
-             && work == WorkLocation.OwnedWorktree
+             && work is WorkLocation.OwnedWorktree or WorkLocation.InPlace
                     ? CodexPosturePolicy.Resolve(work, isReviewFlow, cmd.CodexPosture)
                     : null;
 
@@ -3316,7 +3356,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 ContinuesAgentId    = resume?.Entry.InheritedAgentIds is [.., var predecessor] ? predecessor : null,
                 HandoffSource       = cmd.Handoff?.Source ?? resume?.Entry.Launch.HandoffSource,
                 // Keeps the worktree and the entry through any failure until the resume is judged.
-                ResumePending       = resume is not null
+                ResumePending       = resume is { KeepsNothing: false }
             };
             if (resume is null) {
                 capacity.Publish(agent);
@@ -3345,13 +3385,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             if (!registration.Registered && resume is not null) {
                 resume.RefusedRegistration = registration.RefusedReason ?? "";
 
-                try {
-                    await runtime.TerminateAsync(ShutdownTerminateGrace);
-                } catch (Exception ex) {
-                    LogCleanupStepFailed(ex, "terminating a resume whose registration was refused", agentId);
-                }
+                // Read before cleanup, since a disposed runtime no longer knows its process, and checked again after it,
+                // since cleanup kills once more.
+                if (!await TerminateConfirmedAsync(agent)) resume.Survivor = SurvivorOf(agent);
 
                 await CleanupAgentAsync(agentId);
+
+                if (resume.Survivor is { } survivor && !ProcessStillOurs(survivor.Pid, survivor.Identity)) resume.Survivor = null;
 
                 return new CommandOutcome(CommandOutcomeKind.LaunchFailedCleaned, agentId);
             }
@@ -4943,7 +4983,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             if (AttachmentIds.Validate(attachmentIds) is { } invalid) return RefuseAttachments(invalid);
             if (agent.Kind != LaunchKind.Default) return RefuseAttachments(AttachmentRefusals.ReviewParticipant);
 
-            if (agent.Placement == AttachmentPlacement.Worktree && agent.Work == WorkLocation.BorrowedCwd)
+            if (agent.Placement == AttachmentPlacement.Worktree && agent.Work is WorkLocation.BorrowedCwd or WorkLocation.InPlace)
                 return RefuseAttachments(AttachmentRefusals.NeedsOwnedWorktree);
 
             if (!agent.Runtime.EmitsTerminalOutput && IsQuitCommand(text))
@@ -6136,8 +6176,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     Task DetectSessionIdAsync(AgentInstance agent, string vendor, DateTime spawnedAtUtc) {
         Func<ISet<string>, (string SessionId, string Path)?>? locate = vendor.ToLowerInvariant() switch {
             "claude" => ClaudeTranscriptLocator(agent, spawnedAtUtc),
-            "codex"  => ruledOut => CodexSessionRolloutLocator.TryLocateWinner(
-                CodexPathsFor(agent.Account).Sessions, agent.Worktree.Path, spawnedAtUtc, ruledOut),
+            "codex"  => CodexRolloutLocator(agent, spawnedAtUtc),
             "muse"   => _ => MuseHostedSessionLocator.TryLocate(
                 _config.Home, _harnesses.Of<MuseHarness>().Paths, agent.Id, DateOnly.FromDateTime(_time.GetLocalNow().DateTime),
                 (agent.Runtime as MuseMspHostedAgentRuntime)?.Session),
@@ -6149,6 +6188,15 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         var task = RunDiscoveryAsync(agent, locate);
         agent.DiscoveryTask = task;
         return task;
+    }
+
+    /// An agent that already holds its session is found by that id: a resumed rollout predates the spawn.
+    Func<ISet<string>, (string SessionId, string Path)?> CodexRolloutLocator(AgentInstance agent, DateTime spawnedAtUtc) {
+        var sessions = CodexPathsFor(agent.Account).Sessions;
+
+        return (agent.VendorSession ?? agent.SessionId) is { } known
+            ? _ => CodexSessionRolloutLocator.TryLocateSession(sessions, known)
+            : ruledOut => CodexSessionRolloutLocator.TryLocateWinner(sessions, agent.Worktree.Path, spawnedAtUtc, ruledOut);
     }
 
     /// Null for an in-place agent with no session id: every Claude session in a borrowed folder

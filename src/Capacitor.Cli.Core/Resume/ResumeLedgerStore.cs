@@ -166,7 +166,10 @@ public sealed class ResumeLedgerStore(string resumeDirectory, TimeProvider? time
         string json;
 
         try {
-            json = File.ReadAllText(path);
+            // Shared with writes and deletes: on Windows a reader that denies them fails while an entry is replaced.
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            json = reader.ReadToEnd();
         } catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) {
             return null;
         }
