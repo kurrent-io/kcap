@@ -44,16 +44,16 @@ public sealed class HarnessCommand(
             return 0;
         }
 
-        Console.WriteLine($"  {"Harness",-14}{"Installed",-11}{"kcap wired",-12}Dismissed");
+        Console.WriteLine($"  {"Harness",-14}{"Installed",-11}{"kcap wired",-13}Dismissed");
         foreach (var h in harnesses) {
             var isDismissed = ledger.Entry(h.Id) is { Declined: true };
             Console.WriteLine(
-                $"  {h.Label,-14}{YesNo(harnesses.Detected(h.Id)),-11}{HarnessListRender.WiredCell(h.Id, h.Signals.IsWired, codexTrust),-12}{YesNo(isDismissed)}");
+                $"  {h.Label,-14}{YesNo(harnesses.Detected(h.Id)),-11}{HarnessListRender.WiredCell(h.Id, h.Signals.IsWired, codexTrust),-13}{YesNo(isDismissed)}");
         }
 
         if (codexTrust == CodexHooksTrust.Untrusted) {
             Console.WriteLine();
-            Console.WriteLine($"  {StatusCommand.CodexUntrustedLine()}");
+            Console.WriteLine($"  {StatusGlyphs.ForConsole(StatusCommand.CodexUntrustedLine())}");
         }
 
         return 0;
