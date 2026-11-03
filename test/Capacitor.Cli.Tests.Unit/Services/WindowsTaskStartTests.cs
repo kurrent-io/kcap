@@ -15,8 +15,12 @@ public class WindowsTaskStartTests {
         [30] = new(20, "kcap-daemon.exe"), [20] = new(10, "cmd.exe"), [10] = new(1, "conhost.exe"),
     };
 
+    async Task<List<string>> StartWhile(Func<int, string> stateAtQuery, int? daemonPid = null, IReadOnlyDictionary<int, WindowsProcessEntry>? table = null) =>
+        (await StartWhileWithResult(stateAtQuery, daemonPid, table)).Calls;
+
     /// <summary>Runs Start on a pool thread and advances the clock until it returns, recording each schtasks verb.</summary>
-    async Task<List<string>> StartWhile(Func<int, string> stateAtQuery, int? daemonPid = null, IReadOnlyDictionary<int, WindowsProcessEntry>? table = null) {
+    async Task<(List<string> Calls, bool Started, string? Error)> StartWhileWithResult(
+            Func<int, string> stateAtQuery, int? daemonPid = null, IReadOnlyDictionary<int, WindowsProcessEntry>? table = null) {
         var clock   = new FakeTimeProvider();
         var calls   = new List<string>();
         var queries = 0;
@@ -31,14 +35,15 @@ public class WindowsTaskStartTests {
             },
             time: clock);
 
-        var start = Task.Run(() => manager.Start("test", out _));
+        string? error = null;
+        var start = Task.Run(() => manager.Start("test", out error));
         while (!start.IsCompleted) {
             clock.Advance(TimeSpan.FromMilliseconds(250));
             await Task.Delay(1);
         }
-        await start;
+        var started = await start;
 
-        lock (calls) return [.. calls];
+        lock (calls) return ([.. calls], started, error);
     }
 
     [Test]
@@ -57,12 +62,18 @@ public class WindowsTaskStartTests {
         await Assert.That(string.Join(",", calls)).IsEqualTo($"query:{Running},/Run");
     }
 
-    /// <summary>A wrapper that never finishes is one restarting its daemon itself; the start runs once the wait is spent.</summary>
+    /// <summary>The wait outlasts the wrapper's relaunch pause, so a wrapper still without a daemon at its end is stuck;
+    /// a run then would be dropped, so the start says so instead of reporting success.</summary>
     [Test]
-    public async Task A_wrapper_that_never_winds_down_is_run_after_the_wait() {
-        var calls = await StartWhile(_ => Running);
+    public async Task A_wrapper_that_never_winds_down_fails_the_start_rather_than_dropping_it() {
+        var (calls, started, error) = await StartWhileWithResult(_ => Running);
 
-        await Assert.That(calls[^1]).IsEqualTo("/Run");
-        await Assert.That(calls.Count(c => c.StartsWith("query", StringComparison.Ordinal))).IsGreaterThan(1);
+        await Assert.That(started).IsFalse();
+        await Assert.That(error!).Contains("still finishing its last run");
+        await Assert.That(calls).DoesNotContain("/Run");
     }
+
+    [Test]
+    public async Task The_wait_outlasts_the_wrappers_relaunch_pause() =>
+        await Assert.That(WindowsScheduledTaskServiceManager.WindDownWait).IsGreaterThan(TimeSpan.FromSeconds(WindowsTaskUnit.RelaunchPauseSeconds + 1));
 }

@@ -296,14 +296,23 @@ sealed class WindowsScheduledTaskServiceManager(
 
     // The task runs one instance at a time and drops a /Run that arrives while one is live, reporting success all
     // the same. A daemon that stopped itself leaves its wrapper winding down for a moment, so a start straight after
-    // a stop waits that out first; past the wait it runs anyway, for a wrapper whose own loop restarts the daemon.
+    // a stop waits that out first. The wait outlasts the wrapper's relaunch pause, so a wrapper still without a
+    // daemon at its end is stuck, and a /Run then would be dropped.
     internal static readonly TimeSpan WindDownWait = TimeSpan.FromSeconds(10);
     static readonly TimeSpan WindDownPoll = TimeSpan.FromMilliseconds(250);
 
     public bool Start(string serviceId, out string? error) {
         var deadline = _time.GetUtcNow() + WindDownWait;
-        while (IsWindingDown(serviceId) && _time.GetUtcNow() < deadline)
+        var windingDown = IsWindingDown(serviceId);
+        while (windingDown && _time.GetUtcNow() < deadline) {
             Task.Delay(WindDownPoll, _time).GetAwaiter().GetResult();
+            windingDown = IsWindingDown(serviceId);
+        }
+
+        if (windingDown) {
+            error = $"scheduled task {WindowsTaskUnit.TaskName(serviceId)} is still finishing its last run, so it would ignore a start; try again in a moment";
+            return false;
+        }
 
         CheckSchtasks(WindowsTaskUnit.RunArgs(serviceId));
         error = null;
