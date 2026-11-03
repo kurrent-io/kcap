@@ -9,5 +9,6 @@ namespace Capacitor.Cli.Commands;
 /// </summary>
 internal sealed record TranscriptImportMark(
     [property: JsonPropertyName("lines")]     int Lines,
-    [property: JsonPropertyName("watermark")] int Watermark
+    [property: JsonPropertyName("watermark")] int Watermark,
+    [property: JsonPropertyName("prefix_sha256"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PrefixSha256 = null
 );

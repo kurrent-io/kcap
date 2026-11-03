@@ -594,7 +594,8 @@ static class SessionImporter {
             int                        lineNumberOffset  = 0,
             bool                       failOnError       = false,
             Func<bool>?                abortDelivery     = null,
-            StrongBox<int>?            completeLines     = null
+            StrongBox<int>?            completeLines     = null,
+            TranscriptImportFingerprint? fingerprint    = null
         ) {
         if (!File.Exists(filePath)) return 0;
 
@@ -607,6 +608,7 @@ static class SessionImporter {
         var lineIndex = 0;
 
         while (await reader.ReadLineAsync() is { } line) {
+            fingerprint?.Add(line);
             if (lineIndex < startLine) {
                 lineIndex++;
 
@@ -627,7 +629,9 @@ static class SessionImporter {
             lineIndex++;
         }
 
-        completeLines?.Value = CompleteLines(stream, lineIndex);
+        var complete = CompleteLines(stream, lineIndex);
+        completeLines?.Value = complete;
+        fingerprint?.Complete(complete);
 
         if (!batch.IsEmpty) await FlushAsync();
 

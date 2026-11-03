@@ -1,3 +1,4 @@
+using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
@@ -17,17 +18,25 @@ public sealed class HandoffDrafts : IDisposable {
     /// still in flight: that call has no deadline of its own.
     static readonly TimeSpan PendingTtl = TimeSpan.FromMinutes(10);
 
-    sealed record Held(string SourceSessionId, HandoffDraft Draft, DateTimeOffset At, Action<string>? OnFailed);
+    /// A resume's agent appears as a row before its readiness is judged, so the row never confirms it.
+    sealed record Held(string SourceSessionId, HandoffDraft Draft, DateTimeOffset At, Action<string>? OnFailed, bool Resume);
 
     readonly Lock _lock = new();
     readonly Dictionary<string, Held> _pending = new(StringComparer.Ordinal);
     readonly Dictionary<string, (string Reason, DateTimeOffset At)> _recentFailures = new(StringComparer.Ordinal);
     readonly Dictionary<string, HandoffDraft> _failed = new(StringComparer.Ordinal);
     readonly Dictionary<string, HandoffDraft> _unsent = new(StringComparer.Ordinal);
+    readonly HashSet<string> _resumeFailed = new(StringComparer.Ordinal);
+    readonly Dictionary<string, ITimer> _resumeExpiries = new(StringComparer.Ordinal);
+    readonly HashSet<string> _resumesSeen = new(StringComparer.Ordinal);
+    // Expired resumes nothing settled, by agent id. Their source offers only the hand-off until the agent shows up, and
+    // a failure that still arrives for one rules Resume out as it would have under its hold.
+    readonly Dictionary<string, (string Source, bool Seen)> _resumesExpired = new(StringComparer.Ordinal);
     readonly IAgentDirectory? _directory;
     readonly TimeProvider _time;
     readonly CompositeDisposable _subscriptions = new();
     readonly Subject<string> _failedFor = new();
+    bool _disposed;
 
     public HandoffDrafts(IObservable<LaunchFailure> failures, IAgentDirectory? directory, TimeProvider time) {
         _directory = directory;
@@ -44,23 +53,38 @@ public sealed class HandoffDrafts : IDisposable {
                 foreach (var change in changes)
                     if (change.Reason is ChangeReason.Add or ChangeReason.Update
                      && change.Current is { IsPlaceholder: false, Origin: AgentOrigin.Local } row)
-                        Confirm(row.Id);
+                        ConfirmStarted(row.Id);
             })
             .DisposeWith(_subscriptions);
     }
 
     /// onFailed runs on the UI thread, with the worded failure, when a failure for the agent arrives
     /// after this hold.
-    public HandoffHold Hold(string sourceSessionId, string agentId, HandoffDraft draft, Action<string>? onFailed = null) {
+    public HandoffHold Hold(string sourceSessionId, string agentId, HandoffDraft draft, Action<string>? onFailed = null) =>
+        Hold(sourceSessionId, agentId, draft, onFailed, resume: false);
+
+    /// A resume's draft is held until a failure or the hold's expiry: only a failure says anything about it.
+    public HandoffHold HoldResume(string sourceSessionId, string agentId, HandoffDraft draft) =>
+        Hold(sourceSessionId, agentId, draft, onFailed: null, resume: true);
+
+    HandoffHold Hold(string sourceSessionId, string agentId, HandoffDraft draft, Action<string>? onFailed, bool resume) {
         var id = Key(agentId);
-        if (RowExists(id)) return HandoffHold.AlreadyStarted;
+        if (!resume && RowExists(id)) return HandoffHold.AlreadyStarted;
         lock (_lock) {
             var now = _time.GetUtcNow();
             if (_recentFailures.Remove(id, out var failure) && now - failure.At <= PendingTtl) {
-                StoreFailed(sourceSessionId, draft with { Error = HandoffFailureText.For(failure.Reason) });
+                StoreFailed(sourceSessionId, Failed(draft, failure.Reason, resume));
+                if (resume) _resumeFailed.Add(sourceSessionId);
                 return HandoffHold.AlreadyFailed;
             }
-            _pending[id] = new Held(sourceSessionId, draft, now, onFailed);
+            var held = _pending[id] = new Held(sourceSessionId, draft, now, onFailed, resume);
+            // Nothing confirms a resume that worked, so its hold, prompt text included, ends on a timer.
+            if (resume) ExpireLater(id, held);
+        }
+        // A resume's row that landed before its hold still shows it started.
+        if (resume) {
+            if (RowExists(id)) lock (_lock) _resumesSeen.Add(id);
+            return HandoffHold.Pending;
         }
         // The row can land between the first check and the registration.
         if (!RowExists(id)) return HandoffHold.Pending;
@@ -101,9 +125,80 @@ public sealed class HandoffDrafts : IDisposable {
         lock (_lock) return _unsent.Remove(sourceSessionId, out var draft) ? draft : null;
     }
 
+    /// Whether a resume of the source failed in this app's lifetime, so its composers offer only the hand-off.
+    public bool ResumeFailed(string sourceSessionId) {
+        lock (_lock) return _resumeFailed.Contains(sourceSessionId) || _resumesExpired.Values.Contains((sourceSessionId, false));
+    }
+
+    /// A resume refused before any agent existed.
+    public void MarkResumeFailed(string sourceSessionId) {
+        lock (_lock) _resumeFailed.Add(sourceSessionId);
+    }
+
+    /// Under _lock. A resume whose agent never showed up as a row by then did not start as far as anything here
+    /// knows, so its draft goes back to the source rather than being dropped with the hold.
+    void ExpireLater(string id, Held held) {
+        if (_resumeExpiries.Remove(id, out var earlier)) earlier.Dispose();
+        _resumeExpiries[id] = _time.CreateTimer(_ => {
+            var unsettled = false;
+            lock (_lock) {
+                if (_pending.TryGetValue(id, out var current) && ReferenceEquals(current, held)) {
+                    _pending.Remove(id);
+                    if (!_resumesSeen.Remove(id)) {
+                        StoreFailed(held.SourceSessionId, Failed(held.Draft, "", resume: true));
+                        // Offered again, Resume could start a second launch beside one that may still be starting.
+                        _resumesExpired[id] = (held.SourceSessionId, Seen: false);
+                        unsettled = true;
+                    }
+                }
+                if (_resumeExpiries.TryGetValue(id, out var timer) && !_pending.ContainsKey(id)) {
+                    _resumeExpiries.Remove(id);
+                    timer.Dispose();
+                }
+            }
+            // Under the lock disposal takes, so a notification queued past disposal does nothing. The lock is reentrant
+            // for a subscriber that takes the draft back.
+            if (unsettled)
+                RxSchedulers.MainThreadScheduler.Schedule(() => {
+                    lock (_lock) {
+                        if (!_disposed) _failedFor.OnNext(held.SourceSessionId);
+                    }
+                });
+        }, null, PendingTtl, Timeout.InfiniteTimeSpan);
+    }
+
+    internal int PendingCountForTesting {
+        get { lock (_lock) return _pending.Count; }
+    }
+
+    void ConfirmStarted(string agentId) {
+        var id = Key(agentId);
+        lock (_lock) {
+            // With no hold yet, a failure buffered for it stays: a row proves nothing against a failure already in. A row
+            // for a resume whose hold expired unsettled shows it did start, so its source may offer Resume again.
+            if (!_pending.TryGetValue(id, out var held)) {
+                if (_resumesExpired.TryGetValue(id, out var expired) && !_recentFailures.ContainsKey(id))
+                    _resumesExpired[id] = expired with { Seen = true };
+                return;
+            }
+            if (held.Resume) {
+                _resumesSeen.Add(id);
+                return;
+            }
+        }
+        Confirm(id);
+    }
+
+    /// Whether the launch's hold is still waiting for its verdict.
+    public bool IsHolding(string agentId) {
+        var id = Key(agentId);
+        lock (_lock) return _pending.ContainsKey(id);
+    }
+
     public void Confirm(string agentId) {
         var id = Key(agentId);
         lock (_lock) {
+            _resumesSeen.Remove(id);
             _pending.Remove(id);
             _recentFailures.Remove(id);
         }
@@ -113,15 +208,19 @@ public sealed class HandoffDrafts : IDisposable {
         var id = Key(failure.AgentId);
         lock (_lock) {
             var now = _time.GetUtcNow();
+            _resumesSeen.Remove(id);
             if (_pending.Remove(id, out var held) && now - held.At <= PendingTtl) {
-                var worded = HandoffFailureText.For(failure.Reason);
-                StoreFailed(held.SourceSessionId, held.Draft with { Error = worded });
+                var failed = Failed(held.Draft, failure.Reason, held.Resume);
+                var worded = failed.Error!;
+                StoreFailed(held.SourceSessionId, failed);
+                if (held.Resume) _resumeFailed.Add(held.SourceSessionId);
                 return () => {
                     _directory?.RemovePlaceholder(id);
                     held.OnFailed?.Invoke(worded);
                     _failedFor.OnNext(held.SourceSessionId);
                 };
             }
+            if (_resumesExpired.Remove(id, out var expiredResume)) _resumeFailed.Add(expiredResume.Source);
             _recentFailures[id] = (failure.Reason, now);
             foreach (var stale in _recentFailures.Where(kv => now - kv.Value.At > PendingTtl).Select(kv => kv.Key).ToList())
                 _recentFailures.Remove(stale);
@@ -131,6 +230,9 @@ public sealed class HandoffDrafts : IDisposable {
         }
     }
 
+    static HandoffDraft Failed(HandoffDraft draft, string reason, bool resume) =>
+        draft with { Error = resume ? HandoffFailureText.ResumeFallback(reason) : HandoffFailureText.For(reason) };
+
     bool RowExists(string id) =>
         _directory?.Rows.Items.Any(r => r is { IsPlaceholder: false, Origin: AgentOrigin.Local } && Key(r.Id) == id) == true;
 
@@ -138,6 +240,11 @@ public sealed class HandoffDrafts : IDisposable {
 
     public void Dispose() {
         _subscriptions.Dispose();
-        _failedFor.Dispose();
+        lock (_lock) {
+            _disposed = true;
+            foreach (var timer in _resumeExpiries.Values) timer.Dispose();
+            _resumeExpiries.Clear();
+            _failedFor.Dispose();
+        }
     }
 }

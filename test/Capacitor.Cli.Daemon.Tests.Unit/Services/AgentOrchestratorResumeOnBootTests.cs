@@ -1,5 +1,8 @@
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
+using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Daemon.Services;
@@ -35,6 +38,8 @@ public class AgentOrchestratorResumeOnBootTests {
         public TaskCompletionSource? Gate { get; set; }
         public bool ExitBeforeHandshake { get; init; }
         public bool PtyStyle { get; init; }
+        public bool Unkillable { get; init; }
+        public bool ExitsOnDispose { get; init; }
         public string? ResumeToken { get; init; }
         public bool ReopensSession { get; init; }
         public FakeAcpRuntime? LastAcpRuntime { get; private set; }
@@ -59,10 +64,16 @@ public class AgentOrchestratorResumeOnBootTests {
                 }
 
                 if (PtyStyle)
-                    return new HostedRuntimeStart(new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true), McpConfigPath: null, Transcript: null);
+                    return new HostedRuntimeStart(new FakeHostedAgentRuntime(Vendor, emitsTerminalOutput: true) {
+                        IgnoresTerminate = Unkillable, ExitsOnDispose = ExitsOnDispose,
+                        // A pid no real process can have, so cleanup's own liveness check never reaches one.
+                        Pid = Unkillable ? int.MaxValue : 0, StartIdentity = Unkillable ? "test-identity" : null,
+                    },
+                        McpConfigPath: null, Transcript: null);
 
                 var runtime = ReopensSession && ctx.ResumeSessionId is { } reopened
-                    ? new FakeAcpRuntime { Vendor = Vendor, Cwd = ctx.Worktree.Path, AcpSessionId = reopened, Reopened = true }
+                    ? new FakeAcpRuntime { Vendor = Vendor, Cwd = ctx.Worktree.Path, AcpSessionId = reopened, Reopened = true, NeverExits = Unkillable,
+                        Pid = Unkillable ? int.MaxValue : 0, StartIdentity = Unkillable ? "test-identity" : null }
                     : new FakeAcpRuntime { Vendor = Vendor, Cwd = ctx.Worktree.Path, VendorResumeToken = ResumeToken };
                 LastAcpRuntime = runtime;
 
@@ -105,17 +116,22 @@ public class AgentOrchestratorResumeOnBootTests {
             bool isPrivate = false, ResumeState state = ResumeState.Resuming, DateTimeOffset? at = null,
             string? predecessor = "instance-old", string? daemonInstanceId = null, bool standalone = false,
             string vendor = "cursor", string? permissionMode = null, string title = "the thing", bool? titleDerived = null,
-            IReadOnlyList<string>? inherited = null, bool? awaitingInput = null) {
+            IReadOnlyList<string>? inherited = null, bool? awaitingInput = null, WorkLocation work = WorkLocation.OwnedWorktree,
+            string? store = null) {
         var stamp = at ?? TimeProvider.System.GetUtcNow();
+        var path  = worktree ?? Tmp.CreateDir($"wt-{agentId}");
+        // An in-place entry records its directory as both, as the launch does.
         var launch = new ResumeLaunchDescriptor(
-            Prompt: "build the thing", Model: "auto", Effort: null, RepoPath: f.Repo,
-            WorktreePath: worktree ?? Tmp.CreateDir($"wt-{agentId}"), Work: WorkLocation.OwnedWorktree,
+            Prompt: "build the thing", Model: "auto", Effort: null, RepoPath: work == WorkLocation.InPlace ? path : f.Repo,
+            WorktreePath: path, Work: work,
             GitRelativeCwd: null, SandboxPolicy: null, ApprovalPolicy: null, PermissionPreset: null,
             McpConfigPath: null, Title: title, IsPrivate: isPrivate, Origin: "server",
             RequesterUserId: "user-1", RequesterDisplay: "User One", ConsentSource: "default",
             ConsentAt: stamp.ToString("O"), FlowRunId: null, FlowRole: null,
             WorktreeBranch: $"capacitor/custom-{agentId}", WorktreeIsStandalone: standalone, WorktreeSourceRepo: f.Repo,
-            PermissionMode: permissionMode, TitleDerived: titleDerived);
+            PermissionMode: permissionMode, TitleDerived: titleDerived,
+            // An in-place entry records the store it was resumed under, as the launch does.
+            AccountDirectory: store ?? (work == WorkLocation.InPlace ? CursorStore(f) : null));
         var entry = new ResumeLedgerEntry(
             ResumeLedgerEntry.CurrentSchemaVersion, agentId, "daemon-1", stamp, stamp, vendor, "acp",
             $"session-{agentId}", vendorSession, launch, state, Attempts: 0, LastError: null,
@@ -149,6 +165,367 @@ public class AgentOrchestratorResumeOnBootTests {
         // The running entry holds no waiting state of its own: a crash before the next keep-agents shutdown must
         // not read a turn started since as waiting.
         await Assert.That(f.Orch.ResumeLedger!.TryRead("resume-idle")!.AwaitingInput).IsNull();
+    }
+
+    /// <summary>A restart resume holds the session's lease from before it re-registers until the readiness window
+    /// passes, so a hand-off cannot take the session over from under it; a server without the lease resumes as before.</summary>
+    [Test]
+    public async Task A_restart_resume_holds_the_sessions_lease_until_readiness() {
+        var server = new CaptureServerConnection { BeginResume = _ => new HandoffTakeoverAdmission("lease-1", null, 60) };
+        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        await using var _ = f.Orch;
+        Entry(f, "leased-1");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(server.ResumeBegins.ToArray()).IsEquivalentTo(["session-leased-1"]);
+        await Assert.That(server.HandoffEnds.ToArray()).IsEquivalentTo(["lease-1"]);
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("leased-1")!.State).IsEqualTo(ResumeState.Running);
+    }
+
+    /// <summary>A private agent's session is unknown to the server, so its restart resume takes no lease and resumes.</summary>
+    [Test]
+    public async Task A_private_restart_resume_takes_no_lease() {
+        var server = new CaptureServerConnection { BeginResume = _ => new HandoffTakeoverAdmission(null, "source_unavailable", 0) };
+        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        await using var _ = f.Orch;
+        Entry(f, "private-1", isPrivate: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(server.ResumeBegins).IsEmpty();
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("private-1")!.State).IsEqualTo(ResumeState.Running);
+    }
+
+    /// <summary>A session a hand-off holds is being taken over: neither resumed nor continued, which would take it over
+    /// a second time.</summary>
+    [Test]
+    public async Task A_reserved_session_is_interrupted_without_a_resume_or_a_continuation() {
+        var server = new CaptureServerConnection { BeginResume = _ => new HandoffTakeoverAdmission(null, "source_reserved", 0) };
+        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        await using var _ = f.Orch;
+        Entry(f, "reserved-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts).IsEmpty();
+        await Assert.That(continued).IsEqualTo(0);
+        var after = f.Orch.ResumeLedger!.TryRead("reserved-1")!;
+        await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "source_reserved"));
+    }
+
+    /// <summary>Any refusal leaves the session unfenced, not only a reservation: neither resumed nor continued.</summary>
+    [Test]
+    public async Task A_refused_lease_is_interrupted_without_a_resume_or_a_continuation() {
+        var server = new CaptureServerConnection { BeginResume = _ => new HandoffTakeoverAdmission(null, "source_unavailable", 0) };
+        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        await using var _ = f.Orch;
+        Entry(f, "refused-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts).IsEmpty();
+        await Assert.That(continued).IsEqualTo(0);
+        var after = f.Orch.ResumeLedger!.TryRead("refused-1")!;
+        await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "source_lease_refused: source_unavailable"));
+    }
+
+    /// <summary>A lease lost before the readiness window passes may have let a hand-off in: the resumed agent is
+    /// ended and the entry interrupted, not continued.</summary>
+    [Test]
+    public async Task A_lease_lost_during_readiness_ends_the_resume_without_a_continuation() {
+        var server = new CaptureServerConnection {
+            BeginResume  = _ => new HandoffTakeoverAdmission("lease-1", null, 60),
+            RenewHandoff = (_, _) => Task.FromResult(false),
+        };
+        var f = Build(new ResumableFactory { PtyStyle = true }, c => c.ResumeReadinessWindow = TimeSpan.FromSeconds(2), server: server);
+        await using var _ = f.Orch;
+        f.Orch.SourceLeaseRenewal = TimeSpan.FromMilliseconds(50);
+        Entry(f, "lost-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(continued).IsEqualTo(0);
+        var after = f.Orch.ResumeLedger!.TryRead("lost-1")!;
+        await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "source_lease_lost"));
+    }
+
+    /// <summary>A lease lost while a runtime that will not die resumes is not settled as failed: the live agent stays the
+    /// session's, rather than being reported gone beside a hand-off.</summary>
+    [Test]
+    public async Task A_lost_lease_on_a_runtime_that_will_not_stop_keeps_it_running() {
+        var server = new CaptureServerConnection {
+            BeginResume  = _ => new HandoffTakeoverAdmission("lease-1", null, 60),
+            RenewHandoff = (_, _) => Task.FromResult(false),
+        };
+        var f = Build(new ResumableFactory { PtyStyle = true, Unkillable = true }, c => c.ResumeReadinessWindow = TimeSpan.FromSeconds(1), server: server);
+        await using var _ = f.Orch;
+        f.Orch.SourceLeaseRenewal = TimeSpan.FromMilliseconds(50);
+        Entry(f, "stuck-1");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("stuck-1")!.State).IsEqualTo(ResumeState.Running);
+    }
+
+    /// <summary>A runtime that will not die is never continued beside, whether its lease lapsed or the server refused
+    /// its transcript: it stays the session's resumed agent.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_refused_transcript_on_a_runtime_that_will_not_stop_is_not_continued(bool leaseLost) {
+        using var silence = new CancellationTokenSource();
+        var server = new CaptureServerConnection {
+            BeginResume         = _ => new HandoffTakeoverAdmission("lease-1", null, 60),
+            RenewHandoff        = (_, _) => Task.FromResult(!leaseLost),
+            AcpEventsAckOverride = _ => new AcpBatchAck(41, 41),
+            AcpEventsBlockUntil = silence,
+        };
+        var f = Build(new ResumableFactory { ReopensSession = true, Unkillable = true },
+            c => c.ResumeReadinessWindow = TimeSpan.FromMilliseconds(500), server: server);
+        await using var _ = f.Orch;
+        f.Orch.ProcessStillOurs = (_, _) => true;
+        f.Orch.SourceLeaseRenewal = TimeSpan.FromMilliseconds(50);
+        Entry(f, "stuck-acp-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await silence.CancelAsync();
+
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Factory.LastAcpRuntime!.HasExited).IsFalse();
+    }
+
+    /// <summary>An in-place entry is authorized again before its restart resume: a directory replaced by a link to
+    /// somewhere else, or no longer allowed, while the daemon was down is neither resumed nor continued, and an intact one
+    /// resumes.</summary>
+    [Test]
+    [Arguments("replaced")]
+    [Arguments("disallowed")]
+    [Arguments("intact")]
+    public async Task An_in_place_directory_is_authorized_again_before_its_restart_resume(string change) {
+        // Allowed as resolved, the form the entry records: a Mac's temp root is a symlink into /private.
+        var allowed = ResolvedDirectory("own");
+        var f = Build(new ResumableFactory { PtyStyle = true }, c => c.AllowedRepoPaths = [.. c.AllowedRepoPaths, allowed]);
+        await using var _ = f.Orch;
+        var own = change == "disallowed" ? ResolvedDirectory("outside") : allowed;
+        Entry(f, "in-place-1", worktree: own, work: WorkLocation.InPlace);
+        if (change == "replaced") {
+            Directory.Delete(own);
+            Directory.CreateSymbolicLink(own, Tmp.CreateDir("elsewhere"));
+        }
+        var replaced = change != "intact";
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var after = f.Orch.ResumeLedger!.TryRead("in-place-1")!;
+        await Assert.That(continued).IsEqualTo(0);
+        if (replaced) {
+            await Assert.That(f.Factory.Contexts).IsEmpty();
+            await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "resume_directory_not_allowed"));
+        } else {
+            await Assert.That(after.State).IsEqualTo(ResumeState.Running);
+        }
+    }
+
+    /// <summary>An in-place entry that goes straight to a continuation, having no session to resume natively, is still
+    /// authorized: a directory no longer allowed starts nothing.</summary>
+    [Test]
+    public async Task An_in_place_continuation_in_a_directory_no_longer_allowed_starts_nothing() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "in-place-cont-1", worktree: ResolvedDirectory("outside-cont"), vendorSession: null, work: WorkLocation.InPlace);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts).IsEmpty();
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("in-place-cont-1")!.State).IsEqualTo(ResumeState.Interrupted);
+    }
+
+    static string CursorStore(Fixture f) =>
+        AccountDirectory.Normalize(Directory.CreateDirectory(f.Orch.HarnessesForTest.Of<CursorHarness>().Paths.CursorDir).FullName);
+
+    /// <summary>An in-place entry is resumed after a restart only under the store it recorded: one that no longer matches
+    /// is neither resumed nor continued, since a continuation would use the same store.</summary>
+    [Test]
+    public async Task An_in_place_restart_resume_under_a_changed_store_starts_nothing() {
+        var allowed = ResolvedDirectory("own-store");
+        var f = Build(new ResumableFactory { PtyStyle = true }, c => c.AllowedRepoPaths = [.. c.AllowedRepoPaths, allowed]);
+        await using var _ = f.Orch;
+        Entry(f, "in-place-store-1", worktree: allowed, work: WorkLocation.InPlace, store: AccountDirectory.Normalize(Tmp.CreateDir("other-store")));
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts).IsEmpty();
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("in-place-store-1")!.LastError).IsEqualTo(ResumeInPlaceRefusals.StoreChanged);
+    }
+
+    string ResolvedDirectory(string name) {
+        Tmp.CreateDir(name);
+
+        return Tmp.GetResolvedPath(name);
+    }
+
+    /// <summary>A lease lost while the start was still running, before any agent existed, may have let a hand-off in:
+    /// the start that then fails is not continued.</summary>
+    [Test]
+    public async Task A_lease_lost_before_a_failed_start_is_not_continued() {
+        var gate   = new TaskCompletionSource();
+        var server = new CaptureServerConnection {
+            BeginResume  = _ => new HandoffTakeoverAdmission("lease-1", null, 60),
+            RenewHandoff = (_, _) => Task.FromResult(false),
+        };
+        var f = Build(new ResumableFactory { Gate = gate, ExitBeforeHandshake = true }, server: server);
+        await using var _ = f.Orch;
+        f.Orch.SourceLeaseRenewal = TimeSpan.FromMilliseconds(50);
+        Entry(f, "early-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        var lane = f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => !server.HandoffRenews.IsEmpty);
+        await Task.Delay(200);
+        gate.SetResult();
+        await WaitHarness.WaitBoundedAsync(lane, "the resume lane");
+
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("early-1")!.LastError).IsEqualTo("source_lease_lost");
+    }
+
+    /// <summary>A server that holds the lease call open without answering is bounded by the retry window, so the entry
+    /// is interrupted rather than holding the resume lane.</summary>
+    [Test]
+    public async Task A_lease_call_the_server_never_answers_is_bounded_by_the_window() {
+        var server = new CaptureServerConnection { BeginResumeHangs = true };
+        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        await using var _ = f.Orch;
+        f.Orch.HandoffSuccessorWindow = TimeSpan.FromMilliseconds(300);
+        f.Orch.HandoffSuccessorRetry  = TimeSpan.FromMilliseconds(50);
+        Entry(f, "hung-1");
+
+        f.Orch.LoadResumeLedger();
+        await WaitHarness.WaitBoundedAsync(f.Orch.ResumeOnBootAsync(CancellationToken.None), "the resume lane");
+
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("hung-1")!.LastError).IsEqualTo("source_lease_unreachable");
+    }
+
+    /// <summary>A lost lease does not settle a refused survivor as gone because its disposed runtime reads exited: its
+    /// process still holds the lease.</summary>
+    [Test]
+    public async Task A_lost_lease_does_not_override_a_refused_survivors_evidence() {
+        var factory = new ResumableFactory { PtyStyle = true, Unkillable = true, ExitsOnDispose = true };
+        var server  = new CaptureServerConnection {
+            BeginResume  = _ => new HandoffTakeoverAdmission("lease-1", null, 60),
+            RenewHandoff = (_, _) => Task.FromResult(factory.Contexts.IsEmpty),
+        };
+        var f = Build(factory, server: server);
+        await using var _ = f.Orch;
+        f.Orch.ProcessStillOurs   = (_, _) => true;
+        f.Orch.SourceLeaseRenewal = TimeSpan.FromMilliseconds(50);
+        f.Server.RegistrationResponse = _ => {
+            Thread.Sleep(200);
+            return new AgentRegisteredResponse(false, "recorded_failure");
+        };
+        Entry(f, "refused-lost-1");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("refused-lost-1")!.LastError).IsEqualTo("runtime_unstopped");
+        await Assert.That(f.Server.HandoffEnds).IsEmpty();
+    }
+
+    /// <summary>A refused registration whose runtime will not die is not continued under a new id beside it.</summary>
+    [Test]
+    public async Task A_refused_registration_on_a_runtime_that_will_not_stop_is_not_continued() {
+        var f = Build(new ResumableFactory { PtyStyle = true, Unkillable = true });
+        await using var _ = f.Orch;
+        f.Orch.ProcessStillOurs = (_, _) => true;
+        f.Server.RegistrationResponse = _ => new AgentRegisteredResponse(false, "recorded_failure");
+        Entry(f, "refused-stuck-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("refused-stuck-1")!.LastError).IsEqualTo("runtime_unstopped");
+        // Its runtime lives, and a status for the refused id would overwrite what the server recorded.
+        await Assert.That(f.Server.ShutdownReports.Where(r => r.AgentId == "refused-stuck-1")).IsEmpty();
+    }
+
+    /// <summary>A server that has the lease but does not answer for it leaves the session unfenced: after the retry
+    /// window the entry is interrupted, neither resumed nor continued.</summary>
+    [Test]
+    public async Task A_lease_begin_that_never_reaches_the_server_is_interrupted_without_a_continuation() {
+        var server = new CaptureServerConnection { BeginResume = _ => throw new InvalidOperationException("connection lost") };
+        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        await using var _ = f.Orch;
+        f.Orch.HandoffSuccessorWindow = TimeSpan.FromMilliseconds(200);
+        f.Orch.HandoffSuccessorRetry  = TimeSpan.FromMilliseconds(50);
+        Entry(f, "unreached-1");
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(server.ResumeBegins.Count).IsGreaterThan(1);
+        await Assert.That(f.Factory.Contexts).IsEmpty();
+        await Assert.That(continued).IsEqualTo(0);
+        var after = f.Orch.ResumeLedger!.TryRead("unreached-1")!;
+        await Assert.That((after.State, after.LastError)).IsEqualTo((ResumeState.Interrupted, "source_lease_unreachable"));
     }
 
     /// <summary>A silently resumed agent is waiting from the moment anything can reach it, so a turn that starts

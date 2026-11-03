@@ -11,7 +11,9 @@ public sealed record LaunchRequest(
     string DaemonName, string RepoPath, string Vendor, string? Prompt,
     string Model = "", string? Effort = null, string? PermissionMode = null,
     IReadOnlyList<string>? AttachmentIds = null, CodexLaunchPosture? CodexPosture = null,
-    HandoffLaunchStart? Handoff = null, string? AccountId = null);
+    HandoffLaunchStart? Handoff = null,
+    ResumeLaunchPayload? Resume = null,
+    string? AccountId = null);
 
 /// Unauthorized marks a server 401 — the caller routes it to sign-in instead of rendering the
 /// raw transport message.
@@ -52,6 +54,9 @@ public sealed record LaunchAgentRequestV2Payload {
     // Omitted when null: only a hand-off carries the block, and an older server never sees the key.
     [JsonPropertyName("handoff"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public HandoffLaunchStart? Handoff { get; init; }
+    // Omitted when null: only a resume carries the block, and an older server never sees the key.
+    [JsonPropertyName("resume"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ResumeLaunchPayload? Resume { get; init; }
     // Omitted when null: a launch that names no account leaves the payload an older server
     // expects untouched.
     [JsonPropertyName("account_id"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -72,6 +77,7 @@ public static class LaunchPayload {
         PermissionMode = string.IsNullOrWhiteSpace(r.PermissionMode) ? null : r.PermissionMode,
         CodexPosture   = r.CodexPosture,
         Handoff        = r.Handoff,
+        Resume         = r.Resume,
         AccountId      = string.IsNullOrWhiteSpace(r.AccountId) ? null : r.AccountId,
     };
 }

@@ -53,10 +53,10 @@ internal sealed partial class ClaudeLauncher(
         if (ctx.IsReviewFlow && ctx.Work == WorkLocation.BorrowedCwd)
             throw new UnattendedReviewPolicyException(
                 "Claude borrowed review flows are not certified; retry with an owned review worktree.");
-        // A borrowed cwd is the user's own, already-trusted, already-configured repo — do
-        // NOT overlay settings, write .mcp.json, edit settings.local.json, or write
-        // .claude.json trust for it (local in-place launch). Touch nothing.
-        if (ctx.Work == WorkLocation.BorrowedCwd) return;
+        // A borrowed cwd or a resumed session's own directory is the user's, already trusted and
+        // configured — do NOT overlay settings, write .mcp.json, edit settings.local.json, or write
+        // .claude.json trust for it. Touch nothing.
+        if (ctx.Work is WorkLocation.BorrowedCwd or WorkLocation.InPlace) return;
 
         var paths = PathsFor(ctx.Account);
 
@@ -276,8 +276,11 @@ internal sealed partial class ClaudeLauncher(
     }
 
     public void Cleanup(AgentInstance agent) {
-        try { RemoveClaudeProjectSymlink(agent.Worktree.Path, PathsFor(agent.Account)); } catch (Exception ex) {
-            LogCleanupSymlinkFailed(ex, agent.Id);
+        // Prepare links nothing into a directory that is the user's, so a link found there is theirs.
+        if (agent.Work is not (WorkLocation.BorrowedCwd or WorkLocation.InPlace)) {
+            try { RemoveClaudeProjectSymlink(agent.Worktree.Path, PathsFor(agent.Account)); } catch (Exception ex) {
+                LogCleanupSymlinkFailed(ex, agent.Id);
+            }
         }
 
         if (agent.McpConfigPath is not null) {

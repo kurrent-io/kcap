@@ -590,6 +590,9 @@ internal partial class AgentOrchestrator {
         /// <summary>The instance the launch built, once it exists.</summary>
         public AgentInstance? Agent { get; set; }
 
+        /// <summary>A refused registration's process, still alive by its pid and start identity after the kill.</summary>
+        public ProcessEvidence? Survivor { get; set; }
+
         /// <summary>The ledger entry whose resume this launch is: a withdrawal of it stops the launch.</summary>
         public string AttemptOf { get; init; } = Entry.AgentId;
 
@@ -602,6 +605,9 @@ internal partial class AgentOrchestrator {
         /// <summary>The agent was waiting when its predecessor stopped it and resumes with no turn: it is published
         /// waiting, before anything can deliver it input.</summary>
         public bool StartsWaiting { get; init; }
+
+        /// <summary>A failure keeps no worktree, ledger entry or PID record for a later resume.</summary>
+        public bool KeepsNothing { get; init; }
 
         /// <summary>The server's reason, empty when it gave none, once it refused the registration.</summary>
         public string? RefusedRegistration { get; set; }
@@ -701,7 +707,7 @@ internal partial class AgentOrchestrator {
         }
 
         _resumeOrder.InsertRange(0, queue);
-        _ledgerWorktrees = [.. _ledgerWorktrees, .. entries.Where(e => e.Launch.Work == WorkLocation.OwnedWorktree).Select(e => e.Launch.WorktreePath)];
+        _ledgerWorktrees = [.. _ledgerWorktrees, .. entries.Where(KeepsItsDirectory).Select(e => e.Launch.WorktreePath)];
         _ledgerAgentIds  = [.. _ledgerAgentIds.Concat(entries.Select(e => e.AgentId)).Distinct(StringComparer.Ordinal)];
 
         return true;
@@ -919,7 +925,7 @@ internal partial class AgentOrchestrator {
 
         entries = [.. entries.Where(e => e.State != ResumeState.Interrupted || now - e.UpdatedAt <= InterruptedRetention)];
 
-        _ledgerWorktrees = [.. entries.Where(e => e.Launch.Work == WorkLocation.OwnedWorktree).Select(e => e.Launch.WorktreePath)];
+        _ledgerWorktrees = [.. entries.Where(KeepsItsDirectory).Select(e => e.Launch.WorktreePath)];
         _ledgerAgentIds  = [.. entries.SelectMany(e => (e.InheritedAgentIds ?? []).Append(e.AgentId)).Distinct(StringComparer.Ordinal)];
 
         foreach (var entry in entries) {
@@ -1091,9 +1097,13 @@ internal partial class AgentOrchestrator {
         await DiscardFailedLaunchJournalAsync(journal, agent.Id);
     }
 
-    /// <summary>Every owned worktree the ledger names, interrupted entries included: a later manual
-    /// resume needs its worktree as much as a boot candidate does.</summary>
+    /// <summary>Every directory the startup sweep must keep for the ledger, interrupted entries included: a later
+    /// manual resume needs its worktree as much as a boot candidate does. An in-place agent's directory is listed
+    /// although the daemon may never delete it, because it can be a retained worktree the sweep would otherwise
+    /// remove once it is clean.</summary>
     internal IReadOnlyList<string> LedgerWorktreePaths() => _ledgerWorktrees;
+
+    static bool KeepsItsDirectory(ResumeLedgerEntry entry) => entry.Launch.Work is WorkLocation.OwnedWorktree or WorkLocation.InPlace;
 
     /// <summary>The boot resume lane: reports the entries interrupted at boot, then resumes the
     /// candidates at most <see cref="DaemonConfig.ResumeConcurrency"/> at a time. Never throws.</summary>
@@ -1254,15 +1264,21 @@ internal partial class AgentOrchestrator {
             return ResumeOutcome.Interrupted;
         }
 
-        // A continuation resolves the same recorded account, so it would be refused too.
-        if (!reason.StartsWith(AccountResolution.Unavailable, StringComparison.Ordinal)) {
+        // A continuation resolves the same recorded account, so it would be refused too; a session without its lease may
+        // be being handed off, and a continuation would take it over a second time.
+        if (!reason.StartsWith(AccountResolution.Unavailable, StringComparison.Ordinal)
+         && reason is not (SourceReservedReason or SourceLeaseUnreachableReason or SourceLeaseLostReason or RuntimeUnstoppedReason
+                        or ResumeInPlaceRefusals.DirectoryNotAllowed or ResumeInPlaceRefusals.StoreChanged)
+         && !reason.StartsWith(SourceLeaseRefusedReason, StringComparison.Ordinal)) {
             var outcome = await ContinueEntry(entry, reason, ct);
             if (outcome != ResumeOutcome.Interrupted) return outcome;
             if (IsWithdrawn(entry.AgentId)) return ResumeOutcome.Stopped;
         }
 
         InterruptEntry(entry.AgentId, LastErrorOf(reason, exitCode));
-        if (!entry.Launch.IsPrivate && reason != RegistrationRefusedReason) await ReportResumeFailedAsync(entry, reason, exitCode, ct);
+        // A refused id's status would overwrite the failure the server recorded, and an unstopped runtime is not ended.
+        if (!entry.Launch.IsPrivate && reason is not (RegistrationRefusedReason or RuntimeUnstoppedReason))
+            await ReportResumeFailedAsync(entry, reason, exitCode, ct);
 
         return ResumeOutcome.Interrupted;
     }
@@ -1289,6 +1305,36 @@ internal partial class AgentOrchestrator {
         // always gets its nudge, which is how it learns it was relaunched mid-flow.
         var silent  = entry.Participant is null && entry.AwaitingInput == true
                    && _runtimeFactories.TryGetValue(entry.Vendor, out var factory) && factory.ResumesIdleWithoutPrompt(entry.Transport);
+        // Authorized again, as the in-place launch was: the directory may have been replaced while the daemon was down.
+        if (entry.Launch.Work == WorkLocation.InPlace) {
+            var authorized = await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(entry.Launch.WorktreePath);
+            if (!authorized.Allowed || authorized.CanonicalCwd != entry.Launch.WorktreePath) return (ResumeInPlaceRefusals.DirectoryNotAllowed, null);
+
+            // And under the store it was recorded with: a vendor with no default directory would otherwise resume against
+            // whatever store it has now.
+            if (StoreRefusal(entry.Vendor, entry.Launch.AccountId, entry.Launch.AccountDirectory) is { } storeRefusal)
+                return (storeRefusal, null);
+        }
+
+        // The lease a hand-off takeover would need, held until the readiness window passes, so the session is not taken
+        // over from under the agent re-registering on it.
+        string? leaseToken = null;
+        // A private agent never registers, so the server knows no session to lease and would refuse it.
+        if (entry.Participant is null && !entry.Launch.IsPrivate && entry.SessionId is { } leasedSession) {
+            switch (await BeginSourceResumeAsync(leasedSession, ct)) {
+                case HandoffBeginResult.Unreachable:
+                    return (SourceLeaseUnreachableReason, null);
+                case HandoffBeginResult.Answered { Admission.Refusal: SourceReservedReason }:
+                    return (SourceReservedReason, null);
+                case HandoffBeginResult.Answered { Admission.Token: { } token }:
+                    leaseToken = token;
+                    break;
+                case HandoffBeginResult.Answered { Admission.Refusal: var refused }:
+                    return ($"{SourceLeaseRefusedReason}: {refused}", null);
+            }
+        }
+        await using var lease = leaseToken is not null ? KeepSourceLease(leaseToken, entry.SessionId!) : null;
+
         var resume  = new ResumeLaunch(entry, ResumedWorktree(entry)) { Token = ct, StartsWaiting = silent };
         var command = BuildResumeCommand(entry, LastAlive(entry, null), _server.CurrentConnectionId) is var built && silent
             ? built with { Prompt = "" }
@@ -1297,12 +1343,30 @@ internal partial class AgentOrchestrator {
 
         if (resume.Agent is null && IsWithdrawn(entry.AgentId)) return (StoppedDuringResume, null);
 
+        // With no live runtime left, a lease lost while the launch ran may already have let a hand-off in, so no
+        // continuation may follow; a live one is settled below once it is confirmed gone.
+        // A captured survivor outranks a disposed runtime's HasExited, which can read true while its process lives.
+        if (lease?.IsLost == true && resume.Survivor is null && resume.Agent?.Runtime is not { HasExited: false })
+            return (SourceLeaseLostReason, null);
+
         if (resume.AccountRefusal is { } refusal) return (refusal, null);
 
         // The server holds no live entry under this id, so the resume goes on under a new one, unless a stop
         // came first: it gave up the worktree, and the teardown has removed it.
-        if (resume.RefusedRegistration is not null)
-            return resume.Agent?.StopRequested == true ? (StoppedDuringResume, null) : (RegistrationRefusedReason, null);
+        if (resume.RefusedRegistration is not null) {
+            if (resume.Agent?.StopRequested == true) return (StoppedDuringResume, null);
+
+            // The server holds no live agent on the source, so only the lease fences a runtime that will not die, and a
+            // continuation would run beside it.
+            if (resume.Survivor is { } survivor) {
+                LogInPlaceRetireUnconfirmed(entry.AgentId);
+                lease?.KeepUntilExit(survivor);
+
+                return (RuntimeUnstoppedReason, null);
+            }
+
+            return (RegistrationRefusedReason, null);
+        }
 
         if (outcome.Kind == CommandOutcomeKind.LaunchRejected)
             return (outcome.RejectReason == CommandRejectedReason.DaemonCapacity ? "daemon_capacity" : "launch_rejected", null);
@@ -1313,15 +1377,25 @@ internal partial class AgentOrchestrator {
 
         if (agent.StopRequested) return (StoppedDuringResume, null);
 
-        if (!survived && TranscriptRefused(agent)) {
-            // Its first turn was never sent, so kcap continue repeats nothing; still pending its resume,
-            // the teardown this starts keeps the worktree for it.
-            await agent.Runtime.TerminateAsync(ShutdownTerminateGrace);
+        // A lapsed lease may already have let a hand-off take the session over, so the resume fails once its runtime is
+        // gone. One that will not die stays registered on the source, which refuses a takeover, and carries on.
+        if (lease?.IsLost == true) {
+            if (await TerminateConfirmedAsync(agent)) return (SourceLeaseLostReason, null);
 
-            return (TranscriptRefusedReason, null);
+            LogInPlaceRetireUnconfirmed(agent.Id);
+        } else if (!survived) {
+            // Settled as failed, and so continued, only once the runtime is gone; until then the lease fences it.
+            if (!await TerminateConfirmedAsync(agent) && SurvivorOf(agent) is { } survivor) {
+                LogInPlaceRetireUnconfirmed(agent.Id);
+                lease?.KeepUntilExit(survivor);
+
+                return (RuntimeUnstoppedReason, null);
+            }
+
+            // A refused transcript's first turn was never sent, so kcap continue repeats nothing; still pending its
+            // resume, the teardown keeps the worktree for it.
+            return TranscriptRefused(agent) ? (TranscriptRefusedReason, null) : ("runtime_exited", agent.Runtime.ExitCode);
         }
-
-        if (!survived) return ("runtime_exited", agent.Runtime.ExitCode);
 
         lock (_ledgerLock) {
             // A shutdown that began meanwhile has marked the agent for its own resume.
@@ -1351,6 +1425,42 @@ internal partial class AgentOrchestrator {
     }
 
     const string SupersededReason = "superseded";
+
+    internal const string SourceReservedReason = "source_reserved";
+
+    internal const string SourceLeaseUnreachableReason = "source_lease_unreachable";
+
+    const string RuntimeUnstoppedReason = "runtime_unstopped";
+
+    const string SourceLeaseRefusedReason = "source_lease_refused";
+
+    /// <summary>A begin that did not reach the server is retried for <see cref="HandoffSuccessorWindow"/>; a server
+    /// that never answers leaves the session unfenced, so neither the resume nor a continuation may go on.</summary>
+    async Task<HandoffBeginResult> BeginSourceResumeAsync(string session, CancellationToken ct) {
+        var deadline = _time.GetUtcNow() + HandoffSuccessorWindow;
+
+        while (true) {
+            var begin = await BeginSourceResumeOnceAsync(session, deadline - _time.GetUtcNow(), ct);
+            if (begin is not HandoffBeginResult.Unreachable || _time.GetUtcNow() + HandoffSuccessorRetry > deadline) return begin;
+
+            await Task.Delay(HandoffSuccessorRetry, _time, ct);
+        }
+    }
+
+    /// <summary>A call the server holds open past the window reads as unreachable; the caller's own cancellation still
+    /// throws.</summary>
+    async Task<HandoffBeginResult> BeginSourceResumeOnceAsync(string session, TimeSpan left, CancellationToken ct) {
+        if (left <= TimeSpan.Zero) return new HandoffBeginResult.Unreachable();
+
+        using var window = new CancellationTokenSource(left, _time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, window.Token);
+
+        try {
+            return await _server.BeginSourceResumeAsync(session, linked.Token).WaitAsync(linked.Token);
+        } catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
+            return new HandoffBeginResult.Unreachable();
+        }
+    }
 
     internal TimeSpan ContinueSummaryBudget { get; set; } = TimeSpan.FromSeconds(10);
 
@@ -1580,7 +1690,7 @@ internal partial class AgentOrchestrator {
         var launch = entry.Launch;
         var path   = launch.WorktreePath;
 
-        if (launch.Work == WorkLocation.BorrowedCwd) return WorktreeInfo.Borrowed(path);
+        if (launch.Work is WorkLocation.BorrowedCwd or WorkLocation.InPlace) return WorktreeInfo.Borrowed(path);
 
         // An entry written before the worktree fields existed carries none of them.
         return new WorktreeInfo(
