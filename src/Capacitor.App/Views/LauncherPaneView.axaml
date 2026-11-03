@@ -249,7 +249,7 @@
                                Text="Runs in its own worktree, so your checkout stays as it is"
                                FontSize="12" LineHeight="17" Foreground="{StaticResource KcapFaintBrush}"
                                HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="640"
-                               ToolTip.Tip="kcap works in .capacitor/worktrees/agent-… inside this repository, on a new capacitor/agent-… branch. The session's Worktree panel shows the path and the branch to merge."
+                               ToolTip.Tip="kcap works in a worktree under .capacitor/worktrees inside this repository, starting from your current commit with no branch of its own. The agent creates a branch for its work, and the session's Worktree panel shows where to find it."
                                IsVisible="{Binding SelectedRepoPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 </StackPanel>
 

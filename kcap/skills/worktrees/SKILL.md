@@ -87,8 +87,11 @@ A prune removes only `.git/worktrees/<name>/`. What survives: the whole
 working tree (tracked files with their edits, untracked and ignored files),
 the branch and its reflog. What is lost:
 
-- `HEAD`, which branch was checked out. kcap worktrees always use
-  `capacitor/<folder name>`; a detached worktree's commit is genuinely lost
+- `HEAD`, which branch was checked out. kcap worktrees start detached and
+  the agent names its branch; ones from older kcap versions use
+  `capacitor/<folder name>`. A commit still detached loses its last
+  reference, but until `git gc` prunes it, `git fsck --no-reflogs
+  --lost-found` lists it as a dangling commit to branch from
 - The index: everything comes back unstaged and newly added files as
   untracked. Partial staging (`git add -p`) is the only real loss
 - The worktree's own HEAD reflog, `refs/bisect`, `refs/worktree`,
@@ -98,17 +101,17 @@ the branch and its reflog. What is lost:
 
 `git worktree repair` can't do it: it fails with
 `error: unable to locate repository; .git file does not reference a repository`.
-For a worktree at `wt/x` whose branch `capacitor/x` still exists, from the
+For a worktree at `wt/x` whose branch `<branch>` still exists, from the
 main checkout:
 
 ```
 mv wt/x wt/x.old
-git worktree add --no-checkout wt/x capacitor/x   # recreates metadata, touches no files
+git worktree add --no-checkout wt/x <branch>      # recreates metadata, touches no files
 mv wt/x/.git wt/x.old/.git
 rmdir wt/x && mv wt/x.old wt/x
 git -C wt/x reset                                 # rebuilds the index from HEAD, files untouched
 ```
 
-Confirm the branch with the user first when the folder name and branch might
-not match, and run it on the side that will use the worktree, or enable
-relative links first so both sides can open it
+Confirm the branch with the user first, since the folder name does not say
+which branch the agent created, and run it on the side that will use the
+worktree, or enable relative links first so both sides can open it

@@ -593,7 +593,7 @@ internal static class AcpVendorDescriptors {
     /// headless turn in an untrusted directory outright — <c>exit 55</c> before any model call — and a
     /// daemon-created worktree cannot be assumed pre-trusted, so without the flag every launch fails.
     /// What it does NOT do is protect anything: trust INHERITS from a trusted parent directory, and a
-    /// daemon worktree lives at <c>&lt;repo&gt;/.capacitor/worktrees/agent-…</c>, INSIDE the operator's
+    /// daemon worktree lives at <c>&lt;repo&gt;/.capacitor/worktrees/&lt;name&gt;</c>, INSIDE the operator's
     /// repository. An operator who has trusted their own repo therefore gives every hosted Gemini agent
     /// inherited trust over the checked-out branch's configuration — and passing <c>--skip-trust</c> does
     /// not withdraw it. Measured, not assumed.</para>

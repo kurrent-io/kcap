@@ -116,9 +116,8 @@ public partial class WorktreeManager {
     public async Task<WorktreeInfo> CreateHandoffAsync(
             string repoPath, HandoffStart start, string? name = null, CancellationToken ct = default) {
         ct.ThrowIfCancellationRequested();
-        name ??= $"agent-{Guid.NewGuid():N}"[..20];
-
         var worktreeRoot = Path.Combine(repoPath, ".capacitor", "worktrees");
+        name ??= await PickWorktreeNameAsync(repoPath, worktreeRoot);
         var worktreePath = Path.Combine(worktreeRoot, name);
         var detached     = start.Checkout == HandoffCheckout.Detached;
         var branch       = detached ? "" : start.Branch ?? "";
