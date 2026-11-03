@@ -239,24 +239,32 @@ public class LocalSearchViewModelTests {
     }
 
     /// <summary>A run's outcome describes the setting it left; once a terminal setup changes that setting, the run's
-    /// summary and its note about the index being built say nothing true.</summary>
+    /// summary and its note about the index being built say nothing true. Pinned for a run that turned the built-in
+    /// model on and is then switched to keywords, and for a failed download, which leaves keyword search, then
+    /// switched to a model.</summary>
     [Test]
-    public async Task A_setting_changed_elsewhere_retires_the_last_runs_summary() {
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_setting_changed_elsewhere_retires_the_last_runs_summary(bool configured) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var h = new Harness(LocalEmbeddingSetting.Declined);
             h.Vm.Choice.UseBuiltin = true;
+            var builtin = LocalEmbeddingSetting.Builtin(new string('a', 64));
 
-            h.Setting = LocalEmbeddingSetting.Builtin(new string('a', 64));
-            await h.ApplyAsync(0, """{"v":1,"event":"embeddings_configured","provider":"builtin"}""", Reused, LocalSetupScript.Committed);
+            if (configured) h.Setting = builtin;
+            await h.ApplyAsync(0,
+                configured ? BuiltinConfigured
+                    : """{"v":1,"event":"embeddings_skipped","code":"model_download_failed","message":"The built-in search model could not be downloaded"}""",
+                Reused, LocalSetupScript.Committed);
 
-            await Assert.That(h.Vm.Summary).IsEqualTo("Search by meaning with the built-in model.");
-            await Assert.That(h.Vm.ReembedNote).IsNotNull();
+            await Assert.That(h.Vm.Summary).IsNotNull();
+            await Assert.That(h.Vm.ReembedNote is not null).IsEqualTo(configured);
 
-            h.Setting = LocalEmbeddingSetting.Declined;
+            h.Setting = configured ? LocalEmbeddingSetting.Declined : builtin;
             h.Status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
             h.Status.OnNext(new(ServerLaneState.Connected));
 
-            await Assert.That(h.Vm.CurrentText).Contains("keyword");
+            await Assert.That(h.Vm.CurrentText).Contains(configured ? "keyword" : "meaning");
             await Assert.That(h.Vm.Summary).IsNull();
             await Assert.That(h.Vm.ReembedNote).IsNull();
         });
