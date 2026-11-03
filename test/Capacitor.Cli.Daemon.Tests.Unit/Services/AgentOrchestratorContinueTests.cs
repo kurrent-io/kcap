@@ -270,10 +270,13 @@ public class AgentOrchestratorContinueTests : IDisposable {
     /// <summary>A refused same-id registration leaves the server no live entry for the resumed agent: the
     /// resume goes on under a new agent id, and nothing further is sent under the refused one.</summary>
     [Test]
-    public async Task A_native_resume_whose_registration_is_refused_continues_under_a_new_agent_id() {
+    [Arguments("recorded_failure")]
+    [Arguments("superseded")]
+    [Arguments("")]
+    public async Task A_native_resume_whose_registration_is_refused_continues_under_a_new_agent_id(string refusal) {
         var f = Build(resumeSupported: true);
         await using var _ = f.Orch;
-        f.Server.RegistrationResponse = id => id == OldAgent ? new AgentRegisteredResponse(false, "recorded_failure") : null;
+        f.Server.RegistrationResponse = id => id == OldAgent ? new AgentRegisteredResponse(false, refusal) : null;
         var entry = Entry(f, vendorSession: "vendor-session-1");
 
         f.Orch.LoadResumeLedger();
@@ -300,6 +303,29 @@ public class AgentOrchestratorContinueTests : IDisposable {
         await Assert.That(f.Orch.GetAgentForTest(successor)).IsNotNull();
         await Assert.That(f.Orch.ResumeLedger!.TryRead(OldAgent)).IsNull();
         await Assert.That(f.Orch.ResumeLedger!.TryRead(successor)!.State).IsEqualTo(ResumeState.Running);
+    }
+
+    /// <summary>A refusal saying the server saw this run end stops the resumed process and starts no successor: the
+    /// run is over, and a new agent id would revive it. The entry is left interrupted and its worktree kept.</summary>
+    [Test]
+    public async Task A_native_resume_refused_because_its_run_ended_starts_no_successor() {
+        var f = Build(resumeSupported: true);
+        await using var _ = f.Orch;
+        f.Server.RegistrationResponse = id => id == OldAgent ? new AgentRegisteredResponse(false, "run_ended") : null;
+        var entry = Entry(f, vendorSession: "vendor-session-1");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Starts.Select(s => s.Ctx.AgentId)).IsEquivalentTo([OldAgent]);
+        await Assert.That(f.Server.AgentRegisteredCalls.Select(c => c.AgentId)).IsEquivalentTo([OldAgent]);
+        await Assert.That(f.Orch.GetAgentForTest(OldAgent)).IsNull();
+        await Assert.That(f.Server.ShutdownReports).IsEmpty();
+
+        var after = f.Orch.ResumeLedger!.TryRead(OldAgent)!;
+        await Assert.That(after.State).IsEqualTo(ResumeState.Interrupted);
+        await Assert.That(after.LastError).IsEqualTo("run_ended");
+        await Assert.That(Directory.Exists(entry.Launch.WorktreePath)).IsTrue();
     }
 
     /// <summary>A stop that lands while the registration is still unanswered gives up the worktree, so the
