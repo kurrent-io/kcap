@@ -717,6 +717,25 @@ public class AgentOrchestratorResumeOnBootTests {
                             TUnit.Assertions.Enums.CollectionOrdering.Matching);
     }
 
+    /// <summary>A registration a server without the acked method took answered nothing, so the next one, after a
+    /// reconnect to a server that may now read the resume, is still flagged as the first.</summary>
+    [Test]
+    public async Task A_legacy_registration_leaves_the_next_announcement_flagged_first() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-legacy-server");
+        var calls = 0;
+        f.Server.RegistrationResponse = _ => ++calls == 1 ? AgentRegisteredResponse.Unanswered : null;
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await f.Orch.ReRegisterAgentsAsync();
+        await f.Orch.ReRegisterAgentsAsync();
+
+        await Assert.That(f.Server.AgentRegisteredResumes.Where(r => r.AgentId == "resume-legacy-server").Select(r => r.FirstAnnounce))
+            .IsEquivalentTo(new[] { true, true, false }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
     /// <summary>Once the agent runs another session, the one its resume reopened is no longer announced.</summary>
     [Test]
     public async Task A_resumed_agent_that_moves_to_another_session_stops_announcing_the_reopened_one() {

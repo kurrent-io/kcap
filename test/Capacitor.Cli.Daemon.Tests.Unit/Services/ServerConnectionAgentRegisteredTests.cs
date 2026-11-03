@@ -123,6 +123,17 @@ public class ServerConnectionAgentRegisteredTests {
         await Assert.That(ordinary).DoesNotContain("continues_agent_id");
     }
 
+    /// <summary>A server without the acked method is read as accepting, but as having answered nothing; a real answer
+    /// is an answer.</summary>
+    [Test]
+    public async Task A_legacy_registration_is_accepted_but_unanswered() {
+        var acked  = await Register(new TestServerConnection());
+        var legacy = await Register(new TestServerConnection { Acked = UnknownMethod });
+
+        await Assert.That((acked.Registered, acked.Answered)).IsEqualTo((true, true));
+        await Assert.That((legacy.Registered, legacy.Answered)).IsEqualTo((true, false));
+    }
+
     /// <summary>The resume rides on both methods, so a server without the acked one still learns it.</summary>
     [Test]
     public async Task The_resumed_session_rides_on_the_acked_and_the_legacy_call() {

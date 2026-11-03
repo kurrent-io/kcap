@@ -1087,7 +1087,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
         await InvokeAgentRegisteredRawAsync(registration);
 
-        return AgentRegisteredResponse.Accepted;
+        return AgentRegisteredResponse.Unanswered;
     }
 
     /// <summary>The connection id on which the server answered <c>AgentRegisteredAcked</c> as an unknown method.</summary>
