@@ -72,8 +72,11 @@ public partial class WorktreeManager {
 
         ct.ThrowIfCancellationRequested();
 
-        return await DecideBranchStartAsync(repoPath, branch, sha);
+        return await DecideBranchStartAsync(repoPath, branch, sha, NoLazyFetch);
     }
+
+    // A partial clone fetches a missing object on demand, which would reach origin from a read meant to stay local.
+    static readonly KeyValuePair<string, string>[] NoLazyFetch = [new("GIT_NO_LAZY_FETCH", "1")];
 
     async Task ValidateHandoffTargetAsync(string repoPath, HandoffTarget target, CancellationToken ct) {
         ct.ThrowIfCancellationRequested();
@@ -85,7 +88,7 @@ public partial class WorktreeManager {
     }
 
     async Task<string?> ResolveCommitAsync(string repoPath, string refName) {
-        var result = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], "rev-parse", "--verify", "--quiet", $"{refName}^{{commit}}");
+        var result = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], NoLazyFetch, "rev-parse", "--verify", "--quiet", $"{refName}^{{commit}}");
 
         return result.ExitCode == 0 && result.Stdout.Trim() is { Length: > 0 } sha ? sha : null;
     }
@@ -106,7 +109,7 @@ public partial class WorktreeManager {
         return ((await RunGitCapture(repoPath, GitTimeout, time, true, "rev-parse", "--verify", $"{tracking}^{{commit}}")).Trim(), null);
     }
 
-    async Task<HandoffStart> DecideBranchStartAsync(string repoPath, string branch, string sha) {
+    async Task<HandoffStart> DecideBranchStartAsync(string repoPath, string branch, string sha, KeyValuePair<string, string>[]? environment = null) {
         var (local, elsewhere) = await ReadLocalBranchAsync(repoPath, branch);
 
         if (local is null)
@@ -116,7 +119,7 @@ public partial class WorktreeManager {
         if (local == sha)
             return new(HandoffSource.Branch, HandoffCheckout.CheckoutBranch, sha, branch, HandoffDetachReason.None, local);
 
-        var ancestor = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], "merge-base", "--is-ancestor", local, sha);
+        var ancestor = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], environment ?? [], "merge-base", "--is-ancestor", local, sha);
 
         return ancestor.ExitCode == 0
             ? new(HandoffSource.Branch, HandoffCheckout.FastForwardBranch, sha, branch, HandoffDetachReason.None, local)
