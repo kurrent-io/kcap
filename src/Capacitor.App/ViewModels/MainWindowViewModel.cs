@@ -479,7 +479,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         var canRetry = service.Status
             .Select(s =>
                 s.State == AttachState.Connecting
-                || (s.State == AttachState.Unreachable && s.Reason is not (UnreachableReason or ExpectedDaemonRestart.Reason)))
+                || (s.State == AttachState.Unreachable
+                    && s.Reason is not (UnreachableReason or ExpectedDaemonRestart.Reason or ExpectedDaemonRestart.StartingReason)))
             .ObserveOn(RxSchedulers.MainThreadScheduler);
 
         var start = startAction ?? RunStartAsync;
@@ -1276,6 +1277,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     static string? ReasonText(AttachStatus status) => status.State switch {
         AttachState.Unreachable when status.Reason == IncompatibleReason => HomeViewModel.DaemonIncompatibleNotice,
         AttachState.Unreachable when status.Reason == ExpectedDaemonRestart.Reason => HomeViewModel.DaemonRestartingNotice,
+        AttachState.Unreachable when status.Reason == ExpectedDaemonRestart.StartingReason => HomeViewModel.DaemonStartingNotice,
         AttachState.Unreachable => HomeViewModel.DaemonDownNotice,
         _ => null,
     };
@@ -1299,6 +1301,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     internal const string SignInRequiredText    = "Sign in required";
     internal const string DaemonConnectingText  = "Connecting to the daemon…";
     internal const string DaemonRestartingText  = "Daemon restarting…";
+    internal const string DaemonStartingText    = "Daemon starting…";
     internal const string DaemonStoppedText     = "Daemon not running";
     internal const string DaemonMismatchText    = "Daemon version doesn't match";
     internal const string DaemonUnreachableText = "Daemon unreachable";
@@ -1348,6 +1351,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 IncompatibleReason => new(DaemonMismatchText, StatusColors.Disrupted, RailRecovery.Reconnect,
                     HomeViewModel.DaemonIncompatibleNotice),
                 ExpectedDaemonRestart.Reason => new(DaemonRestartingText, StatusColors.Pending, Detail: HomeViewModel.DaemonRestartingNotice),
+                ExpectedDaemonRestart.StartingReason => new(DaemonStartingText, StatusColors.Pending, Detail: HomeViewModel.DaemonStartingNotice),
                 UnreachableReason when moving => new(DaemonRestartingText, StatusColors.Pending),
                 UnreachableReason => new(DaemonStoppedText, needsUser, RailRecovery.StartDaemon, HomeViewModel.DaemonDownNotice),
                 _ => new(DaemonUnreachableText, needsUser, RailRecovery.Reconnect),
