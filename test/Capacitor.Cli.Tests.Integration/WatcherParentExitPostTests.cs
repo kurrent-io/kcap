@@ -281,4 +281,30 @@ public class WatcherParentExitPostTests : IDisposable {
         await Assert.That(postPaths.IndexOf("/hooks/subagent-stop"))
             .IsLessThan(postPaths.IndexOf("/hooks/session-end/gemini"));
     }
+
+    /// <summary>A handed end the first attempt could neither post nor spool is retried as the end the hook handed
+    /// over, its run identity included, and released only once the server took it: this watcher's own identity can
+    /// be an earlier run's, which the server would refuse as a predecessor's end.</summary>
+    [Test]
+    public async Task A_retried_handed_end_posts_the_handed_run_and_releases_it_once_accepted() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"generate_whats_done":false}"""));
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
+        var handed = Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+
+        await Watch().RetryOrUnclaimHandedEndAsync(sessionId, "/tmp/fake.jsonl", "muse", repository: null, handed);
+
+        var body = JsonDocument.Parse(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost()).Single().RequestMessage.Body!).RootElement;
+        await Assert.That(body.GetProperty("agent_host_id").GetString()).IsEqualTo("agent-1");
+        await Assert.That(body.GetProperty("daemon_epoch").GetString()).IsEqualTo("epoch-2");
+        await Assert.That(body.GetProperty("reason").GetString()).IsEqualTo("exit");
+        await Assert.That(File.Exists(handed.ClaimedPath)).IsFalse();
+        await Assert.That(Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")).IsNull();
+    }
 }
