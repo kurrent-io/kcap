@@ -4,6 +4,7 @@ using Capacitor.Cli.Commands;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
+using Microsoft.Extensions.Time.Testing;
 using Capacitor.Cli.PrDetection;
 
 namespace Capacitor.Cli.Tests.Integration;
@@ -24,7 +25,28 @@ public class WatcherParentExitPostTests : IDisposable {
     // Instance, not static: the parent-exit POST resolves its client against a config dir, so it
     // must be this test's own root — which a static helper cannot see, TUnit injecting it after
     // construction.
-    WatchCommand Watch() => new(Config.Root, Resolutions.At(_server.Url!, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home);
+    WatchCommand Watch(TimeProvider? time = null) => new(Config.Root, Resolutions.At(_server.Url!, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), time ?? TimeProvider.System, TestAccounts.None, Home);
+
+    HookSpool Spool() => new(Config.Root, TimeProvider.System, _server.Url);
+
+    async Task<List<(string Route, string Body)>> Spooled() {
+        var entries = new List<(string, string)>();
+        await Spool().DrainAllAsync(null, (route, body) => {
+            entries.Add((route, body));
+            return Task.FromResult(DrainOutcome.Delivered);
+        }, TimeSpan.FromSeconds(10), CancellationToken.None);
+
+        return entries;
+    }
+
+    void AnswerAuth() =>
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+
+    Task<bool> PostEnd(string sessionId, TimeProvider? time = null) =>
+        Watch(time).PostSessionEndOnParentExitAsync(sessionId, "/tmp/fake.jsonl", "/repo", "claude", repository: null);
+
+    int EndPosts() => _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/claude").UsingPost()).Count;
 
     public void Dispose() => _server.Stop();
 
@@ -245,6 +267,71 @@ public class WatcherParentExitPostTests : IDisposable {
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(sessionId);
         await Assert.That(body.GetProperty("hook_event_name").GetString()).IsEqualTo("session_end");
         await Assert.That(body.GetProperty("reason").GetString()).IsEqualTo("idle_timeout");
+    }
+
+    /// <summary>A server that has not yet seen the watcher disconnect holds the end for its drain timeout.
+    /// An end that outlasts the budget is spooled as it was sent, ended_at included, so the drain
+    /// replays this exit rather than a later one.</summary>
+    [Test]
+    public async Task ParentExit_SpoolsTheEnd_WhenTheServerAnswersAfterTheBudget() {
+        AnswerAuth();
+        var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        _server.Given(Request.Create().WithPath("/hooks/session-end/claude").UsingPost())
+            .RespondWith(Response.Create().WithCallback(request => {
+                received.TrySetResult(request.Body!);
+                release.Wait(TimeSpan.FromSeconds(30));
+                return new WireMock.ResponseMessage { StatusCode = 200 };
+            }));
+
+        var clock     = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var sessionId = $"test{Guid.NewGuid():N}";
+        var post      = PostEnd(sessionId, clock);
+        var sent      = await received.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        clock.Advance(TimeSpan.FromSeconds(16));
+        var outcome = await post.WaitAsync(TimeSpan.FromSeconds(10));
+        release.Set();
+
+        await Assert.That(outcome).IsTrue();
+
+        var spooled = await Spooled();
+        await Assert.That(spooled.Count).IsEqualTo(1);
+        await Assert.That(spooled[0].Route).IsEqualTo("session-end/claude");
+        await Assert.That(spooled[0].Body).IsEqualTo(sent);
+    }
+
+    /// <summary>A refusal the drain would retry is spooled; one it would drop is not, as for every hook post.</summary>
+    [Test]
+    [Arguments(503, true)]
+    [Arguments(401, true)]
+    [Arguments(400, false)]
+    public async Task ParentExit_SpoolsTheEnd_OnlyForARetryableStatus(int status, bool spooled) {
+        AnswerAuth();
+        _server.Given(Request.Create().WithPath("/hooks/session-end/claude").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(status));
+
+        var sessionId = $"test{Guid.NewGuid():N}";
+
+        await Assert.That(await PostEnd(sessionId)).IsEqualTo(spooled);
+        await Assert.That((await Spooled()).Count).IsEqualTo(spooled ? 1 : 0);
+    }
+
+    /// <summary>A direct post would overtake a spooled start, ending a session the server has not started.</summary>
+    [Test]
+    public async Task ParentExit_QueuesTheEnd_BehindTheSessionsSpooledHooks() {
+        AnswerAuth();
+        _server.Given(Request.Create().WithPath("/hooks/session-end/claude").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"generate_whats_done":false}"""));
+
+        var sessionId = $"test{Guid.NewGuid():N}";
+        Spool().Append(sessionId, "session-start", """{"session_id":"x"}""");
+
+        await Assert.That(await PostEnd(sessionId)).IsTrue();
+        await Assert.That(EndPosts()).IsEqualTo(0);
+
+        var spooled = await Spooled();
+        await Assert.That(string.Join(",", spooled.Select(e => e.Route))).IsEqualTo("session-start,session-end/claude");
     }
 
     [Test]

@@ -43,9 +43,10 @@ public sealed class ClaudeHookCommand(
 
     /// <summary>
     /// What <c>kcap/hooks/hooks.json</c> gives the event, except where the host's own number is not
-    /// the useful bound: Claude caps a SessionEnd plugin hook at 1.5s, so its 15s belongs to the
-    /// detached continuation (<see cref="Cli.Harness.Claude.ClaudeSessionEndHandoff"/>) rather than to
-    /// the hook; and PermissionRequest is allowed 36s there, which is time for the human to answer,
+    /// the useful bound: Claude cancels a synchronous SessionEnd plugin hook after 1.5s whatever its
+    /// timeout, and a host that ignores the manifest's <c>async</c> still runs it that way, so its 15s
+    /// belongs to the detached continuation (<see cref="Cli.Harness.Claude.ClaudeSessionEndHandoff"/>)
+    /// rather than to the hook; and PermissionRequest is allowed 36s there, which is time for the human to answer,
     /// not for kcap to spend.
     /// </summary>
     static TimeSpan Ceiling(string? command) => command switch {
@@ -569,7 +570,7 @@ public sealed class ClaudeHookCommand(
         // clock, so both name the same deadline.
         var budget = clock.Budget(Ceiling(command));
 
-        // Inject home_dir and agent_host_id into all hook payloads, and normalize IDs.
+        // Inject home_dir and the hosted run into all hook payloads, and normalize IDs.
         try {
             var node = JsonNode.Parse(body);
 
@@ -579,8 +580,7 @@ public sealed class ClaudeHookCommand(
 
                 node["home_dir"] = home.Path;
 
-                if (command == "session-end") SessionEndIncarnation.Stamp(node, hosted);
-                else if (hosted.AgentId is { } agentHostId) node["agent_host_id"] = agentHostId;
+                SessionEndIncarnation.Stamp(node, hosted);
 
                 // Surface 3: attach this machine's harness inventory, session-start only (the
                 // injections above apply to every event; the inventory is a session-start signal).
@@ -956,6 +956,8 @@ public sealed class ClaudeHookCommand(
                 }
             }
 
+            var startSnapshot = sessionId is null ? null : spool.RunStartSnapshot(sessionId);
+
             HttpResponseMessage? resp = null;
             try {
                 if (remaining > TimeSpan.Zero) {
@@ -989,6 +991,8 @@ public sealed class ClaudeHookCommand(
 
                 return 0;
             }
+
+            if (sessionId is not null) spool.NoteRunStarted(sessionId, startSnapshot);
 
             // resp is 2xx — read the body ONCE for the envelope + plan-content emission.
             JsonNode? responseNode = null;
