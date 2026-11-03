@@ -41,10 +41,10 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
     readonly SerialDisposable _offer = new();
     readonly SerialDisposable _health = new();
     LocalEmbeddingSetting? _current;
-    // The setting as first read after the last run settled, by whichever read lands first: a reconnect read replaces
-    // the run's own. That run's outcome describes this setting and nothing later.
-    LocalEmbeddingSetting? _runLeft;
-    bool _awaitingRunLeft;
+    // The setting the last run started from, which a run that records nothing leaves as it was.
+    LocalEmbeddingSetting? _beforeRun;
+    // A run settled and no setting read has landed since, so the setting on screen predates what it recorded.
+    bool _settling;
     EmbeddingHealthAnswer? _healthAnswer;
     bool _canOpenSettings;
     bool _loaded;
@@ -186,7 +186,12 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
     bool CurrentByMeaning => _current is { Model: not null } or { Provider: LocalEmbeddingProvider.Builtin };
 
     // A setup run from a terminal can change the setting after this app's last run, which then no longer describes it.
-    bool RunDescribesSetting => Running || _awaitingRunLeft || _current == _runLeft;
+    bool RunDescribesSetting => Running || _settling || Embeddings switch {
+        { Configured: true, Builtin: true } => _current is { Provider: LocalEmbeddingProvider.Builtin },
+        { ConfiguredModel: { } model }      => _current is { Provider: LocalEmbeddingProvider.Ollama } && _current.Model == model,
+        { SkipCode: "declined" }            => _current is null or { Provider: LocalEmbeddingProvider.None },
+        _                                   => _current?.Provider == _beforeRun?.Provider && _current?.Model == _beforeRun?.Model,
+    };
 
     bool BuiltinNeedsRetry => _current is { Provider: LocalEmbeddingProvider.Builtin } && (_builtinNeedsRetry || _current.Pending);
 
@@ -196,7 +201,12 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
         _                              => CurrentByMeaning,
     };
 
-    Task ApplyAsync() => CanApply ? _search.StartAsync(Choice.Choice, _shutdown) : Task.CompletedTask;
+    Task ApplyAsync() {
+        if (!CanApply) return Task.CompletedTask;
+
+        _beforeRun = _current;
+        return _search.StartAsync(Choice.Choice, _shutdown);
+    }
 
     void OnSettled(LocalInstallOutcome outcome) {
         if (outcome is LocalInstallOutcome.Installed) {
@@ -205,7 +215,7 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
             if (_search.Progress.Embeddings is { Configured: true } or { SkipCode: "declined" }) _builtinNeedsRetry = false;
             _ = ReconnectAsync();
         }
-        _awaitingRunLeft = true;
+        _settling = true;
         ReadSetting(checkBuiltinModelReady: outcome is LocalInstallOutcome.Installed);
         Refresh();
     }
@@ -235,10 +245,7 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
                 if (builtinNeedsRetry is { } needsRetry) _builtinNeedsRetry = needsRetry;
                 _current = setting;
                 _loaded  = true;
-                if (_awaitingRunLeft) {
-                    _runLeft         = setting;
-                    _awaitingRunLeft = false;
-                }
+                _settling = false;
                 // An unchanged setting leaves a choice the user is still making alone.
                 if (prefill) Choice.Prefill(setting);
                 Refresh();

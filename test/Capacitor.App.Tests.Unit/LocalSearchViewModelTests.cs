@@ -290,31 +290,29 @@ public class LocalSearchViewModelTests {
         }
     }
 
-    /// <summary>A successful run's own read checks the model files, so the reconnect that follows it can read the setting
-    /// first and take the read's place; the run's outcome must still retire when the setting later changes.</summary>
+    /// <summary>A successful run's own read checks the model files, so a terminal setup can change the setting and its
+    /// reconnect read land first. The run's outcome shows until a read lands, then retires against what the run
+    /// recorded, not against whichever read came first.</summary>
     [Test]
-    public async Task A_reconnect_read_ahead_of_the_runs_own_still_settles_what_the_run_left() {
+    public async Task An_outside_change_read_ahead_of_the_runs_own_retires_the_runs_summary() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var reads = new HeldReads();
             using var h = new Harness(LocalEmbeddingSetting.Declined, reads: reads);
             reads.RunAll();
             h.Vm.Choice.UseBuiltin = true;
 
-            h.Setting = LocalEmbeddingSetting.Builtin(new string('a', 64));
             await h.ApplyAsync(0, BuiltinConfigured, Reused, LocalSetupScript.Committed);
-            h.Status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
-            h.Status.OnNext(new(ServerLaneState.Connected));
-            reads.RunAll();
 
             await Assert.That(h.Vm.Summary).IsEqualTo("Search by meaning with the built-in model.");
 
-            h.Setting = LocalEmbeddingSetting.Declined;
+            h.Setting = LocalEmbeddingSetting.Ollama("mxbai-embed-large");
             h.Status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
             h.Status.OnNext(new(ServerLaneState.Connected));
             reads.RunAll();
 
-            await Assert.That(h.Vm.CurrentText).Contains("keyword");
+            await Assert.That(h.Vm.CurrentText).IsEqualTo("Searches by meaning with mxbai-embed-large.");
             await Assert.That(h.Vm.Summary).IsNull();
+            await Assert.That(h.Vm.ReembedNote).IsNull();
         });
     }
 
