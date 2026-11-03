@@ -366,13 +366,19 @@ every file and directory the run installed kcap into, including the git config
 that carries the commit hook, under "Changed on this machine".
 
 Codex runs only hooks you have trusted. After Codex hooks install, the next
-`codex` CLI launch prompts to trust them — accept once to trust them all, or
-run /hooks inside Codex to trust the kcap entries individually. The Codex
-desktop app never shows that prompt: if you only use the desktop app, trust
-the kcap hooks in Settings → Hooks there (and since setup detects Codex by
-`codex` on PATH, you may need `kcap plugin install --codex` to install the
-hooks first). Until trusted, the hooks are installed but inert and no
-sessions are captured; setup reminds you of this whenever it installs them.
+interactive `codex` launch prompts to trust them — accept once to trust them
+all, or run /hooks inside Codex to trust the kcap entries individually.
+`codex exec` never shows that prompt, so running only `codex exec` records
+nothing unless each run passes --dangerously-bypass-hook-trust; run `codex`
+once first. The Codex desktop app never shows it either:
+if you only use the desktop app, trust the kcap hooks in Settings → Hooks
+there (and since setup detects Codex by `codex` on PATH, you may need
+`kcap plugin install --codex` to install the hooks first). Codex has no
+command that trusts hooks; a script can instead pass
+--dangerously-bypass-hook-trust to each `codex exec`, which trusts nothing
+for later runs. Until trusted, the hooks are installed but inert and no
+sessions are captured; setup reminds you of this whenever it installs them,
+and `kcap status` and `kcap harness list` report it.
 
 The git hook that files commits under their agent session needs git 2.54 or
 later. Setup adds the hook entry, then checks `git --version` and warns when

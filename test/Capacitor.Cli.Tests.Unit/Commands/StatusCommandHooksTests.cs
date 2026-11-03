@@ -190,6 +190,30 @@ public class StatusCommandHooksTests {
         await Assert.That(StatusCommand.HooksRun(HarnessId.Claude, wired: true, refused)).IsTrue();
     }
 
+    /// <summary>Hooks Codex has not trusted run nothing, so Codex must not read as wired; no answer is not a
+    /// refusal, and the trust of Codex says nothing about another agent.</summary>
+    [Test]
+    public async Task HooksRun_reads_untrusted_codex_hooks_as_not_running() {
+        await Assert.That(StatusCommand.HooksRun(HarnessId.Codex, wired: true, null, CodexHooksTrust.Untrusted)).IsFalse();
+        await Assert.That(StatusCommand.HooksRun(HarnessId.Codex, wired: true, null, CodexHooksTrust.Unknown)).IsTrue();
+        await Assert.That(StatusCommand.HooksRun(HarnessId.Codex, wired: true, null, CodexHooksTrust.Trusted)).IsTrue();
+        await Assert.That(StatusCommand.HooksRun(HarnessId.Claude, wired: true, null, CodexHooksTrust.Untrusted)).IsTrue();
+    }
+
+    /// <summary>The untrusted line is the user's only clue that <c>codex exec</c> records nothing, so it names
+    /// both the cause and the routes Codex offers.</summary>
+    [Test]
+    public async Task CodexUntrustedLine_says_codex_exec_never_asks_and_how_to_trust() {
+        var line = StatusCommand.CodexUntrustedLine();
+
+        await Assert.That(line).Contains("installed, not trusted");
+        await Assert.That(line).Contains("records nothing");
+        await Assert.That(line).Contains("`codex exec` never asks");
+        await Assert.That(line).Contains("run `codex` once");
+        await Assert.That(line).Contains("/hooks");
+        await Assert.That(line).Contains("Settings → Hooks");
+    }
+
     /// Every harness the build knows appears on the line — a tenth would too, since the line is
     /// built from the registry rather than a parameter per vendor.
     [Test]
@@ -226,6 +250,14 @@ public class StatusCommandHooksTests {
         await Assert.That(StatusCommand.RecordingLine(HarnessId.Claude, "Claude Code", null, Now))
             .IsEqualTo("Claude Code: no hook event yet. Start a new Claude Code session");
         await Assert.That(StatusCommand.RecordingLine(HarnessId.Codex, "Codex", null, Now)).Contains("trust the kcap hooks");
+        await Assert.That(StatusCommand.RecordingLine(HarnessId.Codex, "Codex", null, Now)).Contains("`codex exec` never asks");
+    }
+
+    /// <summary>Hooks Codex already trusts need only a new session, not a trust step they have had.</summary>
+    [Test]
+    public async Task RecordingLine_asks_no_trust_of_codex_hooks_codex_trusts() {
+        await Assert.That(StatusCommand.RecordingLine(HarnessId.Codex, "Codex", null, Now, CodexHooksTrust.Trusted))
+            .IsEqualTo("Codex: no hook event yet. Start a new Codex session");
     }
 
     [Test]

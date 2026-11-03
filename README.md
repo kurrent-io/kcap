@@ -514,7 +514,7 @@ npm install --prefix ~/workspace/kcap @kurrent/kcap
 #### After setup
 
 > **Need hooks for an agent installed after setup, or scoped to a single repo?**
-> Run `kcap plugin install [--codex|--cursor|--copilot|--gemini|--kiro|--pi|--opencode|--antigravity|--mistral-vibe|--muse|--grok]` (omit the flag for the Claude Code plugin), or pair Codex with `--project` for a per-repo install. Every per-vendor install also writes the agent skills to `~/.agents/skills/` (Kiro and Antigravity get their own copies under `~/.kiro/skills` and `~/.gemini/skills`), so `--skills` is only needed to install or refresh them on their own — for instance for an agent kcap has no integration for. Cursor uses user-scope only — `--project` has no effect with `--cursor`. After installing Codex hooks, the next `codex` launch prompts to trust the new hooks — accept once to trust them all (run `/hooks` inside Codex if you'd rather trust each entry individually). If you only use the Codex desktop app, it never prompts — trust the kcap hooks under Settings → Hooks in the app. After a `--project` install, also run `codex` once in the repo and accept the workspace trust prompt. Re-running after a kcap upgrade is rarely needed for user-scope installs — the npm postinstall hook auto-refreshes them on every `npm install -g @kurrent/kcap`, and `kcap update` refreshes them too (npm 11+ blocks install scripts by default — `kcap update` works regardless, or add `allow-scripts[]=@kurrent/kcap` to `~/.npmrc` to opt the postinstall in once).
+> Run `kcap plugin install [--codex|--cursor|--copilot|--gemini|--kiro|--pi|--opencode|--antigravity|--mistral-vibe|--muse|--grok]` (omit the flag for the Claude Code plugin), or pair Codex with `--project` for a per-repo install. Every per-vendor install also writes the agent skills to `~/.agents/skills/` (Kiro and Antigravity get their own copies under `~/.kiro/skills` and `~/.gemini/skills`), so `--skills` is only needed to install or refresh them on their own — for instance for an agent kcap has no integration for. Cursor uses user-scope only — `--project` has no effect with `--cursor`. After installing Codex hooks, the next interactive `codex` launch prompts to trust the new hooks — accept once to trust them all (run `/hooks` inside Codex if you'd rather trust each entry individually). Codex records nothing until then, and `codex exec` and the Codex desktop app never prompt: run `codex` once, or trust the kcap hooks under Settings → Hooks in the app. Codex has no command that trusts hooks without one of those; a script that only runs `codex exec` can pass `--dangerously-bypass-hook-trust` to each run instead, which trusts nothing for later runs. `kcap status` and `kcap harness list` say when Codex has not trusted the hooks. After a `--project` install, also run `codex` once in the repo and accept the workspace trust prompt. Re-running after a kcap upgrade is rarely needed for user-scope installs — the npm postinstall hook auto-refreshes them on every `npm install -g @kurrent/kcap`, and `kcap update` refreshes them too (npm 11+ blocks install scripts by default — `kcap update` works regardless, or add `allow-scripts[]=@kurrent/kcap` to `~/.npmrc` to opt the postinstall in once).
 
 > **Want an agent's kcap tools without recording its sessions?**
 > Add `--tools-only` to `kcap plugin install --cursor|--copilot|--gemini|--kiro|--pi|--opencode|--antigravity|--mistral-vibe|--muse`. It writes that agent's MCP servers, skills and steering instructions (the `--skip-<vendor>-mcp`, `--skip-<vendor>-skills` and `--skip-<vendor>-instructions` flags still apply; Mistral Vibe and Muse Code have no instructions file, so only their MCP servers and skills are written) and nothing that records: no hooks, no Pi or OpenCode live-ingest file, no Antigravity capture plugin, no Kiro agent clone, default-agent switch or Kiro Crew hook, and no git hook. Only Pi's MCP bridge still needs `kcap` on `PATH`. Claude Code and Codex ship their tools with capture, and kcap installs no tools for Grok, so `--tools-only` is refused for those three (exit code 1). The upgrade-time `--if-installed` refresh keeps a tools-only install tools-only: it refreshes the tools and never adds capture. `--tools-only --if-installed` refreshes only the tools of any install.
@@ -2561,7 +2561,7 @@ kcap accounts refresh [<id|dir>]               # ask the vendor who is signed in
 kcap accounts remove <id|dir>                  # remove kcap's recording and forget the account
 ```
 
-`<id|dir>` is an account id prefix (at least 4 characters) or its directory. `kcap agent start <claude|codex> --account <id|dir>` starts a [local agent](#local-agents-kcap-agent) under one. `kcap setup` offers the directories it discovers in your home folder. `remove` leaves the directory and its login untouched. Codex asks you to trust the kcap hooks once per home, the next time you start it with that `CODEX_HOME`. For a Codex account, `add` and `rewire` also enable Codex sandbox network access for your server(s), as `kcap plugin install --codex` does; pass `--skip-codex-network-access` to leave that home's `config.toml` network keys untouched.
+`<id|dir>` is an account id prefix (at least 4 characters) or its directory. `kcap agent start <claude|codex> --account <id|dir>` starts a [local agent](#local-agents-kcap-agent) under one. `kcap setup` offers the directories it discovers in your home folder. `remove` leaves the directory and its login untouched. Codex asks you to trust the kcap hooks once per home, the next time you start it interactively with that `CODEX_HOME` (`codex exec` never asks). For a Codex account, `add` and `rewire` also enable Codex sandbox network access for your server(s), as `kcap plugin install --codex` does; pass `--skip-codex-network-access` to leave that home's `config.toml` network keys untouched.
 
 `refresh` asks each account's vendor CLI who is signed in to that directory: `claude auth status --json` with its `CLAUDE_CONFIG_DIR`, or `codex app-server` with its `CODEX_HOME` (`account/read`, plus `account/rateLimits/read` for the usage limits it records as the account's reading). kcap never reads the vendors' credential files. It records the sign-in state, email, organization and plan on the account, and an account still labelled with its directory name takes the email as its label (one you set with `rename` is kept). When the vendor reports a different login than the one recorded, the account's earlier usage reading is discarded. Each probe times out after 10 seconds; a failed step is recorded on the account and leaves what was known before. `refresh` prints one line per account and exits 1 when any step failed. `add` refreshes the account after wiring it; a refresh failure there is a warning and does not fail the add.
 
@@ -2852,8 +2852,12 @@ You'll see the offer on whichever surface reaches you:
   even one you've dismissed (status tells the whole truth).
 - **`kcap status`** also shows whether each wired agent's hooks are actually running: when it last
   ran a kcap hook on this machine, or that it has not yet (start a new session; Codex runs no hook
-  until you trust kcap's). A hook running proves the integration loaded, not that a session reached
-  the server. `--json` carries the time as `last_hook_event`, and a git older than 2.54,
+  until you trust kcap's). Codex hooks that Codex has not trusted show as `Codex ✗` with a line
+  saying how to trust them, since nothing records until then; `--json` reports them as
+  `"wired": false` with `"hooks_trust": "untrusted"`. The answer is the one the daemon last stored
+  for the current hook files, or else `codex app-server` asked on the spot. A hook running proves
+  the integration loaded, not that a session reached the server. `--json` carries the time as
+  `last_hook_event`, and a git older than 2.54,
   which ignores the commit hook, gets its own warning line.
 - **`kcap status`** shows each running daemon's version, and warns, naming the fix, when a daemon
   runs a different version than the CLI or its service runs a binary outside the CLI's own install
@@ -2879,13 +2883,19 @@ without carrying its own vendor list:
 
 ```json
 {"harnesses":[{"vendor":"claude","label":"Claude Code","binary_on_path":true,
-               "config_found":false,"wired":false,"desktop_app":false,"dismissed":false}]}
+               "config_found":false,"wired":false,"desktop_app":false,"dismissed":false,
+               "hooks_trust":null}]}
 ```
 
 `vendor` is the stable key — the id `dismiss` and `reset` take. The detection signals stay
 apart: `binary_on_path` is the vendor's CLI on your search path, `config_found` files it writes on
 disk, `desktop_app` its desktop app or the data that app keeps, and any one means installed. A tool choosing which agents to set up wants each,
 since it can then say which signal it saw; one that only needs "is it here" ORs them.
+
+`wired` means kcap's hooks are in place. For Codex, whose hooks run only once you trust them,
+`hooks_trust` is `"trusted"` or `"untrusted"` as Codex answered, or `null` when there was no
+answer; the text table shows untrusted Codex hooks as `not trusted` instead of `yes`, with a line
+saying how to trust them.
 
 To turn off the nudges entirely (both the in-session and command-line surfaces), set
 `kcap config set disable_harness_nudge true`. Dismissing is per-agent; a brand-new agent installed
