@@ -26,15 +26,18 @@ public sealed class CodexHookTrustProbe(HarnessRegistry harnesses, UserHome home
         var rpc = new CodexAppServerRpc(process.StandardInput, process.StandardOutput, linked.Token);
 
         HookTrustObservation? observation = null;
+        var unanswered = false;
         try {
             await rpc.InitializeAsync().ConfigureAwait(false);
             observation = await ReadAsync(rpc, psi.WorkingDirectory, paths, before).ConfigureAwait(false);
         } catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
-            // No answer within the deadline.
+            unanswered = true;
         } catch (Exception ex) when (ex is CodexAppServerRpc.CallFailed or IOException or ObjectDisposedException) {
             // Codex refused the handshake or stopped.
         } finally {
-            await CodexAppServer.ShutDownAsync(process, time).ConfigureAwait(false);
+            // A Codex that missed the deadline gets no exit grace on top of it: kcap status waits on this.
+            if (unanswered) VendorProcess.Stop(process);
+            else await CodexAppServer.ShutDownAsync(process, time).ConfigureAwait(false);
         }
 
         ct.ThrowIfCancellationRequested();
