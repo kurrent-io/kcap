@@ -15,6 +15,19 @@ public class MuseHostedSessionMarkerTests {
     static MuseHostedSessionMarker MarkerWrittenAt(DateTimeOffset at, string session = Dashed) =>
         new(session, "agent-1", "daemon-1", "epoch-1", at);
 
+    /// <summary>Only a hook under the marker's own Muse process proves it belongs to the run; a pending marker proves
+    /// nothing, and one an older daemon wrote, naming no owner, is trusted as before.</summary>
+    [Test]
+    public async Task Only_a_hook_under_the_owning_process_proves_the_marker_its_own() {
+        var own = MarkerWrittenAt(Now) with { OwnerToken = ProcessStartToken.ForCurrent() };
+
+        await Assert.That(own.IsOwnedBy(Environment.ProcessId)).IsTrue();
+        await Assert.That(own.IsOwnedBy(null)).IsFalse();
+        await Assert.That((own with { OwnerToken = "lx:another-boot:1" }).IsOwnedBy(Environment.ProcessId)).IsFalse();
+        await Assert.That((own with { OwnerToken = "" }).IsOwnedBy(Environment.ProcessId)).IsFalse();
+        await Assert.That((own with { OwnerToken = null }).IsOwnedBy(null)).IsTrue();
+    }
+
     [Test]
     public async Task A_written_marker_reads_back_under_either_spelling_of_the_session_id() {
         var marker = MarkerWrittenAt(Now);

@@ -32,7 +32,7 @@ internal sealed class FakeMuseMspProcess : IMuseMspProcess {
     /// <summary>Replaces <see cref="TerminateAsync"/>'s completion; the call is still counted.</summary>
     public Func<Task>? TerminateOverride { get; set; }
 
-    public int  Pid            { get; } = 4242;
+    public int  Pid            { get; set; } = 4242;
     public bool HasExited      { get; private set; }
     public int? ExitCode       { get; private set; }
     public int  TerminateCalls { get; private set; }

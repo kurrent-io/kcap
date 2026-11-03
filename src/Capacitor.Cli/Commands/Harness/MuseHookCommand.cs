@@ -254,8 +254,13 @@ sealed class MuseHookCommand(
         };
 
         if (cwd is not null) forwarded["cwd"] = cwd;
+
+        // A hook that cannot prove it runs under the marker's run names the agent but not the epoch, so its end is
+        // judged as no particular run's, and it leaves the marker to the run that owns it.
+        var marker = hosted.AgentId is null ? MuseHostedSessionMarker.TryRead(home, sessionId) : null;
+        var owned  = marker?.IsOwnedBy(ProcessHelpers.GetCodingAgentPid(Vendor, allowFallback: false)) ?? true;
         if (hosted.AgentId is not null) SessionEndIncarnation.Stamp(forwarded, hosted);
-        else if (MuseHostedSessionMarker.TryRead(home, sessionId) is { } marker) SessionEndIncarnation.Stamp(forwarded, marker.AgentId, marker.DaemonEpoch);
+        else if (marker is not null) SessionEndIncarnation.Stamp(forwarded, marker.AgentId, owned ? marker.DaemonEpoch : null);
 
         if (Paths.ResolveSessionLog(session.ToString("D"), today) is { } log && HookHttp.IsPostable(Url)) {
             MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString());
@@ -264,13 +269,13 @@ sealed class MuseHookCommand(
             // only after retiring its pid file; one that has gone is replaced by a watcher armed for it.
             await watchers.EnsureWatcherRunning(sessionId, log,
                 agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: Vendor);
-            MuseHostedSessionMarker.Delete(home, sessionId);
+            if (owned) MuseHostedSessionMarker.Delete(home, sessionId);
 
             return;
         }
 
         await PostInOrderAsync("session-end/muse", forwarded.ToJsonString(), sessionId, budget);
-        MuseHostedSessionMarker.Delete(home, sessionId);
+        if (owned) MuseHostedSessionMarker.Delete(home, sessionId);
     }
 
     /// <summary>No child watcher starts here: the parent watcher's scan tails a child once its log

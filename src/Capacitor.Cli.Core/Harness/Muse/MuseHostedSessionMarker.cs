@@ -18,6 +18,9 @@ namespace Capacitor.Cli.Core.Harness.Muse;
 /// <param name="SessionKind">What the daemon launched the session as, in the wire form of
 /// <see cref="HostedSessionKinds"/> — the hook's only source for it, since no environment reaches it.</param>
 /// <param name="FlowRole">The participant's flow role, when the launch named one.</param>
+/// <param name="OwnerToken">The start token of the Muse process this marker's run launched: empty while the launch is
+/// starting it. The marker is keyed by session alone, so a resume rewrites it before an earlier run's last hook has
+/// fired, and only a hook under this process may take the run's epoch or delete the marker.</param>
 /// <remarks>The connection and kind fields are absent from a marker an older daemon wrote, and read as null.</remarks>
 public sealed partial record MuseHostedSessionMarker(
         string         SessionId,
@@ -29,8 +32,17 @@ public sealed partial record MuseHostedSessionMarker(
         string?        ServerUrl = null,
         string?        Profile   = null,
         string?        SessionKind = null,
-        string?        FlowRole    = null
+        string?        FlowRole    = null,
+        string?        OwnerToken  = null
     ) {
+    /// <summary>Whether a hook under the Muse process <paramref name="musePid"/> belongs to this marker's run. A
+    /// marker an older daemon wrote names no owner and is trusted as before.</summary>
+    public bool IsOwnedBy(int? musePid) =>
+        OwnerToken switch {
+            null => true,
+            ""   => false,
+            var token => musePid is { } pid && ProcessStartToken.Matches(pid, token) == true
+        };
     public static string DirectoryFor(UserHome home) => ConfigRoot.UnderHome(home.Path).Path("muse-hosted");
 
     public static string PathFor(UserHome home, string sessionId) =>

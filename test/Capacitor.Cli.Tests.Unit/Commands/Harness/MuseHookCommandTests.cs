@@ -322,6 +322,25 @@ public class MuseHookCommandTests : IDisposable {
         await Assert.That(body.TryGetProperty("agent_host_id", out _)).IsFalse();
     }
 
+    /// <summary>A resume rewrites the marker for the next run before an earlier run's last hook fires. That hook runs
+    /// under no process the marker names, so its end takes the agent but not the new run's epoch, and the marker is
+    /// left for the run that owns it.</summary>
+    [Test]
+    public async Task An_earlier_runs_late_SessionEnd_takes_no_epoch_from_the_next_runs_marker_and_leaves_it() {
+        StubHooks();
+        MuseHostedSessionMarker.Write(Home,
+            new MuseHostedSessionMarker(ParentId, "agent-from-marker", "daemon-1", "epoch-2", DateTimeOffset.UtcNow, OwnerToken: "lx:another-boot:1"));
+
+        await Command().Handle(new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
+            new StringWriter(), ParentEnv, Today);
+
+        var body = JsonDocument.Parse(HookPosts("/hooks/session-end/muse").Single()).RootElement;
+        await Assert.That(body.GetProperty("agent_host_id").GetString()).IsEqualTo("agent-from-marker");
+        await Assert.That(body.TryGetProperty("daemon_epoch", out _)).IsFalse();
+        await Assert.That(MuseHostedSessionMarker.TryRead(Home, ParentId)).IsNotNull();
+    }
+
     /// <summary>The end is linked to the same agent and daemon epoch as the start, through the marker it then deletes.</summary>
     [Test]
     public async Task SessionEnd_takes_agent_host_id_and_daemon_epoch_from_the_marker_then_deletes_it() {
