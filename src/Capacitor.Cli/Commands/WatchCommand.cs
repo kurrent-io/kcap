@@ -2457,7 +2457,7 @@ partial class WatchCommand(
 
             try {
                 var body = await response.Content.ReadAsStringAsync(budgetCts.Token);
-                var node = JsonNode.Parse(body);
+                var node = string.IsNullOrWhiteSpace(body) ? null : JsonNode.Parse(body);
 
                 if (node?["generate_whats_done"]?.GetValue<bool>() == true) {
                     watchers.SpawnWhatsDoneGenerator(sessionId, vendor);

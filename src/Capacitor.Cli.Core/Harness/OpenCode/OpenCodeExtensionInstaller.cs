@@ -245,11 +245,46 @@ public static class OpenCodeExtensionInstaller {
             }
           }
 
-          // Append any not-yet-written {info,parts} lines to targetFile. A key is marked seen ONLY
-          // after the append SUCCEEDS, so a transient disk/permission/full-volume error doesn't
-          // permanently suppress those snapshots — a later flush retries them. Returns false iff the
-          // append threw. Re-emits when a message's dedup key changes (new parts, or a tool turning
-          // terminal); prt_ ids dedupe server-side.
+          // `opencode run` sends its message with every argument that contains a space re-quoted, its
+          // own quotes backslash-escaped, so a prompt given as one argument is stored inside quotes the
+          // user never typed. Pairs of [stored form, typed argument] for this process's run arguments.
+          function quotedRunArgs(): [string, string][] {
+            try {
+              const argv: any[] = (globalThis as any).process?.argv ?? []
+              const at = argv.indexOf("run")
+              if (at < 0) return []
+              return argv.slice(at + 1)
+                .filter((a: any) => typeof a === "string" && a.includes(" "))
+                .map((a: string) => ['"' + a.replace(/"/g, '\\"') + '"', a] as [string, string])
+            } catch {
+              return []
+            }
+          }
+          const runArgs = quotedRunArgs()
+
+          // Only text that is exactly one such argument is unwrapped, alone or followed by the piped
+          // stdin run appends after a newline; a quote inside a longer message is the user's own.
+          function unquoteRunPrompt(text: string): string {
+            for (const [stored, typed] of runArgs) {
+              if (text === stored) return typed
+              if (text.startsWith(stored + "\n")) return typed + text.slice(stored.length)
+            }
+            return text
+          }
+
+          // A copy, never the SDK's objects; prt_ ids are untouched, so the server's dedup is unchanged.
+          function recordedParts(m: any): any[] {
+            const parts: any[] = m?.parts ?? []
+            if (runArgs.length === 0 || m?.info?.role !== "user") return parts
+            return parts.map((p: any) => {
+              if (p?.type !== "text" || p?.synthetic === true || typeof p?.text !== "string") return p
+              const text = unquoteRunPrompt(p.text)
+              return text === p.text ? p : { ...p, text }
+            })
+          }
+
+          // Appends the not-yet-written {info,parts} lines. A key is marked seen only after the append
+          // succeeds, so a failed write is retried by a later flush. Returns false iff the append threw.
           function writeMessages(targetFile: string, msgs: any[]): boolean {
             const seen = written.get(targetFile) ?? new Set<string>()
             written.set(targetFile, seen)
@@ -258,7 +293,7 @@ public static class OpenCodeExtensionInstaller {
               if (!m?.info?.id) continue
               const key = dedupeKey(m)
               if (seen.has(key)) continue
-              pending.push({ key, line: JSON.stringify({ info: m.info, parts: m.parts ?? [] }) })
+              pending.push({ key, line: JSON.stringify({ info: m.info, parts: recordedParts(m) }) })
             }
             if (pending.length === 0) return true
             try {

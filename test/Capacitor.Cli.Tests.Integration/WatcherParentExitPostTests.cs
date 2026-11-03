@@ -62,6 +62,30 @@ public class WatcherParentExitPostTests : IDisposable {
         await Assert.That(body.GetProperty("reason").GetString()).IsEqualTo("parent_exited");
     }
 
+    /// <summary>A server that accepts the end with no body owes the watcher nothing to read.</summary>
+    [Test, NotInParallel]
+    public async Task ParentExit_AcceptsAnEmptySuccessBody() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+
+        _server.Given(Request.Create().WithPath("/hooks/session-end/opencode").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+
+        using var stderr = ConsoleOutput.StartErrorCapture();
+
+        var posted = await Watch().PostSessionEndOnParentExitAsync(
+            sessionId:      $"test-{Guid.NewGuid():N}",
+            transcriptPath: "/tmp/fake.jsonl",
+            cwd:            "/repo",
+            vendor:         "opencode",
+            repository:     null
+        );
+
+        await Assert.That(posted).IsTrue();
+        await Assert.That(stderr.GetCapturedError()).Contains("session-end POST succeeded");
+        await Assert.That(stderr.GetCapturedError()).DoesNotContain("parse failed");
+    }
+
     [Test]
     public async Task ParentExit_IncludesRepository_WhenProvided() {
         _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
