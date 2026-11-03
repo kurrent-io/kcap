@@ -21,5 +21,9 @@ internal sealed record HandoffLaunchRecipe(HarnessId Vendor, IReadOnlyList<strin
         [HarnessId.Muse]        = new(HarnessId.Muse,        []),
     }.ToFrozenDictionary();
 
+    /// <summary>Vendors with no way to start a session on a prompt. dsh reads a bare first argument as
+    /// the name of a profile to boot.</summary>
+    public static readonly IReadOnlySet<HarnessId> Unsupported = new HashSet<HarnessId> { HarnessId.Dsh }.ToFrozenSet();
+
     public IReadOnlyList<string> Argv(string prompt) => [.. LeadingArgs, prompt];
 }

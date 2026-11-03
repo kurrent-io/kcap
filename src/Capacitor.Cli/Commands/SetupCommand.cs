@@ -15,6 +15,7 @@ using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Harness.Kiro;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Harness.MistralVibe;
+using Capacitor.Cli.Core.Harness.Dsh;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.Harness.Pi;
@@ -34,6 +35,7 @@ using Capacitor.Cli.Harness.Gemini;
 using Capacitor.Cli.Harness.Kiro;
 using Capacitor.Cli.Harness.Grok;
 using Capacitor.Cli.Harness.MistralVibe;
+using Capacitor.Cli.Harness.Dsh;
 using Capacitor.Cli.Harness.Muse;
 using Capacitor.Cli.Harness.OpenCode;
 using Capacitor.Cli.Harness.Pi;
@@ -690,6 +692,7 @@ sealed class SetupCommand(
         var skipGrokFlag     = args.Contains("--skip-grok-hooks");
         var skipMuseFlag     = args.Contains("--skip-muse-hooks");
         var skipMuseMcpFlag  = args.Contains("--skip-muse-mcp");
+        var skipDshFlag      = args.Contains("--skip-dsh-hooks");
         var skipImport       = args.Contains("--skip-import") || museAssistant;
         var importSkip       = ImportSkipArgs(args).Skip ?? ImportSkip.None;
         var skipHarnesses    = args.Contains("--skip-harnesses");
@@ -926,6 +929,7 @@ sealed class SetupCommand(
         var vibe     = harnesses.Of<MistralVibeHarness>().Paths;
         var grok     = harnesses.Of<GrokHarness>().Paths;
         var muse     = harnesses.Of<MuseHarness>().Paths;
+        var dsh      = harnesses.Of<DshHarness>().Paths;
 
         var stepPaths = new CodingAgentsStep.Paths(
             ClaudeSettingsPath:   claudeSettingsPath,
@@ -960,7 +964,8 @@ sealed class SetupCommand(
             VibeHooksPath:        vibe.HooksToml,
             VibeConfigPath:       vibe.ConfigToml,
             GrokHooksPath:        grok.KcapHooksJson,
-            MuseSettingsPath:     muse.SettingsJson);
+            MuseSettingsPath:     muse.SettingsJson,
+            DshPluginPath:        dsh.PluginFile);
 
         // The browser leg, where the tenant serves one. Unnumbered because it is not a step: the
         // steps below run either way, and on every tenant that has not turned the flow on this
@@ -1047,6 +1052,7 @@ sealed class SetupCommand(
             Vibe:        harnesses.Detected(HarnessId.MistralVibe),
             Grok:        harnesses.Detected(HarnessId.Grok),
             Muse:        harnesses.Detected(HarnessId.Muse),
+            Dsh:         harnesses.Detected(HarnessId.Dsh),
             ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable));
 
         bool PromptYesNo(string text) =>
@@ -1113,7 +1119,8 @@ sealed class SetupCommand(
             SkipMistralVibeMcp: skipVibeMcpFlag,
             SkipGrok: skipGrokFlag,
             SkipMuse: skipMuseFlag,
-            SkipMuseMcp: skipMuseMcpFlag);
+            SkipMuseMcp: skipMuseMcpFlag,
+            SkipDsh: skipDshFlag);
 
         stepOptions = museAssistant
             ? MuseAssistantPosture.Apply(stepOptions)
@@ -1186,6 +1193,7 @@ sealed class SetupCommand(
             // Muse's hooks and MCP servers share one JSON settings.json; an unparseable file is a failure, not a success.
             InstallMuseHooks:         p => InstallMuseHooks(p, home, muse, WriteLine),
             RegisterMuseMcp:          () => MuseSettingsJson.RegisterKcapMcpServers(muse.SettingsJson, home),
+            InstallDshPlugin:         () => DshPluginInstaller.Install(dsh),
             ReadAgentSkillsConsumers:  dir => SharedSkillsConsumers.Read(dir, () => SharedSkillsConsumerProbe.Configured(harnesses, home)),
             WriteAgentSkillsConsumers: (dir, consumers) => SharedSkillsConsumers.Write(dir, consumers));
 
@@ -1233,6 +1241,7 @@ sealed class SetupCommand(
         OfferedIf(detected.Vibe,        skipVibeFlag,        HarnessId.MistralVibe);
         OfferedIf(detected.Grok,        skipGrokFlag,        HarnessId.Grok);
         OfferedIf(detected.Muse,        skipMuseFlag,        HarnessId.Muse);
+        OfferedIf(detected.Dsh,         skipDshFlag,         HarnessId.Dsh);
         // The posture offers no harness, so nothing may be recorded as offered.
         if (!museAssistant && !skipHarnesses) new HarnessOfferStore(config, time).StampOffered(offeredNow, time.GetUtcNow());
 
@@ -1518,6 +1527,7 @@ sealed class SetupCommand(
             installResult.CopilotHooksInstalled, installResult.GeminiHooksInstalled, installResult.KiroHooksInstalled,
             installResult.PiExtensionInstalled, installResult.OpenCodeExtensionInstalled, installResult.AntigravityHooksInstalled,
             installResult.VibeHooksInstalled, installResult.GrokHooksInstalled, installResult.MuseHooksInstalled,
+            installResult.DshPluginInstalled,
         }.Count(installed => installed);
 
         telemetry.Funnel.Succeeded(agentsConfigured);
@@ -2186,7 +2196,11 @@ sealed class SetupCommand(
                 harnesses.Of<GrokHarness>().Paths,
                 cwd => RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time, detectPullRequest: false),
                 time),
-            new MuseImportSource(harnesses.Of<MuseHarness>().Paths, WatcherPaths.FromEnvironment(config), time)
+            new MuseImportSource(harnesses.Of<MuseHarness>().Paths, WatcherPaths.FromEnvironment(config), time),
+            new DshImportSource(
+                harnesses.Of<DshHarness>().Paths.SessionsDir,
+                cwd => RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time, detectPullRequest: false),
+                time)
         ];
 
         if (vendors is null) return all;
@@ -2369,6 +2383,7 @@ sealed class SetupCommand(
             (result.PiExtensionInstalled, HarnessId.Pi), (result.OpenCodeExtensionInstalled, HarnessId.OpenCode),
             (result.AntigravityHooksInstalled, HarnessId.Antigravity), (result.VibeHooksInstalled, HarnessId.MistralVibe),
             (result.GrokHooksInstalled, HarnessId.Grok), (result.MuseHooksInstalled, HarnessId.Muse),
+            (result.DshPluginInstalled, HarnessId.Dsh),
         ];
 
         return [.. all.Where(h => h.Installed).Select(h => h.Id.VendorId)];

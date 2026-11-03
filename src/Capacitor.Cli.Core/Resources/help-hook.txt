@@ -12,7 +12,7 @@ Description:
   dispatch is argument-driven (no stdin payload) — see --pi / --opencode below.
 
   The command is registered via 'kcap setup' or
-  'kcap plugin install [--claude|--codex|--cursor|--copilot|--gemini|--kiro|--pi|--opencode|--antigravity|--mistral-vibe|--grok|--muse]',
+  'kcap plugin install [--claude|--codex|--cursor|--copilot|--gemini|--kiro|--pi|--opencode|--antigravity|--mistral-vibe|--grok|--muse|--dsh]',
   which writes the appropriate hook configuration (or, for Pi/OpenCode/Antigravity,
   the plugin/hooks-block) for the vendor.
 
@@ -75,6 +75,12 @@ Options:
               the one saved by `kcap setup` or `kcap plugin install --muse`.
               Always exits 0; the only stdout is the memory fragment Muse
               appends to the model's context on SessionStart.
+  --dsh --event <session-start|session-end> --session <id> --file <f>
+              Dispatch a DeepSeek Harness lifecycle event (arg-driven; no
+              stdin). kcap's dsh plugin runs it with the session's --cwd,
+              --parent-session and dsh's --agent-pid. session-start POSTs
+              session-start and spawns the watcher on the JSONL the plugin
+              writes (vendor=dsh); session-end drains it and POSTs session-end.
 
 Environment:
   KCAP_HOOK_TIMING=1

@@ -38,7 +38,7 @@ public sealed class HarnessSettingsRow : ReactiveObject {
     /// Claude Code and Codex install their tools with recording, so one choice covers both.
     public bool ToolsBundled => HarnessInstallOptions.ToolsBundled(Id);
     /// Grok loads the tools set up for Claude Code; kcap installs none for it.
-    public bool OffersTools => !ToolsBundled && Id != HarnessId.Grok;
+    public bool OffersTools => !ToolsBundled && Id is not (HarnessId.Grok or HarnessId.Dsh);
     public bool RecordOnly => !ToolsBundled && !OffersTools;
 
     internal bool? Wired => _wired;

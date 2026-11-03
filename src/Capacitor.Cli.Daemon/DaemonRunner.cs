@@ -1631,7 +1631,7 @@ public static partial class DaemonRunner {
             HarnessId.Antigravity => AntigravityLauncherPolicyVersion,
             HarnessId.Grok        => GrokLauncherPolicyVersion,
             HarnessId.Muse        => MuseLauncherPolicyVersion,
-            HarnessId.MistralVibe => null,
+            HarnessId.MistralVibe or HarnessId.Dsh => null,
             null                  => null,
         };
 

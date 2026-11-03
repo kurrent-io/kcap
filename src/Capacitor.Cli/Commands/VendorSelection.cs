@@ -17,7 +17,7 @@ public static class VendorSelection {
     // internal, not private: the driver-schema conformance suite pins its hand-written harness table
     // against this list, so adding a tenth installable target fails there instead of silently leaving
     // it uncovered. No enumeration of supported harnesses exists in production code otherwise.
-    internal static readonly string[] KnownVendorFlags = ["--claude", "--codex", "--cursor", "--copilot", "--gemini", "--kiro", "--pi", "--opencode", "--antigravity", "--mistral-vibe", "--grok", "--muse"];
+    internal static readonly string[] KnownVendorFlags = ["--claude", "--codex", "--cursor", "--copilot", "--gemini", "--kiro", "--pi", "--opencode", "--antigravity", "--mistral-vibe", "--grok", "--muse", "--dsh"];
 
     public static Result Parse(string[] args) {
         var vendors = new HashSet<HarnessId>();
@@ -36,6 +36,7 @@ public static class VendorSelection {
                 case "--mistral-vibe":    vendors.Add(HarnessId.MistralVibe); break;
                 case "--grok":    vendors.Add(HarnessId.Grok); break;
                 case "--muse":    vendors.Add(HarnessId.Muse); break;
+                case "--dsh":     vendors.Add(HarnessId.Dsh); break;
             }
         }
 
@@ -47,7 +48,7 @@ public static class VendorSelection {
             if (!a.StartsWith("--")) continue;
             if (Array.IndexOf(KnownVendorFlags, a) >= 0) continue;
 
-            if (a.StartsWith("--cursor-") || a.StartsWith("--claude-") || a.StartsWith("--codex-") || a.StartsWith("--copilot-") || a.StartsWith("--gemini-") || a.StartsWith("--kiro-") || a.StartsWith("--pi-") || a.StartsWith("--opencode-") || a.StartsWith("--antigravity-") || a.StartsWith("--mistral-vibe-") || a.StartsWith("--grok-") || a.StartsWith("--muse-")) {
+            if (a.StartsWith("--cursor-") || a.StartsWith("--claude-") || a.StartsWith("--codex-") || a.StartsWith("--copilot-") || a.StartsWith("--gemini-") || a.StartsWith("--kiro-") || a.StartsWith("--pi-") || a.StartsWith("--opencode-") || a.StartsWith("--antigravity-") || a.StartsWith("--mistral-vibe-") || a.StartsWith("--grok-") || a.StartsWith("--muse-") || a.StartsWith("--dsh-")) {
                 return new(vendors, $"Unknown source option: {a}.");
             }
         }
@@ -56,7 +57,7 @@ public static class VendorSelection {
         foreach (var a in args) {
             if (!a.StartsWith("--")) continue;
             if (Array.IndexOf(KnownVendorFlags, a) >= 0) continue;
-            if (a.StartsWith("--cursor-") || a.StartsWith("--claude-") || a.StartsWith("--codex-") || a.StartsWith("--copilot-") || a.StartsWith("--gemini-") || a.StartsWith("--kiro-") || a.StartsWith("--pi-") || a.StartsWith("--opencode-") || a.StartsWith("--antigravity-") || a.StartsWith("--mistral-vibe-") || a.StartsWith("--grok-") || a.StartsWith("--muse-")) continue;
+            if (a.StartsWith("--cursor-") || a.StartsWith("--claude-") || a.StartsWith("--codex-") || a.StartsWith("--copilot-") || a.StartsWith("--gemini-") || a.StartsWith("--kiro-") || a.StartsWith("--pi-") || a.StartsWith("--opencode-") || a.StartsWith("--antigravity-") || a.StartsWith("--mistral-vibe-") || a.StartsWith("--grok-") || a.StartsWith("--muse-") || a.StartsWith("--dsh-")) continue;
 
             string? hint = null;
             var bestDist = int.MaxValue;
