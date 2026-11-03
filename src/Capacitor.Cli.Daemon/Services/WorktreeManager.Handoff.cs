@@ -237,11 +237,13 @@ public partial class WorktreeManager {
 
     /// <summary>Checks the session's commits against the starting point. <paramref name="sessionCommits"/>
     /// null means they are unknown; <paramref name="mayHaveUnpushedWork"/> means the session may have left
-    /// work that no commit list can show. A missing commit outranks any uncertainty.</summary>
+    /// work that no commit list can show. A missing commit outranks any uncertainty. <paramref name="localOnly"/> keeps
+    /// a partial clone from fetching a commit it lacks, which then reads as missing.</summary>
     public async Task<HandoffWork> CheckHandoffWorkAsync(
             string repoPath, string startSha, IReadOnlyList<string>? sessionCommits, bool mayHaveUnpushedWork,
-            int checkCap = HandoffCommitCheckCap, CancellationToken ct = default) {
-        var missing = new List<string>();
+            int checkCap = HandoffCommitCheckCap, bool localOnly = false, CancellationToken ct = default) {
+        var missing     = new List<string>();
+        var environment = localOnly ? NoLazyFetch : [];
 
         var reverted = false;
 
@@ -260,11 +262,11 @@ public partial class WorktreeManager {
         return new(completeness, missing);
 
         async Task<bool> IsReachableAsync(string commit) =>
-            (await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], "merge-base", "--is-ancestor", commit, startSha)).ExitCode == 0;
+            (await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], environment, "merge-base", "--is-ancestor", commit, startSha)).ExitCode == 0;
 
         // A revert may itself have been reverted, so its message only makes the work unconfirmed.
         async Task<bool> IsNamedByRevertAsync(string commit) {
-            var reverts = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [],
+            var reverts = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], environment,
                 "rev-list", "--count", "--fixed-strings", $"--grep=This reverts commit {commit}", $"{commit}..{startSha}");
 
             return reverts.ExitCode != 0 || reverts.Stdout.Trim() != "0";

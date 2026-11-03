@@ -78,7 +78,8 @@ internal partial class AgentOrchestrator {
                 start = fetched;
             }
 
-            var work = await _worktreeManager.CheckHandoffWorkAsync(root, start.Sha, request.SessionCommits, mayHaveUnpushedWork: true, ct: ct);
+            var work = await _worktreeManager.CheckHandoffWorkAsync(
+                root, start.Sha, request.SessionCommits, mayHaveUnpushedWork: true, localOnly: request.LocalOnly, ct: ct);
             var launch = new HandoffLaunchStart(
                 "", start.Sha, start.Checkout.ToString(), start.Branch, start.LocalBranchSha, start.Source.ToString(),
                 start.DetachReason.ToString(), request.PullRequestNumber, request.HeadIsFork, request.HeadOwner, request.HeadRepo);
