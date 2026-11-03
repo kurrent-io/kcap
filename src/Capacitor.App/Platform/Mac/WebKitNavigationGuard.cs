@@ -37,14 +37,11 @@ public static unsafe partial class WebKitNavigationGuard {
         }
     }
 
-    /// The test the package's delegate fails: new Uri(url) throws exactly when this is false.
-    public static bool Parses(string? url) => url is not null && Uri.TryCreate(url, UriKind.Absolute, out _);
-
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     static void Decide(nint self, nint selector, nint webView, nint action, nint decisionHandler) {
         bool parses;
         try {
-            parses = Parses(RequestUrl(action));
+            parses = NavigationUrl.Parses(RequestUrl(action));
         } catch {
             parses = false;
         }
