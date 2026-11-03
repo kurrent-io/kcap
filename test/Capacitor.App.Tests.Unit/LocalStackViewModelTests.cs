@@ -551,6 +551,35 @@ public class LocalStackViewModelTests {
         });
     }
 
+    /// A service removed over intact files is what a start restores, so the card offers Start, and the update runs again
+    /// once the server is up.
+    [Test]
+    public async Task A_missing_service_offers_start_then_runs_the_update_again() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness();
+
+            await h.RunAsync(1, UpgradeScript.Planned("1.2.0", "1.3.0"),
+                UpgradeScript.Failed(LocalInstallFailureCode.ServiceMissing.Wire(), "The local server's fake unit is not installed.", false));
+
+            await Assert.That(h.Vm.TryAgainVisible).IsFalse();
+            await Assert.That(h.Vm.StartVisible).IsTrue();
+            await Assert.That(h.Vm.DismissVisible).IsTrue();
+
+            var upgrades = 0;
+            var upgraded = UpgradeScript.Prints(0, UpgradeScript.Planned("1.2.0", "1.3.0"), UpgradeScript.Upgraded("1.2.0", "1.3.0"));
+            h.Cli.LocalUpgradeBehavior = (onLine, interrupt, ct) => {
+                upgrades++;
+                return upgraded(onLine, interrupt, ct);
+            };
+            await h.Vm.StartCommand.Execute().ToTask();
+            await h.Upgrade.SettleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+            await Assert.That(h.Starts).IsEqualTo(1);
+            await Assert.That(upgrades).IsEqualTo(1);
+            await Assert.That(h.Vm.BannerVisible).IsFalse();
+        });
+    }
+
     [Test]
     public async Task Dismiss_hides_a_settled_banner() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {

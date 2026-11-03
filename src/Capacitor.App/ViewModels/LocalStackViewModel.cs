@@ -213,9 +213,12 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     };
 
     /// Not for a failure after the switch: its Start is the only way to finish a journaled upgrade.
-    public bool DismissVisible => !Upgrading && _shown is not null && !StartVisible;
+    public bool DismissVisible => !Upgrading && _shown is not null and not LocalUpgradeOutcome.Failed { Switched: true };
 
-    public bool StartVisible => !Upgrading && _shown is LocalUpgradeOutcome.Failed { Switched: true };
+    /// After the switch, a start finishes the upgrade; for a removed service, it restores the unit the upgrade then needs.
+    public bool StartVisible => !Upgrading && (_shown is LocalUpgradeOutcome.Failed { Switched: true } || ServiceMissing);
+
+    bool ServiceMissing => _shown is LocalUpgradeOutcome.Failed { Switched: false, Code: var code } && code == LocalInstallFailureCode.ServiceMissing.Wire();
 
     /// Opens the app's own setup, which reinstalls a server whose files are gone.
     public Action? Reinstall { get; init; }
@@ -284,6 +287,7 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
             }
 
             if (result is { ExitCode: 0, TimedOut: false }) {
+                var retryUpgrade = !Upgrading && ReferenceEquals(_shown, recovering) && ServiceMissing;
                 if (!Upgrading && ReferenceEquals(_shown, recovering)) {
                     _shown = recovering is LocalUpgradeOutcome.Failed { Switched: true } failed && _searchWarning is { } warning
                         ? new LocalUpgradeOutcome.Upgraded(failed.From, failed.To, warning)
@@ -292,6 +296,7 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
                 ReadVersion();
                 Refresh();
                 await ReconnectAsync();
+                if (retryUpgrade) await _upgrade.StartAsync(_shutdown);
                 return;
             }
 
