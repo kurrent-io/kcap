@@ -273,7 +273,7 @@ public class DoneStepViewModelTests {
         await Assert.That(failedBefore).IsTrue();
         await Assert.That(shownDetails).IsTrue();
         await Assert.That(details).Contains("verify_viability");
-        await Assert.That(details).Contains("did not answer after its start");
+        await Assert.That(details).Contains("could not confirm that the daemon start worked");
         await Assert.That(retries).IsEqualTo(1);
         await Assert.That(eyebrowAfter).IsEqualTo("Ready");
         await Assert.That(detailsAfter).IsFalse();

@@ -50,10 +50,8 @@ sealed class LocalUpgrade(LocalStack stack, IProgress<LocalInstallEvent> progres
         var (installation, unit) = (installed.Installation, installed.Unit);
         var from = installation.Version;
 
-        switch (PrereleaseSemver.Compare(version, from)) {
-            case 0:  return Done(new LocalInstallEvent.NothingToDo(UpgradeSkip.Current, version, from));
-            case < 0: return Done(new LocalInstallEvent.NothingToDo(UpgradeSkip.StackNewer, version, from));
-        }
+        var compared = PrereleaseSemver.Compare(version, from);
+        if (compared < 0) return Done(new LocalInstallEvent.NothingToDo(UpgradeSkip.StackNewer, version, from));
 
         if (!File.Exists(unit.ServerBinary))
             throw Failed(LocalInstallFailureCode.ServerMissing,
@@ -63,6 +61,9 @@ sealed class LocalUpgrade(LocalStack stack, IProgress<LocalInstallEvent> progres
         if (installed.UnitAbsent)
             throw Failed(LocalInstallFailureCode.ServiceMissing,
                 $"The local server's {stack.Service.Describe} is not installed, so the update did not run; its files and data are intact. Run kcap local start to restore it, then kcap local upgrade.");
+
+        // After the checks above: a server that cannot run is no current one.
+        if (compared == 0) return Done(new LocalInstallEvent.NothingToDo(UpgradeSkip.Current, version, from));
 
         if (installed.Owner != OwnerDecision.Ours)
             throw Failed(LocalInstallFailureCode.NotOurServer,

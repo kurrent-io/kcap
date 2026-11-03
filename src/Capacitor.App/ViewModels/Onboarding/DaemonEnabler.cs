@@ -495,7 +495,7 @@ public sealed class DaemonEnabler : ReactiveObject {
     /// <summary>The one line for a daemon change kcap could not confirm. The Done page shows it beside the main window's
     /// copy of it, and drops it only when the two match exactly.</summary>
     internal static string UnconfirmedStatus(MutationVerb verb) =>
-        $"The daemon did not answer after its {VerbDisplay(verb)}, so kcap cannot tell whether it is running. Retry, or run kcap daemon logs to see why.";
+        $"kcap could not confirm that the daemon {VerbDisplay(verb)} worked. Retry, or run kcap daemon logs to see what happened.";
 
     static string VerbDisplay(MutationVerb verb) => verb switch {
         MutationVerb.Install       => "install",

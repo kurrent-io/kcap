@@ -195,7 +195,7 @@ public class AppMutationLaneWiringTests {
             surface, envelope, NeverRunMutation, FixedTerminalPath("/usr/bin"), () => null, CancellationToken.None);
 
         await Assert.That(surface.AttentionMessages[0]).IsEqualTo(DaemonEnabler.OutcomeStatus(verb, new MutationOutcome.UnconfirmedNoAttach()));
-        await Assert.That(surface.AttentionMessages[0]).Contains($"after its {expectedDisplay}").And.Contains("kcap daemon logs");
+        await Assert.That(surface.AttentionMessages[0]).Contains($"could not confirm that the daemon {expectedDisplay} worked").And.Contains("kcap daemon logs");
     }
 
     [Test]
