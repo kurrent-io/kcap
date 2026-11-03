@@ -1201,21 +1201,24 @@ partial class WatchCommand(
         }
 
         // The generated title goes out over this connection, so it is waited for before the close.
-        if (state.PendingTitle is { IsCompleted: false } pendingTitle) {
-            var titleBudget = ShutdownTitleBudget(
-                hubConnection.State == HubConnectionState.Connected, Volatile.Read(ref stopRequested) == 1, time.GetElapsedTime(shutdownStarted));
-            Log(time, $"Waiting up to {Math.Max(0, titleBudget.TotalSeconds):F1}s for the generated title before closing the connection");
+        if (state is { PendingTitle: { } pendingTitle, TitleGenerated: false }) {
+            var settled = pendingTitle.IsCompleted;
+            if (!settled) {
+                var titleBudget = ShutdownTitleBudget(
+                    hubConnection.State == HubConnectionState.Connected, Volatile.Read(ref stopRequested) == 1, time.GetElapsedTime(shutdownStarted));
+                Log(time, $"Waiting up to {Math.Max(0, titleBudget.TotalSeconds):F1}s for the generated title before closing the connection");
 
-            if (!await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, TouchHeartbeat)) {
-                await titleCts.CancelAsync();
+                settled = await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, TouchHeartbeat);
+                if (!settled) await titleCts.CancelAsync();
+            }
 
-                // A kill follows a stop request within seconds; a title takes longer, so another process finishes it.
-                if (Volatile.Read(ref stopRequested) == 1) {
-                    Log(time, "Generated title not ready before shutdown; handing it to a title generator");
-                    watchers.SpawnTitleGenerator(sessionId, vendor, transcriptPath);
-                } else {
-                    Log(time, "Generated title not ready before shutdown; abandoning it");
-                }
+            // A kill follows a stop request within seconds; a title takes longer, so another process finishes it,
+            // as it does one that finished without reaching the server.
+            if (!state.TitleGenerated && Volatile.Read(ref stopRequested) == 1) {
+                Log(time, $"Generated title {(settled ? "not sent" : "not ready")} before shutdown; handing it to a title generator");
+                watchers.SpawnTitleGenerator(sessionId, vendor, transcriptPath);
+            } else if (!settled) {
+                Log(time, "Generated title not ready before shutdown; abandoning it");
             }
         }
 
