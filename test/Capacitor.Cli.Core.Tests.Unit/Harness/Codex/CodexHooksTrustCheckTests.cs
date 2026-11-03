@@ -14,12 +14,15 @@ public class CodexHooksTrustCheckTests {
         {"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"kcap hook --codex","timeout":30}]}]}}
         """;
 
-    const string RecordedTrust = """
-        [hooks.state."user:SessionStart:0"]
+    CodexPaths Paths => new(Home, null);
+
+    /// <summary>A trusted hash as Codex records it, keyed by the hooks file the hook came from.</summary>
+    static string TrustFor(string hooksFile) => $"""
+        [hooks.state."{hooksFile.Replace("\\", "\\\\")}:session_start:0:0"]
         trusted_hash = "sha256:abc"
         """;
 
-    CodexPaths Paths => new(Home, null);
+    string RecordedTrust => TrustFor(Paths.UserHooksJson);
 
     string Log => Tmp.PathTo("codex.log");
 
@@ -130,6 +133,15 @@ public class CodexHooksTrustCheckTests {
     public async Task A_home_recording_no_trust_is_untrusted_without_asking_codex(string? configToml) {
         Home.CreateFile(".codex/hooks.json", KcapHooks);
         if (configToml is not null) Home.CreateFile(".codex/config.toml", configToml);
+
+        await Assert.That(CodexHooksTrustCheck.Offline(new AccountRegistry(), Paths)).IsEqualTo(CodexHooksTrust.Untrusted);
+    }
+
+    /// <summary>Trust Codex recorded for another file's hooks says nothing about kcap's.</summary>
+    [Test]
+    public async Task Trust_recorded_only_for_another_files_hooks_is_untrusted() {
+        Home.CreateFile(".codex/hooks.json", KcapHooks);
+        Home.CreateFile(".codex/config.toml", TrustFor(Tmp.PathTo("project/.codex/hooks.json")));
 
         await Assert.That(CodexHooksTrustCheck.Offline(new AccountRegistry(), Paths)).IsEqualTo(CodexHooksTrust.Untrusted);
     }
