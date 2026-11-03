@@ -255,9 +255,9 @@ sealed class LocalInstaller(
 
     /// <summary>A pending setting forces the next setup to rewrite the unit. A refused rewrite preserves the old
     /// choice, but built-in changes stay pending because the server loads its model only once.</summary>
-    /// <returns>The unit as installed, and whether it was written this run with an explicit choice that leaves the built-in
-    /// model unused. A record alone cannot say what an existing unit serves, so its model sets are deleted only after
-    /// the unit is rewritten.</returns>
+    /// <returns>The unit as installed, and whether it is known to serve an explicit choice that leaves the built-in
+    /// model unused: written this run, or settled by an earlier one. A missing record cannot say what an existing unit
+    /// serves, so then the unit is rewritten first.</returns>
     async Task<(LocalServerUnit Unit, bool RemoveModels)> ReuseEmbeddingsAsync(LocalServerUnit unit, LocalInstallAnswers answers, Func<LocalInstallFailure> notOurs,
         CancellationToken ct) {
         // Check ownership before pulling a model.
@@ -281,7 +281,8 @@ sealed class LocalInstaller(
 
         if (rewrite) unit = unit with { Embedding = target };
 
-        var clearing  = LocalEmbeddingStep.ModelsUnused(target ?? previous) && LocalModelSets.Size(root) > 0;
+        var settled   = !rewrite && LocalEmbeddingStep.ModelsUnused(previous) && previous is { Pending: false };
+        var clearing  = !settled && LocalEmbeddingStep.ModelsUnused(target ?? previous) && LocalModelSets.Size(root) > 0;
         var installed = false;
         if (clearing && !rewrite) unit = unit with { Embedding = target ?? previous };
 
@@ -300,7 +301,7 @@ sealed class LocalInstaller(
             throw;
         }
 
-        var removeModels = installed && LocalEmbeddingStep.ModelsUnused(unit.Embedding);
+        var removeModels = (installed || settled) && LocalEmbeddingStep.ModelsUnused(unit.Embedding);
 
         if (target is null) return (unit, removeModels);
 

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
@@ -737,6 +738,33 @@ public class LocalInstallerTests {
         await ReuseOffering(new LocalEmbeddingAnswer.Skip());
 
         await Assert.That(EmbeddingEnvironment()).IsEmpty();
+        await Assert.That(File.Exists(ModelFile)).IsFalse();
+    }
+
+    /// <summary>A settled keyword record already describes the unit, so a model file that resisted deletion is retried
+    /// on the next setup without rewriting and restarting the unit.</summary>
+    [Test, UnsupportedOSPlatform("windows")]
+    public async Task An_undeletable_model_is_retried_without_rewriting_a_settled_unit() {
+        await Install();
+        await ReuseOffering(new LocalEmbeddingAnswer.Builtin());
+        var set = Path.GetDirectoryName(ModelFile)!;
+        File.SetUnixFileMode(set, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        try {
+            await ReuseOffering(new LocalEmbeddingAnswer.Skip());
+            _log.Clear();
+            _events.Reports.Clear();
+
+            await ReuseOffering(new LocalEmbeddingAnswer.Skip());
+
+            await Assert.That(_log).DoesNotContain("install");
+            await Assert.That(_events.Reports.OfType<LocalInstallEvent.EmbeddingBuiltinRemoved>().Single().Left).IsEqualTo(ModelOnnx.Length);
+        } finally {
+            File.SetUnixFileMode(set, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        await Install(new(false, false));
+
         await Assert.That(File.Exists(ModelFile)).IsFalse();
     }
 
