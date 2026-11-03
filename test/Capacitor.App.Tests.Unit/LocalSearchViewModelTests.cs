@@ -37,7 +37,7 @@ public class LocalSearchViewModelTests {
         public int HealthReads;
 
         public Harness(LocalEmbeddingSetting? setting, bool offered = true, TaskCompletionSource<LocalEmbeddingModelManifest?>? lookup = null,
-                EmbeddingHealthAnswer? health = null) {
+                EmbeddingHealthAnswer? health = null, IScheduler? reads = null) {
             Lookup  = lookup;
             Setting = setting;
             Health  = health;
@@ -47,7 +47,7 @@ public class LocalSearchViewModelTests {
             Vm = new LocalSearchViewModel(() => Setting, _ => Lookup?.Task ?? Task.FromResult(Offered), Status, Search, Upgrade, () => {
                 Reconnects++;
                 return Task.CompletedTask;
-            }, CancellationToken.None, ImmediateScheduler.Instance, openSettings: OpenSettings, readHealth: _ => {
+            }, CancellationToken.None, reads ?? ImmediateScheduler.Instance, openSettings: OpenSettings, readHealth: _ => {
                 HealthReads++;
                 return Task.FromResult(Health);
             });
@@ -267,6 +267,54 @@ public class LocalSearchViewModelTests {
             await Assert.That(h.Vm.CurrentText).Contains(configured ? "keyword" : "meaning");
             await Assert.That(h.Vm.Summary).IsNull();
             await Assert.That(h.Vm.ReembedNote).IsNull();
+        });
+    }
+
+    /// <summary>Holds each scheduled read until <see cref="RunAll"/>, so a test decides which read lands first.</summary>
+    sealed class HeldReads : IScheduler {
+        readonly Queue<Action> _held = new();
+
+        public DateTimeOffset Now => DateTimeOffset.UtcNow;
+
+        public IDisposable Schedule<TState>(TState state, Func<IScheduler, TState, IDisposable> action) {
+            _held.Enqueue(() => action(this, state));
+            return System.Reactive.Disposables.Disposable.Empty;
+        }
+
+        public IDisposable Schedule<TState>(TState state, TimeSpan dueTime, Func<IScheduler, TState, IDisposable> action) => Schedule(state, action);
+
+        public IDisposable Schedule<TState>(TState state, DateTimeOffset dueTime, Func<IScheduler, TState, IDisposable> action) => Schedule(state, action);
+
+        public void RunAll() {
+            while (_held.TryDequeue(out var read)) read();
+        }
+    }
+
+    /// <summary>A successful run's own read checks the model files, so the reconnect that follows it can read the setting
+    /// first and take the read's place; the run's outcome must still retire when the setting later changes.</summary>
+    [Test]
+    public async Task A_reconnect_read_ahead_of_the_runs_own_still_settles_what_the_run_left() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var reads = new HeldReads();
+            using var h = new Harness(LocalEmbeddingSetting.Declined, reads: reads);
+            reads.RunAll();
+            h.Vm.Choice.UseBuiltin = true;
+
+            h.Setting = LocalEmbeddingSetting.Builtin(new string('a', 64));
+            await h.ApplyAsync(0, BuiltinConfigured, Reused, LocalSetupScript.Committed);
+            h.Status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
+            h.Status.OnNext(new(ServerLaneState.Connected));
+            reads.RunAll();
+
+            await Assert.That(h.Vm.Summary).IsEqualTo("Search by meaning with the built-in model.");
+
+            h.Setting = LocalEmbeddingSetting.Declined;
+            h.Status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
+            h.Status.OnNext(new(ServerLaneState.Connected));
+            reads.RunAll();
+
+            await Assert.That(h.Vm.CurrentText).Contains("keyword");
+            await Assert.That(h.Vm.Summary).IsNull();
         });
     }
 
