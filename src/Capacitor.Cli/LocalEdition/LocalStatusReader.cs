@@ -11,6 +11,7 @@ namespace Capacitor.Cli.LocalEdition;
 /// </summary>
 sealed class LocalStatusReader(LocalStack stack, string cliVersion, Func<int, PortHolder?> findHolder) {
     const string Logs = "kcap local logs";
+    const string UnusedModel = "The built-in search model is still in";
 
     public async Task<LocalStatusReport> ReadAsync(CancellationToken ct) {
         var root = stack.Root.Directory;
@@ -76,7 +77,7 @@ sealed class LocalStatusReader(LocalStack stack, string cliVersion, Func<int, Po
         };
 
         if (LocalEmbeddingStep.ModelsUnused(recorded) && LocalModelSets.Size(stack.Root) is > 0 and var unused)
-            notes.Add($"The built-in search model is still in {LocalModelSets.Directory(stack.Root)} ({LocalModelSets.Megabytes(unused)} MB), "
+            notes.Add($"{UnusedModel} {LocalModelSets.Directory(stack.Root)} ({LocalModelSets.Megabytes(unused)} MB), "
                     + "but the server does not use it; kcap setup --local removes it.");
 
         // A start, stop, restart or uninstall in flight passes through every state below on its way.
@@ -157,7 +158,7 @@ sealed class LocalStatusReader(LocalStack stack, string cliVersion, Func<int, Po
 
                 AddStores(fields, ready.Stores);
                 if (ready.UpdatePending) notes.Add("The server can serve requests while its update finishes. A planned restart is still pending.");
-                var vectors = await ApplyEmbeddingHealthAsync(fields, unit, pending, ct);
+                var vectors = await ApplyEmbeddingHealthAsync(fields, notes, unit, pending, ct);
 
                 LocalStatusReport report = await LocalServerProbe.AuthConfigAsync(stack.Local, unit.BaseUrl, ct) switch {
                     AuthConfigAnswer.Lifted => new(true, $"Ready on {unit.BaseUrl}.", fields, notes),
@@ -174,7 +175,7 @@ sealed class LocalStatusReader(LocalStack stack, string cliVersion, Func<int, Po
                 if (held is not null) return Down($"Not ready: something else answers on port {port}.", fields, notes, taken) with { Reading = held };
 
                 AddStores(fields, answered.Stores);
-                var answeredVectors = await ApplyEmbeddingHealthAsync(fields, unit, pending, ct);
+                var answeredVectors = await ApplyEmbeddingHealthAsync(fields, notes, unit, pending, ct);
                 return Down("Starting, or a store is down.", fields, notes,
                     [$"The server reports ready once both stores are up and its schema is migrated. {Logs} shows its progress."])
                     with { Reading = starting, Vectors = answeredVectors };
@@ -198,9 +199,13 @@ sealed class LocalStatusReader(LocalStack stack, string cliVersion, Func<int, Po
     }
 
     /// <summary>Replaces the file-derived Search line for a built-in model the server reports on, and for any usable
-    /// provider whose session vectors are not being stored; everything else keeps the recorded wording.</summary>
-    async Task<EmbeddingVectors?> ApplyEmbeddingHealthAsync(List<KeyValuePair<string, string>> fields, LocalServerUnit unit, string pending, CancellationToken ct) {
+    /// provider whose session vectors are not being stored; everything else keeps the recorded wording. A server
+    /// running the built-in provider uses its model, whatever the record says.</summary>
+    async Task<EmbeddingVectors?> ApplyEmbeddingHealthAsync(List<KeyValuePair<string, string>> fields, List<string> notes, LocalServerUnit unit,
+            string pending, CancellationToken ct) {
         if (await EmbeddingHealthAnswer.ReadAsync(stack.Local, unit.BaseUrl, stack.Time, ct) is not { } health) return null;
+
+        if (health.Provider == "builtin") notes.RemoveAll(n => n.StartsWith(UnusedModel, StringComparison.Ordinal));
 
         var index = fields.FindIndex(f => f.Key == "Search");
 

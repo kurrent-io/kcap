@@ -710,6 +710,37 @@ public class LocalInstallerTests {
     }
 
     [Test]
+    public async Task A_server_that_does_not_answer_as_this_installation_deletes_no_model() {
+        await Install();
+        await ReuseOffering(new LocalEmbeddingAnswer.Builtin());
+        Server.Override = path => path != "/auth/config" ? null : PendingAnswer();
+
+        await Assert.ThrowsAsync<LocalInstallFailure>(() => ReuseOffering(new LocalEmbeddingAnswer.Skip()));
+
+        await Assert.That(File.Exists(ModelFile)).IsTrue();
+        await Assert.That(_events.Reports.OfType<LocalInstallEvent.EmbeddingBuiltinRemoved>()).IsEmpty();
+    }
+
+    /// <summary>A lost record reads as no choice, which a built-in unit already "serves" as keyword search: the model goes
+    /// only once the unit is rewritten without it, and never on a run that chose nothing.</summary>
+    [Test]
+    public async Task A_lost_record_deletes_the_model_only_after_rewriting_the_builtin_unit() {
+        await Install();
+        await ReuseOffering(new LocalEmbeddingAnswer.Builtin());
+        LocalEmbeddingFile.Delete(Root);
+
+        await Install(new(false, false));
+
+        await Assert.That(File.Exists(ModelFile)).IsTrue();
+        await Assert.That(EmbeddingEnvironment()).IsEquivalentTo(BuiltinEnvironment);
+
+        await ReuseOffering(new LocalEmbeddingAnswer.Skip());
+
+        await Assert.That(EmbeddingEnvironment()).IsEmpty();
+        await Assert.That(File.Exists(ModelFile)).IsFalse();
+    }
+
+    [Test]
     public async Task Switching_from_ollama_to_builtin_leaves_only_the_builtin_provider_in_the_unit() {
         using var ollama = new FakeOllama().Running($"{OllamaClient.DefaultModel}:latest").Embeds(1024);
         await Install(YesWithOllama, ollama: ollama);

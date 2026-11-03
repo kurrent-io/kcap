@@ -102,19 +102,39 @@ public class LocalStatusReaderTests {
         await Assert.That(Text(await Read())).Contains("(not yet applied; kcap setup --local applies it)");
     }
 
+    /// <summary>Only an explicit keyword or Ollama choice makes a model on disk unused; a lost record proves nothing,
+    /// and a server running the built-in provider overrules the record.</summary>
     [Test]
-    public async Task A_builtin_model_left_on_disk_is_named_with_its_size_only_while_unused() {
+    [Arguments("builtin", null, false)]
+    [Arguments("none", null, true)]
+    [Arguments("ollama", null, true)]
+    [Arguments("lost", null, false)]
+    [Arguments("none", "builtin", false)]
+    public async Task A_builtin_model_left_on_disk_is_named_with_its_size_only_while_unused(string recorded, string? serving, bool named) {
         Running();
         var set = new string('a', 64);
         File.WriteAllBytes(Tmp.CreateFile(["r", "models", set, "model.onnx"]), new byte[3 * 1024 * 1024]);
-        const string Unused = "The built-in search model is still in";
+        if (recorded != "lost")
+            LocalEmbeddingFile.Write(Root, recorded switch {
+                "builtin" => LocalEmbeddingSetting.Builtin(set),
+                "ollama"  => LocalEmbeddingSetting.Ollama("mxbai-embed-large"),
+                _         => LocalEmbeddingSetting.Declined,
+            });
+        if (serving is not null) {
+            Health(HttpStatusCode.OK);
+            var ready = Server.Override;
+            Server.Override = path => path == "/healthz/embeddings"
+                ? new HttpResponseMessage(HttpStatusCode.OK) {
+                    Content = new StringContent($$"""{"provider":"{{serving}}","usable":true,"reason":null}""", Encoding.UTF8, "application/json"),
+                }
+                : ready!(path);
+        }
 
-        LocalEmbeddingFile.Write(Root, LocalEmbeddingSetting.Builtin(set));
-        await Assert.That(Text(await Read())).DoesNotContain(Unused);
+        var text = Text(await Read());
 
-        LocalEmbeddingFile.Write(Root, LocalEmbeddingSetting.Declined);
-        await Assert.That(Text(await Read())).Contains(
-            $"{Unused} {Path.Combine(Root.Directory, "models")} (3 MB), but the server does not use it; kcap setup --local removes it.");
+        var note = $"The built-in search model is still in {Path.Combine(Root.Directory, "models")} (3 MB), but the server does not use it; kcap setup --local removes it.";
+        if (named) await Assert.That(text).Contains(note);
+        else await Assert.That(text).DoesNotContain("The built-in search model is still in");
     }
 
     [Test]

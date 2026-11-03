@@ -61,9 +61,13 @@ abstract record LocalInstallEvent {
     /// <summary>The built-in model sets in <paramref name="Directory"/> were deleted once the server ran without them;
     /// <paramref name="Left"/> bytes could not be, typically because something still held a file open.</summary>
     public sealed record EmbeddingBuiltinRemoved(string Directory, long Freed, long Left) : LocalInstallEvent {
-        public string Message => Left == 0
-            ? $"Removed the built-in search model from {Directory}, freeing {LocalModelSets.Megabytes(Freed)} MB."
-            : $"The built-in search model in {Directory} ({LocalModelSets.Megabytes(Left)} MB) could not be removed; kcap setup --local removes it once nothing holds it open.";
+        public string Message => (Freed, Left) switch {
+            (_, 0) => $"Removed the built-in search model from {Directory}, freeing {LocalModelSets.Megabytes(Freed)} MB.",
+            (0, _) => $"The built-in search model in {Directory} ({LocalModelSets.Megabytes(Left)} MB) could not be removed; "
+                    + "kcap setup --local removes it once nothing holds it open.",
+            _      => $"The built-in search model in {Directory} was only partly removed, freeing {LocalModelSets.Megabytes(Freed)} MB "
+                    + $"and leaving {LocalModelSets.Megabytes(Left)} MB; kcap setup --local removes the rest once nothing holds it open.",
+        };
     }
 
     public sealed record RolledBack : LocalInstallEvent;
