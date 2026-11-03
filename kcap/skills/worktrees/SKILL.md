@@ -89,7 +89,9 @@ the branch and its reflog. What is lost:
 
 - `HEAD`, which branch was checked out. kcap worktrees start detached and
   the agent names its branch; ones from older kcap versions use
-  `capacitor/<folder name>`. A commit still detached is genuinely lost
+  `capacitor/<folder name>`. A commit still detached loses its last
+  reference, but until `git gc` prunes it, `git fsck --no-reflogs
+  --lost-found` lists it as a dangling commit to branch from
 - The index: everything comes back unstaged and newly added files as
   untracked. Partial staging (`git add -p`) is the only real loss
 - The worktree's own HEAD reflog, `refs/bisect`, `refs/worktree`,

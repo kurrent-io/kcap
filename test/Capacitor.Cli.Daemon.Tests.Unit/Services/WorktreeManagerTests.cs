@@ -494,6 +494,21 @@ public class WorktreeManagerTests {
         }
     }
 
+    /// <summary>A fetched ref <c>git pack-refs</c> moved out of its loose file still keeps its name taken.</summary>
+    [Test]
+    public async Task ListFetchedRefsAsync_finds_a_packed_ref() {
+        using var repo = GitRepo.Create("packed-ref");
+        repo.CreateFile("a.txt", "a");
+        repo.CommitAll("first");
+        repo.Do("update-ref", WorktreeManager.FetchedRefFor("brave-otter"), repo.Head);
+        repo.Do("pack-refs", "--all");
+
+        var manager = new WorktreeManager(new DaemonConfig(), NullLogger<WorktreeManager>.Instance, NoSnapshotBarrier.Instance, TimeProvider.System);
+        var refs    = await manager.ListFetchedRefsAsync(repo);
+
+        await Assert.That(refs).Contains(WorktreeManager.FetchedRefFor("brave-otter"));
+    }
+
     /// <summary>Work the agent committed on a branch it created survives the worktree's removal on that branch,
     /// so the removal does not keep the worktree for it.</summary>
     [Test]

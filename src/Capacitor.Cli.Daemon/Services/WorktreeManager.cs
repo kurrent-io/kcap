@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Security.Cryptography;
@@ -416,14 +417,26 @@ public partial class WorktreeManager(
     /// metadata already uses: git refuses to add a worktree at a path it still has registered, and a leftover
     /// fetched ref would fail the per-worktree fetch.</summary>
     async Task<string> PickWorktreeNameAsync(string repoPath, string worktreeRoot) {
-        var common = await ResolveGitCommonDirAsync(repoPath, time);
+        var common      = await ResolveGitCommonDirAsync(repoPath, time);
+        var fetchedRefs = await ListFetchedRefsAsync(repoPath);
 
         return WorktreeNames.PickFree(name =>
             IsPresentEntry(Path.Combine(worktreeRoot, name))
          || IsPresentEntry(Path.Combine(worktreeRoot, ClaimPrefix + name))
+         || fetchedRefs.Contains(FetchedRefFor(name))
          || (common is not null
           && (IsPresentEntry(Path.Combine(common, "worktrees", name))
            || IsPresentEntry(Path.Combine(common, FetchedRefFor(name))))));
+    }
+
+    /// <summary>Asks git rather than the ref's loose file, which <c>git pack-refs</c> removes.</summary>
+    internal async Task<IReadOnlySet<string>> ListFetchedRefsAsync(string repoPath) {
+        var listed = await RunGitCaptureResult(repoPath, GitTimeout, time, sourceReadOnly: true, [],
+            "for-each-ref", "--format=%(refname)", FetchedRefFor("").TrimEnd('/'));
+        if (listed.ExitCode != 0) return FrozenSet<string>.Empty;
+
+        return listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToFrozenSet(StringComparer.Ordinal);
     }
 
     /// <summary>Refuses a destination-chain component that is a link, WITHOUT following it.</summary>
