@@ -1202,10 +1202,11 @@ partial class WatchCommand(
 
         // The generated title goes out over this connection, so it is waited for before the close.
         if (state is { PendingTitle: { } pendingTitle, TitleGenerated: false }) {
-            var settled = pendingTitle.IsCompleted;
+            // Read once: a connection reconnecting now can be back by the hand-off check, too late for a title that failed.
+            var connected = hubConnection.State == HubConnectionState.Connected;
+            var settled   = pendingTitle.IsCompleted;
             if (!settled) {
-                var titleBudget = ShutdownTitleBudget(
-                    hubConnection.State == HubConnectionState.Connected, Volatile.Read(ref stopRequested) == 1, time.GetElapsedTime(shutdownStarted));
+                var titleBudget = ShutdownTitleBudget(connected, Volatile.Read(ref stopRequested) == 1, time.GetElapsedTime(shutdownStarted));
                 Log(time, $"Waiting up to {Math.Max(0, titleBudget.TotalSeconds):F1}s for the generated title before closing the connection");
 
                 settled = await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, TouchHeartbeat);
@@ -1214,7 +1215,7 @@ partial class WatchCommand(
 
             // A kill follows a stop request within seconds and a title takes longer, and a closed connection cannot
             // carry one at all, so another process finishes it over HTTP, as it does one that never reached the server.
-            if (!state.TitleGenerated && (Volatile.Read(ref stopRequested) == 1 || hubConnection.State != HubConnectionState.Connected)) {
+            if (!state.TitleGenerated && (Volatile.Read(ref stopRequested) == 1 || !connected || hubConnection.State != HubConnectionState.Connected)) {
                 Log(time, $"Generated title {(settled ? "not sent" : "not ready")} before shutdown; handing it to a title generator");
                 watchers.SpawnTitleGenerator(sessionId, vendor, transcriptPath);
             } else if (!settled) {
