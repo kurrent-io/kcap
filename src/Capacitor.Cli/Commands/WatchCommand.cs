@@ -1212,9 +1212,9 @@ partial class WatchCommand(
                 if (!settled) await titleCts.CancelAsync();
             }
 
-            // A kill follows a stop request within seconds; a title takes longer, so another process finishes it,
-            // as it does one that finished without reaching the server.
-            if (!state.TitleGenerated && Volatile.Read(ref stopRequested) == 1) {
+            // A kill follows a stop request within seconds and a title takes longer, and a closed connection cannot
+            // carry one at all, so another process finishes it over HTTP, as it does one that never reached the server.
+            if (!state.TitleGenerated && (Volatile.Read(ref stopRequested) == 1 || hubConnection.State != HubConnectionState.Connected)) {
                 Log(time, $"Generated title {(settled ? "not sent" : "not ready")} before shutdown; handing it to a title generator");
                 watchers.SpawnTitleGenerator(sessionId, vendor, transcriptPath);
             } else if (!settled) {
