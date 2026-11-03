@@ -192,6 +192,41 @@ public class CountFileLinesTests {
 }
 
 public class WatchCommandTests {
+    /// <summary>A handed end keeps the agent and epoch its hook named; one that names no agent, an unparseable one
+    /// included, takes the watcher's hosted agent and epoch, so its replay after a resume reads as the predecessor's.</summary>
+    [Test]
+    public async Task A_handed_end_names_the_hooks_agent_or_else_the_watchers() {
+        var at      = new DateTimeOffset(2026, 11, 2, 18, 26, 34, TimeSpan.Zero);
+        var watcher = new HostedAgent("agent-watcher", false, DaemonBridge.None) { DaemonEpoch = "epoch-watcher" };
+
+        var unnamed  = WatchCommand.HandedEndBody("""{"reason":"exit"}""", "s1", "/t/x.jsonl", at, watcher, out _);
+        var named    = WatchCommand.HandedEndBody("""{"reason":"exit","agent_host_id":"agent-hook","daemon_epoch":"epoch-hook"}""", "s1", "/t/x.jsonl", at, watcher, out _);
+        var garbled  = WatchCommand.HandedEndBody("{not json", "s1", "/t/x.jsonl", at, watcher, out var notJson);
+
+        await Assert.That((unnamed["agent_host_id"]?.GetValue<string>(), unnamed["daemon_epoch"]?.GetValue<string>())).IsEqualTo(("agent-watcher", "epoch-watcher"));
+        await Assert.That((named["agent_host_id"]?.GetValue<string>(), named["daemon_epoch"]?.GetValue<string>())).IsEqualTo(("agent-hook", "epoch-hook"));
+        await Assert.That((garbled["agent_host_id"]?.GetValue<string>(), garbled["daemon_epoch"]?.GetValue<string>())).IsEqualTo(("agent-watcher", "epoch-watcher"));
+        await Assert.That(notJson).IsNotNull();
+        await Assert.That(unnamed["session_id"]?.GetValue<string>()).IsEqualTo("s1");
+    }
+
+    /// <summary>A hosted watcher's own end names the agent and daemon epoch it runs under, so a spooled copy replayed
+    /// after the session resumes reads as the predecessor's; an unhosted watcher's end names neither.</summary>
+    [Test]
+    public async Task The_watchers_own_end_names_the_hosted_agent_and_daemon_epoch_it_runs_under() {
+        var at     = new DateTimeOffset(2026, 11, 2, 18, 26, 34, TimeSpan.Zero);
+        var hosted = WatchCommand.ParentExitEndBody("s1", "/t/x.jsonl", "/repo", "parent_exited", at,
+            new HostedAgent("agent-1", false, DaemonBridge.None) { DaemonEpoch = "epoch-1" });
+        var plain  = WatchCommand.ParentExitEndBody("s1", "/t/x.jsonl", "/repo", "parent_exited", at, HostedAgent.Terminal);
+
+        await Assert.That(hosted["agent_host_id"]?.GetValue<string>()).IsEqualTo("agent-1");
+        await Assert.That(hosted["daemon_epoch"]?.GetValue<string>()).IsEqualTo("epoch-1");
+        await Assert.That(hosted["reason"]?.GetValue<string>()).IsEqualTo("parent_exited");
+        await Assert.That(hosted["ended_at"]?.GetValue<string>()).IsEqualTo(at.ToString("O"));
+        await Assert.That(plain.ContainsKey("agent_host_id")).IsFalse();
+        await Assert.That(plain.ContainsKey("daemon_epoch")).IsFalse();
+    }
+
     [Test]
     public async Task RunWatch_signature_accepts_vendor_arg() {
         // We can't run a real watcher in a unit test (it'd open SignalR). The

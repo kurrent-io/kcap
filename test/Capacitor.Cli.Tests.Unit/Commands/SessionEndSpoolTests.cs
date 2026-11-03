@@ -59,20 +59,31 @@ public class SessionEndSpoolTests {
         await Assert.That(node["daemon_epoch"]!.GetValue<string>()).IsEqualTo("epoch-1");
     }
 
-    /// The exit sweep racing a daemon resume, against a real ledger: the predecessor ran under epoch-1 and
-    /// the restarted daemon, epoch-2, resumes it. The fence holds the predecessor's end while the entry is
-    /// Resuming and once it runs under epoch-2, but while the daemon holds the entry lock to write that
-    /// transition the fence cannot decide and fails open on its lock timeout. The end it lets through
-    /// names the predecessor's agent and epoch, which is what the server refuses it by.
+    /// The exit sweep racing a daemon resume, from the predecessor's claim note to the spooled end: the
+    /// predecessor ran under epoch-1 and the restarted daemon, epoch-2, resumes it. Each sweep reaps the
+    /// note the gone process left, so each phase below is where that one reap could land. The fence holds
+    /// the end while the entry is Resuming and once it runs under epoch-2, but while the daemon holds the
+    /// entry lock to write that transition it cannot decide and fails open on its lock timeout. The end it
+    /// lets through names the agent and epoch the predecessor's claim recorded, which the server refuses it by.
     [Test]
     public async Task A_sweep_while_the_resuming_daemon_holds_the_entry_lock_posts_the_predecessors_end() {
         const string session = "2aa834d09c294410b64c177c75d32358";
-        var ledger  = ResumeLedgerStore.For(Daemons.Store, "d1");
-        var spool   = new HookSpool(Config.Root, TimeProvider.System, server: null);
-        var exited  = Exited(session, agentId: "agent-1", epoch: "epoch-1");
-        var entry   = ResumeLedgerEntries.For("agent-1", ResumeState.Running) with { LaunchEpoch = "epoch-1", RunEpoch = "epoch-1", SessionId = session };
-        int Sweep() => AgentHookPoster.SpoolEnds([exited], "https://kcap.example", spool, TimeProvider.System,
-                                                 s => SessionEndFence.ShouldHold(s, Daemons.Store, TimeProvider.System));
+        const int predecessor = 900_101;
+        var ledger   = ResumeLedgerStore.For(Daemons.Store, "d1");
+        var spool    = new HookSpool(Config.Root, TimeProvider.System, server: null);
+        var sessions = new AgentSessions(Config.Root, _ => null);
+        var entry    = ResumeLedgerEntries.For("agent-1", ResumeState.Running) with { LaunchEpoch = "epoch-1", RunEpoch = "epoch-1", SessionId = session };
+
+        int Sweep() {
+            var note = Config.Root.Path("agent-sessions", predecessor.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Directory.CreateDirectory(Path.GetDirectoryName(note)!);
+            File.WriteAllText(note, $"{session}\nlx:another-boot:1");
+            File.WriteAllText(note + ".origin",
+                string.Join('\n', new[] { "lx:another-boot:1", "claude", "https://kcap.example", "/t/x.jsonl", "/repo", "agent-1", "epoch-1" }.Select(Uri.EscapeDataString)));
+
+            return AgentHookPoster.SpoolEnds(sessions.ReapExited("https://kcap.example"), "https://kcap.example", spool, TimeProvider.System,
+                                             s => SessionEndFence.ShouldHold(s, Daemons.Store, TimeProvider.System));
+        }
 
         ledger.Write(entry with { State = ResumeState.Resuming });
         await Assert.That(Sweep()).IsEqualTo(0);

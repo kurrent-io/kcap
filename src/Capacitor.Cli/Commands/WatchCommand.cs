@@ -2309,22 +2309,49 @@ partial class WatchCommand(
             }
         }
 
-        var endHook = new JsonObject {
+        var endHook = ParentExitEndBody(sessionId, transcriptPath, cwd, reason, time.GetUtcNow(), HostedAgent.FromEnvironment());
+
+        return await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
+    }
+
+    /// <summary>The end a hook handed over, as the watcher posts it. The hook names the agent and daemon epoch
+    /// it ran under; an end that names no agent takes them from the watcher's own hosted environment.</summary>
+    internal static JsonObject HandedEndBody(
+            string payload, string sessionId, string transcriptPath, DateTimeOffset now, HostedAgent hosted, out string? notJson) {
+        JsonObject end;
+        notJson = null;
+
+        try {
+            end = JsonNode.Parse(payload) as JsonObject ?? new JsonObject();
+        } catch (JsonException ex) {
+            notJson = ex.Message;
+            end     = new JsonObject { ["reason"] = "other", ["ended_at"] = now.ToString("O") };
+        }
+
+        end["session_id"]      = sessionId;
+        end["transcript_path"] = transcriptPath;
+        if (!end.ContainsKey("agent_host_id")) SessionEndIncarnation.Stamp(end, hosted);
+
+        return end;
+    }
+
+    /// <summary>The end a watcher posts for its own stop. The watcher inherits the environment of the agent
+    /// whose hook spawned it, so a hosted agent's end names that agent and its daemon epoch.</summary>
+    internal static JsonObject ParentExitEndBody(
+            string sessionId, string transcriptPath, string? cwd, string reason, DateTimeOffset endedAt, HostedAgent hosted) {
+        var end = new JsonObject {
             ["session_id"]      = sessionId,
             ["transcript_path"] = transcriptPath,
             ["cwd"]             = cwd ?? "",
             ["hook_event_name"] = "session_end",
             ["reason"]          = reason,
-            // Stamp the exit time so the server can scope the SessionEnded id
-            // per run. Vendors with no session-end hook (Kiro) end ONLY via this
-            // path, so without a timestamp a resumed session's second exit would
-            // dedupe against the first and the session would stay Active.
-            // Computed once here and reused across POST retries, so it stays
-            // idempotent for a single exit.
-            ["ended_at"]        = time.GetUtcNow().ToString("O"),
+            // Scopes the server's SessionEnded id to this run: a vendor with no session-end hook ends only
+            // here, and a resumed session's second exit would otherwise dedupe against its first.
+            ["ended_at"]        = endedAt.ToString("O"),
         };
+        SessionEndIncarnation.Stamp(end, hosted);
 
-        return await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
+        return end;
     }
 
     /// <summary>Only a Muse session watcher takes an end its SessionEnd hook handed over; a child watcher's
@@ -2397,17 +2424,8 @@ partial class WatchCommand(
             return HandedEndOutcome.Dropped;
         }
 
-        JsonObject endHook;
-
-        try {
-            endHook = JsonNode.Parse(request.Payload) as JsonObject ?? new JsonObject();
-        } catch (JsonException ex) {
-            Log(time, $"Handed session-end request is not JSON ({ex.Message}); posting a plain end instead");
-            endHook = new JsonObject { ["reason"] = "other", ["ended_at"] = time.GetUtcNow().ToString("O") };
-        }
-
-        endHook["session_id"]      = sessionId;
-        endHook["transcript_path"] = transcriptPath;
+        var endHook = HandedEndBody(request.Payload, sessionId, transcriptPath, time.GetUtcNow(), HostedAgent.FromEnvironment(), out var notJson);
+        if (notJson is not null) Log(time, $"Handed session-end request is not JSON ({notJson}); posting a plain end instead");
 
         if (repository is not null) {
             endHook["repository"] = JsonNode.Parse(
