@@ -23,6 +23,8 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
     string _excludedPaths;
     // The four lists as the profile holds them, normalised the way a save writes them.
     string[][] _savedLists;
+    // The page as typed when the last save went through; any edit from it clears that save's confirmation.
+    (string?, string, string, string, string) _typedAtSave;
     string? _message;
     bool _hasChanges;
     bool _busy;
@@ -130,8 +132,10 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
     void Restate() {
         var visibilityChanged = VisibilityVisible && VisibilityEditable && Visibility is not null && Visibility != _storedVisibility;
         HasChanges = visibilityChanged || !EditedLists().Zip(_savedLists).All(pair => pair.First.SequenceEqual(pair.Second));
-        if (HasChanges && Saved) Message = null;
+        if (Saved && Typed() != _typedAtSave) Message = null;
     }
+
+    (string?, string, string, string, string) Typed() => (Visibility, AllowedRepos, ExcludedRepos, AllowedPaths, ExcludedPaths);
 
     string[][] EditedLists() => [Lines(AllowedRepos), Lines(ExcludedRepos), Lines(AllowedPaths), Lines(ExcludedPaths)];
 
@@ -193,6 +197,7 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
             }
             _savedLists = [allowedRepos, excludedRepos, allowedPaths, excludedPaths];
             Restate();
+            _typedAtSave = Typed();
             Message = "Sessions already on the server are unchanged.";
             Saved = true;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {

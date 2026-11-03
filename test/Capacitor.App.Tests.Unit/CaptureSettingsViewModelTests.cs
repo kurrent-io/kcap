@@ -68,16 +68,20 @@ public class CaptureSettingsViewModelTests {
         await Assert.That(await vm.SaveCommand.CanExecute.FirstAsync()).IsFalse();
     });
 
+    /// An edit that normalises to what was saved still clears the confirmation, though it leaves nothing to save.
     [Test]
-    public Task An_edit_after_a_save_clears_its_confirmation() => AvaloniaSession.RunOnUiAsync(async () => {
+    [Arguments("team/repo\nteam/second", true)]
+    [Arguments(" team/repo \n\n", false)]
+    public Task An_edit_after_a_save_clears_its_confirmation(string edited, bool changes) => AvaloniaSession.RunOnUiAsync(async () => {
         using var vm = new CaptureSettingsViewModel(Seed()) { AllowedRepos = "team/repo" };
         await vm.SaveAsync();
         await Assert.That(vm.Saved).IsTrue();
 
-        vm.AllowedRepos = "team/repo\nteam/second";
+        vm.AllowedRepos = edited;
 
         await Assert.That(vm.Saved).IsFalse();
         await Assert.That(vm.Message).IsNull();
+        await Assert.That(vm.HasChanges).IsEqualTo(changes);
     });
 
     /// With the options unreadable a save keeps the stored audience, so only the lists can differ.
