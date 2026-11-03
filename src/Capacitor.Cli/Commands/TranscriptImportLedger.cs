@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Skills;
@@ -5,7 +6,7 @@ using Capacitor.Cli.Core.Skills;
 namespace Capacitor.Cli.Commands;
 
 /// <summary>
-/// Per-server record of how far each Claude and Codex transcript was imported. The server's last-line
+/// Per-server record of how far each transcript was imported. The server's last-line
 /// watermark only counts lines that produced an event, so a transcript ending in lines it ignores reads
 /// as unfinished forever; a mark taken at that same watermark says those lines were already sent.
 /// A mark applies only while the server still answers the watermark it recorded, so a server that lost
@@ -30,19 +31,44 @@ internal sealed class TranscriptImportLedger {
     public static TranscriptImportLedger ForRecording(ConfigRoot config) => new(config, Empty());
 
     /// <summary>The line to resume from when the server's watermark is still the one the mark recorded.</summary>
-    public int? ResumeFrom(string server, string sessionId, int watermark) {
+    public int? ResumeFrom(string server, string sessionId, int watermark) => MatchingMark(server, sessionId, watermark)?.Lines;
+
+    public async Task<TranscriptImportMark?> MatchFileAsync(string server, string sessionId, int watermark, string path, CancellationToken ct) {
+        var mark = MatchingMark(server, sessionId, watermark);
+        if (mark?.PrefixSha256 is not { } expected) return null;
+        try {
+            var actual = await TranscriptImportFingerprint.ReadPrefixAsync(path, mark.Lines, ct);
+            return actual == expected ? mark : null;
+        } catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+            return null;
+        }
+    }
+
+    TranscriptImportMark? MatchingMark(string server, string sessionId, int watermark) {
         lock (_gate) {
             return _marks.TryGetValue(server, out var sessions)
                 && sessions.TryGetValue(sessionId, out var mark)
                 && mark.Watermark == watermark
                 && mark.Lines > watermark
-                    ? mark.Lines
+                    ? mark
                     : null;
         }
     }
 
     public void Record(string server, string sessionId, TranscriptImportMark mark) {
         lock (_gate) _pending[(server, sessionId)] = mark;
+    }
+
+    public async Task RecordAsync(HttpClient httpClient, string baseUrl, string sessionId, int completeLines, CancellationToken ct, string? prefixSha256 = null) {
+        try {
+            using var resp = await httpClient.GetAsync($"{baseUrl}/api/sessions/{sessionId}/last-line", ct);
+            if (resp.StatusCode != HttpStatusCode.OK) return;
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            if (doc.RootElement.Num("last_line_number") is { } watermark && completeLines > watermark)
+                Record(baseUrl, sessionId, new TranscriptImportMark(completeLines, (int)watermark, prefixSha256));
+        } catch (Exception e) when (e is HttpRequestException or JsonException or InvalidOperationException
+                                || e is OperationCanceledException && !ct.IsCancellationRequested) { }
     }
 
     /// <summary>Merges this run's marks into the file. Best effort: a mark that never lands costs only a

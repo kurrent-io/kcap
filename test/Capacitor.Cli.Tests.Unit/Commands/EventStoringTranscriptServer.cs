@@ -13,7 +13,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// so lines that produce no event never move it.
 /// </summary>
 sealed class EventStoringTranscriptServer : IDisposable {
-    static readonly HashSet<string> NoiseTypes = ["system", "last-prompt", "file-history-snapshot", "progress"];
+    static readonly HashSet<string> NoiseTypes = ["system", "last-prompt", "file-history-snapshot", "progress", "turn_ended", "session.end", "run.model.configured"];
 
     readonly WireMockServer                     _server = WireMockServer.Start();
     readonly Dictionary<string, SortedSet<int>> _stored = new(StringComparer.Ordinal);
@@ -37,6 +37,12 @@ sealed class EventStoringTranscriptServer : IDisposable {
 
     public string Url => _server.Url!;
 
+    public bool RejectTranscripts { get; set; }
+
+    public Action? AfterTranscript { get; set; }
+
+    public Action? AfterSessionStart { get; set; }
+
     public int StoredEvents(string sessionId) { lock (_gate) return _stored.TryGetValue(sessionId, out var s) ? s.Count : 0; }
 
     public int SessionEnds { get { lock (_gate) return _sessionEnds; } }
@@ -59,10 +65,12 @@ sealed class EventStoringTranscriptServer : IDisposable {
     ResponseMessage SessionStart(IRequestMessage request) {
         using var doc = JsonDocument.Parse(request.Body!);
         lock (_gate) _stored.TryAdd(doc.RootElement.GetProperty("session_id").GetString()!, []);
+        AfterSessionStart?.Invoke();
         return Json(200, "{}");
     }
 
     ResponseMessage Transcript(IRequestMessage request) {
+        if (RejectTranscripts) return Json(400, "{}");
         using var doc     = JsonDocument.Parse(request.Body!);
         var       root    = doc.RootElement;
         var       session = root.GetProperty("session_id").GetString()!;
@@ -78,13 +86,21 @@ sealed class EventStoringTranscriptServer : IDisposable {
             }
         }
 
+        AfterTranscript?.Invoke();
         return Json(200, $$"""{"processed":{{lines.Length}}}""");
     }
 
     static bool StoresEvent(string line) {
         try {
             using var doc = JsonDocument.Parse(line);
-            return !NoiseTypes.Contains(doc.RootElement.GetProperty("type").GetString()!);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("payload_type", out var payloadType) && payloadType.GetString() == "runtime.session"
+             && root.TryGetProperty("payload", out var payload) && payload.TryGetProperty("event", out var evt)
+             && evt.TryGetProperty("kind", out var kind) && kind.GetString() == "model_completed") return false;
+            var type = root.TryGetProperty("role", out var r) ? r
+                : root.TryGetProperty("type", out var t) ? t
+                : root.GetProperty("payload_type");
+            return !NoiseTypes.Contains(type.GetString()!);
         } catch (JsonException) {
             return false;
         }

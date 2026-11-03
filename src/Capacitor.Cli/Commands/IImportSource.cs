@@ -36,8 +36,8 @@ internal sealed record DiscoveredSession(
 /// Reimport carries the effective <c>--reimport</c> flag: when true, a source
 /// that skips already-loaded sessions via a local completeness ledger must
 /// bypass that ledger so the selected sessions re-classify as New/Partial and
-/// re-send (idempotent server-side). Only OpenCode keeps such a ledger today;
-/// every other source already re-classifies each run and ignores this field.
+/// re-send (idempotent server-side). Transcript frontiers also require a freshly probed server
+/// watermark matching the one recorded alongside the complete physical line count
 /// </summary>
 internal sealed record ClassifyContext(
     HttpClient                  HttpClient,
@@ -47,6 +47,8 @@ internal sealed record ClassifyContext(
     bool                        Reimport = false) {
     /// <inheritdoc cref="DiscoveryFilters.Stderr"/>
     public TextWriter? Stderr { get; init; }
+
+    public TranscriptImportLedger? TranscriptLedger { get; init; }
 }
 
 /// <summary>
@@ -66,6 +68,8 @@ internal sealed record ImportContext(
     IProgress<ImportProgress>? Progress          = null) {
     /// <inheritdoc cref="DiscoveryFilters.Stderr"/>
     public TextWriter? Stderr { get; init; }
+
+    public TranscriptImportLedger? TranscriptLedger { get; init; }
 
     /// <summary>
     /// The <c>default_visibility</c> to stamp on a session-start, or null to leave the field off.
