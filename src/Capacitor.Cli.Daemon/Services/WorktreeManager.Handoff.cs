@@ -9,12 +9,7 @@ public partial class WorktreeManager {
     /// <summary>Reads origin and decides where a hand-off worktree starts, without creating anything but
     /// fetched refs. A branch is reported absent only when origin answers that it has no such branch.</summary>
     public async Task<HandoffResolution> ResolveHandoffStartAsync(string repoPath, HandoffTarget target, CancellationToken ct) {
-        ct.ThrowIfCancellationRequested();
-
-        if (target is { HeadIsFork: true, PullRequestNumber: null })
-            throw new InvalidOperationException("invalid_handoff_target: a fork head needs its pull request number");
-        if (target.Branch is { Length: > 0 } named && !await IsValidRefNameAsync(repoPath, named))
-            throw new InvalidOperationException($"invalid_base_ref: {named}");
+        await ValidateHandoffTargetAsync(repoPath, target, ct);
 
         if (target is { HeadIsFork: true, PullRequestNumber: { } number }) {
             var pullRef = $"refs/kcap/handoff/pull-{number}";
@@ -59,6 +54,40 @@ public partial class WorktreeManager {
         return defaultSha is null
             ? new(null, defaultError)
             : new(new(HandoffSource.DefaultBranch, HandoffCheckout.Detached, defaultSha, defaultBranch, HandoffDetachReason.BranchAbsent, null), null);
+    }
+
+    /// <summary>Decides the start <see cref="ResolveHandoffStartAsync"/> would, from the refs this checkout already
+    /// holds of origin, without running anything that reaches it. Null when those refs cannot name a start:
+    /// a branch missing from them may still be on origin, so it is never taken for an absent one.</summary>
+    public async Task<HandoffStart?> ResolveLocalHandoffStartAsync(string repoPath, HandoffTarget target, CancellationToken ct) {
+        await ValidateHandoffTargetAsync(repoPath, target, ct);
+
+        if (target is { HeadIsFork: true, PullRequestNumber: { } number })
+            return await ResolveCommitAsync(repoPath, $"refs/kcap/handoff/pull-{number}") is { } head
+                ? new(HandoffSource.ForkPullRequest, HandoffCheckout.Detached, head, target.Branch, HandoffDetachReason.ForkHead, null)
+                : null;
+
+        if (target.Branch is not { Length: > 0 } branch
+         || await ResolveCommitAsync(repoPath, $"refs/remotes/origin/{branch}") is not { } sha) return null;
+
+        ct.ThrowIfCancellationRequested();
+
+        return await DecideBranchStartAsync(repoPath, branch, sha);
+    }
+
+    async Task ValidateHandoffTargetAsync(string repoPath, HandoffTarget target, CancellationToken ct) {
+        ct.ThrowIfCancellationRequested();
+
+        if (target is { HeadIsFork: true, PullRequestNumber: null })
+            throw new InvalidOperationException("invalid_handoff_target: a fork head needs its pull request number");
+        if (target.Branch is { Length: > 0 } named && !await IsValidRefNameAsync(repoPath, named))
+            throw new InvalidOperationException($"invalid_base_ref: {named}");
+    }
+
+    async Task<string?> ResolveCommitAsync(string repoPath, string refName) {
+        var result = await RunGitCaptureResult(repoPath, GitTimeout, time, true, [], "rev-parse", "--verify", "--quiet", $"{refName}^{{commit}}");
+
+        return result.ExitCode == 0 && result.Stdout.Trim() is { Length: > 0 } sha ? sha : null;
     }
 
     /// <summary>True for the refusals <see cref="ResolveHandoffStartAsync"/> raises about the target itself,

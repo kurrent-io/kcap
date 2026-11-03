@@ -69,7 +69,8 @@ public class HandoffComposerViewModelTests {
 
         public Rig() {
             Daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(supportedVendors: ["claude", "codex"]));
-            Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, ["input/1", "input/2", HandoffWire.Capability]));
+            Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null,
+                ["input/1", "input/2", HandoffWire.Capability, HandoffWire.LocalProbeCapability]));
             Sessions.HandoffContext = new HandoffContextDto(SessionId, "acme", "widgets", "feature/x", null, ["c1"]);
             Drafts = new HandoffDrafts(Failures, Directory, Time);
         }
@@ -328,11 +329,11 @@ public class HandoffComposerViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task A_fetch_error_disables_start() => Run(async rig => {
-        rig.Ops.Next = new HandoffProbeReplyDto(null, "Authentication failed", null, null, null);
+    public Task A_checkout_the_daemon_cannot_read_disables_start() => Run(async rig => {
+        rig.Ops.Next = new HandoffProbeReplyDto(null, "git rev-parse failed", null, null, null);
         var vm = await rig.ReadyAsync();
 
-        await Assert.That(vm.DisabledReason).IsEqualTo("Couldn't reach origin: Authentication failed");
+        await Assert.That(vm.DisabledReason).IsEqualTo(HandoffComposerViewModel.CheckoutUnreadable);
         await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsFalse();
     });
 
@@ -342,14 +343,164 @@ public class HandoffComposerViewModelTests {
     public Task A_reprobe_after_a_refusal_shows_its_own_reason_beside_the_refusal() => Run(async rig => {
         rig.Launch.Next = new LaunchOutcome(false, null, "handoff_start_changed: feature/x moved");
         var vm = await rig.ReadyAsync();
-        rig.Ops.Next = new HandoffProbeReplyDto(null, "Authentication failed", null, null, null);
+        rig.Ops.Answer = request => request.LocalOnly
+            ? new HandoffProbeReplyDto(HandoffRefusals.InvalidTarget, null, null, null, null)
+            : Reply(AttachedStart);
 
         await vm.StartCommand.Execute();
         await vm.PendingEvaluationForTesting;
 
         await Assert.That(vm.Error).IsEqualTo(StartChanged);
-        await Assert.That(vm.DisabledReason).IsEqualTo("Couldn't reach origin: Authentication failed");
+        await Assert.That(vm.DisabledReason).IsEqualTo(HandoffComposerViewModel.InvalidTarget);
     });
+
+    // ---- origin ----
+
+    const string MovedSha = "1234567890abcdef1234567890abcdef12345678";
+
+    /// Showing the composer, which stopping a session does, is no request to reach off the machine.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_composer_probes_only_the_checkouts_own_refs() => Run(async rig => {
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(rig.Ops.Probes.Single().LocalOnly).IsTrue();
+        await Assert.That(vm.ProbedStart).IsEqualTo(AttachedStart);
+        await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
+    });
+
+    /// A daemon that cannot probe offline fetches whatever the request says, so it is asked nothing until Start.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_daemon_without_the_offline_probe_is_asked_nothing_until_start() => Run(async rig => {
+        rig.Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, ["input/1", "input/2", HandoffWire.Capability]));
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(rig.Ops.Probes).IsEmpty();
+        await Assert.That(vm.StripLabel).IsEqualTo(HandoffComposerViewModel.OriginDecidesLabel);
+        await Assert.That(vm.StartsFromOrigin).IsTrue();
+        await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Ops.Probes.Single().LocalOnly).IsFalse();
+        await Assert.That(rig.Launch.Requests.Single().Handoff).IsEqualTo(AttachedStart with { SourceSessionId = SessionId });
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Start_reads_origin_once_before_launching() => Run(async rig => {
+        var vm = await rig.ReadyAsync();
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Ops.Probes.Select(p => p.LocalOnly).ToArray()).IsEquivalentTo([true, false], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That(rig.Launch.Requests.Single().Handoff).IsEqualTo(AttachedStart with { SourceSessionId = SessionId });
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_start_only_origin_can_name_launches_from_its_answer() => Run(async rig => {
+        rig.Ops.Answer = request => request.LocalOnly
+            ? new HandoffProbeReplyDto(null, null, null, null, null, NeedsOrigin: true)
+            : Reply(AttachedStart);
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(vm.ProbedStart).IsNull();
+        await Assert.That(vm.StartsFromOrigin).IsTrue();
+        await Assert.That(vm.StripLabel).IsEqualTo(HandoffComposerViewModel.OriginDecidesLabel);
+        await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests.Single().Handoff).IsEqualTo(AttachedStart with { SourceSessionId = SessionId });
+    });
+
+    /// What launches is what the strip showed: a start origin moved is shown, and only the next Start sends it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_start_origin_has_moved_is_shown_rather_than_launched() => Run(async rig => {
+        var moved = AttachedStart with { StartSha = MovedSha };
+        rig.Ops.Answer = request => Reply(request.LocalOnly ? AttachedStart : moved);
+        var vm = await rig.ReadyAsync();
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests).IsEmpty();
+        await Assert.That(vm.Error).IsEqualTo(HandoffComposerViewModel.OriginMoved);
+        await Assert.That(vm.ProbedStart).IsEqualTo(moved);
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests.Single().Handoff!.StartSha).IsEqualTo(MovedSha);
+        await Assert.That(rig.Ops.Probes.Count(p => !p.LocalOnly)).IsEqualTo(1);
+    });
+
+    /// A private origin with no git credentials on the machine, which git reports over two lines.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_origin_that_cannot_be_read_at_start_says_so_in_one_line_and_keeps_start() => Run(async rig => {
+        rig.Ops.Answer = request => request.LocalOnly
+            ? Reply(AttachedStart)
+            : new HandoffProbeReplyDto(null,
+                "fatal: Cannot prompt because user interactivity has been disabled.\n"
+              + "fatal: could not read Username for 'https://github.com': terminal prompts disabled", null, null, null);
+        var vm = await rig.ReadyAsync();
+        vm.Text = "carry on";
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests).IsEmpty();
+        await Assert.That(vm.Error).IsEqualTo(HandoffComposerViewModel.OriginSignInNeeded);
+        await Assert.That(vm.DisabledReason).IsNull();
+        await Assert.That(vm.Text).IsEqualTo("carry on");
+        await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
+    });
+
+    /// Nothing is captured while origin is read, so a composer that goes meanwhile keeps the draft as unsent.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_composer_disposed_while_origin_is_read_keeps_the_draft_and_launches_nothing() => Run(async rig => {
+        var vm = await rig.ReadyAsync();
+        vm.Text = "carry on";
+        var origin = new TaskCompletionSource<HandoffProbeReplyDto?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Ops.Gate = origin;
+
+        var starting = vm.StartCommand.Execute().ToTask();
+        await WaitUntilAsync(() => rig.Ops.Probes.Count == 2, what: "the read of origin");
+        vm.Dispose();
+        origin.SetResult(Reply(AttachedStart));
+        await starting;
+
+        await Assert.That(rig.Launch.Requests).IsEmpty();
+        rig.Ops.Gate = null;
+        await Assert.That((await rig.ReadyAsync()).Text).IsEqualTo("carry on");
+    });
+
+    [Test]
+    [Arguments("fatal: Cannot prompt because user interactivity has been disabled.\nfatal: could not read Username for 'https://github.com': terminal prompts disabled", "sign-in")]
+    [Arguments("remote: Invalid username or password.\nfatal: Authentication failed for 'https://github.com/acme/widgets.git/'", "sign-in")]
+    [Arguments("fatal: unable to access 'https://github.com/acme/widgets.git/': The requested URL returned error: 403", "sign-in")]
+    [Arguments("remote: Repository not found.\nfatal: repository 'https://github.com/acme/widgets.git/' not found", "sign-in")]
+    [Arguments("git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.", "sign-in")]
+    [Arguments("fatal: unable to access 'https://github.com/acme/widgets.git/': Could not resolve host: github.com", "offline")]
+    [Arguments("ssh: connect to host github.com port 22: Connection refused", "offline")]
+    [Arguments("timed out waiting for origin", "timeout")]
+    [Arguments("git fetch timed out after 120s", "timeout")]
+    [Arguments("fatal: something new\nand more", "other")]
+    [Arguments("", "other")]
+    public async Task A_failed_read_of_origin_is_worded_in_one_line(string detail, string kind) {
+        var worded = HandoffComposerViewModel.OriginUnreachable(detail);
+
+        await Assert.That(worded).IsEqualTo(kind switch {
+            "sign-in" => HandoffComposerViewModel.OriginSignInNeeded,
+            "offline" => HandoffComposerViewModel.OriginOffline,
+            "timeout" => HandoffComposerViewModel.OriginTimedOut,
+            _ => HandoffComposerViewModel.OriginUnreadable,
+        });
+        await Assert.That(worded).DoesNotContain("\n");
+        await Assert.That(worded).DoesNotContain("fatal");
+    }
 
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -436,7 +587,8 @@ public class HandoffComposerViewModelTests {
         await Assert.That(vm.Text).IsEqualTo("carry on");
         await Assert.That(vm.Tray.Count).IsEqualTo(1);
         await Assert.That(vm.Error).IsEqualTo(SourceUnavailable);
-        await Assert.That(rig.Ops.Probes.Count).IsEqualTo(2);
+        await Assert.That(rig.Ops.Probes.Select(p => p.LocalOnly).ToArray())
+            .IsEquivalentTo([true, false, true], TUnit.Assertions.Enums.CollectionOrdering.Matching);
         await Assert.That(rig.Directory.Placeholders).IsEmpty();
         await Assert.That(rig.Opened).IsEmpty();
     });
@@ -469,7 +621,7 @@ public class HandoffComposerViewModelTests {
         await Assert.That(reopened.Choices.SelectedModel).IsEqualTo("claude-opus-5");
         await Assert.That(reopened.Choices.SelectedEffort).IsEqualTo("high");
         await Assert.That(reopened.Error).IsEqualTo(StartChanged);
-        await Assert.That(rig.Ops.Probes.Count).IsEqualTo(2);
+        await Assert.That(rig.Ops.Probes.Count).IsEqualTo(3);
     });
 
     const string StartChangedNotice =
@@ -622,7 +774,7 @@ public class HandoffComposerViewModelTests {
         await Assert.That(vm.Choices.SelectedEffort).IsEqualTo("low");
         await Assert.That(vm.Error).IsEqualTo(StartChanged);
         await vm.PendingEvaluationForTesting;
-        await Assert.That(rig.Ops.Probes.Count).IsEqualTo(2);
+        await Assert.That(rig.Ops.Probes.Count).IsEqualTo(3);
         await Assert.That(rig.Reopened).IsEmpty();
         await Assert.That((await rig.ReadyAsync()).Text).IsEqualTo("");
     });
@@ -691,7 +843,7 @@ public class HandoffComposerViewModelTests {
 
         await vm.StartCommand.Execute();
 
-        await Assert.That(rig.Ops.Probes.Count).IsEqualTo(1);
+        await Assert.That(rig.Ops.Probes.Count).IsEqualTo(2);
         var next = await rig.ReadyAsync();
         await Assert.That(next.Text).IsEqualTo("carry on");
         await Assert.That(next.Tray.Items.Single()).IsSameReferenceAs(chip);
@@ -970,7 +1122,9 @@ public class HandoffComposerViewModelTests {
         vm.Tray.AddAll([Chip("a.png")]);
 
         var starting = vm.StartCommand.Execute().ToTask();
-        rig.Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, ["input/1", HandoffWire.Capability]));
+        await WaitUntilAsync(() => rig.Uploader.Calls.Count == 1, what: "the upload");
+        rig.Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null,
+            ["input/1", HandoffWire.Capability, HandoffWire.LocalProbeCapability]));
         upload.SetResult(new UploadOutcome(UploadKind.Uploaded, ["u1"], null));
         await starting;
 
@@ -1008,6 +1162,7 @@ public class HandoffComposerViewModelTests {
         vm.Text = "carry on";
         vm.Tray.AddAll([Chip("a.png")]);
         var starting = vm.StartCommand.Execute().ToTask();
+        await WaitUntilAsync(() => rig.Uploader.Calls.Count == 1, what: "the upload");
         vm.Dispose();
         var next = await rig.ReadyAsync();
 
@@ -1077,6 +1232,7 @@ public class HandoffComposerViewModelTests {
         vm.Tray.AddAll([Chip("a.png")]);
 
         var starting = vm.StartCommand.Execute().ToTask();
+        await WaitUntilAsync(() => rig.Uploader.Calls.Count == 1, what: "the upload");
         rig.Daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(supportedVendors: []));
         upload.SetResult(new UploadOutcome(UploadKind.Uploaded, ["u1"], null));
         await starting;
@@ -1148,7 +1304,7 @@ public class HandoffComposerViewModelTests {
         rig.MachineId = Machine;
         rig.Launch.Features = FrozenSet.Create(HandoffWire.Capability, ResumeInPlaceWire.Capability);
         rig.Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null,
-            ["input/1", "input/2", HandoffWire.Capability, ResumeInPlaceWire.Capability]));
+            ["input/1", "input/2", HandoffWire.Capability, HandoffWire.LocalProbeCapability, ResumeInPlaceWire.Capability]));
     }
 
     [Test]
@@ -1182,7 +1338,8 @@ public class HandoffComposerViewModelTests {
             case "active": rig.Session = rig.Session with { Status = "active" }; break;
             case "old-server": rig.Launch.Features = FrozenSet.Create(HandoffWire.Capability); break;
             case "old-daemon":
-                rig.Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, ["input/1", "input/2", HandoffWire.Capability]));
+                rig.Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null,
+                    ["input/1", "input/2", HandoffWire.Capability, HandoffWire.LocalProbeCapability]));
                 break;
             case "daemon-refuses": rig.Ops.ResumeNext = new(ResumeInPlaceRefusals.DirectoryMissing); break;
             case "daemon-silent": rig.Ops.ResumeNext = null; break;
