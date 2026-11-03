@@ -2364,8 +2364,11 @@ partial class WatchCommand(
     int? LiveClaimant(string sessionId) =>
         SessionId.Parse(sessionId) is { } session ? AgentSessions.OnThisMachine(config).LiveClaimant(session) : null;
 
+    /// <summary>Only a request handed over for this watcher's server, or one that recorded none: this watcher posts to its
+    /// own server, and one for another is left to that server's drain.</summary>
     MuseSessionEndRequest? ClaimHandedMuseEnd(string sessionId) =>
-        MuseSessionEndRequest.TryClaim(_paths, sessionId, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), time);
+        MuseSessionEndRequest.TryClaim(_paths, sessionId, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), time,
+            recorded => recorded is null || ServerIdentity.SameServer(recorded, Url));
 
     internal enum HandedEndOutcome { Posted, Dropped, Failed }
 

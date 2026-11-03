@@ -347,6 +347,32 @@ public class WatcherParentExitPostTests : IDisposable {
         await Assert.That(spawner.Spawned).IsEmpty();
     }
 
+    /// <summary>A watcher takes only the handed ends meant for the server it posts to: one a hook handed over for
+    /// another server, after the profile moved, is left for that server's drain rather than posted here.</summary>
+    [Test]
+    public async Task A_watcher_leaves_a_handed_end_meant_for_another_server() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"generate_whats_done":false}"""));
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""", _server.Url);
+        var own = Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""", "https://other.example");
+
+        await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, own);
+
+        var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.GetProperty("daemon_epoch").GetString())
+            .ToList();
+        await Assert.That(epochs).IsEquivalentTo(new string?[] { "epoch-1" });
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsTrue();
+    }
+
     /// <summary>A watcher settles every handed end before it exits, not only the one it claimed: one handed over after
     /// its claim was made would otherwise wait for a watcher nobody arms, since its hook saw this one alive.</summary>
     [Test]
