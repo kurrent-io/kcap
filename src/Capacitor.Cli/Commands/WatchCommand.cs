@@ -1207,8 +1207,15 @@ partial class WatchCommand(
             Log(time, $"Waiting up to {Math.Max(0, titleBudget.TotalSeconds):F1}s for the generated title before closing the connection");
 
             if (!await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, TouchHeartbeat)) {
-                Log(time, "Generated title not ready before shutdown; abandoning it");
                 await titleCts.CancelAsync();
+
+                // A kill follows a stop request within seconds; a title takes longer, so another process finishes it.
+                if (Volatile.Read(ref stopRequested) == 1) {
+                    Log(time, "Generated title not ready before shutdown; handing it to a title generator");
+                    watchers.SpawnTitleGenerator(sessionId, vendor, transcriptPath);
+                } else {
+                    Log(time, "Generated title not ready before shutdown; abandoning it");
+                }
             }
         }
 
@@ -3280,6 +3287,26 @@ partial class WatchCommand(
         }
 
         state.FirstUserText = userText;
+    }
+
+    /// <summary>The first prompt and first reply a title is generated from, read the way the watch loop reads them,
+    /// for a generator that runs after the watcher is gone.</summary>
+    internal static (string? UserText, string? AssistantText) ReadTitleContext(string transcriptPath, string vendor, TimeProvider time) {
+        var state = new WatchState();
+
+        using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+
+        while (reader.ReadLine() is { } line && (state.FirstUserText is null || state.FirstAssistantText is null)) {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+
+            if (state.FirstUserText is null && TryExtractUserText(line, time, vendor) is { } userText) SetFirstUserText(state, userText, time);
+
+            if (state.FirstAssistantText is null && TryExtractAssistantText(line, vendor) is { } assistantText)
+                state.FirstAssistantText = assistantText.Length > 300 ? assistantText[..300] : assistantText;
+        }
+
+        return (state.FirstUserText, state.FirstAssistantText);
     }
 
     internal static string? TryExtractAssistantText(string line, string vendor = "claude") =>

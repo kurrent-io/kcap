@@ -148,6 +148,15 @@ public class UnusableUrlGuardTests : IDisposable {
         await Assert.That(starter.Starts).IsEqualTo(0);
     }
 
+    [Test]
+    public async Task SpawnTitleGenerator_never_starts_a_process() {
+        var starter = FakeProcessStarter.Refusing();
+
+        GuardedManager(starter).SpawnTitleGenerator(Sid, "pi", Path.Combine(_dir, "t.jsonl"), TextWriter.Null);
+
+        await Assert.That(starter.Starts).IsEqualTo(0);
+    }
+
     // Globally sequential: this test swaps the process-global Console.Error to capture the
     // diagnostic, so it must not overlap another Console-redirecting test — concurrent capturers
     // save each other's writers as their "original" and restore them mid-flight, sending this
