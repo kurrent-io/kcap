@@ -32,7 +32,7 @@ public class MuseSessionEndRequestTests {
         MuseSessionEndRequest.Write(paths, SessionId, """{"reason":"first"}""");
         var claimed = MuseSessionEndRequest.TryClaim(paths, SessionId, "w1")!;
 
-        MuseSessionEndRequest.Unclaim(paths, SessionId, claimed);
+        MuseSessionEndRequest.Unclaim(claimed);
         await Assert.That(File.Exists(claimed.ClaimedPath)).IsFalse();
         await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w2")!.Payload).IsEqualTo("""{"reason":"first"}""");
 
@@ -43,9 +43,32 @@ public class MuseSessionEndRequestTests {
         var old = MuseSessionEndRequest.TryClaim(paths, SessionId, "w4")!;
         MuseSessionEndRequest.Write(paths, SessionId, """{"reason":"newer"}""");
 
-        MuseSessionEndRequest.Unclaim(paths, SessionId, old);
+        MuseSessionEndRequest.Unclaim(old);
         await Assert.That(File.Exists(old.ClaimedPath)).IsFalse();
         await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w5")!.Payload).IsEqualTo("""{"reason":"newer"}""");
+    }
+
+    const string E2 = """{"reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""";
+    const string E1 = """{"reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""";
+
+    /// <summary>Each run's end has its own request: an earlier run's late hook writing after the live run's neither
+    /// overwrites it nor supersedes its claim, and the two are taken oldest first.</summary>
+    [Test]
+    public async Task An_earlier_runs_late_request_neither_overwrites_nor_supersedes_the_live_runs() {
+        var paths = new WatcherPaths(Tmp.PathTo("watchers"));
+
+        MuseSessionEndRequest.Write(paths, SessionId, E2);
+        File.SetLastWriteTimeUtc(MuseSessionEndRequest.PathFor(paths, SessionId, E2), DateTime.UtcNow.AddSeconds(-2));
+        var live = MuseSessionEndRequest.TryClaim(paths, SessionId, "w1")!;
+        MuseSessionEndRequest.Write(paths, SessionId, E1);
+
+        await Assert.That(live.Payload).IsEqualTo(E2);
+        MuseSessionEndRequest.Unclaim(live);
+
+        await Assert.That(File.Exists(live.ClaimedPath)).IsFalse();
+        await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w2")!.Payload).IsEqualTo(E2);
+        await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w3")!.Payload).IsEqualTo(E1);
+        await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w4")).IsNull();
     }
 
     [Test]

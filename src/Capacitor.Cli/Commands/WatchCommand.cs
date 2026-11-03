@@ -813,17 +813,7 @@ partial class WatchCommand(
 
                 if (ClaimHandedMuseEnd(sessionId) is { } handed) {
                     await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: vendor);
-
-                    if (HoldHandedEndForResume(handed, AgentHoldingEndForResume(handed, sessionId)) is { } resumingId) {
-                        Log(time, $"session end suppressed: agent {resumingId} is resuming");
-                    } else switch (await PostHandedSessionEndAsync(sessionId, transcriptPath, vendor, repository: null, handed)) {
-                        case HandedEndOutcome.Dropped:
-                            await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
-                            break;
-                        case HandedEndOutcome.Failed:
-                            await RetryOrUnclaimHandedEndAsync(sessionId, transcriptPath, vendor, repository: null, handed);
-                            break;
-                    }
+                    await SettleHandedEndsAsync(sessionId, transcriptPath, cwd, vendor, repository: null, handed);
                 }
             }
 
@@ -1277,18 +1267,7 @@ partial class WatchCommand(
         if (TakesHandedMuseEnd(vendor, agentId)) museEndRequest ??= ClaimHandedMuseEnd(sessionId);
 
         if (museEndRequest is { } handedEnd) {
-            if (HoldHandedEndForResume(handedEnd, AgentHoldingEndForResume(handedEnd, sessionId)) is { } resumingId) {
-                Log(time, $"session end suppressed: agent {resumingId} is resuming");
-            } else switch (await PostHandedSessionEndAsync(sessionId, transcriptPath, vendor, state.Repository, handedEnd)) {
-                // The session carried on, so this watcher's stop must not leave it unwatched.
-                case HandedEndOutcome.Dropped:
-                    await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
-                    break;
-
-                case HandedEndOutcome.Failed:
-                    await RetryOrUnclaimHandedEndAsync(sessionId, transcriptPath, vendor, state.Repository, handedEnd);
-                    break;
-            }
+            await SettleHandedEndsAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, handedEnd);
         } else if (PostsOwnSessionEnd(endReason, agentId, cursorSuppressesEndPost)) {
             // A resumed session's hooks claim its new process; the end of the one this watcher followed
             // is then not the session's end, and the new process is left without a watcher.
@@ -2394,7 +2373,32 @@ partial class WatchCommand(
     /// spool, and otherwise put back for the next watcher. The retry sends the handed end itself: one rebuilt from this
     /// watcher would name the watcher's run, which can be an earlier one. Not while the session still has spooled
     /// hooks: a direct post would overtake them, ending the session before its start replays.</summary>
-    internal async Task RetryOrUnclaimHandedEndAsync(
+    /// <summary>Settles the handed end this watcher took, then every other one handed over before it exits, oldest
+    /// first: another run's end handed over while this one was claimed would otherwise wait for a watcher nobody arms.
+    /// One that can be neither posted nor spooled goes back, and ends the pass, so it is not taken again here.</summary>
+    internal async Task SettleHandedEndsAsync(
+            string sessionId, string transcriptPath, string? cwd, string vendor, RepositoryPayload? repository, MuseSessionEndRequest first) {
+        for (MuseSessionEndRequest? handed = first; handed is not null; handed = ClaimHandedMuseEnd(sessionId)) {
+            if (HoldHandedEndForResume(handed, AgentHoldingEndForResume(handed, sessionId)) is { } resumingId) {
+                Log(time, $"session end suppressed: agent {resumingId} is resuming");
+                continue;
+            }
+
+            switch (await PostHandedSessionEndAsync(sessionId, transcriptPath, vendor, repository, handed)) {
+                // The session carried on, so this watcher's stop must not leave it unwatched.
+                case HandedEndOutcome.Dropped:
+                    await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
+                    break;
+
+                case HandedEndOutcome.Failed:
+                    if (!await RetryOrUnclaimHandedEndAsync(sessionId, transcriptPath, vendor, repository, handed)) return;
+                    break;
+            }
+        }
+    }
+
+    /// <summary>True when the retry posted the end; false when it went back for the next watcher.</summary>
+    internal async Task<bool> RetryOrUnclaimHandedEndAsync(
             string                sessionId,
             string                transcriptPath,
             string                vendor,
@@ -2405,10 +2409,12 @@ partial class WatchCommand(
          && await PostSessionEndPayloadAsync(sessionId, vendor, HandedEndBody(handed.Payload, sessionId, transcriptPath, time.GetUtcNow(), out _), repository, "Handed")) {
             MuseSessionEndRequest.Release(handed.ClaimedPath);
 
-            return;
+            return true;
         }
 
-        MuseSessionEndRequest.Unclaim(_paths, sessionId, handed);
+        MuseSessionEndRequest.Unclaim(handed);
+
+        return false;
     }
 
     /// <summary>The run a successor watcher follows: the one the daemon's marker records, when the marker names the

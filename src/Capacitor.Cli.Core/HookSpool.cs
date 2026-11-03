@@ -73,6 +73,8 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
             var line = new JsonObject { ["route"] = route, ["body"] = rawPayloadJson }.ToJsonString();
             EnsureUnderCap(path, Encoding.UTF8.GetByteCount(line) + 1);
             File.AppendAllText(path, $"{line}\n");
+            // A start means the session runs again: its events are a new run's, not stragglers of the end before.
+            if (route == "session-start" || route.StartsWith("session-start/", StringComparison.Ordinal)) ClearEnded(sessionId);
             return true;
         } catch {
             return false;

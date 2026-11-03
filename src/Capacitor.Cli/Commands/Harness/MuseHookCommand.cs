@@ -211,12 +211,13 @@ sealed class MuseHookCommand(
 
         MuseSessionEndRequest.MarkResumed(paths, sessionId);
 
-        if (MuseSessionEndRequest.TryClaim(paths, sessionId, "rearm") is not { } handed) return;
+        var kept = new List<MuseSessionEndRequest>();
+        while (MuseSessionEndRequest.TryClaim(paths, sessionId, "rearm") is { } handed) {
+            if (MuseSessionEndRequest.ResumedSince(paths, sessionId, handed.HandedAt)) MuseSessionEndRequest.Release(handed.ClaimedPath);
+            else kept.Add(handed);
+        }
 
-        if (MuseSessionEndRequest.ResumedSince(paths, sessionId, handed.HandedAt))
-            MuseSessionEndRequest.Release(handed.ClaimedPath);
-        else
-            MuseSessionEndRequest.Unclaim(paths, sessionId, handed);
+        foreach (var handed in kept) MuseSessionEndRequest.Unclaim(handed);
     }
 
     /// <summary>An out-of-scope repository disables the session, so its later hooks stop at the

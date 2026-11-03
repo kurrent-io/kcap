@@ -1,4 +1,8 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Harness.Muse;
 
@@ -9,10 +13,45 @@ namespace Capacitor.Cli.Harness.Muse;
 /// the end itself; the watcher is a detached process, so it posts the end after its final drain.
 /// Whoever takes it claims it first by renaming it, an atomic step only one party can win, so two
 /// watchers on the session, or a watcher and the re-arm of a resumed session, never both act on one end.
+/// Each run the request names has a file of its own, so one run's end never overwrites or supersedes another's
+/// whatever order their hooks fire in; a request naming no run keeps the name every version writes.
 /// </summary>
-public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, DateTimeOffset HandedAt) {
+public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, DateTimeOffset HandedAt, string SourcePath) {
+    const string Suffix = ".muse-end-requested";
+
+    /// <summary>Where a request naming no run is handed over.</summary>
     public static string PathFor(WatcherPaths paths, string sessionId) =>
-        Path.Combine(paths.Directory, $"{sessionId}.muse-end-requested");
+        Path.Combine(paths.Directory, sessionId + Suffix);
+
+    /// <summary>Where <paramref name="payload"/>'s request is handed over: a file per run it names.</summary>
+    public static string PathFor(WatcherPaths paths, string sessionId, string payload) =>
+        RunKey(payload) is { } key ? Path.Combine(paths.Directory, $"{sessionId}.{key}{Suffix}") : PathFor(paths, sessionId);
+
+    static string? RunKey(string payload) {
+        try {
+            if (JsonNode.Parse(payload) is not JsonObject end || end["agent_host_id"]?.GetValue<string>() is not { Length: > 0 } agentId) return null;
+            var epoch = end["daemon_epoch"]?.GetValue<string>() ?? "";
+
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{agentId}\n{epoch}")))[..16].ToLowerInvariant();
+        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) {
+            return null;
+        }
+    }
+
+    /// <summary>The session's unclaimed requests, oldest hand-over first.</summary>
+    static IEnumerable<string> Pending(WatcherPaths paths, string sessionId) {
+        try {
+            if (!Directory.Exists(paths.Directory)) return [];
+
+            return Directory.EnumerateFiles(paths.Directory, $"{sessionId}.*")
+                .Where(f => Path.GetFileName(f) is var name && name.EndsWith(Suffix, StringComparison.Ordinal)
+                         && (name == sessionId + Suffix || name.Count(c => c == '.') == 2))
+                .OrderBy(File.GetLastWriteTimeUtc)
+                .ToList();
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return [];
+        }
+    }
 
     static string ResumedPathFor(WatcherPaths paths, string sessionId) =>
         Path.Combine(paths.Directory, $"{sessionId}.muse-resumed");
@@ -20,7 +59,7 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
     /// <summary>Written whole, then renamed into place, so a reader never sees a partial request.</summary>
     public static void Write(WatcherPaths paths, string sessionId, string payload) {
         Directory.CreateDirectory(paths.Directory);
-        var target = PathFor(paths, sessionId);
+        var target = PathFor(paths, sessionId, payload);
         var temp   = $"{target}.{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}.tmp";
 
         File.WriteAllText(temp, payload);
@@ -28,12 +67,18 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
     }
 
     /// <summary>True while an unclaimed request is on disk.</summary>
-    public static bool Exists(WatcherPaths paths, string sessionId) => File.Exists(PathFor(paths, sessionId));
+    public static bool Exists(WatcherPaths paths, string sessionId) => Pending(paths, sessionId).Any();
 
-    /// <summary>Takes the request for <paramref name="owner"/>, or null when there is none or another party
-    /// took it first. An empty request is discarded rather than claimed.</summary>
+    /// <summary>Takes the session's oldest unclaimed request for <paramref name="owner"/>, or null when there is none
+    /// or other parties took each first. An empty request is discarded rather than claimed.</summary>
     public static MuseSessionEndRequest? TryClaim(WatcherPaths paths, string sessionId, string owner) {
-        var source  = PathFor(paths, sessionId);
+        foreach (var source in Pending(paths, sessionId))
+            if (TryClaimAt(source, owner) is { } request) return request;
+
+        return null;
+    }
+
+    static MuseSessionEndRequest? TryClaimAt(string source, string owner) {
         var claimed = $"{source}.{owner}.claimed";
 
         try {
@@ -60,7 +105,7 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
         }
 
         // The rename keeps the write time, which is when the hook handed the end over.
-        if (!string.IsNullOrWhiteSpace(payload)) return new MuseSessionEndRequest(payload, claimed, new DateTimeOffset(handedAt, TimeSpan.Zero));
+        if (!string.IsNullOrWhiteSpace(payload)) return new MuseSessionEndRequest(payload, claimed, new DateTimeOffset(handedAt, TimeSpan.Zero), source);
 
         Release(claimed);
         return null;
@@ -89,10 +134,10 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
         }
     }
 
-    /// <summary>Puts a claimed request back for the next taker when its end could not be sent, unless a
-    /// newer request has been handed over since, which supersedes it.</summary>
-    public static void Unclaim(WatcherPaths paths, string sessionId, MuseSessionEndRequest request) {
-        var source = PathFor(paths, sessionId);
+    /// <summary>Puts a claimed request back for the next taker when its end could not be sent, unless the same run
+    /// has handed over a newer one since, which supersedes it. Another run's request never does.</summary>
+    public static void Unclaim(MuseSessionEndRequest request) {
+        var source = request.SourcePath;
 
         try {
             if (File.Exists(source)) {
@@ -114,12 +159,10 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
     /// <summary>Removes the request and every claim on it, so a watcher armed afterwards is not ended by
     /// an end nobody posted.</summary>
     public static void DeleteAll(WatcherPaths paths, string sessionId) {
-        var source = PathFor(paths, sessionId);
-
         try {
             if (!Directory.Exists(paths.Directory)) return;
 
-            foreach (var file in Directory.EnumerateFiles(paths.Directory, $"{Path.GetFileName(source)}*"))
+            foreach (var file in Directory.EnumerateFiles(paths.Directory, $"{sessionId}.*").Where(f => f.Contains(Suffix, StringComparison.Ordinal)))
                 File.Delete(file);
         } catch (IOException) {
         } catch (UnauthorizedAccessException) {

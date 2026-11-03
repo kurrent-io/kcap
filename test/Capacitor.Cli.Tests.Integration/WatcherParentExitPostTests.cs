@@ -307,4 +307,30 @@ public class WatcherParentExitPostTests : IDisposable {
         await Assert.That(File.Exists(handed.ClaimedPath)).IsFalse();
         await Assert.That(Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")).IsNull();
     }
+
+    /// <summary>A watcher settles every handed end before it exits, not only the one it claimed: one handed over after
+    /// its claim was made would otherwise wait for a watcher nobody arms, since its hook saw this one alive.</summary>
+    [Test]
+    public async Task A_watcher_settles_a_handed_end_that_arrived_after_its_claim() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"generate_whats_done":false}"""));
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
+        var claimed = Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
+
+        await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, claimed);
+
+        var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.GetProperty("daemon_epoch").GetString())
+            .ToList();
+        await Assert.That(epochs).IsEquivalentTo(new string?[] { "epoch-1", "epoch-2" });
+        await Assert.That(Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();
+    }
 }

@@ -221,6 +221,32 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(life.HasBacklog(Sid)).IsFalse(); // discarded, not left pending retry
     }
 
+    /// <summary>A session resumed after its end was delivered spools a new start: what follows is the new run's, and
+    /// its own end must be delivered, not discarded as a straggler of the earlier run's end.</summary>
+    [Test]
+    public async Task a_resumed_runs_spooled_start_and_end_are_delivered_after_an_earlier_end() {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        life.Append(Sid, "session-end/kiro", """{"run":"e1"}""");
+        var order = new List<string>();
+        Task<DrainOutcome> Deliver(string route, string body) { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); }
+        Task Drain() => LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+            lifecyclePoster: Deliver,
+            transcriptPoster: body => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+
+        await Drain();
+        await Assert.That(life.IsMarkedEnded(Sid)).IsTrue();
+
+        life.Append(Sid, "session-start/kiro", """{"run":"e2-start"}""");
+        life.Append(Sid, "session-end/kiro",   """{"run":"e2-end"}""");
+        order.Clear();
+        await Drain();
+
+        await Assert.That(order).IsEquivalentTo(["""{"run":"e2-start"}""", """{"run":"e2-end"}"""]);
+    }
+
     [Test]
     public async Task does_not_mark_ended_when_the_terminal_post_only_transiently_fails() {
         using var tmp = new TempDir();
