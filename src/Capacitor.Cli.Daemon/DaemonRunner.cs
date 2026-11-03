@@ -76,7 +76,7 @@ public static partial class DaemonRunner {
 
         // launchd may carry a restricted PATH captured during setup. A live probe shares the
         // refreshed environment with child processes; other platforms keep their startup snapshot.
-        var agentEnvironment = OperatingSystem.IsMacOS() ? new AgentPathEnvironment(new ProcessRunner(time)) : null;
+        var agentEnvironment = OperatingSystem.IsMacOS() ? new AgentPathEnvironment(new ProcessRunner(time), time) : null;
         var binaries = agentEnvironment is null ? Core.Setup.BinaryProbe.FromEnvironment()
             : Core.Setup.BinaryProbe.Tracking(() => Environment.GetEnvironmentVariable("PATH"));
 

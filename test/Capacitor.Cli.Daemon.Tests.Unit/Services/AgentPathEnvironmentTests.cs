@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Daemon.Services;
@@ -8,6 +9,42 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 [NotInParallel, RunOn(OS.MacOs | OS.Linux)]
 public class AgentPathEnvironmentTests {
     [TempDir] public required TempDir Tmp { get; init; }
+
+    sealed class ObservedRunner : IProcessRunner {
+        readonly ProcessRunner _runner = new(TimeProvider.System);
+        public Task<ProcessResult>? Completion { get; private set; }
+
+        public Task<ProcessResult> RunAsync(string fileName, string[] args, RunOptions options, CancellationToken ct) =>
+            Completion = _runner.RunAsync(fileName, args, options, ct);
+
+        public Task<StreamingResult> RunStreamingAsync(string fileName, string[] args, RunOptions options,
+                Action<StreamedLine> onLine, CancellationToken ct) => throw new NotSupportedException();
+    }
+
+    [Test]
+    public async Task An_exited_shell_with_a_child_holding_output_cannot_block_refresh_or_apply_a_late_PATH() {
+        using var path = EnvScope.Exclusive("PATH", "/usr/bin:/bin");
+        var pidFile = Tmp.PathTo("child.pid");
+        var shell = Tmp.CreateExecutable("shell", $"#!/bin/sh\n/bin/sleep 30 &\nprintf '%s' \"$!\" > '{pidFile}'\nprintf '<<KCAP-PATH>>/late-path<<KCAP-PATH>>'\n");
+        using var shellEnv = EnvScope.Exclusive("SHELL", shell);
+        var runner = new ObservedRunner();
+        var environment = new AgentPathEnvironment(runner);
+        var refresh = environment.RefreshAsync(CancellationToken.None);
+
+        try {
+            await refresh.WaitAsync(TimeSpan.FromSeconds(15));
+            await Assert.That(Environment.GetEnvironmentVariable("PATH")).IsEqualTo("/usr/bin:/bin");
+        } finally {
+            if (File.Exists(pidFile) && int.TryParse(await File.ReadAllTextAsync(pidFile), out var pid)) {
+                using var child = Process.GetProcessById(pid);
+                child.Kill();
+            }
+            await runner.Completion!.WaitAsync(TimeSpan.FromSeconds(3));
+            await refresh.WaitAsync(TimeSpan.FromSeconds(3));
+        }
+
+        await Assert.That(Environment.GetEnvironmentVariable("PATH")).IsEqualTo("/usr/bin:/bin");
+    }
 
     [Test]
     public async Task Restricted_setup_PATH_and_a_later_install_both_discover_and_launch() {

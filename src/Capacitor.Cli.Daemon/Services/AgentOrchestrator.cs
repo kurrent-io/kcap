@@ -1748,6 +1748,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                         _config.AcpPresetVendors = installed.Where(Acp.AcpPermissionPresets.RoutedVendors.Contains).ToArray();
                         _config.PermissionModeVendors = Harness.Claude.ClaudePermissionModePolicy.AdvertisedVendors(installed);
                         _config.PrReviewVendors = DaemonRunner.AdvertisedPrReviewVendors(_runtimeFactories.Values);
+                        DaemonRunner.SeedReviewerFloors(_config.Store.StateDirectory(_config.Name), _config);
                         _config.UnattendedVendors = DaemonRunner.AdvertisedUnattendedVendors(
                             DaemonRunner.ClassifyUnattendedVendors(_runtimeFactories.Values));
                         probeCatalog = true;

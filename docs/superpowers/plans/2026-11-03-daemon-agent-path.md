@@ -8,5 +8,7 @@ Use a live environment binary probe only for the daemon, so its shared registry,
 2. Implement bounded same-user PATH refresh and live daemon resolution; integrate vendor rediscovery.
 3. Run affected tests and a controlled macOS shell/child-launch reproduction; inspect the diff.
 4. Validate the actual LaunchAgent in a disposable macOS VM: restricted setup PATH, existing agent launch, then a new PATH directory/agent discovered and launched without daemon restart or service reinstallation.
+5. Bound the complete PATH refresh, including inherited-pipe draining; reproduce the hang and verify timed-out output cannot later replace PATH.
+6. Seed absent reviewer version floors before classifying newly discovered vendors; verify existing and corrupt records remain unchanged.
 
 Verification is scoped to affected test classes and the authorized VM smoke run. The full suite remains for CI. The host's running daemon remains untouched; VM service changes are isolated to a disposable Tart clone.
