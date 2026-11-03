@@ -95,7 +95,7 @@ public class PaneLayoutMemoryTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Collapsing_the_rail_leaves_a_strip_whose_button_brings_it_back_at_its_width() {
+    public async Task Collapsing_the_rail_gives_its_whole_width_to_the_content_and_its_button_brings_it_back() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var window = new MainWindow { Width = 1400, Height = 800 };
             window.Panes.RailWidth = 400;
@@ -106,15 +106,46 @@ public class PaneLayoutMemoryTests {
             await Assert.That(window.Panes.RailCollapsed).IsTrue();
             await Assert.That(window.SessionRail.IsVisible).IsFalse();
             await Assert.That(window.RailSplitter.IsVisible).IsFalse();
+            await Assert.That(window.ContentPane.Bounds.X).IsEqualTo(0);
+            await Assert.That(window.ContentPane.Bounds.Width).IsEqualTo(1400);
             await Assert.That(window.RailExpandButton.IsEffectivelyVisible).IsTrue();
-            // Below the title bar, where neither the window title nor its buttons can cover it.
-            await Assert.That(window.RailExpandButton.Bounds.Top).IsGreaterThanOrEqualTo(44);
-            await Assert.That(window.ContentPane.Bounds.X).IsEqualTo(window.RailStrip.Bounds.Width);
+            // In the title-bar band, past the macOS window buttons.
+            var button = window.RailExpandButton.Bounds;
+            await Assert.That(button.Left).IsEqualTo(RailClearance.ButtonLeft);
+            await Assert.That(button.Bottom).IsLessThanOrEqualTo(44);
+            await Assert.That(button.Right).IsLessThanOrEqualTo(RailClearance.Leading);
 
             window.RailExpandButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
             await Assert.That(window.SessionRail.Bounds.Width).IsEqualTo(400);
-            await Assert.That(window.RailStrip.IsVisible).IsFalse();
+            await Assert.That(window.RailExpandButton.IsVisible).IsFalse();
+            window.Close();
+        });
+    }
+
+    /// The header must clear the floating button only while it shows, and give the space back after.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_session_header_clears_the_show_sidebar_button_while_the_rail_is_collapsed() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var window = new MainWindow { Width = 1400, Height = 800 };
+            var view = new WorkspaceView();
+            window.ContentPane.Children.Insert(0, view);
+            window.Show();
+            window.UpdateLayout();
+            var title = view.FindControl<SessionTitleEditor>("WorkspaceTitle")!;
+            // Measured from the content pane, which the rail moves.
+            double TitleLeft() => title.TranslatePoint(default, window.ContentPane)!.Value.X;
+            var expandedLeft = TitleLeft();
+
+            window.Panes.RailCollapsed = true;
+            window.UpdateLayout();
+            var button = window.RailExpandButton;
+            await Assert.That(TitleLeft()).IsGreaterThanOrEqualTo(button.Bounds.Right);
+
+            window.Panes.RailCollapsed = false;
+            window.UpdateLayout();
+            await Assert.That(TitleLeft()).IsEqualTo(expandedLeft);
             window.Close();
         });
     }

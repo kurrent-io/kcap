@@ -42,9 +42,6 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     ColumnDefinition RailColumn => SessionsSurface.ColumnDefinitions[0];
 
-    // Wide enough on macOS to hold the window buttons, which overlay the window's top-left corner.
-    static readonly double RailStripWidth = OperatingSystem.IsMacOS() ? 78 : 44;
-
     void OnRailSplitterDragDelta(object? sender, VectorEventArgs e) =>
         SessionRail.Opacity = PaneLayout.HidesAt(RailColumn.ActualWidth, PaneLayout.RailMinWidth) ? PaneLayout.HidingOpacity : 1;
 
@@ -62,10 +59,11 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     void ApplyRail() {
         var collapsed = Panes.RailCollapsed;
-        RailColumn.Width = new GridLength(collapsed ? RailStripWidth : Panes.RailWidth);
+        RailColumn.Width = new GridLength(collapsed ? 0 : Panes.RailWidth);
         SessionRail.IsVisible = !collapsed;
         RailSplitter.IsVisible = !collapsed;
-        RailStrip.IsVisible = collapsed;
+        RailExpandButton.IsVisible = collapsed;
+        LauncherHeader.Margin = new Thickness(collapsed ? Math.Max(0, RailClearance.Leading - LauncherPane.Margin.Left) : 0, 0, 0, 0);
     }
 
     WindowNotificationManager? _notifications;
@@ -166,6 +164,8 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public MainWindow() {
         InitializeComponent();
+        // Level with the rail's own hide button, which sits centred in its 44px chrome row.
+        RailExpandButton.Margin = new Thickness(RailClearance.ButtonLeft, 7, 0, 0);
         SessionsSurface.SizeChanged += (_, e) => RailColumn.MaxWidth = e.NewSize.Width * PaneLayout.MaxShare;
         SessionRail.CollapseRequested += (_, _) => Panes.RailCollapsed = true;
         Panes.Changed += (_, _) => ApplyRail();
