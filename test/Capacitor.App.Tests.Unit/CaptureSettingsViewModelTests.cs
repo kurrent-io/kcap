@@ -84,6 +84,28 @@ public class CaptureSettingsViewModelTests {
         await Assert.That(vm.HasChanges).IsEqualTo(changes);
     });
 
+    /// Replacing the options clears the view's two-way selection for a moment before the page selects the saved
+    /// answer again; that is no edit, while a later one by the user still clears the confirmation.
+    [Test]
+    public Task Refreshing_the_options_after_a_save_keeps_its_confirmation() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var vm = new CaptureSettingsViewModel(Seed(), visibilityOptions: Offering("private", "project", "public"));
+        vm.PropertyChanged += (_, e) => {
+            if (e.PropertyName == nameof(CaptureSettingsViewModel.VisibilityOptions)) vm.Visibility = null;
+        };
+        vm.AllowedRepos = "team/repo";
+        await vm.SaveAsync();
+
+        await vm.RefreshVisibilityOptionsAsync();
+
+        await Assert.That(vm.Visibility).IsEqualTo("private");
+        await Assert.That(vm.Saved).IsTrue();
+        await Assert.That(vm.HasChanges).IsFalse();
+
+        vm.AllowedRepos = "team/repo\n";
+
+        await Assert.That(vm.Saved).IsFalse();
+    });
+
     /// With the options unreadable a save keeps the stored audience, so only the lists can differ.
     [Test]
     public Task With_the_options_unreadable_only_list_edits_enable_save() => AvaloniaSession.RunOnUiAsync(async () => {

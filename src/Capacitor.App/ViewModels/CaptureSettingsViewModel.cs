@@ -25,6 +25,8 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
     string[][] _savedLists;
     // The page as typed when the last save went through; any edit from it clears that save's confirmation.
     (string?, string, string, string, string) _typedAtSave;
+    // The page is changing the selection itself, which is no edit of the user's.
+    bool _pageSelects;
     string? _message;
     bool _hasChanges;
     bool _busy;
@@ -95,13 +97,15 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
             }
             VisibilityEditable = true;
             var unsaved = Visibility != _shownVisibility ? Visibility : null;
-            VisibilityOptions = answered.Offer is { } offer
-                ? [.. offer.Options.Select(o => new VisibilityOption(o.Key!, o.Label!, o.Detail ?? ""))]
-                : HarnessesStepViewModel.AllVisibilityOptions;
-            this.RaisePropertyChanged(nameof(VisibilityOptions));
-            // Replacing the items clears the view's two-way selection before it can select the new item.
-            SelectSaved();
-            if (unsaved is not null && VisibilityOptions.Any(o => o.Value == unsaved)) Visibility = unsaved;
+            PageSelects(() => {
+                VisibilityOptions = answered.Offer is { } offer
+                    ? [.. offer.Options.Select(o => new VisibilityOption(o.Key!, o.Label!, o.Detail ?? ""))]
+                    : HarnessesStepViewModel.AllVisibilityOptions;
+                this.RaisePropertyChanged(nameof(VisibilityOptions));
+                // Replacing the items clears the view's two-way selection before it can select the new item.
+                SelectSaved();
+                if (unsaved is not null && VisibilityOptions.Any(o => o.Value == unsaved)) Visibility = unsaved;
+            });
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
             VisibilityEditable = false;
@@ -125,14 +129,25 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
         if (stored == _storedVisibility || Busy || Loading) return;
         var unsaved = Visibility != _shownVisibility;
         _storedVisibility = stored;
-        if (!unsaved) SelectSaved();
+        if (!unsaved) PageSelects(SelectSaved);
+        Restate();
+    }
+
+    void PageSelects(Action select) {
+        _pageSelects = true;
+        try {
+            select();
+        } finally {
+            _pageSelects = false;
+        }
+        if (Saved) _typedAtSave = Typed();
         Restate();
     }
 
     void Restate() {
         var visibilityChanged = VisibilityVisible && VisibilityEditable && Visibility is not null && Visibility != _storedVisibility;
         HasChanges = visibilityChanged || !EditedLists().Zip(_savedLists).All(pair => pair.First.SequenceEqual(pair.Second));
-        if (Saved && Typed() != _typedAtSave) Message = null;
+        if (Saved && !_pageSelects && Typed() != _typedAtSave) Message = null;
     }
 
     (string?, string, string, string, string) Typed() => (Visibility, AllowedRepos, ExcludedRepos, AllowedPaths, ExcludedPaths);
