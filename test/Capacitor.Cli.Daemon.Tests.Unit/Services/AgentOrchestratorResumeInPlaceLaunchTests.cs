@@ -122,6 +122,19 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await Assert.That(agent.Checkout.BorrowedFrom).IsEqualTo(f.Checkout);
     }
 
+    /// <summary>An in-place resume reopens the session it resumes: its launch registration names that session as the
+    /// first announcement, and every re-announcement after names it unflagged, so the reopen is asked for once.</summary>
+    [Test]
+    public async Task An_in_place_resume_announces_its_session_once_as_the_first() {
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude"));
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        await f.Orch.ReRegisterAgentsAsync();
+
+        await Assert.That(f.Server.AgentRegisteredResumes.Where(r => r.AgentId == AgentId).Select(r => (r.ResumedSessionId, r.FirstAnnounce)))
+            .IsEquivalentTo(new (string?, bool)[] { (Session, true), (Session, false) }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
     [Test]
     public async Task An_empty_first_message_resumes_idle() {
         await using var f = new Fixture(Tmp, new LoadableFactory("claude") { ResumesIdle = true });
