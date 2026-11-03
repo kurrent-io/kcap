@@ -1,5 +1,7 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Commands;
@@ -10,9 +12,10 @@ namespace Capacitor.Cli.Commands;
 /// nudge; <c>reset</c> undoes a dismissal. All three run their own detection pass and neither read
 /// nor claim the shared 6-hour evaluation throttle (the nudge surfaces' concern, not the commands').
 /// </summary>
-public sealed class HarnessCommand(ConfigRoot config, HarnessRegistry harnesses, TimeProvider time) {
-    public Task<int> HandleAsync(string[] args) {
-        if (args.Length < 2) { PrintUsage(); return Task.FromResult(1); }
+public sealed class HarnessCommand(
+        ConfigRoot config, HarnessRegistry harnesses, TimeProvider time, AccountStore accounts, UserHome home) {
+    public async Task<int> HandleAsync(string[] args) {
+        if (args.Length < 2) { PrintUsage(); return 1; }
 
         var store = new HarnessOfferStore(config, time);
 
@@ -20,23 +23,24 @@ public sealed class HarnessCommand(ConfigRoot config, HarnessRegistry harnesses,
         // subcommand that has already written to the ledger.
         if (args.Contains("--json") && args[1] != "list") {
             Console.Error.WriteLine("--json only applies to `kcap harness list`.");
-            return Task.FromResult(1);
+            return 1;
         }
 
-        return Task.FromResult(args[1] switch {
-            "list"                    => List(args, harnesses, store),
+        return args[1] switch {
+            "list"                    => await ListAsync(args, store),
             "dismiss"                 => Dismiss(args, harnesses, store),
             "reset"                   => Reset(args, store),
             "--help" or "-h" or "help" => Help(),
             _                         => Unknown(args[1]),
-        });
+        };
     }
 
-    static int List(string[] args, HarnessRegistry harnesses, HarnessOfferStore store) {
-        var ledger = store.Load();
+    async Task<int> ListAsync(string[] args, HarnessOfferStore store) {
+        var ledger     = store.Load();
+        var codexTrust = await CodexTrustAsync();
 
         if (args.Contains("--json")) {
-            Console.WriteLine(HarnessListRender.Render(harnesses, ledger));
+            Console.WriteLine(HarnessListRender.Render(harnesses, ledger, codexTrust));
             return 0;
         }
 
@@ -44,10 +48,22 @@ public sealed class HarnessCommand(ConfigRoot config, HarnessRegistry harnesses,
         foreach (var h in harnesses) {
             var isDismissed = ledger.Entry(h.Id) is { Declined: true };
             Console.WriteLine(
-                $"  {h.Label,-14}{YesNo(harnesses.Detected(h.Id)),-11}{YesNo(h.Signals.IsWired),-12}{YesNo(isDismissed)}");
+                $"  {h.Label,-14}{YesNo(harnesses.Detected(h.Id)),-11}{HarnessListRender.WiredCell(h.Id, h.Signals.IsWired, codexTrust),-12}{YesNo(isDismissed)}");
         }
+
+        if (codexTrust == CodexHooksTrust.Untrusted) {
+            Console.WriteLine();
+            Console.WriteLine($"  {StatusCommand.CodexUntrustedLine()}");
+        }
+
         return 0;
     }
+
+    Task<CodexHooksTrust> CodexTrustAsync() =>
+        harnesses.ById(HarnessId.Codex) is CodexHarness { Signals.IsWired: true } codex
+     && !CodexHooksInstaller.StartsWithByteOrderMark(codex.Paths.UserHooksJson)
+            ? CodexHooksTrustCheck.ReadAsync(accounts.TryLoad(), codex.Paths, new CodexHookTrustProbe(harnesses, home, time), CancellationToken.None)
+            : Task.FromResult(CodexHooksTrust.Unknown);
 
     int Dismiss(string[] args, HarnessRegistry harnesses, HarnessOfferStore store) {
         var rest = args.Skip(2).ToArray();

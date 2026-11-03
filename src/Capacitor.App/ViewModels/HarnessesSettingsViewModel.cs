@@ -13,6 +13,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     readonly SettingsProfileStore _store;
     readonly IKcapCli _cli;
     readonly Func<HarnessId, bool>? _isWired;
+    readonly Func<HarnessId, bool>? _isUntrusted;
     readonly Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> _detect;
     readonly Func<CancellationToken, Task<string?>>? _ensureTerminalCommand;
     readonly IAppStateStore? _toolsMemory;
@@ -25,10 +26,12 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     public HarnessesSettingsViewModel(SettingsProfileStore store, IKcapCli cli,
             Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> detect,
             CancellationToken appLifetime = default, Func<HarnessId, bool>? isWired = null,
-            Func<CancellationToken, Task<string?>>? ensureTerminalCommand = null, IAppStateStore? toolsMemory = null) {
+            Func<CancellationToken, Task<string?>>? ensureTerminalCommand = null, IAppStateStore? toolsMemory = null,
+            Func<HarnessId, bool>? isUntrusted = null) {
         _store = store;
         _cli = cli;
         _isWired = isWired;
+        _isUntrusted = isUntrusted;
         _detect = detect;
         _ensureTerminalCommand = ensureTerminalCommand;
         _toolsMemory = toolsMemory;
@@ -76,7 +79,8 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                         // With no answer on record, assume the default install: tools went in with the hooks.
                         var tools = remembered?.TryGetValue(h.Id.VendorId, out var t) == true ? t : wired == true;
                         return new HarnessSettingsRow(h, detected[h.Id], wired, tools,
-                            setupUnverified: state?.UnverifiedHarnessSetups?.Contains(h.Id.VendorId) == true);
+                            setupUnverified: state?.UnverifiedHarnessSetups?.Contains(h.Id.VendorId) == true,
+                            untrusted: Untrusted(h.Id, wired));
                     }).ToArray();
             }, _lifetime.Token);
             Message = null;
@@ -145,6 +149,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                 }
             }
             bool? wired = _isWired is null ? null : await Task.Run(() => _isWired(row.Id), _lifetime.Token);
+            row.SetUntrusted(await Task.Run(() => Untrusted(row.Id, wired), _lifetime.Token));
             row.SetWired(wired);
             if (result.TimedOut)
                 row.Report("The change timed out. Rescan to check the connection before trying again.", failed);
@@ -183,6 +188,9 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             Busy = false;
         }
     }
+
+    /// Asked only of a wired tool: there is nothing to trust before kcap's hooks are in.
+    bool Untrusted(HarnessId id, bool? wired) => wired == true && _isUntrusted?.Invoke(id) == true;
 
     async Task RememberSetupAsync(HarnessSettingsRow row, bool unverified, bool? tools = null) {
         row.SetSetupUnverified(unverified);

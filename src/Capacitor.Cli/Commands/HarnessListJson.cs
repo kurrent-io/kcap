@@ -11,6 +11,8 @@ namespace Capacitor.Cli.Commands;
 /// <param name="Wired">kcap's hook or extension is registered with the vendor.</param>
 /// <param name="DesktopApp">The vendor's desktop app, or the data it keeps, is on this machine.</param>
 /// <param name="Dismissed">Its setup nudge was turned down locally.</param>
+/// <param name="HooksTrust">Codex only, when wired: <c>trusted</c> or <c>untrusted</c> as Codex answered for
+/// kcap's hooks, null when there was no answer. Untrusted hooks are wired yet record nothing.</param>
 /// <remarks>
 /// The detection signals stay apart, as they do in <see cref="Capacitor.Cli.Core.FirstRun.FirstRunHarnessReport"/>:
 /// a caller offering the user a choice can say which signal it saw, and one that only needs "is it
@@ -19,7 +21,8 @@ namespace Capacitor.Cli.Commands;
 public sealed record HarnessListEntryJson(
     string Vendor, string Label, bool BinaryOnPath, bool ConfigFound, bool Wired,
     bool DesktopApp,
-    bool Dismissed);
+    bool Dismissed,
+    string? HooksTrust = null);
 
 /// <summary>Machine-readable payload for <c>kcap harness list --json</c>.</summary>
 /// <remarks>

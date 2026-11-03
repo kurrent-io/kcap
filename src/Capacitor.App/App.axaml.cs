@@ -1530,6 +1530,11 @@ public partial class App : Application {
             HarnessesStepViewModel.BuildDetectionFeed(probe, harnesses), _shutdown.Token,
             id => harnesses[id].Signals.IsWired,
             toolsMemory: _appState,
+            // The daemon's stored answer only: Settings never starts Codex to ask.
+            isUntrusted: id => id == HarnessId.Codex
+                && Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.Stored(
+                       AccountStore.Beside(_daemonStore).TryLoad(), harnesses.Of<Capacitor.Cli.Core.Harness.Codex.CodexHarness>().Paths)
+                   == Capacitor.Cli.Core.Harness.Codex.CodexHooksTrust.Untrusted,
             ensureTerminalCommand: shimInstaller is null ? null : async ct => {
                 // An inconclusive probe never offers an install, as in setup.
                 if (await probe.KcapOnPathAsync(ct) != false) return null;

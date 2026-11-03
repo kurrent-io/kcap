@@ -745,6 +745,22 @@ public class SetupCommandTests {
         await Assert.That(SetupCommand.CodexTrustReminder(withoutCodex)).IsNull();
     }
 
+    /// <summary>A user who only runs <c>codex exec</c> never sees Codex's trust prompt, so the reminder has to say
+    /// so and name what works without it: an interactive launch, the app's settings, or the per-run bypass.</summary>
+    [Test]
+    public async Task CodexTrustReminder_says_codex_exec_never_prompts_and_names_the_routes() {
+        var result = new CodingAgentsStep.Result(
+            ClaudeInstalled: false, CodexHooksInstalled: true, AgentSkillsInstalled: false,
+            CursorHooksInstalled: false, CopilotHooksInstalled: false);
+
+        var reminder = SetupCommand.CodexTrustReminder(result)!;
+
+        await Assert.That(reminder).Contains("[cyan]codex exec[/] never shows the trust prompt");
+        await Assert.That(reminder).Contains("Run [cyan]codex[/] once");
+        await Assert.That(reminder).Contains("Settings → Hooks");
+        await Assert.That(reminder).Contains("--dangerously-bypass-hook-trust");
+    }
+
     [Test]
     public async Task InstalledInLines_lists_each_path_with_home_shortened() {
         var home  = Path.Combine("users", "kcap-home");

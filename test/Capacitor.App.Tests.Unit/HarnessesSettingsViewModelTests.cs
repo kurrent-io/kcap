@@ -46,6 +46,31 @@ public class HarnessesSettingsViewModelTests {
         await Assert.That(vm.Rows.Single(r => r.Id == HarnessId.Cursor).Signal).Contains("settings folder");
     });
 
+    /// <summary>Codex hooks in place that Codex has not trusted record nothing, so the row asks for the approval
+    /// instead of reading Recording, and reads Recording once a rescan finds them trusted.</summary>
+    [Test]
+    public Task Untrusted_codex_hooks_need_approval_rather_than_read_recording() => AvaloniaSession.RunOnUiAsync(async () => {
+        var untrusted = true;
+        using var vm = new HarnessesSettingsViewModel(Seed(), Substitute.For<IKcapCli>(),
+            _ => Task.FromResult<IReadOnlyDictionary<HarnessId, DetectedAgent>>(
+                new Dictionary<HarnessId, DetectedAgent> { [HarnessId.Codex] = new(true, true) }),
+            isWired: _ => true, isUntrusted: _ => untrusted);
+        await vm.RescanAsync();
+        var row = vm.Rows[0];
+
+        await Assert.That(row.IsConfigured).IsTrue();
+        await Assert.That(row.ConnectionLabel).IsEqualTo("Needs approval in Codex");
+        await Assert.That(row.ConnectionTip!).Contains("codex exec never asks");
+        await Assert.That(row.NeedsAttention).IsTrue();
+        await Assert.That(row.ShowRecordingStatus).IsFalse();
+
+        untrusted = false;
+        await vm.RescanAsync();
+
+        await Assert.That(vm.Rows[0].ConnectionLabel).IsEqualTo("Recording");
+        await Assert.That(vm.Rows[0].NeedsAttention).IsFalse();
+    });
+
     [Test]
     public Task Setup_and_rescan_do_not_overlap_and_timeout_is_not_success() => AvaloniaSession.RunOnUiAsync(async () => {
         var cli = Substitute.For<IKcapCli>();

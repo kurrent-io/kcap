@@ -3,6 +3,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
+using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Setup;
 using TUnit.Assertions.Enums;
 
@@ -73,6 +74,32 @@ public class HarnessListJsonTests {
 
         await Assert.That(row.GetProperty("binary_on_path").GetBoolean()).IsFalse();
         await Assert.That(row.GetProperty("config_found").GetBoolean()).IsFalse();
+    }
+
+    /// <summary>Wired stays "kcap's hooks are in place"; whether Codex runs them is its own field, carried only
+    /// where there are Codex hooks to trust.</summary>
+    [Test]
+    public async Task Reports_codex_hooks_trust_beside_wired() {
+        var harnesses = TestHarnesses.All(detected: [HarnessId.Codex, HarnessId.Claude], wired: [HarnessId.Codex, HarnessId.Claude]);
+        using var doc = JsonDocument.Parse(HarnessListRender.Render(harnesses, new HarnessOfferLedger(), CodexHooksTrust.Untrusted));
+
+        var codex = Row(doc.RootElement, HarnessId.Codex.VendorId);
+        await Assert.That(codex.GetProperty("wired").GetBoolean()).IsTrue();
+        await Assert.That(codex.GetProperty("hooks_trust").GetString()).IsEqualTo("untrusted");
+        await Assert.That(Row(doc.RootElement, HarnessId.Claude.VendorId).GetProperty("hooks_trust").ValueKind).IsEqualTo(JsonValueKind.Null);
+
+        var unwired = Row(Render(TestHarnesses.All(detected: [HarnessId.Codex])), HarnessId.Codex.VendorId);
+        await Assert.That(unwired.GetProperty("hooks_trust").ValueKind).IsEqualTo(JsonValueKind.Null);
+    }
+
+    /// <summary>The table never says "yes" for Codex hooks that record nothing.</summary>
+    [Test]
+    public async Task The_table_shows_untrusted_codex_hooks_as_not_trusted() {
+        await Assert.That(HarnessListRender.WiredCell(HarnessId.Codex, true, CodexHooksTrust.Untrusted)).IsEqualTo("not trusted");
+        await Assert.That(HarnessListRender.WiredCell(HarnessId.Codex, true, CodexHooksTrust.Unknown)).IsEqualTo("yes");
+        await Assert.That(HarnessListRender.WiredCell(HarnessId.Codex, true, CodexHooksTrust.Trusted)).IsEqualTo("yes");
+        await Assert.That(HarnessListRender.WiredCell(HarnessId.Codex, false, CodexHooksTrust.Untrusted)).IsEqualTo("no");
+        await Assert.That(HarnessListRender.WiredCell(HarnessId.Claude, true, CodexHooksTrust.Untrusted)).IsEqualTo("yes");
     }
 
     [Test]
