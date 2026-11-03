@@ -10,7 +10,8 @@ namespace Capacitor.App.ViewModels;
 /// One row of the Chat tab. Matched by DataTemplates on the concrete type.
 public abstract class ChatItemViewModel : ReactiveObject { }
 
-public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? attachments = null, SenderLabel? sender = null, bool undelivered = false) : ChatItemViewModel {
+public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? attachments = null, SenderLabel? sender = null,
+    ChatTimestamp? time = null, bool undelivered = false) : ChatItemViewModel {
     public const string UndeliveredNote = "Not delivered: the agent never received this message";
 
     public string Text { get; } = text;
@@ -20,10 +21,12 @@ public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? att
     public bool HasText => !string.IsNullOrWhiteSpace(Text);
     public IReadOnlyList<UserAttachment> Attachments { get; } = attachments ?? [];
     public bool HasAttachments => Attachments.Count > 0;
+    public ChatTimestamp? Time { get; } = time;
 }
 
-public sealed class AssistantTextItem(string text) : ChatItemViewModel {
+public sealed class AssistantTextItem(string text, ChatTimestamp? time = null) : ChatItemViewModel {
     public string Text { get; } = text;
+    public ChatTimestamp? Time { get; } = time;
 }
 
 /// The model's reasoning, rendered as collapsible muted Markdown in the assistant column.

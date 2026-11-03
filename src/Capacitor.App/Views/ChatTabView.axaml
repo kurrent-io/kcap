@@ -202,14 +202,18 @@
                     <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
                             HorizontalAlignment="Right" MaxWidth="520" Margin="0,8,0,12" Padding="14,11" CornerRadius="10">
                         <StackPanel Spacing="6">
-                            <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
-                                <TextBlock.Text>
-                                    <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
-                                        <Binding Path="Sender.Title" />
-                                        <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
-                                    </MultiBinding>
-                                </TextBlock.Text>
-                            </TextBlock>
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
+                                            <Binding Path="Sender.Title" />
+                                            <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                                <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
+                                           IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                            </StackPanel>
                             <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
                                                 OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
                                                 RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
@@ -253,8 +257,12 @@
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantTextItem">
                     <StackPanel MaxWidth="660" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
-                        <TextBlock Classes="toolKindChip"
-                                   Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Classes="toolKindChip"
+                                       Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
+                            <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
+                                       IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        </StackPanel>
                         <views:MarkdownView Text="{Binding Text}"
                                             OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
                                             RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
