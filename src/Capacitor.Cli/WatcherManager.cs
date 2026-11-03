@@ -403,6 +403,40 @@ public sealed partial class WatcherManager(
         }
     }
 
+    /// <summary>Spawns a detached <c>kcap generate-title</c> for a session whose watcher is stopping before its
+    /// title could be generated. Only the transcript's path goes on the command line, never the prompt.</summary>
+    public void SpawnTitleGenerator(string sessionId, string vendor, string transcriptPath, TextWriter? stderr = null) {
+        if (!HookHttp.IsPostable(Url)) {
+            (stderr ?? Console.Error).WriteLine(
+                UnusableUrlDiagnostic.Build(profiles.Resolution.Source, Url, $"title generator not started for {sessionId}"));
+            return;
+        }
+
+        try {
+            var psi = new ProcessStartInfo(Environment.ProcessPath ?? "kcap") {
+                RedirectStandardOutput = true,
+                RedirectStandardInput  = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                Environment = {
+                    [ProfileOverrides.UrlVar]    = Url,
+                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
+                }
+            };
+            psi.ArgumentList.Add(GenerateTitleCommand.Name);
+            psi.ArgumentList.Add(sessionId);
+            psi.ArgumentList.Add(vendor);
+            psi.ArgumentList.Add(transcriptPath);
+
+            (stderr ?? Console.Error).WriteLine(starter.StartDetached(psi) is { } pid
+                ? $"Spawned title generator for {sessionId} (PID {pid})"
+                : $"Failed to spawn title generator for {sessionId}");
+        } catch (Exception ex) {
+            (stderr ?? Console.Error).WriteLine($"Failed to spawn title generator for {sessionId}: {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// Spawns a detached, short-lived <c>kcap copilot-finalize</c> process that
     /// delivers the Copilot <c>session.shutdown</c> tail (and any final assistant
