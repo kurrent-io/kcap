@@ -626,6 +626,26 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(f.Orch.ResumeLedger!.TryRead("resume-derived")!.Launch.TitleDerived ?? false).IsTrue();
     }
 
+    /// A resumed agent's own prompt is the nudge. Its title comes back as the entry recorded it, and
+    /// the title resolver judges echoes against, and generates from, the prompt the session was
+    /// launched with.
+    [Test]
+    public async Task A_resumed_agent_shows_the_entrys_title_and_titles_from_its_launch_prompt() {
+        var f = Build();
+        await using var _ = f.Orch;
+        Entry(f, "resume-titled", title: "PONG reply test", titleDerived: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var agent = f.Orch.GetAgentForTest("resume-titled")!;
+        await Assert.That(agent.ResolvedTitle ?? agent.Title).IsEqualTo("PONG reply test");
+        await Assert.That(agent.Prompt).IsNotEqualTo("build the thing");
+        var view = f.Orch.SnapshotAgentsForTitles().Single(v => v.Id == "resume-titled");
+        await Assert.That(view.Prompt).IsEqualTo("build the thing");
+        await Assert.That(view.Resumed).IsTrue();
+    }
+
     [Test]
     public async Task A_resumed_explicit_title_stays_the_callers() {
         var f = Build();
