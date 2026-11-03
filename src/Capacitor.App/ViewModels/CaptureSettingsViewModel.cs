@@ -21,7 +21,10 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
     string _excludedRepos;
     string _allowedPaths;
     string _excludedPaths;
+    // The four lists as the profile holds them, normalised the way a save writes them.
+    string[][] _savedLists;
     string? _message;
+    bool _hasChanges;
     bool _busy;
     bool _saved;
     bool _loading;
@@ -40,7 +43,12 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
         _excludedRepos = string.Join('\n', profile.ExcludedRepos);
         _allowedPaths = string.Join('\n', profile.AllowedPaths);
         _excludedPaths = string.Join('\n', profile.ExcludedPaths);
-        SaveCommand = ReactiveCommand.CreateFromTask(SaveAsync, this.WhenAnyValue(x => x.Busy, x => x.Loading, (busy, loading) => !busy && !loading));
+        _savedLists = EditedLists();
+        this.WhenAnyValue(x => x.Visibility, x => x.AllowedRepos, x => x.ExcludedRepos, x => x.AllowedPaths, x => x.ExcludedPaths,
+                x => x.VisibilityEditable, (_, _, _, _, _, _) => Unit.Default)
+            .Subscribe(_ => Restate());
+        SaveCommand = ReactiveCommand.CreateFromTask(SaveAsync,
+            this.WhenAnyValue(x => x.Busy, x => x.Loading, x => x.HasChanges, (busy, loading, changed) => !busy && !loading && changed));
     }
 
     public string ProfileName => _store.ProfileName;
@@ -60,6 +68,8 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
             Saved = false;
         }
     }
+    /// The page holds something a save would write that the profile does not.
+    public bool HasChanges { get => _hasChanges; private set => this.RaiseAndSetIfChanged(ref _hasChanges, value); }
     /// The save went through; the message then adds what it did not change.
     public bool Saved { get => _saved; private set => this.RaiseAndSetIfChanged(ref _saved, value); }
     /// A save in progress: the one Capture operation closing Settings must wait for.
@@ -114,7 +124,16 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
         var unsaved = Visibility != _shownVisibility;
         _storedVisibility = stored;
         if (!unsaved) SelectSaved();
+        Restate();
     }
+
+    void Restate() {
+        var visibilityChanged = VisibilityVisible && VisibilityEditable && Visibility is not null && Visibility != _storedVisibility;
+        HasChanges = visibilityChanged || !EditedLists().Zip(_savedLists).All(pair => pair.First.SequenceEqual(pair.Second));
+        if (HasChanges && Saved) Message = null;
+    }
+
+    string[][] EditedLists() => [Lines(AllowedRepos), Lines(ExcludedRepos), Lines(AllowedPaths), Lines(ExcludedPaths)];
 
     /// Selects what the saved audience means on this server, which is the saved audience itself wherever it is offered.
     void SelectSaved() {
@@ -172,6 +191,8 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
                 _shownVisibility = visibility;
                 VisibilityNote = null;
             }
+            _savedLists = [allowedRepos, excludedRepos, allowedPaths, excludedPaths];
+            Restate();
             Message = "Sessions already on the server are unchanged.";
             Saved = true;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {

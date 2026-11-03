@@ -20,6 +20,7 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
 
     static readonly string[] Derived = [
         nameof(Running), nameof(StateText), nameof(CurrentText), nameof(CanApply), nameof(ApplyLabel), nameof(Embeddings),
+        nameof(Summary), nameof(ReembedNote),
         nameof(FailureText), nameof(ShowsSettingsLink), nameof(ShowsInlineSettings), nameof(SettingApplied),
         nameof(VectorsFailing), nameof(VectorsWarning), nameof(VectorsFailedText),
     ];
@@ -129,6 +130,7 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
         : CurrentByMeaning && !BuiltinNeedsRetry ? "search by meaning" : "keyword search";
 
     public string? CurrentText => !_loaded ? null
+        : Running ? "Search changes are being applied."
         : _current is { Pending: true } ? "Search changes have not been applied yet."
         : BuiltinNeedsRetry ? "Search works by keyword until the built-in model is ready."
         : _current switch {
@@ -139,9 +141,14 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
 
     public bool CanApply =>
         _loaded && !Running && !_upgrade.Running && Choice.Valid && !Choice.AwaitingOffer
-     && (Differs(Choice.Choice) || _current is null or { Pending: true } || BuiltinNeedsRetry && Choice.UseBuiltin);
+     && (Differs(Choice.Choice) || _current is { Pending: true } || BuiltinNeedsRetry && Choice.UseBuiltin);
 
-    public string ApplyLabel => BuiltinNeedsRetry && Choice.UseBuiltin ? "Try again" : "Save";
+    public string ApplyLabel => !Running && BuiltinNeedsRetry && Choice.UseBuiltin ? "Try again" : "Save";
+
+    /// The last run's outcome, while it still describes the recorded setting.
+    public string? Summary => RunDescribesSetting ? Embeddings.Summary : null;
+
+    public string? ReembedNote => RunDescribesSetting ? Embeddings.ReembedNote : null;
 
     internal bool SettingApplied => _loaded && !Running && !_upgrade.Running && !BuiltinNeedsRetry
         && _current is { Pending: false, Provider: LocalEmbeddingProvider.None or LocalEmbeddingProvider.Ollama or LocalEmbeddingProvider.Builtin };
@@ -173,6 +180,14 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
     public bool ShowsInlineSettings => StateText is not null && !_canOpenSettings;
 
     bool CurrentByMeaning => _current is { Model: not null } or { Provider: LocalEmbeddingProvider.Builtin };
+
+    // A setup run from a terminal can change the setting after this app's last run, which then no longer describes it.
+    bool RunDescribesSetting => Running || Embeddings switch {
+        { Configured: true, Builtin: true } => _current is { Provider: LocalEmbeddingProvider.Builtin },
+        { ConfiguredModel: { } model }      => _current?.Model == model,
+        { SkipCode: "declined" }            => !CurrentByMeaning,
+        _                                   => true,
+    };
 
     bool BuiltinNeedsRetry => _current is { Provider: LocalEmbeddingProvider.Builtin } && (_builtinNeedsRetry || _current.Pending);
 

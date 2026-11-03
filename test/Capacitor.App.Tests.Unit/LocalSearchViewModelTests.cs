@@ -13,6 +13,7 @@ namespace Capacitor.App.Tests.Unit;
 
 [NotInParallel("AvaloniaSession")]
 public class LocalSearchViewModelTests {
+    const string BuiltinConfigured = "{\"v\":1,\"event\":\"embeddings_configured\",\"provider\":\"builtin\"}";
     const string Reused = "{\"v\":1,\"event\":\"reused\",\"server_url\":\"http://localhost:5000\",\"version\":\"1.2.0\"}";
 
     sealed class Harness : IDisposable {
@@ -184,6 +185,83 @@ public class LocalSearchViewModelTests {
         });
     }
 
+    /// <summary>No record is how a fresh install searches already, by keyword, while a recorded change that was never
+    /// applied still has something to save.</summary>
+    [Test]
+    public async Task Keyword_search_with_nothing_recorded_has_nothing_to_save() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var fresh   = new Harness(null, offered: false);
+            using var pending = new Harness(LocalEmbeddingSetting.Declined with { Pending = true }, offered: false);
+
+            await Assert.That(fresh.Vm.Choice.UseKeyword).IsTrue();
+            await Assert.That(fresh.Vm.CanApply).IsFalse();
+            await Assert.That(pending.Vm.Choice.UseKeyword).IsTrue();
+            await Assert.That(pending.Vm.CanApply).IsTrue();
+
+            fresh.Vm.Choice.UseOllama = true;
+
+            await Assert.That(fresh.Vm.CanApply).IsTrue();
+        });
+    }
+
+    /// <summary>Setup records the new model as pending and restarts the server mid-run, so the reconnect reads a pending
+    /// built-in setting while the change is still being applied.</summary>
+    [Test]
+    public async Task A_change_being_applied_reads_as_applying_rather_than_unapplied_or_failed() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness(LocalEmbeddingSetting.Declined);
+            var exit = new TaskCompletionSource<StreamingResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Action<StreamedLine> print = _ => { };
+            h.Cli.SetupLocalBehavior = (onLine, _, _) => {
+                print = onLine;
+                return exit.Task;
+            };
+            h.Vm.Choice.UseBuiltin = true;
+
+            await h.Vm.ApplyCommand.Execute().ToTask();
+            h.Setting = LocalEmbeddingSetting.Builtin(new string('a', 64)) with { Pending = true };
+            h.Status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
+            h.Status.OnNext(new(ServerLaneState.Connected));
+
+            await Assert.That(h.Vm.StateText).IsEqualTo("setting up search");
+            await Assert.That(h.Vm.CurrentText).IsEqualTo("Search changes are being applied.");
+            await Assert.That(h.Vm.ApplyLabel).IsEqualTo("Save");
+            await Assert.That(h.Vm.CanApply).IsFalse();
+
+            h.Setting = LocalEmbeddingSetting.Builtin(new string('a', 64));
+            foreach (var line in new[] { BuiltinConfigured, Reused, LocalSetupScript.Committed })
+                print(new StreamedLine(ProcessStreamKind.Stdout, line));
+            exit.SetResult(new StreamingResult(0, false, []));
+            await h.Search.SettleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+            await Assert.That(h.Vm.CurrentText).IsEqualTo("Searches by meaning with the built-in model.");
+        });
+    }
+
+    /// <summary>A run's outcome describes the setting it left; once a terminal setup changes that setting, the run's
+    /// summary and its note about the index being built say nothing true.</summary>
+    [Test]
+    public async Task A_setting_changed_elsewhere_retires_the_last_runs_summary() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness(LocalEmbeddingSetting.Declined);
+            h.Vm.Choice.UseBuiltin = true;
+
+            h.Setting = LocalEmbeddingSetting.Builtin(new string('a', 64));
+            await h.ApplyAsync(0, """{"v":1,"event":"embeddings_configured","provider":"builtin"}""", Reused, LocalSetupScript.Committed);
+
+            await Assert.That(h.Vm.Summary).IsEqualTo("Search by meaning with the built-in model.");
+            await Assert.That(h.Vm.ReembedNote).IsNotNull();
+
+            h.Setting = LocalEmbeddingSetting.Declined;
+            h.Status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
+            h.Status.OnNext(new(ServerLaneState.Connected));
+
+            await Assert.That(h.Vm.CurrentText).Contains("keyword");
+            await Assert.That(h.Vm.Summary).IsNull();
+            await Assert.That(h.Vm.ReembedNote).IsNull();
+        });
+    }
+
     [Test]
     public async Task A_recorded_builtin_model_reads_as_search_by_meaning_and_only_a_change_applies() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
@@ -246,7 +324,7 @@ public class LocalSearchViewModelTests {
                 Reused, LocalSetupScript.Committed);
 
             await Assert.That(h.Cli.SetupLocalEmbeddings).IsEquivalentTo([LocalEmbeddingChoice.Default], CollectionOrdering.Matching);
-            await Assert.That(h.Vm.Embeddings.Summary).IsEqualTo("Search by meaning with mxbai-embed-large.");
+            await Assert.That(h.Vm.Summary).IsEqualTo("Search by meaning with mxbai-embed-large.");
             await Assert.That(h.Vm.StateText).IsEqualTo("search by meaning");
             await Assert.That(h.Vm.FailureText).IsNull();
             await Assert.That(h.Reconnects).IsEqualTo(1);
