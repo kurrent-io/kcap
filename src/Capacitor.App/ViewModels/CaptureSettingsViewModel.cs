@@ -21,7 +21,14 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
     string _excludedRepos;
     string _allowedPaths;
     string _excludedPaths;
+    // The four lists as the profile holds them, normalised the way a save writes them.
+    string[][] _savedLists;
+    // The page as typed when the last save went through; any edit from it clears that save's confirmation.
+    (string?, string, string, string, string) _typedAtSave;
+    // The page is changing the selection itself, which is no edit of the user's.
+    bool _pageSelects;
     string? _message;
+    bool _hasChanges;
     bool _busy;
     bool _saved;
     bool _loading;
@@ -40,7 +47,12 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
         _excludedRepos = string.Join('\n', profile.ExcludedRepos);
         _allowedPaths = string.Join('\n', profile.AllowedPaths);
         _excludedPaths = string.Join('\n', profile.ExcludedPaths);
-        SaveCommand = ReactiveCommand.CreateFromTask(SaveAsync, this.WhenAnyValue(x => x.Busy, x => x.Loading, (busy, loading) => !busy && !loading));
+        _savedLists = EditedLists();
+        this.WhenAnyValue(x => x.Visibility, x => x.AllowedRepos, x => x.ExcludedRepos, x => x.AllowedPaths, x => x.ExcludedPaths,
+                x => x.VisibilityEditable, (_, _, _, _, _, _) => Unit.Default)
+            .Subscribe(_ => Restate());
+        SaveCommand = ReactiveCommand.CreateFromTask(SaveAsync,
+            this.WhenAnyValue(x => x.Busy, x => x.Loading, x => x.HasChanges, (busy, loading, changed) => !busy && !loading && changed));
     }
 
     public string ProfileName => _store.ProfileName;
@@ -60,6 +72,8 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
             Saved = false;
         }
     }
+    /// The page holds something a save would write that the profile does not.
+    public bool HasChanges { get => _hasChanges; private set => this.RaiseAndSetIfChanged(ref _hasChanges, value); }
     /// The save went through; the message then adds what it did not change.
     public bool Saved { get => _saved; private set => this.RaiseAndSetIfChanged(ref _saved, value); }
     /// A save in progress: the one Capture operation closing Settings must wait for.
@@ -83,13 +97,15 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
             }
             VisibilityEditable = true;
             var unsaved = Visibility != _shownVisibility ? Visibility : null;
-            VisibilityOptions = answered.Offer is { } offer
-                ? [.. offer.Options.Select(o => new VisibilityOption(o.Key!, o.Label!, o.Detail ?? ""))]
-                : HarnessesStepViewModel.AllVisibilityOptions;
-            this.RaisePropertyChanged(nameof(VisibilityOptions));
-            // Replacing the items clears the view's two-way selection before it can select the new item.
-            SelectSaved();
-            if (unsaved is not null && VisibilityOptions.Any(o => o.Value == unsaved)) Visibility = unsaved;
+            PageSelects(() => {
+                VisibilityOptions = answered.Offer is { } offer
+                    ? [.. offer.Options.Select(o => new VisibilityOption(o.Key!, o.Label!, o.Detail ?? ""))]
+                    : HarnessesStepViewModel.AllVisibilityOptions;
+                this.RaisePropertyChanged(nameof(VisibilityOptions));
+                // Replacing the items clears the view's two-way selection before it can select the new item.
+                SelectSaved();
+                if (unsaved is not null && VisibilityOptions.Any(o => o.Value == unsaved)) Visibility = unsaved;
+            });
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
             VisibilityEditable = false;
@@ -113,8 +129,30 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
         if (stored == _storedVisibility || Busy || Loading) return;
         var unsaved = Visibility != _shownVisibility;
         _storedVisibility = stored;
-        if (!unsaved) SelectSaved();
+        if (!unsaved) PageSelects(SelectSaved);
+        Restate();
     }
+
+    void PageSelects(Action select) {
+        _pageSelects = true;
+        try {
+            select();
+        } finally {
+            _pageSelects = false;
+        }
+        if (Saved) _typedAtSave = Typed();
+        Restate();
+    }
+
+    void Restate() {
+        var visibilityChanged = VisibilityVisible && VisibilityEditable && Visibility is not null && Visibility != _storedVisibility;
+        HasChanges = visibilityChanged || !EditedLists().Zip(_savedLists).All(pair => pair.First.SequenceEqual(pair.Second));
+        if (Saved && !_pageSelects && Typed() != _typedAtSave) Message = null;
+    }
+
+    (string?, string, string, string, string) Typed() => (Visibility, AllowedRepos, ExcludedRepos, AllowedPaths, ExcludedPaths);
+
+    string[][] EditedLists() => [Lines(AllowedRepos), Lines(ExcludedRepos), Lines(AllowedPaths), Lines(ExcludedPaths)];
 
     /// Selects what the saved audience means on this server, which is the saved audience itself wherever it is offered.
     void SelectSaved() {
@@ -172,6 +210,9 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
                 _shownVisibility = visibility;
                 VisibilityNote = null;
             }
+            _savedLists = [allowedRepos, excludedRepos, allowedPaths, excludedPaths];
+            Restate();
+            _typedAtSave = Typed();
             Message = "Sessions already on the server are unchanged.";
             Saved = true;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
