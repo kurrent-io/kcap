@@ -815,8 +815,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         // A pin that lands replaces the selected session's; abandoning the open puts that one back.
         (string Id, PinPresentation Presentation)? restore =
             _sessions.PinnedSessionId is { } held ? (held, _searchPinPresentation) : null;
+        var previousPin = _searchPin;
         _searchPin = sessionId;
         var pinned = await _sessions.PinAsync(sessionId, presentation, ct);
+        if (pinned is not PinOutcome.Pinned && _searchPin == sessionId) _searchPin = previousPin;
         switch (pinned) {
             case PinOutcome.Unauthorized: return SearchOpenOutcome.SignInRequired;
             case PinOutcome.Unavailable: return SearchOpenOutcome.Unavailable;

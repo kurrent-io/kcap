@@ -1,4 +1,5 @@
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -59,8 +60,13 @@ public sealed class NavigationHistory : ReactiveObject {
         if (stack.Count > Limit) stack.RemoveAt(0);
     }
 
+    /// An entry without a session id is still launching, so it matches its agent's later entries.
     internal static bool SamePlace(NavigationEntry a, NavigationEntry b) =>
-        a.IsLauncher ? b.IsLauncher : !b.IsLauncher && AgentIds.Normalize(a.AgentId) == AgentIds.Normalize(b.AgentId);
+        a.IsLauncher ? b.IsLauncher
+            : !b.IsLauncher
+              && AgentIds.Normalize(a.AgentId) == AgentIds.Normalize(b.AgentId)
+              && (a.SessionId is null || b.SessionId is null
+                  || SessionIds.SameSession(a.SessionId, b.SessionId) || SessionIds.SameSession(b.SessionId, a.SessionId));
 
     void Refresh() {
         CanGoBack = _back.Count > 0;

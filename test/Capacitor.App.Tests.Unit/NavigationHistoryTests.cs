@@ -16,6 +16,18 @@ public class NavigationHistoryTests {
         await Assert.That(history.CanGoBack).IsFalse();
     }
 
+    /// Two sessions under one agent id are two places; a launching entry with no session yet is the same place.
+    [Test]
+    public async Task One_agent_with_two_sessions_keeps_both_entries() {
+        var history = new NavigationHistory();
+        history.Left(new NavigationEntry("a1", "s1", false, false, false, null, null));
+        history.Left(new NavigationEntry("a1", "s2", false, false, false, null, null));
+        history.Left(new NavigationEntry("a1", null, false, false, false, null, null));
+
+        await Assert.That(history.TakeBack()?.SessionId).IsNull();
+        await Assert.That(history.TakeBack()?.SessionId).IsEqualTo("s1");
+    }
+
     /// The oldest entries fall off once the history is full.
     [Test]
     public async Task The_oldest_entry_falls_off_past_the_limit() {
