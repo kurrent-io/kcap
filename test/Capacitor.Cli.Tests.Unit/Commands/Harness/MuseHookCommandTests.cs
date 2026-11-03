@@ -322,6 +322,30 @@ public class MuseHookCommandTests : IDisposable {
         await Assert.That(body.TryGetProperty("agent_host_id", out _)).IsFalse();
     }
 
+    /// <summary>An end the hook posts itself, with no log to hand to a watcher, that names no run is placed by its
+    /// session: once the ledger shows the session's agent resumed it is held, as an earlier run's may be, and before
+    /// that it posts as before.</summary>
+    [Test, NotInParallel]
+    [Arguments("epoch-2", false)]
+    [Arguments("epoch-1", true)]
+    public async Task A_posted_SessionEnd_that_names_no_run_is_held_once_its_session_was_resumed(string runEpoch, bool posted) {
+        using var daemons = new TempDaemonStore();
+        Capacitor.Cli.Core.Resume.ResumeLedgerStore.For(daemons.Store, "d1").Write(
+            ResumeLedgerEntries.For("agent-1", Capacitor.Cli.Core.Resume.ResumeState.Running) with {
+                LaunchEpoch = "epoch-1", RunEpoch = runEpoch, SessionId = ParentDashless
+            });
+        using var dir = EnvScope.Exclusive("KCAP_DAEMONS_DIR", daemons.Directory);
+        StubHooks();
+        MuseHostedSessionMarker.Write(Home,
+            new MuseHostedSessionMarker(ParentId, "agent-1", "daemon-1", runEpoch, DateTimeOffset.UtcNow));
+
+        await Command().Handle(new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
+            new StringWriter(), ParentEnv, Today);
+
+        await Assert.That(HookPosts("/hooks/session-end/muse").Count).IsEqualTo(posted ? 1 : 0);
+    }
+
     /// <summary>A hook with no hosted environment takes a run's identity from the marker only under the Muse process
     /// the marker names. The marker is keyed by session, so it can belong to a later run, or to another agent, by the
     /// time an earlier run's last hook fires; and one an older daemon wrote names no process at all. Such an end names

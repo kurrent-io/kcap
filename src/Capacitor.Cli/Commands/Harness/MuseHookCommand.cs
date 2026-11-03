@@ -274,6 +274,11 @@ sealed class MuseHookCommand(
             return;
         }
 
+        // An end that names no run is placed by its session, as the watcher places a handed one: after a resume it may
+        // be an earlier run's, and posted with no identity it would close the resumed run.
+        if (!forwarded.ContainsKey("agent_host_id") && SessionId.Parse(sessionId) is { } placed
+         && SessionEndFence.ShouldHold(new ExitedSession(placed, null))) return;
+
         await PostInOrderAsync("session-end/muse", forwarded.ToJsonString(), sessionId, budget);
         if (owned) MuseHostedSessionMarker.Delete(home, sessionId);
     }
