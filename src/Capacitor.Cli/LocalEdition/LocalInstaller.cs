@@ -281,7 +281,7 @@ sealed class LocalInstaller(
 
         if (rewrite) unit = unit with { Embedding = target };
 
-        var settled   = !rewrite && LocalEmbeddingStep.ModelsUnused(previous) && previous is { Pending: false };
+        var settled   = !rewrite && LocalEmbeddingStep.ModelsUnused(previous);
         var clearing  = !settled && LocalEmbeddingStep.ModelsUnused(target ?? previous) && LocalModelSets.Size(root) > 0;
         var installed = false;
         if (clearing && !rewrite) unit = unit with { Embedding = target ?? previous };

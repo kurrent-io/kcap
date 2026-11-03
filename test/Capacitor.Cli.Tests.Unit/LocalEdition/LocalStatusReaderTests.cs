@@ -102,13 +102,14 @@ public class LocalStatusReaderTests {
         await Assert.That(Text(await Read())).Contains("(not yet applied; kcap setup --local applies it)");
     }
 
-    /// <summary>Only an explicit keyword or Ollama choice makes a model on disk unused; a lost record proves nothing,
-    /// and a server running the built-in provider overrules the record.</summary>
+    /// <summary>Only a settled keyword or Ollama choice makes a model on disk unused; a lost record or one whose unit is
+    /// not yet rewritten proves nothing, and a server running the built-in provider overrules the record.</summary>
     [Test]
     [Arguments("builtin", null, false)]
     [Arguments("none", null, true)]
     [Arguments("ollama", null, true)]
     [Arguments("lost", null, false)]
+    [Arguments("pending", null, false)]
     [Arguments("none", "builtin", false)]
     public async Task A_builtin_model_left_on_disk_is_named_with_its_size_only_while_unused(string recorded, string? serving, bool named) {
         Running();
@@ -118,6 +119,7 @@ public class LocalStatusReaderTests {
             LocalEmbeddingFile.Write(Root, recorded switch {
                 "builtin" => LocalEmbeddingSetting.Builtin(set),
                 "ollama"  => LocalEmbeddingSetting.Ollama("mxbai-embed-large"),
+                "pending" => LocalEmbeddingSetting.Declined with { Pending = true },
                 _         => LocalEmbeddingSetting.Declined,
             });
         if (serving is not null) {
