@@ -269,7 +269,7 @@ internal sealed class AgentHookPoster(
         transcript.DeleteExpired();
         SessionCommits.DeleteExpired(config, time);
         SpoolEnds(AgentSessions.OnThisMachine(config).ReapExited(Url), Url, lifecycle, time);
-        MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, DaemonStore.FromEnvironment(), time);
+        MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, DaemonStore.FromEnvironment(), time);
 
         // Distinct from the POST guards' diagnostic: a reader must be able to tell which guard fired,
         // and a test must be able to prove THIS one did.

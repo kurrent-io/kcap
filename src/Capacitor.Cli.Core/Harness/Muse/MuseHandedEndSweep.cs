@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Resume;
 
 namespace Capacitor.Cli.Core.Harness.Muse;
@@ -16,10 +17,12 @@ public static class MuseHandedEndSweep {
     /// this long has no watcher, and sending it sooner could overtake lines a watcher is still draining.</summary>
     public static readonly TimeSpan Unattended = TimeSpan.FromMinutes(5);
 
-    /// <summary>Spools every unattended request that is due, and returns how many. One that names no run is placed by
-    /// its session as a watcher places it: once the session's agent was resumed it may be an earlier run's, and is held.
-    /// Never throws.</summary>
-    public static int SpoolDue(WatcherPaths paths, HookSpool lifecycle, DaemonStore daemons, TimeProvider time) {
+    /// <summary>Spools into <paramref name="lifecycle"/>, the spool for <paramref name="server"/>, every unattended
+    /// request that is due and was handed over for that server, and returns how many. A request for another server is
+    /// left to that server's drain; one written before requests recorded a server is taken by whichever drain sweeps
+    /// it. One that names no run is placed by its session as a watcher places it: once the session's agent was resumed
+    /// it may be an earlier run's, and is held. Never throws.</summary>
+    public static int SpoolDue(WatcherPaths paths, HookSpool lifecycle, string? server, DaemonStore daemons, TimeProvider time) {
         var spooled = 0;
 
         try {
@@ -27,7 +30,7 @@ public static class MuseHandedEndSweep {
                 var early  = new List<MuseSessionEndRequest>();
                 var failed = new List<MuseSessionEndRequest>();
 
-                while (MuseSessionEndRequest.TryClaim(paths, session, "sweep", time) is { } handed) {
+                while (MuseSessionEndRequest.TryClaim(paths, session, "sweep", time, recorded => recorded is null || ServerIdentity.SameServer(recorded, server)) is { } handed) {
                     if (time.GetUtcNow() - handed.HandedAt < Unattended) {
                         early.Add(handed);
                     } else if (MuseSessionEndRequest.ResumedSince(paths, session, handed.HandedAt) || HeldBySession(handed.Payload, session, daemons)) {

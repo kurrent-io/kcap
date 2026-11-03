@@ -73,15 +73,29 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
     static string ResumedPathFor(WatcherPaths paths, string sessionId) =>
         Path.Combine(paths.Directory, $"{sessionId}.muse-resumed");
 
-    /// <summary>Written whole, then renamed into place, so a reader never sees a partial request.</summary>
-    public static void Write(WatcherPaths paths, string sessionId, string payload) {
+    /// <summary>Written whole, then renamed into place, so a reader never sees a partial request. <paramref name="server"/>
+    /// is where the end belongs, recorded first so the request is never visible without it.</summary>
+    public static void Write(WatcherPaths paths, string sessionId, string payload, string? server = null) {
         Directory.CreateDirectory(paths.Directory);
         var target = PathFor(paths, sessionId, payload);
         var temp   = $"{target}.{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}.tmp";
 
+        if (server is not null) File.WriteAllText(ServerPathFor(target), server);
+        else TryDelete(ServerPathFor(target));
         File.WriteAllText(temp, payload);
         File.Move(temp, target, overwrite: true);
         TryDelete(RetryPathFor(target));
+    }
+
+    static string ServerPathFor(string source) => source + ".server";
+
+    /// <summary>The server a request was handed over for, or null for one written before it was recorded.</summary>
+    static string? ServerOf(string source) {
+        try {
+            return File.Exists(ServerPathFor(source)) ? File.ReadAllText(ServerPathFor(source)) : null;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return null;
+        }
     }
 
     static string RetryPathFor(string source) => source + ".retry";
@@ -110,11 +124,17 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
 
     /// <summary>Takes the session's oldest unclaimed request for <paramref name="owner"/>, or null when there is none
     /// or other parties took each first. An empty request is discarded rather than claimed.</summary>
-    public static MuseSessionEndRequest? TryClaim(WatcherPaths paths, string sessionId, string owner, TimeProvider? time = null) {
+    public static MuseSessionEndRequest? TryClaim(WatcherPaths paths, string sessionId, string owner, TimeProvider? time = null) =>
+        TryClaim(paths, sessionId, owner, time, forServer: _ => true);
+
+    /// <summary><see cref="TryClaim(WatcherPaths,string,string,TimeProvider?)"/>, taking only a request whose recorded
+    /// server <paramref name="forServer"/> accepts; it is passed null for a request that recorded none.</summary>
+    public static MuseSessionEndRequest? TryClaim(
+            WatcherPaths paths, string sessionId, string owner, TimeProvider? time, Func<string?, bool> forServer) {
         var now = (time ?? TimeProvider.System).GetUtcNow();
 
         foreach (var source in Pending(paths, sessionId))
-            if (RetryStateOf(source).NotBefore <= now && TryClaimAt(source, owner) is { } request) return request;
+            if (RetryStateOf(source).NotBefore <= now && forServer(ServerOf(source)) && TryClaimAt(source, owner) is { } request) return request;
 
         return null;
     }
@@ -209,7 +229,10 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
     /// <summary>Removes a claimed request once its end is posted or durably spooled.</summary>
     public static void Release(string claimedPath) {
         TryDelete(claimedPath);
-        if (!File.Exists(SourceOf(claimedPath))) TryDelete(RetryPathFor(SourceOf(claimedPath)));
+        if (File.Exists(SourceOf(claimedPath))) return;
+
+        TryDelete(RetryPathFor(SourceOf(claimedPath)));
+        TryDelete(ServerPathFor(SourceOf(claimedPath)));
     }
 
     /// <summary>Removes the request and every claim on it, so a watcher armed afterwards is not ended by

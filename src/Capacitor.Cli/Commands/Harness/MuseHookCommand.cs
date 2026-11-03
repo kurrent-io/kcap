@@ -263,7 +263,7 @@ sealed class MuseHookCommand(
         else if (marker is not null && owned) SessionEndIncarnation.Stamp(forwarded, marker.AgentId, marker.DaemonEpoch);
 
         if (Paths.ResolveSessionLog(session.ToString("D"), today) is { } log && HookHttp.IsPostable(Url)) {
-            MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString());
+            MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url);
 
             // A watcher alive here takes the request on its next tick or on its last look, which it makes
             // only after retiring its pid file; one that has gone is replaced by a watcher armed for it.

@@ -19,8 +19,10 @@ public class MuseHandedEndSweepTests {
     WatcherPaths Paths => field ??= new WatcherPaths(Tmp.PathTo("watchers"));
     HookSpool    Spool => field ??= new HookSpool(Tmp.PathTo("spool"), TimeProvider.System);
 
-    void Hand(string payload, TimeSpan ago) {
-        MuseSessionEndRequest.Write(Paths, Session, payload);
+    const string Server = "https://kcap.example";
+
+    void Hand(string payload, TimeSpan ago, string? server = Server) {
+        MuseSessionEndRequest.Write(Paths, Session, payload, server);
         File.SetLastWriteTimeUtc(MuseSessionEndRequest.PathFor(Paths, Session, payload), DateTime.UtcNow - ago);
     }
 
@@ -35,7 +37,7 @@ public class MuseHandedEndSweepTests {
     public async Task An_unattended_request_is_spooled_as_the_sessions_end_and_released() {
         Hand(Named, TimeSpan.FromMinutes(10));
 
-        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Daemons.Store, TimeProvider.System)).IsEqualTo(1);
+        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(1);
 
         var (route, body) = (await Spooled()).Single();
         await Assert.That(route).IsEqualTo(MuseHandedEndSweep.Route);
@@ -45,17 +47,30 @@ public class MuseHandedEndSweepTests {
         await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsFalse();
     }
 
+    /// <summary>A request is spooled only into the spool of the server it was handed over for: one for another server is
+    /// left for that server's drain, and one written before requests recorded a server is taken by any drain.</summary>
+    [Test]
+    [Arguments("https://other.example", 0)]
+    [Arguments("https://KCAP.example/", 1)]
+    [Arguments(null, 1)]
+    public async Task A_request_is_spooled_only_for_the_server_it_was_handed_over_for(string? server, int spooled) {
+        Hand(Named, TimeSpan.FromMinutes(10), server);
+
+        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(spooled);
+        await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsEqualTo(spooled == 0);
+    }
+
     /// <summary>A live watcher takes a request within a tick, and one that is backing off waits its turn.</summary>
     [Test]
     public async Task A_fresh_or_backing_off_request_is_left_alone() {
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
         Hand(Named, TimeSpan.FromMinutes(1));
-        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Daemons.Store, time)).IsEqualTo(0);
+        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, time)).IsEqualTo(0);
         await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsTrue();
 
         File.SetLastWriteTimeUtc(MuseSessionEndRequest.PathFor(Paths, Session, Named), DateTime.UtcNow.AddMinutes(-10));
         MuseSessionEndRequest.Defer(MuseSessionEndRequest.TryClaim(Paths, Session, "watcher", time)!, time);
-        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Daemons.Store, time)).IsEqualTo(0);
+        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, time)).IsEqualTo(0);
         await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsTrue();
     }
 
@@ -70,7 +85,7 @@ public class MuseHandedEndSweepTests {
         });
         Hand(Unnamed, TimeSpan.FromMinutes(10));
 
-        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Daemons.Store, TimeProvider.System)).IsEqualTo(spooled);
+        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(spooled);
         await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsFalse();
     }
 }
