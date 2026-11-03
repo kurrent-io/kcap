@@ -351,8 +351,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// The Sessions rail. Null means this window has no rail to keep in sync.
     /// </param>
     /// <param name="laneStatus">
-    /// The app's own server lane (IServerLane.Status): its sign-in state and diagnostic reach the
-    /// footer alert. Null means neither ever shows.
+    /// The app's own server lane (IServerLane.Status): its sign-in state reaches the footer alert.
+    /// Null means it never shows.
     /// </param>
     /// <param name="restartPending">
     /// DaemonRestartPendingWatcher.Pending. Null means the alert for it never shows.
@@ -603,18 +603,14 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             var localAlert = localServer.CombineLatest(updateFailed,
                     (server, update) => LocalServerAlertFor(update, server.Starting, server.Down, server.Offered, server.Condition))
                 .DistinctUntilChanged();
-            var diagnostic = (laneStatus ?? Observable.Return(new ServerLaneStatus(ServerLaneState.Dormant)))
-                .Select(s => s.Diagnostic)
-                .DistinctUntilChanged()
-                .ObserveOn(RxSchedulers.MainThreadScheduler);
             var moving = (movingToWindowsService ?? Observable.Return(false)).ObserveOn(RxSchedulers.MainThreadScheduler);
 
             var alert = status
                 .CombineLatest(daemonConnection, signedOut, failed, signInVisible, moving,
                     (st, connection, expired, broken, canSignIn, isMoving) => (st, connection, expired, broken, canSignIn, isMoving))
-                .CombineLatest(localAlert, pendingWhileConnected, diagnostic,
-                    (d, local, pending, detail) => AlertFor(d.st, d.connection, d.expired, d.broken, d.canSignIn, d.isMoving,
-                        local, pending, detail))
+                .CombineLatest(localAlert, pendingWhileConnected,
+                    (d, local, pending) => AlertFor(d.st, d.connection, d.expired, d.broken, d.canSignIn, d.isMoving,
+                        local, pending))
                 .DistinctUntilChanged();
             _alert = alert
                 .ToProperty(this, x => x.Alert, (RailAlert?)null)
@@ -1309,7 +1305,6 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     internal const string ReconnectingText      = "Reconnecting…";
     internal const string ServerLostText        = "Server disconnected";
     internal const string RestartPendingText    = "Daemon restart pending";
-    internal const string LiveUpdatesText       = "Live updates may be missing";
     internal const string LocalStoppedText      = "Local server stopped";
     internal const string LocalChangingText     = "Local server changing…";
     internal const string LocalRestartingText   = "Local server restarting…";
@@ -1341,8 +1336,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// <param name="local">The local server's own alert, from <see cref="LocalServerAlertFor"/>.</param>
     internal static RailAlert? AlertFor(
             AttachStatus status, string daemonConnection, bool signedOut = false, bool failed = false,
-            bool canSignIn = false, bool moving = false, RailAlert? local = null, bool restartPending = false,
-            string? laneDiagnostic = null) {
+            bool canSignIn = false, bool moving = false, RailAlert? local = null, bool restartPending = false) {
         var needsUser = failed ? StatusColors.Disrupted : StatusColors.InProgress;
         if (signedOut) return new(SignInRequiredText, needsUser, canSignIn ? RailRecovery.SignIn : RailRecovery.None);
         if (status.State == AttachState.Connecting) return new(DaemonConnectingText, StatusColors.Pending);
@@ -1363,7 +1357,6 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             "reconnecting" => new(ReconnectingText, StatusColors.Pending),
             "disconnected" => new(ServerLostText, StatusColors.InProgress),
             _ when restartPending => new(RestartPendingText, StatusColors.InProgress, Detail: RestartPendingMessage),
-            _ when !string.IsNullOrWhiteSpace(laneDiagnostic) => new(LiveUpdatesText, StatusColors.InProgress, Detail: laneDiagnostic),
             _ => null,
         };
     }

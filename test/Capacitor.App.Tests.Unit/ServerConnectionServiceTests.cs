@@ -171,14 +171,14 @@ public class ServerConnectionServiceTests {
     }
 
     [Test]
-    public async Task MissingTeamClaimSetsDiagnostic() {
+    public async Task ConnectedCarriesTheTokenSubject() {
         await using var host = await HubTestHost.StartAsync();
-        // "sub" only — no team_id. Header/payload/sig shape per JwtClaimsTests.
+        // A WorkOS-shaped token: "sub" and no team_id.
         const string token = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ1MSJ9.s";
         await using var lane = Lane(host, token);
         lane.Start();
         var status = await Next(lane.Status, s => s.State == ServerLaneState.Connected);
-        await Assert.That(status.Diagnostic).IsEqualTo(ServerConnectionService.TeamClaimMissingNotice);
+        await Assert.That(status.Subject).IsEqualTo("u1");
     }
 
     [Test]
@@ -302,7 +302,7 @@ public class ServerConnectionServiceTests {
     /// A park landing while a restart is between retiring one loop and admitting the next must
     /// stand: the restart admits nothing (the generation it reserved is no longer current), and the
     /// retired loop's remaining publishes — the Connecting a fresh attempt opens with included —
-    /// are dropped rather than reviving the lane. DiagnoseAsync's token read observes no
+    /// are dropped rather than reviving the lane. ReadSubjectAsync's token read observes no
     /// cancellation, so gating it holds the retired loop, and with it the whole handover window,
     /// open for as long as the test needs.
     [Test]
@@ -358,7 +358,7 @@ public class ServerConnectionServiceTests {
 
     // Each connect attempt's token provider calls are: SignalR's own two internal reads
     // (negotiate + transport, resolved fast so hub.StartAsync completes normally), then
-    // DiagnoseAsync's own third read, gated so the park below deterministically lands while that
+    // ReadSubjectAsync's own third read, gated so the park below deterministically lands while that
     // continuation is still pending. The per-attempt counter resets on every Connecting so a
     // retry re-fast-paths its own first two reads. That reset also drops a count the test was
     // polling, so the third read signals directly.
@@ -382,7 +382,7 @@ public class ServerConnectionServiceTests {
         await diagnoseEntered.Task.WaitAsync(TimeSpan.FromSeconds(15));
 
         lane.ParkSignedOut();
-        gate.SetResult(null); // release DiagnoseAsync — its Connected publish must be discarded
+        gate.SetResult(null); // release ReadSubjectAsync — its Connected publish must be discarded
 
         await Task.Delay(200); // give the racing Connected publish, if any, time to (wrongly) land
         var latest = await lane.Status.Take(1).ToTask();
