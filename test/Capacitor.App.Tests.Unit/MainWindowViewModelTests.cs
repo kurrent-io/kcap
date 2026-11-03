@@ -2541,6 +2541,32 @@ public class MainWindowViewModelTests {
         });
     }
 
+    /// Only the lane back opens on decides: the same agent id hosting another session on another
+    /// lane does not turn the entry away.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_opens_the_agent_when_only_another_lane_hosts_a_different_session() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            var repo = new RepoIdentity("path:/repos/kcap-cli", "kcap-cli");
+            directory.Rows.AddOrUpdate(AgentRow.FromLocal(
+                WorkspaceFixtures.Agent("a1", "claude", true, "/repos/kcap-cli", sessionId: "s1"), repo));
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id),
+                trackWorkspaceTeardown: teardown => _ = teardown(), directory: directory);
+            vm.OpenSession("a1");
+            vm.OpenSession("a2");
+            directory.Rows.AddOrUpdate(AgentRow.FromRemote(new AgentInstanceDto {
+                AgentId = "a1", SessionId = "s9", Status = "Running", DaemonName = "work-mac",
+            }));
+
+            await vm.GoBackCommand.Execute().ToTask();
+
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            vm.CloseWorkspace();
+        });
+    }
+
     /// A swap the app makes on its own replaces where the user is; it adds nothing to go back to.
     [Test]
     [NotInParallel("AvaloniaSession")]

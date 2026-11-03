@@ -996,8 +996,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             return CurrentWorkspace is null;
         }
         var agentId = target.AgentId!;
-        if (target.Pin is null && !HostsAnotherSession(agentId, target.SessionId)
-            && _originOf(agentId) is { } lane && Navigate(agentId, lane, target.SessionId, record: false)) {
+        if (target.Pin is null && _originOf(agentId) is { } lane && !HostsAnotherSession(agentId, lane, target.SessionId)
+            && Navigate(agentId, lane, target.SessionId, record: false)) {
             ShowTab(target);
             return true;
         }
@@ -1009,10 +1009,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         return true;
     }
 
-    /// Opening the agent would show the session it hosts now, not the one the entry left.
-    bool HostsAnotherSession(string agentId, string? sessionId) =>
+    /// Opening the agent on `lane` would show the session it hosts now, not the one the entry left.
+    /// A row whose session is not known yet does not count against it: rejecting it would skip
+    /// an entry the agent may still be showing.
+    bool HostsAnotherSession(string agentId, AgentOrigin lane, string? sessionId) =>
         sessionId is not null && _directory is not null
-        && _directory.Rows.Items.Any(row => AgentIds.Normalize(row.Id) == AgentIds.Normalize(agentId)
+        && _directory.Rows.Items.Any(row => row.Origin == lane && AgentIds.Normalize(row.Id) == AgentIds.Normalize(agentId)
             && row.SessionId is { Length: > 0 } hosted
             && !SessionIds.SameSession(hosted, sessionId) && !SessionIds.SameSession(sessionId, hosted));
 
