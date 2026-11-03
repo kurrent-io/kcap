@@ -6,6 +6,10 @@ public static class LocalServerConditions {
 
     public static string ServerFileName => OperatingSystem.IsWindows() ? "kcap-server.exe" : "kcap-server";
 
+    /// <summary>The one instruction for a port another program holds, whatever state the server is in: a stopped server
+    /// does not come back on its own once the port is free, and a start is harmless when its supervisor got there first.</summary>
+    public const string PortTakenAdvice = "Stop that program, then run kcap local start; kcap never stops a program it did not start.";
+
     /// <summary>Lock-free and write-free, like <c>kcap local status</c>: the lock is probed, never taken, so a reader
     /// cannot hold up the command it reports on.</summary>
     public static LocalServerCondition Read(LocalRoot root) {
@@ -73,7 +77,7 @@ public static class LocalServerConditions {
             LocalServerCondition.Changing     => "Another kcap command is changing the local server. It reconnects when that finishes.",
             LocalServerCondition.Interrupted  => "An earlier local server command stopped part way. kcap local status says what to do.",
             LocalServerCondition.Unreadable   => "The local installation's records cannot be read. kcap local status says which file.",
-            LocalServerCondition.PortTaken    => "Another program holds the local server's port, so it cannot start. Stop that program; kcap never stops a program it did not start.",
+            LocalServerCondition.PortTaken    => "Another program holds the local server's port, so it cannot start. " + PortTakenAdvice,
             LocalServerCondition.Restarting   => "Its service is starting it again, and it reconnects once the server answers. kcap local logs shows why it stopped.",
             LocalServerCondition.ServesAnother => "Its service runs another local installation, so this one cannot start. kcap local status names it.",
             _                                 => null,

@@ -20,6 +20,8 @@ namespace Capacitor.App.ViewModels;
 public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
     const int MessageTailLines = 12;
 
+    static readonly TimeSpan ChangingRecheck = TimeSpan.FromSeconds(2);
+
     readonly Func<CancellationToken, Task<ProcessResult>> _start;
     readonly Func<Task> _reconnect;
     readonly CancellationToken _shutdown;
@@ -43,7 +45,7 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
             IObservable<ServerLaneStatus> status, bool isLocalServer,
             Func<CancellationToken, Task<ProcessResult>> start, Func<Task> reconnect, CancellationToken shutdown,
             IObservable<bool>? busy = null, Func<CancellationToken, Task<LocalServerReading>>? readCondition = null, bool canStart = true,
-            IScheduler? readScheduler = null) {
+            IScheduler? readScheduler = null, IScheduler? recheckScheduler = null) {
         _start = start;
         _reconnect = reconnect;
         _shutdown = shutdown;
@@ -53,11 +55,24 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
 
         if (isLocalServer && readCondition is not null) {
             var scheduler = readScheduler ?? RxSchedulers.TaskpoolScheduler;
-            Observable.Switch(status.Where(s => s.State == ServerLaneState.Retrying).Select(_ => Unit.Default)
-                    .Merge(_rereads)
-                    .Select(_ => Observable.Return(Unit.Default, scheduler)
-                        .SelectMany(Observable.FromAsync(readCondition))
-                        .Catch(Observable.Return(new LocalServerReading(LocalServerCondition.Unreadable)))))
+            var recheck   = recheckScheduler ?? RxSchedulers.TaskpoolScheduler;
+
+            IObservable<LocalServerReading> Read() =>
+                Observable.Return(Unit.Default, scheduler)
+                    .SelectMany(Observable.FromAsync(readCondition))
+                    .Catch(Observable.Return(new LocalServerReading(LocalServerCondition.Unreadable)));
+
+            // The lock is held only while a command runs, and the lane can go most of a minute without a retry while
+            // SignalR reconnects on its own, so a Changing reading is read again until it settles.
+            IObservable<LocalServerReading> ReadUntilSettled() =>
+                Read().SelectMany(r => r.Condition == LocalServerCondition.Changing
+                    ? Observable.Return(r).Concat(Observable.Timer(ChangingRecheck, recheck).SelectMany(_ => ReadUntilSettled()))
+                    : Observable.Return(r));
+
+            // A connected server ends the rechecks: its reading is not shown.
+            Observable.Switch(status.Where(s => s.State is ServerLaneState.Retrying or ServerLaneState.Connected)
+                    .Select(s => s.State == ServerLaneState.Retrying ? ReadUntilSettled() : Observable.Empty<LocalServerReading>())
+                    .Merge(_rereads.Select(_ => ReadUntilSettled())))
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
                 .Subscribe(r => Reading = r)
                 .DisposeWith(_disposables);
@@ -151,7 +166,7 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
         var find = reading is { Holder: null, Port: { } port } ? $" {PortHolder.LookupCommand(port)} shows which process it is." : "";
 
         return $"Port {reading.Port} is held by {reading.HolderText}, so the local server cannot listen on it. The port is part of "
-             + $"the server's identity, so it cannot move to another. Stop that program; kcap never stops a program it did not start.{find}";
+             + $"the server's identity, so it cannot move to another. {LocalServerConditions.PortTakenAdvice}{find}";
     }
 
     bool StartPossible(LocalServerCondition? condition) => _canStart && condition == LocalServerCondition.Installed;

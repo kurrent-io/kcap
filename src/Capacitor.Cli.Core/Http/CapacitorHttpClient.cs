@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core.Auth;
+using Capacitor.Cli.Core.LocalEdition;
 
 namespace Capacitor.Cli.Core.Http;
 
@@ -13,6 +14,10 @@ internal sealed class CapacitorHttpClient(
         // The only verb that throws, and it is not in a send path: a command with a user present owes
         // them the hint and an exit code, which the other verbs' callers have no way to render.
         if (!server.Usable) throw new UnusableServerUrlException(server.UnusableHint);
+
+        // Nothing can start an uninstalled server, so waiting out the retry budget for it only delays the way back.
+        if (server is { IsLocal: true, LocalRoot: { } root } && LocalServerConditions.Read(root) == LocalServerCondition.Uninstalled)
+            throw new UnusableServerUrlException(LocalServerCondition.Uninstalled.Explanation!);
 
         // Resolved here only for the hint: the handler applies the bearer itself, since a client the
         // factory builds has no credential at build time.

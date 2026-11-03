@@ -252,6 +252,25 @@ public class LocalUpgradeTests {
         await Assert.That(JournalAbsent()).IsTrue();
     }
 
+    /// <summary>A server whose unit or files are gone cannot be upgraded however often it is retried, so its code is
+    /// not one a client offers to retry.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_missing_server_fails_as_missing_and_changes_nothing(bool unitGone) {
+        Installed();
+        if (unitGone) await Service.UninstallAsync(LocalServerUnit.ForInstallation(Root, Port), CancellationToken.None);
+        else File.Delete(Tmp.PathTo(["r", "bin", Old, "kcap-server"]));
+        _log.Clear();
+
+        var failure = await Failure();
+
+        await Assert.That(failure.Code).IsEqualTo(LocalInstallFailureCode.ServerMissing);
+        await Assert.That(failure.Message).Contains("kcap setup --local");
+        await Assert.That(RegistryVersion()).IsEqualTo(Old);
+        await Assert.That(JournalAbsent()).IsTrue();
+    }
+
     [Test]
     public async Task A_stopped_stack_is_not_started_by_a_failure_before_the_switch() {
         Installed();

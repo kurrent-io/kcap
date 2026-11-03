@@ -61,6 +61,26 @@ public class LocalDestinationTests : IDisposable {
         await Assert.That(_server.LogEntries).IsEmpty();
     }
 
+    /// <summary>Nothing can start an uninstalled server, so a command says how to bring it back at once instead of
+    /// spending its retry budget on a port nothing will listen on. One whose files are in place is sent to.</summary>
+    [Test]
+    public async Task A_command_against_an_uninstalled_installation_is_refused_at_once_naming_setup() {
+        var root = NewRoot();
+        Publish(root, Installed);
+        using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
+        var http = sp.GetRequiredService<ICapacitorHttpClient>();
+
+        var refused = await Assert.ThrowsAsync<UnusableServerUrlException>(() => http.ForCommandAsync());
+
+        await Assert.That(refused!.Message).IsEqualTo(LocalServerCondition.Uninstalled.Explanation);
+
+        Directory.CreateDirectory(Path.Combine(root.Directory, "bin"));
+        using var client = await http.ForCommandAsync();
+        using var response = await client.GetAsync($"{Url}/ping");
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+    }
+
     [Test]
     public async Task A_hook_against_a_retired_origin_is_answered_without_a_send() {
         var root = NewRoot();

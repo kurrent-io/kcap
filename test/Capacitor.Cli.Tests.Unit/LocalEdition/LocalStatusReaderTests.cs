@@ -257,16 +257,18 @@ public class LocalStatusReaderTests {
     }
 
     /// <summary>An uninstall removes the unit and <c>bin/</c> but keeps the registry: that is not a broken install, and
-    /// no start can bring it back.</summary>
+    /// no start can bring it back. Nothing is left for a unit line or a version comparison to describe.</summary>
     [Test]
     public async Task An_uninstalled_installation_says_setup_reinstalls_it_and_offers_no_start() {
         Publish(withBinary: false);
 
-        var report = await Read();
+        var report = await Read(cliVersion: "1.0.0");
 
         await Assert.That(report.Headline).StartsWith("Uninstalled:");
         await Assert.That(Text(report)).Contains("kcap setup --local reinstalls it on the same port");
         await Assert.That(Text(report)).DoesNotContain("kcap local start starts it").And.DoesNotContain("installs and starts it");
+        await Assert.That(report.Fields.Select(f => f.Key)).DoesNotContain("Service");
+        await Assert.That(Text(report)).DoesNotContain("The stack is");
     }
 
     [Test]
@@ -293,7 +295,7 @@ public class LocalStatusReaderTests {
         var report = await Read();
 
         await Assert.That(report.Headline).IsEqualTo("Stopped, and port 9473 is taken by another process.");
-        await Assert.That(Text(report)).Contains("taken by python3 (pid 4242)").And.Contains("never stops a process it did not start");
+        await Assert.That(Text(report)).Contains("taken by python3 (pid 4242)").And.Contains(LocalServerConditions.PortTakenAdvice);
         await Assert.That(Text(report)).DoesNotContain("kcap local start starts it");
         await Assert.That(_log.Skip(calls).Any(l => l.Contains("stop", StringComparison.OrdinalIgnoreCase))).IsFalse();
     }
@@ -512,7 +514,7 @@ public class LocalStatusReaderTests {
         var report = await Read();
 
         await Assert.That(report.Headline).IsEqualTo("Stopped, and port 9473 is taken by another process.");
-        await Assert.That(Text(report)).Contains("answers as a web server that answers HTTP 404").And.Contains("never stops a process it did not start");
+        await Assert.That(Text(report)).Contains("answers as a web server that answers HTTP 404").And.Contains(LocalServerConditions.PortTakenAdvice);
         await Assert.That(Text(report)).DoesNotContain("kcap local start starts it");
         await Assert.That(_log.Skip(calls).Any(l => l.Contains("stop", StringComparison.OrdinalIgnoreCase))).IsFalse();
     }
@@ -528,6 +530,23 @@ public class LocalStatusReaderTests {
 
         await Assert.That(report.Headline).IsEqualTo("Stopped.");
         await Assert.That(Text(report)).Contains("kcap local start starts it");
+    }
+
+    /// <summary>Whether the unit is stopped, relaunching or gone for good, the user is told the same thing to do.</summary>
+    [Test]
+    [Arguments("stopped")]
+    [Arguments("restarting")]
+    [Arguments("exited")]
+    public async Task A_taken_port_gets_one_instruction_whatever_the_unit_is_doing(string activity) {
+        Running();
+        Service.ActivityOverride = activity switch {
+            "stopped"    => UnitActivity.Stopped.Instance,
+            "restarting" => new UnitActivity.Restarting(1),
+            _            => new UnitActivity.Exited(1),
+        };
+        _holders.Add(new(4242, "python3"));
+
+        await Assert.That(Text(await Read())).Contains(LocalServerConditions.PortTakenAdvice);
     }
 
     [Test]

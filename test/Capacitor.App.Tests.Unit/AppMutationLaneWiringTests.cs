@@ -1,5 +1,6 @@
 using Capacitor.App.Services;
 using Capacitor.App.Services.Mutation;
+using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.Cli.Core;
 using AppUnderTest = Capacitor.App.App;
 
@@ -165,11 +166,9 @@ public class AppMutationLaneWiringTests {
         await Assert.That(surface.Prompts).IsEmpty();
     }
 
-    // UnconfirmedNoAttach is actionable: one attention presentation naming the verb
-    // (Succeeded/SucceededAfterTimeout never reach the channel at all). The verb is rendered
-    // through a display map, not MutationVerb.ToString().
+    // UnconfirmedNoAttach is actionable: one attention presentation and nothing else.
     [Test]
-    public async Task UnconfirmedNoAttach_is_presented_once_naming_the_verb() {
+    public async Task UnconfirmedNoAttach_is_presented_once() {
         var surface = new FakeLifecycleSurface();
         var envelope = Envelope(new MutationOutcome.UnconfirmedNoAttach(), MutationVerb.DetachedStart);
 
@@ -177,24 +176,26 @@ public class AppMutationLaneWiringTests {
             surface, envelope, NeverRunMutation, FixedTerminalPath("/usr/bin"), () => null, CancellationToken.None);
 
         await Assert.That(surface.AttentionMessages.Count).IsEqualTo(1);
-        await Assert.That(surface.AttentionMessages[0]).Contains("daemon start");
         await Assert.That(surface.Prompts).IsEmpty();
         await Assert.That(surface.StatusMessages).IsEmpty();
     }
 
+    /// The Done page shows the setup's own status beside this attention line and drops the second only when the two
+    /// are the same text, so anything but the shared line shows one outcome twice.
     [Test]
     [Arguments(MutationVerb.Install, "install")]
-    [Arguments(MutationVerb.Replace, "replace")]
-    [Arguments(MutationVerb.StartVerified, "verified start")]
-    [Arguments(MutationVerb.DetachedStart, "daemon start")]
-    public async Task UnconfirmedNoAttach_names_every_verb_via_the_display_map(MutationVerb verb, string expectedDisplay) {
+    [Arguments(MutationVerb.Replace, "replacement")]
+    [Arguments(MutationVerb.StartVerified, "start")]
+    [Arguments(MutationVerb.DetachedStart, "start")]
+    public async Task UnconfirmedNoAttach_is_the_setup_status_line_naming_the_verb(MutationVerb verb, string expectedDisplay) {
         var surface = new FakeLifecycleSurface();
         var envelope = Envelope(new MutationOutcome.UnconfirmedNoAttach(), verb);
 
         await AppUnderTest.PresentOutcomeAsync(
             surface, envelope, NeverRunMutation, FixedTerminalPath("/usr/bin"), () => null, CancellationToken.None);
 
-        await Assert.That(surface.AttentionMessages[0]).Contains(expectedDisplay);
+        await Assert.That(surface.AttentionMessages[0]).IsEqualTo(DaemonEnabler.OutcomeStatus(verb, new MutationOutcome.UnconfirmedNoAttach()));
+        await Assert.That(surface.AttentionMessages[0]).Contains($"after its {expectedDisplay}").And.Contains("kcap daemon logs");
     }
 
     [Test]

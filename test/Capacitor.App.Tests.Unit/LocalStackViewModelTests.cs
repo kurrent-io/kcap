@@ -531,6 +531,26 @@ public class LocalStackViewModelTests {
         });
     }
 
+    /// A server whose files are gone fails the same way on every retry, so the card offers the app's own setup instead.
+    [Test]
+    public async Task A_missing_server_offers_reinstall_instead_of_try_again() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness();
+            var reinstalls = 0;
+            using var vm = new LocalStackViewModel(() => "1.2.0", h.Status, h.Upgrade, _ => throw new InvalidOperationException("no start"),
+                () => Task.CompletedTask, CancellationToken.None, ImmediateScheduler.Instance) { Reinstall = () => reinstalls++ };
+
+            await h.RunAsync(1, UpgradeScript.Failed(LocalInstallFailureCode.ServerMissing.Wire(), "The local server's files are not installed.", false));
+
+            await Assert.That(vm.TryAgainVisible).IsFalse();
+            await Assert.That(vm.ReinstallVisible).IsTrue();
+            await Assert.That(h.Vm.ReinstallVisible).IsFalse().Because("there is no setup to open without the action");
+
+            await vm.ReinstallCommand.Execute().ToTask();
+            await Assert.That(reinstalls).IsEqualTo(1);
+        });
+    }
+
     [Test]
     public async Task Dismiss_hides_a_settled_banner() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {

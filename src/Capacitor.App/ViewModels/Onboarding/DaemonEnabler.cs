@@ -483,7 +483,7 @@ public sealed class DaemonEnabler : ReactiveObject {
 
     internal static string OutcomeStatus(MutationVerb verb, MutationOutcome outcome) => outcome switch {
         MutationOutcome.Succeeded or MutationOutcome.SucceededAfterTimeout => "The daemon service is enabled.",
-        MutationOutcome.UnconfirmedNoAttach   => $"The daemon {VerbDisplay(verb)} is not yet confirmed — kcap will follow up.",
+        MutationOutcome.UnconfirmedNoAttach   => UnconfirmedStatus(verb),
         MutationOutcome.AttentionSkew(var d)  => $"The daemon {VerbDisplay(verb)} needs attention ({d}) — kcap will follow up.",
         MutationOutcome.AttentionRepair(var d) => $"The daemon {VerbDisplay(verb)} needs attention ({d}) — kcap will follow up.",
         MutationOutcome.Refused(var reason, _) => $"kcap did not change the daemon service ({reason}).",
@@ -491,6 +491,11 @@ public sealed class DaemonEnabler : ReactiveObject {
             $"The daemon {VerbDisplay(verb)} failed ({reason ?? VerifyExitCodes.Token(exitCode)}).",
         _ => $"The daemon {VerbDisplay(verb)} did not complete.",
     };
+
+    /// <summary>The one line for a daemon change kcap could not confirm. The Done page shows it beside the main window's
+    /// copy of it, and drops it only when the two match exactly.</summary>
+    internal static string UnconfirmedStatus(MutationVerb verb) =>
+        $"The daemon did not answer after its {VerbDisplay(verb)}, so kcap cannot tell whether it is running. Retry, or run kcap daemon logs to see why.";
 
     static string VerbDisplay(MutationVerb verb) => verb switch {
         MutationVerb.Install       => "install",

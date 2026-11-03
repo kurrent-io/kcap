@@ -56,8 +56,8 @@ sealed class LocalUpgrade(LocalStack stack, IProgress<LocalInstallEvent> progres
         }
 
         if (installed.UnitAbsent || !File.Exists(unit.ServerBinary))
-            throw Failed(LocalInstallFailureCode.StartFailed,
-                $"The local server is uninstalled. Run kcap setup --local to reinstall kcap local {from}, then kcap local upgrade.");
+            throw Failed(LocalInstallFailureCode.ServerMissing,
+                $"The local server's files are not installed, so there is nothing to update; its data is kept. Run kcap setup --local to reinstall kcap local {from}, then kcap local upgrade.");
 
         if (installed.Owner != OwnerDecision.Ours)
             throw Failed(LocalInstallFailureCode.NotOurServer,
