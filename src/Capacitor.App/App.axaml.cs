@@ -1530,11 +1530,8 @@ public partial class App : Application {
             HarnessesStepViewModel.BuildDetectionFeed(probe, harnesses), _shutdown.Token,
             id => harnesses[id].Signals.IsWired,
             toolsMemory: _appState,
-            // The daemon's stored answer only: Settings never starts Codex to ask.
-            isUntrusted: id => id == HarnessId.Codex
-                && Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.Stored(
-                       AccountStore.Beside(_daemonStore).TryLoad(), harnesses.Of<Capacitor.Cli.Core.Harness.Codex.CodexHarness>().Paths)
-                   == Capacitor.Cli.Core.Harness.Codex.CodexHooksTrust.Untrusted,
+            // The daemon's stored answer, unless a change made here just rewrote the hooks it describes.
+            isUntrusted: (id, askTool) => id == HarnessId.Codex && CodexHooksUntrusted(harnesses, askTool),
             ensureTerminalCommand: shimInstaller is null ? null : async ct => {
                 // An inconclusive probe never offers an install, as in setup.
                 if (await probe.KcapOnPathAsync(ct) != false) return null;
@@ -1545,6 +1542,19 @@ public partial class App : Application {
                 // A stop with nothing to say is still not an install, so the hooks must not go in.
                 return await fix.InstallAsync(ct) ? null : fix.Message ?? "kcap could not be added to your terminal PATH. Try again.";
             });
+    }
+
+    // Runs on a pool thread: asking Codex starts its app-server, bounded by the probe's own deadline.
+    bool CodexHooksUntrusted(HarnessRegistry harnesses, bool askTool) {
+        var registry = AccountStore.Beside(_daemonStore).TryLoad();
+        var paths    = harnesses.Of<Capacitor.Cli.Core.Harness.Codex.CodexHarness>().Paths;
+        var trust    = askTool
+            ? Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.ReadAsync(
+                  registry, paths, new Capacitor.Cli.Core.Harness.Codex.CodexHookTrustProbe(harnesses, _userHome, _time), _shutdown.Token)
+                  .GetAwaiter().GetResult()
+            : Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.Stored(registry, paths);
+
+        return trust == Capacitor.Cli.Core.Harness.Codex.CodexHooksTrust.Untrusted;
     }
 
     async Task<VisibilityOptionsRead?> ReadSettingsVisibilityOptionsAsync(SettingsProfileStore settings, CancellationToken ct) {

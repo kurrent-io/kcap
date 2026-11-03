@@ -13,7 +13,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     readonly SettingsProfileStore _store;
     readonly IKcapCli _cli;
     readonly Func<HarnessId, bool>? _isWired;
-    readonly Func<HarnessId, bool>? _isUntrusted;
+    readonly Func<HarnessId, bool, bool>? _isUntrusted;
     readonly Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> _detect;
     readonly Func<CancellationToken, Task<string?>>? _ensureTerminalCommand;
     readonly IAppStateStore? _toolsMemory;
@@ -27,7 +27,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> detect,
             CancellationToken appLifetime = default, Func<HarnessId, bool>? isWired = null,
             Func<CancellationToken, Task<string?>>? ensureTerminalCommand = null, IAppStateStore? toolsMemory = null,
-            Func<HarnessId, bool>? isUntrusted = null) {
+            Func<HarnessId, bool, bool>? isUntrusted = null) {
         _store = store;
         _cli = cli;
         _isWired = isWired;
@@ -149,7 +149,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                 }
             }
             bool? wired = _isWired is null ? null : await Task.Run(() => _isWired(row.Id), _lifetime.Token);
-            row.SetUntrusted(await Task.Run(() => Untrusted(row.Id, wired), _lifetime.Token));
+            row.SetUntrusted(await Task.Run(() => Untrusted(row.Id, wired, askTool: true), _lifetime.Token));
             row.SetWired(wired);
             if (result.TimedOut)
                 row.Report("The change timed out. Rescan to check the connection before trying again.", failed);
@@ -189,8 +189,9 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    /// Asked only of a wired tool: there is nothing to trust before kcap's hooks are in.
-    bool Untrusted(HarnessId id, bool? wired) => wired == true && _isUntrusted?.Invoke(id) == true;
+    /// Asked only of a wired tool: there is nothing to trust before kcap's hooks are in. A change made here rewrote
+    /// the hooks, so the answer stored for the old files no longer holds and the tool itself is asked.
+    bool Untrusted(HarnessId id, bool? wired, bool askTool = false) => wired == true && _isUntrusted?.Invoke(id, askTool) == true;
 
     async Task RememberSetupAsync(HarnessSettingsRow row, bool unverified, bool? tools = null) {
         row.SetSetupUnverified(unverified);
