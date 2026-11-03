@@ -430,7 +430,8 @@ public partial class WorktreeManager(
     /// <summary>Asks git rather than the ref's loose file, which <c>git pack-refs</c> removes. Fails rather
     /// than answer empty, which would let a name reuse, and a fetch overwrite, a ref that holds a commit.
     /// Not <c>sourceReadOnly</c>, for the <c>safe.directory</c> reason <see cref="ResolveGitCommonDirAsync"/>
-    /// gives.</summary>
+    /// gives. Matched ignoring case: a loose ref differing only in case shares its file on a case-insensitive
+    /// filesystem.</summary>
     internal async Task<IReadOnlySet<string>> ListFetchedRefsAsync(string repoPath) {
         var listed = await RunGitCaptureResult(repoPath, GitTimeout, time, sourceReadOnly: false, [],
             "for-each-ref", "--format=%(refname)", FetchedRefFor("").TrimEnd('/'));
@@ -439,7 +440,7 @@ public partial class WorktreeManager(
                 $"git for-each-ref failed: {GitFailureDetail(listed.Stderr, listed.Stdout)}");
 
         return listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToFrozenSet(StringComparer.Ordinal);
+            .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Refuses a destination-chain component that is a link, WITHOUT following it.</summary>
