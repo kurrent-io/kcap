@@ -168,7 +168,7 @@ public class ButtonAutomationNameTests {
 
             var names = folded.Concat(opened).ToHashSet();
             string[] expected = ["Parts, 1 open", "Parts, 0 of 1", "Who's on it", "Copy Ada", "Copy Bob", "Issues", "Plan", "Agents and commands",
-                                 "Session details, More", "Session details, Less",
+                                 "Session", "Session details, More", "Session details, Less",
                                  "x-design.md", pullRequestCard ? "Pull requests" : "#7: Fix",
                                  .. titledIssues ? ["WK-1: One", "WK-2: Two"] : new[] { "WK-1" }];
             await Assert.That(expected.Where(n => !names.Contains(n))).IsEmpty();

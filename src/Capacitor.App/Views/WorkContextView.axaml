@@ -832,18 +832,13 @@
                 <!-- Session facts. -->
                 <StackPanel x:Name="SessionSection" Margin="0,18,0,0" IsVisible="{Binding HasAgent}">
                     <Button x:Name="SessionToggle" Command="{Binding ToggleSessionCommand}" Classes="sectionHeader expandable"
-                            AutomationProperties.Name="{Binding SessionToggleText, StringFormat='Session details, {0}'}">
+                            AutomationProperties.Name="Session">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                             <TextBlock Text="SESSION" Classes="eyebrow" />
-                            <!-- Usage always shows, so this toggle reads as more/less detail, not open/shut. -->
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                <TextBlock x:Name="SessionToggleText" Classes="sectionMeta"
-                                           Text="{Binding SessionToggleText}" />
-                                <Panel Width="12" Height="12">
-                                    <views:AppIcon Kind="ChevronUp" Size="12" Classes="chevron" IsVisible="{Binding SessionExpanded}" />
-                                    <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding !SessionExpanded}" />
-                                </Panel>
-                            </StackPanel>
+                            <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
+                                <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding SessionExpanded}" />
+                                <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !SessionExpanded}" />
+                            </Panel>
                         </Grid>
                     </Button>
                     <Border Classes="sectionBody">
@@ -884,8 +879,12 @@
                                 <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ContextUse}" Classes="factValue"
                                                      ToolTip.Tip="Peak context use" />
                             </Grid>
+                            <!-- Usage always shows, so this reads as more or less detail. -->
+                            <Button x:Name="SessionMoreToggle" Classes="kcapGhost kcapQuiet" Command="{Binding ToggleSessionCommand}"
+                                    Content="{Binding SessionToggleText}" HorizontalAlignment="Left" Margin="-8,4,0,0"
+                                    AutomationProperties.Name="{Binding SessionToggleText, StringFormat='Session details, {0}'}" />
                             <!-- Separate grid so collapsed RowSpacing does not reserve trailing gaps for hidden rows. -->
-                            <Grid x:Name="SessionFacts" Margin="0,8,0,0" ColumnDefinitions="128,*"
+                            <Grid x:Name="SessionFacts" Margin="0,4,0,0" ColumnDefinitions="128,*"
                                   RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                                   RowSpacing="8"
                                   IsVisible="{Binding SessionExpanded}">

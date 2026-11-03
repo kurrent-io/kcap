@@ -902,6 +902,30 @@ public class WorkContextViewSmokeTests {
         });
     }
 
+    /// The toggle under the usage rows opens the session facts beneath it and then reads as their closer.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_more_toggle_under_the_usage_rows_opens_the_session_facts() {
+        await RunOnUiAsync(async () => {
+            await using var host = new Host();
+            await host.ShowAsync(KeyOnlyRead());
+
+            var toggle = host.Find<Button>("SessionMoreToggle");
+            var facts  = host.Find<Grid>("SessionFacts");
+            await Assert.That(facts.IsEffectivelyVisible).IsFalse();
+            await Assert.That(toggle.Content as string).IsEqualTo("More");
+
+            var origin = toggle.TranslatePoint(new Point(toggle.Bounds.Width / 2, toggle.Bounds.Height / 2), host.Window)!.Value;
+            host.Window.MouseMove(origin);
+            host.Window.MouseDown(origin, MouseButton.Left);
+            host.Window.MouseUp(origin, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+
+            await Assert.That(facts.IsEffectivelyVisible).IsTrue();
+            await Assert.That(toggle.Content as string).IsEqualTo("Less");
+        });
+    }
+
     /// "Copied" is set as a local tip; leaving the button has to put the full id back, or the
     /// flash sticks as the tip.
     [Test]
