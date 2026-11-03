@@ -996,7 +996,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             return CurrentWorkspace is null;
         }
         var agentId = target.AgentId!;
-        if (target.Pin is null && _originOf(agentId) is { } lane && Navigate(agentId, lane, target.SessionId, record: false)) {
+        if (target.Pin is null && !HostsAnotherSession(agentId, target.SessionId)
+            && _originOf(agentId) is { } lane && Navigate(agentId, lane, target.SessionId, record: false)) {
             ShowTab(target);
             return true;
         }
@@ -1007,6 +1008,13 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         ShowTab(target);
         return true;
     }
+
+    /// Opening the agent would show the session it hosts now, not the one the entry left.
+    bool HostsAnotherSession(string agentId, string? sessionId) =>
+        sessionId is not null && _directory is not null
+        && _directory.Rows.Items.Any(row => AgentIds.Normalize(row.Id) == AgentIds.Normalize(agentId)
+            && row.SessionId is { Length: > 0 } hosted
+            && !SessionIds.SameSession(hosted, sessionId) && !SessionIds.SameSession(sessionId, hosted));
 
     static IObservable<bool> CanRefreshOpenWork(ISessionWorkspace? workspace) =>
         workspace is { WorkContext: var work }

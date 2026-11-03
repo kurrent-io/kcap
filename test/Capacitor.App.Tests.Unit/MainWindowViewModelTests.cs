@@ -2513,6 +2513,34 @@ public class MainWindowViewModelTests {
         });
     }
 
+    /// An agent that has moved on to another session is not where the entry left: back does not
+    /// open the agent's new session in the old one's place.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_does_not_open_an_agent_that_moved_on_to_another_session() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            var repo = new RepoIdentity("path:/repos/kcap-cli", "kcap-cli");
+            void Hosts(string agentId, string sessionId) => directory.Rows.AddOrUpdate(AgentRow.FromLocal(
+                WorkspaceFixtures.Agent(agentId, "claude", true, "/repos/kcap-cli", sessionId: sessionId), repo));
+            Hosts("a0", "s0");
+            Hosts("a1", "s1");
+            Hosts("a2", "s2");
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id),
+                trackWorkspaceTeardown: teardown => _ = teardown(), directory: directory);
+            vm.OpenSession("a0");
+            vm.OpenSession("a1");
+            vm.OpenSession("a2");
+            Hosts("a1", "s9");
+
+            await vm.GoBackCommand.Execute().ToTask();
+
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a0");
+            vm.CloseWorkspace();
+        });
+    }
+
     /// A swap the app makes on its own replaces where the user is; it adds nothing to go back to.
     [Test]
     [NotInParallel("AvaloniaSession")]
