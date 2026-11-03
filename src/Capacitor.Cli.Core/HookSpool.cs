@@ -361,18 +361,32 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
             files.Add((temp, lines, [.. lines.Select((l, i) => (i, Entry(l))).Where(e => e.Item2 is not null).Select(e => (e.i, e.Item2!.Value.Route, e.Item2!.Value.Body))]));
         }
 
-        var all        = files.SelectMany(f => f.Entries).ToList();
-        var notes      = all.Where(e => e.Route == RunStartedRoute).Select(e => NoteOf(e.Body)).ToList();
-        var superseded = notes.SelectMany(n => n.Superseded).ToHashSet(StringComparer.Ordinal);
-        var lifted     = notes.Any(n => n.Lifts);
-        bool Settled((int Line, string Route, string Body) e) => e.Route == RunStartedRoute || superseded.Contains(EntryId(e.Route, e.Body));
+        var all    = files.SelectMany(f => f.Entries.Select(e => (f.Path, e.Line, e.Route, e.Body))).ToList();
+        var notes  = all.Where(e => e.Route == RunStartedRoute).Select(e => NoteOf(e.Body)).ToList();
+        var lifted = notes.Any(n => n.Lifts);
+
+        // A note lists each line once per copy then queued, and every later note lists what is still queued, so a
+        // line's allowance is its largest count in any note, spent on its oldest copies.
+        var allowance = notes
+            .SelectMany(n => n.Superseded.GroupBy(id => id, StringComparer.Ordinal).Select(g => (Id: g.Key, Count: g.Count())))
+            .GroupBy(x => x.Id, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Max(x => x.Count), StringComparer.Ordinal);
+        var settledAt = new HashSet<(string Path, int Line)>();
+        foreach (var (path, line, route, body) in all) {
+            if (route == RunStartedRoute) { settledAt.Add((path, line)); continue; }
+            var id = EntryId(route, body);
+            if (allowance.TryGetValue(id, out var left) && left > 0) {
+                allowance[id] = left - 1;
+                settledAt.Add((path, line));
+            }
+        }
 
         var markerSet = IsMarkedEnded(sid);
         var marked    = markerSet && !lifted;
         var ended     = marked ? EndedRun(sid) : default;
         bool Straggler(string body) => marked && !NamesAnotherRun(body, ended);
 
-        var rest     = all.Where(e => !Settled(e)).ToList();
+        var rest     = all.Where(e => !settledAt.Contains((e.Path, e.Line))).ToList();
         var boundary = rest.FindLastIndex(e => RouteHead(e.Route) == "session-start");
         if (boundary < 0 && marked) {
             boundary = rest.FindIndex(e => !Straggler(e.Body));
@@ -392,7 +406,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
                 var (line, route, body) = entries[n];
 
                 var outcome = DrainOutcome.Drop;
-                if (!Settled(entries[n])) {
+                if (!settledAt.Contains((path, line))) {
                     if (index++ >= settle) { keep.Add(lines[line]); continue; }
 
                     if (!IsTerminalRoute(route) && !Straggler(body)) {

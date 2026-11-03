@@ -355,6 +355,25 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(life.HasBacklog(Sid)).IsFalse();
     }
 
+    /// <summary>A note supersedes as many copies of a line as were queued before its start was posted, so a
+    /// later run's identical hook is still delivered.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task a_note_supersedes_only_the_copies_queued_before_its_post(bool fifo) {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        await DeliverEnd(life, tx, fifo);
+
+        life.Append(Sid, "subagent-stop/kiro", """{"same":1}""");
+        var snapshot = life.RunStartSnapshot(Sid);
+        life.Append(Sid, "subagent-stop/kiro", """{"same":1}""");
+        life.NoteRunStarted(Sid, snapshot);
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo))).IsEqualTo("""{"same":1}""");
+    }
+
     /// <summary>An end still spooled when the session starts again would be delivered ahead of or after that
     /// start, ending the resumed run, and the marker it left would then discard the run's own hooks.</summary>
     [Test]
