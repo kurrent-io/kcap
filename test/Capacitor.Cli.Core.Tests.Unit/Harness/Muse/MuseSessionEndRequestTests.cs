@@ -97,6 +97,26 @@ public class MuseSessionEndRequestTests {
         await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w6", time)).IsNotNull();
     }
 
+    /// <summary>A request is published by one rename with the server it is for and its backoff inside it, so nothing a
+    /// claimant of an earlier request removes can strip a newer request of its server.</summary>
+    [Test]
+    public async Task A_request_carries_its_server_and_backoff_in_the_one_file_it_is_published_as() {
+        var paths = new WatcherPaths(Tmp.PathTo("watchers"));
+        var time  = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        MuseSessionEndRequest.Write(paths, SessionId, E2, "https://kcap.example");
+
+        var claimed = MuseSessionEndRequest.TryClaim(paths, SessionId, "w1", time)!;
+        await Assert.That(claimed.Server).IsEqualTo("https://kcap.example");
+        await Assert.That(claimed.Payload).IsEqualTo(E2);
+
+        MuseSessionEndRequest.Defer(claimed, time);
+        await Assert.That(Directory.GetFiles(paths.Directory)).IsEquivalentTo([MuseSessionEndRequest.PathFor(paths, SessionId, E2)]);
+
+        time.Advance(TimeSpan.FromMinutes(1));
+        var again = MuseSessionEndRequest.TryClaim(paths, SessionId, "w2", time)!;
+        await Assert.That((again.Server, again.Attempts, again.Payload)).IsEqualTo(((string?)"https://kcap.example", 1, E2));
+    }
+
     [Test]
     public async Task No_file_or_an_empty_one_is_no_request() {
         var paths = new WatcherPaths(Tmp.PathTo("watchers"));

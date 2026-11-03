@@ -19,6 +19,12 @@ namespace Capacitor.Cli.Core.Harness.Muse;
 public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, DateTimeOffset HandedAt, string SourcePath) {
     const string Suffix = ".muse-end-requested";
 
+    /// <summary>The server the request was handed over for; null for one written before requests recorded it.</summary>
+    public string? Server { get; init; }
+
+    /// <summary>How many times its end has failed to be sent or kept.</summary>
+    public int Attempts { get; init; }
+
     /// <summary>Where a request naming no run is handed over.</summary>
     public static string PathFor(WatcherPaths paths, string sessionId) =>
         Path.Combine(paths.Directory, sessionId + Suffix);
@@ -40,6 +46,10 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
 
     static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(30);
     static readonly TimeSpan MaxRetryDelay   = TimeSpan.FromMinutes(30);
+
+    /// <summary>What the handoff itself records, inside the request so one rename publishes it with the payload. A
+    /// server reading the payload ignores the key; a request written before it existed has none.</summary>
+    const string HandoffKey = "kcap_handoff";
 
     /// <summary>Sessions with an unclaimed request.</summary>
     public static IReadOnlyList<string> SessionsWithPending(WatcherPaths paths) {
@@ -73,57 +83,62 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
     static string ResumedPathFor(WatcherPaths paths, string sessionId) =>
         Path.Combine(paths.Directory, $"{sessionId}.muse-resumed");
 
-    /// <summary>Written whole, then renamed into place, so a reader never sees a partial request. <paramref name="server"/>
-    /// is where the end belongs, recorded first so the request is never visible without it.</summary>
-    public static void Write(WatcherPaths paths, string sessionId, string payload, string? server = null) {
-        Directory.CreateDirectory(paths.Directory);
-        var target = PathFor(paths, sessionId, payload);
-        var temp   = $"{target}.{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}.tmp";
+    /// <summary>A request as stored: the payload to send, the server it is for, and its failed sends.</summary>
+    readonly record struct Stored(string Payload, string? Server, int Attempts, DateTimeOffset NotBefore);
 
-        if (server is not null) File.WriteAllText(ServerPathFor(target), server);
-        else TryDelete(ServerPathFor(target));
-        File.WriteAllText(temp, payload);
-        File.Move(temp, target, overwrite: true);
-        TryDelete(RetryPathFor(target));
+    static Stored Parse(string content) {
+        try {
+            if (JsonNode.Parse(content) is JsonObject end && end[HandoffKey] is JsonObject handoff) {
+                end.Remove(HandoffKey);
+                return new Stored(end.ToJsonString(),
+                    handoff["server"]?.GetValue<string>(),
+                    handoff["attempts"]?.GetValue<int>() ?? 0,
+                    handoff["not_before"]?.GetValue<long>() is { } ticks ? new DateTimeOffset(ticks, TimeSpan.Zero) : DateTimeOffset.MinValue);
+            }
+        } catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException) { }
+
+        return new Stored(content, null, 0, DateTimeOffset.MinValue);
     }
 
-    static string ServerPathFor(string source) => source + ".server";
-
-    /// <summary>The server a request was handed over for, or null for one written before it was recorded.</summary>
-    static string? ServerOf(string source) {
+    static string Render(string payload, string? server, int attempts, DateTimeOffset notBefore) {
         try {
-            return File.Exists(ServerPathFor(source)) ? File.ReadAllText(ServerPathFor(source)) : null;
+            if ((server is not null || attempts > 0) && JsonNode.Parse(payload) is JsonObject end) {
+                end[HandoffKey] = new JsonObject {
+                    ["server"]     = server,
+                    ["attempts"]   = attempts,
+                    ["not_before"] = notBefore.UtcTicks,
+                };
+                return end.ToJsonString();
+            }
+        } catch (JsonException) { }
+
+        return payload;
+    }
+
+    static Stored? Peek(string source) {
+        try {
+            return Parse(File.ReadAllText(source));
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return null;
         }
     }
 
-    static string RetryPathFor(string source) => source + ".retry";
+    /// <summary>Written whole, then renamed into place, so a reader never sees a partial request, nor one without the
+    /// server <paramref name="server"/> it is for.</summary>
+    public static void Write(WatcherPaths paths, string sessionId, string payload, string? server = null) {
+        Directory.CreateDirectory(paths.Directory);
+        var target = PathFor(paths, sessionId, payload);
+        var temp   = $"{target}.{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}.tmp";
 
-    static string SourceOf(string claimedPath) =>
-        claimedPath[..(claimedPath.IndexOf(Suffix, StringComparison.Ordinal) + Suffix.Length)];
-
-    static void TryDelete(string path) {
-        try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-    }
-
-    /// <summary>How many sends a request has failed, and when it may be taken again.</summary>
-    static (int Attempts, DateTimeOffset NotBefore) RetryStateOf(string source) {
-        try {
-            if (File.ReadAllText(RetryPathFor(source)).Split('\n') is [var attempts, var notBefore]
-             && int.TryParse(attempts, CultureInfo.InvariantCulture, out var n)
-             && long.TryParse(notBefore, CultureInfo.InvariantCulture, out var ticks))
-                return (n, new DateTimeOffset(ticks, TimeSpan.Zero));
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-
-        return (0, DateTimeOffset.MinValue);
+        File.WriteAllText(temp, Render(payload, server, 0, DateTimeOffset.MinValue));
+        File.Move(temp, target, overwrite: true);
     }
 
     /// <summary>True while an unclaimed request is on disk.</summary>
     public static bool Exists(WatcherPaths paths, string sessionId) => Pending(paths, sessionId).Any();
 
-    /// <summary>Takes the session's oldest unclaimed request for <paramref name="owner"/>, or null when there is none
-    /// or other parties took each first. An empty request is discarded rather than claimed.</summary>
+    /// <summary>Takes the session's oldest unclaimed request that is due for <paramref name="owner"/>, or null when there
+    /// is none or other parties took each first. An empty request is discarded rather than claimed.</summary>
     public static MuseSessionEndRequest? TryClaim(WatcherPaths paths, string sessionId, string owner, TimeProvider? time = null) =>
         TryClaim(paths, sessionId, owner, time, forServer: _ => true);
 
@@ -134,7 +149,8 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
         var now = (time ?? TimeProvider.System).GetUtcNow();
 
         foreach (var source in Pending(paths, sessionId))
-            if (RetryStateOf(source).NotBefore <= now && forServer(ServerOf(source)) && TryClaimAt(source, owner) is { } request) return request;
+            if (Peek(source) is { } stored && stored.NotBefore <= now && forServer(stored.Server) && TryClaimAt(source, owner) is { } request)
+                return request;
 
         return null;
     }
@@ -154,10 +170,10 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
             return null;
         }
 
-        string   payload;
+        string   content;
         DateTime handedAt;
         try {
-            payload  = File.ReadAllText(claimed);
+            content  = File.ReadAllText(claimed);
             handedAt = File.GetLastWriteTimeUtc(claimed);
         } catch (IOException) {
             return null;
@@ -166,7 +182,11 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
         }
 
         // The rename keeps the write time, which is when the hook handed the end over.
-        if (!string.IsNullOrWhiteSpace(payload)) return new MuseSessionEndRequest(payload, claimed, new DateTimeOffset(handedAt, TimeSpan.Zero), source);
+        var stored = Parse(content);
+        if (!string.IsNullOrWhiteSpace(stored.Payload))
+            return new MuseSessionEndRequest(stored.Payload, claimed, new DateTimeOffset(handedAt, TimeSpan.Zero), source) {
+                Server = stored.Server, Attempts = stored.Attempts
+            };
 
         Release(claimed);
         return null;
@@ -213,27 +233,34 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
     }
 
     /// <summary>Puts back a request whose end could be neither sent nor kept, not to be taken again until a delay that
-    /// doubles with each failure, up to a cap: whatever failed may well fail the same way at once.</summary>
+    /// doubles with each failure, up to a cap: whatever failed may well fail the same way at once. Its backoff is written
+    /// into the request and published by the one rename that puts it back, keeping its hand-over time; a newer request
+    /// of the same run supersedes it.</summary>
     public static void Defer(MuseSessionEndRequest request, TimeProvider time) {
-        var attempts = RetryStateOf(request.SourcePath).Attempts + 1;
+        var attempts = request.Attempts + 1;
         var delay    = TimeSpan.FromTicks(Math.Min(MaxRetryDelay.Ticks, FirstRetryDelay.Ticks << Math.Min(attempts - 1, 16)));
+        var temp     = $"{request.SourcePath}.{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}.tmp";
 
         try {
-            File.WriteAllText(RetryPathFor(request.SourcePath),
-                $"{attempts.ToString(CultureInfo.InvariantCulture)}\n{(time.GetUtcNow() + delay).UtcTicks.ToString(CultureInfo.InvariantCulture)}");
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            File.WriteAllText(temp, Render(request.Payload, request.Server, attempts, time.GetUtcNow() + delay));
+            File.SetLastWriteTimeUtc(temp, request.HandedAt.UtcDateTime);
+            File.Move(temp, request.SourcePath);
+            File.Delete(request.ClaimedPath);
+        } catch (IOException) {
+            TryDelete(temp);
+            Unclaim(request);
+        } catch (UnauthorizedAccessException) {
+            TryDelete(temp);
+            Unclaim(request);
+        }
+    }
 
-        Unclaim(request);
+    static void TryDelete(string path) {
+        try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
     /// <summary>Removes a claimed request once its end is posted or durably spooled.</summary>
-    public static void Release(string claimedPath) {
-        TryDelete(claimedPath);
-        if (File.Exists(SourceOf(claimedPath))) return;
-
-        TryDelete(RetryPathFor(SourceOf(claimedPath)));
-        TryDelete(ServerPathFor(SourceOf(claimedPath)));
-    }
+    public static void Release(string claimedPath) => TryDelete(claimedPath);
 
     /// <summary>Removes the request and every claim on it, so a watcher armed afterwards is not ended by
     /// an end nobody posted.</summary>

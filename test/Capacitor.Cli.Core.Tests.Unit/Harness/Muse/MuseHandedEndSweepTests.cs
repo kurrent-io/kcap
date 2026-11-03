@@ -60,6 +60,19 @@ public class MuseHandedEndSweepTests {
         await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsEqualTo(spooled == 0);
     }
 
+    /// <summary>A resume that has started but not yet moved the run to its new epoch holds an end that names no run, as
+    /// the fence holds it for a hook or a watcher: posted, it would close the session being resumed.</summary>
+    [Test]
+    public async Task An_unnamed_request_is_held_while_its_session_is_resuming() {
+        ResumeLedgerStore.For(Daemons.Store, "d1").Write(ResumeLedgerEntries.For("agent-1", ResumeState.Resuming) with {
+            LaunchEpoch = "epoch-1", RunEpoch = "epoch-1", SessionId = Session
+        });
+        Hand(Unnamed, TimeSpan.FromMinutes(10));
+
+        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(0);
+        await Assert.That(await Spooled()).IsEmpty();
+    }
+
     /// <summary>A live watcher takes a request within a tick, and one that is backing off waits its turn.</summary>
     [Test]
     public async Task A_fresh_or_backing_off_request_is_left_alone() {
