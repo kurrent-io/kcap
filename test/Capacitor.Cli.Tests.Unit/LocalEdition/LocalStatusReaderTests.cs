@@ -103,6 +103,21 @@ public class LocalStatusReaderTests {
     }
 
     [Test]
+    public async Task A_builtin_model_left_on_disk_is_named_with_its_size_only_while_unused() {
+        Running();
+        var set = new string('a', 64);
+        File.WriteAllBytes(Tmp.CreateFile(["r", "models", set, "model.onnx"]), new byte[3 * 1024 * 1024]);
+        const string Unused = "The built-in search model is still in";
+
+        LocalEmbeddingFile.Write(Root, LocalEmbeddingSetting.Builtin(set));
+        await Assert.That(Text(await Read())).DoesNotContain(Unused);
+
+        LocalEmbeddingFile.Write(Root, LocalEmbeddingSetting.Declined);
+        await Assert.That(Text(await Read())).Contains(
+            $"{Unused} {Path.Combine(Root.Directory, "models")} (3 MB), but the server does not use it; kcap setup --local removes it.");
+    }
+
+    [Test]
     public async Task The_search_field_names_a_recorded_builtin_model_without_ollama() {
         Running();
         LocalEmbeddingFile.Write(Root, LocalEmbeddingSetting.Builtin(new string('a', 64)));

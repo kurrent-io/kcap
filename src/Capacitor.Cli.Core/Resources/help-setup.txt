@@ -61,8 +61,10 @@ Options:
                               search by meaning, downloading it if it is not in
                               place. Needs nothing else installed.
   --no-embeddings             With --local: search by keyword only, removing a
-                              model an earlier setup configured. Remembered, so a
-                              later setup without an embedding flag keeps it.
+                              model an earlier setup configured and deleting a
+                              downloaded built-in model, which it reports with the
+                              space freed. Remembered, so a later setup without an
+                              embedding flag keeps it.
   --windows-service           With --local, on Windows only: run the server under
                               the kcap-service Windows service, installing it
                               behind an administrator prompt when it is missing.

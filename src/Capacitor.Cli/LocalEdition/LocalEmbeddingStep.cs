@@ -158,6 +158,25 @@ static class LocalEmbeddingStep {
         progress.Report(new LocalInstallEvent.EmbeddingsConfigured(model, previous?.Model is { } old && old != model ? old : null));
     }
 
+    /// <summary>No recorded choice asks for the built-in model, so a model set on disk serves nothing. A provider this
+    /// release does not know might, so it keeps them.</summary>
+    public static bool ModelsUnused(LocalEmbeddingSetting? recorded) =>
+        recorded is not { Provider: LocalEmbeddingProvider.Builtin or LocalEmbeddingProvider.Unknown };
+
+    /// <summary>Deletes the model sets the recorded choice leaves unused, and reports the space that came back. Call it
+    /// under the lifecycle lease once the server runs without them, so no file of theirs is still open.</summary>
+    public static void RemoveUnusedModels(LocalRoot root, IProgress<LocalInstallEvent> progress) {
+        if (!ModelsUnused(LocalEmbeddingFile.Read(root))) return;
+
+        var before = LocalModelSets.Size(root);
+        if (before == 0) return;
+
+        LocalModelSets.RemoveAllBut(root);
+
+        var left = LocalModelSets.Size(root);
+        progress.Report(new LocalInstallEvent.EmbeddingBuiltinRemoved(LocalModelSets.Directory(root), before - left, left));
+    }
+
     /// <summary>Puts back what <see cref="LocalEmbeddingFile.Read"/> returned before a change, absence included.</summary>
     public static void Restore(LocalRoot root, LocalEmbeddingSetting? previous) {
         if (previous is null) LocalEmbeddingFile.Delete(root);

@@ -688,6 +688,27 @@ public class LocalInstallerTests {
         await Assert.That(LocalEmbeddingFile.Read(Root)).IsEqualTo(LocalEmbeddingSetting.Builtin(Models.ModelSet));
     }
 
+    /// <summary>A setup that keeps the built-in model keeps its files; one that leaves it unused deletes them once the
+    /// server runs without them, and says how much space came back.</summary>
+    [Test]
+    public async Task Leaving_the_builtin_model_unused_deletes_it_and_reports_the_space() {
+        await Install();
+        await ReuseOffering(new LocalEmbeddingAnswer.Builtin());
+        _events.Reports.Clear();
+
+        await ReuseOffering(new LocalEmbeddingAnswer.Default());
+
+        await Assert.That(File.Exists(ModelFile)).IsTrue();
+        await Assert.That(_events.Reports.OfType<LocalInstallEvent.EmbeddingBuiltinRemoved>()).IsEmpty();
+
+        await ReuseOffering(new LocalEmbeddingAnswer.Skip());
+
+        await Assert.That(Directory.Exists(Path.Combine(Root.Directory, "models", Models.ModelSet))).IsFalse();
+        await Assert.That(_events.Reports.OfType<LocalInstallEvent.EmbeddingBuiltinRemoved>().Single())
+            .IsEqualTo(new LocalInstallEvent.EmbeddingBuiltinRemoved(Path.Combine(Root.Directory, "models"), ModelOnnx.Length, 0));
+        await Assert.That(EventAt<LocalInstallEvent.Ready>()).IsLessThan(EventAt<LocalInstallEvent.EmbeddingBuiltinRemoved>());
+    }
+
     [Test]
     public async Task Switching_from_ollama_to_builtin_leaves_only_the_builtin_provider_in_the_unit() {
         using var ollama = new FakeOllama().Running($"{OllamaClient.DefaultModel}:latest").Embeds(1024);

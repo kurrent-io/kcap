@@ -72,6 +72,10 @@ internal sealed class LocalSetupJsonLinesTests {
             """{"v":1,"event":"embeddings_configured","provider":"builtin"}""");
         yield return () => (new LocalInstallEvent.EmbeddingBuiltinConfigured("mxbai-embed-large"),
             """{"v":1,"event":"embeddings_configured","provider":"builtin","replaced_model":"mxbai-embed-large"}""");
+        yield return () => (new LocalInstallEvent.EmbeddingBuiltinRemoved("/r/models", 2_097_152, 0),
+            """{"v":1,"event":"embeddings_builtin_removed","bytes":2097152,"path":"/r/models","message":"Removed the built-in search model from /r/models, freeing 2 MB."}""");
+        yield return () => (new LocalInstallEvent.EmbeddingBuiltinRemoved("/r/models", 0, 3_145_728),
+            """{"v":1,"event":"embeddings_builtin_removed","bytes":0,"path":"/r/models","message":"The built-in search model in /r/models (3 MB) could not be removed; kcap setup --local removes it once nothing holds it open."}""");
         yield return () => (new LocalInstallEvent.EmbeddingsSkipped(LocalEmbeddingSkipCode.BuiltinUnavailable, "No model."),
             """{"v":1,"event":"embeddings_skipped","code":"builtin_unavailable","message":"No model."}""");
         yield return () => (new LocalInstallEvent.EmbeddingsSkipped(LocalEmbeddingSkipCode.ModelDownloadFailed, "Failed."),

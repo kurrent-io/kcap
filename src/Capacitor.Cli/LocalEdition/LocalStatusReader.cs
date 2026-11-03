@@ -75,6 +75,10 @@ sealed class LocalStatusReader(LocalStack stack, string cliVersion, Func<int, Po
               + pending),
         };
 
+        if (LocalEmbeddingStep.ModelsUnused(recorded) && LocalModelSets.Size(stack.Root) is > 0 and var unused)
+            notes.Add($"The built-in search model is still in {LocalModelSets.Directory(stack.Root)} ({LocalModelSets.Megabytes(unused)} MB), "
+                    + "but the server does not use it; kcap setup --local removes it.");
+
         // A start, stop, restart or uninstall in flight passes through every state below on its way.
         var held = LifecycleLease.IsHeld(stack.Root);
         if (held && state.UnitAbsent) return Changing(fields, notes);

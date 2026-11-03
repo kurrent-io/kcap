@@ -229,6 +229,8 @@ sealed class LocalInstaller(
         await LocalServerReadiness.WaitAsync(local, unit, LocalServerReadiness.StartBudget, time, ct);
         _progress.Report(new LocalInstallEvent.Ready(unit.BaseUrl));
 
+        LocalEmbeddingStep.RemoveUnusedModels(root, _progress);
+
         if (await LocalServerProbe.AuthConfigAsync(local, unit.BaseUrl, ct) != AuthConfigAnswer.Lifted)
             throw new LocalInstallFailure(LocalInstallFailureCode.NotOurServer,
                 $"Something other than this installation's local server answers on {unit.BaseUrl}, so the profile was not changed.");
