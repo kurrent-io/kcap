@@ -902,27 +902,37 @@ public class WorkContextViewSmokeTests {
         });
     }
 
-    /// The toggle at the foot of the section opens the session facts above it and then reads as their closer.
+    /// A section header opens and folds its rows in place, so the reader closes it where they opened
+    /// it, and a folded header carries its summary instead.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_more_toggle_opens_the_session_facts_above_it() {
+    public async Task The_checkout_header_opens_and_folds_its_rows_in_place() {
         await RunOnUiAsync(async () => {
             await using var host = new Host();
             await host.ShowAsync(KeyOnlyRead());
 
-            var toggle = host.Find<Button>("SessionMoreToggle");
-            var facts  = host.Find<Grid>("SessionFacts");
+            var header  = host.Find<Button>("CheckoutToggle");
+            var facts   = host.Find<Grid>("CheckoutFacts");
+            var summary = host.Find<TextBlock>("CheckoutSummaryText");
             await Assert.That(facts.IsEffectivelyVisible).IsFalse();
-            await Assert.That(host.Find<TextBlock>("SessionToggleText").Text).IsEqualTo("More");
+            await Assert.That(summary.IsEffectivelyVisible).IsTrue();
 
-            var origin = toggle.TranslatePoint(new Point(toggle.Bounds.Width / 2, toggle.Bounds.Height / 2), host.Window)!.Value;
-            host.Window.MouseMove(origin);
-            host.Window.MouseDown(origin, MouseButton.Left);
-            host.Window.MouseUp(origin, MouseButton.Left);
-            Dispatcher.UIThread.RunJobs();
+            var origin = header.TranslatePoint(new Point(header.Bounds.Width / 2, header.Bounds.Height / 2), host.Window)!.Value;
+            void Click() {
+                host.Window.MouseMove(origin);
+                host.Window.MouseDown(origin, MouseButton.Left);
+                host.Window.MouseUp(origin, MouseButton.Left);
+                Dispatcher.UIThread.RunJobs();
+                host.Window.UpdateLayout();
+            }
 
+            Click();
             await Assert.That(facts.IsEffectivelyVisible).IsTrue();
-            await Assert.That(host.Find<TextBlock>("SessionToggleText").Text).IsEqualTo("Less");
+            await Assert.That(summary.IsEffectivelyVisible).IsFalse();
+
+            Click();
+            await Assert.That(facts.IsEffectivelyVisible).IsFalse();
+            await Assert.That(summary.IsEffectivelyVisible).IsTrue();
         });
     }
 

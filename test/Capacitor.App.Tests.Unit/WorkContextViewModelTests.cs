@@ -242,6 +242,22 @@ public class WorkContextViewModelTests {
         });
     }
 
+    /// A folded checkout section still names where the code is: the worktree, or the repository when
+    /// the agent reports none.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_folded_checkout_names_the_worktree_or_else_the_repository() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            await h.PushAsync(Dto(sessionId: null));
+            await Assert.That(h.Vm.CheckoutSummary).IsEqualTo("agent-1");
+
+            await h.PushAsync(Dto(sessionId: null) with { WorktreePath = null });
+            await Assert.That(h.Vm.CheckoutSummary).IsEqualTo("myproj");
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     /// A borrowed reviewer, the repository's own checkout, and an older daemon that reports no
     /// work location all work where the user looks, so there is nothing to explain.
     [Test]
@@ -2000,38 +2016,47 @@ public class WorkContextViewModelTests {
             var h = new Harness();
             await Assert.That(h.Vm.PartsExpanded).IsFalse();
             await Assert.That(h.Vm.PeopleExpanded).IsFalse();
+            await Assert.That(h.Vm.CheckoutExpanded).IsFalse();
             await Assert.That(h.Vm.SessionExpanded).IsFalse();
-            await Assert.That(h.Vm.SessionToggleText).IsEqualTo("More");
+            await Assert.That(h.Vm.UsageExpanded).IsTrue();
 
             await h.Vm.TogglePartsCommand.Execute();
+            await h.Vm.ToggleCheckoutCommand.Execute();
             await h.Vm.ToggleSessionCommand.Execute();
+            await h.Vm.ToggleUsageCommand.Execute();
 
             await Assert.That(h.Vm.PartsExpanded).IsTrue();
+            await Assert.That(h.Vm.CheckoutExpanded).IsTrue();
             await Assert.That(h.Vm.SessionExpanded).IsTrue();
-            await Assert.That(h.Vm.SessionToggleText).IsEqualTo("Less");
+            await Assert.That(h.Vm.UsageExpanded).IsFalse();
             await h.Vm.TeardownAsync();
         });
     }
 
-    /// Every session's pane shares one layout, so the session section stays as the reader left it
-    /// when they switch to another session, and a pane already open follows the change.
+    /// Every session's pane shares one layout, so the usage, checkout and session sections stay as the
+    /// reader left them when they switch to another session, and a pane already open follows the change.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_session_section_stays_open_across_sessions() {
+    public async Task The_session_fact_sections_keep_their_folds_across_sessions() {
         await RunOnUiAsync(async () => {
             var layout = new WorkContextLayout();
             var first = new Harness(layout: layout);
             var raised = new List<string?>();
             first.Vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
 
+            await first.Vm.ToggleUsageCommand.Execute();
+            await first.Vm.ToggleCheckoutCommand.Execute();
             await first.Vm.ToggleSessionCommand.Execute();
             var second = new Harness(layout: layout);
 
+            await Assert.That(second.Vm.UsageExpanded).IsFalse();
+            await Assert.That(second.Vm.CheckoutExpanded).IsTrue();
             await Assert.That(second.Vm.SessionExpanded).IsTrue();
-            await Assert.That(second.Vm.SessionToggleText).IsEqualTo("Less");
             await second.Vm.ToggleSessionCommand.Execute();
             await Assert.That(first.Vm.SessionExpanded).IsFalse();
-            await Assert.That(raised).Contains(nameof(WorkContextViewModel.SessionToggleText));
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.UsageExpanded));
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.CheckoutExpanded));
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.SessionExpanded));
             await first.Vm.TeardownAsync();
             await second.Vm.TeardownAsync();
         });

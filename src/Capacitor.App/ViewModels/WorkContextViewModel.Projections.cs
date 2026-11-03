@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reactive;
+using System.Reactive.Disposables.Fluent;
 using Avalonia.Collections;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core.LocalIpc;
@@ -208,24 +209,51 @@ public sealed partial class WorkContextViewModel {
         }
     }
     readonly WorkContextLayout _layout;
-    /// Shared by every session's pane, so switching sessions keeps what the reader opened.
+    // Usage, checkout and session folds are shared by every session's pane, so switching sessions
+    // keeps what the reader opened.
+    public bool UsageExpanded {
+        get => _layout.UsageExpanded;
+        private set => _layout.UsageExpanded = value;
+    }
+    public bool CheckoutExpanded {
+        get => _layout.CheckoutExpanded;
+        private set => _layout.CheckoutExpanded = value;
+    }
     public bool SessionExpanded {
         get => _layout.SessionExpanded;
         private set => _layout.SessionExpanded = value;
     }
 
     void OnLayoutChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) {
-        if (e.PropertyName != nameof(WorkContextLayout.SessionExpanded)) return;
-        this.RaisePropertyChanged(nameof(SessionExpanded));
-        this.RaisePropertyChanged(nameof(SessionToggleText));
+        switch (e.PropertyName) {
+            case nameof(WorkContextLayout.UsageExpanded):    this.RaisePropertyChanged(nameof(UsageExpanded)); break;
+            case nameof(WorkContextLayout.CheckoutExpanded): this.RaisePropertyChanged(nameof(CheckoutExpanded)); break;
+            case nameof(WorkContextLayout.SessionExpanded):  this.RaisePropertyChanged(nameof(SessionExpanded)); break;
+        }
     }
-    public string SessionToggleText => SessionExpanded ? "Less" : "More";
+
+    /// What a folded header shows in place of its rows.
+    public string UsageSummary => string.Join(" · ", new[] { Tokens, Cost }.Where(v => v != SessionFactText.Unknown));
+    public string CheckoutSummary => Worktree != SessionFactText.Unknown ? Worktree
+        : Repository != SessionFactText.Unknown ? Repository : "";
+    public string SessionSummary => Harness != SessionFactText.Unknown ? Harness : "";
+
+    void WatchSummaries() {
+        this.WhenAnyValue(x => x.Tokens, x => x.Cost, (_, _) => Unit.Default)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(UsageSummary))).DisposeWith(_disposables);
+        this.WhenAnyValue(x => x.Worktree, x => x.Repository, (_, _) => Unit.Default)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(CheckoutSummary))).DisposeWith(_disposables);
+        this.WhenAnyValue(x => x.Harness)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(SessionSummary))).DisposeWith(_disposables);
+    }
     bool _runsExpanded;
     public bool RunsExpanded { get => _runsExpanded; private set => this.RaiseAndSetIfChanged(ref _runsExpanded, value); }
 
     public ReactiveCommand<Unit, Unit> TogglePartsCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> TogglePeopleCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleIssuesCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> ToggleUsageCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> ToggleCheckoutCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleSessionCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleRunsCommand { get; private set; } = null!;
 
@@ -237,11 +265,14 @@ public sealed partial class WorkContextViewModel {
             else if (!HasMultipleIssues && SeparateIssue is { CanOpen: true } issue)
                 LinkPolicy.Open(_opener, issue.Url);
         });
-        ToggleSessionCommand = Toggle(() => SessionExpanded = !SessionExpanded);
+        ToggleUsageCommand    = Toggle(() => UsageExpanded = !UsageExpanded);
+        ToggleCheckoutCommand = Toggle(() => CheckoutExpanded = !CheckoutExpanded);
+        ToggleSessionCommand  = Toggle(() => SessionExpanded = !SessionExpanded);
         _layout.PropertyChanged += OnLayoutChanged;
         _disposables.Add(System.Reactive.Disposables.Disposable.Create(() => _layout.PropertyChanged -= OnLayoutChanged));
         ToggleRunsCommand = Toggle(() => RunsExpanded = !RunsExpanded);
         WatchOwnWorktree();
+        WatchSummaries();
     }
 
     ReactiveCommand<Unit, Unit> Toggle(Action flip) {

@@ -550,49 +550,6 @@
                     </Border>
                 </StackPanel>
 
-                <!-- The agent's own worktree: its edits never reach the checkout the user picked. -->
-                <StackPanel x:Name="WorktreeSection" Margin="0,18,0,0" IsVisible="{Binding ShowsOwnWorktree}">
-                    <Button x:Name="WorktreeHeader" Classes="sectionHeader" AutomationProperties.Name="Worktree">
-                        <TextBlock Text="WORKTREE" Classes="eyebrow" />
-                    </Button>
-                    <Border Classes="sectionBody">
-                        <StackPanel Spacing="8">
-                            <TextBlock x:Name="WorktreeNoteText" Text="{Binding OwnWorktreeNote}" FontSize="12.5" LineHeight="17"
-                                       TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
-                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6">
-                                <views:AppIcon Kind="Folder" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
-                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                <SelectableTextBlock x:Name="WorktreePathText" Grid.Column="1" Text="{Binding WorktreePath}"
-                                                     FontSize="12.5" LineHeight="17" TextWrapping="Wrap"
-                                                     Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                                <Button x:Name="OpenWorktreeButton" Grid.Column="2" Classes="kcapGhost kcapIcon" VerticalAlignment="Top"
-                                        Click="OnOpenWorktreeClick" IsVisible="{Binding CanOpenWorktree}"
-                                        ToolTip.Tip="Open folder" AutomationProperties.Name="Open worktree folder">
-                                    <views:AppIcon Kind="FolderOpen" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                                </Button>
-                                <Button x:Name="CopyWorktreeButton" Grid.Column="3" Classes="kcapGhost kcapIcon" VerticalAlignment="Top"
-                                        Click="OnCopyTextClick" Tag="{Binding WorktreePath}"
-                                        ToolTip.Tip="Copy path" AutomationProperties.Name="Copy worktree path">
-                                    <views:AppIcon Kind="Copy" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                                </Button>
-                            </Grid>
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6"
-                                  IsVisible="{Binding OwnWorktreeBranch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                <views:AppIcon Kind="GitBranch" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
-                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                <SelectableTextBlock x:Name="WorktreeBranchText" Grid.Column="1" Text="{Binding OwnWorktreeBranch}"
-                                                     FontSize="12.5" LineHeight="17" TextWrapping="Wrap"
-                                                     Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                                <Button x:Name="CopyWorktreeBranchButton" Grid.Column="2" Classes="kcapGhost kcapIcon" VerticalAlignment="Top"
-                                        Click="OnCopyTextClick" Tag="{Binding OwnWorktreeBranch}"
-                                        ToolTip.Tip="Copy branch name" AutomationProperties.Name="Copy branch name">
-                                    <views:AppIcon Kind="Copy" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                                </Button>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
                 <!-- Pull request: the card with its picker and live status, or link cards where the
                      server has no reader, or the empty note once both reads have settled. -->
                 <StackPanel x:Name="PullRequestSection" Margin="0,18,0,0" IsVisible="{Binding ShowsPullRequestSection}">
@@ -829,40 +786,50 @@
                     </Border>
                 </StackPanel>
 
-                <!-- Session facts. -->
-                <StackPanel x:Name="SessionSection" Margin="0,18,0,0" IsVisible="{Binding HasAgent}">
-                    <Button x:Name="SessionToggle" Classes="sectionHeader" AutomationProperties.Name="Session">
-                        <TextBlock Text="SESSION" Classes="eyebrow" />
-                    </Button>
-                    <Border Classes="sectionBody">
-                        <StackPanel>
-                            <StackPanel.Styles>
-                                <Style Selector="TextBlock.factLabel">
-                                    <Setter Property="FontSize" Value="10.5" />
-                                    <Setter Property="FontWeight" Value="Bold" />
-                                    <Setter Property="LetterSpacing" Value="0.8" />
-                                    <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
-                                    <Setter Property="VerticalAlignment" Value="Center" />
-                                    <Setter Property="Margin" Value="0,0,12,0" />
-                                </Style>
-                                <Style Selector="SelectableTextBlock.factValue">
-                                    <Setter Property="FontSize" Value="13" />
-                                    <Setter Property="LineHeight" Value="18" />
-                                    <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-                                    <Setter Property="TextWrapping" Value="Wrap" />
-                                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-                                    <Setter Property="VerticalAlignment" Value="Center" />
-                                </Style>
-                                <Style Selector="TextBlock.factValue">
-                                    <Setter Property="FontSize" Value="13" />
-                                    <Setter Property="LineHeight" Value="18" />
-                                    <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-                                    <Setter Property="VerticalAlignment" Value="Center" />
-                                </Style>
-                            </StackPanel.Styles>
-                            <Grid x:Name="SessionUsage" ColumnDefinitions="128,*"
-                                  RowDefinitions="Auto,Auto,Auto"
-                                  RowSpacing="8">
+                <!-- Session facts, in three sections that each fold like the ones above. -->
+                <StackPanel x:Name="SessionFactSections" IsVisible="{Binding HasAgent}">
+                    <StackPanel.Styles>
+                        <Style Selector="TextBlock.factLabel">
+                            <Setter Property="FontSize" Value="10.5" />
+                            <Setter Property="FontWeight" Value="Bold" />
+                            <Setter Property="LetterSpacing" Value="0.8" />
+                            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+                            <Setter Property="VerticalAlignment" Value="Center" />
+                            <Setter Property="Margin" Value="0,0,12,0" />
+                        </Style>
+                        <Style Selector="SelectableTextBlock.factValue">
+                            <Setter Property="FontSize" Value="13" />
+                            <Setter Property="LineHeight" Value="18" />
+                            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+                            <Setter Property="TextWrapping" Value="Wrap" />
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                            <Setter Property="VerticalAlignment" Value="Center" />
+                        </Style>
+                        <Style Selector="TextBlock.factValue">
+                            <Setter Property="FontSize" Value="13" />
+                            <Setter Property="LineHeight" Value="18" />
+                            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+                            <Setter Property="VerticalAlignment" Value="Center" />
+                        </Style>
+                    </StackPanel.Styles>
+
+                    <StackPanel x:Name="UsageSection" Margin="0,18,0,0">
+                        <Button x:Name="UsageToggle" Command="{Binding ToggleUsageCommand}" Classes="sectionHeader expandable"
+                                AutomationProperties.Name="Usage">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <TextBlock Text="USAGE" Classes="eyebrow" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <TextBlock x:Name="UsageSummaryText" Text="{Binding UsageSummary}" Classes="sectionMeta"
+                                               IsVisible="{Binding !UsageExpanded}" />
+                                    <Panel Width="12" Height="12">
+                                        <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding UsageExpanded}" />
+                                        <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !UsageExpanded}" />
+                                    </Panel>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Border Classes="sectionBody" IsVisible="{Binding UsageExpanded}">
+                            <Grid x:Name="SessionUsage" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="TOKENS" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Tokens}" Classes="factValue" />
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="COST" Classes="factLabel" />
@@ -872,28 +839,95 @@
                                 <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ContextUse}" Classes="factValue"
                                                      ToolTip.Tip="Peak context use" />
                             </Grid>
-                            <!-- Usage always shows, so this reads as more or less detail. -->
-                            <!-- Separate grid so collapsed RowSpacing does not reserve trailing gaps for hidden rows. -->
-                            <Grid x:Name="SessionFacts" Margin="0,8,0,0" ColumnDefinitions="128,*"
-                                  RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
-                                  RowSpacing="8"
-                                  IsVisible="{Binding SessionExpanded}">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="SESSION SHARING" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SessionSharing}" Classes="factValue" />
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="AGENT SHARING" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding AgentSharing}" Classes="factValue" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="WORKTREE" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Worktree}" Classes="factValue" ToolTip.Tip="{Binding WorktreePath}" />
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="BRANCH" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Branch}" Classes="factValue" />
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="REPOSITORY" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Repository}" Classes="factValue" ToolTip.Tip="{Binding RepositoryPath}" />
-                                <TextBlock Grid.Row="5" Grid.Column="0" Text="HARNESS" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="5" Grid.Column="1" Text="{Binding Harness}" Classes="factValue" />
-                                <TextBlock Grid.Row="6" Grid.Column="0" Text="TRANSPORT" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="6" Grid.Column="1" Text="{Binding Transport}" Classes="factValue" />
-                                <TextBlock Grid.Row="7" Grid.Column="0" Text="ID" Classes="factLabel" />
-                                <Panel Grid.Row="7" Grid.Column="1">
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Where the code is. An agent in its own worktree adds where its edits land, since they
+                         never reach the checkout the user picked. -->
+                    <StackPanel x:Name="CheckoutSection" Margin="0,18,0,0">
+                        <Button x:Name="CheckoutToggle" Command="{Binding ToggleCheckoutCommand}" Classes="sectionHeader expandable"
+                                AutomationProperties.Name="Checkout">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                <TextBlock Text="CHECKOUT" Classes="eyebrow" />
+                                <TextBlock x:Name="CheckoutSummaryText" Grid.Column="1" Text="{Binding CheckoutSummary}" Classes="sectionMeta"
+                                           HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"
+                                           IsVisible="{Binding !CheckoutExpanded}" />
+                                <Panel Grid.Column="2" Width="12" Height="12" VerticalAlignment="Center">
+                                    <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding CheckoutExpanded}" />
+                                    <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !CheckoutExpanded}" />
+                                </Panel>
+                            </Grid>
+                        </Button>
+                        <Border Classes="sectionBody" IsVisible="{Binding CheckoutExpanded}">
+                            <StackPanel Spacing="10">
+                                <Grid x:Name="CheckoutFacts" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="REPOSITORY" Classes="factLabel" />
+                                    <SelectableTextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Repository}" Classes="factValue" ToolTip.Tip="{Binding RepositoryPath}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="WORKTREE" Classes="factLabel" />
+                                    <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Worktree}" Classes="factValue" ToolTip.Tip="{Binding WorktreePath}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="BRANCH" Classes="factLabel" />
+                                    <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Branch}" Classes="factValue" />
+                                </Grid>
+                                <StackPanel x:Name="OwnWorktreeDetails" Spacing="8" IsVisible="{Binding ShowsOwnWorktree}">
+                                    <TextBlock x:Name="WorktreeNoteText" Text="{Binding OwnWorktreeNote}" FontSize="12.5" LineHeight="17"
+                                               TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6">
+                                        <views:AppIcon Kind="Folder" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
+                                                       Foreground="{StaticResource KcapMutedBrush}" />
+                                        <SelectableTextBlock x:Name="WorktreePathText" Grid.Column="1" Text="{Binding WorktreePath}"
+                                                             FontSize="12.5" LineHeight="17" TextWrapping="Wrap"
+                                                             Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                                        <Button x:Name="OpenWorktreeButton" Grid.Column="2" Classes="kcapGhost kcapIcon" VerticalAlignment="Top"
+                                                Click="OnOpenWorktreeClick" IsVisible="{Binding CanOpenWorktree}"
+                                                ToolTip.Tip="Open folder" AutomationProperties.Name="Open worktree folder">
+                                            <views:AppIcon Kind="FolderOpen" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                                        </Button>
+                                        <Button x:Name="CopyWorktreeButton" Grid.Column="3" Classes="kcapGhost kcapIcon" VerticalAlignment="Top"
+                                                Click="OnCopyTextClick" Tag="{Binding WorktreePath}"
+                                                ToolTip.Tip="Copy path" AutomationProperties.Name="Copy worktree path">
+                                            <views:AppIcon Kind="Copy" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                                        </Button>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6"
+                                          IsVisible="{Binding OwnWorktreeBranch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                        <views:AppIcon Kind="GitBranch" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
+                                                       Foreground="{StaticResource KcapMutedBrush}" />
+                                        <SelectableTextBlock x:Name="WorktreeBranchText" Grid.Column="1" Text="{Binding OwnWorktreeBranch}"
+                                                             FontSize="12.5" LineHeight="17" TextWrapping="Wrap"
+                                                             Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                                        <Button x:Name="CopyWorktreeBranchButton" Grid.Column="2" Classes="kcapGhost kcapIcon" VerticalAlignment="Top"
+                                                Click="OnCopyTextClick" Tag="{Binding OwnWorktreeBranch}"
+                                                ToolTip.Tip="Copy branch name" AutomationProperties.Name="Copy branch name">
+                                            <views:AppIcon Kind="Copy" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                                        </Button>
+                                    </Grid>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SessionSection" Margin="0,18,0,0">
+                        <Button x:Name="SessionToggle" Command="{Binding ToggleSessionCommand}" Classes="sectionHeader expandable"
+                                AutomationProperties.Name="Session">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                <TextBlock Text="SESSION" Classes="eyebrow" />
+                                <TextBlock x:Name="SessionSummaryText" Grid.Column="1" Text="{Binding SessionSummary}" Classes="sectionMeta"
+                                           HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"
+                                           IsVisible="{Binding !SessionExpanded}" />
+                                <Panel Grid.Column="2" Width="12" Height="12" VerticalAlignment="Center">
+                                    <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding SessionExpanded}" />
+                                    <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !SessionExpanded}" />
+                                </Panel>
+                            </Grid>
+                        </Button>
+                        <Border Classes="sectionBody" IsVisible="{Binding SessionExpanded}">
+                            <Grid x:Name="SessionFacts" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="HARNESS" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Harness}" Classes="factValue" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="TRANSPORT" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Transport}" Classes="factValue" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="ID" Classes="factLabel" />
+                                <Panel Grid.Row="2" Grid.Column="1">
                                     <Button x:Name="SessionIdButton" Classes="copyValue" Click="OnSessionIdClick"
                                             IsVisible="{Binding CanCopySessionId}"
                                             AutomationProperties.Name="Copy session ID"
@@ -903,25 +937,13 @@
                                     <SelectableTextBlock Text="{Binding SessionIdText}" Classes="factValue"
                                                          IsVisible="{Binding !CanCopySessionId}" />
                                 </Panel>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="SESSION SHARING" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SessionSharing}" Classes="factValue" />
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="AGENT SHARING" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="4" Grid.Column="1" Text="{Binding AgentSharing}" Classes="factValue" />
                             </Grid>
-                            <!-- Usage always shows, so this reads as more or less detail. Link-coloured so it
-                                 does not pass for another row. -->
-                            <Button x:Name="SessionMoreToggle" Classes="kcapGhost kcapQuiet" Command="{Binding ToggleSessionCommand}"
-                                    HorizontalAlignment="Left" Margin="-8,6,0,0"
-                                    AutomationProperties.Name="{Binding SessionToggleText, StringFormat='Session details, {0}'}">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock x:Name="SessionToggleText" Text="{Binding SessionToggleText}" VerticalAlignment="Center"
-                                               Foreground="{StaticResource KcapInfoBrush}" />
-                                    <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding SessionExpanded}"
-                                                       Foreground="{StaticResource KcapInfoBrush}" />
-                                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !SessionExpanded}"
-                                                       Foreground="{StaticResource KcapInfoBrush}" />
-                                    </Panel>
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-                    </Border>
+                        </Border>
+                    </StackPanel>
                 </StackPanel>
             </StackPanel>
         </ScrollViewer>
