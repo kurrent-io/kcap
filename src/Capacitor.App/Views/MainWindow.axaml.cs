@@ -307,9 +307,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
                 PointerUpdateKind.XButton2Pressed => vm.GoForwardCommand,
                 _ => null,
             };
-            if (command is null) return;
+            if (command is not System.Windows.Input.ICommand ui || !ui.CanExecute(null)) return;
             e.Handled = true;
-            command.Execute().Subscribe();
+            ui.Execute(null);
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
     }
 
