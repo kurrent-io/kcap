@@ -6,7 +6,6 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.Harness.Muse;
 using Capacitor.Cli.PrDetection;
 using Capacitor.Cli.SessionStartMemory;
 

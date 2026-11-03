@@ -2365,18 +2365,14 @@ partial class WatchCommand(
         SessionId.Parse(sessionId) is { } session ? AgentSessions.OnThisMachine(config).LiveClaimant(session) : null;
 
     MuseSessionEndRequest? ClaimHandedMuseEnd(string sessionId) =>
-        MuseSessionEndRequest.TryClaim(_paths, sessionId, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        MuseSessionEndRequest.TryClaim(_paths, sessionId, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), time);
 
     internal enum HandedEndOutcome { Posted, Dropped, Failed }
-
-    /// <summary>A handed end left pending when its watcher exits gets a successor to retry it while it is younger than
-    /// this; past it, the session's next hook arms one. A rejection that never clears would otherwise re-arm forever.</summary>
-    static readonly TimeSpan HandedEndRetryWindow = TimeSpan.FromMinutes(30);
 
     /// <summary>Settles the handed end this watcher took, then every other one handed over before it exits, oldest
     /// first, each once: another run's end handed over while this one was claimed would otherwise wait for a watcher
     /// nobody arms. One that can be neither posted nor spooled is held aside so the pass goes on to the rest, then put
-    /// back, and a successor is armed to try it again.</summary>
+    /// back with a backoff for the spool drain's sweep to send later.</summary>
     internal async Task SettleHandedEndsAsync(
             string sessionId, string transcriptPath, string? cwd, string vendor, RepositoryPayload? repository, MuseSessionEndRequest first) {
         var failed = new List<MuseSessionEndRequest>();
@@ -2399,12 +2395,8 @@ partial class WatchCommand(
             }
         }
 
-        foreach (var handed in failed) MuseSessionEndRequest.Unclaim(handed);
-
-        if (failed.Any(h => time.GetUtcNow() - h.HandedAt < HandedEndRetryWindow)) {
-            Log(time, $"{failed.Count} handed session-end(s) could not be sent; arming a watcher to retry");
-            await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
-        }
+        foreach (var handed in failed) MuseSessionEndRequest.Defer(handed, time);
+        if (failed.Count > 0) Log(time, $"{failed.Count} handed session-end(s) could not be sent; left for the spool drain to retry");
     }
 
     /// <summary>Posts a handed end once more directly, which needs no spool: true, with the claim released, when the

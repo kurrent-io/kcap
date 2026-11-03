@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace Capacitor.Cli.Harness.Muse;
+namespace Capacitor.Cli.Core.Harness.Muse;
 
 /// <summary>
 /// A session-end the Muse SessionEnd hook hands to the session's watcher: the hook's own
@@ -38,6 +38,23 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
         }
     }
 
+    static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(30);
+    static readonly TimeSpan MaxRetryDelay   = TimeSpan.FromMinutes(30);
+
+    /// <summary>Sessions with an unclaimed request.</summary>
+    public static IReadOnlyList<string> SessionsWithPending(WatcherPaths paths) {
+        try {
+            if (!Directory.Exists(paths.Directory)) return [];
+
+            return Directory.EnumerateFiles(paths.Directory, "*" + Suffix)
+                .Select(f => Path.GetFileName(f)[..Path.GetFileName(f).IndexOf('.')])
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return [];
+        }
+    }
+
     /// <summary>The session's unclaimed requests, oldest hand-over first.</summary>
     static IEnumerable<string> Pending(WatcherPaths paths, string sessionId) {
         try {
@@ -64,6 +81,28 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
 
         File.WriteAllText(temp, payload);
         File.Move(temp, target, overwrite: true);
+        TryDelete(RetryPathFor(target));
+    }
+
+    static string RetryPathFor(string source) => source + ".retry";
+
+    static string SourceOf(string claimedPath) =>
+        claimedPath[..(claimedPath.IndexOf(Suffix, StringComparison.Ordinal) + Suffix.Length)];
+
+    static void TryDelete(string path) {
+        try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
+    /// <summary>How many sends a request has failed, and when it may be taken again.</summary>
+    static (int Attempts, DateTimeOffset NotBefore) RetryStateOf(string source) {
+        try {
+            if (File.ReadAllText(RetryPathFor(source)).Split('\n') is [var attempts, var notBefore]
+             && int.TryParse(attempts, CultureInfo.InvariantCulture, out var n)
+             && long.TryParse(notBefore, CultureInfo.InvariantCulture, out var ticks))
+                return (n, new DateTimeOffset(ticks, TimeSpan.Zero));
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+
+        return (0, DateTimeOffset.MinValue);
     }
 
     /// <summary>True while an unclaimed request is on disk.</summary>
@@ -71,9 +110,11 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
 
     /// <summary>Takes the session's oldest unclaimed request for <paramref name="owner"/>, or null when there is none
     /// or other parties took each first. An empty request is discarded rather than claimed.</summary>
-    public static MuseSessionEndRequest? TryClaim(WatcherPaths paths, string sessionId, string owner) {
+    public static MuseSessionEndRequest? TryClaim(WatcherPaths paths, string sessionId, string owner, TimeProvider? time = null) {
+        var now = (time ?? TimeProvider.System).GetUtcNow();
+
         foreach (var source in Pending(paths, sessionId))
-            if (TryClaimAt(source, owner) is { } request) return request;
+            if (RetryStateOf(source).NotBefore <= now && TryClaimAt(source, owner) is { } request) return request;
 
         return null;
     }
@@ -151,9 +192,24 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
         }
     }
 
+    /// <summary>Puts back a request whose end could be neither sent nor kept, not to be taken again until a delay that
+    /// doubles with each failure, up to a cap: whatever failed may well fail the same way at once.</summary>
+    public static void Defer(MuseSessionEndRequest request, TimeProvider time) {
+        var attempts = RetryStateOf(request.SourcePath).Attempts + 1;
+        var delay    = TimeSpan.FromTicks(Math.Min(MaxRetryDelay.Ticks, FirstRetryDelay.Ticks << Math.Min(attempts - 1, 16)));
+
+        try {
+            File.WriteAllText(RetryPathFor(request.SourcePath),
+                $"{attempts.ToString(CultureInfo.InvariantCulture)}\n{(time.GetUtcNow() + delay).UtcTicks.ToString(CultureInfo.InvariantCulture)}");
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+
+        Unclaim(request);
+    }
+
     /// <summary>Removes a claimed request once its end is posted or durably spooled.</summary>
     public static void Release(string claimedPath) {
-        try { File.Delete(claimedPath); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        TryDelete(claimedPath);
+        if (!File.Exists(SourceOf(claimedPath))) TryDelete(RetryPathFor(SourceOf(claimedPath)));
     }
 
     /// <summary>Removes the request and every claim on it, so a watcher armed afterwards is not ended by

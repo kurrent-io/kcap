@@ -5,6 +5,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Harness.Muse;
 
 using Capacitor.Cli.Core.Http;
 
@@ -268,6 +269,7 @@ internal sealed class AgentHookPoster(
         transcript.DeleteExpired();
         SessionCommits.DeleteExpired(config, time);
         SpoolEnds(AgentSessions.OnThisMachine(config).ReapExited(Url), Url, lifecycle, time);
+        MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, DaemonStore.FromEnvironment(), time);
 
         // Distinct from the POST guards' diagnostic: a reader must be able to tell which guard fired,
         // and a test must be able to prove THIS one did.

@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using System.Text.Json;
 using Capacitor.Cli.Commands;
 using WireMock.RequestBuilders;
@@ -289,7 +290,7 @@ public class WatcherParentExitPostTests : IDisposable {
 
     /// <summary>An end that can be neither posted nor spooled does not end the pass: the requests after it are still
     /// settled, it is retried as the end its hook handed over, never one rebuilt from the watcher, and it goes back
-    /// with a watcher armed to try it again.</summary>
+    /// behind a backoff for the spool drain's sweep, with no watcher armed to churn on the same fault.</summary>
     [Test]
     public async Task An_end_neither_posted_nor_spooled_goes_back_and_the_pass_settles_the_rest() {
         _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
@@ -303,10 +304,10 @@ public class WatcherParentExitPostTests : IDisposable {
         var sessionId = Guid.NewGuid().ToString("N");
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
         var spawner   = new FakeWatcherSpawner();
-        Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
-        var first = Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
-        Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        var first = Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
 
         await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, first);
@@ -317,8 +318,9 @@ public class WatcherParentExitPostTests : IDisposable {
         await Assert.That(epochs).Contains("epoch-2");
         await Assert.That(epochs.Count(e => e == "epoch-1")).IsEqualTo(2);
         await Assert.That(epochs).DoesNotContain((string?)null);
-        await Assert.That(Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "check")?.Payload).Contains("epoch-1");
-        await Assert.That(spawner.Spawned.Count).IsEqualTo(1);
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsTrue();
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "check")).IsNull();
+        await Assert.That(spawner.Spawned).IsEmpty();
     }
 
     /// <summary>A handed end the server rejects is dropped, as every rejected hook payload is: it is not put back, and no
@@ -333,14 +335,14 @@ public class WatcherParentExitPostTests : IDisposable {
         var sessionId = Guid.NewGuid().ToString("N");
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
         var spawner   = new FakeWatcherSpawner();
-        Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
-        var handed = Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        var handed = Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
 
         await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, handed);
 
         await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost()).Count).IsEqualTo(1);
-        await Assert.That(Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();
         await Assert.That(File.Exists(handed.ClaimedPath)).IsFalse();
         await Assert.That(spawner.Spawned).IsEmpty();
     }
@@ -356,10 +358,10 @@ public class WatcherParentExitPostTests : IDisposable {
 
         var sessionId = Guid.NewGuid().ToString("N");
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
-        Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
-        var claimed = Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
-        Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        var claimed = Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
 
         await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, claimed);
@@ -368,6 +370,6 @@ public class WatcherParentExitPostTests : IDisposable {
             .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.GetProperty("daemon_epoch").GetString())
             .ToList();
         await Assert.That(epochs).IsEquivalentTo(new string?[] { "epoch-1", "epoch-2" });
-        await Assert.That(Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();
     }
 }

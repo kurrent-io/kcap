@@ -1,5 +1,6 @@
 using Capacitor.Cli.Commands;
-using Capacitor.Cli.Harness.Muse;
+using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.Muse;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 

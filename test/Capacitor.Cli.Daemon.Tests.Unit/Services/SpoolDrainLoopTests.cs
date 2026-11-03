@@ -23,6 +23,22 @@ public class SpoolDrainLoopTests {
         await Assert.That(logger.Entries.Any(e => e.Message.Contains("auth lapsed — skipping this pass"))).IsTrue();
     }
 
+    /// <summary>The tick moves a handed Muse end no watcher took into the lifecycle spool, auth or not, so the session
+    /// still ends when no hook for it runs again.</summary>
+    [Test]
+    public async Task Tick_spools_an_unattended_handed_Muse_end() {
+        const string session = "01a13694b0ad7ae28bf52af6357a0847";
+        const string payload = """{"hook_event_name":"SessionEnd","reason":"exit"}""";
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, session, payload);
+        File.SetLastWriteTimeUtc(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.PathFor(paths, session, payload), DateTime.UtcNow.AddMinutes(-10));
+
+        await MakeLoop(new StatusOnlyHttpClient(AuthStatus.UnusableServerUrl), new CapturingLogger<SpoolDrainLoopTests>()).TickAsync(CancellationToken.None);
+
+        await Assert.That(new HookSpool(Config.PathTo("lifecycle"), time: TimeProvider.System).HasBacklog(session)).IsTrue();
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, session)).IsFalse();
+    }
+
     // Credential resolution must run on the loop's own token, not one truncated to the drain
     // budget — a proactive refresh routinely outlives that budget.
     [Test]

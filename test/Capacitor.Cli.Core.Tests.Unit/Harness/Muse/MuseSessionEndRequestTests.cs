@@ -1,6 +1,7 @@
-using Capacitor.Cli.Harness.Muse;
+using Capacitor.Cli.Core.Harness.Muse;
+using Microsoft.Extensions.Time.Testing;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Muse;
+namespace Capacitor.Cli.Core.Tests.Unit.Harness.Muse;
 
 public class MuseSessionEndRequestTests {
     [TempDir] public required TempDir Tmp { get; init; }
@@ -69,6 +70,31 @@ public class MuseSessionEndRequestTests {
         await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w2")!.Payload).IsEqualTo(E2);
         await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w3")!.Payload).IsEqualTo(E1);
         await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w4")).IsNull();
+    }
+
+    /// <summary>A request whose end could be neither sent nor kept is not taken again until its backoff has passed, and
+    /// the backoff doubles with each failure: whatever failed would likely fail the same way at once.</summary>
+    [Test]
+    public async Task A_deferred_request_waits_out_a_doubling_backoff() {
+        var paths = new WatcherPaths(Tmp.PathTo("watchers"));
+        var time  = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        MuseSessionEndRequest.Write(paths, SessionId, E2);
+
+        MuseSessionEndRequest.Defer(MuseSessionEndRequest.TryClaim(paths, SessionId, "w1", time)!, time);
+        await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w2", time)).IsNull();
+        time.Advance(TimeSpan.FromSeconds(31));
+        var again = MuseSessionEndRequest.TryClaim(paths, SessionId, "w3", time)!;
+        await Assert.That(again.Payload).IsEqualTo(E2);
+
+        MuseSessionEndRequest.Defer(again, time);
+        time.Advance(TimeSpan.FromSeconds(31));
+        await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w4", time)).IsNull();
+        time.Advance(TimeSpan.FromSeconds(30));
+        var third = MuseSessionEndRequest.TryClaim(paths, SessionId, "w5", time)!;
+
+        MuseSessionEndRequest.Release(third.ClaimedPath);
+        MuseSessionEndRequest.Write(paths, SessionId, E2);
+        await Assert.That(MuseSessionEndRequest.TryClaim(paths, SessionId, "w6", time)).IsNotNull();
     }
 
     [Test]
