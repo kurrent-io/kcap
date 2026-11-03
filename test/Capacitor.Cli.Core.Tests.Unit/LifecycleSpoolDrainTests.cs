@@ -315,6 +315,24 @@ public class LifecycleSpoolDrainTests {
             .IsEqualTo("""{"run":2,"phase":"stop"} {"run":2,"phase":"end"}""");
     }
 
+    /// <summary>A start posted live while the earlier run's end is still queued: once the drain delivers that
+    /// end, the new run's hooks must still not be taken for its stragglers.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task hooks_after_a_live_start_behind_a_queued_end_are_delivered(bool fifo) {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
+        life.NoteRunStarted(Sid);
+        life.Append(Sid, "subagent-stop/kiro", """{"run":2,"phase":"stop"}""");
+        life.Append(Sid, "session-end/kiro", """{"run":2,"phase":"end"}""");
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo)))
+            .IsEqualTo("""{"run":2,"phase":"stop"} {"run":2,"phase":"end"}""");
+    }
+
     /// <summary>An end still spooled when the session starts again would be delivered ahead of or after that
     /// start, ending the resumed run, and the marker it left would then discard the run's own hooks.</summary>
     [Test]

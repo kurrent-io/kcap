@@ -411,12 +411,27 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     const string RunStartedRoute = "run-started";
 
     /// <summary>
-    /// Records, for a session whose spooled end was delivered, that a start was just posted live: what is
-    /// spooled after it is the new run's, not a straggler of the ended one. A no-op otherwise, so it leaves
-    /// no backlog behind an ordinary start.
+    /// Records, for a session with an end delivered or still queued, that a start was just posted live: what
+    /// is spooled after it is the new run's, not a straggler of the ended one. A no-op for a session with
+    /// neither, so it leaves no backlog behind an ordinary start.
     /// </summary>
     public void NoteRunStarted(string sessionId) {
-        if (IsMarkedEnded(sessionId)) Append(sessionId, RunStartedRoute, "{}");
+        if (IsMarkedEnded(sessionId) || HasQueuedEnd(sessionId)) Append(sessionId, RunStartedRoute, "{}");
+    }
+
+    bool HasQueuedEnd(string sessionId) {
+        if (!SafeSessionId.IsMatch(sessionId) || !Directory.Exists(DirectoryPath)) return false;
+
+        var key = EncodeKey(sessionId);
+        try {
+            return Directory.EnumerateFiles(DirectoryPath, $"{key}.jsonl")
+                .Concat(Directory.EnumerateFiles(DirectoryPath, $"{key}.ordered-*"))
+                .Concat(Directory.EnumerateFiles(DirectoryPath, $"{key}.*.draining"))
+                .Any(path => File.ReadLines(path).Any(line => Entry(line) is { } e && IsTerminalRoute(e.Route)));
+        } catch {
+            // Unreadable: a note costs one spooled line, a missing one costs the run's hooks
+            return true;
+        }
     }
 
     static (string? AgentId, string? Epoch) RunOf(string body) {
