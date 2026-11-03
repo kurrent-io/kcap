@@ -197,6 +197,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// Pressed over the launcher already showing, it nudges the launcher so the press visibly lands.
     public ReactiveCommand<Unit, Unit> NewSessionCommand { get; }
 
+    /// Places the user navigated away from: the launcher and sessions, each with its tab.
+    public NavigationHistory History { get; } = new();
+
+    public ReactiveCommand<Unit, Unit> GoBackCommand { get; }
+    public ReactiveCommand<Unit, Unit> GoForwardCommand { get; }
+
     /// Fires when New session is pressed while the launcher is already showing.
     public IObservable<Unit> LauncherNudges => _launcherNudges.AsObservable();
 
@@ -412,6 +418,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         TenantName = ProfileLabelForRail(tenantName);
         CloseWorkspaceCommand = ReactiveCommand.Create(CloseWorkspace);
         NewSessionCommand = ReactiveCommand.CreateFromTask(NewSessionAsync);
+        GoBackCommand = ReactiveCommand.CreateFromTask(() => StepAsync(back: true), History.WhenAnyValue(h => h.CanGoBack));
+        GoForwardCommand = ReactiveCommand.CreateFromTask(() => StepAsync(back: false), History.WhenAnyValue(h => h.CanGoForward));
         Search = sessions is null ? null : searchFactory?.Invoke(OpenSearchHitAsync);
         Search?.Closed.Subscribe(_ => IsSearchOpen = false);
         if (Search is { } page) page.WhenAnyValue(x => x.ListState).Subscribe(_ => this.RaisePropertyChanged(nameof(SearchShowsSignIn)));
@@ -723,10 +731,13 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public bool OpenSession(string agentId, AgentOrigin? origin = null) => Navigate(agentId, origin, sessionId: null);
 
     /// `sessionId` is the session the caller asked for; without one it is read off what opened.
-    bool Navigate(string agentId, AgentOrigin? origin, string? sessionId) {
+    /// A step through the history passes `record: false`, since it moves along the history itself.
+    bool Navigate(string agentId, AgentOrigin? origin, string? sessionId, bool record = true) {
+        var from = Here();
         if (!OpenSessionCore(agentId, origin, revealInRail: true)) return false;
         CloseSearch();
         ReleasePinUnless(sessionId ?? SessionOfOpen());
+        if (record) RecordLeaving(from);
         return true;
     }
 
@@ -736,8 +747,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         var onLauncher = CurrentWorkspace is null && !IsSearchOpen;
         var selected = !onLauncher && Rail?.SelectedSessionKey is { } key && _directory?.Rows.Lookup(key) is { HasValue: true } row
             ? row.Value : null;
+        var from = Here();
         CloseSearch();
         CloseWorkspace();
+        RecordLeaving(from);
         if (onLauncher) _launcherNudges.OnNext(Unit.Default);
         if (selected is not null && Home is { } home) await home.SelectRepositoryOfAsync(selected);
     }
@@ -789,18 +802,19 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// opens over a navigation made while the pin was reading.
     public async Task<bool> ReopenServerSessionAsync(string sessionId, PinPresentation presentation) {
         var generation = _navigation.Generation;
-        var outcome = await OpenServerSessionAsync(sessionId, presentation, () => _navigation.Generation == generation, CancellationToken.None);
+        var outcome = await OpenServerSessionAsync(sessionId, presentation, () => _navigation.Generation == generation,
+            CancellationToken.None, record: false);
         return outcome == SearchOpenOutcome.Opened;
     }
 
     /// A listed session opens at once and pins beside it; one the directory has no row for is
     /// pinned first, and opens only if `stillWanted` holds when the pin lands.
     async Task<SearchOpenOutcome> OpenServerSessionAsync(
-            string sessionId, PinPresentation presentation, Func<bool> stillWanted, CancellationToken ct) {
+            string sessionId, PinPresentation presentation, Func<bool> stillWanted, CancellationToken ct, bool record = true) {
         if (_directory is null) return SearchOpenOutcome.Failed;
         if (_directory.RowForSession(sessionId) is { } listed) {
             // Set after Navigate, whose release of an earlier pin would otherwise clear it.
-            if (!Navigate(listed.Id, listed.Origin, sessionId)) return SearchOpenOutcome.Failed;
+            if (!Navigate(listed.Id, listed.Origin, sessionId, record)) return SearchOpenOutcome.Failed;
             _searchPin = sessionId;
             _searchPinPresentation = presentation;
             // A failed pin only costs the session its exemption from the rail's filters later.
@@ -811,8 +825,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         // A pin that lands replaces the selected session's; abandoning the open puts that one back.
         (string Id, PinPresentation Presentation)? restore =
             _sessions.PinnedSessionId is { } held ? (held, _searchPinPresentation) : null;
+        var previousPin = _searchPin;
         _searchPin = sessionId;
         var pinned = await _sessions.PinAsync(sessionId, presentation, ct);
+        if (pinned is not PinOutcome.Pinned && _searchPin == sessionId) _searchPin = previousPin;
         switch (pinned) {
             case PinOutcome.Unauthorized: return SearchOpenOutcome.SignInRequired;
             case PinOutcome.Unavailable: return SearchOpenOutcome.Unavailable;
@@ -825,7 +841,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             ReleaseUnopenedPin(sessionId, restore);
             return current ? SearchOpenOutcome.Failed : SearchOpenOutcome.Superseded;
         }
-        if (Navigate(found.Id, found.Origin, sessionId)) return SearchOpenOutcome.Opened;
+        if (Navigate(found.Id, found.Origin, sessionId, record)) return SearchOpenOutcome.Opened;
         ReleaseUnopenedPin(sessionId, restore);
         return SearchOpenOutcome.Failed;
     }
@@ -910,26 +926,16 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         if (!IsSearchOpen) ReleasePinUnless(null);
     }
 
-    (string AgentId, bool Terminal, bool PullRequest, bool Artefacts, PullRequestSubjectDto? Subject, int Generation)? _parked;
+    (NavigationEntry Entry, int Generation)? _parked;
 
     /// Hide-to-tray: releases the workspace as CloseWorkspace does, but remembers the session and its
     /// tab for RestoreParkedWorkspace. The pin stays, since a session opened from search may have no
     /// rail row without it. A repeated park with nothing open keeps what the first one remembered.
     public void ParkWorkspace() {
         if (_shutdownLatched || _navigation.ShutdownLatched) return;
-        var parked = _parked;
-        if (CurrentWorkspace is { } open) {
-            var (terminal, pullRequest, artefacts) = open switch {
-                WorkspaceViewModel local => (local.IsTerminalActive, local.IsPullRequestActive, local.IsArtefactsActive),
-                RemoteSessionViewModel remote => (remote.IsTerminalActive, remote.IsPullRequestActive, remote.IsArtefactsActive),
-                _ => (false, false, false),
-            };
-            parked = (open.AgentId, terminal, pullRequest, artefacts, open.PullRequests?.Selected?.Subject, 0);
-        }
+        var parked = CurrentWorkspace is { } open ? EntryFor(open) : _parked?.Entry;
         SwapTo(null);
-        _parked = parked is { } p
-            ? (p.AgentId, p.Terminal, p.PullRequest, p.Artefacts, p.Subject, _navigation.Generation)
-            : null;
+        _parked = parked is not null ? (parked, _navigation.Generation) : null;
     }
 
     /// Reopens what the last hide-to-tray parked, on the tab it showed, unless anything has
@@ -939,19 +945,88 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         if (_parked is not { } parked) return;
         _parked = null;
         if (parked.Generation != _navigation.Generation || CurrentWorkspace is not null) return;
-        if (_originOf(parked.AgentId) is not { } lane || !OpenSessionCore(parked.AgentId, lane, revealInRail: true)) {
+        var agentId = parked.Entry.AgentId!;
+        if (_originOf(agentId) is not { } lane || !OpenSessionCore(agentId, lane, revealInRail: true)) {
             if (!IsSearchOpen) ReleasePinUnless(null);
             return;
         }
+        ShowTab(parked.Entry);
+    }
 
+    NavigationEntry Here() => CurrentWorkspace is { } open ? EntryFor(open) : NavigationEntry.Launcher;
+
+    NavigationEntry EntryFor(ISessionWorkspace open) {
+        var (terminal, pullRequest, artefacts) = open switch {
+            WorkspaceViewModel local => (local.IsTerminalActive, local.IsPullRequestActive, local.IsArtefactsActive),
+            RemoteSessionViewModel remote => (remote.IsTerminalActive, remote.IsPullRequestActive, remote.IsArtefactsActive),
+            _ => (false, false, false),
+        };
+        var sessionId = SessionOfOpen();
+        var pin = sessionId is not null && (_sessions?.PinnedSessionId ?? _searchPin) is { } pinned && SessionIds.SameSession(pinned, sessionId)
+            ? _searchPinPresentation : null;
+        return new NavigationEntry(open.AgentId, sessionId, terminal, pullRequest, artefacts, open.PullRequests?.Selected?.Subject, pin);
+    }
+
+    void ShowTab(NavigationEntry entry) {
         switch (CurrentWorkspace) {
-            case WorkspaceViewModel local when parked.Terminal: local.ShowTerminalCommand.Execute().Subscribe(); break;
-            case RemoteSessionViewModel remote when parked.Terminal: remote.ShowTerminalCommand.Execute().Subscribe(); break;
-            case WorkspaceViewModel local when parked.Artefacts: local.ShowArtefactsCommand.Execute().Subscribe(); break;
-            case RemoteSessionViewModel remote when parked.Artefacts: remote.ShowArtefactsCommand.Execute().Subscribe(); break;
-            case { } open when parked.PullRequest: open.OpenPullRequest(parked.Subject); break;
+            case WorkspaceViewModel local when entry.Terminal: local.ShowTerminalCommand.Execute().Subscribe(); break;
+            case RemoteSessionViewModel remote when entry.Terminal: remote.ShowTerminalCommand.Execute().Subscribe(); break;
+            case WorkspaceViewModel local when entry.Artefacts: local.ShowArtefactsCommand.Execute().Subscribe(); break;
+            case RemoteSessionViewModel remote when entry.Artefacts: remote.ShowArtefactsCommand.Execute().Subscribe(); break;
+            case { } open when entry.PullRequest: open.OpenPullRequest(entry.Subject); break;
         }
     }
+
+    void RecordLeaving(NavigationEntry from) {
+        if (!NavigationHistory.SamePlace(from, Here())) History.Left(from);
+    }
+
+    /// Entries that no longer open are dropped on the way, as a browser skips nothing but a rail
+    /// click would find nothing there either. Stops if the user navigates while a pin is reading.
+    async Task StepAsync(bool back) {
+        if (_navigation.ShutdownLatched) return;
+        var here = Here();
+        while ((back ? History.TakeBack() : History.TakeForward()) is { } target) {
+            if (NavigationHistory.SamePlace(target, here)) continue;
+            var generation = _navigation.Generation;
+            if (await ReturnToAsync(target, generation)) {
+                History.Stepped(back, here);
+                return;
+            }
+            if (generation != _navigation.Generation) return;
+        }
+    }
+
+    /// The lane is resolved afresh, so a session that has moved lanes opens where it is now; one no
+    /// lane lists any longer is found again by its session, pinning it when the rail no longer has it.
+    async Task<bool> ReturnToAsync(NavigationEntry target, int generation) {
+        if (target.IsLauncher) {
+            CloseSearch();
+            CloseWorkspace();
+            return CurrentWorkspace is null;
+        }
+        var agentId = target.AgentId!;
+        if (target.Pin is null && _originOf(agentId) is { } lane && !HostsAnotherSession(agentId, lane, target.SessionId)
+            && Navigate(agentId, lane, target.SessionId, record: false)) {
+            ShowTab(target);
+            return true;
+        }
+        if (target.SessionId is not { } sessionId) return false;
+        var outcome = await OpenServerSessionAsync(sessionId, target.Pin ?? new PinPresentation(null, null, null),
+            () => _navigation.Generation == generation, CancellationToken.None, record: false);
+        if (outcome != SearchOpenOutcome.Opened) return false;
+        ShowTab(target);
+        return true;
+    }
+
+    /// Opening the agent on `lane` would show the session it hosts now, not the one the entry left.
+    /// A row whose session is not known yet does not count against it: rejecting it would skip
+    /// an entry the agent may still be showing.
+    bool HostsAnotherSession(string agentId, AgentOrigin lane, string? sessionId) =>
+        sessionId is not null && _directory is not null
+        && _directory.Rows.Items.Any(row => row.Origin == lane && AgentIds.Normalize(row.Id) == AgentIds.Normalize(agentId)
+            && row.SessionId is { Length: > 0 } hosted
+            && !SessionIds.SameSession(hosted, sessionId) && !SessionIds.SameSession(sessionId, hosted));
 
     static IObservable<bool> CanRefreshOpenWork(ISessionWorkspace? workspace) =>
         workspace is { WorkContext: var work }

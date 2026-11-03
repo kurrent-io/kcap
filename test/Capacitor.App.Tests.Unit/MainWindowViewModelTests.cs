@@ -2446,4 +2446,166 @@ public class MainWindowViewModelTests {
             await Assert.That(vm.CurrentWorkspace).IsNull();
         });
     }
+
+    /// Back and forward walk the launcher and the sessions the user opened, each on the tab it showed.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_and_forward_return_to_each_place_on_its_tab() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown());
+            await Assert.That(vm.History.CanGoBack).IsFalse();
+
+            vm.OpenSession("a1");
+            await ((WorkspaceViewModel)vm.CurrentWorkspace!).ShowTerminalCommand.Execute().ToTask();
+            vm.OpenSession("a2");
+
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            await Assert.That(((WorkspaceViewModel)vm.CurrentWorkspace!).IsTerminalActive).IsTrue();
+
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace).IsNull();
+            await Assert.That(vm.History.CanGoBack).IsFalse();
+
+            await vm.GoForwardCommand.Execute().ToTask();
+            await vm.GoForwardCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a2");
+            await Assert.That(vm.History.CanGoForward).IsFalse();
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// A new navigation after stepping back starts a new branch, as a browser does.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Opening_a_session_after_going_back_drops_forward() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown());
+            vm.OpenSession("a1");
+            vm.OpenSession("a2");
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.History.CanGoForward).IsTrue();
+
+            vm.OpenSession("a3");
+
+            await Assert.That(vm.History.CanGoForward).IsFalse();
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// New session records the session it left, so back returns to it from the launcher.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_from_new_session_returns_to_the_session_it_left() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown());
+            vm.OpenSession("a1");
+
+            await vm.NewSessionCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace).IsNull();
+
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// A session no lane lists any longer is skipped on the way back, not opened as a dead terminal.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_skips_a_session_that_is_gone() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var gone = new HashSet<string>();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id),
+                originOf: id => gone.Contains(id) ? null : AgentOrigin.Local, trackWorkspaceTeardown: teardown => _ = teardown());
+            vm.OpenSession("a1");
+            vm.OpenSession("a2");
+            vm.OpenSession("a3");
+            gone.Add("a2");
+
+            await vm.GoBackCommand.Execute().ToTask();
+
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            await vm.GoForwardCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a3");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// An agent that has moved on to another session is not where the entry left: back does not
+    /// open the agent's new session in the old one's place.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_does_not_open_an_agent_that_moved_on_to_another_session() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            var repo = new RepoIdentity("path:/repos/kcap-cli", "kcap-cli");
+            void Hosts(string agentId, string sessionId) => directory.Rows.AddOrUpdate(AgentRow.FromLocal(
+                WorkspaceFixtures.Agent(agentId, "claude", true, "/repos/kcap-cli", sessionId: sessionId), repo));
+            Hosts("a0", "s0");
+            Hosts("a1", "s1");
+            Hosts("a2", "s2");
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id),
+                trackWorkspaceTeardown: teardown => _ = teardown(), directory: directory);
+            vm.OpenSession("a0");
+            vm.OpenSession("a1");
+            vm.OpenSession("a2");
+            Hosts("a1", "s9");
+
+            await vm.GoBackCommand.Execute().ToTask();
+
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a0");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// Only the lane back opens on decides: the same agent id hosting another session on another
+    /// lane does not turn the entry away.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_opens_the_agent_when_only_another_lane_hosts_a_different_session() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            var repo = new RepoIdentity("path:/repos/kcap-cli", "kcap-cli");
+            directory.Rows.AddOrUpdate(AgentRow.FromLocal(
+                WorkspaceFixtures.Agent("a1", "claude", true, "/repos/kcap-cli", sessionId: "s1"), repo));
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id),
+                trackWorkspaceTeardown: teardown => _ = teardown(), directory: directory);
+            vm.OpenSession("a1");
+            vm.OpenSession("a2");
+            directory.Rows.AddOrUpdate(AgentRow.FromRemote(new AgentInstanceDto {
+                AgentId = "a1", SessionId = "s9", Status = "Running", DaemonName = "work-mac",
+            }));
+
+            await vm.GoBackCommand.Execute().ToTask();
+
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// A swap the app makes on its own replaces where the user is; it adds nothing to go back to.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_close_the_app_makes_records_no_history() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown());
+            vm.OpenSession("a1");
+            vm.CloseWorkspace();
+
+            await vm.GoBackCommand.Execute().ToTask();
+
+            await Assert.That(vm.CurrentWorkspace).IsNull();
+            await Assert.That(vm.History.CanGoBack).IsFalse();
+        });
+    }
 }
