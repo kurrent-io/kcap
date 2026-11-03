@@ -261,6 +261,8 @@ public static class OpenCodeExtensionInstaller {
             }
           }
           const runArgs = quotedRunArgs()
+          // A resumed `run --session` lists the session's earlier messages too; only this run's own are rewritten.
+          const loadedAt = Date.now()
 
           // Only text that is exactly one such argument is unwrapped, alone or followed by the piped
           // stdin run appends after a newline; a quote inside a longer message is the user's own.
@@ -276,6 +278,7 @@ public static class OpenCodeExtensionInstaller {
           function recordedParts(m: any): any[] {
             const parts: any[] = m?.parts ?? []
             if (runArgs.length === 0 || m?.info?.role !== "user") return parts
+            if (!(Number(m?.info?.time?.created) >= loadedAt)) return parts
             return parts.map((p: any) => {
               if (p?.type !== "text" || p?.synthetic === true || typeof p?.text !== "string") return p
               const text = unquoteRunPrompt(p.text)

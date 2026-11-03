@@ -53,6 +53,16 @@ public class OpenCodeRunPromptQuotingTests {
         await Assert.That(fn).DoesNotContain("p.text =");
     }
 
+    /// <summary>A resumed <c>run --session</c> lists the session's earlier messages with the new one, so only a
+    /// message created since the plugin loaded is rewritten; an earlier one typed in quotes keeps them.</summary>
+    [Test]
+    public async Task Only_this_runs_messages_are_rewritten() {
+        var fn = Section("function recordedParts(", "function writeMessages(");
+
+        await Assert.That(Content).Contains("const loadedAt = Date.now()");
+        await Assert.That(fn).Contains("if (!(Number(m?.info?.time?.created) >= loadedAt)) return parts");
+    }
+
     /// <summary>Every transcript line goes out through the rewrite, and the line keeps the message's own
     /// info and part ids, which are what the server dedups by.</summary>
     [Test]
