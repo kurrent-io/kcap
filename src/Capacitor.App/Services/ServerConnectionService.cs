@@ -26,9 +26,6 @@ namespace Capacitor.App.Services;
 /// 1/2/5/10/30s ladder because SignalR's automatic reconnect covers neither cold-start failure
 /// nor a close it decides not to retry.
 public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsyncDisposable {
-    public const string TeamClaimMissingNotice =
-        "Signed-in token carries no team claim — server broadcasts may not reach this app.";
-
     readonly TimeProvider _time;
 
     static readonly TimeSpan[] Backoff =
@@ -141,7 +138,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             if (_closed) return;
             if (ifGeneration is { } generation && generation != _generation) return;
             // Advancing first is what makes the park terminal: every publish the parked loop still
-            // has in flight — its Connecting, its Retrying, a Connected waiting on DiagnoseAsync —
+            // has in flight — its Connecting, its Retrying, a Connected waiting on ReadSubjectAsync —
             // now carries a stale generation and is dropped. Cancelling the captured source under
             // the same lock stops the loop admitted at THIS generation and no other.
             _generation++;
@@ -199,7 +196,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 streams = new SignalRSubscriptionClient(hub);
 
                 // Registered before StartAsync (SignalR supports that), so a close during the
-                // DiagnoseAsync token read below — or during StartAsync itself — is still
+                // ReadSubjectAsync token read below — or during StartAsync itself — is still
                 // observed, never lost with status stuck on a dead hub.
                 var closed = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 hub.Closed += ex => { closed.TrySetResult(ex); return Task.CompletedTask;  };
@@ -208,16 +205,16 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                     return Task.CompletedTask;
                 };
                 hub.Reconnected += async _ => {
-                    var (diagnostic, subject) = await DiagnoseAsync().ConfigureAwait(false);
-                    PublishConnected(generation, capturedHub, diagnostic, subject);
+                    var subject = await ReadSubjectAsync().ConfigureAwait(false);
+                    PublishConnected(generation, capturedHub, subject);
                 };
 
                 await hub.StartAsync(ct).ConfigureAwait(false);
                 _hub = hub;
                 _streams = streams;
                 attempt = 0;
-                var (connectedDiagnostic, connectedSubject) = await DiagnoseAsync().ConfigureAwait(false);
-                PublishConnected(generation, capturedHub, connectedDiagnostic, connectedSubject);
+                var connectedSubject = await ReadSubjectAsync().ConfigureAwait(false);
+                PublishConnected(generation, capturedHub, connectedSubject);
 
                 Exception? closeReason;
                 await using (ct.Register(() => closed.TrySetResult(null)))
@@ -353,25 +350,22 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     ];
 
     /// Connected additionally requires `hub` to still be the live connection and still be connected
-    /// at publish time: DiagnoseAsync's await can outlast either, and a Connected published over a
+    /// at publish time: ReadSubjectAsync's await can outlast either, and a Connected published over a
     /// dead hub reaches downstream DistinctUntilChanged and swallows the real transition that
     /// followed it. Folded into the same locked check as the generation, so neither the Reconnecting
     /// handler nor a park can interleave with it.
-    void PublishConnected(int generation, HubConnection hub, string? diagnostic, string? subject) {
+    void PublishConnected(int generation, HubConnection hub, string? subject) {
         lock (_lifecycleLock) {
             if (!ReferenceEquals(_hub, hub) || hub.State != HubConnectionState.Connected) return;
-            Publish(generation, new(ServerLaneState.Connected, Diagnostic: diagnostic, Subject: subject));
+            Publish(generation, new(ServerLaneState.Connected, Subject: subject));
         }
     }
 
-    async Task<(string? Diagnostic, string? Subject)> DiagnoseAsync() {
+    async Task<string?> ReadSubjectAsync() {
         try {
-            var token = await _token().ConfigureAwait(false);
-            if (token is null) return (null, null);
-            var diagnostic = JwtClaims.TryGetString(token, "team_id") is null ? TeamClaimMissingNotice : null;
-            return (diagnostic, JwtClaims.TryGetString(token, "sub"));
+            return await _token().ConfigureAwait(false) is { } token ? JwtClaims.TryGetString(token, "sub") : null;
         } catch {
-            return (null, null);
+            return null;
         }
     }
 

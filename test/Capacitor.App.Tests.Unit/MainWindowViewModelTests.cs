@@ -477,18 +477,14 @@ public class MainWindowViewModelTests {
         await Assert.That(alert.Detail).IsEqualTo(condition.Explanation);
     }
 
-    /// The lowest rungs: a queued daemon restart, then the lane's diagnostic, each with its long copy on hover.
+    /// The lowest rung: a queued daemon restart, with its long copy on hover.
     [Test]
-    public async Task AlertFor_restart_pending_and_lane_diagnostic_only_when_nothing_else_is_wrong() {
+    public async Task AlertFor_restart_pending_only_when_nothing_else_is_wrong() {
         var connected = new AttachStatus(AttachState.Connected, null, null);
 
-        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: true, laneDiagnostic: "marker");
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: true);
         await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
         await Assert.That(pending.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
-
-        var diagnostic = MainWindowViewModel.AlertFor(connected, "connected", laneDiagnostic: "marker");
-        await Assert.That(diagnostic!.Text).IsEqualTo(MainWindowViewModel.LiveUpdatesText);
-        await Assert.That(diagnostic.Detail).IsEqualTo("marker");
 
         await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: true)!.Text)
             .IsEqualTo(MainWindowViewModel.ReconnectingText);
@@ -619,29 +615,6 @@ public class MainWindowViewModelTests {
 
             lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
             await Assert.That(with.SignInVisible).IsFalse();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_lane_diagnostic_is_an_alert_with_its_text_on_hover() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var service = new FakeDaemonClientService();
-            var lane = new FakeServerLane();
-            var vm = new MainWindowViewModel(
-                service, CancellationToken.None, TestActivity.New(), TimeProvider.System, laneStatus: lane.Status);
-            using var activation = vm.Activator.Activate();
-            service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
-            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
-
-            await Assert.That(vm.Alert).IsNull();
-
-            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Diagnostic: "diagnostic-marker"));
-            await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.LiveUpdatesText);
-            await Assert.That(vm.Alert.Detail).IsEqualTo("diagnostic-marker");
-
-            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
-            await Assert.That(vm.Alert).IsNull();
         });
     }
 
