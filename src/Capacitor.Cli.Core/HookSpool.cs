@@ -356,7 +356,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         var files = new List<(string Path, string[] Lines, List<(int Line, string Route, string Body)> Entries)>();
         foreach (var temp in Temps(key)) {
             string[] lines;
-            try { lines = await File.ReadAllLinesAsync(temp, ct); }
+            try { lines = [.. File.ReadLinesShared(temp)]; }
             catch { continue; }
             files.Add((temp, lines, [.. lines.Select((l, i) => (i, Entry(l))).Where(e => e.Item2 is not null).Select(e => (e.i, e.Item2!.Value.Route, e.Item2!.Value.Body))]));
         }
@@ -475,7 +475,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
         try {
             foreach (var path in Directory.EnumerateFiles(DirectoryPath, $"{key}.jsonl").Concat(Temps(key)))
-            foreach (var line in File.ReadLines(path))
+            foreach (var line in File.ReadLinesShared(path))
                 if (Entry(line) is { } e && e.Route != RunStartedRoute && (marked || IsTerminalRoute(e.Route)))
                     ids.Add((JsonNode)JsonValue.Create(EntryId(e.Route, e.Body)));
         } catch {
@@ -602,7 +602,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     // An empty marker, as an older kcap wrote it, names no run.
     (string? AgentId, string? Epoch) EndedRun(string sessionId) {
         try {
-            return RunOf(File.ReadAllText(EndedMarkerPath(sessionId)));
+            return RunOf(File.ReadAllTextShared(EndedMarkerPath(sessionId)));
         } catch {
             return default;
         }
