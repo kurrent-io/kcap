@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Harness.Claude;
 

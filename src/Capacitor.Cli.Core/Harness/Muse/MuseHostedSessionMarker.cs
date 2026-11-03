@@ -18,6 +18,11 @@ namespace Capacitor.Cli.Core.Harness.Muse;
 /// <param name="SessionKind">What the daemon launched the session as, in the wire form of
 /// <see cref="HostedSessionKinds"/> — the hook's only source for it, since no environment reaches it.</param>
 /// <param name="FlowRole">The participant's flow role, when the launch named one.</param>
+/// <param name="OwnerToken">The start token of the Muse process this marker's run launched, absent while the launch is
+/// starting it and from an older daemon. The marker is keyed by session alone, so a resume rewrites it before an
+/// earlier run's last hook has fired: only a hook under this process may take the run's identity or delete the marker.</param>
+/// <param name="OwnerPid">That process's id. A start token alone does not name one process: on Linux it is the start
+/// tick, which two processes can share.</param>
 /// <remarks>The connection and kind fields are absent from a marker an older daemon wrote, and read as null.</remarks>
 public sealed partial record MuseHostedSessionMarker(
         string         SessionId,
@@ -29,8 +34,14 @@ public sealed partial record MuseHostedSessionMarker(
         string?        ServerUrl = null,
         string?        Profile   = null,
         string?        SessionKind = null,
-        string?        FlowRole    = null
+        string?        FlowRole    = null,
+        string?        OwnerToken  = null,
+        int?           OwnerPid    = null
     ) {
+    /// <summary>Whether a hook under the Muse process <paramref name="musePid"/> belongs to this marker's run: that
+    /// process is the one the marker names, by id and start token both.</summary>
+    public bool IsOwnedBy(int? musePid) =>
+        musePid is { } pid && OwnerPid == pid && OwnerToken is { Length: > 0 } token && ProcessStartToken.Matches(pid, token) == true;
     public static string DirectoryFor(UserHome home) => ConfigRoot.UnderHome(home.Path).Path("muse-hosted");
 
     public static string PathFor(UserHome home, string sessionId) =>

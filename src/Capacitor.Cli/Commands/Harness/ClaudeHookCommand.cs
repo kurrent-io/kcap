@@ -409,7 +409,8 @@ public sealed class ClaudeHookCommand(
     }
 
     // Minimal normalization for an auth-timeout-spooled body: dashless ids (match the server's
-    // expected form) and, for session-end, an ended_at stamp so a late replay keeps idempotency.
+    // expected form) and, for session-end, an ended_at stamp so a late replay keeps idempotency and the
+    // run identity, so a replay landing after a resume still reads as the predecessor's.
     string NormalizeForSpool(string body, string command) {
         try {
             var node = JsonNode.Parse(body);
@@ -418,6 +419,7 @@ public sealed class ClaudeHookCommand(
             NormalizeGuidField(node, "agent_id");
             if (command == "session-end" && node["ended_at"] is null)
                 node["ended_at"] = clock.Time.GetUtcNow().ToString("O");
+            if (command == "session-end") SessionEndIncarnation.Stamp(node, hosted);
             // Surface 3: the degraded arm spools via this path and bypasses HandleCore's stamp, so a
             // replayed session-start must still carry the harness inventory (the hook-ingest carrier).
             if (command == "session-start") SessionStartInventory.Stamp(node.AsObject(), config, harnesses, HarnessId.Claude, clock.Time, accounts: accounts);
@@ -577,11 +579,8 @@ public sealed class ClaudeHookCommand(
 
                 node["home_dir"] = home.Path;
 
-                var agentHostId = hosted.AgentId;
-
-                if (agentHostId is not null) {
-                    node["agent_host_id"] = agentHostId;
-                }
+                if (command == "session-end") SessionEndIncarnation.Stamp(node, hosted);
+                else if (hosted.AgentId is { } agentHostId) node["agent_host_id"] = agentHostId;
 
                 // Surface 3: attach this machine's harness inventory, session-start only (the
                 // injections above apply to every event; the inventory is a session-start signal).

@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Harness.Muse;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Muse;

@@ -1016,7 +1016,8 @@ public class ArtefactsTabViewModelTests {
                 pageContent: content, pageLinks: new PageLinkRouter(() => "https://kcap.test"),
                 webView: new FixedWebViewAvailability(true));
             vm.SwitchSession(SessionA, "/repo");
-            await (vm.PendingPagesForTesting ?? Task.CompletedTask);
+            // The reader's note reads the document load too, so both reads settle before it is asserted.
+            await Task.WhenAll(vm.PendingReadForTesting ?? Task.CompletedTask, vm.PendingPagesForTesting ?? Task.CompletedTask);
             var row = vm.Pages[0];
 
             await vm.OpenPageCommand.Execute(row);

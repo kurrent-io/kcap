@@ -315,7 +315,8 @@ public sealed partial class WatcherManager(
             bool    skipTitle         = false,
             string  vendor            = "claude",
             int?    parentPid         = null,
-            TextWriter? stderr        = null
+            TextWriter? stderr        = null,
+            WatcherRun? runsAs        = null
         ) {
         if (agentId is null) ClaimAgentProcess(key, vendor, transcriptPath, cwd);
 
@@ -348,6 +349,7 @@ public sealed partial class WatcherManager(
             await spawner.SpawnAsync(
                 new WatcherSpawnRequest(key, transcriptPath, agentId, sessionIdOverride, cwd, skipTitle, vendor, parentPid) {
                     Stderr = stderr,
+                    RunsAs = runsAs,
                 });
         });
     }

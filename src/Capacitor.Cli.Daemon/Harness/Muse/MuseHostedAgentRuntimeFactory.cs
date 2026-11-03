@@ -177,13 +177,14 @@ internal sealed partial class MuseHostedAgentRuntimeFactory : IHostedAgentRuntim
         var plan = BuildPlan(ref ctx, _config);
 
         // An installed hook resolves its own root and profile, which need not be the daemon's.
-        MuseHostedSessionMarker.Write(_config.Home, new(
+        var marker = new MuseHostedSessionMarker(
             plan.MintedSessionId, ctx.AgentId, ctx.DaemonId, ctx.DaemonEpoch, _time.GetUtcNow(),
             NonDefaultConfigDir(_config),
             string.IsNullOrEmpty(ctx.ServerUrl) ? null : ctx.ServerUrl,
             _config.Profiles.Resolution.ProfileName is { Length: > 0 } profile ? profile : null,
             (ctx.IsReviewFlow ? HostedSessionKind.FlowParticipant : HostedSessionKind.HostedAgent).ToWire(),
-            ctx.IsReviewFlow ? ctx.FlowRole : null));
+            ctx.IsReviewFlow ? ctx.FlowRole : null);
+        MuseHostedSessionMarker.Write(_config.Home, marker);
 
         var relay        = !_hooksInstalled(_paths.SettingsJson);
         var relayedStart = false;
@@ -194,6 +195,7 @@ internal sealed partial class MuseHostedAgentRuntimeFactory : IHostedAgentRuntim
         try {
             LogLaunching(ctx.AgentId, ctx.Worktree.Path, plan.IsReviewer);
             process = await _processSource(BuildPsi(_config, ctx, plan.IsReviewer), ct).ConfigureAwait(false);
+            if (ProcessStartToken.ForPid(process.Pid) is { } owner) MuseHostedSessionMarker.Write(_config.Home, marker with { OwnerToken = owner, OwnerPid = process.Pid });
 
             var launch = ctx;
             runtime = new MuseMspHostedAgentRuntime(

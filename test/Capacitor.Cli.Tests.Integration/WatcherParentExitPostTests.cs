@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using System.Text.Json;
 using Capacitor.Cli.Commands;
 using WireMock.RequestBuilders;
@@ -280,5 +281,121 @@ public class WatcherParentExitPostTests : IDisposable {
             .ToList();
         await Assert.That(postPaths.IndexOf("/hooks/subagent-stop"))
             .IsLessThan(postPaths.IndexOf("/hooks/session-end/gemini"));
+    }
+
+    WatchCommand Watch(IWatcherSpawner spawner) =>
+        new(Config.Root, Resolutions.At(_server.Url!, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(),
+            TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), spawner), new GitProviderRouter(),
+            TimeProvider.System, TestAccounts.None, Home);
+
+    /// <summary>An end that can be neither posted nor spooled does not end the pass: the requests after it are still
+    /// settled, it is retried as the end its hook handed over, never one rebuilt from the watcher, and it goes back
+    /// behind a backoff for the spool drain's sweep, with no watcher armed to churn on the same fault.</summary>
+    [Test]
+    public async Task An_end_neither_posted_nor_spooled_goes_back_and_the_pass_settles_the_rest() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost().WithBody(new WireMock.Matchers.WildcardMatcher("*epoch-1*")))
+            .AtPriority(1).RespondWith(Response.Create().WithStatusCode(503));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .AtPriority(10).RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"generate_whats_done":false}"""));
+        File.WriteAllText(Config.Root.Path(Capacitor.Cli.Core.HookSpool.DirectoryName), "");
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var spawner   = new FakeWatcherSpawner();
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
+        var first = Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
+
+        await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, first);
+
+        var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.TryGetProperty("daemon_epoch", out var epoch) ? epoch.GetString() : null)
+            .ToList();
+        await Assert.That(epochs).Contains("epoch-2");
+        await Assert.That(epochs.Count(e => e == "epoch-1")).IsEqualTo(2);
+        await Assert.That(epochs).DoesNotContain((string?)null);
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsTrue();
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "check")).IsNull();
+        await Assert.That(spawner.Spawned).IsEmpty();
+    }
+
+    /// <summary>A handed end the server rejects is dropped, as every rejected hook payload is: it is not put back, and no
+    /// watcher is armed to send it again, which would re-arm against a rejection that never clears.</summary>
+    [Test]
+    public async Task A_rejected_handed_end_is_dropped_not_retried() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(400));
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var spawner   = new FakeWatcherSpawner();
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
+        var handed = Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+
+        await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, handed);
+
+        await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost()).Count).IsEqualTo(1);
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();
+        await Assert.That(File.Exists(handed.ClaimedPath)).IsFalse();
+        await Assert.That(spawner.Spawned).IsEmpty();
+    }
+
+    /// <summary>A watcher takes only the handed ends meant for the server it posts to: one a hook handed over for
+    /// another server, after the profile moved, is left for that server's drain rather than posted here.</summary>
+    [Test]
+    public async Task A_watcher_leaves_a_handed_end_meant_for_another_server() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"generate_whats_done":false}"""));
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""", _server.Url);
+        var own = Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""", "https://other.example");
+
+        await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, own);
+
+        var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.GetProperty("daemon_epoch").GetString())
+            .ToList();
+        await Assert.That(epochs).IsEquivalentTo(new string?[] { "epoch-1" });
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsTrue();
+    }
+
+    /// <summary>A watcher settles every handed end before it exits, not only the one it claimed: one handed over after
+    /// its claim was made would otherwise wait for a watcher nobody arms, since its hook saw this one alive.</summary>
+    [Test]
+    public async Task A_watcher_settles_a_handed_end_that_arrived_after_its_claim() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"generate_whats_done":false}"""));
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
+        var claimed = Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
+
+        await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, claimed);
+
+        var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.GetProperty("daemon_epoch").GetString())
+            .ToList();
+        await Assert.That(epochs).IsEquivalentTo(new string?[] { "epoch-1", "epoch-2" });
+        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();
     }
 }
