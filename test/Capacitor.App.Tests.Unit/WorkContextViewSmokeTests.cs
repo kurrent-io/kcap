@@ -913,7 +913,7 @@ public class WorkContextViewSmokeTests {
             var toggle = host.Find<Button>("SessionMoreToggle");
             var facts  = host.Find<Grid>("SessionFacts");
             await Assert.That(facts.IsEffectivelyVisible).IsFalse();
-            await Assert.That(toggle.Content as string).IsEqualTo("More");
+            await Assert.That(host.Find<TextBlock>("SessionToggleText").Text).IsEqualTo("More");
 
             var origin = toggle.TranslatePoint(new Point(toggle.Bounds.Width / 2, toggle.Bounds.Height / 2), host.Window)!.Value;
             host.Window.MouseMove(origin);
@@ -922,7 +922,7 @@ public class WorkContextViewSmokeTests {
             Dispatcher.UIThread.RunJobs();
 
             await Assert.That(facts.IsEffectivelyVisible).IsTrue();
-            await Assert.That(toggle.Content as string).IsEqualTo("Less");
+            await Assert.That(host.Find<TextBlock>("SessionToggleText").Text).IsEqualTo("Less");
         });
     }
 
