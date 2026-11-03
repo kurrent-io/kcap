@@ -221,6 +221,112 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(life.HasBacklog(Sid)).IsFalse(); // discarded, not left pending retry
     }
 
+    static async Task<List<string>> DrainAll(HookSpool life, TranscriptSpool tx) {
+        var order = new List<string>();
+        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+            lifecyclePoster: (_, body) => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
+            transcriptPoster: body => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+
+        return order;
+    }
+
+    static async Task DeliverRun1(HookSpool life, TranscriptSpool tx) {
+        life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
+        await DrainAll(life, tx);
+    }
+
+    /// <summary>A session resumed after its spooled end was delivered: the new run's start and end both
+    /// arrive. The earlier run's ended marker must discard neither.</summary>
+    [Test]
+    public async Task a_resumed_run_is_delivered_past_an_earlier_runs_ended_marker() {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        await DeliverRun1(life, tx);
+
+        life.Append(Sid, "session-start/kiro", """{"run":2,"phase":"start"}""");
+        life.Append(Sid, "session-end/kiro", """{"run":2,"phase":"end"}""");
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx)))
+            .IsEqualTo("""{"run":2,"phase":"start"} {"run":2,"phase":"end"}""");
+    }
+
+    /// <summary>A resumed run whose start was posted live spools only its end behind the earlier run's
+    /// stragglers: the end is delivered, the stragglers are not.</summary>
+    [Test]
+    public async Task a_later_runs_end_is_delivered_and_the_earlier_runs_stragglers_are_not() {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        await DeliverRun1(life, tx);
+
+        life.Append(Sid, "subagent-stop/kiro", """{"run":1,"phase":"straggler"}""");
+        life.Append(Sid, "session-end/kiro", """{"run":2,"phase":"end"}""");
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx))).IsEqualTo("""{"run":2,"phase":"end"}""");
+    }
+
+    /// <summary>An end still spooled when the session starts again would be delivered after that start,
+    /// ending the resumed run, and the marker it left would then discard the run's own hooks.</summary>
+    [Test]
+    public async Task a_start_supersedes_an_end_spooled_before_it() {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        life.Append(Sid, "subagent-stop/kiro", """{"run":1,"phase":"stop"}""");
+        life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
+        life.Append(Sid, "session-start/kiro", """{"run":2,"phase":"start"}""");
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx)))
+            .IsEqualTo("""{"run":1,"phase":"stop"} {"run":2,"phase":"start"}""");
+        await Assert.That(life.IsMarkedEnded(Sid)).IsFalse();
+    }
+
+    /// <summary>The same, with the earlier end already taken into a drain that could not deliver it.</summary>
+    [Test]
+    public async Task a_start_supersedes_an_end_a_drain_holds_in_its_temp() {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
+        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+            lifecyclePoster: (_, _) => Task.FromResult(DrainOutcome.TransientStop),
+            transcriptPoster: _ => Task.FromResult(DrainOutcome.Delivered),
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+
+        life.Append(Sid, "session-start/kiro", """{"run":2,"phase":"start"}""");
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx))).IsEqualTo("""{"run":2,"phase":"start"}""");
+    }
+
+    /// <summary>A straggler of an ended run is never delivered after that end, not even ahead of a new start.</summary>
+    [Test]
+    public async Task an_ended_runs_straggler_is_not_delivered_ahead_of_a_new_start() {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        await DeliverRun1(life, tx);
+
+        life.Append(Sid, "subagent-stop/kiro", """{"run":1,"phase":"straggler"}""");
+        life.Append(Sid, "session-start/kiro", """{"run":2,"phase":"start"}""");
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx))).IsEqualTo("""{"run":2,"phase":"start"}""");
+    }
+
+    /// <summary>Other processes append to the same file with no lock, so an append that rewrote it could lose
+    /// theirs: appending only ever adds a line.</summary>
+    [Test]
+    public async Task appending_a_start_keeps_every_line_already_spooled() {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
+        life.Append(Sid, "session-start/kiro", """{"run":2,"phase":"start"}""");
+
+        var lines = await File.ReadAllLinesAsync(tmp.PathTo($"{Sid}.jsonl"));
+        await Assert.That(lines.Length).IsEqualTo(2);
+    }
+
     [Test]
     public async Task does_not_mark_ended_when_the_terminal_post_only_transiently_fails() {
         using var tmp = new TempDir();

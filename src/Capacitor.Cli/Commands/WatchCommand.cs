@@ -2525,7 +2525,7 @@ partial class WatchCommand(
         var spool = new HookSpool(config, time, Url);
 
         bool Spool(string why) {
-            var spooled = spool.AppendEnd(sessionId, $"session-end/{vendor}", body);
+            var spooled = spool.Append(sessionId, $"session-end/{vendor}", body);
             Log(time, $"{what} session-end {why}; {(spooled ? "spooled for the next drain" : "the spool write failed, so it is lost")}");
 
             return spooled;

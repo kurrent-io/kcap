@@ -332,7 +332,7 @@ internal sealed class AgentHookPoster(
                 ["ended_at"]        = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture),
             };
             SessionEndIncarnation.Stamp(end, origin.AgentId, origin.DaemonEpoch);
-            if (spool.AppendEnd(session.Session.Value, $"session-end/{vendor}", end.ToJsonString())) spooled++;
+            if (spool.Append(session.Session.Value, $"session-end/{vendor}", end.ToJsonString())) spooled++;
         }
 
         return spooled;

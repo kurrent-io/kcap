@@ -79,20 +79,6 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         }
     }
 
-    /// <summary>
-    /// Appends the end of a run that came after any end already delivered for the session. An ended
-    /// marker would make the drain discard it, so the marker is lifted, along with what is spooled
-    /// behind it: that earlier run's stragglers, which the drain would have discarded anyway.
-    /// </summary>
-    public bool AppendEnd(string sessionId, string route, string rawPayloadJson) {
-        if (IsMarkedEnded(sessionId)) {
-            DiscardRemainder(sessionId);
-            ClearEnded(sessionId);
-        }
-
-        return Append(sessionId, route, rawPayloadJson);
-    }
-
     // ---- filename key encoding -------------------------------------------------------------
     //
     // Session ids are case-SENSITIVE and are preserved byte-for-byte (OpenCode's are base62 --
@@ -319,11 +305,103 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         return consumed + more;
     }
 
-    internal static bool IsTerminalRoute(string route) {
+    static string RouteHead(string route) {
         var slash = route.IndexOf('/');
-        var head  = slash >= 0 ? route[..slash] : route;
-        return head == "session-end";
+        return slash >= 0 ? route[..slash] : route;
     }
+
+    /// <summary>
+    /// Settles what a session's earlier runs left ahead of its latest run, before the ordered phases see it. A
+    /// spooled start opens a run; with none spooled, a marked session's latest end is a later run's, since its
+    /// earlier run's end was already delivered. Ahead of that boundary an end is dropped, as the run it closed
+    /// has started again, and so is anything of a run whose end was delivered; the rest is posted in order.
+    /// False when the pass stopped first, so the phases must wait for the next one.
+    /// </summary>
+    /// <remarks>Appenders share the live file with no lock, so it is only ever renamed into a drain temp,
+    /// never rewritten.</remarks>
+    public async Task<bool> SettleEarlierRunsAsync(
+            string sid, Func<string, string, Task<DrainOutcome>> poster, Func<bool> expired, CancellationToken ct) {
+        if (!SafeSessionId.IsMatch(sid) || !Directory.Exists(DirectoryPath)) return true;
+
+        var live = Path.Combine(DirectoryPath, $"{EncodeKey(sid)}.jsonl");
+        try {
+            if (File.Exists(live)) File.Move(live, Path.Combine(DirectoryPath, NewOrderedTempName(EncodeKey(sid))));
+        } catch {
+            // Lost the rename to another drain, which settles what it took
+        }
+
+        var files = new List<(string Path, string[] Lines, List<(int Line, string Route, string Body)> Entries)>();
+        foreach (var temp in Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sid)}.ordered-*").OrderBy(File.GetCreationTimeUtc)) {
+            string[] lines;
+            try { lines = await File.ReadAllLinesAsync(temp, ct); }
+            catch { continue; }
+            files.Add((temp, lines, [.. lines.Select((l, i) => (i, Entry(l))).Where(e => e.Item2 is not null).Select(e => (e.i, e.Item2!.Value.Route, e.Item2!.Value.Body))]));
+        }
+
+        var all      = files.SelectMany(f => f.Entries).ToList();
+        var marked   = IsMarkedEnded(sid);
+        var boundary = all.FindLastIndex(e => RouteHead(e.Route) == "session-start");
+        if (boundary < 0 && marked) boundary = all.FindLastIndex(e => IsTerminalRoute(e.Route));
+        if (boundary < 0 && !marked) return true;
+
+        var settle = boundary < 0 ? all.Count : boundary;
+        poster = RecordingDeliveries(poster);
+
+        var index = 0;
+        foreach (var (path, lines, entries) in files) {
+            if (index >= settle) break;
+
+            var keepFrom = -1;
+            foreach (var (line, route, body) in entries) {
+                if (index >= settle) { keepFrom = line; break; }
+
+                var outcome = DrainOutcome.Drop;
+                if (!marked && !IsTerminalRoute(route)) {
+                    if (expired() || ct.IsCancellationRequested) outcome = DrainOutcome.TransientStop;
+                    else {
+                        try { outcome = await poster(route, body); }
+                        catch { outcome = DrainOutcome.TransientStop; }
+                    }
+                }
+
+                if (outcome == DrainOutcome.TransientStop) {
+                    await KeepFromAsync(path, lines, line, ct);
+                    return false;
+                }
+
+                index++;
+            }
+
+            if (keepFrom < 0) {
+                try { File.Delete(path); } catch { /* a leftover temp settles again on the next pass */ }
+            } else {
+                await KeepFromAsync(path, lines, keepFrom, ct);
+            }
+        }
+
+        if (boundary >= 0 && marked) ClearEnded(sid);
+        return true;
+    }
+
+    static async Task KeepFromAsync(string path, string[] lines, int from, CancellationToken ct) {
+        try {
+            await File.WriteAllLinesAsync(path, lines.Skip(from), ct);
+        } catch {
+            // Ignore: the temp still holds what was not settled
+        }
+    }
+
+    static (string Route, string Body)? Entry(string line) {
+        if (string.IsNullOrWhiteSpace(line)) return null;
+        try {
+            var node = JsonNode.Parse(line);
+            return node?["route"]?.GetValue<string>() is { } route && node["body"]?.GetValue<string>() is { } body ? (route, body) : null;
+        } catch {
+            return null;
+        }
+    }
+
+    internal static bool IsTerminalRoute(string route) => RouteHead(route) == "session-end";
 
     // Drain a private temp, posting only entries matching isTerminal. Delivered/Drop advance and
     // count toward the returned "consumed" total; TransientStop, budget, or a phase mismatch stops
@@ -403,42 +481,12 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
     /// <summary>Lifts <see cref="MarkEnded"/> for a session known to have run again, so its next end is
     /// delivered rather than discarded as a straggler.</summary>
-    public void ClearEnded(string sessionId) {
+    void ClearEnded(string sessionId) {
         if (!SafeSessionId.IsMatch(sessionId)) return;
         try {
             File.Delete(EndedMarkerPath(sessionId));
         } catch {
             // Ignore: still marked, the next end is discarded as a straggler
-        }
-    }
-
-    /// <summary>
-    /// Deletes any lifecycle entries remaining for a session already <see cref="MarkEnded"/> —
-    /// a post-end straggler (e.g. a subagent-stop that arrived after session-end was already
-    /// delivered) must be dropped, never delivered out of order.
-    /// </summary>
-    public void DiscardRemainder(string sessionId) {
-        if (!SafeSessionId.IsMatch(sessionId)) return;
-        try {
-            if (!Directory.Exists(DirectoryPath)) return;
-
-            var live = Path.Combine(DirectoryPath, $"{EncodeKey(sessionId)}.jsonl");
-            if (File.Exists(live)) File.Delete(live);
-
-            foreach (var temp in Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sessionId)}.*.draining"))
-                try {
-                    File.Delete(temp);
-                } catch {
-                    // Ignore: the next pass discards it again
-                }
-            foreach (var temp in Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sessionId)}.ordered-*"))
-                try {
-                    File.Delete(temp);
-                } catch {
-                    // Ignore: the next pass discards it again
-                }
-        } catch {
-            // Ignore: the next pass discards it again
         }
     }
 

@@ -28,15 +28,9 @@ public static class LifecycleSpoolDrain {
         foreach (var sid in OrderedSessions(lifecycle, transcript, currentSessionId)) {
             if (Expired()) return;
 
-            // Task 12 / BLOCKER-3: a session whose terminal (session-end) route was already
-            // durably delivered by a PRIOR pass must never have a straggler non-terminal entry
-            // (e.g. a late subagent-stop) delivered after it — that would be a real ordering
-            // violation, reachable now that session-start/subagent-stop/session-end share one spool
-            // file. Drop the remainder instead of replaying it out of order.
-            if (lifecycle.IsMarkedEnded(sid)) {
-                lifecycle.DiscardRemainder(sid);
-                continue;
-            }
+            // Nothing of a run whose end was delivered may follow that end, and an earlier run's end
+            // must not follow a later run's start: both are settled before the phases run.
+            if (!await lifecycle.SettleEarlierRunsAsync(sid, lifecyclePoster, Expired, ct) || lifecycle.IsMarkedEnded(sid)) continue;
 
             // Phase 1: session-start (and any non-terminal lifecycle) BEFORE transcript tail.
             await lifecycle.DrainRoutesAsync(sid, isTerminal: false, lifecyclePoster, Expired, ct);
