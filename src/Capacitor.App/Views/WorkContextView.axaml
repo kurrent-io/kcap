@@ -873,19 +873,8 @@
                                                      ToolTip.Tip="Peak context use" />
                             </Grid>
                             <!-- Usage always shows, so this reads as more or less detail. -->
-                            <Button x:Name="SessionMoreToggle" Classes="kcapGhost kcapQuiet" Command="{Binding ToggleSessionCommand}"
-                                    HorizontalAlignment="Left" Margin="-8,4,0,0"
-                                    AutomationProperties.Name="{Binding SessionToggleText, StringFormat='Session details, {0}'}">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock x:Name="SessionToggleText" Text="{Binding SessionToggleText}" VerticalAlignment="Center" />
-                                    <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                        <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding SessionExpanded}" />
-                                        <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !SessionExpanded}" />
-                                    </Panel>
-                                </StackPanel>
-                            </Button>
                             <!-- Separate grid so collapsed RowSpacing does not reserve trailing gaps for hidden rows. -->
-                            <Grid x:Name="SessionFacts" Margin="0,4,0,0" ColumnDefinitions="128,*"
+                            <Grid x:Name="SessionFacts" Margin="0,8,0,0" ColumnDefinitions="128,*"
                                   RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                                   RowSpacing="8"
                                   IsVisible="{Binding SessionExpanded}">
@@ -915,6 +904,22 @@
                                                          IsVisible="{Binding !CanCopySessionId}" />
                                 </Panel>
                             </Grid>
+                            <!-- Usage always shows, so this reads as more or less detail. Link-coloured so it
+                                 does not pass for another row. -->
+                            <Button x:Name="SessionMoreToggle" Classes="kcapGhost kcapQuiet" Command="{Binding ToggleSessionCommand}"
+                                    HorizontalAlignment="Left" Margin="-8,6,0,0"
+                                    AutomationProperties.Name="{Binding SessionToggleText, StringFormat='Session details, {0}'}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock x:Name="SessionToggleText" Text="{Binding SessionToggleText}" VerticalAlignment="Center"
+                                               Foreground="{StaticResource KcapInfoBrush}" />
+                                    <Panel Width="12" Height="12" VerticalAlignment="Center">
+                                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding SessionExpanded}"
+                                                       Foreground="{StaticResource KcapInfoBrush}" />
+                                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !SessionExpanded}"
+                                                       Foreground="{StaticResource KcapInfoBrush}" />
+                                    </Panel>
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
                     </Border>
                 </StackPanel>

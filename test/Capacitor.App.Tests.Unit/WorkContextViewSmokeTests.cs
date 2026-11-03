@@ -902,10 +902,10 @@ public class WorkContextViewSmokeTests {
         });
     }
 
-    /// The toggle under the usage rows opens the session facts beneath it and then reads as their closer.
+    /// The toggle at the foot of the section opens the session facts above it and then reads as their closer.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_more_toggle_under_the_usage_rows_opens_the_session_facts() {
+    public async Task The_more_toggle_opens_the_session_facts_above_it() {
         await RunOnUiAsync(async () => {
             await using var host = new Host();
             await host.ShowAsync(KeyOnlyRead());
