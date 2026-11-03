@@ -363,7 +363,8 @@ public class RemoteSessionViewSmokeTests {
                 host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1",
                     Convert.ToBase64String("\x1b[2J\x1b[Hredrawn history\x1b[30;1Hdraft"u8.ToArray())));
                 host.Settle();
-                point = terminal.TranslatePoint(new Point(30, 30), host.Window)!.Value;
+                // Resizing scrolls the terminal top out of view; aim inside the visible viewport
+                point = viewport.TranslatePoint(new Point(30, 30), host.Window)!.Value;
                 var before = terminal.Model.ScrollOffset;
                 host.Window.MouseWheel(point, new Vector(0, -0.5));
                 host.Window.MouseWheel(point, new Vector(0, -0.5));

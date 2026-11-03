@@ -95,8 +95,8 @@ public class HarnessesStepViewModelTests {
                 var privacy = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "PrivacyCard");
                 var rows = window.GetVisualDescendants().OfType<ItemsControl>().Single(c => c.Name == "HarnessRows");
                 await Assert.That(privacy.TranslatePoint(default, window)!.Value.Y < rows.TranslatePoint(default, window)!.Value.Y).IsTrue();
-                await Assert.That(next.IsEnabled).IsFalse();
-                await Assert.That(skip.IsEnabled).IsFalse();
+                await Assert.That(next.IsEffectivelyEnabled).IsFalse();
+                await Assert.That(skip.IsEffectivelyEnabled).IsFalse();
                 await Assert.That(window.GetVisualDescendants().OfType<RadioButton>().Any(r => r.IsChecked == true)).IsFalse();
                 var position = next.TranslatePoint(default, window)!.Value;
                 await Assert.That(position.Y + next.Bounds.Height <= window.Bounds.Height).IsTrue();
@@ -105,8 +105,8 @@ public class HarnessesStepViewModelTests {
                 Dispatcher.UIThread.RunJobs();
                 await Assert.That(selected.IsChecked).IsTrue();
                 await Assert.That(h.Vm.Visibility).IsEqualTo("private");
-                await Assert.That(next.IsEnabled).IsTrue();
-                await Assert.That(skip.IsEnabled).IsTrue();
+                await Assert.That(next.IsEffectivelyEnabled).IsTrue();
+                await Assert.That(skip.IsEffectivelyEnabled).IsTrue();
                 scroll.Offset = new Vector(0, 100);
                 Dispatcher.UIThread.RunJobs();
                 await Assert.That(scroll.Offset.Y > 0).IsTrue();
