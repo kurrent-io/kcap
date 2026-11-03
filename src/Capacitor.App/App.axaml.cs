@@ -1552,7 +1552,7 @@ public partial class App : Application {
             ? Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.ReadAsync(
                   registry, paths, new Capacitor.Cli.Core.Harness.Codex.CodexHookTrustProbe(harnesses, _userHome, _time), _shutdown.Token)
                   .GetAwaiter().GetResult()
-            : Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.Stored(registry, paths);
+            : Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.Offline(registry, paths);
 
         return trust == Capacitor.Cli.Core.Harness.Codex.CodexHooksTrust.Untrusted;
     }

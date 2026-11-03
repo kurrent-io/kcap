@@ -14,6 +14,11 @@ public class CodexHooksTrustCheckTests {
         {"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"kcap hook --codex","timeout":30}]}]}}
         """;
 
+    const string RecordedTrust = """
+        [hooks.state."user:SessionStart:0"]
+        trusted_hash = "sha256:abc"
+        """;
+
     CodexPaths Paths => new(Home, null);
 
     string Log => Tmp.PathTo("codex.log");
@@ -103,17 +108,44 @@ public class CodexHooksTrustCheckTests {
         await Assert.That(File.Exists(Log)).IsFalse();
     }
 
-    /// <summary>A fresh install the daemon has not looked at yet is answered by Codex on the spot.</summary>
+    /// <summary>Hooks the daemon has not looked at yet, in a home that records some trust, are answered by Codex on
+    /// the spot: only Codex can tell whether a recorded hash is for these hooks.</summary>
     [Test]
     public async Task Without_a_current_stored_answer_codex_is_asked() {
         Skip.When(OperatingSystem.IsWindows(), "the stub codex is a POSIX shell script");
         Home.CreateFile(".codex/hooks.json", KcapHooks);
+        Home.CreateFile(".codex/config.toml", RecordedTrust);
 
         var trust = await CodexHooksTrustCheck.ReadAsync(new AccountRegistry(), Paths, Probe("untrusted"), CancellationToken.None);
 
         await Assert.That(trust).IsEqualTo(CodexHooksTrust.Untrusted);
         await Assert.That(File.Exists(Log)).IsTrue();
     }
+
+    /// <summary>Codex keeps each trusted hook as a <c>trusted_hash</c> in <c>config.toml</c>, so a home recording none
+    /// trusts none of kcap's hooks, which a Codex too slow to answer cannot change.</summary>
+    [Test]
+    [Arguments(null)]
+    [Arguments("model = \"x\"\n")]
+    public async Task A_home_recording_no_trust_is_untrusted_without_asking_codex(string? configToml) {
+        Home.CreateFile(".codex/hooks.json", KcapHooks);
+        if (configToml is not null) Home.CreateFile(".codex/config.toml", configToml);
+
+        await Assert.That(CodexHooksTrustCheck.Offline(new AccountRegistry(), Paths)).IsEqualTo(CodexHooksTrust.Untrusted);
+    }
+
+    /// <summary>A recorded hash may or may not be for kcap's hooks as they are now; that is Codex's to say.</summary>
+    [Test]
+    public async Task A_home_recording_trust_is_left_to_codex() {
+        Home.CreateFile(".codex/hooks.json", KcapHooks);
+        Home.CreateFile(".codex/config.toml", RecordedTrust);
+
+        await Assert.That(CodexHooksTrustCheck.Offline(new AccountRegistry(), Paths)).IsEqualTo(CodexHooksTrust.Unknown);
+    }
+
+    [Test]
+    public async Task Without_kcap_hooks_nothing_is_untrusted() =>
+        await Assert.That(CodexHooksTrustCheck.Offline(new AccountRegistry(), Paths)).IsEqualTo(CodexHooksTrust.Unknown);
 
     [Test]
     public async Task Without_kcap_hooks_there_is_nothing_to_ask() {
