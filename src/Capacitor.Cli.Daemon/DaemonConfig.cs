@@ -253,7 +253,7 @@ public class DaemonConfig {
     /// <summary>The config directory each account-bearing vendor uses when no account is chosen.</summary>
     public IReadOnlyDictionary<HarnessId, string> DefaultDirectories { get; set; } = FrozenDictionary<HarnessId, string>.Empty;
 
-    /// <summary>The PATH probe resolved at boot, the one the <c>HarnessRegistry</c> is built over. A
+    /// <summary>The shared PATH probe (live on macOS), the one the <c>HarnessRegistry</c> is built over. A
     /// configured vendor path is not a harness question, so its resolvers take this.</summary>
     public BinaryProbe Binaries {
         get => field ?? throw new InvalidOperationException($"DaemonConfig.Binaries was never set; pass a {nameof(BinaryProbe)} in from the entry point.");

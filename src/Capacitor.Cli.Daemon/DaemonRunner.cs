@@ -74,9 +74,11 @@ public static partial class DaemonRunner {
         // And the same for the home directory, which the two above fall back to.
         var userHome = UserHome.FromEnvironment();
 
-        // One probe for the daemon's lifetime; the registry built over it below shares it, so a
-        // harness binary and a configured vendor path search one PATH.
-        var binaries = Core.Setup.BinaryProbe.FromEnvironment();
+        // launchd may carry a restricted PATH captured during setup. A live probe shares the
+        // refreshed environment with child processes; other platforms keep their startup snapshot.
+        var agentEnvironment = OperatingSystem.IsMacOS() ? new AgentPathEnvironment(new ProcessRunner(time)) : null;
+        var binaries = agentEnvironment is null ? Core.Setup.BinaryProbe.FromEnvironment()
+            : Core.Setup.BinaryProbe.Tracking(() => Environment.GetEnvironmentVariable("PATH"));
 
         // OriginalArgs is captured for self-respawn (detached restart-after-update) and to detect
         // the successor's --await-lock handoff flag. Paths is set here, in the initializer, so the
@@ -98,6 +100,9 @@ public static partial class DaemonRunner {
         // ACP child, a self-respawned successor's own inheritance from OUR ambient env) can ever
         // observe them except through the explicit re-injection paths that need them.
         CaptureBootCarriers(config, Environment.GetEnvironmentVariable, k => Environment.SetEnvironmentVariable(k, null));
+
+        // Shell startup can spawn children too, so ask only after scrubbing the boot-only carriers.
+        if (agentEnvironment is not null) await agentEnvironment.RefreshAsync(CancellationToken.None);
 
         // Below the carrier scrub: this reads every vendor's override variable, and the scrub above
         // must run before anything reads the environment.
@@ -656,6 +661,10 @@ public static partial class DaemonRunner {
 
         builder.Services.AddSingleton<VendorCliWatcher>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<VendorCliWatcher>());
+
+        if (agentEnvironment is not null)
+            builder.Services.AddHostedService(sp => new AgentDiscoveryRefresh(agentEnvironment,
+                sp.GetRequiredService<AgentOrchestrator>(), time, sp.GetRequiredService<ILogger<AgentDiscoveryRefresh>>()));
 
         builder.Services.AddSingleton<AccountsPublisher>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<AccountsPublisher>());

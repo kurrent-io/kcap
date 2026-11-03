@@ -69,6 +69,50 @@ public class AgentOrchestratorCapabilityRefreshTests {
         config.UnattendedVendorCapabilities!.Single(c => c.Vendor == "claude").CliVersion;
 
     [Test]
+    public async Task Discovery_refresh_advertises_a_vendor_installed_after_startup() {
+        var factory = new StubCatalogFactory("cursor", models: null);
+        var (orch, server, config) = BuildWithCatalog(factory, initial: null, supported: false);
+        await using var _ = orch;
+
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+
+        await Assert.That(config.SupportedVendors).IsEquivalentTo(["cursor"]);
+        await Assert.That(config.AcpPresetVendors).IsEquivalentTo(["cursor"]);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Unchanged_discovery_does_not_probe_catalogs_or_republish() {
+        var factory = new StubCatalogFactory("cursor", models: null);
+        var (orch, server, _) = BuildWithCatalog(factory, initial: null);
+        await using var _ = orch;
+
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+
+        await Assert.That(factory.ProbeCalls).IsEqualTo(0);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Discovery_retries_a_failed_publication_on_the_next_poll() {
+        var factory = new StubCatalogFactory("cursor", models: null);
+        var (orch, server, _) = BuildWithCatalog(factory, initial: null, supported: false,
+            registerThrow: new IOException("temporary disconnect"));
+        await using var _ = orch;
+
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(1);
+
+        server.RegisterDaemonThrow = null;
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(2);
+    }
+
+    [Test]
     [UnsupportedOSPlatform("windows")]
     public async Task A_changed_binary_is_re_advertised_with_its_installed_version() {
         Skip.Unless(!OperatingSystem.IsWindows(), "The stub binary is a POSIX shell script.");

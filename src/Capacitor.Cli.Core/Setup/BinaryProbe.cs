@@ -11,7 +11,8 @@ namespace Capacitor.Cli.Core.Setup;
 /// Handing the resolved path over is enough; .NET escapes <c>.cmd</c>/<c>.bat</c> arguments itself,
 /// so no <c>cmd.exe /c</c> wrapper — which would reopen an argument-injection hole.</para>
 ///
-/// <para>The search path is parsed on construction and the raw <c>PATH</c>/<c>PATHEXT</c> strings
+/// <para>The search path is parsed on construction (or per resolution for <see cref="Tracking"/>).
+/// The raw <c>PATH</c>/<c>PATHEXT</c> strings
 /// are never surfaced: which variables they came from, how they split and which candidates a
 /// platform will run are this type's concern alone. A caller names where to look — nothing
 /// more.</para>
@@ -25,12 +26,15 @@ public sealed class BinaryProbe {
     readonly IReadOnlyList<string> _directories;
     readonly IReadOnlyList<string> _extensions;
 
-    BinaryProbe(IEnumerable<string> directories) {
+    readonly Func<string?>? _searchPath;
+
+    BinaryProbe(IEnumerable<string> directories, Func<string?>? searchPath = null) {
         // One stat per directory however many times the search path names it; Distinct keeps the
         // first occurrence, so search order survives. Unobservable in a result — with or without it
         // the same command resolves to the same path.
         _directories = [.. directories.Distinct(PathIdentity)];
         _extensions  = LaunchableExtensions();
+        _searchPath  = searchPath;
     }
 
     /// <summary>
@@ -43,6 +47,10 @@ public sealed class BinaryProbe {
 
     /// <summary>The current process's own search path.</summary>
     public static BinaryProbe FromEnvironment() => Searching(Environment.GetEnvironmentVariable("PATH"));
+
+    /// <summary>A live search path. Each resolution reads it once, so long-lived consumers follow
+    /// environment refreshes without replacing their registry or executable overrides.</summary>
+    public static BinaryProbe Tracking(Func<string?> searchPath) => new([], searchPath);
 
     /// <summary>Whether <paramref name="command"/> resolves to something executable.</summary>
     public bool Finds(string? command) => Resolve(command) is not null;
@@ -59,7 +67,10 @@ public sealed class BinaryProbe {
         if (Path.IsPathRooted(command) || command.Contains('/') || command.Contains('\\'))
             return FirstCandidate(command);
 
-        foreach (var dir in _directories) {
+        var directories = _searchPath is null
+            ? _directories
+            : (_searchPath() ?? "").Split(Path.PathSeparator).Where(dir => !string.IsNullOrEmpty(dir)).Distinct(PathIdentity);
+        foreach (var dir in directories) {
             string candidate;
 
             // A malformed entry (invalid characters on Windows) must not abort the walk.
