@@ -33,5 +33,6 @@ internal sealed class SeqCaptureServerConnection() : ServerConnection(
         string  agentId,              string? prompt, string? model, string? effort, string? repoPath,
         string? sandboxPolicy = null, string? approvalPolicy = null, string? permissionPreset = null,
         string? runtimeTransport = null, string? vendor = null, AgentStartTitle? title = null, string? continuesAgentId = null,
-        string? accountDirectory = null, string? accountId = null, string? accountLabel = null) => Task.FromResult(AgentRegisteredResponse.Accepted);
+        string? accountDirectory = null, string? accountId = null, string? accountLabel = null,
+        string? resumedSessionId = null, bool resumeFirstAnnounce = false) => Task.FromResult(AgentRegisteredResponse.Accepted);
 }

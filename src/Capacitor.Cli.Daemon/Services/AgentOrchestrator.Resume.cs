@@ -631,6 +631,9 @@ internal partial class AgentOrchestrator {
     const string TranscriptRefusedReason   = "acp_binding_unavailable";
     const string RegistrationRefusedReason = "registration_refused";
 
+    /// <summary>The server's refusal of a registration whose own run it already saw end.</summary>
+    const string RunEndedRefusal = "run_ended";
+
     static bool TranscriptRefused(AgentInstance agent) => agent.ReopenedTranscript == ReopenedTranscript.Refused;
 
     static readonly TimeSpan ReadinessPoll = TimeSpan.FromMilliseconds(50);
@@ -1271,10 +1274,11 @@ internal partial class AgentOrchestrator {
         }
 
         // A continuation resolves the same recorded account, so it would be refused too; a session without its lease may
-        // be being handed off, and a continuation would take it over a second time.
+        // be being handed off, and a continuation would take it over a second time; and a run the server saw end must not
+        // be revived under a new agent id.
         if (!reason.StartsWith(AccountResolution.Unavailable, StringComparison.Ordinal)
          && reason is not (SourceReservedReason or SourceLeaseUnreachableReason or SourceLeaseLostReason or RuntimeUnstoppedReason
-                        or ResumeInPlaceRefusals.DirectoryNotAllowed or ResumeInPlaceRefusals.StoreChanged)
+                        or ResumeInPlaceRefusals.DirectoryNotAllowed or ResumeInPlaceRefusals.StoreChanged or RunEndedRefusal)
          && !reason.StartsWith(SourceLeaseRefusedReason, StringComparison.Ordinal)) {
             var outcome = await ContinueEntry(entry, reason, ct);
             if (outcome != ResumeOutcome.Interrupted) return outcome;
@@ -1283,7 +1287,7 @@ internal partial class AgentOrchestrator {
 
         InterruptEntry(entry.AgentId, LastErrorOf(reason, exitCode));
         // A refused id's status would overwrite the failure the server recorded, and an unstopped runtime is not ended.
-        if (!entry.Launch.IsPrivate && reason is not (RegistrationRefusedReason or RuntimeUnstoppedReason))
+        if (!entry.Launch.IsPrivate && reason is not (RegistrationRefusedReason or RunEndedRefusal or RuntimeUnstoppedReason))
             await ReportResumeFailedAsync(entry, reason, exitCode, ct);
 
         return ResumeOutcome.Interrupted;
@@ -1359,7 +1363,7 @@ internal partial class AgentOrchestrator {
 
         // The server holds no live entry under this id, so the resume goes on under a new one, unless a stop
         // came first: it gave up the worktree, and the teardown has removed it.
-        if (resume.RefusedRegistration is not null) {
+        if (resume.RefusedRegistration is { } registrationRefusal) {
             if (resume.Agent?.StopRequested == true) return (StoppedDuringResume, null);
 
             // The server holds no live agent on the source, so only the lease fences a runtime that will not die, and a
@@ -1371,7 +1375,7 @@ internal partial class AgentOrchestrator {
                 return (RuntimeUnstoppedReason, null);
             }
 
-            return (RegistrationRefusedReason, null);
+            return registrationRefusal == RunEndedRefusal ? (RunEndedRefusal, null) : (RegistrationRefusedReason, null);
         }
 
         if (outcome.Kind == CommandOutcomeKind.LaunchRejected)
@@ -1690,6 +1694,11 @@ internal partial class AgentOrchestrator {
             AccountId:           launch.AccountId,
             ScratchWorkspace:    launch.ScratchWorkspace == true);
     }
+
+    /// <summary>The session a launch reopens as the daemon's resume of its own agent: the vendor process restarts
+    /// on the entry's vendor session. A continuation, a participant and a launch the server asked for reopen none.</summary>
+    internal static string? ResumedSessionOf(ResumeLedgerEntry? resumed, string? resumeSessionId) =>
+        resumed is { Participant: null, VendorSession: { } vendorSession } && resumeSessionId == vendorSession ? resumed.SessionId : null;
 
     /// <summary>The ledger's worktree as the launch path names it.</summary>
     static WorktreeInfo ResumedWorktree(ResumeLedgerEntry entry) {
