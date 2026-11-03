@@ -307,7 +307,8 @@ internal partial class AgentOrchestrator {
                         AwaitingInput         = agent.ActivityClock.AwaitingInput,
                         SessionId             = agent.SessionId ?? entry.SessionId,
                         VendorSession         = vendorSession,
-                        Participant           = entry.Participant is { } p ? p with { ActivitySeq = clock.ActivitySeq, AgeMs = clock.AgeMs } : null
+                        Participant           = entry.Participant is { } p ? p with { ActivitySeq = clock.ActivitySeq, AgeMs = clock.AgeMs } : null,
+                        Launch                = WithShownTitle(entry.Launch, agent)
                     };
                 }, EntryLockWait);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -321,6 +322,11 @@ internal partial class AgentOrchestrator {
             return true;
         }
     }
+
+    /// <summary>The successor registers and shows the entry's title until it reads the server's: a launch-time
+    /// title, a cut of the goal, would stand over the title the session has been given since.</summary>
+    static ResumeLaunchDescriptor WithShownTitle(ResumeLaunchDescriptor launch, AgentInstance agent) =>
+        agent.ResolvedTitle is { Length: > 0 } shown ? launch with { Title = shown } : launch;
 
     /// <summary>An end committed for the session the agent now runs. One committed for an earlier session
     /// of the same process — a Claude <c>/clear</c> ends one session and starts the next — does not count;
@@ -368,7 +374,7 @@ internal partial class AgentOrchestrator {
             ApprovalPolicy:   agent.ApprovalPolicy,
             PermissionPreset: agent.PermissionPreset,
             McpConfigPath:    agent.McpConfigPath,
-            Title:            agent.Title,
+            Title:            agent.ResolvedTitle ?? agent.Title,
             TitleDerived:     agent.StartTitle?.Derived ?? true,
             IsPrivate:        agent.IsPrivate,
             Origin:           origin,

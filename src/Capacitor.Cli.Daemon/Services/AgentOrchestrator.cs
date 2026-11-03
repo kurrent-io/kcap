@@ -160,6 +160,11 @@ internal record AgentInstance(
     /// agent started with neither a title nor a prompt to derive one from.</summary>
     public AgentStartTitle? StartTitle { get; init; }
 
+    /// <summary>The ledger launch this agent took up after a restart, by resuming or continuing it; null for any
+    /// other launch. Its title is the one the work already had, and its prompt the one titles derive from: the
+    /// agent's own <c>Prompt</c> is the resume nudge or the continuation's.</summary>
+    public ResumeLaunchDescriptor? ResumedFrom { get; init; }
+
     bool _titleComputed;
     string? _title;
     /// <summary>The status payload's display seed, computed once: the status pulse re-runs for
@@ -3352,6 +3357,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 RequesterDisplay    = cmd.RequesterDisplay,
                 InactivityBoundSeconds = cmd.InactivityBoundSeconds,
                 StartTitle          = startTitle,
+                ResumedFrom         = resume?.Entry.Launch,
                 IsPrivate           = isPrivate,
                 ContinuesAgentId    = resume?.Entry.InheritedAgentIds is [.., var predecessor] ? predecessor : null,
                 HandoffSource       = cmd.Handoff?.Source ?? resume?.Entry.Launch.HandoffSource,
@@ -6437,11 +6443,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     /// A private agent's contract is "no per-agent server calls", so its view carries no session
     /// id: the resolver then never polls or pushes for it and only the local lanes apply.
-    IReadOnlyList<TitleAgentView> SnapshotAgentsForTitles() =>
+    internal IReadOnlyList<TitleAgentView> SnapshotAgentsForTitles() =>
         [.. _agents.Values.Select(a => new TitleAgentView(
-            a.Id, a.Vendor, a.Prompt,
+            a.Id, a.Vendor, a.ResumedFrom is { } launch ? launch.Prompt : a.Prompt,
             a.IsServerSilent ? null : a.SessionId ?? (a.Runtime as IAcpTranscriptSource)?.AcpSessionId,
-            a.TranscriptPath, a.CreatedAt, a.StartTitle))];
+            a.TranscriptPath, a.CreatedAt, a.StartTitle, Resumed: a.ResumedFrom is not null))];
 
     internal static HarnessTitlePost? NativeTitleFor(TitleAgentView agent) =>
         agent is { Vendor: "claude", TranscriptPath: { } path } && ClaudeNativeTitle.TryExtractWithKind(path) is { } title
