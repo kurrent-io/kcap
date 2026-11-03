@@ -106,14 +106,15 @@ public class LauncherPaneViewSmokeTests {
         }
     }
 
-    static (HomeViewModel Vm, FakeDaemonClientService Service, RecordingLaunchClient Launch, TempDir Tmp) Build() {
+    static (HomeViewModel Vm, FakeDaemonClientService Service, RecordingLaunchClient Launch, TempDir Tmp) Build(IBranchReader? branches = null) {
         var tmp = TempDir.WithPathTo("app-state.json", out var path);
         var service = new FakeDaemonClientService();
         // Connected steady state: StartCommand's canExecute gates on daemon + server both up.
         service.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap());
         service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
         var launch = new RecordingLaunchClient();
-        var vm = new HomeViewModel(service, new AppStateStore(path), launch, () => Task.FromResult(Array.Empty<string>()), TimeProvider.System);
+        var vm = new HomeViewModel(
+            service, new AppStateStore(path), launch, () => Task.FromResult(Array.Empty<string>()), TimeProvider.System, branches: branches);
         return (vm, service, launch, tmp);
     }
 
@@ -997,6 +998,60 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(menu.IsOpen).IsFalse();
             await Assert.That(vm.SelectedBaseRef).IsEqualTo("feature/x");
             await Assert.That(AutomationProperties.GetName(Find<Button>(window, "BaseRefChip")!)).IsEqualTo("Branch from · feature/x");
+
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            vm.Dispose();
+        });
+    }
+
+    sealed class ListedBranches(BranchListing listing) : IBranchReader {
+        public Task<BranchListing?> ListLocalAsync(string repoPath, CancellationToken ct) => Task.FromResult<BranchListing?>(listing);
+        public Task<BranchListing?> ListRemoteAsync(string url, CancellationToken ct) => Task.FromResult<BranchListing?>(null);
+        public string? OriginUrlOf(string repoPath) => null;
+    }
+
+    /// The branch list leads with the default, caps its rows, narrows as the field is edited, and a
+    /// pick chooses that branch.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_branch_chip_lists_branches_and_narrows_them_as_you_type() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            string[] names = ["a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "feature/x", "main"];
+            var (vm, _, _, tmp) = Build(new ListedBranches(new BranchListing("main", names)));
+            using var _tmp = tmp;
+            var view = new LauncherPaneView { DataContext = vm };
+            var window = new Window { Content = view, Width = 900, Height = 700 };
+            window.Show();
+            Settle(window);
+            await vm.SelectRepositoryAsync("/repos/kcap-cli");
+
+            Click(window, Find<Button>(window, "BaseRefChip")!);
+            var menu = view.OpenMenuForTesting!;
+            var content = (Control)menu.Content!;
+            List<string> Picks() => content.GetVisualDescendants().OfType<Button>()
+                .Select(b => AutomationProperties.GetName(b))
+                .Where(n => n is not null && names.Any(name => n.StartsWith(name, StringComparison.Ordinal))).ToList()!;
+            for (var i = 0; i < 200 && Picks().Count == 0; i++) {
+                await Task.Delay(10);
+                Settle(window);
+            }
+
+            var picks = Picks();
+            await Assert.That(picks.Count).IsEqualTo(8);
+            await Assert.That(picks[0]).Contains("main, default branch");
+            await Assert.That(content.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "2 more — type to narrow")).IsTrue();
+
+            content.GetVisualDescendants().OfType<TextBox>().Single().Text = "feat";
+            Settle(window);
+            var feature = content.GetVisualDescendants().OfType<Button>()
+                .Single(b => AutomationProperties.GetName(b)?.StartsWith("feature/x", StringComparison.Ordinal) == true);
+            await Assert.That(Picks().Count).IsEqualTo(1);
+
+            Click(window, feature);
+            Settle(window);
+            await Assert.That(menu.IsOpen).IsFalse();
+            await Assert.That(vm.SelectedBaseRef).IsEqualTo("feature/x");
 
             window.Close();
             Dispatcher.UIThread.RunJobs();

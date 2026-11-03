@@ -575,6 +575,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     static readonly TimeSpan PendingLaunchTtl = TimeSpan.FromMinutes(10);
     static readonly TimeSpan RecentFailureTtl = TimeSpan.FromSeconds(30);
     readonly IAgentDirectory? _directory;
+    readonly IBranchReader? _branches;
 
     /// One accepted launch awaiting settlement. UploadedAt is null for a text-only launch; both
     /// stamps come from the same clock, so one TimeProvider governs every expiry. Generation is
@@ -650,6 +651,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     /// (IRemoteAgentsService.RefreshDaemonsAsync).</param>
     /// <param name="readings">The drawable snapshots and clock behind <see cref="AccountUsageById"/>.
     /// Null ⇒ no usage is shown.</param>
+    /// <param name="branches">Reads branch names for the "Branch from" picker. Null ⇒ none are listed.</param>
     /// <param name="launchFailed">A tracked launch failed (MainWindowViewModel.CloseFailedLaunch):
     /// its auto-opened workspace would otherwise cover the StartError this view just set.</param>
     public HomeViewModel(
@@ -665,8 +667,9 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             IAttachmentUploader? uploader = null, string? appServerUrl = null,
             IObservable<DaemonListing>? listing = null, IObservable<IReadOnlyList<DaemonAccountsDto>>? daemonAccounts = null,
             IObservable<AccountsSnapshotDto?>? localAccounts = null, Func<Task>? retryListing = null,
-            AccountReadings? readings = null, Action<string>? launchFailed = null) {
+            AccountReadings? readings = null, IBranchReader? branches = null, Action<string>? launchFailed = null) {
         _launchFailed = launchFailed;
+        _branches = branches;
         _daemon = daemon;
         _state = state;
         _launch = launch;
@@ -1435,6 +1438,20 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         var (scope, repoPath, remote) = (BaseRefMemory.ScopeFor(SelectedMachine, RemoteMachineSelected), SelectedRepoPath, RemoteMachineSelected);
         var state = await _state.LoadAsync();
         return BaseRefMemory.Lookup(state.BaseRefsByRepo, scope, repoPath, PathComparerFor(remote));
+    }
+
+    /// The selected repository's branches. On a remote machine they are asked of the repository a
+    /// session there ran in, so a folder with no such session lists none. Null when nothing could be read.
+    public async Task<BranchListing?> ListBranchesAsync(CancellationToken ct) {
+        var (repoPath, remote, machine) = (SelectedRepoPath, RemoteMachineSelected, SelectedMachine);
+        if (_branches is not { } branches || repoPath.Length == 0) return null;
+        if (!remote) return await branches.ListLocalAsync(repoPath, ct);
+
+        var rows = _directory?.Rows.Items ?? [];
+        if (RemoteRepoLocator.OwnerRepoOn(rows, machine, _lastViewerId, repoPath) is not { } ownerRepo) return null;
+        var known = await _knownRepos();
+        var url = await Task.Run(() => RemoteRepoLocator.UrlFor(ownerRepo, known.Select(branches.OriginUrlOf)), ct);
+        return await branches.ListRemoteAsync(url, ct);
     }
 
     public Task ForgetBaseRefAsync(string baseRef) =>

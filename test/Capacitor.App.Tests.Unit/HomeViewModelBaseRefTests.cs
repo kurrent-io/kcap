@@ -4,6 +4,7 @@ using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Remote.Models;
 using DynamicData;
 
 namespace Capacitor.App.Tests.Unit;
@@ -30,6 +31,23 @@ public class HomeViewModelBaseRefTests {
                 RequesterDisplay: null));
             return Task.FromResult(new LaunchOutcome(true, AgentId, null));
         }
+    }
+
+    sealed class Branches : IBranchReader {
+        public readonly List<string> Asked = [];
+        public Dictionary<string, string> Origins = new(StringComparer.Ordinal);
+
+        public Task<BranchListing?> ListLocalAsync(string repoPath, CancellationToken ct) {
+            Asked.Add($"local {repoPath}");
+            return Task.FromResult<BranchListing?>(new("main", ["main"]));
+        }
+
+        public Task<BranchListing?> ListRemoteAsync(string url, CancellationToken ct) {
+            Asked.Add($"remote {url}");
+            return Task.FromResult<BranchListing?>(new("trunk", ["trunk"]));
+        }
+
+        public string? OriginUrlOf(string repoPath) => Origins.GetValueOrDefault(repoPath);
     }
 
     static FakeDaemonClientService ConnectedDaemon() {
@@ -190,5 +208,56 @@ public class HomeViewModelBaseRefTests {
         await Assert.That(HomeViewModel.IsMissingBaseRef("git fetch origin x:y failed: fatal: couldn't find remote ref x")).IsTrue();
         await Assert.That(HomeViewModel.IsMissingBaseRef("git fetch origin x:y failed: fatal: unable to access")).IsFalse();
         await Assert.That(HomeViewModel.IsMissingBaseRef("launch_denied_by_owner: default")).IsFalse();
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_local_repository_lists_its_own_branches() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            var branches = new Branches();
+            using var vm = new HomeViewModel(
+                ConnectedDaemon(), new AppStateStore(path), new LaunchClient(), NoKnownRepos(), TimeProvider.System, branches: branches);
+            await vm.SelectRepositoryAsync("/repo/a");
+
+            var listing = await vm.ListBranchesAsync(CancellationToken.None);
+
+            await Assert.That(listing!.DefaultBranch).IsEqualTo("main");
+            await Assert.That(branches.Asked).IsEquivalentTo(new[] { "local /repo/a" });
+        });
+    }
+
+    /// The remote machine reports only the folder; the repository comes from a session that ran
+    /// there, reached through this machine's clone of it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_remote_repository_is_asked_through_the_origin_a_session_there_names() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            using var daemons = new BehaviorSubject<IReadOnlyList<DaemonInfo>>([new DaemonInfo {
+                Name = "box", OwnerUserId = "me", Connected = true, RepoPaths = ["/remote/app", "/remote/new"],
+                SupportedVendors = ["claude"],
+            }]);
+            using var directory = new FakeAgentDirectory();
+            directory.Rows.AddOrUpdate(AgentRow.FromRemote(new AgentInstanceDto {
+                AgentId = AgentId, Status = "Running", RepoPath = "/remote/app", RepoOwner = "acme", RepoName = "app",
+                DaemonName = "box", OwnerUserId = "me", RegisteredAt = DateTime.UtcNow,
+            }));
+            var branches = new Branches { Origins = { ["/here/app"] = "git@github.com:acme/app.git" } };
+            using var vm = new HomeViewModel(
+                ConnectedDaemon(), new AppStateStore(path), new LaunchClient(), () => Task.FromResult(new[] { "/here/app" }),
+                TimeProvider.System, daemons: daemons, viewerId: _ => Task.FromResult<string?>("me"),
+                directory: directory, branches: branches);
+            await vm.SelectMachineAsync("box", isLocal: false);
+
+            await vm.SelectRepositoryAsync("/remote/app");
+            var listing = await vm.ListBranchesAsync(CancellationToken.None);
+            await vm.SelectRepositoryAsync("/remote/new");
+            var unknown = await vm.ListBranchesAsync(CancellationToken.None);
+
+            await Assert.That(listing!.DefaultBranch).IsEqualTo("trunk");
+            await Assert.That(unknown).IsNull();
+            await Assert.That(branches.Asked).IsEquivalentTo(new[] { "remote git@github.com:acme/app.git" });
+        });
     }
 }

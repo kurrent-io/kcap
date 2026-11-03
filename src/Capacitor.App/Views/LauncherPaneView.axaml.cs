@@ -310,9 +310,10 @@ public partial class LauncherPaneView : UserControl {
         ShowMenu(flyout, anchor);
     }
 
-    // Base-ref picker: a typed name, then Current HEAD, then the refs sessions here recently started
-    // from, each removable. Nothing lists the machine's branches: a remote machine's are not
-    // readable from here, and both machines get the same picker.
+    const int MaxBranchRows = 8;
+
+    // Base-ref picker: a typed name, then Current HEAD, the refs sessions here recently started
+    // from (each removable), and the repository's branches once they are read, narrowed by the field.
     async void OnBaseRefChipClick(object? sender, RoutedEventArgs e) {
         if (DataContext is not HomeViewModel vm || sender is not Control anchor) return;
 
@@ -331,10 +332,18 @@ public partial class LauncherPaneView : UserControl {
         rows.Children.Add(field);
         var flyout = ChoiceMenus.PanelFlyout(rows, minWidth: 300);
 
-        rows.Children.Add(this.ChoiceRow("Current HEAD", vm.SelectedBaseRef is null, () => {
-            flyout.Hide();
-            vm.ChooseBaseRef(null);
-        }));
+        void Choose(string? baseRef) {
+            var problem = vm.ChooseBaseRef(baseRef);
+            error.Text = problem;
+            error.IsVisible = problem is not null;
+            if (problem is null) flyout.Hide();
+        }
+
+        rows.Children.Add(this.ChoiceRow("Current HEAD", vm.SelectedBaseRef is null, () => Choose(null)));
+        var recentSection = new StackPanel { Spacing = 2, IsVisible = false };
+        var branchSection = new StackPanel { Spacing = 2, IsVisible = false };
+        rows.Children.Add(recentSection);
+        rows.Children.Add(branchSection);
 
         input.KeyDown += (_, args) => {
             if (args.Key == Key.Escape) {
@@ -344,31 +353,101 @@ public partial class LauncherPaneView : UserControl {
             }
             if (args.Key != Key.Enter) return;
             args.Handled = true;
-            var problem = vm.ChooseBaseRef(input.Text);
-            error.Text = problem;
-            error.IsVisible = problem is not null;
-            if (problem is null) flyout.Hide();
+            Choose(input.Text);
         };
         flyout.Opened += (_, _) => {
             input.Focus();
             input.SelectAll();
         };
 
-        // Opened before the state read, which goes to disk: the field is usable at once.
+        var lookup = new CancellationTokenSource();
+        flyout.Closed += (_, _) => lookup.Cancel();
+
+        // Opened before either read, which go to disk or the network: the field is usable at once.
         ShowMenu(flyout, anchor);
 
-        IReadOnlyList<string> recent;
-        try { recent = await vm.ListRecentBaseRefsAsync(); }
-        catch (Exception ex) {
+        var branches = vm.ListBranchesAsync(lookup.Token);
+        try {
+            var recent = await vm.ListRecentBaseRefsAsync();
+            if (recent.Count > 0) {
+                recentSection.Children.Add(this.ChoiceSeparator());
+                foreach (var baseRef in recent)
+                    recentSection.Children.Add(RecentBaseRefRow(vm, baseRef, recentSection, () => Choose(baseRef)));
+                recentSection.IsVisible = true;
+            }
+        } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: list recent base refs failed: {ex}");
-            return;
         }
-        if (recent.Count > 0) rows.Children.Add(this.ChoiceSeparator());
-        foreach (var baseRef in recent)
-            rows.Children.Add(RecentBaseRefRow(vm, baseRef, rows, flyout));
+
+        if (!branches.IsCompleted) {
+            branchSection.Children.Add(this.ChoiceSeparator());
+            branchSection.Children.Add(BranchNote("Looking up branches…"));
+            branchSection.IsVisible = true;
+        }
+        BranchListing? listing;
+        try { listing = await branches; }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: list branches failed: {ex}");
+            listing = null;
+        }
+
+        var initial = input.Text;
+        void Render() {
+            branchSection.Children.Clear();
+            if (listing is null) {
+                branchSection.IsVisible = false;
+                return;
+            }
+            var filter = input.Text == initial ? "" : (input.Text ?? "").Trim();
+            var matches = listing.Branches
+                .Where(b => b.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(b => b == listing.DefaultBranch ? 0 : 1)
+                .ToList();
+            branchSection.IsVisible = matches.Count > 0;
+            if (matches.Count == 0) return;
+            branchSection.Children.Add(this.ChoiceSeparator());
+            foreach (var branch in matches.Take(MaxBranchRows))
+                branchSection.Children.Add(BranchRow(vm, branch, branch == listing.DefaultBranch, () => Choose(branch)));
+            if (matches.Count > MaxBranchRows)
+                branchSection.Children.Add(BranchNote($"{matches.Count - MaxBranchRows} more — type to narrow"));
+        }
+        Render();
+        input.TextChanged += (_, _) => Render();
     }
 
-    Control RecentBaseRefRow(HomeViewModel vm, string baseRef, Panel rows, Flyout flyout) {
+    TextBlock BranchNote(string text) => new() {
+        Text = text, FontSize = 11.5, Foreground = this.Brush("KcapMutedBrush"), Margin = new Thickness(10, 4),
+    };
+
+    Control BranchRow(HomeViewModel vm, string branch, bool isDefault, Action choose) {
+        var selected = vm.SelectedBaseRef == branch;
+        var grid = new Grid {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), MinWidth = 220,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+        };
+        grid.Children.Add(new TextBlock {
+            Text = branch, FontSize = 13.5, Foreground = this.Brush("KcapTextBrush"),
+            TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        });
+        if (isDefault) {
+            var tag = new TextBlock {
+                Text = "default", FontSize = 11.5, Foreground = this.Brush("KcapMutedBrush"),
+                Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            };
+            Grid.SetColumn(tag, 1);
+            grid.Children.Add(tag);
+        }
+        var check = this.SelectionCheck(selected);
+        Grid.SetColumn(check, 2);
+        grid.Children.Add(check);
+
+        var pick = ChoiceMenus.ChoiceButton(grid, choose);
+        AutomationProperties.SetName(pick, ChoiceMenus.ChoiceName(isDefault ? $"{branch}, default branch" : branch, selected));
+        return pick;
+    }
+
+    Control RecentBaseRefRow(HomeViewModel vm, string baseRef, Panel section, Action choose) {
         var selected = vm.SelectedBaseRef == baseRef;
         var title = new TextBlock {
             Text = baseRef, FontSize = 13.5, Foreground = this.Brush("KcapTextBrush"),
@@ -383,10 +462,7 @@ public partial class LauncherPaneView : UserControl {
         Grid.SetColumn(check, 1);
         grid.Children.Add(check);
 
-        var pick = ChoiceMenus.ChoiceButton(grid, () => {
-            flyout.Hide();
-            vm.ChooseBaseRef(baseRef);
-        });
+        var pick = ChoiceMenus.ChoiceButton(grid, choose);
         AutomationProperties.SetName(pick, ChoiceMenus.ChoiceName(baseRef, selected));
 
         var remove = new Button {
@@ -406,8 +482,11 @@ public partial class LauncherPaneView : UserControl {
         row.Children.Add(remove);
 
         remove.Click += async (_, _) => {
-            rows.Children.Remove(row);
-            if (rows.Children[^1] is Border separator) rows.Children.Remove(separator);
+            section.Children.Remove(row);
+            if (section.Children.Count == 1) {
+                section.Children.Clear();
+                section.IsVisible = false;
+            }
             try { await vm.ForgetBaseRefAsync(baseRef); }
             catch (Exception ex) { Console.Error.WriteLine($"kcap: forget base ref failed: {ex}"); }
         };
