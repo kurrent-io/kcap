@@ -192,6 +192,43 @@ public class CountFileLinesTests {
 }
 
 public class WatchCommandTests {
+    /// <summary>A successor watcher inherits the earlier run's identity, so a handed end is judged as the run its hook
+    /// named: against a ledger running epoch-2, the live run's own end goes through where the watcher's epoch-1 would
+    /// hold, and so discard, it. An end that names no agent falls back to the watcher's identity.</summary>
+    [Test]
+    public async Task A_handed_end_is_judged_as_the_run_its_hook_named() {
+        using var daemons = new TempDaemonStore();
+        var ledger  = Capacitor.Cli.Core.Resume.ResumeLedgerStore.For(daemons.Store, "d1");
+        ledger.Write(ResumeLedgerEntries.For("agent-1", Capacitor.Cli.Core.Resume.ResumeState.Running) with {
+            LaunchEpoch = "epoch-1", RunEpoch = "epoch-2", SessionId = "s1"
+        });
+        var watcher = new HostedAgent("agent-1", false, DaemonBridge.None) { DaemonEpoch = "epoch-1" };
+        bool Holds(HostedAgent run) => SessionEndFence.ShouldHold(run.AgentId, run.DaemonEpoch, "s1", _ => ledger, TimeProvider.System);
+
+        var named   = WatchCommand.HandedEndRun("""{"reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""", watcher);
+        var unnamed = WatchCommand.HandedEndRun("""{"reason":"exit"}""", watcher);
+
+        await Assert.That((named.AgentId, named.DaemonEpoch)).IsEqualTo(((string?)"agent-1", (string?)"epoch-2"));
+        await Assert.That(unnamed).IsEqualTo(watcher);
+        await Assert.That(Holds(watcher)).IsTrue();
+        await Assert.That(Holds(named)).IsFalse();
+    }
+
+    /// <summary>A successor watcher follows the resumed process, so it takes that run's identity from the marker its
+    /// daemon wrote at launch, and none when there is no marker.</summary>
+    [Test]
+    public async Task A_successor_watcher_follows_the_run_the_marker_records() {
+        using var home = new TempHome();
+        const string session = "2aa834d09c294410b64c177c75d32358";
+
+        await Assert.That(WatchCommand.SuccessorRun(home, session)).IsEqualTo(new WatcherRun(null, null));
+
+        Capacitor.Cli.Core.Harness.Muse.MuseHostedSessionMarker.Write(home,
+            new(session, "agent-1", "daemon-1", "epoch-2", DateTimeOffset.UtcNow));
+
+        await Assert.That(WatchCommand.SuccessorRun(home, session)).IsEqualTo(new WatcherRun("agent-1", "epoch-2"));
+    }
+
     /// <summary>A handed end keeps the agent and epoch its hook named; one that names no agent, an unparseable one
     /// included, takes the watcher's hosted agent and epoch, so its replay after a resume reads as the predecessor's.</summary>
     [Test]

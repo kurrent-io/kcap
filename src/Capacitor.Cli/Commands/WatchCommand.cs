@@ -149,12 +149,25 @@ partial class WatchCommand(
       : hosted is { AgentId: not null } && resuming(hosted) ? SessionEndAction.HeldForResume
       :                                                       SessionEndAction.Post;
 
-    /// <summary>The hosted agent this watcher's process runs under, when a resume holds its session end.</summary>
-    static string? AgentHoldingEndForResume() =>
-        HostedAgent.FromEnvironment() is { AgentId: { } id } hosted
+    /// <summary>The hosted agent a handed end's run is, when a resume holds that end.</summary>
+    static string? AgentHoldingEndForResume(MuseSessionEndRequest handed) =>
+        HandedEndRun(handed.Payload, HostedAgent.FromEnvironment()) is { AgentId: { } id } hosted
      && DecideSessionEnd(runsOnElsewhere: false, hosted, h => SessionEndFence.ShouldHold(h)) == SessionEndAction.HeldForResume
             ? id
             : null;
+
+    /// <summary>The run a handed end belongs to: the one its hook named, else the watcher's own. A successor watcher
+    /// can carry an earlier run's identity, and judging the live run's end as that one's would discard it.</summary>
+    internal static HostedAgent HandedEndRun(string payload, HostedAgent watcher) {
+        try {
+            if (JsonNode.Parse(payload) is JsonObject end && end["agent_host_id"]?.GetValue<string>() is { Length: > 0 } agentId)
+                return new HostedAgent(agentId, false, DaemonBridge.None) {
+                    DaemonEpoch = end["daemon_epoch"]?.GetValue<string>() is { Length: > 0 } epoch ? epoch : null
+                };
+        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) { }
+
+        return watcher;
+    }
 
     /// <summary><paramref name="resumingId"/>, after releasing the handed end's claim when a resume holds
     /// it: a claim left in place would block an end handed over later.</summary>
@@ -795,7 +808,7 @@ partial class WatchCommand(
                 if (ClaimHandedMuseEnd(sessionId) is { } handed) {
                     await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: vendor);
 
-                    if (HoldHandedEndForResume(handed, AgentHoldingEndForResume()) is { } resumingId) {
+                    if (HoldHandedEndForResume(handed, AgentHoldingEndForResume(handed)) is { } resumingId) {
                         Log(time, $"session end suppressed: agent {resumingId} is resuming");
                     } else switch (await PostHandedSessionEndAsync(sessionId, transcriptPath, vendor, repository: null, handed)) {
                         case HandedEndOutcome.Dropped:
@@ -1258,7 +1271,7 @@ partial class WatchCommand(
         if (TakesHandedMuseEnd(vendor, agentId)) museEndRequest ??= ClaimHandedMuseEnd(sessionId);
 
         if (museEndRequest is { } handedEnd) {
-            if (HoldHandedEndForResume(handedEnd, AgentHoldingEndForResume()) is { } resumingId) {
+            if (HoldHandedEndForResume(handedEnd, AgentHoldingEndForResume(handedEnd)) is { } resumingId) {
                 Log(time, $"session end suppressed: agent {resumingId} is resuming");
             } else switch (await PostHandedSessionEndAsync(sessionId, transcriptPath, vendor, state.Repository, handedEnd)) {
                 // The session carried on, so this watcher's stop must not leave it unwatched.
@@ -2394,12 +2407,18 @@ partial class WatchCommand(
         MuseSessionEndRequest.Unclaim(_paths, sessionId, handed);
     }
 
+    /// <summary>The run a successor watcher follows: the resumed process's, from the marker its daemon wrote when it
+    /// launched it, and none when nothing records one, so it never carries this watcher's earlier run.</summary>
+    internal static WatcherRun SuccessorRun(UserHome home, string sessionId) =>
+        MuseHostedSessionMarker.TryRead(home, sessionId) is { } marker ? new(marker.AgentId, marker.DaemonEpoch) : new(null, null);
+
     /// <summary>Spawns the watcher a resumed session is left without once this one exits; this watcher's
     /// pid file is already retired, so the spawn sees no live watcher. The successor follows the resumed
     /// process when one is claimed; a watcher cannot resolve it from its own ancestry.</summary>
     async Task ArmSuccessorAsync(string sessionId, string transcriptPath, string? cwd, string vendor, int? parentPid) {
         try {
-            await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: vendor, parentPid: parentPid);
+            await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: vendor, parentPid: parentPid,
+                runsAs: SuccessorRun(home, sessionId));
             Log(time, $"Armed a successor watcher for the resumed session{(parentPid is { } p ? $" following pid {p}" : "")}");
         } catch (Exception ex) {
             Log(time, $"Arming a successor watcher failed: {ex.Message}");
