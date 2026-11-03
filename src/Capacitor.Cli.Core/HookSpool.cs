@@ -448,7 +448,8 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     /// What a start about to be posted live supersedes, taken before the post: every end then queued and,
     /// for a session whose end was delivered, everything then spooled, which can only be that run's.
     /// Null when there is nothing, so an ordinary start leaves no backlog. A hook spooled after this, such
-    /// as the starting run's own end, is never superseded.
+    /// as the starting run's own end, is never superseded. Neither is an earlier run's end spooled during the
+    /// post: for a session whose hooks name no run, the new run's later hooks are then taken for its stragglers.
     /// </summary>
     public string? RunStartSnapshot(string sessionId) {
         if (!SafeSessionId.IsMatch(sessionId) || !Directory.Exists(DirectoryPath)) return null;
