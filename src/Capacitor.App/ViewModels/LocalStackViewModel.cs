@@ -287,16 +287,19 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
             }
 
             if (result is { ExitCode: 0, TimedOut: false }) {
-                var retryUpgrade = !Upgrading && ReferenceEquals(_shown, recovering) && ServiceMissing;
                 if (!Upgrading && ReferenceEquals(_shown, recovering)) {
-                    _shown = recovering is LocalUpgradeOutcome.Failed { Switched: true } failed && _searchWarning is { } warning
+                    // The restored service still owes the update: it waits like one another change held off, so whatever
+                    // holds the installation next retries it when that change settles.
+                    _shown = ServiceMissing && recovering is LocalUpgradeOutcome.Failed missing
+                        ? missing with { Code = LocalInstallFailureCode.LifecycleBusy.Wire(), Affordance = LocalInstallAffordance.Busy }
+                        : recovering is LocalUpgradeOutcome.Failed { Switched: true } failed && _searchWarning is { } warning
                         ? new LocalUpgradeOutcome.Upgraded(failed.From, failed.To, warning)
                         : null;
                 }
                 ReadVersion();
                 Refresh();
                 await ReconnectAsync();
-                if (retryUpgrade) await _upgrade.StartAsync(_shutdown);
+                if (Waiting) await _upgrade.StartAsync(_shutdown);
                 return;
             }
 
