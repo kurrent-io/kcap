@@ -168,6 +168,9 @@ class WatchState {
     public bool               TitleGenerated     { get; set; }
     public int                TitleAttempts      { get; set; }
     public bool               TitleInFlight      { get; set; }
+    // The generation TitleInFlight marks: shutdown waits for it, since its title goes out over the connection it closes.
+    public Task?              PendingTitle       { get; set; }
+    public CancellationToken  TitleCancellation  { get; set; }
     public string?            FirstUserText      { get; set; }
     public bool               FullFileScanDone   { get; set; }
     public string?            FirstAssistantText { get; set; }

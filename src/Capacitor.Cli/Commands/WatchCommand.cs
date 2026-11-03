@@ -451,6 +451,9 @@ partial class WatchCommand(
         var wedgedCeilingExit = 0;
         // set when Kiro Crew is finished with a session its still-running kiro-cli process hosts.
         var crewFinished = 0;
+        // set by a stop request, whose sender waits only seconds (a kill 5s later, or the server's drain wait);
+        // nothing waits on any other exit.
+        var stopRequested = 0;
 
         // Handle SIGTERM/SIGINT for graceful shutdown.
         //
@@ -466,14 +469,17 @@ partial class WatchCommand(
         // loop notices cts and the drain / session-end POST never run.
         Console.CancelKeyPress += (_, e) => {
             e.Cancel = true;
+            Interlocked.Exchange(ref stopRequested, 1);
             cts.Cancel();
         };
         using var sigtermReg = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => {
+            Interlocked.Exchange(ref stopRequested, 1);
             cts.Cancel();
             ctx.Cancel = true;
         });
         using var stopRequest = WatcherStopSignal.Listen(Environment.ProcessId, () => {
             Log(time, "Stop requested; shutting down watcher");
+            Interlocked.Exchange(ref stopRequested, 1);
             cts.Cancel();
         });
 
@@ -493,6 +499,8 @@ partial class WatchCommand(
         // task can read state.LastActivityAt as its no-progress clock.
         var state = new WatchState();
         state.LastActivityAt = time.GetUtcNow();
+        using var titleCts = new CancellationTokenSource();
+        state.TitleCancellation = titleCts.Token;
 
         var titleStore = HarnessTitleStores.For(vendor, agentId, sessionId, transcriptPath, harnesses, accounts.TryLoad(), home);
         if (vendor == "codex" && CodexRolloutReadings.For(accounts, transcriptPath, home) is { } codexReadings) state.ObserveCodexReadings = lines => codexReadings.Observe(lines);
@@ -699,6 +707,7 @@ partial class WatchCommand(
             "StopWatcher",
             reason => {
                 Log(time, $"Received StopWatcher signal: {reason}");
+                Interlocked.Exchange(ref stopRequested, 1);
                 cts.Cancel();
             }
         );
@@ -1189,6 +1198,18 @@ partial class WatchCommand(
                 FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, lastChance: true, TouchHeartbeat);
             await LinkSecondaryPullRequestsAsync(state, sessionId,
                 FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, TouchHeartbeat);
+        }
+
+        // The generated title goes out over this connection, so it is waited for before the close.
+        if (state.PendingTitle is { IsCompleted: false } pendingTitle) {
+            var titleBudget = ShutdownTitleBudget(
+                hubConnection.State == HubConnectionState.Connected, Volatile.Read(ref stopRequested) == 1, time.GetElapsedTime(shutdownStarted));
+            Log(time, $"Waiting up to {Math.Max(0, titleBudget.TotalSeconds):F1}s for the generated title before closing the connection");
+
+            if (!await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, TouchHeartbeat)) {
+                Log(time, "Generated title not ready before shutdown; abandoning it");
+                await titleCts.CancelAsync();
+            }
         }
 
         // Signal drain complete to server.
@@ -2853,13 +2874,11 @@ partial class WatchCommand(
                 }
             }
 
-            // Generate LLM title after enough events have accumulated
-            // (deferred until threshold is reached for session watchers)
             if (ShouldGenerateLlmTitle(state, agentId)) {
                 Log(time, $"Triggering LLM title generation (attempt {state.TitleAttempts + 1}/5, events: {state.EventCount})");
                 state.TitleInFlight = true;
                 state.TitleAttempts++;
-                _ = GenerateTitleAsync(hubConnection, sessionId, state, vendor);
+                state.PendingTitle  = GenerateTitleAsync(hubConnection, sessionId, state, vendor);
             }
 
             switch (agentId) {
@@ -3971,7 +3990,7 @@ partial class WatchCommand(
         try {
             var result = await TitleGeneration.GenerateAsync(
                 state.FirstUserText!, state.FirstAssistantText, time, m => Log(time, m), profiles.Resolution.Profile,
-                harnesses, vendor);
+                harnesses, vendor, state.TitleCancellation);
 
             if (result is null) {
                 Log(time, $"Title generation attempt {state.TitleAttempts}/5 returned no usable result (CLI failure, refusal-like output, or empty title)");
@@ -4252,11 +4271,46 @@ partial class WatchCommand(
     /// <summary>A harness-native title the server is known to record suppresses LLM titling for good. A transcript
     /// title only a server with harness titles records suppresses it only once the server is known to have them: an
     /// unanswered probe must not cost an older server its only title, and on a newer one the harness title outranks
-    /// a generated title anyway.</summary>
+    /// a generated title anyway. Generation starts at the first assistant reply, or after five events when none has
+    /// carried text: a one-shot run ends with fewer than five, and its title has to be under way before it exits.</summary>
     internal static bool ShouldGenerateLlmTitle(WatchState state, string? agentId) =>
-        state is { TitleGenerated: false, TitleInFlight: false, TitleAttempts: < 5, ThresholdReached: true, HarnessTitleSeen: false, FirstUserText: not null, EventCount: >= 5 }
+        state is { TitleGenerated: false, TitleInFlight: false, TitleAttempts: < 5, ThresholdReached: true, HarnessTitleSeen: false, FirstUserText: not null }
+     && (state.FirstAssistantText is not null || state.EventCount >= 5)
      && agentId is null
      && !(state.InlineHarnessTitleSeen && state.ServerRecordsHarnessTitles == true);
+
+    // From the stop request, which a kill follows 5s later; the rest covers the drain-complete signal and the close.
+    static readonly TimeSpan ShutdownTitleDeadline = TimeSpan.FromSeconds(4);
+
+    // Nothing kills the watcher on any other exit; the title CLI's own timeout (15s claude, 30s codex) ends it first.
+    static readonly TimeSpan UnhurriedShutdownTitleDeadline = TimeSpan.FromSeconds(30);
+
+    /// <summary>How long shutdown waits for a title still generating, from the time already spent since shutdown began.
+    /// Nothing at all once the connection is gone, since the title could not be sent.</summary>
+    internal static TimeSpan ShutdownTitleBudget(bool connected, bool stopRequested, TimeSpan sinceShutdown) =>
+        connected ? (stopRequested ? ShutdownTitleDeadline : UnhurriedShutdownTitleDeadline) - sinceShutdown : TimeSpan.Zero;
+
+    /// <summary>Waits up to <paramref name="budget"/> for <paramref name="pending"/>, calling <paramref name="beat"/>
+    /// before each heartbeat slice of the wait. False when it is still running at the end, for the caller to abandon.</summary>
+    internal static async Task<bool> AwaitPendingTitleAsync(Task? pending, TimeSpan budget, TimeProvider time, Action beat) {
+        if (pending is null || pending.IsCompleted) return true;
+
+        foreach (var slice in HeartbeatSlices(budget, HeartbeatSlice)) {
+            beat();
+
+            try {
+                await pending.WaitAsync(slice, time);
+            } catch (TimeoutException) when (!pending.IsCompleted) {
+                continue;
+            } catch {
+                // the generation's own failure: it is over, which is all shutdown waits for
+            }
+
+            return true;
+        }
+
+        return pending.IsCompleted;
+    }
 
     internal static void ObserveTitleLine(WatchState state, string vendor, string sessionId, string line) {
         switch (TranscriptTitleLines.Classify(vendor, sessionId, line)) {
