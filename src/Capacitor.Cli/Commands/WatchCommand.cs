@@ -2369,15 +2369,18 @@ partial class WatchCommand(
 
     internal enum HandedEndOutcome { Posted, Dropped, Failed }
 
-    /// <summary>A handed end that could be neither posted nor spooled is posted once more directly, which needs no
-    /// spool, and otherwise put back for the next watcher. The retry sends the handed end itself: one rebuilt from this
-    /// watcher would name the watcher's run, which can be an earlier one. Not while the session still has spooled
-    /// hooks: a direct post would overtake them, ending the session before its start replays.</summary>
+    /// <summary>A handed end left pending when its watcher exits gets a successor to retry it while it is younger than
+    /// this; past it, the session's next hook arms one. A rejection that never clears would otherwise re-arm forever.</summary>
+    static readonly TimeSpan HandedEndRetryWindow = TimeSpan.FromMinutes(30);
+
     /// <summary>Settles the handed end this watcher took, then every other one handed over before it exits, oldest
-    /// first: another run's end handed over while this one was claimed would otherwise wait for a watcher nobody arms.
-    /// One that can be neither posted nor spooled goes back, and ends the pass, so it is not taken again here.</summary>
+    /// first, each once: another run's end handed over while this one was claimed would otherwise wait for a watcher
+    /// nobody arms. One that can be neither posted nor spooled is held aside so the pass goes on to the rest, then put
+    /// back, and a successor is armed to try it again.</summary>
     internal async Task SettleHandedEndsAsync(
             string sessionId, string transcriptPath, string? cwd, string vendor, RepositoryPayload? repository, MuseSessionEndRequest first) {
+        var failed = new List<MuseSessionEndRequest>();
+
         for (MuseSessionEndRequest? handed = first; handed is not null; handed = ClaimHandedMuseEnd(sessionId)) {
             if (HoldHandedEndForResume(handed, AgentHoldingEndForResume(handed, sessionId)) is { } resumingId) {
                 Log(time, $"session end suppressed: agent {resumingId} is resuming");
@@ -2391,30 +2394,32 @@ partial class WatchCommand(
                     break;
 
                 case HandedEndOutcome.Failed:
-                    if (!await RetryOrUnclaimHandedEndAsync(sessionId, transcriptPath, vendor, repository, handed)) return;
+                    if (!await RetryHandedEndAsync(sessionId, transcriptPath, vendor, repository, handed)) failed.Add(handed);
                     break;
             }
         }
+
+        foreach (var handed in failed) MuseSessionEndRequest.Unclaim(handed);
+
+        if (failed.Any(h => time.GetUtcNow() - h.HandedAt < HandedEndRetryWindow)) {
+            Log(time, $"{failed.Count} handed session-end(s) could not be sent; arming a watcher to retry");
+            await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
+        }
     }
 
-    /// <summary>True when the retry posted the end; false when it went back for the next watcher.</summary>
-    internal async Task<bool> RetryOrUnclaimHandedEndAsync(
-            string                sessionId,
-            string                transcriptPath,
-            string                vendor,
-            RepositoryPayload?    repository,
-            MuseSessionEndRequest handed
-        ) {
-        if (!new HookSpool(config, time, Url).HasBacklog(sessionId) && KnownVendors.Contains(vendor)
-         && await PostSessionEndPayloadAsync(sessionId, vendor, HandedEndBody(handed.Payload, sessionId, transcriptPath, time.GetUtcNow(), out _), repository, "Handed")) {
-            MuseSessionEndRequest.Release(handed.ClaimedPath);
+    /// <summary>Posts a handed end once more directly, which needs no spool: true, with the claim released, when the
+    /// server took it; false leaves the claim held. The retry sends the handed end itself: one rebuilt from this
+    /// watcher would name the watcher's run, which can be an earlier one. Not while the session still has spooled
+    /// hooks: a direct post would overtake them, ending the session before its start replays.</summary>
+    async Task<bool> RetryHandedEndAsync(
+            string sessionId, string transcriptPath, string vendor, RepositoryPayload? repository, MuseSessionEndRequest handed) {
+        if (new HookSpool(config, time, Url).HasBacklog(sessionId) || !KnownVendors.Contains(vendor)
+         || !await PostSessionEndPayloadAsync(sessionId, vendor, HandedEndBody(handed.Payload, sessionId, transcriptPath, time.GetUtcNow(), out _), repository, "Handed"))
+            return false;
 
-            return true;
-        }
+        MuseSessionEndRequest.Release(handed.ClaimedPath);
 
-        MuseSessionEndRequest.Unclaim(handed);
-
-        return false;
+        return true;
     }
 
     /// <summary>The run a successor watcher follows: the one the daemon's marker records, when the marker names the
@@ -2474,7 +2479,8 @@ partial class WatchCommand(
 
         Log(time, $"Handed session-end {outcome}");
 
-        if (outcome is not (HookPostOutcome.Posted or HookPostOutcome.Spooled)) return HandedEndOutcome.Failed;
+        // A rejected payload drops, as every hook post's does; only an end neither sent nor kept is tried again.
+        if (outcome is not (HookPostOutcome.Posted or HookPostOutcome.Spooled or HookPostOutcome.Failed)) return HandedEndOutcome.Failed;
 
         MuseSessionEndRequest.Release(request.ClaimedPath);
         return HandedEndOutcome.Posted;

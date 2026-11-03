@@ -282,30 +282,67 @@ public class WatcherParentExitPostTests : IDisposable {
             .IsLessThan(postPaths.IndexOf("/hooks/session-end/gemini"));
     }
 
-    /// <summary>A handed end the first attempt could neither post nor spool is retried as the end the hook handed
-    /// over, its run identity included, and released only once the server took it: this watcher's own identity can
-    /// be an earlier run's, which the server would refuse as a predecessor's end.</summary>
+    WatchCommand Watch(IWatcherSpawner spawner) =>
+        new(Config.Root, Resolutions.At(_server.Url!, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(),
+            TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), spawner), new GitProviderRouter(),
+            TimeProvider.System, TestAccounts.None, Home);
+
+    /// <summary>An end that can be neither posted nor spooled does not end the pass: the requests after it are still
+    /// settled, it is retried as the end its hook handed over, never one rebuilt from the watcher, and it goes back
+    /// with a watcher armed to try it again.</summary>
     [Test]
-    public async Task A_retried_handed_end_posts_the_handed_run_and_releases_it_once_accepted() {
+    public async Task An_end_neither_posted_nor_spooled_goes_back_and_the_pass_settles_the_rest() {
         _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost().WithBody(new WireMock.Matchers.WildcardMatcher("*epoch-1*")))
+            .AtPriority(1).RespondWith(Response.Create().WithStatusCode(503));
         _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
-            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"generate_whats_done":false}"""));
+            .AtPriority(10).RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"generate_whats_done":false}"""));
+        File.WriteAllText(Config.Root.Path(Capacitor.Cli.Core.HookSpool.DirectoryName), "");
 
         var sessionId = Guid.NewGuid().ToString("N");
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var spawner   = new FakeWatcherSpawner();
+        Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
+        var first = Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
         Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
+
+        await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, first);
+
+        var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.TryGetProperty("daemon_epoch", out var epoch) ? epoch.GetString() : null)
+            .ToList();
+        await Assert.That(epochs).Contains("epoch-2");
+        await Assert.That(epochs.Count(e => e == "epoch-1")).IsEqualTo(2);
+        await Assert.That(epochs).DoesNotContain((string?)null);
+        await Assert.That(Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "check")?.Payload).Contains("epoch-1");
+        await Assert.That(spawner.Spawned.Count).IsEqualTo(1);
+    }
+
+    /// <summary>A handed end the server rejects is dropped, as every rejected hook payload is: it is not put back, and no
+    /// watcher is armed to send it again, which would re-arm against a rejection that never clears.</summary>
+    [Test]
+    public async Task A_rejected_handed_end_is_dropped_not_retried() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(400));
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var spawner   = new FakeWatcherSpawner();
+        Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
         var handed = Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
 
-        await Watch().RetryOrUnclaimHandedEndAsync(sessionId, "/tmp/fake.jsonl", "muse", repository: null, handed);
+        await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, handed);
 
-        var body = JsonDocument.Parse(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost()).Single().RequestMessage.Body!).RootElement;
-        await Assert.That(body.GetProperty("agent_host_id").GetString()).IsEqualTo("agent-1");
-        await Assert.That(body.GetProperty("daemon_epoch").GetString()).IsEqualTo("epoch-2");
-        await Assert.That(body.GetProperty("reason").GetString()).IsEqualTo("exit");
+        await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost()).Count).IsEqualTo(1);
+        await Assert.That(Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();
         await Assert.That(File.Exists(handed.ClaimedPath)).IsFalse();
-        await Assert.That(Capacitor.Cli.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")).IsNull();
+        await Assert.That(spawner.Spawned).IsEmpty();
     }
 
     /// <summary>A watcher settles every handed end before it exits, not only the one it claimed: one handed over after
