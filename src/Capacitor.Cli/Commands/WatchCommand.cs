@@ -150,8 +150,8 @@ partial class WatchCommand(
       :                                                       SessionEndAction.Post;
 
     /// <summary>What a resume holds a handed end for, when it does: the agent its hook named, or the session.</summary>
-    static string? AgentHoldingEndForResume(MuseSessionEndRequest handed, string sessionId) =>
-        HandedEndHeld(handed.Payload, sessionId, h => SessionEndFence.ShouldHold(h), SessionEndFence.ShouldHold);
+    internal static string? AgentHoldingEndForResume(MuseSessionEndRequest handed, string sessionId) =>
+        HandedEndHeld(handed.Payload, sessionId, h => SessionEndFence.ShouldHold(h, sessionId), SessionEndFence.ShouldHold);
 
     /// <summary>A handed end is judged as the run its hook named, never as the watcher's: a successor watcher can
     /// carry another run's identity. An end that names no run is placed by its session, as an end with no epoch.</summary>

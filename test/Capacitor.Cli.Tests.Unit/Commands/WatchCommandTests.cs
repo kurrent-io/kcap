@@ -212,6 +212,24 @@ public class WatchCommandTests {
         await Assert.That(Held("""{"reason":"exit"}""")).IsEqualTo(session);
     }
 
+    /// <summary>A named handed end the fence lets through stamps the run's ledger entry with the session it ends, so the
+    /// daemon can tell it from the end of an earlier session of the same process.</summary>
+    [Test, NotInParallel]
+    public async Task A_named_handed_end_let_through_commits_its_own_session() {
+        const string session = "2aa834d09c294410b64c177c75d32358";
+        using var daemons = new TempDaemonStore();
+        var ledger = Capacitor.Cli.Core.Resume.ResumeLedgerStore.For(daemons.Store, "d1");
+        ledger.Write(ResumeLedgerEntries.For("agent-1", Capacitor.Cli.Core.Resume.ResumeState.Running) with {
+            LaunchEpoch = "epoch-2", RunEpoch = "epoch-2", SessionId = session
+        });
+        using var dir = EnvScope.Exclusive("KCAP_DAEMONS_DIR", daemons.Directory);
+        var handed = new Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest(
+            """{"reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""", "claimed", DateTimeOffset.UtcNow, "source");
+
+        await Assert.That(WatchCommand.AgentHoldingEndForResume(handed, session)).IsNull();
+        await Assert.That(ledger.TryRead("agent-1")!.EndCommittedSession).IsEqualTo(session);
+    }
+
     /// <summary>A successor watcher takes the run the daemon's marker records only when the marker names the process it
     /// follows; a marker of another process, one an older daemon wrote, or none at all gives it no run.</summary>
     [Test]
