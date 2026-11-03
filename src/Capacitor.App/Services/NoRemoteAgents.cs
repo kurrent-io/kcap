@@ -36,6 +36,7 @@ internal sealed class NoServerLane : IServerLane {
     public IObservable<string> SessionAccessChanged => Observable.Never<string>();
     public IObservable<SessionPush> SessionPushes => Observable.Never<SessionPush>();
     public IObservable<PendingInputUpdate> PendingInputChanged => Observable.Never<PendingInputUpdate>();
+    public IObservable<string> HeldMessagesChanged => Observable.Never<string>();
     public Task<IReadOnlyList<DaemonInfo>?> GetConnectedDaemonsAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<DaemonInfo>?>(null);
     public Task<IReadOnlyList<DaemonAccountsDto>?> GetDaemonAccountsAsync(CancellationToken ct) =>

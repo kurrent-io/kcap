@@ -35,7 +35,7 @@ public sealed class PendingCardsViewModel : ReactiveObject, IDisposable {
     public PendingCardsViewModel(
             string agentId, AgentOrigin origin, IObservable<string?> sessionId,
             IPermissionService permissions, IObservable<string?> root,
-            IObservable<bool>? localDaemonOnAppServer = null) {
+            IObservable<bool>? localDaemonOnAppServer = null, IObservable<AgentViewerAccess>? access = null) {
         // A remote workspace's session belongs to the app's own server by construction. A local
         // one's belongs to whatever server the local daemon reports, and a session id is unique
         // only within a server — Claude's derive from transcript filenames and imports preserve
@@ -67,11 +67,15 @@ public sealed class PendingCardsViewModel : ReactiveObject, IDisposable {
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Filter(admits);
 
+        // The viewer's rights bind only a server item: the local lane is this machine's own daemon.
         var cards = Requests
-            .Transform(p => p switch {
-                { Questions: not null } => (PendingCardViewModel)new QuestionCardViewModel(p, permissions),
-                { AcpQuestion: not null } => new AcpQuestionCardViewModel(p, permissions),
-                _ => new PermissionCardViewModel(p, permissions, root),
+            .Transform(p => {
+                var rights = p.Lane == PermissionLane.Server ? access : null;
+                return p switch {
+                    { Questions: not null } => (PendingCardViewModel)new QuestionCardViewModel(p, permissions, rights),
+                    { AcpQuestion: not null } => new AcpQuestionCardViewModel(p, permissions, rights),
+                    _ => new PermissionCardViewModel(p, permissions, root, rights),
+                };
             })
             .DisposeMany()
             .SortAndBind(out var pendingCards, Comparer<PendingCardViewModel>.Create((a, b) => {

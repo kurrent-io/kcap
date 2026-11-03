@@ -64,6 +64,11 @@ internal static class AvaloniaSession {
     public static Task DispatchAsync(Action body) =>
         Session.Value.Dispatch(() => { EnsureReactiveUI(); body(); return true; }, CancellationToken.None);
 
+    // Without this overload, an async body without a result binds to Func<T> with T = Task
+    // A single await then observes only the outer task and silently drops failed assertions
+    public static Task DispatchAsync(Func<Task> body) =>
+        Session.Value.Dispatch(async () => { EnsureReactiveUI(); await body(); return true; }, CancellationToken.None);
+
     public static Task<T> DispatchAsync<T>(Func<Task<T>> body) =>
         Session.Value.Dispatch(() => { EnsureReactiveUI(); return body(); }, CancellationToken.None);
 

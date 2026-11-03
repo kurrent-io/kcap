@@ -13,6 +13,7 @@
         <RootNamespace>Capacitor.App</RootNamespace>
         <!-- The exe's own icon: Explorer, the taskbar pin and the Start-menu shortcut read it. -->
         <ApplicationIcon>Assets\kcap-icon.ico</ApplicationIcon>
+        <ApplicationManifest>app.manifest</ApplicationManifest>
     </PropertyGroup>
     <ItemGroup>
         <!-- Only a gen2 sweeps the large-object heap, and a mostly idle UI rarely reaches one, so

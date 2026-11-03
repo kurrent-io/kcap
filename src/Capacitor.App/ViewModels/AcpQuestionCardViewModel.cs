@@ -42,13 +42,14 @@ public sealed class AcpQuestionCardViewModel : PendingCardViewModel {
         }
     }
 
-    public AcpQuestionCardViewModel(PendingPermissionRequest entry, IPermissionService permissions) : base(entry) {
+    public AcpQuestionCardViewModel(PendingPermissionRequest entry, IPermissionService permissions, IObservable<AgentViewerAccess>? access = null)
+        : base(entry, access) {
         _entry = entry;
         _permissions = permissions;
         var question = entry.AcpQuestion ?? throw new ArgumentException("not an ACP question", nameof(entry));
         Prompt = question.Prompt;
         IsMultiSelect = question.IsMultiSelect;
-        var idle = Busy.Select(b => !b);
+        var idle = Ready;
         Options = question.Options.Select(o => new AcpOptionViewModel(o.OptionId, o.Label, o.Description, PickAsync, idle, Refresh)).ToList();
         MinSelections = Math.Max(1, question.MinSelections ?? 1);
         MaxSelections = IsMultiSelect ? Math.Max(MinSelections, question.MaxSelections ?? Math.Max(1, Options.Count)) : 1;
@@ -63,6 +64,7 @@ public sealed class AcpQuestionCardViewModel : PendingCardViewModel {
     }
 
     Task PickAsync(AcpOptionViewModel option) {
+        if (!CanAnswer) return Task.CompletedTask;
         if (IsMultiSelect) { option.IsSelected = !option.IsSelected; return Task.CompletedTask; }
         foreach (var o in Options) o.IsSelected = ReferenceEquals(o, option);
         return SubmitAsync();
@@ -75,7 +77,7 @@ public sealed class AcpQuestionCardViewModel : PendingCardViewModel {
     }
 
     async Task SubmitAsync() {
-        if (IsBusy || IsDisposed || !IsAnswered) return;
+        if (IsBusy || IsDisposed || !IsAnswered || !CanAnswer) return;
         IsBusy = true;
         ErrorText = null;
         try {

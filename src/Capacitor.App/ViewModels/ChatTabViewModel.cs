@@ -210,6 +210,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     }
 
     public PendingCardsViewModel Cards { get; }
+
+    /// The messages held for the agent's owner; null where the agent cannot hold any.
+    public HeldMessagesViewModel? Held { get; }
+
+    readonly ObservableAsPropertyHelper<string?> _controlNote;
+    /// How the viewer's messages reach the agent and, when its keys are not theirs, why.
+    public string? ControlNote => _controlNote.Value;
     public ReadOnlyObservableCollection<PendingCardViewModel> PendingCards => Cards.PendingCards;
 
     readonly ObservableAsPropertyHelper<bool> _hasPendingCards;
@@ -763,9 +770,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             Action<ToolCard>? openCard = null, ComposerDrafts? drafts = null, IMessageSenderSource? senders = null,
             IObservable<AccountsSnapshotDto?>? accountReadings = null, IObservable<DateTimeOffset>? usageClock = null,
             IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeDto?>? handoffOutcome = null,
-            Action<string>? openLink = null) {
+            Action<string>? openLink = null, IObservable<AgentViewerAccess>? viewerAccess = null,
+            HeldMessagesViewModel? heldMessages = null) {
         _tracksAccountReadings = accountReadings is not null;
         _drafts = drafts;
+        Held = heldMessages;
+        if (heldMessages is not null) _disposables.Add(heldMessages);
         _origin = origin;
         _agentId = agentId;
         _composerText = drafts?.Get(origin, agentId) ?? "";
@@ -805,7 +815,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }
         Cards = new PendingCardsViewModel(
             agentId, origin, sessionId ?? Observable.Return<string?>(null), permissions, _rootSubject,
-            localDaemonOnAppServer);
+            localDaemonOnAppServer, viewerAccess);
         _hasPendingCards = Cards.WhenAnyValue(c => c.HasPendingCards)
             .ToProperty(this, x => x.HasPendingCards, initialValue: Cards.HasPendingCards)
             .DisposeWith(_disposables);
@@ -922,6 +932,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                 (availability, readOnly, handoff) => !readOnly && availability != SendAvailability.Ended && handoff is null)
             .ToProperty(this, x => x.ShowsComposer,
                 initialValue: !IsReadOnlyParticipant && _input.Availability != SendAvailability.Ended && Handoff is null)
+            .DisposeWith(_disposables);
+
+        _controlNote = _input.WhenAnyValue(i => i.ControlNote)
+            .ToProperty(this, x => x.ControlNote, initialValue: _input.ControlNote)
             .DisposeWith(_disposables);
 
         _input.WhenAnyValue(i => i.Availability)

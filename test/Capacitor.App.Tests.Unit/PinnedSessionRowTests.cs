@@ -28,7 +28,7 @@ public class PinnedSessionRowTests {
         await Assert.That(row.Status).IsEqualTo("ended");
         await Assert.That(row.StartedAt).IsEqualTo(Started);
         await Assert.That(row.EndedAt).IsEqualTo(Started.AddHours(1));
-        await Assert.That(row.LastActivityAt).IsEqualTo(Started.AddMinutes(50));
+        await Assert.That(row.LastActivityAt).IsEqualTo(Started.AddHours(1));
         await Assert.That(row.Branch).IsEqualTo("main");
         await Assert.That(row.PrimaryRepoHash).IsEqualTo("h-main");
         await Assert.That(row.Repo).IsEqualTo(new RepoSessionRepositoryDto { Hash = "h-main", Owner = "acme", Name = "app" });
@@ -51,5 +51,27 @@ public class PinnedSessionRowTests {
         await Assert.That(row.Stale).IsFalse();
         await Assert.That(row.LastActivityAt).IsEqualTo(Started);
         await Assert.That(row.PrimaryRepoHash).IsEqualTo("h-first");
+    }
+
+    /// <summary>A title or recap written days after the end advances LastEventAt; the row still
+    /// reports the end, as the session listing does.</summary>
+    [Test]
+    public async Task An_ended_session_reports_its_end_as_last_activity() {
+        var summary = new ActivitySessionDto {
+            SessionId = "s3", Status = "ended", StartedAt = Started, EndedAt = Started.AddHours(1), LastEventAt = Started.AddDays(12),
+        };
+
+        var row = PinnedSessionRow.From(summary, new PinPresentation("alice", "Alice", null));
+
+        await Assert.That(row.LastActivityAt).IsEqualTo(Started.AddHours(1));
+    }
+
+    [Test]
+    public async Task An_active_session_reports_its_last_event() {
+        var summary = new ActivitySessionDto { SessionId = "s4", Status = "active", StartedAt = Started, LastEventAt = Started.AddMinutes(5) };
+
+        var row = PinnedSessionRow.From(summary, new PinPresentation("alice", "Alice", null));
+
+        await Assert.That(row.LastActivityAt).IsEqualTo(Started.AddMinutes(5));
     }
 }

@@ -52,7 +52,9 @@ public sealed record AgentRow(
         bool IsPlaceholder = false,
         // Where the listing says the session was recorded; null below ownership, from an older server, and on a daemon row.
         RepoSessionRecordingDto? Recording = null,
-        string? AccountLabel = null) {
+        string? AccountLabel = null,
+        // What the viewer may do to a hosted agent on another machine; null from a server with agent privileges off.
+        AgentViewerRightsDto? ViewerRights = null) {
 
     /// A session the server lists as ended; a daemon row's Completed is not this.
     public bool IsEndedSession => Origin == AgentOrigin.Server && Status == "Completed";
@@ -88,7 +90,8 @@ public sealed record AgentRow(
                 ? new TerminalDialogDto(dialog.Heading, dialog.Body, dialog.Options, dialog.Selected, dialog.Screen)
                 : null,
             OwnerUserId: dto.OwnerUserId,
-            AccountDirectory: dto.AccountDirectory, AccountId: dto.AccountId, AccountLabel: dto.AccountLabel);
+            AccountDirectory: dto.AccountDirectory, AccountId: dto.AccountId, AccountLabel: dto.AccountLabel,
+            ViewerRights: dto.ViewerRights);
     }
 
     /// A row from the server's listing. The status is the daemon vocabulary the rail already reads:

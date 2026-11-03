@@ -29,6 +29,15 @@ static class PermissionEntries {
         PendingPermissionRequest.FromServer(new ServerPermissionRequest(sessionId, requestId, toolName, null, options), vendor,
             requestedAt ?? new DateTimeOffset(2026, 8, 28, 10, 0, 0, TimeSpan.Zero));
 
+    public static PendingPermissionRequest ServerQuestion(
+            string requestId = "srv-q1", string sessionId = "s1",
+            string toolInputJson = """{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]}]}""") {
+        using var input = System.Text.Json.JsonDocument.Parse(toolInputJson);
+        return PendingPermissionRequest.FromServer(
+            new ServerPermissionRequest(sessionId, requestId, ClaudeElicitation.ToolName, input.RootElement.Clone(), null), "claude",
+            new DateTimeOffset(2026, 8, 28, 10, 0, 0, TimeSpan.Zero));
+    }
+
     public static PendingPermissionRequest AcpPermission(
             string requestId = "srv-1", string sessionId = "s1", IReadOnlyList<AcpInteractionOption>? options = null,
             DateTimeOffset? requestedAt = null) =>

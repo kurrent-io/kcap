@@ -10,6 +10,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -2024,6 +2025,44 @@ public class ChatTabViewSmokeTests {
             await host.CloseAsync();
         });
     }
+    /// The Other field sits in a template nested inside the question card's, so its enabled state has
+    /// to reach the card's rights across that template: without Answer questions it takes no text.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Other_follows_the_viewers_right_to_answer() {
+        await RunOnUiAsync(async () => {
+            using var permissions = new FakePermissionService();
+            var rights = new BehaviorSubject<AgentViewerAccess>(
+                AgentViewerAccess.From(new Capacitor.Remote.Models.AgentViewerRightsDto { Reaches = true }));
+            using var card = new QuestionCardViewModel(PermissionEntries.ServerQuestion(), permissions, rights);
+            var host = new ContentControl {
+                Content = card, ContentTemplate = (IDataTemplate)Application.Current!.FindResource("QuestionCardTemplate")!,
+            };
+            var window = new Window { Content = host, Width = 600, Height = 600 };
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            var other = window.GetVisualDescendants().OfType<TextBox>().Single(t => t.PlaceholderText == "Other…");
+            var group = (QuestionGroupViewModel)other.DataContext!;
+            await Assert.That(other.IsEnabled).IsFalse();
+            other.Focus();
+            window.KeyTextInput("not mine");
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(other.IsFocused).IsFalse();
+            await Assert.That(string.IsNullOrEmpty(group.OtherText)).IsTrue();
+
+            rights.OnNext(AgentViewerAccess.From(new Capacitor.Remote.Models.AgentViewerRightsDto { Reaches = true, AnswerQuestions = true }));
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(other.IsEnabled).IsTrue();
+            other.Focus();
+            window.KeyTextInput("mine");
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(other.IsFocused).IsTrue();
+            await Assert.That(group.OtherText).IsEqualTo("mine");
+            window.Close();
+        });
+    }
+
     static Button Option(Host host, string label) => host.View.GetVisualDescendants().OfType<Button>()
         .Single(b => b.Classes.Contains("option") && b.DataContext is QuestionOptionViewModel { Label: var l } && l == label);
     static List<Button> Steps(Host host) => host.View.GetVisualDescendants().OfType<Button>().Where(b => b.Classes.Contains("step")).ToList();

@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
-using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -377,7 +376,7 @@ class ImportCommand(
         /// shape, and TranscriptBatch.Vendor tag.</summary>
         public HarnessId Vendor { get; init; } = HarnessId.Claude;
 
-        /// <summary>Only populated when Status == Partial.</summary>
+        /// <summary>Physical line to resume from for Partial sessions and routed AlreadyLoaded replays</summary>
         public int ResumeFromLine { get; init; }
 
         /// <summary>Only populated when Status == ProbeError. Short human-readable reason.</summary>
@@ -1234,7 +1233,7 @@ class ImportCommand(
             MinLines: minLines,
             Home: home,
             Reimport: reimport
-        ) { Stderr = console.Error };
+        ) { Stderr = console.Error, TranscriptLedger = TranscriptImportLedger.Load(config) };
 
         IReadOnlyList<SessionClassification>[] classificationsPerSource;
 
@@ -1900,6 +1899,7 @@ class ImportCommand(
         if (routed.Count > 0) {
             display.BeginPhase($"Importing {routed.Count} routed session{(routed.Count == 1 ? "" : "s")}");
 
+            var routedLedger = TranscriptImportLedger.ForRecording(config);
             var importCtx = new ImportContext(
                 HttpClient: httpClient,
                 BaseUrl: baseUrl,
@@ -1908,7 +1908,7 @@ class ImportCommand(
                 Progress: new CallbackProgress(ev => {
                     if (ev is ImportWarning w) WarnSession(w.SessionId, w.Message);
                 })
-            ) { Stderr = console.Error };
+            ) { Stderr = console.Error, TranscriptLedger = routedLedger };
 
             async Task<ImportSessionResult> ImportOne(SessionClassification c) {
                 if (!sourceBySession.TryGetValue((c.Vendor, c.SessionId), out var src)) {
@@ -2081,6 +2081,7 @@ class ImportCommand(
                     }
                 );
             }
+            routedLedger.Save();
         }
 
         await RecordImportedRepositoriesAsync(classifications, selectedIds, sessionCwds, display);
@@ -3491,7 +3492,7 @@ class ImportCommand(
                     return (SessionImportOutcome.Errored, linesSent);
                 }
 
-                if (!transcriptDropped) await RecordImportMarkAsync(httpClient, baseUrl, session.SessionId, completeLines.Value, ledger, ct);
+                if (!transcriptDropped) await ledger.RecordAsync(httpClient, baseUrl, session.SessionId, completeLines.Value, ct);
 
                 return (SessionImportOutcome.Resumed, linesSent);
             } catch (HttpRequestException ex) {
@@ -3675,35 +3676,12 @@ class ImportCommand(
 
         if (titleCancelled) ct.ThrowIfCancellationRequested();
 
-        if (!transcriptDropped) await RecordImportMarkAsync(httpClient, baseUrl, session.SessionId, importResult.CompleteLines, ledger, ct);
+        if (!transcriptDropped) await ledger.RecordAsync(httpClient, baseUrl, session.SessionId, importResult.CompleteLines, ct);
 
         if (!harnessTitled) events.OnTitleTaskReady((session.SessionId, session.FilePath, session.PreviousSessionId, session.Vendor));
         events.OnBackgroundWorkReady((session.SessionId, generateWhatsDone, session.Vendor));
 
         return (SessionImportOutcome.Loaded, importResult.LinesSent);
-    }
-
-    /// <summary>
-    /// Asks the server where its watermark settled once the transcript landed, and records it beside the lines
-    /// that were sent, so the next import can tell lines the server ignored from lines it never got.
-    /// </summary>
-    static async Task RecordImportMarkAsync(
-            HttpClient             httpClient,
-            string                 baseUrl,
-            string                 sessionId,
-            int                    completeLines,
-            TranscriptImportLedger ledger,
-            CancellationToken      ct
-        ) {
-        try {
-            using var resp = await httpClient.GetAsync($"{baseUrl}/api/sessions/{sessionId}/last-line", ct);
-            if (resp.StatusCode != HttpStatusCode.OK) return;
-
-            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-            if (doc.RootElement.Num("last_line_number") is { } watermark && completeLines > watermark)
-                ledger.Record(baseUrl, sessionId, new TranscriptImportMark(completeLines, (int)watermark));
-        } catch (Exception e) when (e is HttpRequestException or JsonException or InvalidOperationException
-                                     || e is OperationCanceledException && !ct.IsCancellationRequested) { }
     }
 
     // A cancellation during the title post is held until session-end has been sent, which then runs uncancelled and is

@@ -397,14 +397,15 @@ internal sealed class CursorImportSource : IImportSource {
 
             var status       = ImportCommand.ClassificationStatus.New;
             var resumeFromLn = 0;
+            TranscriptImportMark? resumeMark = null;
 
             if (serverLastLine is { } srv) {
-                if (srv >= lastNonBlankIndex.Value) {
-                    status = ImportCommand.ClassificationStatus.AlreadyLoaded;
-                } else {
-                    status       = ImportCommand.ClassificationStatus.Partial;
-                    resumeFromLn = srv + 1;
-                }
+                var ledger = ctx.Reimport ? null : ctx.TranscriptLedger;
+                if (ledger is not null) resumeMark = await ledger.MatchFileAsync(ctx.BaseUrl, s.SessionId, srv, transcriptPath, ct);
+                resumeFromLn = resumeMark?.Lines ?? srv + 1;
+                status = resumeFromLn > lastNonBlankIndex.Value
+                    ? ImportCommand.ClassificationStatus.AlreadyLoaded
+                    : ImportCommand.ClassificationStatus.Partial;
             }
 
             results.Add(new ImportCommand.SessionClassification {
@@ -424,7 +425,7 @@ internal sealed class CursorImportSource : IImportSource {
                 Vendor          = Vendor,
                 ResumeFromLine  = resumeFromLn,
                 TotalLines      = nonBlankCount,
-                SourceMeta      = StampSubagentMeta(s.SourceMeta!, s.SessionId, quarantineIdentity, subagentLinks, childrenByParent),
+                SourceMeta      = StampSubagentMeta(s.SourceMeta!, s.SessionId, quarantineIdentity, subagentLinks, childrenByParent, resumeMark),
             });
         }
 
@@ -515,14 +516,10 @@ internal sealed class CursorImportSource : IImportSource {
             ct);
         if (!startOk) return ImportOutcome.Failed;
 
-        // Partial → resume from server watermark + 1. AlreadyLoaded → nothing
-        // past the watermark, so SendTranscriptBatches returns 0 immediately.
-        // The routed-phase filter at ImportCommand.cs:749 now includes
-        // AlreadyLoaded for Cursor so legacy lifecycle-less sessions get
-        // re-synced; the transcript leg becomes a no-op in that case.
+        // AlreadyLoaded still replays lifecycle and children; its own frontier is a physical line count
         var startLine = classification.Status switch {
             ImportCommand.ClassificationStatus.Partial       => classification.ResumeFromLine,
-            ImportCommand.ClassificationStatus.AlreadyLoaded => classification.TotalLines,
+            ImportCommand.ClassificationStatus.AlreadyLoaded => Math.Max(classification.ResumeFromLine, classification.TotalLines),
             _                                                => 0,
         };
 
@@ -562,6 +559,10 @@ internal sealed class CursorImportSource : IImportSource {
             return ImportOutcome.Failed;
         }
 
+        var checkpoint = new TranscriptImportCheckpoint(ctx);
+        using var fingerprint = new TranscriptImportFingerprint(
+            classification.SourceMeta.TryGetValue("ImportPrefixLines", out var prefixLines) && prefixLines is int count ? count : 0,
+            classification.SourceMeta.GetValueOrDefault("ImportPrefixSha256") as string);
         int sent;
         try {
             // abortDelivery re-checks the ALREADY-resolved
@@ -577,8 +578,10 @@ internal sealed class CursorImportSource : IImportSource {
                 agentId:       null,
                 startLine:     startLine, time: _time,
                 vendor:        Vendor,
-                progress:      ctx.Progress,
-                abortDelivery: () => _markers.IsQuarantined(quarantineIdentity));
+                progress:      checkpoint,
+                abortDelivery: () => _markers.IsQuarantined(quarantineIdentity),
+                completeLines: checkpoint.CompleteLines,
+                fingerprint:   fingerprint);
         } catch (SessionImporter.TranscriptDeliveryAbortedException) {
             // Quarantine tripped, or the server blocked a batch at a gap: no remaining batches or
             // children, so a re-run resumes from the server's watermark.
@@ -640,6 +643,8 @@ internal sealed class CursorImportSource : IImportSource {
             ct);
         if (!endOk) return ImportOutcome.Failed;
 
+        await checkpoint.RecordAsync(classification.SessionId, ct, fingerprint.Sha256);
+
         if (sent == 0) {
             var noOwnContentOutcome = startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped;
             return new ImportSessionResult(noOwnContentOutcome, SentChildContent: sentChildContent);
@@ -670,9 +675,14 @@ internal sealed class CursorImportSource : IImportSource {
         string                                                     sessionId,
         string                                                     quarantineIdentity,
         Dictionary<string, CursorSubagentCorrelator.SubagentLink>  links,
-        Dictionary<string, List<CursorSubagentChild>>              childrenByParent
+        Dictionary<string, List<CursorSubagentChild>>              childrenByParent,
+        TranscriptImportMark?                                     resumeMark
     ) {
         var d = new Dictionary<string, object?>(src) { ["QuarantineIdentity"] = quarantineIdentity };
+        if (resumeMark is { PrefixSha256: not null }) {
+            d["ImportPrefixLines"] = resumeMark.Lines;
+            d["ImportPrefixSha256"] = resumeMark.PrefixSha256;
+        }
         if (links.TryGetValue(sessionId, out var link)) {
             d["IsSubagentChild"] = true;
             d["ParentSessionId"] = link.ParentSessionId;

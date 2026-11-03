@@ -1097,6 +1097,7 @@ public partial class App : Application {
         var readDetail = ServerSessionHttp.DetailReader(sessionHttp, profiles);
         var readSubagent = ServerSessionHttp.SubagentEventsReader(sessionHttp, profiles);
         var uploader = new ServerAttachmentUploader(sessionHttp, profiles);
+        var heldMessages = new HeldMessagesApi(sessionHttp, profiles);
         var permissions = new PermissionService(
             service, ops, ct => PermissionSubscription.RunAsync(_daemonStore, service.DaemonName, ct),
             _time, _shutdown.Token, ServerSessionHttp.Responder(sessionHttp, profiles),
@@ -1259,7 +1260,7 @@ public partial class App : Application {
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
-                    pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
+                    heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
                     inAppPages: () => inAppPages.IsOn)
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.

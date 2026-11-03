@@ -18,14 +18,23 @@ public class WatcherStopSignalTests {
         await asked.Task.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
-    /// <summary>False is what sends the stopper on to the hard kill.</summary>
+    /// <summary>False is what sends the stopper on to the hard kill. A disposed listener's event can stay
+    /// openable for a moment, until the pool's wait thread lets go of its handle, so that case is waited for.</summary>
     [Test, RunOn(OS.Windows)]
     public async Task Nobody_listening_reports_the_request_undelivered() {
         var pid = UnusedPid();
 
         await Assert.That(WatcherStopSignal.TryRequest(pid)).IsFalse();
 
-        WatcherStopSignal.Listen(pid, () => { })!.Dispose();
+        var listener = WatcherStopSignal.Listen(pid, () => { })!;
+        try {
+            await Assert.That(WatcherStopSignal.TryRequest(pid)).IsTrue();
+        } finally {
+            listener.Dispose();
+        }
+
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (WatcherStopSignal.TryRequest(pid) && waited.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(20);
 
         await Assert.That(WatcherStopSignal.TryRequest(pid)).IsFalse();
     }

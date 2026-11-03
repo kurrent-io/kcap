@@ -194,12 +194,13 @@ public sealed class QuestionCardViewModel : PendingCardViewModel {
     public string NextLabel => _currentIndex == Questions.Count - 1 ? "Review" : "Next";
     public string StepLabel => !HasReview ? "" : IsOnReview ? "Review your answers" : $"Question {_currentIndex + 1} of {Questions.Count}";
 
-    public QuestionCardViewModel(PendingPermissionRequest entry, IPermissionService permissions) : base(entry) {
+    public QuestionCardViewModel(PendingPermissionRequest entry, IPermissionService permissions, IObservable<AgentViewerAccess>? access = null)
+        : base(entry, access) {
         _entry = entry;
         _permissions = permissions;
         var parsed = entry.Questions ?? throw new ArgumentException("not an elicitation entry", nameof(entry));
 
-        var idle = Busy.Select(b => !b);
+        var idle = Ready;
         Questions = parsed.Questions.Select((q, i) => new QuestionGroupViewModel(i, q, PickAsync, EnterAsync, g => GoTo(g.Index), idle)).ToList();
         IsFastPath = Questions.Count == 1 && !Questions[0].MultiSelect && Questions[0].Options.Count > 0;
         foreach (var q in Questions) {
@@ -255,6 +256,7 @@ public sealed class QuestionCardViewModel : PendingCardViewModel {
     }
 
     Task PickAsync(QuestionOptionViewModel option, QuestionGroupViewModel group) {
+        if (!CanAnswer) return Task.CompletedTask;
         if (group.MultiSelect) { option.IsSelected = !option.IsSelected; return Task.CompletedTask; }
         group.SelectExclusively(option);
         if (IsFastPath) return SubmitAsync();
@@ -273,7 +275,7 @@ public sealed class QuestionCardViewModel : PendingCardViewModel {
     }
 
     async Task SubmitAsync() {
-        if (IsBusy || IsDisposed) return;
+        if (IsBusy || IsDisposed || !CanAnswer) return;
         IsBusy = true;
         ErrorText = null;
         try {

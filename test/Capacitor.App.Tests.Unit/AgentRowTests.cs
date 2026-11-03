@@ -166,4 +166,11 @@ public class AgentRowTests {
     public async Task FromRemote_carries_the_owner() {
         await Assert.That(AgentRow.FromRemote(Remote(null)).OwnerUserId).IsEqualTo("u7");
     }
+
+    [Test]
+    public async Task FromRemote_carries_the_viewer_rights_and_none_from_a_server_without_them() {
+        var rights = new AgentViewerRightsDto { Reaches = true, HoldMessages = true };
+        await Assert.That(AgentRow.FromRemote(Remote(null) with { ViewerRights = rights }).ViewerRights).IsEqualTo(rights);
+        await Assert.That(AgentRow.FromRemote(Remote(null)).ViewerRights).IsNull();
+    }
 }
