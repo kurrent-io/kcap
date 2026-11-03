@@ -252,12 +252,12 @@ public class LocalUpgradeTests {
         await Assert.That(JournalAbsent()).IsTrue();
     }
 
-    /// <summary>A server whose unit or files are gone cannot be upgraded however often it is retried, so its code is
-    /// not one a client offers to retry.</summary>
+    /// <summary>Files that are gone fail the same on every retry, so their code is not one a client offers to retry. A
+    /// service that is gone over intact files is what <c>kcap local start</c> restores, so that is where it points.</summary>
     [Test]
-    [Arguments(true)]
-    [Arguments(false)]
-    public async Task A_missing_server_fails_as_missing_and_changes_nothing(bool unitGone) {
+    [Arguments(false, LocalInstallFailureCode.ServerMissing, "kcap setup --local")]
+    [Arguments(true, LocalInstallFailureCode.ServiceMissing, "kcap local start")]
+    public async Task A_missing_server_or_service_fails_as_such_and_changes_nothing(bool unitGone, LocalInstallFailureCode code, string points) {
         Installed();
         if (unitGone) await Service.UninstallAsync(LocalServerUnit.ForInstallation(Root, Port), CancellationToken.None);
         else File.Delete(Tmp.PathTo(["r", "bin", Old, "kcap-server"]));
@@ -265,8 +265,8 @@ public class LocalUpgradeTests {
 
         var failure = await Failure();
 
-        await Assert.That(failure.Code).IsEqualTo(LocalInstallFailureCode.ServerMissing);
-        await Assert.That(failure.Message).Contains("kcap setup --local");
+        await Assert.That(failure.Code).IsEqualTo(code);
+        await Assert.That(failure.Message).Contains(points);
         await Assert.That(RegistryVersion()).IsEqualTo(Old);
         await Assert.That(JournalAbsent()).IsTrue();
     }

@@ -467,6 +467,39 @@ public class LocalServerRecoveryViewModelTests {
         });
     }
 
+    /// The read a start asks for afterwards belongs to the lane too: a server that connected by then is not read again,
+    /// however the files read.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_start_that_connects_is_not_followed_by_rereads() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var status = new BehaviorSubject<ServerLaneStatus>(new(ServerLaneState.Connecting));
+            var recheck = new HistoricalScheduler();
+            var condition = LocalServerCondition.Installed;
+            var reads = 0;
+            using var vm = new LocalServerRecoveryViewModel(status, isLocalServer: true,
+                _ => {
+                    condition = LocalServerCondition.Changing;
+                    return Task.FromResult(Started);
+                },
+                () => {
+                    status.OnNext(new(ServerLaneState.Connected));
+                    return Task.CompletedTask;
+                },
+                CancellationToken.None, readCondition: _ => { reads++; return Task.FromResult(new LocalServerReading(condition)); },
+                readScheduler: ImmediateScheduler.Instance, recheckScheduler: recheck);
+
+            status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
+            await Assert.That(await vm.StartAsync()).IsTrue();
+            var afterStart = reads;
+
+            recheck.AdvanceBy(TimeSpan.FromSeconds(10));
+
+            await Assert.That(reads).IsEqualTo(afterStart);
+            await Assert.That(vm.Condition).IsEqualTo(LocalServerCondition.Installed);
+        });
+    }
+
     /// Until the files have been read nothing is known, so nothing is offered.
     [Test]
     [NotInParallel("AvaloniaSession")]

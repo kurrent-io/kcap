@@ -69,10 +69,11 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
                     ? Observable.Return(r).Concat(Observable.Timer(ChangingRecheck, recheck).SelectMany(_ => ReadUntilSettled()))
                     : Observable.Return(r));
 
-            // A connected server ends the rechecks: its reading is not shown.
-            Observable.Switch(status.Where(s => s.State is ServerLaneState.Retrying or ServerLaneState.Connected)
-                    .Select(s => s.State == ServerLaneState.Retrying ? ReadUntilSettled() : Observable.Empty<LocalServerReading>())
-                    .Merge(_rereads.Select(_ => ReadUntilSettled())))
+            // A connected server ends every read, a start's included: its reading is not shown.
+            var lane = status.Where(s => s.State is ServerLaneState.Retrying or ServerLaneState.Connected).Select(s => s.State == ServerLaneState.Retrying);
+            var afterStart = _rereads.WithLatestFrom(status, (_, s) => s.State != ServerLaneState.Connected);
+            Observable.Switch(lane.Merge(afterStart)
+                    .Select(read => read ? ReadUntilSettled() : Observable.Empty<LocalServerReading>()))
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
                 .Subscribe(r => Reading = r)
                 .DisposeWith(_disposables);

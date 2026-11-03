@@ -55,9 +55,14 @@ sealed class LocalUpgrade(LocalStack stack, IProgress<LocalInstallEvent> progres
             case < 0: return Done(new LocalInstallEvent.NothingToDo(UpgradeSkip.StackNewer, version, from));
         }
 
-        if (installed.UnitAbsent || !File.Exists(unit.ServerBinary))
+        if (!File.Exists(unit.ServerBinary))
             throw Failed(LocalInstallFailureCode.ServerMissing,
                 $"The local server's files are not installed, so there is nothing to update; its data is kept. Run kcap setup --local to reinstall kcap local {from}, then kcap local upgrade.");
+
+        // Restoring the unit starts the server, which an upgrade must not decide for a user who removed it.
+        if (installed.UnitAbsent)
+            throw Failed(LocalInstallFailureCode.ServiceMissing,
+                $"The local server's {stack.Service.Describe} is not installed, so the update did not run; its files and data are intact. Run kcap local start to restore it, then kcap local upgrade.");
 
         if (installed.Owner != OwnerDecision.Ours)
             throw Failed(LocalInstallFailureCode.NotOurServer,
