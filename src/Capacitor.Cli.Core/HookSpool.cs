@@ -72,7 +72,13 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
             Directory.CreateDirectory(DirectoryPath);
             var line = new JsonObject { ["route"] = route, ["body"] = rawPayloadJson }.ToJsonString();
             EnsureUnderCap(path, Encoding.UTF8.GetByteCount(line) + 1);
+            var fresh = !File.Exists(path);
             File.AppendAllText(path, $"{line}\n");
+            // Drains order temps by creation time, and Windows gives a file created under a name renamed away
+            // in the last 15 s that name's old creation time, which would sort this file beside the one before it.
+            if (fresh && OperatingSystem.IsWindows()) {
+                try { File.SetCreationTimeUtc(path, time.GetUtcNow().UtcDateTime); } catch { /* the file keeps the inherited time */ }
+            }
             return true;
         } catch {
             return false;
@@ -179,7 +185,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         if (!await SettleEarlierRunsAsync(sid, NewFifoTempName, poster, expired, ct)) return true;
         if (IsMarkedEnded(sid)) return false;
 
-        foreach (var temp in Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sid)}.*.draining").OrderBy(File.GetCreationTimeUtc)) {
+        foreach (var temp in Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sid)}.*.draining").OrderBy(File.GetCreationTimeUtc).ThenBy(TempSequence)) {
             if (expired() || ct.IsCancellationRequested) return false;
             var (stop, ended) = await DrainFileAsync(temp, poster, expired, ct);
             if (stop) return true;
@@ -298,7 +304,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
         var consumed = 0;
 
-        foreach (var temp in Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sid)}.ordered-*").OrderBy(File.GetCreationTimeUtc)) {
+        foreach (var temp in Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sid)}.ordered-*").OrderBy(File.GetCreationTimeUtc).ThenBy(TempSequence)) {
             if (expired() || ct.IsCancellationRequested) return consumed;
             var (stopped, n) = await DrainFileRoutesAsync(temp, isTerminal, poster, expired, ct);
             consumed += n;
@@ -417,7 +423,16 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     IEnumerable<string> Temps(string key) =>
         Directory.EnumerateFiles(DirectoryPath, $"{key}.ordered-*")
             .Concat(Directory.EnumerateFiles(DirectoryPath, $"{key}.*.draining"))
-            .OrderBy(File.GetCreationTimeUtc);
+            .OrderBy(File.GetCreationTimeUtc).ThenBy(TempSequence);
+
+    // "{key}.ordered-{pid}-{seq}" and "{key}.{pid}-{seq}.draining": seq is one counter per process, so it orders
+    // temps that share a creation time when one process made them, and nothing across processes.
+    static int TempSequence(string path) {
+        var name = Path.GetFileName(path);
+        if (name.EndsWith(".draining", StringComparison.Ordinal)) name = name[..^".draining".Length];
+        var dash = name.LastIndexOf('-');
+        return dash >= 0 && int.TryParse(name[(dash + 1)..], System.Globalization.CultureInfo.InvariantCulture, out var seq) ? seq : 0;
+    }
 
     static async Task RewriteAsync(string path, List<string> keep, CancellationToken ct) {
         try {

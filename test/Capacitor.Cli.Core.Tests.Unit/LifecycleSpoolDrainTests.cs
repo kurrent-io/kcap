@@ -396,6 +396,22 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(life.HasBacklog(Sid)).IsFalse();
     }
 
+    /// <summary>Two temps one process made can share a creation time: they keep the order the process made them in.</summary>
+    [Test]
+    public async Task temps_with_one_creation_time_keep_the_order_they_were_made_in() {
+        using var tmp = new TempDir();
+        var held  = tmp.CreateFile($"{Sid}.7-1.draining", "{\"route\":\"session-end/kiro\",\"body\":\"{\\\"run\\\":1}\"}\n");
+        var later = tmp.CreateFile($"{Sid}.ordered-7-2", "{\"route\":\"session-start/kiro\",\"body\":\"{\\\"run\\\":2}\"}\n");
+        var at    = DateTime.UtcNow.AddMinutes(-1);
+        File.SetCreationTimeUtc(held, at);
+        File.SetCreationTimeUtc(later, at);
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx))).IsEqualTo("""{"run":2}""");
+        await Assert.That(life.HasBacklog(Sid)).IsFalse();
+    }
+
     /// <summary>A straggler of an ended run is never delivered after that end, not even ahead of a new start.</summary>
     [Test]
     [Arguments(false)]
