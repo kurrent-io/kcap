@@ -44,14 +44,21 @@ public sealed class HarnessCommand(
             return 0;
         }
 
+        // A hooks file Codex refuses runs nothing, as kcap status reports it.
+        var codexRefused = StatusCommand.CodexRefusedHooks(harnesses);
+
         Console.WriteLine($"  {"Harness",-14}{"Installed",-11}{"kcap wired",-13}Dismissed");
         foreach (var h in harnesses) {
             var isDismissed = ledger.Entry(h.Id) is { Declined: true };
+            var wired       = StatusCommand.HooksRun(h.Id, h.Signals.IsWired, codexRefused);
             Console.WriteLine(
-                $"  {h.Label,-14}{YesNo(harnesses.Detected(h.Id)),-11}{HarnessListRender.WiredCell(h.Id, h.Signals.IsWired, codexTrust),-13}{YesNo(isDismissed)}");
+                $"  {h.Label,-14}{YesNo(harnesses.Detected(h.Id)),-11}{HarnessListRender.WiredCell(h.Id, wired, codexTrust),-13}{YesNo(isDismissed)}");
         }
 
-        if (codexTrust == CodexHooksTrust.Untrusted) {
+        if (codexRefused is not null) {
+            Console.WriteLine();
+            Console.WriteLine($"  {StatusGlyphs.ForConsole(StatusCommand.CodexHooksDetailLine(codexRefused))}");
+        } else if (codexTrust == CodexHooksTrust.Untrusted) {
             Console.WriteLine();
             Console.WriteLine($"  {StatusGlyphs.ForConsole(StatusCommand.CodexUntrustedLine())}");
         }
