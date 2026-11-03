@@ -418,22 +418,25 @@ public partial class WorktreeManager(
     /// fetched ref would fail the per-worktree fetch.</summary>
     async Task<string> PickWorktreeNameAsync(string repoPath, string worktreeRoot) {
         var common      = await ResolveGitCommonDirAsync(repoPath, time);
-        var fetchedRefs = await ListFetchedRefsAsync(repoPath);
+        var fetchedRefs = common is null ? FrozenSet<string>.Empty : await ListFetchedRefsAsync(repoPath);
 
         return WorktreeNames.PickFree(name =>
             IsPresentEntry(Path.Combine(worktreeRoot, name))
          || IsPresentEntry(Path.Combine(worktreeRoot, ClaimPrefix + name))
          || fetchedRefs.Contains(FetchedRefFor(name))
-         || (common is not null
-          && (IsPresentEntry(Path.Combine(common, "worktrees", name))
-           || IsPresentEntry(Path.Combine(common, FetchedRefFor(name))))));
+         || (common is not null && IsPresentEntry(Path.Combine(common, "worktrees", name))));
     }
 
-    /// <summary>Asks git rather than the ref's loose file, which <c>git pack-refs</c> removes.</summary>
+    /// <summary>Asks git rather than the ref's loose file, which <c>git pack-refs</c> removes. Fails rather
+    /// than answer empty, which would let a name reuse, and a fetch overwrite, a ref that holds a commit.
+    /// Not <c>sourceReadOnly</c>, for the <c>safe.directory</c> reason <see cref="ResolveGitCommonDirAsync"/>
+    /// gives.</summary>
     internal async Task<IReadOnlySet<string>> ListFetchedRefsAsync(string repoPath) {
-        var listed = await RunGitCaptureResult(repoPath, GitTimeout, time, sourceReadOnly: true, [],
+        var listed = await RunGitCaptureResult(repoPath, GitTimeout, time, sourceReadOnly: false, [],
             "for-each-ref", "--format=%(refname)", FetchedRefFor("").TrimEnd('/'));
-        if (listed.ExitCode != 0) return FrozenSet<string>.Empty;
+        if (listed.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"git for-each-ref failed: {GitFailureDetail(listed.Stderr, listed.Stdout)}");
 
         return listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToFrozenSet(StringComparer.Ordinal);
