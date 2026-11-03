@@ -118,6 +118,9 @@
                             <Button x:Name="LocalUpgradeTryAgainButton" Classes="kcapPrimary" Content="Try again"
                                     Command="{Binding LocalStack.TryAgainCommand}"
                                     IsVisible="{Binding LocalStack.TryAgainVisible, FallbackValue=False}" />
+                            <Button x:Name="LocalUpgradeReinstallButton" Classes="kcapPrimary" Content="Reinstall"
+                                    Command="{Binding LocalStack.ReinstallCommand}"
+                                    IsVisible="{Binding LocalStack.ReinstallVisible, FallbackValue=False}" />
                         </StackPanel>
                     </StackPanel>
                 </Grid>

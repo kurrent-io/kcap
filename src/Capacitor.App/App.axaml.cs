@@ -1180,6 +1180,7 @@ public partial class App : Application {
         var localStack = localUpgrade is null ? null : new LocalStackViewModel(
             () => LocalEndpoints.Read(_localRoot).Active?.Version, serverLane.Status, localUpgrade, lifecycleCli.LocalStartAsync,
             () => serverLane.RestartAsync(), _shutdown.Token, searchChange: localSearch) {
+            Reinstall = () => _ = RestartForSetupAsync(desktop),
             Search = localSearch is null ? null : new LocalSearchViewModel(
                 () => LocalEmbeddingFile.Read(_localRoot), ct => LocalBuiltinOffer.LookupAsync(_localRoot, ct), serverLane.Status, localSearch, localUpgrade, () => serverLane.RestartAsync(),
                 _shutdown.Token, openSettings: _openSearchSettings, builtinModelReady: () => LocalBuiltinOffer.InstalledModelReady(_localRoot),
@@ -2610,7 +2611,7 @@ public partial class App : Application {
             return;
         }
         if (envelope.Outcome is MutationOutcome.UnconfirmedNoAttach) {
-            surface.Attention($"The daemon {VerbDisplay(envelope.Request.Verb)} is not yet confirmed — check status.");
+            surface.Attention(DaemonEnabler.UnconfirmedStatus(envelope.Request.Verb));
             markPresented?.Invoke();
             return;
         }
@@ -2672,17 +2673,6 @@ public partial class App : Application {
             }
         }
     }
-
-    // A small display map instead of MutationVerb.ToString() for user-facing copy.
-    static string VerbDisplay(MutationVerb verb) => verb switch {
-        MutationVerb.Install       => "install",
-        MutationVerb.Replace       => "replace",
-        MutationVerb.StartVerified => "verified start",
-        MutationVerb.DetachedStart => "daemon start",
-        MutationVerb.Reload        => "reload",
-        MutationVerb.InstallWindowsService => "Windows service move",
-        _                          => verb.ToString(),
-    };
 
     /// User-facing line for Attention/Storage outcomes. Null means log-only — never surface a
     /// machine token the operator cannot act on.
