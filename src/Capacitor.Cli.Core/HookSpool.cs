@@ -206,6 +206,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         catch { return (false, null); }
 
         string? ended = null;
+        var     noted = false;
 
         var i = 0;
         for (; i < lines.Length; i++) {
@@ -219,6 +220,8 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
                 body  = node?["body"]?.GetValue<string>();
             } catch { route = body = null; }
             if (route is null || body is null) continue; // skip old-format / malformed
+
+            if (route == RunStartedRoute) { noted = true; break; }
 
             DrainOutcome outcome;
             try { outcome = await poster(route, body); }
@@ -241,7 +244,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         } catch {
             // Ignore: the temp still holds the remainder
         }
-        return (ended is null, ended);
+        return (ended is null && !noted, ended);
     }
 
     /// <summary>True if this session still has undelivered spool entries: a live .jsonl, a
@@ -319,9 +322,10 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
     /// <summary>
     /// Settles what a session's earlier runs left ahead of its latest run, before either drain delivers the
-    /// rest. The latest run begins at its spooled start, or at the note a start posted live leaves. With
-    /// neither, a marked session's later run begins at the first hook naming a run other than the one whose
-    /// end was delivered, or else at its latest end, as that earlier end was already delivered. Ahead of the
+    /// rest. A note a start posted live left drops exactly what was queued when that start was posted, and
+    /// lifts the ended marker it saw. Otherwise the latest run begins at its spooled start; with none, a
+    /// marked session's later run begins at the first hook naming a run other than the one whose end was
+    /// delivered, or else at its latest end, as that earlier end was already delivered. Ahead of the
     /// boundary an end is dropped, as the run it closed has started again, and so is a hook of the run
     /// whose end was delivered; the rest is posted in order. False when the pass stopped first.
     /// </summary>
@@ -343,94 +347,140 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
             // Lost the rename to another drain, which settles what it took
         }
 
-        var temps = Directory.EnumerateFiles(DirectoryPath, $"{key}.ordered-*")
-            .Concat(Directory.EnumerateFiles(DirectoryPath, $"{key}.*.draining"))
-            .OrderBy(File.GetCreationTimeUtc);
-
         var files = new List<(string Path, string[] Lines, List<(int Line, string Route, string Body)> Entries)>();
-        foreach (var temp in temps) {
+        foreach (var temp in Temps(key)) {
             string[] lines;
             try { lines = await File.ReadAllLinesAsync(temp, ct); }
             catch { continue; }
             files.Add((temp, lines, [.. lines.Select((l, i) => (i, Entry(l))).Where(e => e.Item2 is not null).Select(e => (e.i, e.Item2!.Value.Route, e.Item2!.Value.Body))]));
         }
 
-        var all    = files.SelectMany(f => f.Entries).ToList();
-        var marked = IsMarkedEnded(sid);
-        var ended  = marked ? EndedRun(sid) : default;
+        var all        = files.SelectMany(f => f.Entries).ToList();
+        var notes      = all.Where(e => e.Route == RunStartedRoute).Select(e => NoteOf(e.Body)).ToList();
+        var superseded = notes.SelectMany(n => n.Superseded).ToHashSet(StringComparer.Ordinal);
+        var lifted     = notes.Any(n => n.Lifts);
+        bool Settled((int Line, string Route, string Body) e) => e.Route == RunStartedRoute || superseded.Contains(EntryId(e.Route, e.Body));
+
+        var markerSet = IsMarkedEnded(sid);
+        var marked    = markerSet && !lifted;
+        var ended     = marked ? EndedRun(sid) : default;
         bool Straggler(string body) => marked && !NamesAnotherRun(body, ended);
 
-        var boundary = all.FindLastIndex(e => RouteHead(e.Route) is "session-start" or RunStartedRoute);
+        var rest     = all.Where(e => !Settled(e)).ToList();
+        var boundary = rest.FindLastIndex(e => RouteHead(e.Route) == "session-start");
         if (boundary < 0 && marked) {
-            boundary = all.FindIndex(e => !Straggler(e.Body));
-            if (boundary < 0) boundary = all.FindLastIndex(e => IsTerminalRoute(e.Route));
+            boundary = rest.FindIndex(e => !Straggler(e.Body));
+            if (boundary < 0) boundary = rest.FindLastIndex(e => IsTerminalRoute(e.Route));
         }
-        if (boundary < 0 && !marked) return true;
+        if (boundary < 0 && !marked && notes.Count == 0) return true;
 
-        // A note is the boundary's position only: nothing is posted for it.
-        var settle = boundary < 0 ? all.Count : all[boundary].Route == RunStartedRoute ? boundary + 1 : boundary;
+        var settle = boundary < 0 ? (marked ? rest.Count : 0) : boundary;
         poster = RecordingDeliveries(poster);
 
         var index = 0;
         foreach (var (path, lines, entries) in files) {
-            if (index >= settle) break;
+            var keep    = new List<string>();
+            var changed = false;
 
-            var keepFrom = -1;
-            foreach (var (line, route, body) in entries) {
-                if (index >= settle) { keepFrom = line; break; }
+            for (var n = 0; n < entries.Count; n++) {
+                var (line, route, body) = entries[n];
 
                 var outcome = DrainOutcome.Drop;
-                if (!IsTerminalRoute(route) && route != RunStartedRoute && !Straggler(body)) {
-                    if (expired() || ct.IsCancellationRequested) outcome = DrainOutcome.TransientStop;
-                    else {
-                        try { outcome = await poster(route, body); }
-                        catch { outcome = DrainOutcome.TransientStop; }
+                if (!Settled(entries[n])) {
+                    if (index++ >= settle) { keep.Add(lines[line]); continue; }
+
+                    if (!IsTerminalRoute(route) && !Straggler(body)) {
+                        if (expired() || ct.IsCancellationRequested) outcome = DrainOutcome.TransientStop;
+                        else {
+                            try { outcome = await poster(route, body); }
+                            catch { outcome = DrainOutcome.TransientStop; }
+                        }
                     }
                 }
 
                 if (outcome == DrainOutcome.TransientStop) {
-                    await KeepFromAsync(path, lines, line, ct);
+                    keep.AddRange(entries.Skip(n).Select(e => lines[e.Line]));
+                    await RewriteAsync(path, keep, ct);
                     return false;
                 }
 
-                index++;
+                changed = true;
             }
 
-            if (keepFrom < 0) {
-                try { File.Delete(path); } catch { /* a leftover temp settles again on the next pass */ }
-            } else {
-                await KeepFromAsync(path, lines, keepFrom, ct);
-            }
+            if (changed) await RewriteAsync(path, keep, ct);
         }
 
-        if (boundary >= 0 && marked) ClearEnded(sid);
+        if (lifted || (boundary >= 0 && marked)) ClearEnded(sid);
         return true;
     }
 
-    /// <summary>The route of the note <see cref="NoteRunStarted"/> spools. It is never posted.</summary>
-    const string RunStartedRoute = "run-started";
+    IEnumerable<string> Temps(string key) =>
+        Directory.EnumerateFiles(DirectoryPath, $"{key}.ordered-*")
+            .Concat(Directory.EnumerateFiles(DirectoryPath, $"{key}.*.draining"))
+            .OrderBy(File.GetCreationTimeUtc);
 
-    /// <summary>
-    /// Records, for a session with an end delivered or still queued, that a start was just posted live: what
-    /// is spooled after it is the new run's, not a straggler of the ended one. A no-op for a session with
-    /// neither, so it leaves no backlog behind an ordinary start.
-    /// </summary>
-    public void NoteRunStarted(string sessionId) {
-        if (IsMarkedEnded(sessionId) || HasQueuedEnd(sessionId)) Append(sessionId, RunStartedRoute, "{}");
+    static async Task RewriteAsync(string path, List<string> keep, CancellationToken ct) {
+        try {
+            if (keep.Count == 0) File.Delete(path);
+            else await File.WriteAllLinesAsync(path, keep, ct);
+        } catch {
+            // Ignore: the temp settles again on the next pass
+        }
     }
 
-    bool HasQueuedEnd(string sessionId) {
-        if (!SafeSessionId.IsMatch(sessionId) || !Directory.Exists(DirectoryPath)) return false;
-
-        var key = EncodeKey(sessionId);
+    static (string Route, string Body)? Entry(string line) {
+        if (string.IsNullOrWhiteSpace(line)) return null;
         try {
-            return Directory.EnumerateFiles(DirectoryPath, $"{key}.jsonl")
-                .Concat(Directory.EnumerateFiles(DirectoryPath, $"{key}.ordered-*"))
-                .Concat(Directory.EnumerateFiles(DirectoryPath, $"{key}.*.draining"))
-                .Any(path => File.ReadLines(path).Any(line => Entry(line) is { } e && IsTerminalRoute(e.Route)));
+            var node = JsonNode.Parse(line);
+            return node?["route"]?.GetValue<string>() is { } route && node["body"]?.GetValue<string>() is { } body ? (route, body) : null;
         } catch {
-            // Unreadable: a note costs one spooled line, a missing one costs the run's hooks
-            return true;
+            return null;
+        }
+    }
+
+    static string EntryId(string route, string body) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes($"{route}\n{body}")));
+
+    /// <summary>The route of the note <see cref="NoteRunStarted"/> spools. It is never posted.</summary>
+    internal const string RunStartedRoute = "run-started";
+
+    /// <summary>
+    /// What a start about to be posted live supersedes, taken before the post: every end then queued and,
+    /// for a session whose end was delivered, everything then spooled, which can only be that run's.
+    /// Null when there is nothing, so an ordinary start leaves no backlog. A hook spooled after this, such
+    /// as the starting run's own end, is never superseded.
+    /// </summary>
+    public string? RunStartSnapshot(string sessionId) {
+        if (!SafeSessionId.IsMatch(sessionId) || !Directory.Exists(DirectoryPath)) return null;
+
+        var marked = IsMarkedEnded(sessionId);
+        var key    = EncodeKey(sessionId);
+        var ids    = new JsonArray();
+
+        try {
+            foreach (var path in Directory.EnumerateFiles(DirectoryPath, $"{key}.jsonl").Concat(Temps(key)))
+            foreach (var line in File.ReadLines(path))
+                if (Entry(line) is { } e && e.Route != RunStartedRoute && (marked || IsTerminalRoute(e.Route)))
+                    ids.Add((JsonNode)JsonValue.Create(EntryId(e.Route, e.Body)));
+        } catch {
+            // Unreadable: what could not be read stays queued, and the drain's position rule judges it
+        }
+
+        return marked || ids.Count > 0 ? new JsonObject { ["supersedes"] = ids, ["lifts"] = marked }.ToJsonString() : null;
+    }
+
+    /// <summary>Records, after a start was posted live, what <see cref="RunStartSnapshot"/> found queued before it.</summary>
+    public void NoteRunStarted(string sessionId, string? snapshot) {
+        if (snapshot is not null) Append(sessionId, RunStartedRoute, snapshot);
+    }
+
+    static (IReadOnlyList<string> Superseded, bool Lifts) NoteOf(string body) {
+        try {
+            var node = JsonNode.Parse(body);
+            return ([.. (node?["supersedes"]?.AsArray() ?? []).Select(n => n?.GetValue<string>()).OfType<string>()],
+                    node?["lifts"]?.GetValue<bool>() == true);
+        } catch {
+            return ([], false);
         }
     }
 
@@ -448,24 +498,6 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         var run = RunOf(body);
         return (run.AgentId is not null && ended.AgentId is not null && run.AgentId != ended.AgentId)
             || (run.Epoch is not null && ended.Epoch is not null && run.Epoch != ended.Epoch);
-    }
-
-    static async Task KeepFromAsync(string path, string[] lines, int from, CancellationToken ct) {
-        try {
-            await File.WriteAllLinesAsync(path, lines.Skip(from), ct);
-        } catch {
-            // Ignore: the temp still holds what was not settled
-        }
-    }
-
-    static (string Route, string Body)? Entry(string line) {
-        if (string.IsNullOrWhiteSpace(line)) return null;
-        try {
-            var node = JsonNode.Parse(line);
-            return node?["route"]?.GetValue<string>() is { } route && node["body"]?.GetValue<string>() is { } body ? (route, body) : null;
-        } catch {
-            return null;
-        }
     }
 
     internal static bool IsTerminalRoute(string route) => RouteHead(route) == "session-end";
@@ -494,7 +526,8 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
             } catch { route = body = null; }
             if (route is null || body is null) continue; // skip old-format / malformed
 
-            if (IsTerminalRoute(route) != isTerminal) break; // other phase — stop, preserve order
+            // A note spooled after this pass settled the session waits for the next pass to apply it.
+            if (route == RunStartedRoute || IsTerminalRoute(route) != isTerminal) break; // other phase — stop, preserve order
 
             DrainOutcome outcome;
             try { outcome = await poster(route, body); }

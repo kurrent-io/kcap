@@ -956,6 +956,8 @@ public sealed class ClaudeHookCommand(
                 }
             }
 
+            var startSnapshot = sessionId is null ? null : spool.RunStartSnapshot(sessionId);
+
             HttpResponseMessage? resp = null;
             try {
                 if (remaining > TimeSpan.Zero) {
@@ -990,7 +992,7 @@ public sealed class ClaudeHookCommand(
                 return 0;
             }
 
-            if (sessionId is not null) spool.NoteRunStarted(sessionId);
+            if (sessionId is not null) spool.NoteRunStarted(sessionId, startSnapshot);
 
             // resp is 2xx — read the body ONCE for the envelope + plan-content emission.
             JsonNode? responseNode = null;

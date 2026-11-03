@@ -307,7 +307,7 @@ public class LifecycleSpoolDrainTests {
         await DeliverEnd(life, tx, fifo);
 
         life.Append(Sid, "subagent-stop/kiro", """{"run":1,"phase":"straggler"}""");
-        life.NoteRunStarted(Sid);
+        life.NoteRunStarted(Sid, life.RunStartSnapshot(Sid));
         life.Append(Sid, "subagent-stop/kiro", """{"run":2,"phase":"stop"}""");
         life.Append(Sid, "session-end/kiro", """{"run":2,"phase":"end"}""");
 
@@ -325,12 +325,34 @@ public class LifecycleSpoolDrainTests {
         var life = new HookSpool(tmp.Path, time: TimeProvider.System);
         var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
         life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
-        life.NoteRunStarted(Sid);
+        life.NoteRunStarted(Sid, life.RunStartSnapshot(Sid));
         life.Append(Sid, "subagent-stop/kiro", """{"run":2,"phase":"stop"}""");
         life.Append(Sid, "session-end/kiro", """{"run":2,"phase":"end"}""");
 
         await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo)))
             .IsEqualTo("""{"run":2,"phase":"stop"} {"run":2,"phase":"end"}""");
+    }
+
+    /// <summary>The run's own end, spooled between its start's post and the note that start leaves, belongs to
+    /// the run the note opens: only what was queued before the post is superseded.</summary>
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    [Arguments(true, true)]
+    public async Task a_live_starts_note_never_supersedes_that_runs_own_end(bool earlierEndDelivered, bool fifo) {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        if (earlierEndDelivered) await DeliverEnd(life, tx, fifo);
+        else life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
+
+        var snapshot = life.RunStartSnapshot(Sid);
+        life.Append(Sid, "session-end/kiro", """{"run":2,"phase":"end"}""");
+        life.NoteRunStarted(Sid, snapshot);
+
+        await Assert.That(string.Join(" ", await DrainAll(life, tx, fifo))).IsEqualTo("""{"run":2,"phase":"end"}""");
+        await Assert.That(life.HasBacklog(Sid)).IsFalse();
     }
 
     /// <summary>An end still spooled when the session starts again would be delivered ahead of or after that

@@ -397,12 +397,13 @@ internal sealed class AgentHookPoster(
             }
 
             using var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var startSnapshot = route.StartsWith("session-start", StringComparison.Ordinal) ? spool.RunStartSnapshot(sessionId) : null;
 
             try {
                 using var resp = await client.PostWithRetryAsync($"{Url}/hooks/{endpoint}", content, time, timeout: budget?.Remaining);
 
                 if (resp.IsSuccessStatusCode) {
-                    if (route.StartsWith("session-start", StringComparison.Ordinal)) spool.NoteRunStarted(sessionId);
+                    spool.NoteRunStarted(sessionId, startSnapshot);
                     return HookPostOutcome.Posted;
                 }
 
