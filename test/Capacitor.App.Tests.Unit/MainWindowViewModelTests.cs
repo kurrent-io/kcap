@@ -395,6 +395,7 @@ public class MainWindowViewModelTests {
     [Arguments(AttachState.Unreachable, "daemon_unreachable", "connected", MainWindowViewModel.DaemonStoppedText, RailRecovery.StartDaemon)]
     [Arguments(AttachState.Unreachable, "daemon_incompatible", "connected", MainWindowViewModel.DaemonMismatchText, RailRecovery.Reconnect)]
     [Arguments(AttachState.Unreachable, ExpectedDaemonRestart.Reason, "connected", MainWindowViewModel.DaemonRestartingText, RailRecovery.None)]
+    [Arguments(AttachState.Unreachable, ExpectedDaemonRestart.StartingReason, "connected", MainWindowViewModel.DaemonStartingText, RailRecovery.None)]
     [Arguments(AttachState.Unreachable, "socket_refused", "connected", MainWindowViewModel.DaemonUnreachableText, RailRecovery.Reconnect)]
     [Arguments(AttachState.Connected, null, "connecting", MainWindowViewModel.ServerConnectingText, RailRecovery.None)]
     [Arguments(AttachState.Connected, null, "reconnecting", MainWindowViewModel.ReconnectingText, RailRecovery.None)]
@@ -823,6 +824,26 @@ public class MainWindowViewModelTests {
             gate.SetResult();
             await execute;
             await Assert.That(startCanExecute).IsTrue(); // status unchanged, attempt finished
+        });
+    }
+
+    /// A daemon whose process is up but not yet serving is coming back by itself: neither a Start
+    /// (which would race it) nor a Reconnect (which the attach already retries) is the next step.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_starting_daemon_offers_neither_start_nor_reconnect() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            var startCanExecute = true;
+            var retryCanExecute = true;
+            using var subStart = vm.StartDaemonCommand.CanExecute.Subscribe(v => startCanExecute = v);
+            using var subRetry = vm.RetryCommand.CanExecute.Subscribe(v => retryCanExecute = v);
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, ExpectedDaemonRestart.StartingReason, null));
+
+            await Assert.That(startCanExecute).IsFalse();
+            await Assert.That(retryCanExecute).IsFalse();
         });
     }
 

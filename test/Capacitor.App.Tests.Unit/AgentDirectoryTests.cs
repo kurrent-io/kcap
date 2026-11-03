@@ -1,3 +1,4 @@
+using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
@@ -154,6 +155,103 @@ public class AgentDirectoryTests {
 
         await Assert.That(dir.Rows.Lookup("local:x1").HasValue).IsFalse();
         await Assert.That(dir.Rows.Lookup("remote:x1").HasValue).IsTrue();
+    }
+
+    static (FakeDaemonClientService Local, FakeRemoteAgents Remote, BehaviorSubject<bool> Starting, AgentDirectory Dir) BuildRestarting(
+            params string[] resuming) {
+        var local = new FakeDaemonClientService();
+        var remote = new FakeRemoteAgents();
+        var starting = new BehaviorSubject<bool>(false);
+        var dir = new AgentDirectory(
+            local, remote, new FakeServerLane(), new RepoIdentityResolver(_ => null), p => p,
+            "m1", Server, TimeProvider.System,
+            localStarting: starting, resumingAgents: () => resuming.ToHashSet(StringComparer.Ordinal));
+        return (local, remote, starting, dir);
+    }
+
+    static readonly DaemonInfo TwinDaemon = new() { Name = "daemon-a", MachineId = "m1", OwnerUserId = "u1", Connected = true };
+
+    static void ConnectedWithTwinAgent(FakeDaemonClientService local, FakeRemoteAgents remote, AgentStatusDto agent) {
+        local.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap());
+        local.StatusSubject.OnNext(new(AttachState.Connected, null, ["status/1"]));
+        local.Agents.AddOrUpdate(agent);
+        remote.DaemonsSubject.OnNext([TwinDaemon]);
+        remote.Cache.AddOrUpdate(Remote(agent.Id, daemon: "daemon-a", sessionId: agent.SessionId));
+    }
+
+    /// While the daemon's process starts, an agent its own ledger is resuming is listed once, by the
+    /// row the daemon last reported and as Resuming, never beside its twin's registry row. The
+    /// registry row leaving is a takeover by that daemon, not the session ending.
+    [Test]
+    public async Task A_starting_daemon_lists_an_agent_it_is_resuming_once_as_resuming() {
+        var (local, remote, starting, dir) = BuildRestarting("a1");
+        using var _d = dir;
+        ConnectedWithTwinAgent(local, remote, LocalAgent("a1", sessionId: "s1", status: "Idle") with { WorktreePath = "/r/.wt/a1", WorkLocation = "owned" });
+
+        local.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+        starting.OnNext(true);
+
+        await Assert.That(dir.Rows.Count).IsEqualTo(1);
+        var row = dir.Rows.Lookup("local:a1").Value;
+        await Assert.That(row.Status).IsEqualTo("Resuming");
+        await Assert.That(row.WorktreePath).IsEqualTo("/r/.wt/a1");
+        await Assert.That(dir.Rows.Lookup("remote:a1").HasValue).IsFalse();
+        await Assert.That(dir.IsProvenLocalTwin("a1")).IsTrue();
+
+        starting.OnNext(false);
+        local.StatusSubject.OnNext(new(AttachState.Connected, null, ["status/1"]));
+
+        await Assert.That(dir.Rows.Lookup("local:a1").Value.Status).IsEqualTo("Idle");
+    }
+
+    /// The ledger is the evidence: an agent the starting daemon is not resuming keeps the
+    /// disconnected rule, under which the twin's registry row stands for it.
+    [Test]
+    public async Task A_starting_daemon_does_not_stand_in_for_an_agent_it_is_not_resuming() {
+        var (local, remote, starting, dir) = BuildRestarting();
+        using var _d = dir;
+        ConnectedWithTwinAgent(local, remote, LocalAgent("a1", sessionId: "s1"));
+
+        local.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+        starting.OnNext(true);
+
+        await Assert.That(dir.Rows.Lookup("local:a1").HasValue).IsFalse();
+        await Assert.That(dir.Rows.Lookup("remote:a1").HasValue).IsTrue();
+        await Assert.That(dir.IsProvenLocalTwin("a1")).IsFalse();
+    }
+
+    /// A restarting daemon drops off the server's registry before it comes back. The twin proven
+    /// before is still its identity, so the agent is not listed twice in that gap.
+    [Test]
+    public async Task A_twin_that_leaves_the_registry_while_it_restarts_is_not_listed_twice() {
+        var (local, remote, _, dir) = Build();
+        using var _d = dir;
+        ConnectedWithTwinAgent(local, remote, LocalAgent("a1", sessionId: "s1"));
+
+        local.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+        remote.DaemonsSubject.OnNext([]);
+
+        await Assert.That(dir.Rows.Count).IsEqualTo(1);
+        await Assert.That(dir.Rows.Lookup("remote:a1").HasValue).IsTrue();
+
+        remote.DaemonsSubject.OnNext([TwinDaemon, TwinDaemon]);
+
+        await Assert.That(dir.Rows.Count).IsEqualTo(1);
+    }
+
+    /// The registry names no worktree. The twin row that stands for a hidden local row carries the
+    /// checkout its daemon reported for the same agent, so the session pane keeps it.
+    [Test]
+    public async Task The_twin_row_standing_for_a_hidden_local_row_keeps_its_worktree() {
+        var (local, remote, _, dir) = Build();
+        using var _d = dir;
+        ConnectedWithTwinAgent(local, remote, LocalAgent("a1", sessionId: "s1") with { WorktreePath = "/r/.wt/a1", WorkLocation = "owned" });
+
+        local.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+
+        var row = dir.Rows.Lookup("remote:a1").Value;
+        await Assert.That(row.WorktreePath).IsEqualTo("/r/.wt/a1");
+        await Assert.That(row.WorkLocation).IsEqualTo("owned");
     }
 
     [Test]

@@ -206,6 +206,8 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
             { State: AttachState.Connected } => new(title, $"Waiting to restart into {app}", UpdateStepState.Running, Activity: "Waiting for the daemon to restart"),
             { State: AttachState.Unreachable, Reason: ExpectedDaemonRestart.Reason } => new(title, $"Restarting into {app}", UpdateStepState.Running,
                 Activity: "Restarting the daemon"),
+            { State: AttachState.Unreachable, Reason: ExpectedDaemonRestart.StartingReason } => new(title, "Starting", UpdateStepState.Running,
+                Activity: "Starting the daemon"),
             // The old daemon is incompatible with the new app until it restarts into the new binary.
             { State: AttachState.Unreachable, Reason: "daemon_incompatible" } when !waitedLong => new(title, $"Waiting to restart into {app}", UpdateStepState.Running,
                 Activity: "Waiting for the daemon to restart"),

@@ -953,7 +953,8 @@ public partial class App : Application {
         // The surfaces show this status; the lifecycle controller keeps acting on the service's own.
         var expectedRestart = new ExpectedDaemonRestart(service.Status, restartPending.Pending, AppJustUpdated, service.RestartLoopAsync, _time,
             (expected, lasted) => LifecycleLog.Write("daemon_outage_ended", ("expected", expected ? "true" : "false"),
-                ("seconds", lasted.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)), ("after_update", _postUpdate is null ? null : "true")));
+                ("seconds", lasted.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)), ("after_update", _postUpdate is null ? null : "true")),
+            livePid: () => DaemonPidLiveness.LivePid(_daemonStore, service.DaemonName));
         _expectedRestart = expectedRestart;
         var shownService = new StatusOverlayDaemonClientService(service, expectedRestart.Status);
 
@@ -1074,7 +1075,9 @@ public partial class App : Application {
         var repoIdentity = new RepoIdentityResolver();
         var directory = new AgentDirectory(
             service, remoteAgents, serverLane, repoIdentity, GitRepository.ResolveMainRepoRoot,
-            machineId, profiles?.Resolution.ServerUrl, _time, sessions);
+            machineId, profiles?.Resolution.ServerUrl, _time, sessions,
+            localStarting: expectedRestart.Starting,
+            resumingAgents: () => DaemonResumeLedger.ResumingAgents(_daemonStore, service.DaemonName));
         _remoteAgents = remoteAgents;
         _sessions = sessions;
         _directory = directory;
