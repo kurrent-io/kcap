@@ -34,7 +34,7 @@ sealed partial class OpenCodeHeadlessHarness(
     string? Executable() => config.Binaries.Resolve(harnesses.LaunchCommand(HarnessId.OpenCode, config.OpenCodePath));
 
     public Task<ClaudeCliOutcome> RunAsync(RunHeadlessPromptArgs args, TimeSpan timeout, CancellationToken ct) =>
-        OpenCodeCliRunner.RunDetailedAsync(args.Prompt, timeout, time, Log, runs,
+        OpenCodeCliRunner.RunDetailedAsync(args.Prompt, HeadlessDeadlineMargin.RunnerTimeout(args.Deadline, timeout, time), time, Log, runs,
             harnesses.Of<OpenCodeHarness>().Paths, environment(),
             model: args.Model, jsonSchema: args.JsonSchema, systemPrompt: args.SystemPrompt,
             executable: Executable() ?? "", ct: ct);

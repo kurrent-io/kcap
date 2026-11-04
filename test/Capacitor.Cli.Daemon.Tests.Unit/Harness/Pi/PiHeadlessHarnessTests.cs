@@ -3,7 +3,11 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Headless;
 using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Daemon.Harness.Pi;
+using Capacitor.Cli.Core.Harness.Claude;
+using Capacitor.Cli.Daemon.Tests.Unit.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Pi;
 
@@ -13,14 +17,14 @@ public class PiHeadlessHarnessTests {
     [TempHome] public required TempHome Home { get; init; }
     [TempDir]  public required TempDir  Bin  { get; init; }
 
-    PiHeadlessHarness Harness(BinaryProbe binaries) {
+    PiHeadlessHarness Harness(BinaryProbe binaries, TimeProvider? time = null, ILogger<PiHeadlessHarness>? logger = null) {
         var config = new DaemonConfig {
             Binaries = binaries,
             Profiles = new ProfileContext(new(null, "default", null, null), new ProfileConfig()),
         };
 
         return new(TestHarnesses.Under(Home, binaries), config, new HeadlessRunRoot(Bin.PathTo("state"), "test"),
-            TimeProvider.System, NullLogger<PiHeadlessHarness>.Instance);
+            time ?? TimeProvider.System, logger ?? NullLogger<PiHeadlessHarness>.Instance);
     }
 
     [Test]
@@ -62,5 +66,36 @@ public class PiHeadlessHarnessTests {
         await Assert.That(args).Contains("--model\nsome-model\n");
         await Assert.That(await File.ReadAllTextAsync(systemCopy)).IsEqualTo("Be terse.");
         await Assert.That(await File.ReadAllTextAsync(stdinFile)).Contains("the-prompt");
+    }
+
+    /// <summary>The runner's own timeout, which keeps the usage reported so far, must fire before the daemon's outer
+    /// deadline: the fake clock reaches the runner's timeout only if it is the margin short of the deadline, never the
+    /// longer timeout the daemon offered.</summary>
+    [Test]
+    [Arguments(10, 8)]
+    [Arguments(1, 0)]
+    public async Task The_runner_times_out_the_margin_before_the_deadline_and_never_below_zero(int deadlineSeconds, int runnerSeconds) {
+        Skip.When(OperatingSystem.IsWindows(), "the fake pi is a POSIX shell script");
+
+        var started = Bin.PathTo("started");
+        var clock   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var logger  = new CapturingLogger<PiHeadlessHarness>();
+        var harness = Harness(TestBinaries.Searching(Bin, "pi"), clock, logger);
+        Bin.CreateExecutable("pi", $"#!/bin/sh\ncat > /dev/null\ntouch '{started}'\nexec sleep 30\n");
+
+        var run = harness.RunAsync(
+            new RunHeadlessPromptArgs("r1", "pi", "", null, null, "the-prompt", null, 1, null, clock.GetUtcNow().AddSeconds(deadlineSeconds)),
+            TimeSpan.FromSeconds(60), CancellationToken.None);
+
+        if (runnerSeconds > 0) {
+            var waited = Environment.TickCount64;
+            while (!File.Exists(started) && Environment.TickCount64 - waited < 10_000) await Task.Delay(20);
+            clock.Advance(TimeSpan.FromSeconds(runnerSeconds));
+        }
+
+        var outcome = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        await Assert.That(outcome.Failure).IsEqualTo(ClaudeCliFailure.Timeout);
+        await Assert.That(logger.Entries.Select(e => e.Message)).Contains(m => m.Contains($"timed out ({runnerSeconds}s)"));
     }
 }

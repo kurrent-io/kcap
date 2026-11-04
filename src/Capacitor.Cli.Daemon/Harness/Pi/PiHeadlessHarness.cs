@@ -20,7 +20,7 @@ sealed partial class PiHeadlessHarness(
     string? Executable() => config.Binaries.Resolve(harnesses.LaunchCommand(HarnessId.Pi, config.PiPath));
 
     public Task<ClaudeCliOutcome> RunAsync(RunHeadlessPromptArgs args, TimeSpan timeout, CancellationToken ct) =>
-        PiCliRunner.RunDetailedAsync(args.Prompt, timeout, time, Log, runs,
+        PiCliRunner.RunDetailedAsync(args.Prompt, HeadlessDeadlineMargin.RunnerTimeout(args.Deadline, timeout, time), time, Log, runs,
             model: args.Model, jsonSchema: args.JsonSchema, systemPrompt: args.SystemPrompt,
             executable: Executable() ?? "", ct: ct);
 
