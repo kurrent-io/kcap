@@ -423,4 +423,26 @@ public class WatchSecondaryPullRequestTests {
         await Assert.That(probed).IsEquivalentTo([CliRoot]);
         await Assert.That(posted).Count().IsEqualTo(1);
     }
+
+    /// A new file that keeps the old first block is still a replacement, told apart by its birth time.
+    [Test]
+    public async Task A_replacement_keeping_the_first_block_is_read_again_from_its_start() {
+        Skip.When(OperatingSystem.IsLinux(), "Linux exposes no birth time, so only changed first bytes reveal a replacement");
+
+        using var dir = new TempDir();
+        var (state, subagents) = SessionWatcherWithSubagents(dir.Path);
+        var transcript = Path.Combine(subagents, "agent-a1.jsonl");
+        var padding    = Enumerable.Repeat(ToolUse("Read", $"{OtherRoot}/src/padding.cs"), 80).ToArray();
+        await File.WriteAllLinesAsync(transcript, [..padding, ToolUse("Read", $"{CliRoot}/src/x.cs")]);
+        await ObserveAndLink(state);
+
+        var replacement = Path.Combine(dir.Path, "replacement.jsonl");
+        await File.WriteAllLinesAsync(replacement, [..padding, ToolUse("Edit", $"{CliRoot}/src/x.cs"), ToolUse("Read", $"{CliRoot}/src/a-later-line.cs")]);
+        await Task.Delay(TimeSpan.FromMilliseconds(20));
+        File.Move(replacement, transcript, overwrite: true);
+        var (probed, posted) = await ObserveAndLink(state);
+
+        await Assert.That(probed).IsEquivalentTo([CliRoot]);
+        await Assert.That(posted).Count().IsEqualTo(1);
+    }
 }
