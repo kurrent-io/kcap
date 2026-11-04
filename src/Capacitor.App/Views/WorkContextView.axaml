@@ -550,49 +550,6 @@
                     </Border>
                 </StackPanel>
 
-                <!-- The agent's own worktree: its edits never reach the checkout the user picked. -->
-                <StackPanel x:Name="WorktreeSection" Margin="0,18,0,0" IsVisible="{Binding ShowsOwnWorktree}">
-                    <Button x:Name="WorktreeHeader" Classes="sectionHeader" AutomationProperties.Name="Worktree">
-                        <TextBlock Text="WORKTREE" Classes="eyebrow" />
-                    </Button>
-                    <Border Classes="sectionBody">
-                        <StackPanel Spacing="8">
-                            <TextBlock x:Name="WorktreeNoteText" Text="{Binding OwnWorktreeNote}" FontSize="12.5" LineHeight="17"
-                                       TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
-                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6">
-                                <views:AppIcon Kind="Folder" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
-                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                <SelectableTextBlock x:Name="WorktreePathText" Grid.Column="1" Text="{Binding WorktreePath}"
-                                                     FontSize="12.5" LineHeight="17" TextWrapping="Wrap"
-                                                     Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                                <Button x:Name="OpenWorktreeButton" Grid.Column="2" Classes="kcapGhost kcapIcon" VerticalAlignment="Top"
-                                        Click="OnOpenWorktreeClick" IsVisible="{Binding CanOpenWorktree}"
-                                        ToolTip.Tip="Open folder" AutomationProperties.Name="Open worktree folder">
-                                    <views:AppIcon Kind="FolderOpen" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                                </Button>
-                                <Button x:Name="CopyWorktreeButton" Grid.Column="3" Classes="kcapGhost kcapIcon" VerticalAlignment="Top"
-                                        Click="OnCopyTextClick" Tag="{Binding WorktreePath}"
-                                        ToolTip.Tip="Copy path" AutomationProperties.Name="Copy worktree path">
-                                    <views:AppIcon Kind="Copy" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                                </Button>
-                            </Grid>
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6"
-                                  IsVisible="{Binding OwnWorktreeBranch, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                <views:AppIcon Kind="GitBranch" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
-                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                <SelectableTextBlock x:Name="WorktreeBranchText" Grid.Column="1" Text="{Binding OwnWorktreeBranch}"
-                                                     FontSize="12.5" LineHeight="17" TextWrapping="Wrap"
-                                                     Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                                <Button x:Name="CopyWorktreeBranchButton" Grid.Column="2" Classes="kcapGhost kcapIcon" VerticalAlignment="Top"
-                                        Click="OnCopyTextClick" Tag="{Binding OwnWorktreeBranch}"
-                                        ToolTip.Tip="Copy branch name" AutomationProperties.Name="Copy branch name">
-                                    <views:AppIcon Kind="Copy" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                                </Button>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
                 <!-- Pull request: the card with its picker and live status, or link cards where the
                      server has no reader, or the empty note once both reads have settled. -->
                 <StackPanel x:Name="PullRequestSection" Margin="0,18,0,0" IsVisible="{Binding ShowsPullRequestSection}">
@@ -934,9 +891,28 @@
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="AGENT SHARING" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding AgentSharing}" Classes="factValue" />
                                 <TextBlock Grid.Row="2" Grid.Column="0" Text="WORKTREE" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Worktree}" Classes="factValue" ToolTip.Tip="{Binding WorktreePath}" />
+                                <!-- The label is the worktree's leaf name; a click copies its full path. -->
+                                <Panel Grid.Row="2" Grid.Column="1">
+                                    <Button x:Name="WorktreeButton" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding WorktreePath}"
+                                            IsVisible="{Binding CanCopyWorktree}"
+                                            AutomationProperties.Name="Copy worktree path"
+                                            ToolTip.Tip="{Binding WorktreePath}">
+                                        <TextBlock Text="{Binding Worktree}" Classes="factValue" TextWrapping="Wrap" />
+                                    </Button>
+                                    <SelectableTextBlock Text="{Binding Worktree}" Classes="factValue"
+                                                         IsVisible="{Binding !CanCopyWorktree}" />
+                                </Panel>
                                 <TextBlock Grid.Row="3" Grid.Column="0" Text="BRANCH" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Branch}" Classes="factValue" />
+                                <Panel Grid.Row="3" Grid.Column="1">
+                                    <Button x:Name="BranchButton" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Branch}"
+                                            IsVisible="{Binding CanCopyBranch}"
+                                            AutomationProperties.Name="Copy branch name"
+                                            ToolTip.Tip="{Binding Branch}">
+                                        <TextBlock Text="{Binding Branch}" Classes="factValue" TextWrapping="Wrap" />
+                                    </Button>
+                                    <SelectableTextBlock Text="{Binding Branch}" Classes="factValue"
+                                                         IsVisible="{Binding !CanCopyBranch}" />
+                                </Panel>
                                 <TextBlock Grid.Row="4" Grid.Column="0" Text="REPOSITORY" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Repository}" Classes="factValue" ToolTip.Tip="{Binding RepositoryPath}" />
                                 <TextBlock Grid.Row="5" Grid.Column="0" Text="HARNESS" Classes="factLabel" />
