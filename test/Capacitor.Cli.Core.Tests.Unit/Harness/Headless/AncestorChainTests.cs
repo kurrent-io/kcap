@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using Capacitor.Cli.Core.Harness.Headless;
 using TUnit.Core.Enums;
@@ -197,7 +198,7 @@ public class AncestorChainTests {
         var leaf   = Tmp.CreateDir("shared", "leaf").Path;
         File.SetUnixFileMode(shared, (UnixFileMode)mode);
 
-        var violation = AncestorChain.UnixWriteViolation(leaf, _ => gid, Self, Group, Passwd);
+        var violation = AncestorChain.UnixWriteViolation(leaf, _ => gid, _ => false, Self, Group, Passwd);
 
         if (why is null) await Assert.That(violation).IsNull();
         else await Assert.That(violation!).Contains(why);
@@ -209,8 +210,64 @@ public class AncestorChainTests {
         var shared = Tmp.CreateDir("shared").Path;
         File.SetUnixFileMode(shared, (UnixFileMode)0b111_111_101);
 
-        await Assert.That(AncestorChain.UnixWriteViolation(Tmp.CreateDir("shared", "leaf").Path, _ => null, Self, Group, Passwd)!)
+        await Assert.That(AncestorChain.UnixWriteViolation(Tmp.CreateDir("shared", "leaf").Path, _ => null, _ => false, Self, Group, Passwd)!)
             .Contains("its group cannot be read");
+    }
+
+    [Test]
+    [Arguments("drwxrwxr-x  2 alice alice 4096 Nov  4 17:37 /home/alice\n", false)]
+    [Arguments("drwxrwxr-x. 2 alice alice 4096 Nov  4 17:37 /home/alice\n", false)]  // SELinux context alone
+    [Arguments("drwxrwsr-x  2 alice alice 4096 Nov  4 17:37 /home/alice\n", false)]
+    [Arguments("drwxrwxr-t  2 alice alice 4096 Nov  4 17:37 /home/alice\n", false)]
+    [Arguments("drwxrwxr-x+ 2 alice alice 4096 Nov  4 17:37 /home/alice\n", true)]
+    [Arguments("drwxrwxr-x@ 2 alice staff 64 Nov  4 17:37 /Users/alice\n", null)]    // hides a + on macOS
+    [Arguments("-rwxrwxr-x  1 alice alice 4096 Nov  4 17:37 /home/alice\n", null)]
+    [Arguments("lrwxrwxrwx  1 alice alice 4096 Nov  4 17:37 /home/alice\n", null)]
+    [Arguments("drwxrwqr-x  2 alice alice 4096 Nov  4 17:37 /home/alice\n", null)]
+    [Arguments("drwx 2 alice", null)]
+    [Arguments("ls: /home/alice: No such file or directory", null)]
+    [Arguments("", null)]
+    public async Task An_ls_line_shows_an_acl_no_acl_or_nothing_that_can_be_trusted(string line, bool? expected) =>
+        await Assert.That(DirectoryAcl.FromListing(line)).IsEqualTo(expected);
+
+    /// <summary>The account files prove the group private, so only the ACL answer can refuse. A directory that is not
+    /// group-writable is never asked: a throwing reader shows that.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    [UnsupportedOSPlatform("windows")]
+    [Arguments(false, null)]
+    [Arguments(true, "extended ACL, so its mode")]
+    [Arguments(null, "extended ACL cannot be read")]
+    public async Task A_group_writable_directory_is_admitted_only_with_no_extended_acl(bool? acl, string? why) {
+        var shared = Tmp.CreateDir("shared").Path;
+        var leaf   = Tmp.CreateDir("shared", "leaf").Path;
+
+        await Assert.That(AncestorChain.UnixWriteViolation(leaf, _ => 1000, _ => throw new InvalidOperationException("asked"), Self, Group, Passwd)).IsNull();
+
+        File.SetUnixFileMode(shared, (UnixFileMode)0b111_111_101);
+        var violation = AncestorChain.UnixWriteViolation(leaf, _ => 1000, _ => acl, Self, Group, Passwd);
+
+        if (why is null) await Assert.That(violation).IsNull();
+        else await Assert.That(violation!).Contains(why);
+    }
+
+    /// <summary>On macOS <c>ls</c> may print <c>@</c> for the same directory, which also refuses, so an ACL must never
+    /// read as none. Skipped where the host or its filesystem cannot set one.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_real_acl_is_never_read_as_none() {
+        var dir = Tmp.CreateDir("acl").Path;
+        if (OperatingSystem.IsLinux()) await Assert.That(DirectoryAcl.HasExtended(dir)).IsFalse();
+        await Assert.That(DirectoryAcl.HasExtended(Tmp.PathTo("missing"))).IsNull();
+
+        var (tool, args) = OperatingSystem.IsMacOS()
+            ? ("/bin/chmod", new[] { "+a", "user:nobody allow write", dir })
+            : ("/usr/bin/setfacl", new[] { "-m", "u:nobody:rwx", dir });
+        Skip.Unless(File.Exists(tool), $"{tool} is not on this host");
+
+        using var process = Process.Start(new ProcessStartInfo(tool, args) { UseShellExecute = false, RedirectStandardError = true })!;
+        await process.WaitForExitAsync();
+        Skip.Unless(process.ExitCode == 0, "this filesystem does not take an ACL");
+
+        await Assert.That(DirectoryAcl.HasExtended(dir)).IsNotEqualTo(false);
     }
 
     [Test, ExcludeOn(OS.Windows)]

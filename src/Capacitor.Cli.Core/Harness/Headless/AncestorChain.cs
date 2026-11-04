@@ -99,13 +99,15 @@ internal static class AncestorChain {
     static string? UnixViolation(string path) {
         if (!FileOwner.Available) return "no system `stat` command can read directory owners";
 
-        return UnixWriteViolation(path, FileOwner.GroupOf, FileOwner.Effective, ReadOrNull("/etc/group"), ReadOrNull("/etc/passwd"))
+        return UnixWriteViolation(path, FileOwner.GroupOf, DirectoryAcl.HasExtended, FileOwner.Effective, ReadOrNull("/etc/group"), ReadOrNull("/etc/passwd"))
             ?? UnixOwnerViolation(path, FileOwner.Of, FileOwner.Effective);
     }
 
     /// <summary>The Unix write rule, with the two account files as text so it runs on any host. A file that could
-    /// not be read is null, which proves nothing about a group.</summary>
-    public static string? UnixWriteViolation(string path, Func<string, uint?> groupOf, uint self, string? groupFile, string? passwdFile) {
+    /// not be read is null, which proves nothing about a group. Only a group-writable directory is asked about an ACL:
+    /// macOS home directories carry one by default.</summary>
+    public static string? UnixWriteViolation(
+            string path, Func<string, uint?> groupOf, Func<string, bool?> hasExtendedAcl, uint self, string? groupFile, string? passwdFile) {
         if (DirectoryExposure.GrantingWrite(path, UnixFileMode.OtherWrite) is [var shared, ..])
             return $"'{shared}' is writable by others and not sticky";
 
@@ -114,6 +116,11 @@ internal static class AncestorChain {
 
             if (SoleMemberGroup.Violation(gid, self, groupFile, passwdFile) is { } why)
                 return $"'{dir}' is writable by group {gid} and not sticky: {why}";
+
+            switch (hasExtendedAcl(dir)) {
+                case true:  return $"'{dir}' is writable by its group and not sticky, and has an extended ACL, so its mode does not say who can write";
+                case null:  return $"'{dir}' is writable by its group and not sticky, and whether it has an extended ACL cannot be read";
+            }
         }
 
         return null;
