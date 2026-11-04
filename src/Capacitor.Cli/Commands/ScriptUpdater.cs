@@ -171,6 +171,10 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
     /// <para>Only an installed version is deleted: one holding kcap's binary, under the install root's real
     /// <c>versions</c>, and reached through no link. What a link reaches is not kcap's to empty, however
     /// version-like its names, so a linked <c>versions</c> (a junction on Windows) prunes nothing.</para>
+    ///
+    /// <para>A version is renamed to a <c>.pruning-</c> name before it is deleted, so one whose delete fails
+    /// partway still reads as kcap's once its binary is gone: only kcap makes that name, and the next prune
+    /// finishes it.</para>
     /// </summary>
     internal int PruneVersions(ScriptInstallLayout layout, IEnumerable<string?> keep, TextWriter stderr) {
         var pruned = 0;
@@ -185,10 +189,11 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
 
             var kept = keep.OfType<string>().Select(CanonicalPath.Resolve).ToArray();
             candidates = versions.EnumerateDirectories()
-                .Where(d => ReleaseManifest.IsValidVersion(d.Name) || d.Name.StartsWith(".replaced-", StringComparison.Ordinal))
+                .Where(d => IsPruning(d.Name)
+                    || ((ReleaseManifest.IsValidVersion(d.Name) || d.Name.StartsWith(".replaced-", StringComparison.Ordinal))
+                        && !kept.Any(k => PathsEqual(k, d.FullName))))
                 .Select(d => d.FullName)
-                .Where(d => !kept.Any(k => PathsEqual(k, d)))
-                .Where(d => IsInstalledVersion(root, d))
+                .Where(d => IsDeletable(root, d))
                 .ToArray();
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return 0;
@@ -197,47 +202,51 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
         foreach (var dir in candidates) {
             if (InUse(dir)) continue;
 
+            var name = Path.GetFileName(dir);
             try {
-                // Checked again at the delete: a path names no handle, so a component swapped for a link since
-                // the listing would aim the delete somewhere else.
-                if (!IsInstalledVersion(root, dir)) continue;
+                // Checked again here: a path names no handle, so a component swapped for a link since the listing
+                // would aim the rename or the delete somewhere else.
+                if (!IsDeletable(root, dir)) continue;
 
-                RemoveVersion(dir);
+                var pruning = dir;
+                if (!IsPruning(name)) {
+                    pruning = Path.Combine(Path.GetDirectoryName(dir)!, $"{PruningPrefix}{name}-{Guid.NewGuid():N}");
+                    Directory.Move(dir, pruning);
+                }
+
+                LocalTree.Remove(pruning);
                 pruned++;
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                stderr.WriteLine($"Could not remove the unused kcap version {dir}: {ex.Message} The next update tries again.");
+                stderr.WriteLine($"Could not remove the unused kcap version {name}: {ex.Message} The next update tries again.");
             }
         }
 
         return pruned;
     }
 
+    const string PruningPrefix = ".pruning-";
+
+    static bool IsPruning(string name) => name.StartsWith(PruningPrefix, StringComparison.Ordinal);
+
+    static bool IsDeletable(string root, string dir) =>
+        IsPruning(Path.GetFileName(dir)) ? IsUnlinkedVersionsEntry(root, dir) : IsInstalledVersion(root, dir);
+
     /// <summary>Whether <paramref name="dir"/> holds kcap's binary and every component down to it, from the
     /// resolved <paramref name="root"/>, is a real directory rather than a link.</summary>
-    static bool IsInstalledVersion(string root, string dir) {
-        var versions = new DirectoryInfo(Path.Combine(root, ScriptInstallLayout.VersionsName));
-        var version  = new DirectoryInfo(dir);
-        if (!versions.Exists || IsLink(versions) || !version.Exists || IsLink(version)) return false;
-
-        return ExecutableNames.Any(name => {
+    static bool IsInstalledVersion(string root, string dir) =>
+        IsUnlinkedVersionsEntry(root, dir) && ExecutableNames.Any(name => {
             var exe = Path.Combine(dir, "bin", name);
             return File.Exists(exe) && CanonicalPath.TryResolve(exe, out var real) && PathsEqual(real, exe);
         });
-    }
 
-    /// <summary>kcap's binary goes last, so a delete that fails partway leaves the version recognisable as kcap's
-    /// and the next prune finishes it. Each entry goes through <see cref="LocalTree.Remove"/>, which never follows
-    /// a link and unlinks a nested junction before descending.</summary>
-    static void RemoveVersion(string dir) {
-        var bin = Path.Combine(dir, "bin");
+    /// <summary>Whether <paramref name="dir"/> is a directory in the resolved <paramref name="root"/>'s
+    /// <c>versions</c>, reached through no link.</summary>
+    static bool IsUnlinkedVersionsEntry(string root, string dir) {
+        var versions = new DirectoryInfo(Path.Combine(root, ScriptInstallLayout.VersionsName));
+        var entry    = new DirectoryInfo(dir);
+        if (!versions.Exists || IsLink(versions) || !entry.Exists || IsLink(entry)) return false;
 
-        foreach (var entry in Directory.EnumerateFileSystemEntries(dir).ToArray())
-            if (!PathsEqual(entry, bin)) LocalTree.Remove(entry);
-
-        foreach (var entry in Directory.EnumerateFileSystemEntries(bin).ToArray())
-            if (!ExecutableNames.Contains(Path.GetFileName(entry))) LocalTree.Remove(entry);
-
-        LocalTree.Remove(dir);
+        return CanonicalPath.TryResolve(dir, out var real) && PathsEqual(real, dir);
     }
 
     static readonly string[] ExecutableNames = ["kcap", "kcap.exe"];

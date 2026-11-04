@@ -247,7 +247,7 @@ public class ScriptUpdaterTests {
     public async Task Pruning_through_a_linked_versions_directory_deletes_nothing() {
         using var tmp = new TempDir();
         var layout = new ScriptInstallLayout(tmp.CreateDir("root"));
-        var unrelated = new[] { "0.9.0", "1.0.0", ".replaced-1.0.0-abc" }.Select(name => tmp.CreateFile($"shared/{name}/bin/kcap")).ToArray();
+        var unrelated = new[] { "0.9.0", "1.0.0", ".replaced-1.0.0-abc", ".pruning-1.0.0-abc" }.Select(name => tmp.CreateFile($"shared/{name}/bin/kcap")).ToArray();
         DirectoryLink.Create(layout.Versions, tmp.PathTo("shared"));
         var updater = new ScriptUpdater(null!) { InUse = _ => false };
 
@@ -319,35 +319,66 @@ public class ScriptUpdaterTests {
         await Assert.That(File.Exists(outside)).IsTrue();
     }
 
-    /// <summary>A delete that fails partway leaves kcap's binary for last, so the version is still provably
-    /// kcap's and the next update finishes it; the failure is reported, naming the version.</summary>
+    /// <summary>A version whose directory refuses the delete partway (here, once its binary is gone) is still
+    /// recognised as kcap's by the next prune, which finishes it; the failure is reported, naming the version.</summary>
     [Test]
     [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
     public async Task A_version_that_fails_to_delete_partway_is_reported_and_removed_by_the_next_run() {
         using var tmp = new TempDir();
         tmp.CreateFile("root/versions/0.9.0/bin/kcap");
-        string[] locked = [tmp.PathTo("root/versions/0.9.0/lib/locked"), tmp.PathTo("root/versions/0.9.0/bin/lib/locked")];
-        foreach (var dir in locked) tmp.CreateFile(Path.GetRelativePath(tmp.Path, Path.Combine(dir, "file")));
         var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
         var updater = new ScriptUpdater(null!) { InUse = _ => false };
         var stderr  = new StringWriter();
 
         int first;
         try {
-            foreach (var dir in locked) File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            File.SetUnixFileMode(layout.VersionDir("0.9.0"), UnixFileMode.UserRead | UnixFileMode.UserExecute);
             first = updater.PruneVersions(layout, keep: [], stderr);
         } finally {
-            foreach (var dir in locked.Where(Directory.Exists)) File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            foreach (var dir in Directory.EnumerateDirectories(layout.Versions))
+                File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
 
         await Assert.That(first).IsEqualTo(0);
         await Assert.That(stderr.ToString()).Contains("0.9.0").And.Contains("next update");
-        await Assert.That(File.Exists(tmp.PathTo("root/versions/0.9.0/bin/kcap"))).IsTrue();
 
         var second = updater.PruneVersions(layout, keep: [], TextWriter.Null);
 
         await Assert.That(second).IsEqualTo(1);
-        await Assert.That(Directory.Exists(layout.VersionDir("0.9.0"))).IsFalse();
+        await Assert.That(Directory.EnumerateFileSystemEntries(layout.Versions).ToArray()).IsEmpty();
+    }
+
+    /// <summary>A <c>.pruning-</c> directory is a version kcap began deleting; only kcap makes one, so it needs no
+    /// binary to be removed.</summary>
+    [Test]
+    public async Task A_leftover_pruning_directory_is_removed() {
+        using var tmp = new TempDir();
+        tmp.CreateFile("root/versions/.pruning-0.9.0-abc/lib/file");
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+
+        var pruned = updater.PruneVersions(layout, keep: [], TextWriter.Null);
+
+        await Assert.That(pruned).IsEqualTo(1);
+        await Assert.That(Directory.EnumerateFileSystemEntries(layout.Versions).ToArray()).IsEmpty();
+    }
+
+    /// <summary>A <c>.pruning-</c> name proves nothing about where a link goes, so a linked one is left as it is.
+    /// On Windows the link is a junction.</summary>
+    [Test]
+    public async Task A_linked_pruning_entry_is_left_alone() {
+        using var tmp = new TempDir();
+        tmp.CreateDir("root/versions");
+        var outside = tmp.CreateFile("outside/lib/file");
+        DirectoryLink.Create(tmp.PathTo("root/versions/.pruning-x"), tmp.PathTo("outside"));
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+
+        var pruned = updater.PruneVersions(layout, keep: [], TextWriter.Null);
+
+        await Assert.That(pruned).IsEqualTo(0);
+        await Assert.That(new DirectoryInfo(tmp.PathTo("root/versions/.pruning-x")).LinkTarget).IsNotNull();
+        await Assert.That(File.Exists(outside)).IsTrue();
     }
 
     /// <summary>Only the new version and the one it replaced are kept, so a rollback deletes an unused
