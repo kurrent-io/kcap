@@ -1,3 +1,5 @@
+using System.Buffers.Text;
+using System.Text;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Accounts.Readings;
@@ -344,6 +346,30 @@ public class VendorCliWatcherTests {
 
         File.WriteAllText(file, after);
         File.SetLastWriteTimeUtc(file, new DateTime(2026, 1, 1, 0, 0, 30, DateTimeKind.Utc));
+        watcher.Tick();
+
+        await Assert.That(refreshed.Count).IsEqualTo(refreshes ? 1 : 0);
+    }
+
+    /// Codex carries the ChatGPT plan in its ID token's claims, so a refresh that reissues the token
+    /// re-probes only when a claim other than the reissue stamps changed.
+    [Test]
+    [Arguments("""{"iat":1,"exp":2,"jti":"a","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}""",
+               """{"iat":3,"exp":4,"jti":"b","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}""", false)]
+    [Arguments("""{"iat":1,"https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}""",
+               """{"iat":1,"https://api.openai.com/auth":{"chatgpt_plan_type":"pro"}}""", true)]
+    public async Task A_reissued_codex_id_token_re_probes_only_when_its_claims_changed(
+            string before, string after, bool refreshes) {
+        static string Auth(string claims) =>
+            $$$"""{"auth_mode":"chatgpt","tokens":{"id_token":"h.{{{Base64Url.EncodeToString(Encoding.UTF8.GetBytes(claims))}}}.s","account_id":"x"}}""";
+
+        using var tmp = new TempDir();
+        var file      = tmp.CreateFile("auth.json", Auth(before));
+        var refreshed = new List<string>();
+        var watcher   = VendorCliWatcher.ForTest([("codex", "", [file])], refreshed.Add, _ => null, TimeProvider.System);
+        watcher.PrimeBaselines();
+
+        File.WriteAllText(file, Auth(after) + " ");
         watcher.Tick();
 
         await Assert.That(refreshed.Count).IsEqualTo(refreshes ? 1 : 0);
