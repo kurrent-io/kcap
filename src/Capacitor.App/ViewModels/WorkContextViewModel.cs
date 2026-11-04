@@ -376,6 +376,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     void OnDto(AgentStatusDto? dto) {
         if (_tornDown || dto is null) return;
         _dto = dto;
+        // The chat reads a local agent's transcript by its path and a remote one by its session id.
+        if (Artefacts is not null) Artefacts.TranscriptKey = _isRemote ? dto.SessionId : dto.TranscriptPath;
         UpdateFacts(dto);
         HasAgent = true;
         this.RaisePropertyChanged(nameof(ShowsPeople));

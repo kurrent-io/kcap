@@ -21,6 +21,8 @@ public sealed class PlanActivity {
 
     /// Every page a successful publish in this transcript named, new or revised.
     public IReadOnlyCollection<string> PublishedPageIds => _publishedPages;
+    /// The transcript the activity was read from: a file path locally, the session id remotely.
+    public string? FeedKey { get; private set; }
 
     public bool SessionOver {
         get => _sessionOver;
@@ -60,6 +62,12 @@ public sealed class PlanActivity {
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: plan activity: {ex.Message}");
         }
+    }
+
+    /// A different transcript: nothing read from the last one belongs to it.
+    public void StartFeed(string feedKey) {
+        Clear();
+        FeedKey = feedKey;
     }
 
     public void Clear() {

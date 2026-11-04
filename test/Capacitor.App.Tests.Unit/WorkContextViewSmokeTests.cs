@@ -127,6 +127,12 @@ public class WorkContextViewSmokeTests {
             await (host.Vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);
             await Assert.That(host.Vm.Artefacts.IsShown).IsFalse();
             await Assert.That(host.Artefacts.RequestedPages.Count).IsEqualTo(reads + 1);
+
+            // Publishes are cited only from the transcript the chat reads for this agent.
+            host.Presence.OnNext(WorkspaceFixtures.Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/myproj", sessionId: SessionA)
+                with { TranscriptPath = "/t/a.jsonl" });
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(host.Vm.Artefacts.TranscriptKey).IsEqualTo("/t/a.jsonl");
         });
     }
 

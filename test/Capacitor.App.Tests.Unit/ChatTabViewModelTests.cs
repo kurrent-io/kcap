@@ -742,9 +742,11 @@ public class ChatTabViewModelTests {
             h.Plan.PlanWritten += () => writes++;
             await h.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [PlanCallLine])));
 
-            await h.PushAsync(Dto(Tmp.CreateFile("o.jsonl", [PlanResultLine])));
+            var other = Tmp.CreateFile("o.jsonl", [PlanResultLine]);
+            await h.PushAsync(Dto(other));
 
             await Assert.That(writes).IsEqualTo(0);
+            await Assert.That(h.Plan.FeedKey).IsEqualTo(other);
             await h.TeardownAsync();
         });
     }

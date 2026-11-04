@@ -103,6 +103,10 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
 
     public bool ShowsReaderNote => Reader is null && PageViewer is null;
 
+    /// The transcript the listed session is read from, in the chat's terms; a published page is cited
+    /// only when the activity naming it was read from this transcript.
+    public string? TranscriptKey { get; set; }
+
     bool _isShown;
     /// Set by the workspace while the tab is the active one; the pane's poll re-reads documents only then.
     public bool IsShown { get => _isShown; set => this.RaiseAndSetIfChanged(ref _isShown, value); }
@@ -420,6 +424,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     /// before a version publish cited its session; asking the server to cite it lists it from then on.
     void CiteUnlisted(IReadOnlyCollection<PageRow> listed) {
         if (_source is null || !_pageReads.HasCurrent || _pageReads.CurrentState is not { } sessionId) return;
+        if (_activity.FeedKey is not { } feed || feed != TranscriptKey) return;
         var unlisted = _activity.PublishedPageIds
             .Where(id => listed.All(p => p.Id != id) && _citationsAsked.Add((sessionId, id)))
             .ToList();

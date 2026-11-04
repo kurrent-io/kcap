@@ -703,6 +703,8 @@ public class ArtefactsTabViewModelTests {
         await RunOnUiAsync(async () => {
             var h = new Harness();
             var now = h.Time.GetUtcNow();
+            h.Activity.StartFeed("/t/a.jsonl");
+            h.Vm.TranscriptKey = "/t/a.jsonl";
             h.PublishPage("c1", pageId: "listed");
             h.PublishPage("c2", pageId: "older");
             h.Source.EnqueuePages(Pages(Page("listed", "Listed", now)), Pages(Page("listed", "Listed", now), Page("older", "Older", now)));
@@ -722,6 +724,28 @@ public class ArtefactsTabViewModelTests {
         });
     }
 
+    /// Pages read from another transcript are never cited on this session: the activity can still
+    /// hold the last session's publishes while the page list has already moved on.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Pages_published_in_another_transcript_are_not_cited_on_this_session() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            h.Activity.StartFeed("/t/a.jsonl");
+            h.PublishPage("c1", pageId: "from-a");
+            h.Vm.TranscriptKey = "/t/b.jsonl";
+            await h.SwitchAsync(SessionB);
+            await Assert.That(h.Source.Cited).IsEmpty();
+
+            h.Vm.TranscriptKey = "/t/a.jsonl";
+            h.Vm.Refresh();
+            await h.SettledAsync();
+            await h.Vm.PendingCitationsForTesting!;
+            await Assert.That(h.Source.Cited).IsEquivalentTo(new[] { ("from-a", SessionB) });
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     /// A refused citation (a page this viewer does not own, a server without the route) is not asked
     /// again on the next read, and reads nothing extra.
     [Test]
@@ -730,6 +754,8 @@ public class ArtefactsTabViewModelTests {
         await RunOnUiAsync(async () => {
             var h = new Harness();
             h.Source.CiteAnswer = false;
+            h.Activity.StartFeed("/t/a.jsonl");
+            h.Vm.TranscriptKey = "/t/a.jsonl";
             h.PublishPage("c1", pageId: "theirs");
             await h.SwitchAsync(SessionA);
             await h.Vm.PendingCitationsForTesting!;
