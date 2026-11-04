@@ -26,10 +26,11 @@ public class ArtefactCommandTests {
         var api = new RecordingArtefactsApi();
 
         using var console = ConsoleOutput.StartFullCapture();
-        var exit = await new ArtefactCommand(api).HandleAsync(["artefact", "publish", Page(), "--update", "a1"]);
+        var exit = await new ArtefactCommand(api).HandleAsync(["artefact", "publish", Page(), "--update", "a1", "--session", "s1"]);
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(api.Calls).IsEquivalentTo(new[] { "version:a1" });
+        await Assert.That(api.VersionSources).IsEquivalentTo(new[] { "s1" });
     }
 
     [Test]
@@ -242,8 +243,11 @@ public class ArtefactCommandTests {
             return Task.FromResult(Written("new"));
         }
 
-        public Task<ArtefactWriteResult> PublishVersionAsync(string artefactId, string html, CancellationToken ct = default) {
+        public List<string>? VersionSources { get; private set; }
+
+        public Task<ArtefactWriteResult> PublishVersionAsync(string artefactId, string html, List<string>? sources, CancellationToken ct = default) {
             Calls.Add($"version:{artefactId}");
+            VersionSources = sources;
             return Task.FromResult(Written(artefactId));
         }
 

@@ -2,4 +2,6 @@ using System.Text.Json.Serialization;
 
 namespace Capacitor.Cli.Core.Http;
 
-public record PublishArtefactVersionBody([property: JsonPropertyName("html")] string Html);
+public record PublishArtefactVersionBody(
+    [property: JsonPropertyName("html")]    string        Html,
+    [property: JsonPropertyName("sources")] List<string>? Sources);
