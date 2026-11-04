@@ -22,6 +22,9 @@ sealed class OpenCodeJsonEvents {
 
     public ClaudeCliUsage? Usage { get; private set; }
 
+    /// <summary>Whether a <c>step_finish</c> followed the last step's text, so the reply is the whole step's.</summary>
+    public bool StepFinished { get; private set; }
+
     public void Accept(string line) {
         if (string.IsNullOrWhiteSpace(line)) return;
 
@@ -32,14 +35,17 @@ sealed class OpenCodeJsonEvents {
             switch (root.Str("type")) {
                 case "step_start":
                     _step.Clear();
+                    StepFinished = false;
 
                     break;
                 case "text" when root.Obj("part")?.Str("text") is { } text:
                     _step.Append(text);
+                    StepFinished = false;
 
                     break;
                 case "step_finish":
-                    Usage = Add(Usage, root.Obj("part"));
+                    Usage        = Add(Usage, root.Obj("part"));
+                    StepFinished = true;
 
                     break;
                 case "error" when root.Obj("error") is { } error:

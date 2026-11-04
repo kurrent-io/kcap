@@ -67,6 +67,19 @@ public class OpenCodeJsonEventsTests {
     }
 
     [Test]
+    public async Task The_step_is_finished_only_by_a_step_finish_after_its_last_text() {
+        const string start  = """{"type":"step_start","part":{}}""";
+        const string text   = """{"type":"text","part":{"text":"ok"}}""";
+        const string finish = """{"type":"step_finish","part":{}}""";
+
+        await Assert.That(Fold(File.ReadLines(Fixture("success"))).StepFinished).IsTrue();
+        await Assert.That(Fold([start, text]).StepFinished).IsFalse();
+        await Assert.That(Fold([start, text, finish, start]).StepFinished).IsFalse();
+        await Assert.That(Fold([start, text, finish, text]).StepFinished).IsFalse();
+        await Assert.That(Fold([start, text, finish]).StepFinished).IsTrue();
+    }
+
+    [Test]
     public async Task Lines_that_are_not_events_are_ignored() {
         var events = Fold(["", "not json", "[1,2]", """{"type":"text","part":"nope"}""", """{"type":"step_finish","part":{"tokens":"x"}}"""]);
 

@@ -152,6 +152,13 @@ static class OpenCodeCliRunner {
             return new(null, ClaudeCliFailure.OutputUnparseable, usage);
         }
 
+        // A stream cut off mid-step exits 0 with only part of the text.
+        if (!events.StepFinished) {
+            log("OpenCode exited before finishing the step its reply came from");
+
+            return new(null, ClaudeCliFailure.ProcessFailure, usage, Error: "opencode exited before finishing its step");
+        }
+
         if (schema is not null) {
             if (StructuredReply.Accept(reply, schema) is not { } structured) {
                 log("OpenCode reply rejected: it does not match the JSON schema");

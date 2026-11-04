@@ -221,6 +221,16 @@ public class OpenCodeCliRunnerTests {
         }
     }
 
+    /// <summary>A stream cut off mid-step exits 0 having written only part of the step's text.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task Text_with_no_step_finish_after_it_is_a_process_failure_keeping_the_usage() {
+        var outcome = await Run(ReplayingLines(StepFinish, """{"type":"step_start","part":{}}""", Reply("half an ans")));
+
+        await Assert.That(outcome.Result).IsNull();
+        await Assert.That(outcome.Failure).IsEqualTo(ClaudeCliFailure.ProcessFailure);
+        await Assert.That(outcome.Usage).IsNotNull();
+    }
+
     [Test, ExcludeOn(OS.Windows)]
     public async Task A_run_with_no_text_is_unparseable() {
         var outcome = await Run(ReplayingLines(StepFinish));
@@ -293,6 +303,7 @@ public class OpenCodeCliRunnerTests {
             printf '%s' "$KCAP_SKIP" > '{seen}/skip'
             cp prompt.md '{seen}/prompt'
             echo '{Reply("ok")}'
+            echo '{StepFinish}'
             """);
         var env = DaemonEnvironment();
         env["OPENCODE_PERMISSION"] = """{"*":"allow"}""";
@@ -334,7 +345,7 @@ public class OpenCodeCliRunnerTests {
         const string auth = """{"anthropic":{"type":"api","key":"sk-test"}}""";
         Tmp.CreateFile(Path.Combine("user-data", "opencode", "auth.json"), auth);
         var seen     = Path.Combine(Tmp.Path, "auth");
-        var opencode = FakeOpenCode($"printf '%s' \"$OPENCODE_AUTH_CONTENT\" > '{seen}'\necho '{Reply("ok")}'");
+        var opencode = FakeOpenCode($"printf '%s' \"$OPENCODE_AUTH_CONTENT\" > '{seen}'\necho '{Reply("ok")}'\necho '{StepFinish}'");
 
         var outcome = await Run(opencode);
 
