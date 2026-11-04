@@ -299,6 +299,27 @@ public class AcpTranscriptAggregationTests {
 
     static JsonElement Update(JsonElement update) => FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, update);
 
+    /// <summary>Vibe interleaves a <c>usage_update</c> with <c>used: 0</c>, which carries nothing to emit; without
+    /// this the thinking renders as two blocks split mid-sentence.</summary>
+    [Test]
+    public async Task An_empty_usage_update_mid_run_does_not_split_the_thought_run() {
+        await using var h = new Harness();
+
+        var chunk1 = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, FakeAcpAgent.BuildAgentThoughtChunkUpdate("The user wants"));
+        var usage  = Update(JsonDocument.Parse("""{"sessionUpdate":"usage_update","used":0,"size":209715}""").RootElement);
+        var chunk2 = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, FakeAcpAgent.BuildAgentThoughtChunkUpdate(" me to run curl"));
+        h.Fake.EnqueuePromptScript(new[] { chunk1, usage, chunk2 }, EndTurnResult);
+
+        h.StartFakeAgentLoop();
+        await h.Runtime.StartAsync("/abs/worktree", "hi", h.Cts.Token).WaitAsync(HangGuard);
+
+        await ReadEnvelopeAsync(h.Runtime); // UserMessage
+
+        var thinking = await ReadEnvelopeAsync(h.Runtime);
+        await Assert.That(thinking.Kind).IsEqualTo(AcpEventKind.AssistantThinking);
+        await Assert.That(thinking.Text).IsEqualTo("The user wants me to run curl");
+    }
+
     [Test]
     public async Task A_session_info_update_mid_run_does_not_split_the_message_run() {
         // A native session-title update (session_info_update) interleaved between two message

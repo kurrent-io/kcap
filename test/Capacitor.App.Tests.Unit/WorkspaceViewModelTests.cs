@@ -437,12 +437,12 @@ public class WorkspaceViewModelTests {
             await Assert.That(vm.IsStarting).IsTrue();
             await Assert.That(vm.Title).IsEqualTo("Fix the flaky test");
             await Assert.That(vm.RepoLabelText).IsEqualTo("myproj");
-            await Assert.That(vm.StartingText).IsEqualTo("Starting Claude · Process started");
+            await Assert.That(vm.StartingText).IsEqualTo("Starting Claude Code · Process started");
 
             directory.Rows.AddOrUpdate(AgentRow.FromPending(
                 new PendingLaunchDto("a1", "claude", "/repo/myproj", "Fix the flaky test", DateTime.UtcNow, "session_created"),
                 new RepoIdentity("path:/repo/myproj", "myproj")));
-            await Assert.That(vm.StartingText).IsEqualTo("Starting Claude · Session created");
+            await Assert.That(vm.StartingText).IsEqualTo("Starting Claude Code · Session created");
 
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/myproj"));
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);

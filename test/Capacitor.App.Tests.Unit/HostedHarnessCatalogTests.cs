@@ -35,6 +35,15 @@ public class HostedHarnessCatalogTests {
         await Assert.That(HostedHarnessCatalog.FamilyFor("mistral-vibe")).IsEqualTo("acp");
     }
 
+    /// <summary>A stored session's harness keeps its name when no daemon advertises it.</summary>
+    [Test]
+    public async Task A_harness_missing_from_the_options_is_still_named() {
+        var options = HostedHarnessCatalog.Build(null);
+
+        await Assert.That(HostedHarnessCatalog.LabelFor(options, "mistral-vibe")).IsEqualTo("Mistral Vibe");
+        await Assert.That(HostedHarnessCatalog.LabelFor(options, "newvendor")).IsEqualTo("newvendor");
+    }
+
     /// <summary>A daemon too old to host Muse Code advertises nothing for it, so silence must not offer it.</summary>
     [Test]
     public async Task Muse_is_listed_only_when_a_daemon_advertises_it() {

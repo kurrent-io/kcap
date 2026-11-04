@@ -16,7 +16,11 @@ public static class LaunchStages {
 
     public static string StartingText(string vendor, string? stage) => $"Starting {VendorLabel(vendor)} · {Label(stage)}";
 
-    static string VendorLabel(string vendor) => vendor.Length == 0 ? "agent" : char.ToUpperInvariant(vendor[0]) + vendor[1..];
+    /// <summary>The harness's own name; only a vendor this build has never heard of falls back to its token.</summary>
+    static string VendorLabel(string vendor) =>
+        vendor.Length == 0 ? "agent"
+      : Services.HostedHarnessCatalog.LabelFor(vendor) is var label && label != vendor ? label
+      : char.ToUpperInvariant(vendor[0]) + vendor[1..];
 
     static string Humanize(string stage) {
         var text = stage.Replace('_', ' ').Replace('-', ' ').Trim();

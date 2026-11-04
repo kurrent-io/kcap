@@ -194,11 +194,11 @@ public static class HostedHarnessCatalog {
             ? tile
             : (vendor.Length > 0 ? vendor[..1].ToUpperInvariant() : "?", "#B0B7C6");
 
-    /// Display label for a vendor token: the option's Label when the list carries one, the raw
-    /// token otherwise (before the first daemon snapshot, or a token this build has never heard
-    /// of). Shared by the harness chip and the repository menu's remembered-harness pill.
+    /// Display label for a vendor token: the option's Label when the list carries one, the harness's
+    /// own name when it does not (a harness listed only when advertised, such as a stored Mistral Vibe
+    /// session's), and the raw token only for one this build has never heard of.
     public static string LabelFor(IReadOnlyList<HarnessOption> options, string vendor) =>
-        options.FirstOrDefault(o => string.Equals(o.Vendor, vendor, StringComparison.OrdinalIgnoreCase))?.Label ?? vendor;
+        options.FirstOrDefault(o => string.Equals(o.Vendor, vendor, StringComparison.OrdinalIgnoreCase))?.Label ?? LabelFor(vendor);
 
     /// Display name for a vendor token with no option list in hand. An unknown token stays as given.
     public static string LabelFor(string vendor) =>

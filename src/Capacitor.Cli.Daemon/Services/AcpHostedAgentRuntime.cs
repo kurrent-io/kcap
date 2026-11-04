@@ -1912,6 +1912,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                         EmitEnvelope(m);
                     break;
 
+                // A usage reading with nothing to show (Vibe sends used: 0 between thought chunks) is
+                // still metadata, so it is dropped without ending the open run.
+                case AcpUpdateKind.Unknown when update.Raw is { } raw && raw.Str("sessionUpdate") == "usage_update":
+                    break;
+
                 // Calls held before it stay held: parallel calls each wait for their own input. The call is the agent's
                 // output, so it moves the activity clock and the silence watch as an emitted one would.
                 case AcpUpdateKind.ToolCall when update is { ToolStatus: "pending", ToolCallId.Length: > 0 } && AwaitsInput(update.ToolInputJson):
