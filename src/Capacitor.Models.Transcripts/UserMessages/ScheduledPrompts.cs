@@ -18,7 +18,7 @@ public sealed class ScheduledPrompts {
                         _wakeUps.Add(wake);
                 break;
 
-            case UserMessageReceived message when LoopArgs(message.Content) is { } loopArgs && Key(LoopPrompt(loopArgs)) is { Length: > 0 } loop:
+            case UserMessageReceived message when IsPersons(message) && LoopArgs(message.Content) is { } loopArgs && Key(LoopPrompt(loopArgs)) is { Length: > 0 } loop:
                 _loops.Add(loop);
                 break;
         }
@@ -29,6 +29,14 @@ public sealed class ScheduledPrompts {
     public bool IsWakeUp(string? text) => Key(text) is { Length: > 0 } key && _wakeUps.Contains(key);
 
     public bool IsLoopFiring(string? text) => Key(text) is { Length: > 0 } key && _loops.Contains(key);
+
+    // Only the person starts a loop: another session, a subagent or the harness quoting `/loop` does not.
+    static bool IsPersons(UserMessageReceived message) {
+        var slug = SchemaExtensions.Slug(message, ClaudeCodeExtension.Slug);
+
+        return SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) is null or "human"
+            && !SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsSidechain);
+    }
 
     // Claude Code's own tool, or kcap's MCP tool under whatever server prefix the harness records.
     static bool IsWakeUpTool(string toolName) =>

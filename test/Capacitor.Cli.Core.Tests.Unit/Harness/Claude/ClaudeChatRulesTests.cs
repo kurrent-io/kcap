@@ -772,4 +772,11 @@ public class ClaudeChatRulesTests {
         await Assert.That(result.Envelopes.Single().Text).IsEqualTo("! ls");
         await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "!ls" });
     }
+
+    [Test]
+    public async Task A_slash_command_a_reminder_quotes_is_not_the_receipt() {
+        var result = R(User("<system-reminder><command-name>/clear</command-name></system-reminder>\n<command-name>/review</command-name><command-args>x</command-args>"));
+        await Assert.That(result.Envelopes.Single().Text).IsEqualTo("/review x");
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "/review x" });
+    }
 }

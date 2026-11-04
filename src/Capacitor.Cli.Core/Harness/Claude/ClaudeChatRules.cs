@@ -56,9 +56,11 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         var text = raw.Text ?? "";
         if (UserMessageClassifier.Classify(text, Origin(evt), Vendor, scheduled).Kind == UserMessageKind.Person) {
             if (BashCommand(text) is { } command) return "!" + command;
-            var name = CommandName().Match(text).Groups[1].Value.Trim();
+            // Past the reminders, which can quote a command of their own.
+            var clean = SystemInstructionParser.Parse(text).CleanText;
+            var name = CommandName().Match(clean).Groups[1].Value.Trim();
             if (name.StartsWith('/')) {
-                var args = CommandArgs().Match(text).Groups[1].Value.Trim();
+                var args = CommandArgs().Match(clean).Groups[1].Value.Trim();
                 return args.Length == 0 ? name : $"{name} {args}";
             }
         }

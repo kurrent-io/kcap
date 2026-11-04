@@ -77,8 +77,9 @@ public static class UserMessageClassifier {
 
         byText = true;
 
-        if (scheduled?.IsLoopFiring(clean) == true) return new(UserMessageKind.Trigger, ScheduledLoop);
-        if (scheduled?.IsWakeUp(clean) == true) return Continue(ScheduledWakeUp);
+        // A firing carries no origin of its own, so a line recorded as the person's is theirs whatever it repeats.
+        if (!human && scheduled?.IsLoopFiring(clean) == true) return new(UserMessageKind.Trigger, ScheduledLoop);
+        if (!human && scheduled?.IsWakeUp(clean) == true) return Continue(ScheduledWakeUp);
 
         // A slash command and a shell line are the person's, whatever the harness flagged them.
         if (LocalCommandParser.IsPure(clean, out var local) && local.Kind == LocalCommandParser.LocalCommandKind.Command)

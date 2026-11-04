@@ -227,4 +227,10 @@ public class CodexChatRulesTests {
         var row = P(UserItem("[System: what does this nudge mean?]")).Single();
         await Assert.That(row.Kind).IsEqualTo(AcpEventKind.UserMessage);
     }
+
+    [Test]
+    public async Task A_shell_command_a_reminder_quotes_is_not_the_one_that_ran() {
+        var row = P(UserItem("<system-reminder><command>pwd</command></system-reminder>\n<user_shell_command>\n<command>\nls\n</command>\n</user_shell_command>")).Single();
+        await Assert.That(row.Text).IsEqualTo("! ls");
+    }
 }

@@ -42,9 +42,10 @@ public sealed class CodexChatRules : IChatDisplayRules {
     static AcpEventEnvelope? UserMessage(AcpEventEnvelope envelope, ScheduledPrompts? scheduled) {
         var raw = envelope.Text ?? "";
         var cls = UserMessageClassifier.Classify(raw, origin: null, Vendor, scheduled);
+        var clean = SystemInstructionParser.Parse(raw).CleanText;
 
         switch (cls.Kind) {
-            case UserMessageKind.Person when cls.IsCommand && CodexShellCommand.Command(raw) is { } command:
+            case UserMessageKind.Person when cls.IsCommand && CodexShellCommand.Command(clean) is { } command:
                 return envelope with { Text = ShellPrefix + command, ToolKind = ChatDisplayKind.Shell };
             case UserMessageKind.Person when cls is { IsCommand: true, Label: { Length: > 0 } label }:
                 return envelope with { Text = label };
@@ -53,7 +54,7 @@ public sealed class CodexChatRules : IChatDisplayRules {
                 var text = CodexPrelude.StripLeading(raw).Trim();
                 return text.Length == 0 ? null : envelope with { Text = text };
             case UserMessageKind.Trigger:
-                return ChatNotes.Trigger(envelope, cls, SystemInstructionParser.Parse(raw).CleanText.Trim());
+                return ChatNotes.Trigger(envelope, cls, clean.Trim());
             default:
                 return cls.IsInterrupt ? ChatNotes.Interrupted(envelope) : null;
         }

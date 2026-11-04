@@ -322,4 +322,21 @@ public class UserMessageClassifierTests {
     public async Task Codex_user_kinds_keep_the_compaction_lead_the_persons() =>
         await Assert.That(KindOf("This session is being continued from a previous conversation — what?", new UserMessageOrigin { ContentItemKinds = ["user.text"] }, vendor: "codex"))
             .IsEqualTo(UserMessageKind.Person);
+
+    /// A loop starts only from the person's `/loop`; a line Claude records as the person's is theirs even when
+    /// it repeats a scheduled prompt.
+    [Test]
+    public async Task Only_the_persons_loop_schedules_and_a_persons_line_is_never_a_firing() {
+        var scheduled = new ScheduledPrompts();
+        var peer = new UserMessageReceived { Content = "/loop 10m deploy" };
+        peer.Extensions[ClaudeCodeExtension.Slug] = ClaudeCodeExtension.Flags(false, originKind: "peer")!;
+        scheduled.Observe(peer);
+
+        await Assert.That(KindOf("deploy", scheduled: scheduled)).IsEqualTo(UserMessageKind.Person);
+
+        scheduled.Observe(new UserMessageReceived { Content = "/loop 10m deploy" });
+
+        await Assert.That(KindOf("deploy", scheduled: scheduled)).IsEqualTo(UserMessageKind.Trigger);
+        await Assert.That(KindOf("deploy", new UserMessageOrigin { Kind = "human" }, scheduled)).IsEqualTo(UserMessageKind.Person);
+    }
 }
