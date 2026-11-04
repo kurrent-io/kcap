@@ -721,6 +721,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     int                          _catalogProbeRequested;
     int                          _rediscoveryRequested;
     bool                         _discoveryPublicationPending;
+    bool                         _unattendedClassificationPending;
 
     // Hosted-agent PTYs are spawned at a fixed size and never resized. The daemon
     // reports these dims to the server right after the agent registers (and on
@@ -1699,22 +1700,17 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return (true, "", false);
     }
 
-    /// <summary>Cheap periodic discovery: only changed availability schedules version/catalog probes.
-    /// A publication that failed is retried even though the local vendor list is already updated.</summary>
+    /// <summary>Periodic discovery retries withheld classifications and failed publications even
+    /// when the installed vendor list is unchanged.</summary>
     internal void RefreshAgentDiscovery() {
         var installed = _runtimeFactories.Values.Where(f => f.IsAvailable())
             .Select(f => f.Vendor).OrderBy(v => v, StringComparer.Ordinal);
-        if (Volatile.Read(ref _discoveryPublicationPending) || !installed.SequenceEqual(_config.SupportedVendors ?? []))
+        if (Volatile.Read(ref _discoveryPublicationPending) || Volatile.Read(ref _unattendedClassificationPending)
+         || !installed.SequenceEqual(_config.SupportedVendors ?? []))
             RefreshAdvertisedCapabilities("agent discovery", probeCatalogs: false, rediscoverVendors: true);
     }
 
-    /// <summary>
-    /// Re-resolves the Codex switch, re-probes the vendors advertised at startup and re-registers when
-    /// the advertisement changed or the server has not yet seen the committed Codex resolution — the one
-    /// path through which a running daemon updates what the server knows about its CLI versions, vendor
-    /// model catalogs and Codex transport. Returns at once; the work is single-flighted off the caller's
-    /// stack so a burst of requests coalesces and the last publication is always the newest probe.
-    /// </summary>
+    /// <summary>Refreshes installed vendors, reviewer capabilities and catalogs through one coalescing lane.</summary>
     /// <param name="republishUnchanged">Re-register even when the local advertisement already
     /// reads the same, for a caller that knows the server's copy differs.</param>
     /// <param name="probeCatalogs">False for a caller with no reason to think a model catalog changed,
@@ -1748,10 +1744,17 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                         _config.AcpPresetVendors = installed.Where(Acp.AcpPermissionPresets.RoutedVendors.Contains).ToArray();
                         _config.PermissionModeVendors = Harness.Claude.ClaudePermissionModePolicy.AdvertisedVendors(installed);
                         _config.PrReviewVendors = DaemonRunner.AdvertisedPrReviewVendors(_runtimeFactories.Values);
-                        DaemonRunner.SeedReviewerFloors(_config.Store.StateDirectory(_config.Name), _config);
-                        _config.UnattendedVendors = DaemonRunner.AdvertisedUnattendedVendors(
-                            DaemonRunner.ClassifyUnattendedVendors(_runtimeFactories.Values));
                         probeCatalog = true;
+                    }
+                    if (vendorsChanged || Volatile.Read(ref _unattendedClassificationPending)) {
+                        DaemonRunner.SeedReviewerFloors(_config.Store.StateDirectory(_config.Name), _config);
+                        var classifications = DaemonRunner.ClassifyUnattendedVendors(_runtimeFactories.Values);
+                        var unattended = DaemonRunner.AdvertisedUnattendedVendors(classifications);
+                        if (!unattended.SequenceEqual(_config.UnattendedVendors ?? []))
+                            Volatile.Write(ref _discoveryPublicationPending, true);
+                        _config.UnattendedVendors = unattended;
+                        Volatile.Write(ref _unattendedClassificationPending,
+                            classifications.Any(s => s.ProbeFailed || s.WithheldReason is not null));
                     }
                 }
 

@@ -83,6 +83,38 @@ public class AgentOrchestratorCapabilityRefreshTests {
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Discovery_retries_withheld_classification_without_an_installation_change(bool throws) {
+        var factory = new StubCatalogFactory("cursor", models: null) {
+            CliPathOverride = "",
+            UnattendedProbe = () => throws
+                ? throw new TimeoutException("temporary probe failure")
+                : new(false, "cursor_reviewer_version_unresolved: temporary probe failure")
+        };
+        var (orch, server, config) = BuildWithCatalog(factory, initial: null, supported: false);
+        await using var _ = orch;
+
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(config.SupportedVendors).IsEquivalentTo(["cursor"]);
+        await Assert.That(config.UnattendedVendors).IsEmpty();
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(1);
+
+        factory.UnattendedProbe = () => new(true, null);
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(config.UnattendedVendors).IsEquivalentTo(["cursor"]);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(2);
+
+        var probes = factory.UnattendedProbeCalls;
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(factory.UnattendedProbeCalls).IsEqualTo(probes);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Unchanged_discovery_does_not_probe_catalogs_or_republish() {
         var factory = new StubCatalogFactory("cursor", models: null);
         var (orch, server, _) = BuildWithCatalog(factory, initial: null);

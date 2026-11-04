@@ -1548,22 +1548,16 @@ public static partial class DaemonRunner {
         }
     }
 
-    /// <summary>One installed vendor's unattended classification at daemon startup.</summary>
+    /// <summary>One installed vendor's unattended classification.</summary>
     /// <param name="Vendor">The vendor token.</param>
     /// <param name="Advertised">Whether it is offered as an unattended reviewer host.</param>
     /// <param name="WithheldReason">Why it is not offered, when a daemon-local gate is what refuses
     /// it. Null for an advertised vendor AND for one that never offered unattended hosting — only a
     /// refusal an operator can act on is worth a Warning.</param>
     internal readonly record struct UnattendedVendorStatus(
-        string Vendor, bool Advertised, string? WithheldReason);
+        string Vendor, bool Advertised, string? WithheldReason, bool ProbeFailed = false);
 
-    /// <summary>
-    /// Classifies every INSTALLED factory's unattended support, asking each exactly once (see
-    /// <see cref="IHostedAgentRuntimeFactory.DescribeUnattendedSupport"/> — the gated reviewers spawn
-    /// their vendor binary to answer). Pure over the factory list, same reasoning as
-    /// <see cref="ShouldWarnCursorUnavailable"/>, so both the advertisement and its diagnostic are
-    /// testable without spinning up the whole DI host <see cref="RunAsync"/> builds.
-    /// </summary>
+    /// <summary>Classifies each installed vendor once, overlapping version probes under a shared deadline.</summary>
     internal static IReadOnlyList<UnattendedVendorStatus> ClassifyUnattendedVendors(
             IEnumerable<IHostedAgentRuntimeFactory> factories) {
         var installed = factories.Where(f => f.IsAvailable()).ToArray();
@@ -1574,12 +1568,12 @@ public static partial class DaemonRunner {
         // them: each factory is still asked exactly once, on its own task, under one shared ceiling.
         var support = ProbeVendorsConcurrently(
             byVendor.Keys, vendor => byVendor[vendor].DescribeUnattendedSupport(),
-            timedOut: new UnattendedSupport(false, null));
+            timedOut: new UnattendedSupport(false, null, ProbeFailed: true));
 
         return installed
             .Select(f => support[f.Vendor] is { Supported: true } && LauncherPolicyVersion(f.Vendor, codexAppServer: false) is null
                 ? new UnattendedVendorStatus(f.Vendor, false, $"no launcher policy is defined for {f.Vendor}")
-                : new UnattendedVendorStatus(f.Vendor, support[f.Vendor].Supported, support[f.Vendor].WithheldReason))
+                : new UnattendedVendorStatus(f.Vendor, support[f.Vendor].Supported, support[f.Vendor].WithheldReason, support[f.Vendor].ProbeFailed))
             .OrderBy(s => s.Vendor, StringComparer.Ordinal)
             .ToArray();
     }
