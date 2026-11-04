@@ -24,14 +24,16 @@ public static class TextElision {
         var parts = text.TrimEnd(sep).Split(sep);
         var first = 0;
         while (first < parts.Length - 1 && parts[first].Length == 0) first++;
-        if (parts.Length - first < 3) return Middle(text, max);
-        var head = string.Join(sep, parts[..(first + 1)]);
+        if (parts.Length - first < 2) return Middle(text, max);
         var tail = parts[^1];
-        var next = parts.Length - 2;
-        while (next > first && head.Length + 3 + parts[next].Length + 1 + tail.Length <= max)
-            tail = parts[next--] + sep + tail;
-        var anchored = $"{head}{sep}\u2026{sep}{tail}";
-        if (anchored.Length <= max) return anchored;
+        if (parts.Length - first >= 3) {
+            var head = string.Join(sep, parts[..(first + 1)]);
+            var next = parts.Length - 2;
+            while (next > first && head.Length + 3 + parts[next].Length + 1 + tail.Length <= max)
+                tail = parts[next--] + sep + tail;
+            var anchored = $"{head}{sep}\u2026{sep}{tail}";
+            if (anchored.Length <= max) return anchored;
+        }
         var bare = $"\u2026{sep}{tail}";
         return bare.Length <= max ? bare : Middle(parts[^1], max);
     }

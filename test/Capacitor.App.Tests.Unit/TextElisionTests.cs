@@ -34,6 +34,7 @@ public class TextElisionTests {
     [Arguments("/Users/dev/src/a-really-long-folder-name/ToolDetail.cs", 20, "…/ToolDetail.cs")]
     [Arguments(@"C:\Users\dev\src\kcap-cli\src\Capacitor.App\ToolDetail.cs", 32, @"C:\…\Capacitor.App\ToolDetail.cs")]
     [Arguments("src/ToolDetail.cs", 40, "src/ToolDetail.cs")]
+    [Arguments("src/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.cs", 40, "\u2026/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.cs")]
     public async Task A_path_loses_whole_folders_from_its_middle(string path, int max, string expected) =>
         await Assert.That(TextElision.Path(path, max)).IsEqualTo(expected);
 
