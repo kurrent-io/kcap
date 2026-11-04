@@ -61,8 +61,6 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     internal const string UnreachableNote  = "Couldn't reach the server.";
 
     readonly bool _isRemote;
-    /// A session no daemon hosts: nothing reports how it ran, so the vendor must not stand in for that.
-    readonly bool _sessionOnly;
     readonly IWorkContextSource _source;
     readonly SingleFlightReader<string, WorkContextRead> _reader;
     readonly SingleFlightReader<(string? Path, string? Reported), string> _branchReader;
@@ -89,8 +87,6 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public string Branch { get => _branch; private set => this.RaiseAndSetIfChanged(ref _branch, value); }
     string _harness = "—";
     public string Harness { get => _harness; private set => this.RaiseAndSetIfChanged(ref _harness, value); }
-    string _transport = "—";
-    public string Transport { get => _transport; private set => this.RaiseAndSetIfChanged(ref _transport, value); }
     string _tokens = SessionFactText.Unknown;
     public string Tokens { get => _tokens; private set => this.RaiseAndSetIfChanged(ref _tokens, value); }
     string _cost = SessionFactText.Unknown;
@@ -294,10 +290,9 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             IObservable<AgentStatusDto?> presence, IWorkContextSource source, TimeProvider time, IUrlOpener opener,
             SessionRuns runs, Action? requestSignIn = null, IObservable<Unit>? signInCompleted = null,
             Action<string>? openWorkItem = null, IPlanSource? plans = null, PlanActivity? planActivity = null,
-            ArtefactsTabViewModel? artefacts = null, bool isRemote = false, bool sessionOnly = false,
+            ArtefactsTabViewModel? artefacts = null, bool isRemote = false,
             IObservable<ServerLaneStatus>? serverLane = null, WorkContextLayout? layout = null) {
         _isRemote = isRemote;
-        _sessionOnly = sessionOnly;
         _layout = layout ?? new WorkContextLayout();
         _source = source;
         _branchReader = new SingleFlightReader<(string? Path, string? Reported), string>(
@@ -398,12 +393,6 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(PhaseNote));
     }
 
-    internal static string TransportLabel(string family) => family switch {
-        "pty" => "PTY",
-        "acp" => "ACP",
-        _     => "chat",
-    };
-
     void UpdateFacts(AgentStatusDto dto) {
         ResolveRepository(dto.RepoPath);
         RepositoryPath = dto.RepoPath;
@@ -416,7 +405,6 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         ResolveBranch();
         var vendorLabel = HostedHarnessCatalog.LabelFor(DefaultHarnessOptions, dto.Vendor);
         Harness = $"{vendorLabel} · {HostedHarnessCatalog.ModelLabelFor(dto.Vendor, dto.Model ?? "")}";
-        Transport = _sessionOnly ? "—" : TransportLabel(HostedHarnessCatalog.EffectiveFamily(dto.HasTerminal, dto.Vendor));
         if (!_reader.HasCurrent) SessionIdText = SessionIds.Canonical(dto.SessionId) ?? "resolving…";
         UpdateRequester(dto, vendorLabel);
     }

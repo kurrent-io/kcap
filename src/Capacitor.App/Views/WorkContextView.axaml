@@ -818,14 +818,10 @@
                                 AutomationProperties.Name="Usage">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                 <TextBlock Text="USAGE" Classes="eyebrow" />
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <TextBlock x:Name="UsageSummaryText" Text="{Binding UsageSummary}" Classes="sectionMeta"
-                                               IsVisible="{Binding !UsageExpanded}" />
-                                    <Panel Width="12" Height="12">
-                                        <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding UsageExpanded}" />
-                                        <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !UsageExpanded}" />
-                                    </Panel>
-                                </StackPanel>
+                                <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
+                                    <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding UsageExpanded}" />
+                                    <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !UsageExpanded}" />
+                                </Panel>
                             </Grid>
                         </Button>
                         <Border Classes="sectionBody" IsVisible="{Binding UsageExpanded}">
@@ -847,12 +843,9 @@
                     <StackPanel x:Name="CheckoutSection" Margin="0,18,0,0">
                         <Button x:Name="CheckoutToggle" Command="{Binding ToggleCheckoutCommand}" Classes="sectionHeader expandable"
                                 AutomationProperties.Name="Checkout">
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                 <TextBlock Text="CHECKOUT" Classes="eyebrow" />
-                                <TextBlock x:Name="CheckoutSummaryText" Grid.Column="1" Text="{Binding CheckoutSummary}" Classes="sectionMeta"
-                                           HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"
-                                           IsVisible="{Binding !CheckoutExpanded}" />
-                                <Panel Grid.Column="2" Width="12" Height="12" VerticalAlignment="Center">
+                                <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
                                     <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding CheckoutExpanded}" />
                                     <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !CheckoutExpanded}" />
                                 </Panel>
@@ -909,25 +902,20 @@
                     <StackPanel x:Name="SessionSection" Margin="0,18,0,0">
                         <Button x:Name="SessionToggle" Command="{Binding ToggleSessionCommand}" Classes="sectionHeader expandable"
                                 AutomationProperties.Name="Session">
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                 <TextBlock Text="SESSION" Classes="eyebrow" />
-                                <TextBlock x:Name="SessionSummaryText" Grid.Column="1" Text="{Binding SessionSummary}" Classes="sectionMeta"
-                                           HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"
-                                           IsVisible="{Binding !SessionExpanded}" />
-                                <Panel Grid.Column="2" Width="12" Height="12" VerticalAlignment="Center">
+                                <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
                                     <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding SessionExpanded}" />
                                     <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !SessionExpanded}" />
                                 </Panel>
                             </Grid>
                         </Button>
                         <Border Classes="sectionBody" IsVisible="{Binding SessionExpanded}">
-                            <Grid x:Name="SessionFacts" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                            <Grid x:Name="SessionFacts" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="HARNESS" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Harness}" Classes="factValue" />
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="TRANSPORT" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Transport}" Classes="factValue" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="ID" Classes="factLabel" />
-                                <Panel Grid.Row="2" Grid.Column="1">
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="ID" Classes="factLabel" />
+                                <Panel Grid.Row="1" Grid.Column="1">
                                     <Button x:Name="SessionIdButton" Classes="copyValue" Click="OnSessionIdClick"
                                             IsVisible="{Binding CanCopySessionId}"
                                             AutomationProperties.Name="Copy session ID"
@@ -937,10 +925,10 @@
                                     <SelectableTextBlock Text="{Binding SessionIdText}" Classes="factValue"
                                                          IsVisible="{Binding !CanCopySessionId}" />
                                 </Panel>
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="SESSION SHARING" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SessionSharing}" Classes="factValue" />
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="AGENT SHARING" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="4" Grid.Column="1" Text="{Binding AgentSharing}" Classes="factValue" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="SESSION SHARING" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SessionSharing}" Classes="factValue" />
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="AGENT SHARING" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AgentSharing}" Classes="factValue" />
                             </Grid>
                         </Border>
                     </StackPanel>

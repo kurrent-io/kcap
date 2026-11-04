@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Reactive;
-using System.Reactive.Disposables.Fluent;
 using Avalonia.Collections;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core.LocalIpc;
@@ -232,20 +231,6 @@ public sealed partial class WorkContextViewModel {
         }
     }
 
-    /// What a folded header shows in place of its rows.
-    public string UsageSummary => string.Join(" · ", new[] { Tokens, Cost }.Where(v => v != SessionFactText.Unknown));
-    public string CheckoutSummary => Worktree != SessionFactText.Unknown ? Worktree
-        : Repository != SessionFactText.Unknown ? Repository : "";
-    public string SessionSummary => Harness != SessionFactText.Unknown ? Harness : "";
-
-    void WatchSummaries() {
-        this.WhenAnyValue(x => x.Tokens, x => x.Cost, (_, _) => Unit.Default)
-            .Subscribe(_ => this.RaisePropertyChanged(nameof(UsageSummary))).DisposeWith(_disposables);
-        this.WhenAnyValue(x => x.Worktree, x => x.Repository, (_, _) => Unit.Default)
-            .Subscribe(_ => this.RaisePropertyChanged(nameof(CheckoutSummary))).DisposeWith(_disposables);
-        this.WhenAnyValue(x => x.Harness)
-            .Subscribe(_ => this.RaisePropertyChanged(nameof(SessionSummary))).DisposeWith(_disposables);
-    }
     bool _runsExpanded;
     public bool RunsExpanded { get => _runsExpanded; private set => this.RaiseAndSetIfChanged(ref _runsExpanded, value); }
 
@@ -272,7 +257,6 @@ public sealed partial class WorkContextViewModel {
         _disposables.Add(System.Reactive.Disposables.Disposable.Create(() => _layout.PropertyChanged -= OnLayoutChanged));
         ToggleRunsCommand = Toggle(() => RunsExpanded = !RunsExpanded);
         WatchOwnWorktree();
-        WatchSummaries();
     }
 
     ReactiveCommand<Unit, Unit> Toggle(Action flip) {

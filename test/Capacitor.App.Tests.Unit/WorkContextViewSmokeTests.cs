@@ -903,7 +903,7 @@ public class WorkContextViewSmokeTests {
     }
 
     /// A section header opens and folds its rows in place, so the reader closes it where they opened
-    /// it, and a folded header carries its summary instead.
+    /// it.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_checkout_header_opens_and_folds_its_rows_in_place() {
@@ -913,9 +913,7 @@ public class WorkContextViewSmokeTests {
 
             var header  = host.Find<Button>("CheckoutToggle");
             var facts   = host.Find<Grid>("CheckoutFacts");
-            var summary = host.Find<TextBlock>("CheckoutSummaryText");
             await Assert.That(facts.IsEffectivelyVisible).IsFalse();
-            await Assert.That(summary.IsEffectivelyVisible).IsTrue();
 
             var origin = header.TranslatePoint(new Point(header.Bounds.Width / 2, header.Bounds.Height / 2), host.Window)!.Value;
             void Click() {
@@ -928,11 +926,9 @@ public class WorkContextViewSmokeTests {
 
             Click();
             await Assert.That(facts.IsEffectivelyVisible).IsTrue();
-            await Assert.That(summary.IsEffectivelyVisible).IsFalse();
 
             Click();
             await Assert.That(facts.IsEffectivelyVisible).IsFalse();
-            await Assert.That(summary.IsEffectivelyVisible).IsTrue();
         });
     }
 

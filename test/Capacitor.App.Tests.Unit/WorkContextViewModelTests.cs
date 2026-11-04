@@ -40,10 +40,10 @@ public class WorkContextViewModelTests {
         public BehaviorSubject<ServerLaneStatus> Lane { get; } = new(new(ServerLaneState.Connected));
         public WorkContextViewModel Vm { get; }
 
-        public Harness(bool isRemote = false, bool sessionOnly = false, WorkContextLayout? layout = null) {
+        public Harness(bool isRemote = false, WorkContextLayout? layout = null) {
             Runs = new SessionRuns(Time);
             Vm = new WorkContextViewModel(Presence, Source, Time, Opener, Runs, () => SignInRequests++, SignIn, OpenedWorkItems.Add, Plans, PlanActivity,
-                isRemote: isRemote, sessionOnly: sessionOnly, serverLane: Lane, layout: layout);
+                isRemote: isRemote, serverLane: Lane, layout: layout);
         }
 
         public Task PlanSettledAsync() => Vm.Plan.PendingReadForTesting ?? Task.CompletedTask;
@@ -194,7 +194,6 @@ public class WorkContextViewModelTests {
             await Assert.That(h.Vm.WorktreePath).IsEqualTo("/repo/myproj/.capacitor/worktrees/agent-1");
             await Assert.That(h.Vm.Branch).IsEqualTo("feature/x");
             await Assert.That(h.Vm.Harness).IsEqualTo("Claude Code · Claude Opus 5");
-            await Assert.That(h.Vm.Transport).IsEqualTo("PTY");
             await Assert.That(h.Vm.SessionExpanded).IsFalse();
             await Assert.That(h.Vm.SessionIdText).IsEqualTo("resolving…");
             await Assert.That(h.Vm.Phase).IsEqualTo(WorkContextPhase.WaitingForSession);
@@ -215,7 +214,6 @@ public class WorkContextViewModelTests {
 
             await Assert.That(h.Vm.Branch).IsEqualTo("—");
             await Assert.That(h.Vm.Worktree).IsEqualTo("main checkout · borrowed");
-            await Assert.That(h.Vm.Transport).IsEqualTo("PTY");
             await Assert.That(h.Vm.SessionExpanded).IsFalse();
             await h.Vm.TeardownAsync();
         });
@@ -238,22 +236,6 @@ public class WorkContextViewModelTests {
             await Assert.That(h.Vm.OwnWorktreeBranch).IsEqualTo("capacitor/agent-1");
             await Assert.That(h.Vm.OwnWorktreeNote!).Contains("not in your myproj checkout");
             await Assert.That(h.Vm.OwnWorktreeNote!).Contains("merge or cherry-pick this branch");
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    /// A folded checkout section still names where the code is: the worktree, or the repository when
-    /// the agent reports none.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_folded_checkout_names_the_worktree_or_else_the_repository() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            await h.PushAsync(Dto(sessionId: null));
-            await Assert.That(h.Vm.CheckoutSummary).IsEqualTo("agent-1");
-
-            await h.PushAsync(Dto(sessionId: null) with { WorktreePath = null });
-            await Assert.That(h.Vm.CheckoutSummary).IsEqualTo("myproj");
             await h.Vm.TeardownAsync();
         });
     }
@@ -293,19 +275,6 @@ public class WorkContextViewModelTests {
         });
     }
 
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task Transport_follows_the_effective_family() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            await h.PushAsync(Agent("c1", "cursor", hasTerminal: false, repoPath: "/repo/x", sessionId: null));
-            await Assert.That(h.Vm.Transport).IsEqualTo("ACP");
-            await h.PushAsync(Agent("c1", "claude", hasTerminal: false, repoPath: "/repo/x", sessionId: null));
-            await Assert.That(h.Vm.Transport).IsEqualTo("chat");
-            await h.Vm.TeardownAsync();
-        });
-    }
-
     static AgentStatusDto ServerSession(string vendor, string? branch) =>
         Agent(SessionA, vendor, hasTerminal: null, repoPath: "/repo/myproj", kind: "session", sessionId: SessionA, branch: branch);
 
@@ -320,33 +289,6 @@ public class WorkContextViewModelTests {
             },
         };
 
-    /// A session no daemon hosts has no terminal flag; its vendor alone must not read as a PTY.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    [Arguments("claude")]
-    [Arguments("codex")]
-    public async Task A_session_only_row_shows_no_inferred_transport(string vendor) {
-        await RunOnUiAsync(async () => {
-            var h = new Harness(isRemote: true, sessionOnly: true);
-            h.Source.Enqueue(SummaryRead());
-            await h.PushAsync(ServerSession(vendor, branch: "main"));
-            await Assert.That(h.Vm.Transport).IsEqualTo("—");
-            await Assert.That(h.Vm.Branch).IsEqualTo("main");
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task A_remote_daemon_row_keeps_the_vendor_transport() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness(isRemote: true);
-            await h.PushAsync(Agent("a1", "claude", hasTerminal: null, repoPath: "/repo/x", sessionId: null));
-            await Assert.That(h.Vm.Transport).IsEqualTo("PTY");
-            await h.Vm.TeardownAsync();
-        });
-    }
-
     /// The listing carries the branch first seen with the repository and can carry none; the
     /// summary's primary repository keeps the one recorded later.
     [Test]
@@ -358,7 +300,7 @@ public class WorkContextViewModelTests {
     public async Task A_session_only_row_without_a_listed_branch_shows_the_stored_one(
             string vendor, string? repoBranch, string? primaryBranch, string expected) {
         await RunOnUiAsync(async () => {
-            var h = new Harness(isRemote: true, sessionOnly: true);
+            var h = new Harness(isRemote: true);
             h.Source.Enqueue(SummaryRead(repoBranch, primaryBranch));
             await h.PushAsync(ServerSession(vendor, branch: null));
             await Assert.That(h.Vm.Branch).IsEqualTo(expected);
@@ -370,7 +312,7 @@ public class WorkContextViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_listed_branch_wins_over_the_summary() {
         await RunOnUiAsync(async () => {
-            var h = new Harness(isRemote: true, sessionOnly: true);
+            var h = new Harness(isRemote: true);
             h.Source.Enqueue(SummaryRead(primaryBranch: "later"));
             await h.PushAsync(ServerSession("codex", branch: "listed"));
             await Assert.That(h.Vm.Branch).IsEqualTo("listed");
@@ -383,7 +325,7 @@ public class WorkContextViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_stored_branch_does_not_outlive_a_refused_read() {
         await RunOnUiAsync(async () => {
-            var h = new Harness(isRemote: true, sessionOnly: true);
+            var h = new Harness(isRemote: true);
             h.Source.Enqueue(SummaryRead(primaryBranch: "main"), WorkContextRead.Of(WorkContextReadKind.SessionUnknown));
             await h.PushAsync(ServerSession("claude", branch: null));
             await Assert.That(h.Vm.Branch).IsEqualTo("main");
