@@ -17,6 +17,7 @@ public class DaemonStatusTextTests {
     [Arguments(AttachState.Unreachable, "daemon_unreachable", "not running", "Start it from the main window, or run kcap daemon start.")]
     [Arguments(AttachState.Unreachable, "daemon_incompatible", "version doesn't match the app", "Update kcap so the app and the daemon are the same version.")]
     [Arguments(AttachState.Unreachable, ExpectedDaemonRestart.Reason, "restarting", null)]
+    [Arguments(AttachState.Unreachable, ExpectedDaemonRestart.StartingReason, "starting", null)]
     public async Task A_daemon_that_is_not_attached_names_its_state_and_has_no_server_line(
             AttachState state, string? reason, string text, string? hint) {
         var status = new AttachStatus(state, reason, null);

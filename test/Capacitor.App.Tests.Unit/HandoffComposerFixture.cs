@@ -8,7 +8,7 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.App.Tests.Unit;
 
 /// Builds real hand-off composers for a session row, over a server and a daemon that both carry
-/// handoff/1 and a checkout of acme/widgets the probe answers for.
+/// handoff/1, a daemon that probes offline, and a checkout of acme/widgets the probe answers for.
 sealed class HandoffComposerFixture : IDisposable {
     public const string Checkout = "/w/widgets";
     const string FakeDaemonServerUrl = "http://localhost:9999";
@@ -33,13 +33,14 @@ sealed class HandoffComposerFixture : IDisposable {
         MachineId = machineId;
         Launch.Features = System.Collections.Frozen.FrozenSet.Create(HandoffWire.Capability, ResumeInPlaceWire.Capability);
         Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null,
-            ["input/1", "input/2", HandoffWire.Capability, ResumeInPlaceWire.Capability]));
+            ["input/1", "input/2", HandoffWire.Capability, HandoffWire.LocalProbeCapability, ResumeInPlaceWire.Capability]));
     }
     readonly Dictionary<string, string> _origins = new() { [Checkout] = "https://github.com/acme/widgets.git" };
 
     public HandoffComposerFixture() {
         Daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(supportedVendors: ["claude", "codex"]));
-        Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, ["input/1", "input/2", HandoffWire.Capability]));
+        Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null,
+            ["input/1", "input/2", HandoffWire.Capability, HandoffWire.LocalProbeCapability]));
         Drafts = new HandoffDrafts(Failures, Directory, new FakeTimeProvider());
     }
 

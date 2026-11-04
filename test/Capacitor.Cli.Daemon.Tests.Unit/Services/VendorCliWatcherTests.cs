@@ -16,6 +16,34 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// reviewer launch.
 /// </summary>
 public class VendorCliWatcherTests {
+    [Test]
+    public async Task A_newly_discovered_vendor_is_added_to_the_binary_watch_set() {
+        using var home = new TempHome();
+        var factory = new StubCatalogFactory("claude", models: null);
+        DaemonConfig? config = null;
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
+            extraRuntimeFactories: [factory], configure: c => {
+                c.SupportedVendors = [];
+                c.UnattendedVendors = [];
+                config = c;
+            });
+        using var accounts = new AccountsPublisher(new DaemonConfig(), home, TimeProvider.System, NullLogger<AccountsPublisher>.Instance);
+        using var watcher = new VendorCliWatcher(config!, orch,
+            new Dictionary<string, IHostedAgentRuntimeFactory> { ["claude"] = factory }, accounts,
+            NullLogger<VendorCliWatcher>.Instance, TimeProvider.System);
+        watcher.StatBinary = _ => null;
+        watcher.Tick();
+
+        config!.SupportedVendors = ["claude"];
+        // Discovery can publish installed vendors before unattended classification finishes.
+        watcher.Tick();
+        config.UnattendedVendors = ["claude"];
+        watcher.Tick();
+
+        await Assert.That(watcher.Watched.Select(w => w.Vendor)).IsEquivalentTo(["claude"]);
+    }
+
     sealed class ArmedClock(FakeTimeProvider inner) : TimeProvider {
         readonly TaskCompletionSource _armed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 

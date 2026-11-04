@@ -131,6 +131,39 @@ public class TitleResolveLoopTests {
         await Assert.That(h.Server.Pushed).IsEquivalentTo([("sid-1", new HarnessTitlePost("Native title", HarnessTitleKind.Rename, null))]);
     }
 
+    /// A resumed agent starts with the title its session already had. The server holding that title
+    /// is the session's own title, not the registration's echo: it shows, and no generation runs
+    /// to replace it.
+    [Test]
+    public async Task A_resumed_agents_server_title_equal_to_its_start_title_is_the_sessions_own() {
+        var h = new Harness();
+        h.Agents.Add(Agent(startTitle: new AgentStartTitle("Login bug triage", Derived: true)) with { Resumed = true });
+        h.Server.Get = _ => "Login bug triage";
+        h.Generate = (_, _) => Task.FromResult<string?>("Generated title");
+        h.Time.Advance(TimeSpan.FromMinutes(6));
+        var loop = h.Build();
+
+        await loop.TickAsync(CancellationToken.None);
+
+        await Assert.That(h.GenerateCalls).IsEqualTo(0);
+        await Assert.That(h.GeneratedPosts).IsEmpty();
+        await Assert.That(h.Applied).IsEquivalentTo([("a1", "Login bug triage")]);
+    }
+
+    /// The goal coming back from the server after a restart is the watcher's prompt echo, never a
+    /// title: a resumed agent keeps the title it started with.
+    [Test]
+    public async Task A_resumed_agent_never_shows_an_echo_of_its_launch_prompt() {
+        var h = new Harness();
+        h.Agents.Add(Agent(startTitle: new AgentStartTitle("Login bug triage", Derived: true)) with { Resumed = true });
+        h.Server.Get = _ => "Fix the login bug in the auth flow";
+        var loop = h.Build();
+
+        await loop.TickAsync(CancellationToken.None);
+
+        await Assert.That(h.Applied).IsEmpty();
+    }
+
     [Test]
     public async Task An_explicit_start_title_still_pushes_a_native_rename() {
         var h = new Harness();

@@ -255,6 +255,7 @@ public class ClaudeChatRulesTests {
         await Assert.That(note).Count().IsEqualTo(1);
         await Assert.That(note[0].Kind).IsEqualTo(AcpEventKind.SystemNote);
         await Assert.That(note[0].Text).IsEqualTo("**Agent \"Review Task 15\" finished**\n\n## Findings\n\nNone.");
+        await Assert.That(note[0].ToolKind).IsEqualTo(ChatDisplayKind.TaskNotification);
 
         var bare = P("""{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<summary>MCP task done.</summary>\n</task-notification>"}}""");
         await Assert.That(bare[0].Text).IsEqualTo("**MCP task done.**");

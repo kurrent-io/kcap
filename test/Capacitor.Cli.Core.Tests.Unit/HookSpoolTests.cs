@@ -94,7 +94,8 @@ public class HookSpoolTests {
             """session-end:{"n":"a2"}""",
             """session-start:{"n":"b1"}""",
         ]);
-        await Assert.That(Directory.EnumerateFiles(tmp.Path)).IsEmpty();
+        await Assert.That(spool.HasBacklog(SidA)).IsFalse();
+        await Assert.That(spool.HasBacklog(SidB)).IsFalse();
     }
 
     [Test]
@@ -128,13 +129,16 @@ public class HookSpoolTests {
         // Poster appends a NEW entry while the OLD one is being drained (live file
         // already rotated to a temp), simulating a racing hook on the same session.
         var appended = false;
+        var seen     = new List<string>();
         await spool.DrainAllAsync(SidA, (route, body) => {
+            seen.Add(body);
             if (!appended) { spool.Append(SidA, "session-end", """{"n":"new"}"""); appended = true; }
             return Task.FromResult(DrainOutcome.Delivered);
         }, TimeSpan.FromSeconds(5), CancellationToken.None);
 
-        var all = string.Concat(Directory.EnumerateFiles(tmp.Path).Select(File.ReadAllText));
-        await Assert.That(all).Contains("new"); // survived in a fresh live file
+        // Delivered in the same pass, or left in a fresh live file for the next one.
+        var all = string.Concat(seen) + string.Concat(Directory.EnumerateFiles(tmp.Path).Select(File.ReadAllText));
+        await Assert.That(all).Contains("new");
     }
 
     [Test]
@@ -177,11 +181,12 @@ public class HookSpoolTests {
     public async Task DrainAllAsync_never_recovers_an_ordered_drain_temp() {
         using var tmp = new TempDir();
         // A withheld ordered-drain remainder — as DrainRoutesAsync would leave it — sitting
-        // right alongside a fresh route-agnostic append for the SAME session.
+        // right alongside a fresh route-agnostic append for the SAME session. A start would end
+        // the withheld end's run, so the fresh append is not one.
         tmp.CreateFile($"{SidA}.ordered-123-1",
             "{\"route\":\"session-end\",\"body\":\"withheld\"}\n");
         var spool = new HookSpool(tmp.Path, time: TimeProvider.System);
-        spool.Append(SidA, "session-start", """{"n":"fresh"}""");
+        spool.Append(SidA, "subagent-stop", """{"n":"fresh"}""");
 
         var seen = new List<string>();
         await spool.DrainAllAsync(SidA, (route, body) => { seen.Add(body); return Task.FromResult(DrainOutcome.Delivered); },

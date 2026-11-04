@@ -17,4 +17,7 @@ public sealed record WatcherSpawnRequest(
     int?    ParentPid         = null) {
     /// <summary>Where a spawn failure is reported; null is the process's stderr.</summary>
     public TextWriter? Stderr { get; init; }
+
+    /// <summary>Replaces the hosted identity the watcher would inherit from this process; null inherits it.</summary>
+    public WatcherRun? RunsAs { get; init; }
 }

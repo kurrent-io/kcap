@@ -149,12 +149,31 @@ partial class WatchCommand(
       : hosted is { AgentId: not null } && resuming(hosted) ? SessionEndAction.HeldForResume
       :                                                       SessionEndAction.Post;
 
-    /// <summary>The hosted agent this watcher's process runs under, when a resume holds its session end.</summary>
-    static string? AgentHoldingEndForResume() =>
-        HostedAgent.FromEnvironment() is { AgentId: { } id } hosted
-     && DecideSessionEnd(runsOnElsewhere: false, hosted, h => SessionEndFence.ShouldHold(h)) == SessionEndAction.HeldForResume
-            ? id
-            : null;
+    /// <summary>What a resume holds a handed end for, when it does: the agent its hook named, or the session.</summary>
+    internal static string? AgentHoldingEndForResume(MuseSessionEndRequest handed, string sessionId) =>
+        HandedEndHeld(handed.Payload, sessionId, h => SessionEndFence.ShouldHold(h, sessionId), SessionEndFence.ShouldHold);
+
+    /// <summary>A handed end is judged as the run its hook named, never as the watcher's: a successor watcher can
+    /// carry another run's identity. An end that names no run is placed by its session, as an end with no epoch.</summary>
+    internal static string? HandedEndHeld(
+            string payload, string sessionId, Func<HostedAgent, bool> holdsRun, Func<ExitedSession, bool> holdsSession) {
+        if (HandedEndRun(payload) is { } run)
+            return DecideSessionEnd(runsOnElsewhere: false, run, holdsRun) == SessionEndAction.HeldForResume ? run.AgentId : null;
+
+        return SessionId.Parse(sessionId) is { } session && holdsSession(new ExitedSession(session, null)) ? sessionId : null;
+    }
+
+    /// <summary>The run a handed end's hook named, or null when it named none.</summary>
+    internal static HostedAgent? HandedEndRun(string payload) {
+        try {
+            if (JsonNode.Parse(payload) is JsonObject end && end["agent_host_id"]?.GetValue<string>() is { Length: > 0 } agentId)
+                return new HostedAgent(agentId, false, DaemonBridge.None) {
+                    DaemonEpoch = end["daemon_epoch"]?.GetValue<string>() is { Length: > 0 } epoch ? epoch : null
+                };
+        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) { }
+
+        return null;
+    }
 
     /// <summary><paramref name="resumingId"/>, after releasing the handed end's claim when a resume holds
     /// it: a claim left in place would block an end handed over later.</summary>
@@ -451,6 +470,9 @@ partial class WatchCommand(
         var wedgedCeilingExit = 0;
         // set when Kiro Crew is finished with a session its still-running kiro-cli process hosts.
         var crewFinished = 0;
+        // set by a stop request, whose sender waits only seconds (a kill 5s later, or the server's drain wait);
+        // nothing waits on any other exit.
+        var stopRequested = 0;
 
         // Handle SIGTERM/SIGINT for graceful shutdown.
         //
@@ -466,14 +488,17 @@ partial class WatchCommand(
         // loop notices cts and the drain / session-end POST never run.
         Console.CancelKeyPress += (_, e) => {
             e.Cancel = true;
+            Interlocked.Exchange(ref stopRequested, 1);
             cts.Cancel();
         };
         using var sigtermReg = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => {
+            Interlocked.Exchange(ref stopRequested, 1);
             cts.Cancel();
             ctx.Cancel = true;
         });
         using var stopRequest = WatcherStopSignal.Listen(Environment.ProcessId, () => {
             Log(time, "Stop requested; shutting down watcher");
+            Interlocked.Exchange(ref stopRequested, 1);
             cts.Cancel();
         });
 
@@ -493,6 +518,8 @@ partial class WatchCommand(
         // task can read state.LastActivityAt as its no-progress clock.
         var state = new WatchState();
         state.LastActivityAt = time.GetUtcNow();
+        using var titleCts = new CancellationTokenSource();
+        state.TitleCancellation = titleCts.Token;
 
         var titleStore = HarnessTitleStores.For(vendor, agentId, sessionId, transcriptPath, harnesses, accounts.TryLoad(), home);
         if (vendor == "codex" && CodexRolloutReadings.For(accounts, transcriptPath, home) is { } codexReadings) state.ObserveCodexReadings = lines => codexReadings.Observe(lines);
@@ -699,6 +726,7 @@ partial class WatchCommand(
             "StopWatcher",
             reason => {
                 Log(time, $"Received StopWatcher signal: {reason}");
+                Interlocked.Exchange(ref stopRequested, 1);
                 cts.Cancel();
             }
         );
@@ -794,17 +822,7 @@ partial class WatchCommand(
 
                 if (ClaimHandedMuseEnd(sessionId) is { } handed) {
                     await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: vendor);
-
-                    if (HoldHandedEndForResume(handed, AgentHoldingEndForResume()) is { } resumingId) {
-                        Log(time, $"session end suppressed: agent {resumingId} is resuming");
-                    } else switch (await PostHandedSessionEndAsync(sessionId, transcriptPath, vendor, repository: null, handed)) {
-                        case HandedEndOutcome.Dropped:
-                            await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
-                            break;
-                        case HandedEndOutcome.Failed:
-                            await RetryOrUnclaimHandedEndAsync(sessionId, transcriptPath, cwd, vendor, repository: null, handed);
-                            break;
-                    }
+                    await SettleHandedEndsAsync(sessionId, transcriptPath, cwd, vendor, repository: null, handed);
                 }
             }
 
@@ -1191,6 +1209,29 @@ partial class WatchCommand(
                 FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, TouchHeartbeat);
         }
 
+        // The generated title goes out over this connection, so it is waited for before the close.
+        if (state is { PendingTitle: { } pendingTitle, TitleGenerated: false }) {
+            // Read once: a connection reconnecting now can be back by the hand-off check, too late for a title that failed.
+            var connected = hubConnection.State == HubConnectionState.Connected;
+            var settled   = pendingTitle.IsCompleted;
+            if (!settled) {
+                var titleBudget = ShutdownTitleBudget(connected, Volatile.Read(ref stopRequested) == 1, time.GetElapsedTime(shutdownStarted));
+                Log(time, $"Waiting up to {Math.Max(0, titleBudget.TotalSeconds):F1}s for the generated title before closing the connection");
+
+                settled = await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, TouchHeartbeat);
+                if (!settled) await titleCts.CancelAsync();
+            }
+
+            // A kill follows a stop request within seconds and a title takes longer, and a closed connection cannot
+            // carry one at all, so another process finishes it over HTTP, as it does one that never reached the server.
+            if (!state.TitleGenerated && (Volatile.Read(ref stopRequested) == 1 || !connected || hubConnection.State != HubConnectionState.Connected)) {
+                Log(time, $"Generated title {(settled ? "not sent" : "not ready")} before shutdown; handing it to a title generator");
+                watchers.SpawnTitleGenerator(sessionId, vendor, transcriptPath);
+            } else if (!settled) {
+                Log(time, "Generated title not ready before shutdown; abandoning it");
+            }
+        }
+
         // Signal drain complete to server.
         // cts.Token is already cancelled by the time we reach here (that's the path
         // that exits the main loop), so passing it would throw OperationCanceledException
@@ -1223,8 +1264,8 @@ partial class WatchCommand(
         // session stays "active" forever in the read model). Agent watchers skip it: the
         // parent session's own end covers them. A session with no real turn is posted too —
         // its start hook already registered it, so skipping the end leaves it Live for good.
-        // Runs after SignalR dispose so the server's StopAndDrainAsync skips the
-        // 10s drain wait (no live watcher connection to signal).
+        // Runs after SignalR dispose so the server usually finds no watcher to drain; one that has
+        // not yet processed the disconnect waits out its drain timeout, which the POST budget covers.
         var endReason = DecideEndReason(
             parentExited:  Volatile.Read(ref parentExited)      == 1,
             crewFinished:  Volatile.Read(ref crewFinished)      == 1,
@@ -1258,18 +1299,7 @@ partial class WatchCommand(
         if (TakesHandedMuseEnd(vendor, agentId)) museEndRequest ??= ClaimHandedMuseEnd(sessionId);
 
         if (museEndRequest is { } handedEnd) {
-            if (HoldHandedEndForResume(handedEnd, AgentHoldingEndForResume()) is { } resumingId) {
-                Log(time, $"session end suppressed: agent {resumingId} is resuming");
-            } else switch (await PostHandedSessionEndAsync(sessionId, transcriptPath, vendor, state.Repository, handedEnd)) {
-                // The session carried on, so this watcher's stop must not leave it unwatched.
-                case HandedEndOutcome.Dropped:
-                    await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
-                    break;
-
-                case HandedEndOutcome.Failed:
-                    await RetryOrUnclaimHandedEndAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, handedEnd);
-                    break;
-            }
+            await SettleHandedEndsAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, handedEnd);
         } else if (PostsOwnSessionEnd(endReason, agentId, cursorSuppressesEndPost)) {
             // A resumed session's hooks claim its new process; the end of the one this watcher followed
             // is then not the session's end, and the new process is left without a watcher.
@@ -1861,12 +1891,11 @@ partial class WatchCommand(
     static readonly HashSet<string> KnownVendors = new(StringComparer.Ordinal) { "claude", "codex", "copilot", "gemini", "kiro", "pi", "opencode", "antigravity", "cursor", "mistral-vibe", "grok", "muse" };
 
     /// <summary>
-    /// Total time budget for the parent-exit session-end POST. Covers /auth/config
-    /// discovery + retrying POST. Short by design — this runs on the watcher's
-    /// shutdown path; a stalled server must not block process termination, the whole
-    /// point of the parent-PID watchdog is to self-terminate within ~5s.
+    /// Total time budget for the parent-exit session-end POST, client creation included. A server
+    /// that has not yet seen this watcher's connection close waits up to 10s for a drain it already
+    /// had before answering, so the budget outlasts that wait; an end that still misses it is spooled.
     /// </summary>
-    static readonly TimeSpan ParentExitPostBudget = TimeSpan.FromSeconds(10);
+    static readonly TimeSpan ParentExitPostBudget = TimeSpan.FromSeconds(15);
 
     /// <summary>
     /// Codex has no session-end hook and the desktop app's single long-lived
@@ -2309,22 +2338,48 @@ partial class WatchCommand(
             }
         }
 
-        var endHook = new JsonObject {
+        var endHook = ParentExitEndBody(sessionId, transcriptPath, cwd, reason, time.GetUtcNow(), HostedAgent.FromEnvironment());
+
+        return await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
+    }
+
+    /// <summary>The end a hook handed over, as the watcher posts it. The run identity is only ever the one the hook
+    /// named: the watcher's own can be another run's.</summary>
+    internal static JsonObject HandedEndBody(
+            string payload, string sessionId, string transcriptPath, DateTimeOffset now, out string? notJson) {
+        JsonObject end;
+        notJson = null;
+
+        try {
+            end = JsonNode.Parse(payload) as JsonObject ?? new JsonObject();
+        } catch (JsonException ex) {
+            notJson = ex.Message;
+            end     = new JsonObject { ["reason"] = "other", ["ended_at"] = now.ToString("O") };
+        }
+
+        end["session_id"]      = sessionId;
+        end["transcript_path"] = transcriptPath;
+
+        return end;
+    }
+
+    /// <summary>The end a watcher posts for its own stop. The watcher inherits the environment of the agent
+    /// whose hook spawned it, so a hosted agent's end names that agent and its daemon epoch.</summary>
+    internal static JsonObject ParentExitEndBody(
+            string sessionId, string transcriptPath, string? cwd, string reason, DateTimeOffset endedAt, HostedAgent hosted) {
+        var end = new JsonObject {
             ["session_id"]      = sessionId,
             ["transcript_path"] = transcriptPath,
             ["cwd"]             = cwd ?? "",
             ["hook_event_name"] = "session_end",
             ["reason"]          = reason,
-            // Stamp the exit time so the server can scope the SessionEnded id
-            // per run. Vendors with no session-end hook (Kiro) end ONLY via this
-            // path, so without a timestamp a resumed session's second exit would
-            // dedupe against the first and the session would stay Active.
-            // Computed once here and reused across POST retries, so it stays
-            // idempotent for a single exit.
-            ["ended_at"]        = time.GetUtcNow().ToString("O"),
+            // Scopes the server's SessionEnded id to this run: a vendor with no session-end hook ends only
+            // here, and a resumed session's second exit would otherwise dedupe against its first.
+            ["ended_at"]        = endedAt.ToString("O"),
         };
+        SessionEndIncarnation.Stamp(end, hosted);
 
-        return await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
+        return end;
     }
 
     /// <summary>Only a Muse session watcher takes an end its SessionEnd hook handed over; a child watcher's
@@ -2340,39 +2395,73 @@ partial class WatchCommand(
     int? LiveClaimant(string sessionId) =>
         SessionId.Parse(sessionId) is { } session ? AgentSessions.OnThisMachine(config).LiveClaimant(session) : null;
 
+    /// <summary>Only a request handed over for this watcher's server, or one that recorded none: this watcher posts to its
+    /// own server, and one for another is left to that server's drain.</summary>
     MuseSessionEndRequest? ClaimHandedMuseEnd(string sessionId) =>
-        MuseSessionEndRequest.TryClaim(_paths, sessionId, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        MuseSessionEndRequest.TryClaim(_paths, sessionId, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), time,
+            recorded => recorded is null || ServerIdentity.SameServer(recorded, Url));
 
     internal enum HandedEndOutcome { Posted, Dropped, Failed }
 
-    /// <summary>A handed end that could be neither posted nor spooled is tried once more the way a parent
-    /// exit is posted, which needs no spool, and otherwise put back for the next watcher. Not while the
-    /// session still has spooled hooks: a direct post would overtake them, ending the session before its
-    /// start replays.</summary>
-    async Task RetryOrUnclaimHandedEndAsync(
-            string                sessionId,
-            string                transcriptPath,
-            string?               cwd,
-            string                vendor,
-            RepositoryPayload?    repository,
-            MuseSessionEndRequest handed
-        ) {
-        if (!new HookSpool(config, time, Url).HasBacklog(sessionId)
-         && await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, repository, "hook_handed")) {
-            MuseSessionEndRequest.Release(handed.ClaimedPath);
+    /// <summary>Settles the handed end this watcher took, then every other one handed over before it exits, oldest
+    /// first, each once: another run's end handed over while this one was claimed would otherwise wait for a watcher
+    /// nobody arms. One that can be neither posted nor spooled is held aside so the pass goes on to the rest, then put
+    /// back with a backoff for the spool drain's sweep to send later.</summary>
+    internal async Task SettleHandedEndsAsync(
+            string sessionId, string transcriptPath, string? cwd, string vendor, RepositoryPayload? repository, MuseSessionEndRequest first) {
+        var failed = new List<MuseSessionEndRequest>();
 
-            return;
+        for (MuseSessionEndRequest? handed = first; handed is not null; handed = ClaimHandedMuseEnd(sessionId)) {
+            if (HoldHandedEndForResume(handed, AgentHoldingEndForResume(handed, sessionId)) is { } resumingId) {
+                Log(time, $"session end suppressed: agent {resumingId} is resuming");
+                continue;
+            }
+
+            switch (await PostHandedSessionEndAsync(sessionId, transcriptPath, vendor, repository, handed)) {
+                // The session carried on, so this watcher's stop must not leave it unwatched.
+                case HandedEndOutcome.Dropped:
+                    await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
+                    break;
+
+                case HandedEndOutcome.Failed:
+                    if (!await RetryHandedEndAsync(sessionId, transcriptPath, vendor, repository, handed)) failed.Add(handed);
+                    break;
+            }
         }
 
-        MuseSessionEndRequest.Unclaim(_paths, sessionId, handed);
+        foreach (var handed in failed) MuseSessionEndRequest.Defer(handed, time);
+        if (failed.Count > 0) Log(time, $"{failed.Count} handed session-end(s) could not be sent; left for the spool drain to retry");
     }
+
+    /// <summary>Posts a handed end once more directly: true, with the claim released, when the server took it or it
+    /// went into the spool; false leaves the claim held. The retry sends the handed end itself: one rebuilt from this
+    /// watcher would name the watcher's run, which can be an earlier one. Not while the session still has spooled
+    /// hooks: a direct post would overtake them, ending the session before its start replays.</summary>
+    async Task<bool> RetryHandedEndAsync(
+            string sessionId, string transcriptPath, string vendor, RepositoryPayload? repository, MuseSessionEndRequest handed) {
+        if (new HookSpool(config, time, Url).HasBacklog(sessionId) || !KnownVendors.Contains(vendor)
+         || !await PostSessionEndPayloadAsync(sessionId, vendor, HandedEndBody(handed.Payload, sessionId, transcriptPath, time.GetUtcNow(), out _), repository, "Handed"))
+            return false;
+
+        MuseSessionEndRequest.Release(handed.ClaimedPath);
+
+        return true;
+    }
+
+    /// <summary>The run a successor watcher follows: the one the daemon's marker records, when the marker names the
+    /// process the successor follows, and none otherwise, so it never carries this watcher's earlier run.</summary>
+    internal static WatcherRun SuccessorRun(UserHome home, string sessionId, int? followedPid) =>
+        MuseHostedSessionMarker.TryRead(home, sessionId) is { } marker && marker.IsOwnedBy(followedPid)
+            ? new(marker.AgentId, marker.DaemonEpoch)
+            : new(null, null);
 
     /// <summary>Spawns the watcher a resumed session is left without once this one exits; this watcher's
     /// pid file is already retired, so the spawn sees no live watcher. The successor follows the resumed
     /// process when one is claimed; a watcher cannot resolve it from its own ancestry.</summary>
     async Task ArmSuccessorAsync(string sessionId, string transcriptPath, string? cwd, string vendor, int? parentPid) {
         try {
-            await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: vendor, parentPid: parentPid);
+            await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: vendor, parentPid: parentPid,
+                runsAs: SuccessorRun(home, sessionId, parentPid));
             Log(time, $"Armed a successor watcher for the resumed session{(parentPid is { } p ? $" following pid {p}" : "")}");
         } catch (Exception ex) {
             Log(time, $"Arming a successor watcher failed: {ex.Message}");
@@ -2397,17 +2486,8 @@ partial class WatchCommand(
             return HandedEndOutcome.Dropped;
         }
 
-        JsonObject endHook;
-
-        try {
-            endHook = JsonNode.Parse(request.Payload) as JsonObject ?? new JsonObject();
-        } catch (JsonException ex) {
-            Log(time, $"Handed session-end request is not JSON ({ex.Message}); posting a plain end instead");
-            endHook = new JsonObject { ["reason"] = "other", ["ended_at"] = time.GetUtcNow().ToString("O") };
-        }
-
-        endHook["session_id"]      = sessionId;
-        endHook["transcript_path"] = transcriptPath;
+        var endHook = HandedEndBody(request.Payload, sessionId, transcriptPath, time.GetUtcNow(), out var notJson);
+        if (notJson is not null) Log(time, $"Handed session-end request is not JSON ({notJson}); posting a plain end instead");
 
         if (repository is not null) {
             endHook["repository"] = JsonNode.Parse(
@@ -2425,39 +2505,57 @@ partial class WatchCommand(
 
         Log(time, $"Handed session-end {outcome}");
 
-        if (outcome is not (HookPostOutcome.Posted or HookPostOutcome.Spooled)) return HandedEndOutcome.Failed;
+        // A rejected payload drops, as every hook post's does; only an end neither sent nor kept is tried again.
+        if (outcome is not (HookPostOutcome.Posted or HookPostOutcome.Spooled or HookPostOutcome.Failed)) return HandedEndOutcome.Failed;
 
         MuseSessionEndRequest.Release(request.ClaimedPath);
         return HandedEndOutcome.Posted;
     }
 
-    /// <summary>True when the server accepted the end.</summary>
+    /// <summary>True when the server accepted the end or it is spooled for the drain. A session with a spooled
+    /// backlog gets its end spooled behind it, so a stranded start still reaches the server first.</summary>
     async Task<bool> PostSessionEndPayloadAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) {
+        if (repository is not null) {
+            endHook["repository"] = JsonNode.Parse(
+                JsonSerializer.Serialize(repository, CapacitorJsonContext.Default.RepositoryPayload)
+            );
+        }
+
+        var body  = endHook.ToJsonString();
+        var spool = new HookSpool(config, time, Url);
+
+        bool Spool(string why) {
+            var spooled = spool.Append(sessionId, $"session-end/{vendor}", body);
+            Log(time, $"{what} session-end {why}; {(spooled ? "spooled for the next drain" : "the spool write failed, so it is lost")}");
+
+            return spooled;
+        }
+
+        if (spool.HasBacklog(sessionId)) return Spool("queued behind the session's spooled hooks");
+
         using var budgetCts = new CancellationTokenSource(ParentExitPostBudget, time);
 
         try {
-            if (repository is not null) {
-                endHook["repository"] = JsonNode.Parse(
-                    JsonSerializer.Serialize(repository, CapacitorJsonContext.Default.RepositoryPayload)
-                );
-            }
-
             using var httpClient = await http.ForBackgroundAsync(budgetCts.Token);
-            using var content    = new StringContent(endHook.ToJsonString(), Encoding.UTF8, "application/json");
+            using var content    = new StringContent(body, Encoding.UTF8, "application/json");
 
             var url = $"{Url}/hooks/session-end/{vendor}";
             using var response = await httpClient.PostWithRetryAsync(url, content, time, timeout: ParentExitPostBudget, ct: budgetCts.Token);
 
             if (!response.IsSuccessStatusCode) {
-                Log(time, $"{what} session-end POST returned HTTP {(int)response.StatusCode}");
+                var code = (int)response.StatusCode;
+
+                if (HookSpool.IsRetryable(code)) return Spool($"POST returned HTTP {code}");
+
+                Log(time, $"{what} session-end POST returned HTTP {code}");
                 return false;
             }
 
             Log(time, $"{what} session-end POST succeeded");
 
             try {
-                var body = await response.Content.ReadAsStringAsync(budgetCts.Token);
-                var node = JsonNode.Parse(body);
+                var answer = await response.Content.ReadAsStringAsync(budgetCts.Token);
+                var node   = string.IsNullOrWhiteSpace(answer) ? null : JsonNode.Parse(answer);
 
                 if (node?["generate_whats_done"]?.GetValue<bool>() == true) {
                     watchers.SpawnWhatsDoneGenerator(sessionId, vendor);
@@ -2468,7 +2566,9 @@ partial class WatchCommand(
 
             return true;
         } catch (OperationCanceledException) {
-            Log(time, $"{what} session-end POST timed out after {ParentExitPostBudget.TotalSeconds:F0}s");
+            return Spool($"POST timed out after {ParentExitPostBudget.TotalSeconds:F0}s");
+        } catch (HttpRequestException ex) {
+            return Spool($"POST failed: {ex.Message}");
         } catch (Exception ex) {
             Log(time, $"{what} session-end POST failed: {ex.Message}");
         }
@@ -2853,13 +2953,11 @@ partial class WatchCommand(
                 }
             }
 
-            // Generate LLM title after enough events have accumulated
-            // (deferred until threshold is reached for session watchers)
             if (ShouldGenerateLlmTitle(state, agentId)) {
                 Log(time, $"Triggering LLM title generation (attempt {state.TitleAttempts + 1}/5, events: {state.EventCount})");
                 state.TitleInFlight = true;
                 state.TitleAttempts++;
-                _ = GenerateTitleAsync(hubConnection, sessionId, state, vendor);
+                state.PendingTitle  = GenerateTitleAsync(hubConnection, sessionId, state, vendor);
             }
 
             switch (agentId) {
@@ -3261,6 +3359,26 @@ partial class WatchCommand(
         }
 
         state.FirstUserText = userText;
+    }
+
+    /// <summary>The first prompt and first reply a title is generated from, read the way the watch loop reads them,
+    /// for a generator that runs after the watcher is gone.</summary>
+    internal static (string? UserText, string? AssistantText) ReadTitleContext(string transcriptPath, string vendor, TimeProvider time) {
+        var state = new WatchState();
+
+        using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+
+        while (reader.ReadLine() is { } line && (state.FirstUserText is null || state.FirstAssistantText is null)) {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+
+            if (state.FirstUserText is null && TryExtractUserText(line, time, vendor) is { } userText) SetFirstUserText(state, userText, time);
+
+            if (state.FirstAssistantText is null && TryExtractAssistantText(line, vendor) is { } assistantText)
+                state.FirstAssistantText = assistantText.Length > 300 ? assistantText[..300] : assistantText;
+        }
+
+        return (state.FirstUserText, state.FirstAssistantText);
     }
 
     internal static string? TryExtractAssistantText(string line, string vendor = "claude") =>
@@ -3971,7 +4089,7 @@ partial class WatchCommand(
         try {
             var result = await TitleGeneration.GenerateAsync(
                 state.FirstUserText!, state.FirstAssistantText, time, m => Log(time, m), profiles.Resolution.Profile,
-                harnesses, vendor);
+                harnesses, vendor, state.TitleCancellation);
 
             if (result is null) {
                 Log(time, $"Title generation attempt {state.TitleAttempts}/5 returned no usable result (CLI failure, refusal-like output, or empty title)");
@@ -4252,11 +4370,46 @@ partial class WatchCommand(
     /// <summary>A harness-native title the server is known to record suppresses LLM titling for good. A transcript
     /// title only a server with harness titles records suppresses it only once the server is known to have them: an
     /// unanswered probe must not cost an older server its only title, and on a newer one the harness title outranks
-    /// a generated title anyway.</summary>
+    /// a generated title anyway. Generation starts at the first assistant reply, or after five events when none has
+    /// carried text: a one-shot run ends with fewer than five, and its title has to be under way before it exits.</summary>
     internal static bool ShouldGenerateLlmTitle(WatchState state, string? agentId) =>
-        state is { TitleGenerated: false, TitleInFlight: false, TitleAttempts: < 5, ThresholdReached: true, HarnessTitleSeen: false, FirstUserText: not null, EventCount: >= 5 }
+        state is { TitleGenerated: false, TitleInFlight: false, TitleAttempts: < 5, ThresholdReached: true, HarnessTitleSeen: false, FirstUserText: not null }
+     && (state.FirstAssistantText is not null || state.EventCount >= 5)
      && agentId is null
      && !(state.InlineHarnessTitleSeen && state.ServerRecordsHarnessTitles == true);
+
+    // From the stop request, which a kill follows 5s later; the rest covers the drain-complete signal and the close.
+    static readonly TimeSpan ShutdownTitleDeadline = TimeSpan.FromSeconds(4);
+
+    // Nothing kills the watcher on any other exit; the title CLI's own timeout (15s claude, 30s codex) ends it first.
+    static readonly TimeSpan UnhurriedShutdownTitleDeadline = TimeSpan.FromSeconds(30);
+
+    /// <summary>How long shutdown waits for a title still generating, from the time already spent since shutdown began.
+    /// Nothing at all once the connection is gone, since the title could not be sent.</summary>
+    internal static TimeSpan ShutdownTitleBudget(bool connected, bool stopRequested, TimeSpan sinceShutdown) =>
+        connected ? (stopRequested ? ShutdownTitleDeadline : UnhurriedShutdownTitleDeadline) - sinceShutdown : TimeSpan.Zero;
+
+    /// <summary>Waits up to <paramref name="budget"/> for <paramref name="pending"/>, calling <paramref name="beat"/>
+    /// before each heartbeat slice of the wait. False when it is still running at the end, for the caller to abandon.</summary>
+    internal static async Task<bool> AwaitPendingTitleAsync(Task? pending, TimeSpan budget, TimeProvider time, Action beat) {
+        if (pending is null || pending.IsCompleted) return true;
+
+        foreach (var slice in HeartbeatSlices(budget, HeartbeatSlice)) {
+            beat();
+
+            try {
+                await pending.WaitAsync(slice, time);
+            } catch (TimeoutException) when (!pending.IsCompleted) {
+                continue;
+            } catch {
+                // the generation's own failure: it is over, which is all shutdown waits for
+            }
+
+            return true;
+        }
+
+        return pending.IsCompleted;
+    }
 
     internal static void ObserveTitleLine(WatchState state, string vendor, string sessionId, string line) {
         switch (TranscriptTitleLines.Classify(vendor, sessionId, line)) {

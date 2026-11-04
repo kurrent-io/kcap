@@ -344,6 +344,7 @@ public class RestartCoordinatorTests {
 
         c.RequestRestart(force: false, whenIdle: true);
         await Assert.That(spy.Calls).IsEqualTo(0);
+        await Assert.That(DaemonRestartMarker.TryRead(Daemons.Store, "laptop")!.Reason).IsEqualTo(DaemonRestartMarker.WhenIdle);
         agents = false;
         c.Tick();
         await Assert.That(spy.Calls).IsEqualTo(1);
@@ -493,6 +494,81 @@ public class RestartCoordinatorTests {
         c.Tick();
         await Assert.That(spy.Calls).IsEqualTo(1);
         await Assert.That(DaemonRestartMarker.TryRead(Daemons.Store, "laptop")!.Reason).IsEqualTo("self-detected");
+    }
+
+    /// <summary>Idle agents sit at a turn boundary, so they do not hold a turn-boundary request the way they hold a
+    /// when-idle one; an agent mid-turn does.</summary>
+    [Test]
+    public async Task A_turn_boundary_request_waits_for_turns_not_for_idle_agents_to_leave() {
+        var spy      = new SpyStrategy();
+        var boundary = false;
+        var c        = NewCoordinator(spy, isBusy: () => false, stat: () => new BinaryStat(100, 1));
+        c.HasAgents      = () => true;
+        c.AtTurnBoundary = () => boundary;
+
+        await Assert.That(c.RequestRestart(force: false, atTurnBoundary: true)).IsEqualTo(RestartRequestResult.Queued);
+        await Assert.That(DaemonRestartMarker.TryRead(Daemons.Store, "laptop")!.Reason).IsEqualTo(DaemonRestartMarker.TurnBoundary);
+        c.Tick();
+        await Assert.That(spy.Calls).IsEqualTo(0);
+
+        boundary = true;
+        c.Tick();
+        await Assert.That(spy.Calls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_turn_boundary_request_fires_when_the_turn_wait_runs_out() {
+        var spy  = new SpyStrategy();
+        var time = new FakeTimeProvider();
+        var c    = RestartCoordinator.ForTest(Daemons.Store, "laptop", "v0.4.11", spy, time);
+        c.IsBusy         = () => false;
+        c.HasAgents      = () => true;
+        c.AtTurnBoundary = () => false;
+        c.TurnWait       = TimeSpan.FromMinutes(5);
+        c.StatBinary     = () => new BinaryStat(100, 1);
+        c.PrimeBaseline();
+
+        c.RequestRestart(force: false, atTurnBoundary: true);
+        time.Advance(TimeSpan.FromMinutes(4));
+        c.Tick();
+        await Assert.That(spy.Calls).IsEqualTo(0);
+
+        time.Advance(TimeSpan.FromMinutes(1));
+        c.Tick();
+        await Assert.That(spy.Calls).IsEqualTo(1);
+    }
+
+    /// <summary>A when-idle request queued first, by an older app, must not keep idle agents holding the restart once a
+    /// turn-boundary request arrives.</summary>
+    [Test]
+    public async Task A_turn_boundary_request_takes_over_a_pending_when_idle_one() {
+        var spy = new SpyStrategy();
+        var c   = NewCoordinator(spy, isBusy: () => false, stat: () => new BinaryStat(100, 1));
+        c.HasAgents      = () => true;
+        c.AtTurnBoundary = () => true;
+
+        c.RequestRestart(force: false, whenIdle: true);
+        await Assert.That(spy.Calls).IsEqualTo(0);
+
+        await Assert.That(c.RequestRestart(force: false, atTurnBoundary: true)).IsEqualTo(RestartRequestResult.Restarting);
+        await Assert.That(spy.Calls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_when_idle_request_keeps_a_pending_turn_boundary_one() {
+        var spy      = new SpyStrategy();
+        var boundary = false;
+        var c        = NewCoordinator(spy, isBusy: () => false, stat: () => new BinaryStat(100, 1));
+        c.HasAgents      = () => true;
+        c.AtTurnBoundary = () => boundary;
+
+        c.RequestRestart(force: false, atTurnBoundary: true);
+        c.RequestRestart(force: false, whenIdle: true);
+        boundary = true;
+        c.Tick();
+
+        await Assert.That(spy.Calls).IsEqualTo(1);
+        await Assert.That(DaemonRestartMarker.TryRead(Daemons.Store, "laptop")!.Reason).IsEqualTo(DaemonRestartMarker.TurnBoundary);
     }
 
     /// <summary>A request that lands while a harness restart is running stays pending after its no-op.</summary>

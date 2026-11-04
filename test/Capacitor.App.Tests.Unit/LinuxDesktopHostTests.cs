@@ -1,5 +1,6 @@
 using Capacitor.App.Platform;
 using Capacitor.App.Platform.Linux;
+using Capacitor.App.Services.Update;
 
 namespace Capacitor.App.Tests.Unit;
 
@@ -8,7 +9,7 @@ public class LinuxDesktopHostTests {
 
     [Test]
     public async Task A_new_copy_starts_from_the_image_and_waits_for_this_one_to_exit() {
-        using var host = new LinuxDesktopHost("/cli", false, new AppImageInstall("/apps/Kcap.AppImage"), false, SingleInstanceLock.Unenforced);
+        using var host = new LinuxDesktopHost("/cli", false, new AppImageInstall("/apps/Kcap.AppImage"), null, SingleInstanceLock.Unenforced);
 
         var start = host.NewCopy("--setup");
 
@@ -21,7 +22,7 @@ public class LinuxDesktopHostTests {
     [Test]
     public async Task A_missing_image_cannot_be_relaunched() {
         var image = Tmp.CreateFile("apps/Kcap.AppImage", "");
-        using var host = new LinuxDesktopHost("/cli", false, new AppImageInstall(image), false, SingleInstanceLock.Unenforced);
+        using var host = new LinuxDesktopHost("/cli", false, new AppImageInstall(image), null, SingleInstanceLock.Unenforced);
 
         await Assert.That(host.CanRelaunchNow).IsTrue();
         File.Delete(image);
@@ -31,10 +32,38 @@ public class LinuxDesktopHostTests {
     /// A CLI left in the mount is gone once the app exits, so the PATH link is never offered for it
     [Test]
     public async Task A_cli_left_in_the_mount_is_never_linked() {
-        using var mounted = new LinuxDesktopHost("/tmp/.mount_kcap/usr/bin", false, new AppImageInstall("/apps/Kcap.AppImage"), true, SingleInstanceLock.Unenforced);
-        using var staged  = new LinuxDesktopHost("/data/kcap/desktop/bin", false, new AppImageInstall("/apps/Kcap.AppImage"), false, SingleInstanceLock.Unenforced);
+        var failure = new CliStagingFailure("/data/kcap/desktop/bin", "No space left on device", DaemonCopied: false);
+        using var mounted = new LinuxDesktopHost("/tmp/.mount_kcap/usr/bin", false, new AppImageInstall("/apps/Kcap.AppImage"), failure, SingleInstanceLock.Unenforced);
+        using var staged  = new LinuxDesktopHost("/data/kcap/desktop/bin", false, new AppImageInstall("/apps/Kcap.AppImage"), null, SingleInstanceLock.Unenforced);
 
         await Assert.That(App.ShimTargetFor("/tmp/.mount_kcap/usr/bin/kcap", mounted.CliOutlivesApp)).IsNull();
         await Assert.That(App.ShimTargetFor("/data/kcap/desktop/bin/kcap", staged.CliOutlivesApp)).IsEqualTo("/data/kcap/desktop/bin/kcap");
+    }
+
+    /// A restart starts the daemon from the binary it runs, so one on the copy this run could not replace stays on its
+    /// version, and the report says why the copy failed rather than pointing at another install.
+    [Test]
+    public async Task A_daemon_on_the_cli_copy_this_run_could_not_replace_is_reported_with_the_failure() {
+        var mount  = Tmp.CreateDir("mount/usr/bin");
+        var staged = Tmp.CreateDir("data/kcap/desktop/bin");
+        var npm    = Tmp.PathTo("npm", "kcap-daemon");
+        using var host = new LinuxDesktopHost(mount, false, new AppImageInstall("/apps/Kcap.AppImage"),
+            new CliStagingFailure(staged, "No space left on device", DaemonCopied: false), SingleInstanceLock.Unenforced);
+
+        await Assert.That(host.OtherInstall("1.4.0", Path.Combine(staged, "kcap-daemon")))
+            .IsEqualTo(new DaemonOnOtherInstall("1.4.0", Path.Combine(staged, "kcap-daemon"), "No space left on device"));
+        await Assert.That(host.OtherInstall("1.4.0", npm)).IsEqualTo(new DaemonOnOtherInstall("1.4.0", npm));
+        await Assert.That(host.OtherInstall("1.4.0", Path.Combine(mount, "kcap-daemon"))).IsNull();
+        await Assert.That(host.CliCopyFailed).IsTrue();
+    }
+
+    /// The copy's daemon binary was replaced before a later file failed, so a restart there loads this version.
+    [Test]
+    public async Task A_daemon_on_a_copy_whose_daemon_binary_was_replaced_is_the_apps_own() {
+        var staged = Tmp.CreateDir("data/kcap/desktop/bin");
+        using var host = new LinuxDesktopHost(Tmp.CreateDir("mount/usr/bin"), false, new AppImageInstall("/apps/Kcap.AppImage"),
+            new CliStagingFailure(staged, "No space left on device", DaemonCopied: true), SingleInstanceLock.Unenforced);
+
+        await Assert.That(host.OtherInstall("1.4.0", Path.Combine(staged, "kcap-daemon"))).IsNull();
     }
 }

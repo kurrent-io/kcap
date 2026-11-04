@@ -7,7 +7,6 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Setup;
-using Capacitor.Cli.Harness.Muse;
 using Capacitor.Cli.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
@@ -322,20 +321,50 @@ public class MuseHookCommandTests : IDisposable {
         await Assert.That(body.TryGetProperty("agent_host_id", out _)).IsFalse();
     }
 
-    /// <summary>The end is linked to the same agent as the start, through the marker it then deletes.</summary>
-    [Test]
-    public async Task SessionEnd_takes_agent_host_id_from_the_marker_then_deletes_it() {
+    /// <summary>An end the hook posts itself, with no log to hand to a watcher, that names no run is placed by its
+    /// session: once the ledger shows the session's agent resumed it is held, as an earlier run's may be, and before
+    /// that it posts as before.</summary>
+    [Test, NotInParallel]
+    [Arguments("epoch-2", false)]
+    [Arguments("epoch-1", true)]
+    public async Task A_posted_SessionEnd_that_names_no_run_is_held_once_its_session_was_resumed(string runEpoch, bool posted) {
+        using var daemons = new TempDaemonStore();
+        Capacitor.Cli.Core.Resume.ResumeLedgerStore.For(daemons.Store, "d1").Write(
+            ResumeLedgerEntries.For("agent-1", Capacitor.Cli.Core.Resume.ResumeState.Running) with {
+                LaunchEpoch = "epoch-1", RunEpoch = runEpoch, SessionId = ParentDashless
+            });
+        using var dir = EnvScope.Exclusive("KCAP_DAEMONS_DIR", daemons.Directory);
         StubHooks();
         MuseHostedSessionMarker.Write(Home,
-            new MuseHostedSessionMarker(ParentId, "agent-from-marker", "daemon-1", "epoch-1", DateTimeOffset.UtcNow));
+            new MuseHostedSessionMarker(ParentId, "agent-1", "daemon-1", runEpoch, DateTimeOffset.UtcNow));
+
+        await Command().Handle(new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
+            new StringWriter(), ParentEnv, Today);
+
+        await Assert.That(HookPosts("/hooks/session-end/muse").Count).IsEqualTo(posted ? 1 : 0);
+    }
+
+    /// <summary>A hook with no hosted environment takes a run's identity from the marker only under the Muse process
+    /// the marker names. The marker is keyed by session, so it can belong to a later run, or to another agent, by the
+    /// time an earlier run's last hook fires; and one an older daemon wrote names no process at all. Such an end names
+    /// no run, and the marker is left for the run that owns it.</summary>
+    [Test]
+    [Arguments(null, null)]
+    [Arguments("lx:another-boot:1", 4242)]
+    public async Task A_SessionEnd_not_under_the_markers_process_names_no_run_and_leaves_the_marker(string? ownerToken, int? ownerPid) {
+        StubHooks();
+        MuseHostedSessionMarker.Write(Home,
+            new MuseHostedSessionMarker(ParentId, "agent-from-marker", "daemon-1", "epoch-2", DateTimeOffset.UtcNow, OwnerToken: ownerToken, OwnerPid: ownerPid));
 
         await Command().Handle(new StringReader(
             $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
             new StringWriter(), ParentEnv, Today);
 
         var body = JsonDocument.Parse(HookPosts("/hooks/session-end/muse").Single()).RootElement;
-        await Assert.That(body.GetProperty("agent_host_id").GetString()).IsEqualTo("agent-from-marker");
-        await Assert.That(MuseHostedSessionMarker.TryRead(Home, ParentId)).IsNull();
+        await Assert.That(body.TryGetProperty("agent_host_id", out _)).IsFalse();
+        await Assert.That(body.TryGetProperty("daemon_epoch", out _)).IsFalse();
+        await Assert.That(MuseHostedSessionMarker.TryRead(Home, ParentId)).IsNotNull();
     }
 
     /// <summary>Stop only starts a watcher, so this is the start's one chance: it is posted without a
@@ -677,9 +706,9 @@ public class MuseHookCommandTests : IDisposable {
         var body = JsonDocument.Parse(request!.Payload).RootElement;
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(ParentDashless);
         await Assert.That(body.GetProperty("reason").GetString()).IsEqualTo("exit");
-        await Assert.That(body.GetProperty("agent_host_id").GetString()).IsEqualTo("agent-from-marker");
+        await Assert.That(body.TryGetProperty("agent_host_id", out _)).IsFalse();
         await Assert.That(body.TryGetProperty("ended_at", out _)).IsTrue();
-        await Assert.That(MuseHostedSessionMarker.TryRead(Home, ParentId)).IsNull();
+        await Assert.That(MuseHostedSessionMarker.TryRead(Home, ParentId)).IsNotNull();
     }
 
     /// <summary>A session whose watcher is gone still has a log to drain, so the end is handed to a watcher

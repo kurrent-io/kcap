@@ -168,6 +168,9 @@ class WatchState {
     public bool               TitleGenerated     { get; set; }
     public int                TitleAttempts      { get; set; }
     public bool               TitleInFlight      { get; set; }
+    // The generation TitleInFlight marks: shutdown waits for it, since its title goes out over the connection it closes.
+    public Task?              PendingTitle       { get; set; }
+    public CancellationToken  TitleCancellation  { get; set; }
     public string?            FirstUserText      { get; set; }
     public bool               FullFileScanDone   { get; set; }
     public string?            FirstAssistantText { get; set; }
@@ -2408,7 +2411,12 @@ public readonly record struct AgentRegistered(
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ContinuesAgentId = null,
         string? AccountDirectory = null,
         string? AccountId        = null,
-        string? AccountLabel     = null
+        string? AccountLabel     = null,
+        // The session this agent's native resume reopened, sent on every registration of the resumed
+        // process. Trailing name-bound fields, like the rest: an older server ignores both.
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResumedSessionId = null,
+        // True only on the resumed process's first registration, the one that may reopen the session.
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ResumeFirstAnnounce = false
     );
 
 public readonly record struct AgentStatusChanged(

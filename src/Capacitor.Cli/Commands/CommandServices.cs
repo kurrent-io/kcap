@@ -180,6 +180,7 @@ public static class CommandServices {
         services.AddTransient<ValidatePlanCommand>();
         services.AddTransient<WatchCommand>();
         services.AddTransient<WhatsDoneCommand>();
+        services.AddTransient<GenerateTitleCommand>();
         services.AddTransient<WhoamiCommand>();
 
         services.AddTransient<AntigravityHookCommand>();

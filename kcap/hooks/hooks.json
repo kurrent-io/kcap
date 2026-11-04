@@ -18,7 +18,8 @@
           {
             "type": "command",
             "command": "kcap hook --claude --no-update-check",
-            "timeout": 15
+            "timeout": 15,
+            "async": true
           }
         ]
       }

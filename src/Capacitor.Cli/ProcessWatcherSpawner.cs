@@ -52,6 +52,12 @@ public sealed class ProcessWatcherSpawner(
                 }
             };
 
+            // An empty value reads as unset, so a watcher following no known run carries none of this one's.
+            if (request.RunsAs is { } run) {
+                psi.Environment[HostedAgent.AgentIdVar]     = run.AgentId ?? "";
+                psi.Environment[HostedAgent.DaemonEpochVar] = run.DaemonEpoch ?? "";
+            }
+
             // The watcher outlives the hook that spawns it, so it must carry none of the
             // agent's handles with it — an inherited hook-stdout pipe would stay open for the
             // watcher's whole lifetime and the agent's read would never reach EOF.

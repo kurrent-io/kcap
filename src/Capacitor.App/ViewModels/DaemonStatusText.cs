@@ -13,6 +13,7 @@ public static class DaemonStatusText {
             "daemon_unreachable"         => "not running",
             "daemon_incompatible"        => "version doesn't match the app",
             ExpectedDaemonRestart.Reason => "restarting",
+            ExpectedDaemonRestart.StartingReason => "starting",
             _                            => "unreachable",
         },
     };
@@ -21,7 +22,7 @@ public static class DaemonStatusText {
         AttachState.Unreachable => status.Reason switch {
             "daemon_unreachable"         => "Start it from the main window, or run kcap daemon start.",
             "daemon_incompatible"        => "Update kcap so the app and the daemon are the same version.",
-            ExpectedDaemonRestart.Reason => null,
+            ExpectedDaemonRestart.Reason or ExpectedDaemonRestart.StartingReason => null,
             _                            => "Reconnect from the main window. If it stays unreachable, restart the daemon.",
         },
         _ => null,

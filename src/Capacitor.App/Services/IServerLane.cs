@@ -5,7 +5,7 @@ namespace Capacitor.App.Services;
 
 public enum ServerLaneState { Dormant, Connecting, Connected, Retrying, SignedOut }
 
-/// Diagnostic is the silent-deafness notice text, or null. Subject is the signed-in account's
+/// Subject is the signed-in account's
 /// "sub" claim on a Connected status, for detecting a re-auth as a different account. Epoch
 /// identifies the connection generation that published this status: it advances on every restart
 /// and every park, so a caller that captures it off one Connected status can hand it back to
@@ -13,7 +13,7 @@ public enum ServerLaneState { Dormant, Connecting, Connected, Retrying, SignedOu
 /// Failure is set on a Retrying status only when the attempt got no answer at all: the server is down or
 /// unreachable, which no sign-in repairs. An answer of any kind, a refusal included, leaves it null.
 public sealed record ServerLaneStatus(
-    ServerLaneState State, string? Detail = null, string? Diagnostic = null, string? Subject = null,
+    ServerLaneState State, string? Detail = null, string? Subject = null,
     int Epoch = 0, ConnectionFailure? Failure = null);
 
 public sealed record LaunchFailure(string AgentId, string Reason);

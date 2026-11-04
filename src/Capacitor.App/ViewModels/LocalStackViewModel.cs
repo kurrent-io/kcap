@@ -6,6 +6,7 @@ using System.Reactive.Linq;
 using Capacitor.App.Services;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.LocalEdition;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -24,7 +25,7 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     static readonly string[] Derived = [
         nameof(Version), nameof(StateText), nameof(Attention), nameof(Upgrading), nameof(BannerVisible), nameof(Headline),
         nameof(Detail), nameof(Guidance), nameof(DownloadFraction), nameof(ProgressIndeterminate), nameof(TryAgainVisible),
-        nameof(DismissVisible), nameof(IsNote), nameof(StartVisible), nameof(ActionsVisible), nameof(SuppressesServerStart),
+        nameof(DismissVisible), nameof(IsNote), nameof(StartVisible), nameof(ReinstallVisible), nameof(ActionsVisible), nameof(SuppressesServerStart),
     ];
 
     readonly LocalUpgradeController _upgrade;
@@ -99,6 +100,9 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
 
         TryAgainCommand = ReactiveCommand.CreateFromTask(() => _upgrade.StartAsync(shutdown));
         StartCommand    = ReactiveCommand.CreateFromTask(RunStartAsync);
+        ReinstallCommand = ReactiveCommand.Create(() => {
+            if (ReinstallVisible) Reinstall!();
+        });
         _isStarting = StartCommand.IsExecuting
             .ToProperty(this, x => x.IsStarting, initialValue: false)
             .DisposeWith(_disposables);
@@ -209,12 +213,21 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     };
 
     /// Not for a failure after the switch: its Start is the only way to finish a journaled upgrade.
-    public bool DismissVisible => !Upgrading && _shown is not null && !StartVisible;
+    public bool DismissVisible => !Upgrading && _shown is not null and not LocalUpgradeOutcome.Failed { Switched: true };
 
-    public bool StartVisible => !Upgrading && _shown is LocalUpgradeOutcome.Failed { Switched: true };
+    /// After the switch, a start finishes the upgrade; for a removed service, it restores the unit the upgrade then needs.
+    public bool StartVisible => !Upgrading && (_shown is LocalUpgradeOutcome.Failed { Switched: true } || ServiceMissing);
+
+    bool ServiceMissing => _shown is LocalUpgradeOutcome.Failed { Switched: false, Code: var code } && code == LocalInstallFailureCode.ServiceMissing.Wire();
+
+    /// Opens the app's own setup, which reinstalls a server whose files are gone.
+    public Action? Reinstall { get; init; }
+
+    public bool ReinstallVisible =>
+        !Upgrading && Reinstall is not null && _shown is LocalUpgradeOutcome.Failed { Code: var code } && code == LocalInstallFailureCode.ServerMissing.Wire();
 
     /// The action cluster. False while an upgrade is running, so that row is not left blank.
-    public bool ActionsVisible => StartVisible || TryAgainVisible || DismissVisible;
+    public bool ActionsVisible => StartVisible || TryAgainVisible || ReinstallVisible || DismissVisible;
 
     /// While this banner or a search change owns the stack, the "not running" banner's own Start stays hidden: a search
     /// change can restart the server.
@@ -231,6 +244,8 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<Unit, Unit> StartCommand { get; }
 
     public ReactiveCommand<Unit, Unit> TryAgainCommand { get; }
+
+    public ReactiveCommand<Unit, Unit> ReinstallCommand { get; }
 
     public ReactiveCommand<Unit, Unit> DismissCommand { get; }
 
@@ -273,13 +288,18 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
 
             if (result is { ExitCode: 0, TimedOut: false }) {
                 if (!Upgrading && ReferenceEquals(_shown, recovering)) {
-                    _shown = recovering is LocalUpgradeOutcome.Failed { Switched: true } failed && _searchWarning is { } warning
+                    // The restored service still owes the update: it waits like one another change held off, so whatever
+                    // holds the installation next retries it when that change settles.
+                    _shown = ServiceMissing && recovering is LocalUpgradeOutcome.Failed missing
+                        ? missing with { Code = LocalInstallFailureCode.LifecycleBusy.Wire(), Affordance = LocalInstallAffordance.Busy }
+                        : recovering is LocalUpgradeOutcome.Failed { Switched: true } failed && _searchWarning is { } warning
                         ? new LocalUpgradeOutcome.Upgraded(failed.From, failed.To, warning)
                         : null;
                 }
                 ReadVersion();
                 Refresh();
                 await ReconnectAsync();
+                if (Waiting) await _upgrade.StartAsync(_shutdown);
                 return;
             }
 

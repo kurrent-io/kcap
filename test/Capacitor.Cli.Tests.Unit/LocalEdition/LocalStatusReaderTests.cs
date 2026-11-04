@@ -102,6 +102,43 @@ public class LocalStatusReaderTests {
         await Assert.That(Text(await Read())).Contains("(not yet applied; kcap setup --local applies it)");
     }
 
+    /// <summary>Only a settled keyword or Ollama choice makes a model on disk unused; a lost record or one whose unit is
+    /// not yet rewritten proves nothing, and a server running the built-in provider overrules the record.</summary>
+    [Test]
+    [Arguments("builtin", null, false)]
+    [Arguments("none", null, true)]
+    [Arguments("ollama", null, true)]
+    [Arguments("lost", null, false)]
+    [Arguments("pending", null, false)]
+    [Arguments("none", "builtin", false)]
+    public async Task A_builtin_model_left_on_disk_is_named_with_its_size_only_while_unused(string recorded, string? serving, bool named) {
+        Running();
+        var set = new string('a', 64);
+        File.WriteAllBytes(Tmp.CreateFile(["r", "models", set, "model.onnx"]), new byte[3 * 1024 * 1024]);
+        if (recorded != "lost")
+            LocalEmbeddingFile.Write(Root, recorded switch {
+                "builtin" => LocalEmbeddingSetting.Builtin(set),
+                "ollama"  => LocalEmbeddingSetting.Ollama("mxbai-embed-large"),
+                "pending" => LocalEmbeddingSetting.Declined with { Pending = true },
+                _         => LocalEmbeddingSetting.Declined,
+            });
+        if (serving is not null) {
+            Health(HttpStatusCode.OK);
+            var ready = Server.Override;
+            Server.Override = path => path == "/healthz/embeddings"
+                ? new HttpResponseMessage(HttpStatusCode.OK) {
+                    Content = new StringContent($$"""{"provider":"{{serving}}","usable":true,"reason":null}""", Encoding.UTF8, "application/json"),
+                }
+                : ready!(path);
+        }
+
+        var text = Text(await Read());
+
+        var note = $"The built-in search model is still in {Path.Combine(Root.Directory, "models")} (3 MB), but the server does not use it; kcap setup --local removes it.";
+        if (named) await Assert.That(text).Contains(note);
+        else await Assert.That(text).DoesNotContain("The built-in search model is still in");
+    }
+
     [Test]
     public async Task The_search_field_names_a_recorded_builtin_model_without_ollama() {
         Running();
@@ -257,16 +294,18 @@ public class LocalStatusReaderTests {
     }
 
     /// <summary>An uninstall removes the unit and <c>bin/</c> but keeps the registry: that is not a broken install, and
-    /// no start can bring it back.</summary>
+    /// no start can bring it back. Nothing is left for a unit line or a version comparison to describe.</summary>
     [Test]
     public async Task An_uninstalled_installation_says_setup_reinstalls_it_and_offers_no_start() {
         Publish(withBinary: false);
 
-        var report = await Read();
+        var report = await Read(cliVersion: "1.0.0");
 
         await Assert.That(report.Headline).StartsWith("Uninstalled:");
         await Assert.That(Text(report)).Contains("kcap setup --local reinstalls it on the same port");
         await Assert.That(Text(report)).DoesNotContain("kcap local start starts it").And.DoesNotContain("installs and starts it");
+        await Assert.That(report.Fields.Select(f => f.Key)).DoesNotContain("Service");
+        await Assert.That(Text(report)).DoesNotContain("The stack is");
     }
 
     [Test]
@@ -293,7 +332,7 @@ public class LocalStatusReaderTests {
         var report = await Read();
 
         await Assert.That(report.Headline).IsEqualTo("Stopped, and port 9473 is taken by another process.");
-        await Assert.That(Text(report)).Contains("taken by python3 (pid 4242)").And.Contains("never stops a process it did not start");
+        await Assert.That(Text(report)).Contains("taken by python3 (pid 4242)").And.Contains(LocalServerConditions.PortTakenAdvice);
         await Assert.That(Text(report)).DoesNotContain("kcap local start starts it");
         await Assert.That(_log.Skip(calls).Any(l => l.Contains("stop", StringComparison.OrdinalIgnoreCase))).IsFalse();
     }
@@ -512,7 +551,7 @@ public class LocalStatusReaderTests {
         var report = await Read();
 
         await Assert.That(report.Headline).IsEqualTo("Stopped, and port 9473 is taken by another process.");
-        await Assert.That(Text(report)).Contains("answers as a web server that answers HTTP 404").And.Contains("never stops a process it did not start");
+        await Assert.That(Text(report)).Contains("answers as a web server that answers HTTP 404").And.Contains(LocalServerConditions.PortTakenAdvice);
         await Assert.That(Text(report)).DoesNotContain("kcap local start starts it");
         await Assert.That(_log.Skip(calls).Any(l => l.Contains("stop", StringComparison.OrdinalIgnoreCase))).IsFalse();
     }
@@ -528,6 +567,23 @@ public class LocalStatusReaderTests {
 
         await Assert.That(report.Headline).IsEqualTo("Stopped.");
         await Assert.That(Text(report)).Contains("kcap local start starts it");
+    }
+
+    /// <summary>Whether the unit is stopped, relaunching or gone for good, the user is told the same thing to do.</summary>
+    [Test]
+    [Arguments("stopped")]
+    [Arguments("restarting")]
+    [Arguments("exited")]
+    public async Task A_taken_port_gets_one_instruction_whatever_the_unit_is_doing(string activity) {
+        Running();
+        Service.ActivityOverride = activity switch {
+            "stopped"    => UnitActivity.Stopped.Instance,
+            "restarting" => new UnitActivity.Restarting(1),
+            _            => new UnitActivity.Exited(1),
+        };
+        _holders.Add(new(4242, "python3"));
+
+        await Assert.That(Text(await Read())).Contains(LocalServerConditions.PortTakenAdvice);
     }
 
     [Test]

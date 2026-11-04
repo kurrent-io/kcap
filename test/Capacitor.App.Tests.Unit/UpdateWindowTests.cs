@@ -24,7 +24,7 @@ public class UpdateWindowTests {
         using var vm = new UpdateFinishViewModel(
             new("op", AppUpdateTransition.InApp, "1.4.0", "1.4.1", DateTimeOffset.UnixEpoch),
             Observable.Return(new AttachStatus(AttachState.Connected, null, [])),
-            Observable.Return<(string?, string?)>(("1.4.1", "connected")), Observable.Return(false),
+            Observable.Return<(string?, string?)>(("1.4.1", "connected")), Observable.Return(DaemonRestartWait.None),
             local, new FakeTimeProvider());
         var window = new UpdateFinishWindow { DataContext = vm };
         try {
@@ -56,7 +56,7 @@ public class UpdateWindowTests {
         using var vm = new UpdateFinishViewModel(
             new("op", AppUpdateTransition.InApp, "1.4.0", "1.4.1", DateTimeOffset.UnixEpoch),
             Observable.Return(new AttachStatus(AttachState.Connected, null, [])),
-            Observable.Return<(string?, string?)>(("1.4.1", "connected")), Observable.Return(false),
+            Observable.Return<(string?, string?)>(("1.4.1", "connected")), Observable.Return(DaemonRestartWait.None),
             Observable.Return<LocalStepInput?>(new(false, failure, null, null)), new FakeTimeProvider());
         var window = new UpdateFinishWindow { DataContext = vm, Height = 320 };
         try {

@@ -207,6 +207,48 @@ public class WorktreeManagerHandoffTests {
         await Assert.That(resolution.FetchError).IsNotNull().And.IsNotEmpty();
     }
 
+    /// <summary>Origin is gone before the local read, so a start it returns came from refs already here.</summary>
+    [Test]
+    public async Task local_resolution_matches_the_fetched_one_once_origin_is_gone() {
+        using var f = Fixture.Create();
+        f.CommitOnOrigin("feature", "b.txt");
+        f.TrackLocally("feature");
+        f.CommitLocally("feature", "local.txt");
+        f.CommitOnOrigin("feature", "c.txt");
+        var fetched = await ResolveAsync(f, new HandoffTarget("feature", null, false));
+        f.Clone.Do("remote", "set-url", "origin", Path.Combine(f.Clone.Path, "no-such-remote"));
+
+        var local = await Manager().ResolveLocalHandoffStartAsync(f.Clone, new HandoffTarget("feature", null, false), CancellationToken.None);
+
+        await Assert.That(local).IsEqualTo(fetched);
+        await Assert.That(local!.DetachReason).IsEqualTo(HandoffDetachReason.LocalBranchDiverged);
+    }
+
+    [Test]
+    public async Task local_resolution_of_a_fork_head_uses_only_an_earlier_fetch() {
+        using var f    = Fixture.Create();
+        var       head = f.CommitOnOrigin("fork-work", "fork.txt");
+        f.Upstream.Do("update-ref", "refs/pull/7/head", head);
+        var target = new HandoffTarget("fork-work", 7, HeadIsFork: true);
+
+        await Assert.That(await Manager().ResolveLocalHandoffStartAsync(f.Clone, target, CancellationToken.None)).IsNull();
+
+        var fetched = await ResolveAsync(f, target);
+        f.Clone.Do("remote", "set-url", "origin", Path.Combine(f.Clone.Path, "no-such-remote"));
+
+        await Assert.That(await Manager().ResolveLocalHandoffStartAsync(f.Clone, target, CancellationToken.None)).IsEqualTo(fetched);
+    }
+
+    /// <summary>Only origin can say a branch is absent, so the local read never falls back to the default branch.</summary>
+    [Test]
+    public async Task local_resolution_of_a_branch_not_fetched_here_is_null() {
+        using var f = Fixture.Create();
+
+        var local = await Manager().ResolveLocalHandoffStartAsync(f.Clone, new HandoffTarget("gone", null, false), CancellationToken.None);
+
+        await Assert.That(local).IsNull();
+    }
+
     [Test]
     public async Task hostile_branch_name_is_refused_before_git_runs() {
         using var f = Fixture.Create();

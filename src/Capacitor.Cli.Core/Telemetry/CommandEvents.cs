@@ -15,7 +15,7 @@ public static partial class CommandEvents {
     // `uninstall` is denylisted too, but for a different reason (see below): reporting it would
     // resurrect the directory it just deleted.
     static readonly HashSet<string> Denylisted = new(StringComparer.Ordinal) {
-        "hook", "watch", "mcp", "permission-request", "generate-whats-done",
+        "hook", "watch", "mcp", "permission-request", "generate-whats-done", "generate-title",
         "set-title", "copilot-finalize", "cursor-verify-appendonly", "refresh-token", "muse-assistant",
 
         // `Program.cs` already skips the post-command update check for `uninstall`, with a
@@ -42,7 +42,7 @@ public static partial class CommandEvents {
         "ignore", "allow", "remap", "repos", "projects", "project", "update", "review", "mcp",
         "curate", "cleanup", "uninstall", "disable", "hide", "import", "watch",
         "copilot-finalize", "set-title", "hook", "cursor", "cursor-verify-appendonly",
-        "generate-whats-done", "permission-request", "feedback", "refresh-token",
+        "generate-whats-done", "generate-title", "permission-request", "feedback", "refresh-token",
         "page", "artefact", "muse-assistant",
     };
 

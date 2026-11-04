@@ -211,6 +211,27 @@ public class ClaudeHookCommandTests {
             .Contains("approval policy degraded");
     }
 
+    /// <summary>The degraded arm spools the end without reaching the stamp the posted path applies, and its replay
+    /// may land after a resume, so it carries the run identity too.</summary>
+    [Test]
+    public async Task A_hosted_session_end_spooled_on_the_degraded_arm_names_its_agent_and_daemon_epoch() {
+        using var fx = new Fixture(Config.Root);
+        var hosted   = new HostedAgent("agent-1", false, DaemonBridge.None) { DaemonEpoch = "epoch-1" };
+
+        var exit = await new ClaudeHookCommand(Config.Root, Resolutions.At("not-a-url", Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("not-a-url", Config.Root), new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            .HandleWithDeps(fx.Spool, new StringReader(
+                $$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}"""),
+                () => throw new InvalidOperationException("no client is buildable for an unusable URL"));
+
+        await Assert.That(exit).IsEqualTo(0);
+        var content = await File.ReadAllTextAsync(fx.SpoolFiles.Single());
+        await Assert.That(content).Contains("\"route\":\"session-end\"");
+        await Assert.That(content).Contains("agent_host_id");
+        await Assert.That(content).Contains("agent-1");
+        await Assert.That(content).Contains("daemon_epoch");
+        await Assert.That(content).Contains("epoch-1");
+    }
+
     [Test]
     public async Task stop_clears_the_turn_journal() {
         var journal = new PolicyDecisionJournal(Config.Root);
@@ -237,6 +258,36 @@ public class ClaudeHookCommandTests {
         var posted = fx.Sent.Single(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal));
         var body   = JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..]);
         await Assert.That(body!["policy_pass_through_count"]!.GetValue<long>()).IsEqualTo(1L);
+    }
+
+    /// <summary>A start posted live for a session whose spooled end was delivered leaves a note in the spool, so
+    /// the run's later spooled hooks are not taken for the ended run's stragglers.</summary>
+    [Test]
+    public async Task A_session_start_posted_for_an_ended_session_notes_the_new_run() {
+        using var fx = new Fixture(Config.Root);
+        fx.Spool.MarkEnded(Sid);
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionStart","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-start|", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsTrue();
+    }
+
+    /// <summary>Every hosted hook names its run, so a spooled one can be told apart from a straggler of the
+    /// run whose end the spool already delivered.</summary>
+    [Test]
+    [Arguments("SessionEnd", "/hooks/session-end")]
+    [Arguments("Stop", "/hooks/stop")]
+    [Arguments("SessionStart", "/hooks/session-start")]
+    public async Task A_hosted_hook_names_its_agent_and_daemon_epoch(string hookEvent, string route) {
+        using var fx = new Fixture(Config.Root) { Hosted = new HostedAgent("agent-1", false, DaemonBridge.None) { DaemonEpoch = "epoch-1" } };
+
+        await fx.HandleAsync($$"""{"hook_event_name":"{{hookEvent}}","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        var posted = fx.Sent.Single(s => s.StartsWith($"{route}|", StringComparison.Ordinal));
+        var body   = JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!;
+        await Assert.That(body["agent_host_id"]!.GetValue<string>()).IsEqualTo("agent-1");
+        await Assert.That(body["daemon_epoch"]!.GetValue<string>()).IsEqualTo("epoch-1");
     }
 
     [Test, NotInParallel]
@@ -2210,8 +2261,9 @@ public class ClaudeHookCommandTests {
             File.WriteAllText(Path.Combine(claude, "settings.json"), "{ \"enabledPlugins\": { \"kcap@kcap\": true } }");
         }
 
+        // Dot-prefixed files are the spool's own markers, not spooled hooks.
         public IEnumerable<string> SpoolFiles =>
-            Directory.Exists(_spoolPath) ? Directory.EnumerateFiles(_spoolPath) : [];
+            Directory.Exists(_spoolPath) ? Directory.EnumerateFiles(_spoolPath).Where(f => !Path.GetFileName(f).StartsWith('.')) : [];
 
         /// <summary>Drops a ".ordered-*" temp (the ordered drain's withheld-remainder namespace)
         /// straight into the spool dir, simulating a session-end held back by a prior ordered pass.</summary>
@@ -2271,6 +2323,16 @@ public class ClaudeHookCommandTests {
         var timeout  = manifest["hooks"]!["SessionStart"]![0]!["hooks"]![0]!["timeout"]!.GetValue<int>();
 
         await Assert.That(TimeSpan.FromSeconds(timeout)).IsEqualTo(ClaudeHookCommand.SessionStartCeiling);
+    }
+
+    /// <summary>Claude cancels a synchronous plugin SessionEnd hook after 1.5s whatever its timeout, which a
+    /// slow shell start alone can exceed; an async one is started and left running past Claude's exit.</summary>
+    [Test]
+    public async Task The_session_end_hook_runs_async() {
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "kcap", "hooks", "hooks.json")))!;
+        var hook     = manifest["hooks"]!["SessionEnd"]![0]!["hooks"]![0]!;
+
+        await Assert.That(hook["async"]?.GetValue<bool>()).IsTrue();
     }
 
     static string RepoRoot([CallerFilePath] string here = "") {

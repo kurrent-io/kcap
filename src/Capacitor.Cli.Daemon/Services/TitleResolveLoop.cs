@@ -4,10 +4,11 @@ using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Services;
 
-/// <summary>The slice of an agent the title resolver reads; snapshotted per tick.</summary>
+/// <summary>The slice of an agent the title resolver reads; snapshotted per tick. <see cref="Resumed"/> marks an
+/// agent that took its work up after a daemon restart: its start title is the one that work already had.</summary>
 internal sealed record TitleAgentView(
     string Id, string Vendor, string? Prompt, string? SessionId, string? TranscriptPath, DateTime CreatedAt,
-    AgentStartTitle? StartTitle = null);
+    AgentStartTitle? StartTitle = null, bool Resumed = false);
 
 /// <summary>The server's title surface for one session: read the current title, push a
 /// harness-native one (with its kind and change time) via the harness-title path.</summary>
@@ -37,7 +38,8 @@ internal interface ITitleServerPort {
 /// <para>The agent's own start title is an echo in the same sense. When the caller chose it, the
 /// server keeps it over every generated title but lets a rename replace it: native titles are
 /// still pushed, generation is skipped, and the chosen title shows until a rename or another
-/// server title replaces it.</para>
+/// server title replaces it. A resumed agent's start title is no echo: it is the title the
+/// session already had, so the server holding it is the server's own title.</para>
 ///
 /// <para>The ladder never downgrades: a lane that stops producing (a transient read failure,
 /// a server hiccup) keeps the last applied title rather than blanking it.</para>
@@ -365,7 +367,7 @@ internal sealed class TitleResolveLoop {
                 serverReal = rename;
             } else if (serverTitle is not null && !state.PushAttempts.Contains(serverTitle)
                     && !IsPromptEcho(serverTitle, agent.Prompt)
-                    && (state.StartTitleSuperseded || serverTitle != Normalize(agent.StartTitle?.Text))) {
+                    && (state.StartTitleSuperseded || agent.Resumed || serverTitle != Normalize(agent.StartTitle?.Text))) {
                 serverReal = serverTitle;
             }
 

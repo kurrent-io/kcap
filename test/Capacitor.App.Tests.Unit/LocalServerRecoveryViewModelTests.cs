@@ -1,3 +1,4 @@
+using System.Reactive.Concurrency;
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using System.Windows.Input;
@@ -274,7 +275,7 @@ public class LocalServerRecoveryViewModelTests {
             await Assert.That(vm.Visible).IsTrue();
             await Assert.That(vm.StartOffered).IsFalse();
             await Assert.That(vm.Headline).IsEqualTo("Another program holds the local server's port");
-            await Assert.That(vm.Body!).Contains("Port 9473 is held by python3 (pid 4242)").And.Contains("kcap never stops a program it did not start");
+            await Assert.That(vm.Body!).Contains("Port 9473 is held by python3 (pid 4242)").And.Contains(LocalServerConditions.PortTakenAdvice);
             await Assert.That(vm.Body!).DoesNotContain("shows which process it is");
             await Assert.That(((ICommand)vm.StartCommand).CanExecute(null)).IsFalse();
             await Assert.That(await vm.StartAsync()).IsFalse();
@@ -427,6 +428,75 @@ public class LocalServerRecoveryViewModelTests {
             await Assert.That(vm.StartOffered).IsTrue();
             await Assert.That(vm.Headline).IsEqualTo("The local server isn't running");
             await Assert.That(vm.Body).IsEqualTo("Start it to launch agents and open the dashboard.");
+        });
+    }
+
+    /// The lane may not retry again for most of a minute, so a change that ends between its retries is read again on
+    /// its own: Changing lasts only as long as the lock is held.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_change_that_ends_between_retries_is_read_again_without_one() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var status = new BehaviorSubject<ServerLaneStatus>(new(ServerLaneState.Connecting));
+            var recheck = new HistoricalScheduler();
+            var condition = LocalServerCondition.Changing;
+            var reads = 0;
+            using var vm = new LocalServerRecoveryViewModel(status, isLocalServer: true, new Recorder().Start, new Recorder().Reconnect,
+                CancellationToken.None, readCondition: _ => { reads++; return Task.FromResult(new LocalServerReading(condition)); },
+                readScheduler: ImmediateScheduler.Instance, recheckScheduler: recheck);
+
+            status.OnNext(new(ServerLaneState.Retrying, "reconnecting"));
+            recheck.AdvanceBy(TimeSpan.FromSeconds(2));
+            await Assert.That(vm.Condition).IsEqualTo(LocalServerCondition.Changing);
+            await Assert.That(reads).IsEqualTo(2);
+
+            condition = LocalServerCondition.Installed;
+            recheck.AdvanceBy(TimeSpan.FromSeconds(2));
+
+            await Assert.That(vm.StartOffered).IsTrue();
+            await Assert.That(vm.Headline).IsEqualTo("The local server isn't running");
+
+            recheck.AdvanceBy(TimeSpan.FromSeconds(10));
+            await Assert.That(reads).IsEqualTo(3);
+
+            condition = LocalServerCondition.Changing;
+            status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
+            status.OnNext(new(ServerLaneState.Connected));
+            recheck.AdvanceBy(TimeSpan.FromSeconds(10));
+            await Assert.That(reads).IsEqualTo(4).Because("a connected server is not read again");
+        });
+    }
+
+    /// The read a start asks for afterwards belongs to the lane too: a server that connected by then is not read again,
+    /// however the files read.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_start_that_connects_is_not_followed_by_rereads() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var status = new BehaviorSubject<ServerLaneStatus>(new(ServerLaneState.Connecting));
+            var recheck = new HistoricalScheduler();
+            var condition = LocalServerCondition.Installed;
+            var reads = 0;
+            using var vm = new LocalServerRecoveryViewModel(status, isLocalServer: true,
+                _ => {
+                    condition = LocalServerCondition.Changing;
+                    return Task.FromResult(Started);
+                },
+                () => {
+                    status.OnNext(new(ServerLaneState.Connected));
+                    return Task.CompletedTask;
+                },
+                CancellationToken.None, readCondition: _ => { reads++; return Task.FromResult(new LocalServerReading(condition)); },
+                readScheduler: ImmediateScheduler.Instance, recheckScheduler: recheck);
+
+            status.OnNext(new(ServerLaneState.Retrying, "Connection refused"));
+            await Assert.That(await vm.StartAsync()).IsTrue();
+            var afterStart = reads;
+
+            recheck.AdvanceBy(TimeSpan.FromSeconds(10));
+
+            await Assert.That(reads).IsEqualTo(afterStart);
+            await Assert.That(vm.Condition).IsEqualTo(LocalServerCondition.Installed);
         });
     }
 

@@ -626,6 +626,26 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(f.Orch.ResumeLedger!.TryRead("resume-derived")!.Launch.TitleDerived ?? false).IsTrue();
     }
 
+    /// A resumed agent's own prompt is the nudge. Its title comes back as the entry recorded it, and
+    /// the title resolver judges echoes against, and generates from, the prompt the session was
+    /// launched with.
+    [Test]
+    public async Task A_resumed_agent_shows_the_entrys_title_and_titles_from_its_launch_prompt() {
+        var f = Build();
+        await using var _ = f.Orch;
+        Entry(f, "resume-titled", title: "PONG reply test", titleDerived: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var agent = f.Orch.GetAgentForTest("resume-titled")!;
+        await Assert.That(agent.ResolvedTitle ?? agent.Title).IsEqualTo("PONG reply test");
+        await Assert.That(agent.Prompt).IsNotEqualTo("build the thing");
+        var view = f.Orch.SnapshotAgentsForTitles().Single(v => v.Id == "resume-titled");
+        await Assert.That(view.Prompt).IsEqualTo("build the thing");
+        await Assert.That(view.Resumed).IsTrue();
+    }
+
     [Test]
     public async Task A_resumed_explicit_title_stays_the_callers() {
         var f = Build();
@@ -669,6 +689,87 @@ public class AgentOrchestratorResumeOnBootTests {
 
         await Assert.That(f.Server.AgentRegisteredContinues.Single(r => r.AgentId == "resume-lineage").ContinuesAgentId)
             .IsEqualTo(continues);
+    }
+
+    /// <summary>A native resume names the session it reopened on its launch registration, flagged as the first, and on
+    /// every re-announcement after a reconnect, unflagged, so a restarted server can learn it again.</summary>
+    [Test]
+    public async Task A_native_resume_announces_its_session_first_on_launch_then_on_every_reannouncement() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-announce");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await f.Orch.ReRegisterAgentsAsync();
+        await f.Orch.ReRegisterAgentsAsync();
+
+        await Assert.That(f.Server.AgentRegisteredResumes.Where(r => r.AgentId == "resume-announce").Select(r => (r.ResumedSessionId, r.FirstAnnounce)))
+            .IsEquivalentTo(new (string?, bool)[] { ("session-resume-announce", true), ("session-resume-announce", false), ("session-resume-announce", false) },
+                            TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    /// <summary>A reconnect between publishing the resumed agent and its launch registration's answer re-announces it
+    /// flagged as the first too: the server records the incarnation on whichever arrives first and reopens only on a
+    /// flagged one, so an unflagged re-announcement landing first would use the resume up. Once an answer lands, later
+    /// re-announcements are unflagged.</summary>
+    [Test]
+    public async Task A_reannouncement_before_the_launch_registration_is_answered_is_flagged_first() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-race");
+        var launchHeld = new TaskCompletionSource();
+        f.Server.AgentRegisteredEntered = new TaskCompletionSource();
+        f.Server.AgentRegisteredGate    = launchHeld;
+
+        f.Orch.LoadResumeLedger();
+        var lane = f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await f.Server.AgentRegisteredEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        f.Server.AgentRegisteredGate = null;
+
+        await f.Orch.ReRegisterAgentsAsync();
+        launchHeld.SetResult();
+        await lane;
+        await f.Orch.ReRegisterAgentsAsync();
+
+        await Assert.That(f.Server.AgentRegisteredResumes.Where(r => r.AgentId == "resume-race").Select(r => (r.ResumedSessionId, r.FirstAnnounce)))
+            .IsEquivalentTo(new (string?, bool)[] { ("session-resume-race", true), ("session-resume-race", true), ("session-resume-race", false) },
+                            TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    /// <summary>A registration a server without the acked method took answered nothing, so the next one, after a
+    /// reconnect to a server that may now read the resume, is still flagged as the first.</summary>
+    [Test]
+    public async Task A_legacy_registration_leaves_the_next_announcement_flagged_first() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-legacy-server");
+        var calls = 0;
+        f.Server.RegistrationResponse = _ => ++calls == 1 ? AgentRegisteredResponse.Unanswered : null;
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await f.Orch.ReRegisterAgentsAsync();
+        await f.Orch.ReRegisterAgentsAsync();
+
+        await Assert.That(f.Server.AgentRegisteredResumes.Where(r => r.AgentId == "resume-legacy-server").Select(r => r.FirstAnnounce))
+            .IsEquivalentTo(new[] { true, true, false }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    /// <summary>Once the agent runs another session, the one its resume reopened is no longer announced.</summary>
+    [Test]
+    public async Task A_resumed_agent_that_moves_to_another_session_stops_announcing_the_reopened_one() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-cleared");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        f.Orch.GetAgentForTest("resume-cleared")!.SessionId = "session-after-clear";
+        await f.Orch.ReRegisterAgentsAsync();
+
+        await Assert.That(f.Server.AgentRegisteredResumes.Last(r => r.AgentId == "resume-cleared"))
+            .IsEqualTo(("resume-cleared", (string?)null, false));
     }
 
     /// <summary>A stop that missed the live table while the resume published finds the agent inside the

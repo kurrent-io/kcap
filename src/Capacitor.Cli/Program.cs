@@ -484,6 +484,9 @@ switch (command) {
 
         return await Run<WhatsDoneCommand>().HandleGenerateWhatsDone(baseUrl!, wdSessionId, wdVendor);
     }
+    // Spawned detached by a watcher stopped before its title was ready. Not in PrintUsage.
+    case "generate-title" when args.Length == 4:
+        return await Run<GenerateTitleCommand>().HandleAsync(baseUrl!, args[1], args[2], args[3]);
     case "login":
         return await Run<LoginCommand>().HandleAsync(args, baseUrl);
     case "logout": {

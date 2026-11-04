@@ -137,6 +137,17 @@ public class CursorHookCommandTests {
     }
 
     [Test]
+    public async Task a_hosted_session_end_names_its_daemon_epoch() {
+        using var fx = new Fixture(Config.Root) { Hosted = new HostedAgent("host-42", IsRendered: false, DaemonBridge.None) { DaemonEpoch = "epoch-1" } };
+
+        await fx.HandleAsync($$"""{"hook_event_name":"sessionEnd","session_id":"{{Sid}}"}""");
+
+        var node = JsonNode.Parse(fx.SentToHook("session-end/cursor"))!;
+        await Assert.That(node["agent_host_id"]?.GetValue<string>()).IsEqualTo("host-42");
+        await Assert.That(node["daemon_epoch"]?.GetValue<string>()).IsEqualTo("epoch-1");
+    }
+
+    [Test]
     public async Task canonical_events_spool_on_POST_failure() {
         using var fx = new Fixture(Config.Root, postStatus: HttpStatusCode.InternalServerError);
         await fx.HandleAsync($$"""{"hook_event_name":"sessionEnd","session_id":"{{Sid}}"}""");

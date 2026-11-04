@@ -487,7 +487,7 @@ public partial class App : Application {
     }
 
     Action<UpdateCandidate> HandOver(string entry) => candidate =>
-        AppUpdateTransition.Begin(entry, _updater.InstalledVersion, candidate.Version, _time).Save(_config);
+        AppUpdateTransition.Begin(entry, _updater.InstalledVersion, candidate.Version, _time, _updates?.DaemonLeftStopped == true).Save(_config);
 
     /// Reads what an update left for this launch. A record for another version is an update that did not apply:
     /// Velopack relaunches the old version after a failed apply, so it is reported rather than finished.
@@ -563,8 +563,9 @@ public partial class App : Application {
     }
 
     void ShowUpdateFinishWindow(AppUpdateTransition transition, IObservable<AttachStatus> status,
-            IObservable<(string? Version, string? Connection)> daemon, IObservable<bool> restartPending, IObservable<LocalStepInput?> local) {
-        var vm = new UpdateFinishViewModel(transition, status, daemon, restartPending, local, _time);
+            IObservable<(string? Version, string? Connection)> daemon, IObservable<DaemonRestartWait> restartPending, IObservable<LocalStepInput?> local,
+            IObservable<DaemonOnOtherInstall?> otherInstall) {
+        var vm = new UpdateFinishViewModel(transition, status, daemon, restartPending, local, _time, otherInstall);
         var window = new UpdateFinishWindow { DataContext = vm };
         _home?.AttachUpdateProgress(vm.Progress);
         var opened = false;
@@ -622,7 +623,7 @@ public partial class App : Application {
     /// From the moment an update is accepted until this process exits, which quiescing can stretch.
     void ShowUpdateClosingWindow() {
         if (_updates?.ReadyVersion is not { } to) return;
-        var window = new UpdateFinishWindow { DataContext = UpdateFinishViewModel.Closing(to, _time) };
+        var window = new UpdateFinishWindow { DataContext = UpdateFinishViewModel.Closing(to, _time, _updates?.DaemonHandoff ?? DaemonHandoff.None) };
         foreach (var other in (ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Windows.ToArray() ?? []) other.Hide();
         window.Show();
         window.Activate();
@@ -699,9 +700,13 @@ public partial class App : Application {
             : OperatingSystem.IsLinux()
                 ? uninstall.BuildAppImageRun(AppImageInstall.Detect(Environment.GetEnvironmentVariable),
                     install => new LinuxAppRemoval(runner, _userHome, install, Environment.GetEnvironmentVariable, _time), cli, () => Quit(0), prepare: prepare)
-                : null;
+                : OperatingSystem.IsWindows()
+                    ? BuildWindowsUninstallRun(desktop, uninstall, cli, () => Quit(0), prepare)
+                    : null;
         if (run is null) {
-            Console.Error.WriteLine("kcap: uninstalling from the app needs the installed kcap.app or the kcap AppImage.");
+            Console.Error.WriteLine(OperatingSystem.IsWindows()
+                ? "kcap: uninstalling from the app needs kcap installed by its Windows installer."
+                : "kcap: uninstalling from the app needs the installed kcap.app or the kcap AppImage.");
             if (!prepareApp) Dispatcher.UIThread.Post(() => Quit(1));
             return false;
         }
@@ -712,6 +717,19 @@ public partial class App : Application {
         desktop.MainWindow = window;
         _ = run.RunAsync();
         return true;
+    }
+
+    // Update.exe ends every process running from the install, this one included, so the removal hands
+    // the install to it only from the exit, after the user has read the result.
+    static UninstallRunViewModel? BuildWindowsUninstallRun(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall,
+            IKcapCli cli, Action quit, Func<Task>? prepare) {
+        if (!OperatingSystem.IsWindows()) return null;
+        if (Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is not { } install) return null;
+        var removal = new Platform.Windows.WindowsAppRemoval(install,
+            new WindowsUserPathInstaller(new WindowsUserPathStore(), new WindowsPathProbe()));
+        var run = uninstall.BuildVelopackRun(install, _ => removal, cli, quit, prepare: prepare);
+        if (run is not null) desktop.Exit += (_, _) => removal.StartUninstallerIfSet();
+        return run;
     }
 
     async Task PrepareAppForUninstallAsync(IReadOnlyList<Window> previous) {
@@ -950,10 +968,13 @@ public partial class App : Application {
             _daemonStore, service.DaemonName, service.Status, _time, _shutdown.Token);
         restartPending.Start();
         _restartPending = restartPending;
+        // The window is built before the nudge that fills this, which exists only in a run finishing an update.
+        var daemonOnOtherInstall = new BehaviorSubject<DaemonOnOtherInstall?>(null);
         // The surfaces show this status; the lifecycle controller keeps acting on the service's own.
         var expectedRestart = new ExpectedDaemonRestart(service.Status, restartPending.Pending, AppJustUpdated, service.RestartLoopAsync, _time,
             (expected, lasted) => LifecycleLog.Write("daemon_outage_ended", ("expected", expected ? "true" : "false"),
-                ("seconds", lasted.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)), ("after_update", _postUpdate is null ? null : "true")));
+                ("seconds", lasted.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)), ("after_update", _postUpdate is null ? null : "true")),
+            livePid: () => DaemonPidLiveness.LivePid(_daemonStore, service.DaemonName), appStartsDaemon: () => _postUpdate?.DaemonStopped == true);
         _expectedRestart = expectedRestart;
         var shownService = new StatusOverlayDaemonClientService(service, expectedRestart.Status);
 
@@ -992,7 +1013,8 @@ public partial class App : Application {
                 ShowUpdateClosingWindow();
                 desktop.TryShutdown();
             }), _shutdown.Token,
-            handingOver: HandOver(AppUpdateTransition.InApp), log: LifecycleLog);
+            handingOver: HandOver(AppUpdateTransition.InApp), log: LifecycleLog,
+            daemonStop: UpdateDaemonStop.ForPlatform(OperatingSystem.IsWindows(), lane, _daemonStore, service.DaemonName, expectedRestart, _time));
         _updateCheckSubscription = _updates.CheckProgress.Subscribe(progress =>
             Dispatcher.UIThread.Post(() => ShowUpdateCheckProgress(progress)));
         _updates.Start();
@@ -1074,7 +1096,9 @@ public partial class App : Application {
         var repoIdentity = new RepoIdentityResolver();
         var directory = new AgentDirectory(
             service, remoteAgents, serverLane, repoIdentity, GitRepository.ResolveMainRepoRoot,
-            machineId, profiles?.Resolution.ServerUrl, _time, sessions);
+            machineId, profiles?.Resolution.ServerUrl, _time, sessions,
+            localStarting: expectedRestart.Starting,
+            resumingAgents: () => DaemonResumeLedger.ResumingAgents(_daemonStore, service.DaemonName));
         _remoteAgents = remoteAgents;
         _sessions = sessions;
         _directory = directory;
@@ -1180,6 +1204,7 @@ public partial class App : Application {
         var localStack = localUpgrade is null ? null : new LocalStackViewModel(
             () => LocalEndpoints.Read(_localRoot).Active?.Version, serverLane.Status, localUpgrade, lifecycleCli.LocalStartAsync,
             () => serverLane.RestartAsync(), _shutdown.Token, searchChange: localSearch) {
+            Reinstall = () => _ = RestartForSetupAsync(desktop),
             Search = localSearch is null ? null : new LocalSearchViewModel(
                 () => LocalEmbeddingFile.Read(_localRoot), ct => LocalBuiltinOffer.LookupAsync(_localRoot, ct), serverLane.Status, localSearch, localUpgrade, () => serverLane.RestartAsync(),
                 _shutdown.Token, openSettings: _openSearchSettings, builtinModelReady: () => LocalBuiltinOffer.InstalledModelReady(_localRoot),
@@ -1313,7 +1338,8 @@ public partial class App : Application {
                 lifecycleAttention: lifecycleAttention, identityReport: lifecycle.IdentityReport,
                 pullRequestSummaries: pullRequestTones.Summaries, railShown: railShown,
                 directory: directory, remoteAgents: remoteAgents, lane: serverLane, localAccounts: accounts.Snapshot, readings: readings,
-                viewerId: viewerId, localMachineId: machineId, restartPending: restartPending.Pending,
+                viewerId: viewerId, localMachineId: machineId, restartPending: restartPending.Wait,
+                daemonOnOtherInstall: daemonOnOtherInstall,
                 // A row present on both lanes is the local one: the local socket is the richer
                 // workspace, and the directory only keeps both rows when the twin is unproven.
                 originOf: id => directory.Rows.Lookup($"local:{id}").HasValue || directory.Rows.Lookup($"pending:{id}").HasValue ? AgentOrigin.Local
@@ -1364,20 +1390,31 @@ public partial class App : Application {
 
         var localSkipped = new BehaviorSubject<bool>(false);
         if (!_shutdownStarted) _ = SettleComponentsAsync(localUpgrade, isLocalServer, () => localSkipped.OnNext(true));
+        if (!_shutdownStarted
+         && StaleDaemonNudge.TargetVersion(_postUpdate, Program.Host.CliCopyFailed, CapacitorVersion.CurrentDisplay()) is { } target) {
+            _staleDaemonNudge = new StaleDaemonNudge(target, service.Status,
+                service.Snapshots.Select(snap => ((string?)snap.Daemon.Version, snap.Daemon.Pid)), restartPending.Pending,
+                ProcessExecutable.Of, Program.Host.OtherInstall,
+                ops.RequestRestartAsync,
+                (mode, result) => LifecycleLog.Write("daemon_restart_requested", ("mode", mode), ("result", result)), _time, _shutdown.Token);
+            _staleDaemonNudge.OtherInstall.Subscribe(other => {
+                if (other is not null)
+                    LifecycleLog.Write("daemon_on_other_install", ("version", other.Version), ("executable", other.Executable), ("copy_failure", other.CopyFailure));
+                daemonOnOtherInstall.OnNext(other);
+            });
+        }
         if (_holdingMainWindow && _postUpdate is { } finishing) {
-            _staleDaemonNudge = new StaleDaemonNudge(finishing.To, service.Status, service.Snapshots.Select(snap => (string?)snap.Daemon.Version),
-                restartPending.Pending, ct => ops.RequestRestartAsync(StaleDaemonNudge.Mode, ct),
-                result => LifecycleLog.Write("daemon_restart_requested", ("mode", StaleDaemonNudge.Mode), ("result", result)), _time, _shutdown.Token);
             ShowUpdateFinishWindow(finishing, expectedRestart.Status,
                 service.Snapshots.Select(snap => ((string?)snap.Daemon.Version, (string?)snap.Daemon.Connection)),
-                restartPending.Pending,
+                restartPending.Wait,
                 localUpgrade is null || localStack is null || !isLocalServer || !componentsOwed
                     ? Observable.Return<LocalStepInput?>(null)
                     : localStack.WhenAnyValue(x => x.Upgrading, x => x.Headline, x => x.Detail, (upgrading, headline, detail) => (upgrading, headline, detail))
                         .CombineLatest(localUpgrade.WhenAnyValue(x => x.Outcome), localSkipped,
                             Observable.Switch(localUpgrade.WhenAnyValue(x => x.Progress).Select(p => p.Changed.Select(_ => p).StartWith(p))),
                             (banner, outcome, skipped, p) => (LocalStepInput?)new LocalStepInput(banner.upgrading, outcome, banner.headline,
-                                banner.detail, skipped, p.Phase, p.From, p.To, p.DownloadFraction)));
+                                banner.detail, skipped, p.Phase, p.From, p.To, p.DownloadFraction)),
+                daemonOnOtherInstall);
         }
 
         if (!_shutdownStarted) {
@@ -1414,13 +1451,16 @@ public partial class App : Application {
         _openHarnessesSettings.OnNext(openSettingsOn is null ? null : () => openSettingsOn(SettingsTab.Harnesses));
         ConfigureSettingsMenu(openSettings);
         _appMenu.SetSetupAction(() => _ = RestartForSetupAsync(desktop));
-        if (OperatingSystem.IsMacOS() && InstallLocation.BundleRoot(Environment.ProcessPath) is { } bundleRoot) {
-            var facts = UninstallFactsFor(bundleRoot, service.DaemonName, profiles?.Resolution.ServerUrl, lifecycle, lifecycleProbe);
-            _appMenu.SetUninstallAction(() => _ = UninstallFromAppAsync(desktop, facts));
-        } else if (OperatingSystem.IsLinux() && AppImageInstall.Detect(Environment.GetEnvironmentVariable) is not null) {
-            // The links and the CLI copy live under the staged root, so a kcap that resolves there is this app's.
-            var facts = UninstallFactsFor(AppImageInstall.StagedRoot(Environment.GetEnvironmentVariable, _userHome),
-                service.DaemonName, profiles?.Resolution.ServerUrl, lifecycle, lifecycleProbe);
+        var os = OperatingSystem.IsMacOS() ? OSPlatform.OSX
+            : OperatingSystem.IsLinux() ? OSPlatform.Linux
+            : OperatingSystem.IsWindows() ? OSPlatform.Windows
+            : OSPlatform.FreeBSD;
+        if (UninstallRoot(os,
+                () => InstallLocation.BundleRoot(Environment.ProcessPath),
+                () => AppImageInstall.Detect(Environment.GetEnvironmentVariable) is null ? null
+                    : AppImageInstall.StagedRoot(Environment.GetEnvironmentVariable, _userHome),
+                () => Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory)?.Root) is { } uninstallRoot) {
+            var facts = UninstallFactsFor(uninstallRoot, service.DaemonName, profiles?.Resolution.ServerUrl, lifecycle, lifecycleProbe);
             _appMenu.SetUninstallAction(() => _ = UninstallFromAppAsync(desktop, facts));
         }
 
@@ -1470,6 +1510,14 @@ public partial class App : Application {
         }
     }
 
+    /// The root the uninstall confirmation is read against, or null where this app cannot remove itself: a macOS bundle,
+    /// an AppImage's staged root (its links and CLI copy live there), or a per-user Velopack install on Windows.
+    internal static string? UninstallRoot(OSPlatform os, Func<string?> macBundle, Func<string?> appImage, Func<string?> velopack) =>
+        os == OSPlatform.OSX ? macBundle()
+        : os == OSPlatform.Linux ? appImage()
+        : os == OSPlatform.Windows ? velopack()
+        : null;
+
     UninstallFactsSource UninstallFactsFor(string bundleRoot, string daemonName, string? profileServerUrl,
             DaemonLifecycleController lifecycle, ILoginShellProbe probe) => new(
         LocalServerUrl: () => LocalServerFact.Read(_localRoot),
@@ -1484,7 +1532,11 @@ public partial class App : Application {
         Log: Console.Error,
         PathProfiles: () => OperatingSystem.IsMacOS()
             ? ShellProfile.Removable(_userHome, new KcapLinkRemover(KcapLinkFolders.For(_userHome), Path.Combine(bundleRoot, "Contents", "MacOS", "kcap")).Find())
-            : []);
+            : [],
+        UserPathFolder: OperatingSystem.IsWindows()
+            ? () => Platform.Windows.WindowsAppRemoval.FolderOnUserPath(Path.Combine(Program.Host.CliDirectory, CliResolver.BundledCliFileName))
+            : null,
+        FindOtherInstalls: OperatingSystem.IsWindows() ? path => Platform.Windows.WindowsOtherKcapInstalls.Find(path, bundleRoot) : null);
 
     // The same window owns preparation, removal, and the final acknowledgement.
     async Task UninstallFromAppAsync(IClassicDesktopStyleApplicationLifetime desktop, UninstallFactsSource source) {
@@ -1530,6 +1582,8 @@ public partial class App : Application {
             HarnessesStepViewModel.BuildDetectionFeed(probe, harnesses), _shutdown.Token,
             id => harnesses[id].Signals.IsWired,
             toolsMemory: _appState,
+            // The daemon's stored answer, unless a change made here just rewrote the hooks it describes.
+            isUntrusted: (id, askTool) => id == HarnessId.Codex && CodexHooksUntrusted(harnesses, askTool),
             ensureTerminalCommand: shimInstaller is null ? null : async ct => {
                 // An inconclusive probe never offers an install, as in setup.
                 if (await probe.KcapOnPathAsync(ct) != false) return null;
@@ -1540,6 +1594,19 @@ public partial class App : Application {
                 // A stop with nothing to say is still not an install, so the hooks must not go in.
                 return await fix.InstallAsync(ct) ? null : fix.Message ?? "kcap could not be added to your terminal PATH. Try again.";
             });
+    }
+
+    // Runs on a pool thread: asking Codex starts its app-server, bounded by the probe's own deadline.
+    bool CodexHooksUntrusted(HarnessRegistry harnesses, bool askTool) {
+        var registry = AccountStore.Beside(_daemonStore).TryLoad();
+        var paths    = harnesses.Of<Capacitor.Cli.Core.Harness.Codex.CodexHarness>().Paths;
+        var trust    = askTool
+            ? Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.ReadAsync(
+                  registry, paths, new Capacitor.Cli.Core.Harness.Codex.CodexHookTrustProbe(harnesses, _userHome, _time), _shutdown.Token)
+                  .GetAwaiter().GetResult()
+            : Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.Offline(registry, paths);
+
+        return trust == Capacitor.Cli.Core.Harness.Codex.CodexHooksTrust.Untrusted;
     }
 
     async Task<VisibilityOptionsRead?> ReadSettingsVisibilityOptionsAsync(SettingsProfileStore settings, CancellationToken ct) {
@@ -1830,8 +1897,7 @@ public partial class App : Application {
             UsageNotice: _usageNotice,
             ReportCliSetup: ReportWizardCliSetupAsync,
             ReadVisibilityOptions: ReadWizardVisibilityOptionsAsync,
-            // The repair relinks through a login shell and an administrator prompt, neither of which it has on Windows.
-            RepairClients: OperatingSystem.IsWindows() ? null : StaleClientRepair.ForApp(runner, probe, shimTarget, _userHome).RunAsync,
+            RepairClients: StaleClientRepair.ForApp(runner, probe, shimTarget, _userHome).RunAsync,
             MailSupport: report => FeedbackMail.Send(
                 new FeedbackSubmission(FeedbackCategory.Bug, report, Guid.NewGuid(), FeedbackSource.Desktop),
                 SystemBrowser.Instance, Capacitor.Cli.Core.Auth.Clipboard.TryCopy),
@@ -2159,7 +2225,8 @@ public partial class App : Application {
             IAgentDirectory? directory = null, IRemoteAgentsService? remoteAgents = null,
             IServerLane? lane = null, IObservable<AccountsSnapshotDto?>? localAccounts = null,
             Func<CancellationToken, Task<string?>>? viewerId = null,
-            string? localMachineId = null, IObservable<bool>? restartPending = null,
+            string? localMachineId = null, IObservable<DaemonRestartWait>? restartPending = null,
+            IObservable<DaemonOnOtherInstall?>? daemonOnOtherInstall = null,
             Func<string, AgentOrigin?>? originOf = null,
             Func<string, RemoteSessionViewModel?>? remoteWorkspaceFactory = null,
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? modelCatalog = null,
@@ -2261,7 +2328,7 @@ public partial class App : Application {
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,
             navigation: navigation, trackWorkspaceTeardown: trackWorkspaceTeardown, workspaceFactory: workspaceFactory,
             rail: rail, tenantName: tenantName, lifecycleAttention: lifecycleAttention, identityReport: identityReport,
-            laneStatus: lane?.Status, restartPending: restartPending,
+            laneStatus: lane?.Status, restartPending: restartPending, daemonOnOtherInstall: daemonOnOtherInstall,
             originOf: originOf, remoteWorkspaceFactory: remoteWorkspaceFactory, directory: resolvedDirectory,
             serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
             searchFactory: searchFactory,
@@ -2611,7 +2678,7 @@ public partial class App : Application {
             return;
         }
         if (envelope.Outcome is MutationOutcome.UnconfirmedNoAttach) {
-            surface.Attention($"The daemon {VerbDisplay(envelope.Request.Verb)} is not yet confirmed — check status.");
+            surface.Attention(DaemonEnabler.UnconfirmedStatus(envelope.Request.Verb));
             markPresented?.Invoke();
             return;
         }
@@ -2673,17 +2740,6 @@ public partial class App : Application {
             }
         }
     }
-
-    // A small display map instead of MutationVerb.ToString() for user-facing copy.
-    static string VerbDisplay(MutationVerb verb) => verb switch {
-        MutationVerb.Install       => "install",
-        MutationVerb.Replace       => "replace",
-        MutationVerb.StartVerified => "verified start",
-        MutationVerb.DetachedStart => "daemon start",
-        MutationVerb.Reload        => "reload",
-        MutationVerb.InstallWindowsService => "Windows service move",
-        _                          => verb.ToString(),
-    };
 
     /// User-facing line for Attention/Storage outcomes. Null means log-only — never surface a
     /// machine token the operator cannot act on.

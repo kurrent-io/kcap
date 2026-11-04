@@ -26,6 +26,9 @@ Reports:
              run: when it last ran a kcap hook on this machine, or that it
              has not yet (start a new session; Codex also needs its kcap
              hooks trusted). --json carries it as last_hook_event.
+             Codex hooks Codex has not trusted read ✗, with a line saying
+             how to trust them; --json reports them as wired: false and
+             hooks_trust: "untrusted".
   Git        Shown only when kcap's commit hook is installed and git is
              older than 2.54, which ignores it
   Daemon     Whether the daemon is running (PID file check)

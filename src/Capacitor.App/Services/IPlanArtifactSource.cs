@@ -11,4 +11,7 @@ public interface IPlanArtifactSource {
     PlanArtifactsRead? Cached(string sessionId);
     Task<SessionPagesRead> ReadPagesAsync(string sessionId, CancellationToken ct);
     SessionPagesRead? CachedPages(string sessionId);
+    /// Cites the session on a page its owner published from it: true when recorded, false when
+    /// refused, null when asking again may work.
+    Task<bool?> CitePageAsync(string pageId, string sessionId, CancellationToken ct);
 }

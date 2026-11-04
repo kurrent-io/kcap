@@ -112,7 +112,7 @@ internal sealed partial class LocalControlServer(
     async Task HandleRestartAsync(string mode, Stream stream, CancellationToken ct) {
         var force = mode is "force";
 
-        // Bare "now" refuses while busy (don't silently queue); "when-idle"/"force" accept.
+        // Bare "now" refuses while busy (don't silently queue); "when-idle", "turn-boundary" and "force" accept.
         if (mode is "now" && restart.IsBusy()) {
             await FrameCodec.WriteAsync(stream,
                 LocalFrame.Error("daemon busy — an eval, a launch in admission or a flow participant mid-round; use --when-idle or --force"), ct);
@@ -122,7 +122,7 @@ internal sealed partial class LocalControlServer(
 
         // RequestRestart evaluates immediately and reports what actually happened, so the
         // ack reflects reality (queued vs restarting vs failed vs manual-restart-required).
-        var reply = restart.RequestRestart(force, whenIdle: mode is "when-idle") switch {
+        var reply = restart.RequestRestart(force, atTurnBoundary: mode is RestartIpc.TurnBoundaryMode, whenIdle: mode is "when-idle") switch {
             RestartRequestResult.Restarting     => LocalFrame.RestartAck("restarting"),
             RestartRequestResult.Queued         => LocalFrame.RestartAck("queued"),
             RestartRequestResult.Failed         => LocalFrame.Error("restart failed to start; the daemon will retry"),

@@ -60,9 +60,11 @@ public static class ToolSummary {
                 return IsSkillFile(root.Str("file_path")) ? ToolCategory.Skill : category;
             var hint = CodexCommandClassifier.Classify(ToolCommandText.From(root));
             return hint?.Type switch {
-                "read"                   => IsSkillFile(hint.Name) ? ToolCategory.Skill : ToolCategory.Read,
-                "search" or "list_files" => ToolCategory.Search,
-                _                        => category,
+                "read"       => IsSkillFile(hint.Name) ? ToolCategory.Skill : ToolCategory.Read,
+                "search"     => ToolCategory.Search,
+                // `ls` lists, it does not search: on Search a group of listings and reads says "Searched files".
+                "list_files" => ToolCategory.Command,
+                _            => category,
             };
         } catch (JsonException) {
             return category;

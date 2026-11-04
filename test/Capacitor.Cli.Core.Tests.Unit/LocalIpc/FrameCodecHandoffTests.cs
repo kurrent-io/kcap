@@ -26,5 +26,23 @@ public class FrameCodecHandoffTests {
         await Assert.That((byte)FrameType.HandoffOutcomeReply).IsEqualTo((byte)90);
 #pragma warning restore TUnitAssertions0005
         await Assert.That(HandoffWire.Capability).IsEqualTo("handoff/1");
+        await Assert.That(HandoffWire.LocalProbeCapability).IsEqualTo("handoff-local/1");
+    }
+
+    /// An app or a daemon from before the offline probe sends neither field, which must read as a fetching
+    /// probe and as a reply that does not ask for origin.
+    [Test]
+    public async Task Probe_payloads_without_the_offline_fields_read_as_before() {
+        var request = System.Text.Json.JsonSerializer.Deserialize(
+            """{"repo_path":"/r","repo_owner":"o","repo_name":"n","branch":"b","pull_request_number":null,"head_is_fork":false,"head_owner":null,"head_repo":null,"session_commits":null}""",
+            HandoffIpcJsonContext.Default.HandoffProbeRequestDto)!;
+        var reply = System.Text.Json.JsonSerializer.Deserialize(
+            """{"refusal":null,"fetch_error":"x","start":null,"completeness":null,"missing_commits":null}""",
+            HandoffIpcJsonContext.Default.HandoffProbeReplyDto)!;
+
+        await Assert.That(request.LocalOnly).IsFalse();
+        await Assert.That(reply.NeedsOrigin).IsFalse();
+        await Assert.That(System.Text.Json.JsonSerializer.Serialize(request with { LocalOnly = true }, HandoffIpcJsonContext.Default.HandoffProbeRequestDto))
+            .Contains("\"local_only\":true");
     }
 }

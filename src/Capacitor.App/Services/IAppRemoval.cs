@@ -18,4 +18,16 @@ public interface IAppRemoval {
 
     /// How a finished uninstall reports the app's own removal.
     string Trashed => "Moved the kcap app to the Trash";
+
+    /// Where a finished uninstall says the app went.
+    string RemovedSummary => "The app is in the Trash.";
+
+    /// The progress line once the app's own removal has been done or set up.
+    string RemovedLine => "Moved the app to the Trash.";
+
+    /// Why the app is still in place, with no closing full stop.
+    string NotRemoved => "The app could not be moved to the Trash";
+
+    /// True when the app goes only after it exits, so a finished run cannot claim it is already gone.
+    bool RemovedOnExit => false;
 }
