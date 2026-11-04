@@ -20,16 +20,21 @@ public partial class WorktreeManager {
         if (!SourceStillAt(repoPath, pinned)) throw new InvalidOperationException($"source_repo_moved: {repoPath}");
     }
 
-    async Task<string?> ResolvedCommonDirAsync(string repoPath) =>
+    Task<string?> ResolvedCommonDirAsync(string repoPath) => ResolvedCommonDirAsync(repoPath, time);
+
+    static async Task<string?> ResolvedCommonDirAsync(string repoPath, TimeProvider time) =>
         await ResolveGitCommonDirAsync(repoPath, time) is { } common ? CanonicalPath.Resolve(common) : null;
+
+    Task<bool> RepositoryStillAtAsync(string repoPath, string pinned, string? pinnedCommonDir) =>
+        RepositoryStillAtAsync(repoPath, pinned, pinnedCommonDir, time);
 
     /// <summary>Ends on the path walk, with no await after it, so the git write that follows runs on what
     /// was just checked.</summary>
-    async Task<bool> RepositoryStillAtAsync(string repoPath, string pinned, string? pinnedCommonDir) =>
-        string.Equals(await ResolvedCommonDirAsync(repoPath), pinnedCommonDir, StringComparison.Ordinal)
+    static async Task<bool> RepositoryStillAtAsync(string repoPath, string pinned, string? pinnedCommonDir, TimeProvider time) =>
+        string.Equals(await ResolvedCommonDirAsync(repoPath, time), pinnedCommonDir, StringComparison.Ordinal)
      && SourceStillAt(repoPath, pinned);
 
-    /// <inheritdoc cref="RepositoryStillAtAsync"/>
+    /// <inheritdoc cref="RepositoryStillAtAsync(string, string, string?, TimeProvider)"/>
     async Task RefuseIfRepositoryMovedAsync(string repoPath, string pinned, string? pinnedCommonDir) {
         if (!await RepositoryStillAtAsync(repoPath, pinned, pinnedCommonDir))
             throw new InvalidOperationException($"source_repo_moved: {repoPath}");

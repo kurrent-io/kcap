@@ -810,6 +810,19 @@ public partial class WorktreeManager(
             return WorktreeRemoval.Removed;
         }
 
+        // Every removal step writes to the source repository after an await, so each re-checks it against
+        // where it resolved on entry; a source that moved keeps what is left rather than removing it from
+        // another repository. A source that no longer resolves at all fails in git as before.
+        var pinned       = CanonicalPath.TryResolve(worktree.SourceRepo, out var resolved) ? resolved : null;
+        var pinnedCommon = pinned is null ? null : await ResolvedCommonDirAsync(worktree.SourceRepo, time);
+        var moved        = false;
+
+        async Task<bool> StillThereAsync() {
+            if (pinned is null || await RepositoryStillAtAsync(worktree.SourceRepo, pinned, pinnedCommon, time)) return true;
+            moved = true;
+            return false;
+        }
+
         if (keepUnsavedWork && await UnsavedWorkAsync(worktree, time) is { } unsaved) return WorktreeRemoval.Keep(unsaved);
 
         // Both of these touch the same metadata tree as `worktree add`: the removal mutates it, and
@@ -818,18 +831,21 @@ public partial class WorktreeManager(
         // silently and leak the branch. One gate acquisition covers both. (As with the add, the exact
         // interleaving that breaks is hypothesis; git takes no lock, so we serialise our own access.)
         await WithWorktreeMetadataGate(worktree.SourceRepo, time, async () => {
+            if (!await StillThereAsync()) return;
             await RunGit(worktree.SourceRepo, GitTimeout, time, "worktree", "remove", worktree.Path, "--force");
 
-            if (deleteBranch && worktree.OwnsBranch && !string.IsNullOrEmpty(worktree.Branch)) {
+            if (deleteBranch && worktree.OwnsBranch && !string.IsNullOrEmpty(worktree.Branch) && await StillThereAsync()) {
                 await RunGitBestEffort(worktree.SourceRepo, time, "branch", "-D", worktree.Branch);
             }
         });
 
-        if (!string.IsNullOrEmpty(worktree.FetchedRef)) {
+        if (!moved && !string.IsNullOrEmpty(worktree.FetchedRef) && await StillThereAsync()) {
             await RunGitBestEffort(worktree.SourceRepo, time, "update-ref", "-d", worktree.FetchedRef);
         }
 
-        return WorktreeRemoval.Removed;
+        return moved
+            ? WorktreeRemoval.Keep($"nothing the daemon may remove: its source repository {worktree.SourceRepo} moved during cleanup")
+            : WorktreeRemoval.Removed;
     }
 
     /// <summary>Files the daemon itself deletes or writes in an owned worktree: the MCP configs it removes
