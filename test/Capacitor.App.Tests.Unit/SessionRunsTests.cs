@@ -217,7 +217,7 @@ public class SessionRunsTests {
         await Assert.That(Only(s).CanOpen).IsTrue();
         await Assert.That(s.RunningCount).IsEqualTo(1);
 
-        s.Apply(Signals(Stop("a1", T0.AddSeconds(62))));
+        s.Apply(Signals(Finished(null, "a1", outcome: null, at: T0.AddSeconds(62))));
         await Assert.That(Only(s).State).IsEqualTo(RunState.Done);
         await Assert.That(s.RunningCount).IsEqualTo(0);
     }
@@ -226,13 +226,13 @@ public class SessionRunsTests {
     public async Task A_second_start_for_the_same_agent_is_its_own_row() {
         var s = new SessionRuns(Clock());
         s.Apply(Signals([.. TranscriptChat.SubagentStart("a1", "explorer", T0, rules: null)]));
-        s.Apply(Signals(Stop("a1", T0.AddMinutes(1))));
+        s.Apply(Signals(Finished(null, "a1", outcome: null, at: T0.AddMinutes(1))));
         s.Apply(Signals([.. TranscriptChat.SubagentStart("a1", "explorer", T0.AddMinutes(5), rules: null)]));
 
         await Assert.That(s.Rows.Count).IsEqualTo(2);
         await Assert.That(s.RunningCount).IsEqualTo(1);
 
-        s.Apply(Signals(Stop("a1", T0.AddMinutes(6))));
+        s.Apply(Signals(Finished(null, "a1", outcome: null, at: T0.AddMinutes(6))));
         await Assert.That(s.RunningCount).IsEqualTo(0);
     }
 
@@ -437,14 +437,15 @@ public class SessionRunsTests {
         await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
     }
 
-    /// The server can hear the stop of the run before a resume after the resume, ahead of that run's
-    /// notification: the stop goes to the run that has not stopped yet, so the resumed run keeps going.
+    /// Once an agent has a second run, a stop could be either run's, a pause's or a repeat, and the server
+    /// dates it when it heard it: it ends neither, and the late notification still dates the first.
     [Test]
-    public async Task A_stop_heard_after_a_resume_goes_to_the_run_before_it() {
+    public async Task A_stop_for_an_agent_with_more_than_one_run_ends_none_of_them() {
         var s = new SessionRuns(Clock());
         s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
-        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5)), Stop("a1", T0.AddMinutes(6))));
+        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5)), Stop("a1", T0.AddMinutes(6)), Stop("a1", T0.AddMinutes(6))));
         await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(5));
 
         s.Apply(Signals(Finished("c1", "a1", RunOutcome.Done, at: T0.AddMinutes(4))));
         await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(4));
@@ -465,20 +466,6 @@ public class SessionRunsTests {
         await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(2));
         await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Done);
         await Assert.That(s.RunningCount).IsEqualTo(0);
-    }
-
-    /// Where no notification reaches the stream, a stop is every run's only end, a resumed run's included.
-    [Test]
-    public async Task A_resumed_run_of_an_agent_the_transcript_never_reported_ends_on_its_stop() {
-        var s = new SessionRuns(Clock());
-        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Stop("a1", T0.AddMinutes(2))));
-        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5))));
-        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
-
-        s.Apply(Signals(Stop("a1", T0.AddMinutes(20))));
-        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Done);
-        await Assert.That(s.Rows[1].EndedAt).IsEqualTo(T0.AddMinutes(20));
-        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(2));
     }
 
     /// The local feed names a launch from its meta file after the lines are folded, so on a reopen it

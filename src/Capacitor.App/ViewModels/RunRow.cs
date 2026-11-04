@@ -114,13 +114,9 @@ public sealed class RunRow : ReactiveObject {
         _endedByStop = false;
     }
 
-    /// Whether a stop record has been assigned to this run, including one that found it already ended.
-    internal bool HeardStop { get; private set; }
-
     /// A stop record ends the row without an outcome, and alone among ends it can be taken back:
     /// a Claude agent also stops when it pauses on work of its own.
     internal void Stop(DateTimeOffset at) {
-        HeardStop = true;
         if (IsEnded) return;
         End(null, at);
         _endedByStop = true;
