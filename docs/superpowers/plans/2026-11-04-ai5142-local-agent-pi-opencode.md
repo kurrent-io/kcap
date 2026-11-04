@@ -19,7 +19,7 @@
 - Pi argv, in this order: `-p --mode json --no-approve --no-tools --no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files --no-session --offline --system-prompt <text> --append-system-prompt ""`, then `--model <m>` when not blank. Prompt on stdin, UTF-8 without BOM
 - Pi neutral system prompt when the request has none: `Answer the request directly.`
 - OpenCode argv: `run --format json --pure --print-logs --log-level ERROR --file <promptFile>`, then `-m <m>` when not blank, then the fixed message last
-- OpenCode env set: `OPENCODE_CONFIG_DIR`, `XDG_DATA_HOME`, `OPENCODE_CONFIG_CONTENT`, `OPENCODE_PERMISSION`, `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_DISABLE_CLAUDE_CODE=1`, `OPENCODE_DISABLE_EXTERNAL_SKILLS=1`, `OPENCODE_DISABLE_AUTOUPDATE=1`, `OPENCODE_DISABLE_MODELS_FETCH=1`, and `OPENCODE_AUTH_CONTENT` when the user's `auth.json` exists. Env removed: `OPENCODE_CONFIG`
+- OpenCode env set: `XDG_CONFIG_HOME`, `OPENCODE_CONFIG_DIR`, `XDG_DATA_HOME`, `OPENCODE_CONFIG_CONTENT`, `OPENCODE_PERMISSION`, `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_DISABLE_CLAUDE_CODE=1`, `OPENCODE_DISABLE_EXTERNAL_SKILLS=1`, `OPENCODE_DISABLE_AUTOUPDATE=1`, `OPENCODE_DISABLE_MODELS_FETCH=1`, and `OPENCODE_AUTH_CONTENT` when the user's `auth.json` exists. Env removed: `OPENCODE_CONFIG`
 - Both: `KCAP_SKIP=1` (`HostedAgent.SkipVar`). Provider key variables are kept
 - Per-run root: `<daemon state dir>/headless-runs`, owner-only and ancestor-checked on every run; any failure → `ClaudeCliFailure.ProcessFailure` before the process starts
 - Schema nesting depth bound: 64
