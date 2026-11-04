@@ -120,7 +120,7 @@ public sealed class LocalInstallController(
             if (!await AwaitPrefetchAsync(progress, interrupt).ConfigureAwait(false)) {
                 post(() => progress.Apply(CancelledLine));
                 result = new StreamingResult(130, false, []);
-            } else if (settlesUnpublished && prefetch is { NotPublished: true } && !LocalSetupState.Pending(root)) {
+            } else if (settlesUnpublished && prefetch is { NotPublished: true } && !await Task.Run(() => LocalSetupState.Pending(root)).ConfigureAwait(false)) {
                 post(() => progress.Apply(NotPublishedLine));
                 result = new StreamingResult(LocalBundlePrefetch.NotPublishedExit, false, []);
             } else {
