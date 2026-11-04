@@ -1149,6 +1149,30 @@ public class ChatTabViewModelTests {
         });
     }
 
+    /// Neither a CI event nor an interrupt is the user's: each is a note named for what it is, and an
+    /// interrupt, which is only its label, has no body. A slash command is the user's own row.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_trigger_and_an_interrupt_render_as_labelled_notes_and_a_command_as_the_users() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            var path = Tmp.CreateFile("t.jsonl", [
+                """{"type":"user","message":{"content":"<command-name>/goal</command-name><command-args>merge PR #4577</command-args>"}}""",
+                """{"type":"user","message":{"content":"<ci-monitor-event>Check `build` failed.</ci-monitor-event>"}}""",
+                """{"type":"user","message":{"content":"[Request interrupted by user]"}}""",
+            ]);
+            await h.PushAsync(Dto(path));
+
+            await Assert.That(h.Chat.Items.OfType<UserTurnItem>().Single().Text).IsEqualTo("/goal merge PR #4577");
+            var notes = h.Chat.Items.OfType<SystemNoteItem>().ToArray();
+            await Assert.That(notes.Select(n => n.Label)).IsEquivalentTo(new[] { "CI event", SystemNoteItem.InterruptedLabel });
+            await Assert.That(notes[0].Text).IsEqualTo("Check `build` failed.");
+            await Assert.That(notes[0].ShowsBody).IsTrue();
+            await Assert.That(notes[1].ShowsBody).IsFalse();
+            await h.TeardownAsync();
+        });
+    }
+
     /// A subagent's hand-back is that agent's report, so its row names the agent rather than the user.
     [Test]
     [NotInParallel("AvaloniaSession")]

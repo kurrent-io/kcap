@@ -86,6 +86,7 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     public const string AgentMessageLabel = "Agent message";
     public const string CompactSummaryLabel = "Conversation compacted";
     public const string TaskNotificationLabel = "Background task";
+    public const string InterruptedLabel = "Interrupted";
 
     const int PeekLength = 80;
 
@@ -111,6 +112,9 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     public string Text { get; }
     public string Label { get; }
 
+    /// A note that is only its label, such as an interrupt, has no body to show.
+    public bool ShowsBody => _isExpanded && !string.IsNullOrWhiteSpace(Text);
+
     public string HeaderLabel => _isExpanded || string.IsNullOrEmpty(_peek) ? Label : $"{Label} · {_peek}";
     public LucideIconKind IconKind => ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
     public bool IsCollapsible { get; }
@@ -121,6 +125,7 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
             if (_isExpanded == value) return;
             _isExpanded = value;
             this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(ShowsBody));
             this.RaisePropertyChanged(nameof(ToggleAccessibleName));
             this.RaisePropertyChanged(nameof(HeaderLabel));
         }

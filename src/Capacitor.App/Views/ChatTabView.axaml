@@ -329,7 +329,7 @@
                                         </views:ChatKindHeader.Status>
                                     </views:ChatKindHeader>
                                 </Button>
-                                <views:MarkdownView Text="{Binding Text}" IsVisible="{Binding IsExpanded}"
+                                <views:MarkdownView Text="{Binding Text}" IsVisible="{Binding ShowsBody}"
                                                     OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
                                                     RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
                             </StackPanel>

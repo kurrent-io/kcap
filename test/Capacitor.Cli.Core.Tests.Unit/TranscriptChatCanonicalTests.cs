@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Models.Transcripts.Harness.Claude;
+using Capacitor.Models.Transcripts.UserMessages;
 using Google.Protobuf.WellKnownTypes;
 using Kurrent.Agent.Schema.Events;
 
@@ -32,11 +33,22 @@ public class TranscriptChatCanonicalTests {
 
     [Test]
     public async Task Claude_rules_hide_a_meta_message_and_acknowledge_no_input_for_it() {
-        var meta = new UserMessageReceived { Content = "<command-name>/clear</command-name>" };
+        var meta = new UserMessageReceived { Content = "Base directory for this skill: /s/review\n\n# Review" };
         meta.Extensions[ClaudeCodeExtension.Slug] = Struct.Parser.ParseJson($$"""{"{{ClaudeCodeExtension.IsMeta}}":true}""");
         var result = TranscriptChat.Project(Event(CanonicalEventTypes.UserMessageReceived, meta), ClaudeChatRules.Instance);
         await Assert.That(result.Envelopes).IsEmpty();
         await Assert.That(result.SubmittedInputs).IsEmpty();
+    }
+
+    /// The classifier gives a slash command to the person whatever the harness flagged it, so it shows
+    /// and acknowledges its send like any other command.
+    [Test]
+    public async Task A_meta_slash_command_shows_and_acknowledges_its_send() {
+        var meta = new UserMessageReceived { Content = "<command-name>/clear</command-name>" };
+        meta.Extensions[ClaudeCodeExtension.Slug] = Struct.Parser.ParseJson($$"""{"{{ClaudeCodeExtension.IsMeta}}":true}""");
+        var result = TranscriptChat.Project(Event(CanonicalEventTypes.UserMessageReceived, meta), ClaudeChatRules.Instance);
+        await Assert.That(result.Envelopes.Single().Text).IsEqualTo("/clear");
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "/clear" });
     }
 
     /// The server writes it for a queued message the agent never picked up, so it is no receipt of any send.
@@ -115,7 +127,7 @@ public class TranscriptChatCanonicalTests {
     }
 
     sealed class SignallingRules : IChatDisplayRules {
-        public AcpEventEnvelope? Filter(CanonicalEvent evt, AcpEventEnvelope envelope) =>
+        public AcpEventEnvelope? Filter(CanonicalEvent evt, AcpEventEnvelope envelope, ScheduledPrompts? scheduled = null) =>
             envelope.Kind == AcpEventKind.ToolCall ? null : envelope;
 
         public IReadOnlyList<RunSignal> Runs(CanonicalEvent evt, AcpEventEnvelope raw) =>
@@ -123,7 +135,7 @@ public class TranscriptChatCanonicalTests {
     }
 
     sealed class SilentRules : IChatDisplayRules {
-        public AcpEventEnvelope? Filter(CanonicalEvent evt, AcpEventEnvelope envelope) => envelope;
+        public AcpEventEnvelope? Filter(CanonicalEvent evt, AcpEventEnvelope envelope, ScheduledPrompts? scheduled = null) => envelope;
     }
 
     static AssistantToolCallsGenerated Calls(params string[] ids) {
