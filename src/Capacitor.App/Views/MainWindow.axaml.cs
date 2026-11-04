@@ -178,6 +178,8 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public MainWindow() {
         InitializeComponent();
+        RailExpandButton.MinWidth = RailExpandButton.MinHeight = RailClearance.ButtonSize;
+        RailExpandButton.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
         SessionsSurface.SizeChanged += (_, e) => RailColumn.MaxWidth = PaneLayout.RailMaxWidth(e.NewSize.Width);
         SessionRail.CollapseRequested += (_, _) => Panes.RailCollapsed = true;
         Panes.Changed += (_, _) => ApplyRail();
