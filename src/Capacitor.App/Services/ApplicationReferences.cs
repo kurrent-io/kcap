@@ -1,5 +1,4 @@
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
@@ -15,7 +14,7 @@ public interface IApplicationReferences : IAsyncDisposable {
     Task RollbackAsync(Action restoreBundles);
 }
 
-internal sealed partial class ApplicationReferences(IProcessRunner runner, UserHome home, DaemonStore store, TimeProvider time, ConfigRoot config,
+internal sealed class ApplicationReferences(IProcessRunner runner, UserHome home, DaemonStore store, TimeProvider time, ConfigRoot config,
         Func<string, CancellationToken, Task<bool>>? keepAgents = null,
         Func<string, CancellationToken, Task<bool>>? ready = null,
         string? domainOverride = null, IReadOnlyList<string>? shimFolders = null) : IApplicationReferences {
@@ -31,10 +30,7 @@ internal sealed partial class ApplicationReferences(IProcessRunner runner, UserH
     readonly List<Unit> _units = [];
     readonly List<Link> _links = [];
     readonly List<FileStream> _locks = [];
-    string Domain => domainOverride ?? $"gui/{getuid()}";
-
-    [LibraryImport("libc", EntryPoint = "getuid")]
-    private static partial uint getuid();
+    readonly Launchctl _ctl = new(runner, domainOverride);
 
     public async Task PrepareAsync(IReadOnlyList<string> oldRoots, string target, CancellationToken ct) {
         if (oldRoots.Count == 0) return;
@@ -74,7 +70,7 @@ internal sealed partial class ApplicationReferences(IProcessRunner runner, UserH
                         && !await (keepAgents?.Invoke(name, ct) ?? KeepAgentsAsync(name, ct)))
                     throw new IOException($"Daemon '{name}' did not accept keeping its agents. Nothing will be replaced; finish its sessions and retry.");
                 // Even a timed-out bootout may have unloaded the job: retain it for rollback.
-                await CtlAsync(["bootout", $"{Domain}/io.kurrent.kcap.daemon.{name}"], ct);
+                await _ctl.BootoutAsync(Label(name), ct);
                 var after = await PrintAsync(name, ct);
                 if (after.ExitCode == 0) throw new IOException($"Daemon '{name}' is still loaded.");
             }
@@ -111,7 +107,7 @@ internal sealed partial class ApplicationReferences(IProcessRunner runner, UserH
                 if (status.Stdout.Contains("pid = ", StringComparison.Ordinal)
                         && !await (keepAgents?.Invoke(unit.Name, CancellationToken.None) ?? KeepAgentsAsync(unit.Name, CancellationToken.None)))
                     throw new IOException($"Daemon '{unit.Name}' could not be stopped for rollback. The new bundle and its backups have been retained.");
-                await CtlAsync(["bootout", $"{Domain}/io.kurrent.kcap.daemon.{unit.Name}"], CancellationToken.None);
+                await _ctl.BootoutAsync(Label(unit.Name), CancellationToken.None);
                 if ((await PrintAsync(unit.Name, CancellationToken.None)).ExitCode == 0)
                     throw new IOException($"Daemon '{unit.Name}' is still loaded; installation backups have been retained.");
             }
@@ -139,7 +135,7 @@ internal sealed partial class ApplicationReferences(IProcessRunner runner, UserH
                 var status = await PrintAsync(unit.Name, CancellationToken.None);
                 if (status.ExitCode != 0) await StartAsync(unit, CancellationToken.None);
                 else if (!status.Stdout.Contains("pid = ", StringComparison.Ordinal)) {
-                    var start = await CtlAsync(["kickstart", $"{Domain}/io.kurrent.kcap.daemon.{unit.Name}"], CancellationToken.None);
+                    var start = await _ctl.KickstartAsync(Label(unit.Name), CancellationToken.None);
                     if (start.ExitCode != 0 || start.TimedOut || !await (ready?.Invoke(unit.Name, CancellationToken.None) ?? ReadyAsync(unit.Name, CancellationToken.None)))
                         throw new IOException($"Could not restart daemon '{unit.Name}'.");
                 }
@@ -150,21 +146,15 @@ internal sealed partial class ApplicationReferences(IProcessRunner runner, UserH
 
     async Task StartAsync(Unit unit, CancellationToken ct) {
         unit.Started = true;
-        var result = await CtlAsync(["bootstrap", Domain, unit.Path], ct);
+        var result = await _ctl.BootstrapAsync(unit.Path, ct);
         if (result.ExitCode != 0 || result.TimedOut) throw new IOException($"Could not start daemon '{unit.Name}': {result.Stderr}");
         if (!await (ready?.Invoke(unit.Name, ct) ?? ReadyAsync(unit.Name, ct)))
             throw new IOException($"Daemon '{unit.Name}' did not become ready.");
     }
 
-    async Task<ProcessResult> PrintAsync(string name, CancellationToken ct) {
-        var result = await CtlAsync(["print", $"{Domain}/io.kurrent.kcap.daemon.{name}"], ct);
-        if (result.TimedOut || (result.ExitCode != 0 && !result.Stderr.Contains("Could not find service", StringComparison.OrdinalIgnoreCase)))
-            throw new IOException($"Could not determine daemon '{name}' service state.");
-        return result;
-    }
+    static string Label(string name) => "io.kurrent.kcap.daemon." + name;
 
-    Task<ProcessResult> CtlAsync(string[] args, CancellationToken ct) => runner.RunAsync("/bin/launchctl", args,
-        new RunOptions(Timeout: TimeSpan.FromSeconds(10), CancelMode: CancelMode.KillTree), ct);
+    Task<ProcessResult> PrintAsync(string name, CancellationToken ct) => _ctl.PrintAsync(Label(name), ct);
 
     async Task<bool> KeepAgentsAsync(string name, CancellationToken ct) {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25), time);
