@@ -325,7 +325,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         commands?.Track($"remote:{row.Id}", runs).DisposeWith(_disposables);
         WorkContext = new WorkContextViewModel(_presence, workContext, time, opener, runs,
             requestSignIn, signInCompleted, actions.OpenWorkItemInWeb, plans, planActivity,
-            artefacts: Artefacts, isRemote: true, sessionOnly: row.Origin == AgentOrigin.Server, serverLane: lane.Status,
+            artefacts: Artefacts, isRemote: true, serverLane: lane.Status,
             layout: workContextLayout);
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));

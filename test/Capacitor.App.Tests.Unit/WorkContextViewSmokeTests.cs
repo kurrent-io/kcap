@@ -945,6 +945,36 @@ public class WorkContextViewSmokeTests {
         });
     }
 
+    /// A section header opens and folds its rows in place, so the reader closes it where they opened
+    /// it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_checkout_header_opens_and_folds_its_rows_in_place() {
+        await RunOnUiAsync(async () => {
+            await using var host = new Host();
+            await host.ShowAsync(KeyOnlyRead());
+
+            var header  = host.Find<Button>("CheckoutToggle");
+            var facts   = host.Find<Grid>("CheckoutFacts");
+            await Assert.That(facts.IsEffectivelyVisible).IsFalse();
+
+            var origin = header.TranslatePoint(new Point(header.Bounds.Width / 2, header.Bounds.Height / 2), host.Window)!.Value;
+            void Click() {
+                host.Window.MouseMove(origin);
+                host.Window.MouseDown(origin, MouseButton.Left);
+                host.Window.MouseUp(origin, MouseButton.Left);
+                Dispatcher.UIThread.RunJobs();
+                host.Window.UpdateLayout();
+            }
+
+            Click();
+            await Assert.That(facts.IsEffectivelyVisible).IsTrue();
+
+            Click();
+            await Assert.That(facts.IsEffectivelyVisible).IsFalse();
+        });
+    }
+
     /// "Copied" is set as a local tip; leaving the button has to put the full id back, or the
     /// flash sticks as the tip.
     [Test]
@@ -976,16 +1006,16 @@ public class WorkContextViewSmokeTests {
         });
     }
 
-    /// The worktree row shows only the leaf name, so its click has to copy the full path.
+    /// The repository and worktree rows show only their names, so a click has to copy the full path.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Clicking_the_worktree_and_branch_copies_the_full_path_and_the_branch() {
+    public async Task Clicking_a_checkout_fact_copies_its_full_path_or_branch() {
         const string worktree = "/repo/myproj/.capacitor/worktrees/agent-1";
         await RunOnUiAsync(async () => {
             await using var host = new Host();
             await host.ShowAsync(KeyOnlyRead(), WorkspaceFixtures.Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/myproj",
                 worktreePath: worktree, workLocation: "owned", sessionId: SessionA, branch: "capacitor/agent-1"));
-            host.Vm.ToggleSessionCommand.Execute().Subscribe();
+            host.Vm.ToggleCheckoutCommand.Execute().Subscribe();
             Dispatcher.UIThread.RunJobs();
             host.Window.UpdateLayout();
             AvaloniaHeadlessPlatform.ForceRenderTimerTick();
@@ -1004,6 +1034,7 @@ public class WorkContextViewSmokeTests {
             }
 
             await Assert.That(host.Vm.Worktree).IsEqualTo("agent-1");
+            await Assert.That(await ClickAndRead("RepositoryButton")).IsEqualTo("/repo/myproj");
             await Assert.That(await ClickAndRead("WorktreeButton")).IsEqualTo(worktree);
             await Assert.That(await ClickAndRead("BranchButton")).IsEqualTo("capacitor/agent-1");
         });
