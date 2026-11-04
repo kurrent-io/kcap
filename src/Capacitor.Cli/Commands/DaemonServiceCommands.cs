@@ -342,9 +342,11 @@ sealed class DaemonServiceCommands(
     /// just saved, ahead of <c>KCAP_DAEMON_NAME</c>: setup chose it to be free, and an environment name
     /// it moved off would install a second service under the held one.</summary>
     static DaemonServiceCommands ForFlow(
-            ConfigRoot root, ProfileContext profiles, UserHome home, TimeProvider time) =>
-        new(DaemonStore.FromEnvironment(), root, profiles, ServiceManagerFactory.ForCurrentOs(root, home, time),
+            ConfigRoot root, ProfileContext profiles, UserHome home, TimeProvider time) {
+        var store = DaemonStore.FromEnvironment();
+        return new(store, root, profiles, ServiceManagerFactory.ForCurrentOs(root, home, time, store: store),
             DaemonStore.Sanitize(profiles.DaemonName ?? DaemonNameResolver.Resolve([], null)), home, time);
+    }
 
     /// <summary>
     /// The <c>ExtraArgs</c> baked into a service unit, from the raw <c>--max-agents</c> flag value.

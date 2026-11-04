@@ -124,6 +124,30 @@ public partial class DaemonServiceRepointTests {
         await Assert.That(File.Exists(Preimage("npm"))).IsFalse();
     }
 
+    /// <summary>The leftover preimage names the old daemon, and putting it back would replace the profile and
+    /// environment the new unit was installed with.</summary>
+    [Test]
+    public async Task An_install_over_a_leftover_preimage_discards_it_and_a_repoint_keeps_the_new_unit() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        File.WriteAllText(Preimage("npm"), LaunchdUnit.Plist(Spec("npm", OldDaemon)));
+        Directory.CreateDirectory(LaunchdUnit.AgentsDir(Home));
+        var fresh = new ServiceSpec("npm", Bundle, "/home/u/.config/kcap/daemon-npm.log",
+            new Dictionary<string, string> { ["KCAP_PROFILE"] = "fresh" }, []);
+        var launchctl = new FakeLaunchctl(Home);
+
+        var installed      = launchctl.Manager(Daemons.Store).Install(fresh, startNow: true, out var installError);
+        var leftAfterwards = File.Exists(Preimage("npm"));
+        using var console  = ConsoleOutput.StartFullCapture();
+        var exit           = await Commands(launchctl).RepointFrom(Dir, Bundle);
+
+        await Assert.That(installed).IsTrue();
+        await Assert.That(installError).IsNull();
+        await Assert.That(leftAfterwards).IsFalse();
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(File.ReadAllText(PlistPath("npm"))).IsEqualTo(LaunchdUnit.Plist(fresh));
+        await Assert.That(launchctl.Bootstrapped).IsEquivalentTo([Bundle]);
+    }
+
     /// <summary>A preimage outlives its unit when the plist is removed some other way than `service uninstall`.</summary>
     [Test]
     public async Task An_orphan_preimage_with_no_unit_is_dropped() {

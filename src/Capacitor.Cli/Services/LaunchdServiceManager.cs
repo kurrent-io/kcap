@@ -36,9 +36,15 @@ sealed partial class LaunchdServiceManager(
         File.Exists(UnitPath(serviceId)) ? LaunchdPrint.Environment(File.ReadAllText(UnitPath(serviceId))) : null;
 
     /// <summary>The unit-writing half of <see cref="Install"/>, split out so it is testable without
-    /// invoking launchctl.</summary>
-    internal void WriteUnitFiles(ServiceSpec spec) =>
+    /// invoking launchctl. A repoint's preimage goes first: the next repoint would put it back over this unit.</summary>
+    internal void WriteUnitFiles(ServiceSpec spec) {
+        DiscardPreimage(spec.ServiceId);
         _writeUnit(LaunchdUnit.PlistPath(home, spec.ServiceId), LaunchdUnit.Plist(spec), null);
+    }
+
+    void DiscardPreimage(string serviceId) {
+        if (store?.RepointPreimagePath(serviceId) is { } preimage && File.Exists(preimage)) File.Delete(preimage);
+    }
 
     [LibraryImport("libc", EntryPoint = "getuid")]
     private static partial uint getuid();
@@ -472,7 +478,7 @@ sealed partial class LaunchdServiceManager(
         }
 
         if (File.Exists(path)) File.Delete(path);
-        if (store?.RepointPreimagePath(serviceId) is { } preimage && File.Exists(preimage)) File.Delete(preimage);
+        DiscardPreimage(serviceId);
         error = null;
         return true;
     }
