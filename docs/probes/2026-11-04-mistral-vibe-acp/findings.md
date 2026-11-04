@@ -50,7 +50,14 @@ handshake resolved `mistral-medium-3.5`, the write landed, and the `curl` approv
 "Allow bash: curl -s -o NUL -w … https://example.com?". Allowing it once finished the turn with the reply `200`
 and the session's cost on the agent page. The hook ran in the hosted child and wrote no copy of that session
 
+## 6. Resume
+
+The repo's gate probes, run on Windows with a tree kill in place of the process group: `session/load` works
+after a mid-turn kill and after the daemon's graceful stop, the replay ends before the load response, and the
+reloaded session recalls its history. Results are in `../2026-08-04-acp-reconnect-c0/findings.md` and
+`../2026-10-19-acp-restart-resume/findings.md`
+
 ## Not measured
 
-`session/load` across a killed owner, `session/new.mcpServers`, and a model switch through
-`session/set_config_option` (only one model was configured). Reconnect and restart resume stay off
+`session/new.mcpServers`, and a model switch through `session/set_config_option` (only one model was
+configured)

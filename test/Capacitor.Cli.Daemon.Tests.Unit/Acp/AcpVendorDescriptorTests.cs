@@ -406,7 +406,7 @@ public class AcpVendorDescriptorTests {
         await Assert.That(AcpVendorDescriptors.Kiro.SupportsReconnectResume).IsFalse();
         await Assert.That(AcpVendorDescriptors.Gemini.SupportsReconnectResume).IsFalse();
         await Assert.That(AcpVendorDescriptors.Grok.SupportsReconnectResume).IsFalse();
-        await Assert.That(AcpVendorDescriptors.MistralVibe.SupportsReconnectResume).IsFalse();
+        await Assert.That(AcpVendorDescriptors.MistralVibe.SupportsReconnectResume).IsTrue();
     }
 
     /// <summary>Restart resume is enabled on its own probe (docs/probes/2026-10-19-acp-restart-resume/),
@@ -420,7 +420,7 @@ public class AcpVendorDescriptorTests {
         await Assert.That(AcpVendorDescriptors.Kiro.SupportsRestartResume).IsFalse();
         await Assert.That(AcpVendorDescriptors.Gemini.SupportsRestartResume).IsFalse();
         await Assert.That(AcpVendorDescriptors.Grok.SupportsRestartResume).IsFalse();
-        await Assert.That(AcpVendorDescriptors.MistralVibe.SupportsRestartResume).IsFalse();
+        await Assert.That(AcpVendorDescriptors.MistralVibe.SupportsRestartResume).IsTrue();
     }
 
     /// <summary>

@@ -2341,7 +2341,8 @@ The daemon hosts Mistral Vibe over ACP through `vibe-acp`, the ACP entry point t
 - **Sign Vibe in first.** `vibe-acp` uses the Mistral sign-in or API key `vibe --setup` (or `vibe-acp --setup`) stored, or `MISTRAL_API_KEY` in the daemon's environment. Without one, `vibe-acp` refuses to start the session
 - **Approvals and permission presets apply.** Vibe starts a hosted session in its `accept-edits` mode, so edits and commands it judges safe run without asking. Each tool call it does ask about appears on the agent's page with its command, and the launch dialog's presets answer the ones they cover
 - **It is recorded once.** kcap's own Vibe hooks run inside the hosted child and stand down for the session the daemon records. A `vibe` the hosted agent starts itself is still recorded
-- **Interactive hosting only.** Mistral Vibe is not offered as an unattended review-flow reviewer, and a hosted session is not resumed after a daemon restart
+- **It survives restarts.** A daemon restart, or a `vibe-acp` that crashes, resumes the same Vibe session with its history
+- **Interactive hosting only.** Mistral Vibe is not offered as an unattended review-flow reviewer
 
 ### Hosted Muse Code agents
 

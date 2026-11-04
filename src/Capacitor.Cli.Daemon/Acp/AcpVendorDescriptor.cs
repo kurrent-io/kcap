@@ -673,8 +673,7 @@ internal static class AcpVendorDescriptors {
 
     /// <summary>Mistral Vibe through <c>vibe-acp</c>, which takes no arguments. Interactive hosting only:
     /// no unattended reviewer has been measured, so none is offered. Its model is a standard
-    /// <c>category: "model"</c> config option. Reconnect and restart resume stay off until a probe
-    /// shows <c>session/load</c> holds across a killed owner.</summary>
+    /// <c>category: "model"</c> config option.</summary>
     public static readonly AcpVendorDescriptor MistralVibe = new(
         Harness:             HarnessId.MistralVibe,
         Argv:                [],
@@ -683,6 +682,10 @@ internal static class AcpVendorDescriptors {
         ModelSelector:       ConfigOptionModelSelector.Instance,
         SupportsMcpServers:  true,
         // vibe-acp 3.0.1 sends a permission request's toolCall as {toolCallId} alone.
-        CompletesPermissionToolCall: true
+        CompletesPermissionToolCall: true,
+        // Both resume probes pass on vibe-acp 3.0.1: session/load replays before its response after a
+        // tree kill mid-turn and after a graceful stop, and the reloaded session recalls its history.
+        SupportsReconnectResume: true,
+        SupportsRestartResume:   true
     );
 }

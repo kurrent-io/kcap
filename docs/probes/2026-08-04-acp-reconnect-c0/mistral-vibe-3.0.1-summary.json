@@ -1,0 +1,344 @@
+{
+  "vendor": "mistral-vibe",
+  "argv": [
+    "vibe-acp"
+  ],
+  "started": "2026-11-04T17:58:59.602264+00:00",
+  "notes": [
+    "initialize ok; loadSession=True",
+    "session/new ok; sessionId=6f0c40f5-a6d2-8d66-502a-7f3027d877cd",
+    "turns A/B/C stopReasons: end_turn/end_turn/end_turn",
+    "SIGKILL fired after 3 live chunks of turn D",
+    "session/load ok=True err=None",
+    "post-load prompt ok=True"
+  ],
+  "load_session_advertised": true,
+  "agent_capabilities": {
+    "loadSession": true,
+    "promptCapabilities": {
+      "image": true,
+      "audio": false,
+      "embeddedContext": true
+    },
+    "sessionCapabilities": {
+      "list": {},
+      "fork": {},
+      "close": {}
+    }
+  },
+  "session_id": "6f0c40f5-a6d2-8d66-502a-7f3027d877cd",
+  "turn_a_stop": "end_turn",
+  "turn_b_stop": "end_turn",
+  "turn_c_stop": "end_turn",
+  "kill_fired_after_chunks": 3,
+  "turn_d_response_after_kill": false,
+  "load_response": {
+    "modes": {
+      "currentModeId": "accept-edits",
+      "availableModes": [
+        {
+          "id": "ask",
+          "name": "Ask",
+          "description": "Requires approval for tool executions"
+        },
+        {
+          "id": "accept-edits",
+          "name": "Accept Edits",
+          "description": "Auto-approves file edits only"
+        },
+        {
+          "id": "smart-approve",
+          "name": "Smart Approve",
+          "description": "Classifies each tool call and auto-runs the safe ones, prompting only for risky ones"
+        },
+        {
+          "id": "auto-approve",
+          "name": "Auto Approve",
+          "description": "Auto-approves all tool executions"
+        }
+      ]
+    },
+    "configOptions": [
+      {
+        "currentValue": "accept-edits",
+        "options": [
+          {
+            "value": "ask",
+            "name": "Ask",
+            "description": "Requires approval for tool executions"
+          },
+          {
+            "value": "accept-edits",
+            "name": "Accept Edits",
+            "description": "Auto-approves file edits only"
+          },
+          {
+            "value": "smart-approve",
+            "name": "Smart Approve",
+            "description": "Classifies each tool call and auto-runs the safe ones, prompting only for risky ones"
+          },
+          {
+            "value": "auto-approve",
+            "name": "Auto Approve",
+            "description": "Auto-approves all tool executions"
+          }
+        ],
+        "id": "mode",
+        "name": "Session Mode",
+        "category": "mode",
+        "type": "select"
+      },
+      {
+        "currentValue": "mistral-medium-3.5",
+        "options": [
+          {
+            "value": "mistral-medium-3.5",
+            "name": "Mistral Medium 3.5",
+            "description": "mistral-vibe-cli-latest"
+          }
+        ],
+        "id": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select"
+      },
+      {
+        "currentValue": "high",
+        "options": [
+          {
+            "value": "off",
+            "name": "Off"
+          },
+          {
+            "value": "high",
+            "name": "High"
+          }
+        ],
+        "id": "thinking",
+        "name": "Thinking",
+        "category": "thinking",
+        "type": "select"
+      }
+    ],
+    "_meta": {
+      "workspace_trust": {
+        "status": "untrusted",
+        "details": null
+      }
+    }
+  },
+  "post_load_prompt_ok": true,
+  "replay_load_ok": true,
+  "replay_load_error": null,
+  "ended": "2026-11-04T18:00:05.075590+00:00",
+  "interrupted_turn_replay_shape": "user_only",
+  "live_analysis": {
+    "kinds": {
+      "available_commands_update": 1,
+      "session_info_update": 1,
+      "user_message_chunk": 4,
+      "usage_update": 20,
+      "agent_thought_chunk": 27,
+      "agent_message_chunk": 11,
+      "tool_call": 1,
+      "tool_call_update": 1
+    },
+    "keys_by_kind": {
+      "available_commands_update": [
+        "availableCommands",
+        "sessionUpdate"
+      ],
+      "session_info_update": [
+        "sessionUpdate",
+        "title",
+        "updatedAt"
+      ],
+      "user_message_chunk": [
+        "content",
+        "messageId",
+        "sessionUpdate"
+      ],
+      "usage_update": [
+        "_meta",
+        "cost",
+        "sessionUpdate",
+        "size",
+        "used"
+      ],
+      "agent_thought_chunk": [
+        "content",
+        "messageId",
+        "sessionUpdate"
+      ],
+      "agent_message_chunk": [
+        "content",
+        "messageId",
+        "sessionUpdate"
+      ],
+      "tool_call": [
+        "_meta",
+        "kind",
+        "rawInput",
+        "sessionUpdate",
+        "status",
+        "title",
+        "toolCallId"
+      ],
+      "tool_call_update": [
+        "_meta",
+        "content",
+        "kind",
+        "rawOutput",
+        "sessionUpdate",
+        "status",
+        "toolCallId"
+      ]
+    },
+    "msgid_values": {
+      "user_message_chunk.messageId": [
+        "0eda5ca6-afbc-46ae-b305-f2abbae54452",
+        "dc714878-5a03-4705-b109-9c2c850cd8bb",
+        "532d8f6a-d481-4647-8bf0-995145070602",
+        "330f342b-0617-4da5-af25-d7678da40bab"
+      ],
+      "agent_thought_chunk.messageId": [
+        "reasoning-a5a4168e-b9e7-5843-b470-08380dd6046a-0",
+        "reasoning-a5a4168e-b9e7-5843-b470-08380dd6046a-0",
+        "reasoning-a5a4168e-b9e7-5843-b470-08380dd6046a-0",
+        "reasoning-a5a4168e-b9e7-5843-b470-08380dd6046a-0",
+        "reasoning-1e285baa-7033-59aa-8551-da680b773985-0",
+        "reasoning-1e285baa-7033-59aa-8551-da680b773985-0",
+        "reasoning-1e285baa-7033-59aa-8551-da680b773985-0",
+        "reasoning-1e285baa-7033-59aa-8551-da680b773985-0",
+        "reasoning-1e285baa-7033-59aa-8551-da680b773985-0",
+        "reasoning-19e3e430-4e41-52c5-a2db-10b9a4377262-0",
+        "reasoning-19e3e430-4e41-52c5-a2db-10b9a4377262-0",
+        "reasoning-19e3e430-4e41-52c5-a2db-10b9a4377262-0",
+        "reasoning-19e3e430-4e41-52c5-a2db-10b9a4377262-0",
+        "reasoning-19e3e430-4e41-52c5-a2db-10b9a4377262-0",
+        "reasoning-19e3e430-4e41-52c5-a2db-10b9a4377262-0",
+        "reasoning-19e3e430-4e41-52c5-a2db-10b9a4377262-0",
+        "reasoning-19e3e430-4e41-52c5-a2db-10b9a4377262-0",
+        "reasoning-0ffd996c-5f3c-5c8d-b5a0-b89632914cf1-0",
+        "reasoning-0ffd996c-5f3c-5c8d-b5a0-b89632914cf1-0",
+        "reasoning-0ffd996c-5f3c-5c8d-b5a0-b89632914cf1-0",
+        "reasoning-a77b0ea5-978d-5b66-9982-16ffb0517066-0",
+        "reasoning-a77b0ea5-978d-5b66-9982-16ffb0517066-0",
+        "reasoning-a77b0ea5-978d-5b66-9982-16ffb0517066-0",
+        "reasoning-a77b0ea5-978d-5b66-9982-16ffb0517066-0",
+        "reasoning-a77b0ea5-978d-5b66-9982-16ffb0517066-0",
+        "reasoning-a77b0ea5-978d-5b66-9982-16ffb0517066-0",
+        "reasoning-a77b0ea5-978d-5b66-9982-16ffb0517066-0"
+      ],
+      "agent_message_chunk.messageId": [
+        "assistant-a5a4168e-b9e7-5843-b470-08380dd6046a",
+        "assistant-1e285baa-7033-59aa-8551-da680b773985",
+        "assistant-0ffd996c-5f3c-5c8d-b5a0-b89632914cf1",
+        "assistant-a77b0ea5-978d-5b66-9982-16ffb0517066",
+        "assistant-a77b0ea5-978d-5b66-9982-16ffb0517066",
+        "assistant-a77b0ea5-978d-5b66-9982-16ffb0517066",
+        "assistant-a77b0ea5-978d-5b66-9982-16ffb0517066",
+        "assistant-a77b0ea5-978d-5b66-9982-16ffb0517066",
+        "assistant-a77b0ea5-978d-5b66-9982-16ffb0517066",
+        "assistant-a77b0ea5-978d-5b66-9982-16ffb0517066",
+        "assistant-a77b0ea5-978d-5b66-9982-16ffb0517066"
+      ]
+    },
+    "tool_call_ids": [
+      "effect-810b1aef-6c17-5328-ab55-d68e81b46950"
+    ]
+  },
+  "replay_analysis": {
+    "kinds": {
+      "session_info_update": 1,
+      "user_message_chunk": 4,
+      "agent_thought_chunk": 4,
+      "agent_message_chunk": 3,
+      "tool_call": 1,
+      "usage_update": 1,
+      "available_commands_update": 1
+    },
+    "keys_by_kind": {
+      "session_info_update": [
+        "sessionUpdate",
+        "title",
+        "updatedAt"
+      ],
+      "user_message_chunk": [
+        "content",
+        "messageId",
+        "sessionUpdate"
+      ],
+      "agent_thought_chunk": [
+        "content",
+        "messageId",
+        "sessionUpdate"
+      ],
+      "agent_message_chunk": [
+        "content",
+        "messageId",
+        "sessionUpdate"
+      ],
+      "tool_call": [
+        "_meta",
+        "content",
+        "kind",
+        "rawInput",
+        "rawOutput",
+        "sessionUpdate",
+        "status",
+        "title",
+        "toolCallId"
+      ],
+      "usage_update": [
+        "_meta",
+        "cost",
+        "sessionUpdate",
+        "size",
+        "used"
+      ],
+      "available_commands_update": [
+        "availableCommands",
+        "sessionUpdate"
+      ]
+    },
+    "msgid_values": {
+      "user_message_chunk.messageId": [
+        "0eda5ca6-afbc-46ae-b305-f2abbae54452",
+        "dc714878-5a03-4705-b109-9c2c850cd8bb",
+        "532d8f6a-d481-4647-8bf0-995145070602",
+        "330f342b-0617-4da5-af25-d7678da40bab"
+      ],
+      "agent_thought_chunk.messageId": [
+        "reasoning-a5a4168e-b9e7-5843-b470-08380dd6046a-0",
+        "reasoning-1e285baa-7033-59aa-8551-da680b773985-0",
+        "reasoning-19e3e430-4e41-52c5-a2db-10b9a4377262-0",
+        "reasoning-0ffd996c-5f3c-5c8d-b5a0-b89632914cf1-0"
+      ],
+      "agent_message_chunk.messageId": [
+        "assistant-a5a4168e-b9e7-5843-b470-08380dd6046a",
+        "assistant-1e285baa-7033-59aa-8551-da680b773985",
+        "assistant-0ffd996c-5f3c-5c8d-b5a0-b89632914cf1"
+      ]
+    },
+    "tool_call_ids": [
+      "effect-810b1aef-6c17-5328-ab55-d68e81b46950"
+    ],
+    "user_chunks": [
+      "Reply with exactly: alpha",
+      "Reply with exactly: alpha",
+      "Run the shell command `echo kcap-probe-c0` and then reply with exactly: tool-don",
+      "Count from 1 to 40, one number per line. Do not use any tools for the counting. "
+    ],
+    "after_response_conversation": 0,
+    "trailer_kinds_after_response": [
+      "available_commands_update"
+    ]
+  },
+  "live_vs_replay_msgid_overlap": {
+    "user_message_chunk.messageId": 4,
+    "agent_thought_chunk.messageId": 4,
+    "agent_message_chunk.messageId": 3
+  },
+  "tool_call_id_overlap": 1
+}

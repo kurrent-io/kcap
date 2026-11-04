@@ -73,6 +73,19 @@ Two runs, the same result; the second is archived as `gemini-0.64.0-summary.json
 Gemini stays ineligible until a release carries that fix and this probe shows
 `after_response_conversation: 0` on it; enabling then needs that release as a version floor.
 
+## Probe: mistral-vibe 3.0.1 (2026-11-04)
+
+Run on Windows, where the kill is `taskkill /T /F` on the spawned `vibe-acp`; archived as
+`mistral-vibe-3.0.1-summary.json`
+
+- After a mid-turn kill, a fresh process's `session/load` succeeds, and the post-load prompt works
+- **The barrier holds:** `after_response_conversation` is 0, the only trailer an `available_commands_update`
+- The interrupted turn replays as its user message alone (`user_only`), and the one tool call's
+  `toolCallId` is the same live and replayed
+- Unlike the four vendors above, Vibe sets `messageId` on user, thought and message chunks
+
+`SupportsReconnectResume` is true for Mistral Vibe
+
 ## Conclusions
 
 1. No vendor implements the `messageId` MAY → the streaming-preserving per-envelope dedup (AI-689

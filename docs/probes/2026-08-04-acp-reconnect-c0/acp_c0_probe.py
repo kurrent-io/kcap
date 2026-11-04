@@ -12,7 +12,7 @@ Measures, against each installed ACP vendor CLI:
      session/load response (ACP spec MUST).
   6. Post-load liveness: a fresh prompt on the loaded session completes.
 
-Usage: python3 acp_c0_probe.py --vendor cursor|copilot|kiro|gemini [--outdir DIR]
+Usage: python3 acp_c0_probe.py --vendor cursor|copilot|kiro|gemini|mistral-vibe [--outdir DIR]
 Writes <outdir>/<vendor>/frames.jsonl, stderr.log, summary.json.
 """
 
@@ -21,6 +21,7 @@ import asyncio
 import json
 import os
 import signal
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -50,6 +51,7 @@ VENDORS = {
                  # Vertex needs both; the project must have billing enabled.
                  "env": {"GOOGLE_CLOUD_PROJECT": os.environ.get("KCAP_PROBE_GCP_PROJECT", "capacitortesting"),
                          "GOOGLE_CLOUD_LOCATION": os.environ.get("KCAP_PROBE_GCP_LOCATION", "global")}},
+    "mistral-vibe": {"argv": ["vibe-acp"], "model": None},
 }
 
 
@@ -206,6 +208,10 @@ class AcpClient:
         # The whole process group: Gemini self-re-execs, and killing only the spawned pid
         # orphans the real agent with the pipes still open.
         self.record("mark", {"event": "sigkill", "pid": self.proc.pid})
+        if os.name == "nt":
+            # No process groups on Windows: the daemon's tree kill is the equivalent.
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.proc.pid)], capture_output=True, check=False)
+            return
         try:
             os.killpg(self.proc.pid, signal.SIGKILL)
         except ProcessLookupError:
