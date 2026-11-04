@@ -323,6 +323,15 @@ public class UserMessageClassifierTests {
         await Assert.That(KindOf("This session is being continued from a previous conversation — what?", new UserMessageOrigin { ContentItemKinds = ["user.text"] }, vendor: "codex"))
             .IsEqualTo(UserMessageKind.Person);
 
+    /// Unwrapping an envelope keeps what the harness recorded about the message: a harness line stays the
+    /// harness's, and the person's words stay theirs whatever they open with.
+    [Test]
+    public async Task An_envelope_keeps_the_recorded_origin_of_its_ask() {
+        await Assert.That(KindOf("<user_query>push it</user_query>", new UserMessageOrigin { IsMeta = true })).IsEqualTo(UserMessageKind.Continuation);
+        await Assert.That(KindOf("<user_query># AGENTS.md instructions are wrong, stop</user_query>", new UserMessageOrigin { Kind = "human" }, vendor: "codex"))
+            .IsEqualTo(UserMessageKind.Person);
+    }
+
     /// A class stored without the session's schedule is checked against it again on read, so a line the schedule
     /// cannot decide, a trigger or one recorded as the person's, must not ask for that.
     [Test]

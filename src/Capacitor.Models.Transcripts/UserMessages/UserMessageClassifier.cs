@@ -38,12 +38,12 @@ public static class UserMessageClassifier {
 
         // Kiro Crew wraps every prompt in its own context; the request inside decides.
         if (KiroCrewPromptEnvelope.IsCutOff(text)) return new(UserMessageKind.Person, CrewRequestCutOff);
-        // So does Cursor, in a session recorded before its envelope was unwrapped at ingest.
+        // So does Cursor, in a session recorded before its envelope was unwrapped at ingest. What the harness
+        // recorded about who wrote the message still holds for the ask inside it.
         if (UserPromptDisplay.AskText(text) is var ask && !ReferenceEquals(ask, text)) {
             if (KiroCrewPromptEnvelope.IsCutOff(ask)) return new(UserMessageKind.Person, CrewRequestCutOff);
 
             text = ask;
-            origin = null;
         }
 
         // Reminders ride on asks, triggers and payloads alike; what is left decides.
