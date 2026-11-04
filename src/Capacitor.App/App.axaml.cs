@@ -1390,16 +1390,20 @@ public partial class App : Application {
 
         var localSkipped = new BehaviorSubject<bool>(false);
         if (!_shutdownStarted) _ = SettleComponentsAsync(localUpgrade, isLocalServer, () => localSkipped.OnNext(true));
-        if (_holdingMainWindow && _postUpdate is { } finishing) {
-            _staleDaemonNudge = new StaleDaemonNudge(finishing.To, service.Status,
+        if (!_shutdownStarted
+         && StaleDaemonNudge.TargetVersion(_postUpdate, Program.Host.CliCopyFailed, CapacitorVersion.CurrentDisplay()) is { } target) {
+            _staleDaemonNudge = new StaleDaemonNudge(target, service.Status,
                 service.Snapshots.Select(snap => ((string?)snap.Daemon.Version, snap.Daemon.Pid)), restartPending.Pending,
-                ProcessExecutable.Of, binary => CanonicalPath.IsWithin(binary, Program.Host.CliDirectory),
+                ProcessExecutable.Of, Program.Host.OtherInstall,
                 ops.RequestRestartAsync,
                 (mode, result) => LifecycleLog.Write("daemon_restart_requested", ("mode", mode), ("result", result)), _time, _shutdown.Token);
             _staleDaemonNudge.OtherInstall.Subscribe(other => {
-                if (other is not null) LifecycleLog.Write("daemon_on_other_install", ("version", other.Version), ("executable", other.Executable));
+                if (other is not null)
+                    LifecycleLog.Write("daemon_on_other_install", ("version", other.Version), ("executable", other.Executable), ("copy_failure", other.CopyFailure));
                 daemonOnOtherInstall.OnNext(other);
             });
+        }
+        if (_holdingMainWindow && _postUpdate is { } finishing) {
             ShowUpdateFinishWindow(finishing, expectedRestart.Status,
                 service.Snapshots.Select(snap => ((string?)snap.Daemon.Version, (string?)snap.Daemon.Connection)),
                 restartPending.Wait,

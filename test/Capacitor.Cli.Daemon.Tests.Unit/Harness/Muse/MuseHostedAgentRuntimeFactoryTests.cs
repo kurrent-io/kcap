@@ -120,6 +120,14 @@ public class MuseHostedAgentRuntimeFactoryTests {
         await rig.Factory.StartAsync(ctx, CancellationToken.None).WaitAsync(HangGuard);
 
     [Test]
+    [Arguments(null, true)]
+    [Arguments("1.4.6", false)]
+    public async Task Only_an_unresolved_version_probe_is_retryable(string? installed, bool retryable) {
+        var support = NewRig(installed: installed).Factory.DescribeUnattendedSupport();
+        await Assert.That(support.ProbeFailed).IsEqualTo(retryable);
+    }
+
+    [Test]
     public async Task Interactive_resume_is_supported_and_review_flow_is_not() {
         const string resumed = "01a13695-0736-75d0-8f4e-f121585b8453";
         var rig = NewRig();

@@ -613,6 +613,35 @@ public class ClaudeChatRulesTests {
         await Assert.That(finished.Outcome).IsEqualTo(RunOutcome.Stopped);
     }
 
+    /// Claude Code reports a background agent that stopped with work of its own still running as
+    /// completed, and only the summary says it resumes. The first such notification names the call,
+    /// a repeat the agent alone.
+    [Test]
+    [Arguments("<tool-use-id>toolu_A</tool-use-id>\n", "toolu_A")]
+    [Arguments("", null)]
+    public async Task A_completed_notification_for_an_agent_waiting_on_its_own_work_is_a_wait(string callTag, string? callId) {
+        var text = $"<task-notification>\n<task-id>a151b2d5ee7fd3108</task-id>\n{callTag}<output-file>/tmp/a151b2d5ee7fd3108.output</output-file>\n<status>completed</status>\n<summary>Agent \"Fix review round 1\" is waiting on its own background work</summary>\n<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>\n<result>This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.\n</result>\n</task-notification>";
+        var waiting = (RunSignal.Waiting)R($$$"""{"type":"user","timestamp":"2026-09-17T10:05:00Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"{{{text.Replace("\n", "\\n").Replace("\"", "\\\"")}}}"}}""").Runs.Single();
+        await Assert.That(waiting.CallId).IsEqualTo(callId);
+        await Assert.That(waiting.AgentId).IsEqualTo("a151b2d5ee7fd3108");
+        await Assert.That(waiting.At).IsEqualTo(new DateTimeOffset(2026, 9, 17, 10, 5, 0, TimeSpan.Zero));
+    }
+
+    /// A message to a stopped subagent starts it again under its id, and the message's call is that
+    /// run's handle. A result naming no resumed agent starts nothing.
+    [Test]
+    public async Task A_message_that_resumes_a_stopped_agent_is_a_resume_keyed_by_its_call() {
+        static string SendResult(string fields) =>
+            $$$"""{"type":"user","timestamp":"2026-09-17T10:20:00Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_M","content":[{"type":"text","text":"ok"}]}]},"toolUseResult":{"success":true,{{{fields}}}}}""";
+
+        var resumed = (RunSignal.Resumed)R(SendResult("\"message\":\"Resuming agent a151b2d\",\"resumedAgentId\":\"a151b2d5ee7fd3108\",\"revivedAgentId\":\"a151b2d5ee7fd3108\"")).Runs.Single();
+        await Assert.That(resumed.CallId).IsEqualTo("toolu_M");
+        await Assert.That(resumed.AgentId).IsEqualTo("a151b2d5ee7fd3108");
+        await Assert.That(resumed.At).IsEqualTo(new DateTimeOffset(2026, 9, 17, 10, 20, 0, TimeSpan.Zero));
+
+        await Assert.That(R(SendResult("\"message\":\"Message queued for delivery\"")).Runs).IsEmpty();
+    }
+
     [Test]
     public async Task A_notification_status_is_matched_without_regard_to_case() {
         var finished = (RunSignal.Finished)R(Notification(originKind: true, status: "Completed")).Runs.Single();

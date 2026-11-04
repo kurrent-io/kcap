@@ -26,9 +26,9 @@ namespace Capacitor.Cli.Core.Harness;
 ///
 /// <para><b>No answer is cached.</b> Each detection question stats the disk when asked, so a
 /// long-lived holder — the daemon keeps one for its lifetime — sees a vendor installed after it was
-/// built. A snapshot is the caller's to take, where it needs one. What IS fixed at build time is
-/// where to look: the search path and the vendor roots are read from the environment once, so a
-/// holder does not see those variables change under it.</para>
+    /// built. A snapshot is the caller's to take, where it needs one. Vendor roots are fixed at build
+    /// time. The search path is normally a snapshot too; a <see cref="BinaryProbe.Tracking"/> probe
+    /// lets the daemon follow its refreshed environment without rebuilding the harnesses.</para>
 /// </summary>
 public sealed class HarnessRegistry : IReadOnlyList<IHarness>, IHarnessDetection {
     readonly IReadOnlyList<IHarness> _harnesses;

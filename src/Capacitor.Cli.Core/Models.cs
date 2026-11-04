@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Eval.Contracts;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Titles;
@@ -151,13 +152,15 @@ class WatchState {
     public RepoEvidenceScanner<RepositoryPayload>? EvidenceScanner        { get; set; }
     public bool                                    RepositoryFromEvidence { get; set; }
 
-    // Claude session watcher only: checkouts the agent mutated outside its launch cwd, each
+    // Claude session watcher only: checkouts the agent or its subagents mutated outside its launch cwd, each
     // probed for a PR the cwd probe cannot see. A PR joins LinkedPullRequests only once the
     // server accepted it, so a failed post retries on the next pass.
-    public SecondaryRepoRoots?                                  SecondaryRoots     { get; set; }
-    public HashSet<(string Owner, string RepoName, int Number)> LinkedPullRequests { get; } = [];
-    public DateTimeOffset                                       LastSecondaryProbe { get; set; }
-    public string?                                              NextSecondaryRoot  { get; set; }
+    public SecondaryRepoRoots?                                  SecondaryRoots           { get; set; }
+    public HashSet<(string Owner, string RepoName, int Number)> LinkedPullRequests       { get; } = [];
+    public DateTimeOffset                                       LastSecondaryProbe       { get; set; }
+    public string?                                              NextSecondaryRoot        { get; set; }
+    public ClaudeSubagentCheckouts?                             SubagentCheckouts        { get; set; }
+    public DateTimeOffset                                       LastSubagentCheckoutScan { get; set; }
 
     // Claude session and subagent watchers: PRs the transcript shows the agent creating, kept
     // until the server accepts them.

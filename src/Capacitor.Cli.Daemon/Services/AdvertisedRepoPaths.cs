@@ -30,8 +30,7 @@ static class AdvertisedRepoPaths {
         var merged = new List<string>(persisted);
 
         foreach (var entry in allowed) {
-            // The allowlist takes either separator before the star; the search takes this platform's.
-            if (entry.Replace('\\', '/').EndsWith("/*", StringComparison.Ordinal))
+            if (RepoPathPattern.IsGlob(entry))
                 merged.AddRange(RepositoriesUnder(entry[..^2] + Path.DirectorySeparatorChar).Where(seen.Add));
             else if (entry.Length > 0 && seen.Add(entry))
                 merged.Add(entry);

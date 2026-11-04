@@ -7,7 +7,8 @@ using TUnit.Assertions.Enums;
 namespace Capacitor.App.Tests.Unit;
 
 /// The per-workspace tracker as a pure state machine over projection results: signals first,
-/// then envelopes; an ended row is never reopened, and only an end with no outcome is revised.
+/// then envelopes. An end that says how is final; only an end with no outcome is revised, by one
+/// that says how or by a wait showing the run never ended.
 public class SessionRunsTests {
     static readonly DateTimeOffset T0 = new(2026, 9, 17, 10, 0, 0, TimeSpan.Zero);
 
@@ -27,6 +28,12 @@ public class SessionRunsTests {
 
     static RunSignal.Finished Finished(string? callId, string? agentId, RunOutcome? outcome = RunOutcome.Done, DateTimeOffset? at = null) =>
         new(callId, agentId, outcome, at ?? T0.AddMinutes(2));
+
+    static RunSignal.Waiting Waiting(string? callId, string? agentId, DateTimeOffset at) => new(callId, agentId, at);
+
+    static RunSignal.Resumed Resumed(string callId, string agentId, DateTimeOffset at) => new(callId, agentId, at);
+
+    static RunSignal.Stopped Stop(string agentId, DateTimeOffset at) => new(agentId, at);
 
     static RunRow Only(SessionRuns s) => s.Rows.Single();
 
@@ -306,7 +313,7 @@ public class SessionRunsTests {
     public async Task A_bare_stop_ends_a_background_row_as_done_until_a_notification_says_how() {
         var s = new SessionRuns(Clock());
         s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
-        s.Apply(Signals(Finished(null, "a1", outcome: null, at: T0.AddSeconds(62))));
+        s.Apply(Signals(Stop("a1", T0.AddSeconds(62))));
         await Assert.That(Only(s).State).IsEqualTo(RunState.Done);
         await Assert.That(Only(s).StateText).IsEqualTo("1m 02s");
         await Assert.That(s.RunningCount).IsEqualTo(0);
@@ -323,10 +330,156 @@ public class SessionRunsTests {
     public async Task A_late_stamped_bare_stop_yields_to_the_earlier_end_that_says_how() {
         var s = new SessionRuns(Clock());
         s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
-        s.Apply(Signals(Finished(null, "a1", outcome: null, at: T0.AddDays(3))));
+        s.Apply(Signals(Stop("a1", T0.AddDays(3))));
         s.Apply(Signals(Finished("c1", "a1", RunOutcome.Done, at: T0.AddSeconds(90))));
         await Assert.That(Only(s).EndedAt).IsEqualTo(T0.AddSeconds(90));
         await Assert.That(Only(s).StateText).IsEqualTo("1m 30s");
+    }
+
+    /// A background agent that stops with work of its own still running has paused, not ended: the
+    /// stop record of each pause leaves it running, and only the transcript's own end finishes it.
+    [Test]
+    public async Task An_agent_waiting_on_its_own_work_runs_through_its_pauses_until_its_end() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+        s.Apply(Signals(Waiting("c1", "a1", T0.AddMinutes(10)), Stop("a1", T0.AddMinutes(10))));
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
+        await Assert.That(s.RunningCount).IsEqualTo(1);
+
+        s.Apply(Signals(Stop("a1", T0.AddMinutes(20)), Waiting(null, "a1", T0.AddMinutes(20))));
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
+        await Assert.That(s.RunningCount).IsEqualTo(1);
+
+        s.Apply(Signals(Finished(null, "a1", RunOutcome.Done, at: T0.AddMinutes(30))));
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Done);
+        await Assert.That(Only(s).EndedAt).IsEqualTo(T0.AddMinutes(30));
+    }
+
+    /// The server can record a pause's stop ahead of the notification saying the agent waits, and the wait
+    /// takes that end back. An end the transcript reported stays, even one cut off before its status.
+    [Test]
+    public async Task A_wait_takes_back_a_stop_that_landed_first_but_never_an_end_the_transcript_reported() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Stop("a1", T0.AddMinutes(10))));
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Done);
+
+        s.Apply(Signals(Waiting("c1", "a1", T0.AddMinutes(10))));
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
+        await Assert.That(Only(s).EndedAt).IsNull();
+
+        foreach (var outcome in new RunOutcome?[] { null, RunOutcome.Failed }) {
+            var reported = new SessionRuns(Clock());
+            reported.Apply(Signals(Started("c1"), Detached("c1", "a1"), Finished("c1", "a1", outcome, at: T0.AddMinutes(5))));
+            reported.Apply(Signals(Waiting(null, "a1", T0.AddMinutes(6))));
+            await Assert.That(Only(reported).IsEnded).IsTrue();
+            await Assert.That(Only(reported).EndedAt).IsEqualTo(T0.AddMinutes(5));
+        }
+    }
+
+    /// A stop names no run and a Claude agent stops at every pause, so once the transcript reports on an
+    /// agent, its stops end nothing: a late one from an earlier run must not end the run now going.
+    [Test]
+    public async Task Once_the_transcript_reports_on_an_agent_its_stops_end_nothing() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Finished("c1", "a1", RunOutcome.Done, at: T0.AddMinutes(2))));
+        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5)), Stop("a1", T0.AddMinutes(6))));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+
+        s.Apply(Signals(Finished(null, "a1", outcome: null, at: T0.AddMinutes(20))));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Done);
+        await Assert.That(s.Rows[1].EndedAt).IsEqualTo(T0.AddMinutes(20));
+    }
+
+    /// A message that starts a stopped subagent again is a second run of it: a row of its own under the
+    /// first run's name, owning the agent id, which the message's own result does not end.
+    [Test]
+    public async Task A_resumed_agent_is_a_second_running_row_under_the_first_runs_name() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+        s.Apply(Signals(Finished(null, "a1", RunOutcome.Done, at: T0.AddMinutes(2))));
+        s.Apply(Mixed([new AcpEventEnvelope(Kind: AcpEventKind.ToolResult, ToolCallId: "m1")], Resumed("m1", "a1", T0.AddMinutes(5))));
+        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5))));
+
+        await Assert.That(s.Rows).Count().IsEqualTo(2);
+        var second = s.Rows[1];
+        await Assert.That(second.State).IsEqualTo(RunState.Running);
+        await Assert.That(second.IsBackground).IsTrue();
+        await Assert.That(second.Name).IsEqualTo("Explore");
+        await Assert.That(second.Description).IsEqualTo("Map the UI");
+        await Assert.That(second.AgentId).IsEqualTo("a1");
+        await Assert.That(second.StartedAt).IsEqualTo(T0.AddMinutes(5));
+        await Assert.That(s.RunningCount).IsEqualTo(1);
+
+        s.Apply(Signals(Finished(null, "a1", RunOutcome.Done, at: T0.AddMinutes(20))));
+        await Assert.That(second.State).IsEqualTo(RunState.Done);
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(2));
+    }
+
+    /// The run a resume follows can still read running, its notification landing after the resume though
+    /// dated before it, by call or by agent id alone and cut off before its status or not. The resume ends
+    /// it without an outcome, and the notification dates it there rather than ending the new run. An
+    /// agent with no row adds none.
+    [Test]
+    [Arguments("c1", RunOutcome.Failed)]
+    [Arguments(null, RunOutcome.Failed)]
+    [Arguments(null, null)]
+    public async Task A_resume_ends_the_run_before_it_and_that_runs_late_notification_lands_there(string? callId, RunOutcome? outcome) {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5)), Resumed("m2", "zz", T0.AddMinutes(5))));
+        await Assert.That(s.Rows).Count().IsEqualTo(2);
+        await Assert.That(s.Rows[0].State).IsEqualTo(RunState.Done);
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+
+        s.Apply(Signals(Finished(callId, "a1", outcome, at: T0.AddMinutes(4))));
+        await Assert.That(s.Rows[0].State).IsEqualTo(outcome is null ? RunState.Done : RunState.Failed);
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(4));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+    }
+
+    /// Once an agent has a second run, a stop could be either run's, a pause's or a repeat, and the server
+    /// dates it when it heard it: it ends neither, and the late notification still dates the first.
+    [Test]
+    public async Task A_stop_for_an_agent_with_more_than_one_run_ends_none_of_them() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5)), Stop("a1", T0.AddMinutes(6)), Stop("a1", T0.AddMinutes(6))));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(5));
+
+        s.Apply(Signals(Finished("c1", "a1", RunOutcome.Done, at: T0.AddMinutes(4))));
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(4));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+        await Assert.That(s.RunningCount).IsEqualTo(1);
+    }
+
+    /// A stop that ended an earlier run stays its end when a later run of the agent is the first the
+    /// transcript reports on.
+    [Test]
+    public async Task A_later_runs_report_leaves_an_earlier_run_ended_by_its_stop() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Stop("a1", T0.AddMinutes(2))));
+        s.Apply(Signals(Started("c2", T0.AddMinutes(5)), Detached("c2", "a1")));
+        s.Apply(Signals(Finished("c2", "a1", RunOutcome.Done, at: T0.AddMinutes(6))));
+
+        await Assert.That(s.Rows[0].State).IsEqualTo(RunState.Done);
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(2));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Done);
+        await Assert.That(s.RunningCount).IsEqualTo(0);
+    }
+
+    /// The local feed names a launch from its meta file after the lines are folded, so on a reopen it
+    /// arrives once a resume owns the agent; it must leave the resumed run owning it.
+    [Test]
+    public async Task A_launchs_own_id_arriving_after_a_resume_leaves_the_resumed_run_owning_the_agent() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Finished("c1", "a1", RunOutcome.Done, at: T0.AddMinutes(2))));
+        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5))));
+        s.Identify("c1", "a1");
+
+        s.Apply(Signals(Finished(null, "a1", RunOutcome.Done, at: T0.AddMinutes(20))));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Done);
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(2));
     }
 
     [Test]
@@ -334,14 +487,14 @@ public class SessionRunsTests {
         var said = new SessionRuns(Clock());
         said.Apply(Signals(Started("c1"), Detached("c1", "a1")));
         said.Apply(Signals(Finished("c1", "a1", RunOutcome.Failed, at: T0.AddSeconds(10))));
-        said.Apply(Signals(Finished(null, "a1", outcome: null, at: T0.AddSeconds(20))));
+        said.Apply(Signals(Stop("a1", T0.AddSeconds(20))));
         await Assert.That(Only(said).State).IsEqualTo(RunState.Failed);
         await Assert.That(Only(said).EndedAt).IsEqualTo(T0.AddSeconds(10));
 
         var bare = new SessionRuns(Clock());
         bare.Apply(Signals(Started("c1"), Detached("c1", "a1")));
-        bare.Apply(Signals(Finished(null, "a1", outcome: null, at: T0.AddSeconds(10))));
-        bare.Apply(Signals(Finished(null, "a1", outcome: null, at: T0.AddSeconds(20))));
+        bare.Apply(Signals(Stop("a1", T0.AddSeconds(10))));
+        bare.Apply(Signals(Stop("a1", T0.AddSeconds(20))));
         await Assert.That(Only(bare).EndedAt).IsEqualTo(T0.AddSeconds(10));
         bare.Apply(Signals(Finished(null, "a1", RunOutcome.Stopped, at: T0.AddSeconds(30))));
         await Assert.That(Only(bare).State).IsEqualTo(RunState.Stopped);
@@ -613,7 +766,7 @@ public class SessionRunsTests {
     public async Task A_bare_stop_revised_to_failed_moves_the_counts_and_raises_changed() {
         var s = new SessionRuns(Clock());
         s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
-        s.Apply(Signals(Finished(null, "a1", outcome: null, at: T0.AddSeconds(62))));
+        s.Apply(Signals(Stop("a1", T0.AddSeconds(62))));
         await Assert.That(s.Count(RunState.Done)).IsEqualTo(1);
         var changes = 0;
         s.Changed += () => changes++;

@@ -164,6 +164,9 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
             case AcpEventKind.ToolResult when raw.ToolCallId is { Length: > 0 } callId && ToolUseResult(slug) is { } result: {
                 if (SchemaExtensions.Text(result, "backgroundTaskId") is { Length: > 0 } backgroundId)
                     return [new RunSignal.Detached(callId, backgroundId)];
+                // Only a message that starts a stopped subagent again names it here.
+                if (SchemaExtensions.Text(result, "resumedAgentId") is { Length: > 0 } resumedId)
+                    return [new RunSignal.Resumed(callId, resumedId, evt.Timestamp)];
                 var resultAgentId = SchemaExtensions.Text(result, "agentId") ?? SchemaExtensions.Text(result, "agent_id");
                 switch (SchemaExtensions.Text(result, "status")) {
                     case "async_launched" when resultAgentId is { Length: > 0 }:
@@ -190,6 +193,10 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                 RunOutcome? outcome;
                 switch (Tag(TaskStatus(), text)?.ToLowerInvariant()) {
                     case null:        outcome = null; break;
+                    // Claude Code reports an agent paused on background work of its own as completed
+                    // too: the summary is what tells the pause from the end.
+                    case "completed" when Tag(TaskSummary(), text)?.EndsWith(WaitingSummaryEnd, StringComparison.OrdinalIgnoreCase) == true:
+                        return [new RunSignal.Waiting(callId, agentId, evt.Timestamp)];
                     case "completed": outcome = RunOutcome.Done; break;
                     case "failed":    outcome = RunOutcome.Failed; break;
                     case "killed":    outcome = RunOutcome.Stopped; break;
@@ -202,6 +209,8 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                 return [];
         }
     }
+
+    const string WaitingSummaryEnd = " is waiting on its own background work";
 
     /// The server's events carry no origin_kind, so the text is the other way to know: how it opens
     /// once any reminders ahead of it are off.

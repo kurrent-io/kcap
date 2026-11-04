@@ -11,6 +11,7 @@ using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Antigravity;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Gemini;
@@ -672,7 +673,8 @@ partial class WatchCommand(
         state.LastCoverageCheck = time.GetUtcNow();
 
         if (vendor == "claude" && agentId is null) {
-            state.SecondaryRoots = new SecondaryRepoRoots(GitRepository.FindRoot, cwd is null ? null : GitRepository.FindRoot(cwd));
+            state.SecondaryRoots    = new SecondaryRepoRoots(GitRepository.FindRoot, cwd is null ? null : GitRepository.FindRoot(cwd));
+            state.SubagentCheckouts = new ClaudeSubagentCheckouts(transcriptPath);
         }
 
         // No cwd-derived repo (launched outside any checkout, or no cwd at all): fall back to
@@ -974,6 +976,11 @@ partial class WatchCommand(
                     state.LastCoverageCheck = time.GetUtcNow();
                 }
 
+                if (time.GetUtcNow() - state.LastSubagentCheckoutScan >= SubagentCheckoutScanGap) {
+                    ObserveSubagentCheckouts(state, time);
+                    state.LastSubagentCheckoutScan = time.GetUtcNow();
+                }
+
                 if (SecondaryProbeDue(state, time.GetUtcNow())) {
                     await LinkSecondaryPullRequestsAsync(state, sessionId, SecondaryProbeBudget, cts.Token, TouchHeartbeat);
                     state.LastSecondaryProbe = time.GetUtcNow();
@@ -1205,6 +1212,7 @@ partial class WatchCommand(
             // A PR is usually opened in the session's last turn, after the previous 60s probe.
             await LinkCreatedPullRequestsAsync(state, sessionId,
                 FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, lastChance: true, TouchHeartbeat);
+            ObserveSubagentCheckouts(state, time, final: true);
             await LinkSecondaryPullRequestsAsync(state, sessionId,
                 FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, TouchHeartbeat);
         }
@@ -1865,6 +1873,16 @@ partial class WatchCommand(
             roots.OnLine(vendor, line);
             return roots.IsFull;
         });
+
+    static readonly TimeSpan SubagentCheckoutScanGap = TimeSpan.FromSeconds(10);
+
+    internal static void ObserveSubagentCheckouts(WatchState state, TimeProvider time, bool final = false) {
+        if (state is not { SubagentCheckouts: { } subagentCheckouts, SecondaryRoots: { } secondaryRoots }) return;
+
+        var knownRoots = secondaryRoots.Roots.Count;
+        subagentCheckouts.FeedInto(secondaryRoots, final);
+        if (secondaryRoots.Roots.Count > knownRoots) Log(time, $"Probing secondary checkouts for a PR: {string.Join(", ", secondaryRoots.Roots)}");
+    }
 
     internal static void ObserveCreatedPullRequest(WatchState state, string line) {
         if (CreatedPullRequests.FromClaudeLine(line) is not { } pr) return;
@@ -5280,17 +5298,7 @@ partial class WatchCommand(
 
     /// <summary>True if <paramref name="line"/> (a single, newline-less transcript line) parses as a
     /// complete JSON document. Used to gate consuming an unterminated final line at shutdown.</summary>
-    static bool IsCompleteJsonRecord(string line) {
-        var trimmed = line.Trim();
-        if (trimmed.Length == 0) return false;
-
-        try {
-            using var _ = JsonDocument.Parse(trimmed);
-            return true;
-        } catch (JsonException) {
-            return false;
-        }
-    }
+    static bool IsCompleteJsonRecord(string line) => JsonRecord.IsComplete(line);
 
     /// <summary>Read-only view of <c>inner</c> that reports EOF after <c>limit</c> bytes, so a
     /// StreamReader over it can't read past a length sampled before a concurrent append.</summary>

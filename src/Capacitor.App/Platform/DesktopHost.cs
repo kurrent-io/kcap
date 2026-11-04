@@ -5,6 +5,8 @@ using Capacitor.App.Platform.Linux;
 using Capacitor.App.Platform.Mac;
 using Capacitor.App.Platform.Windows;
 using Capacitor.App.Services.Notifications;
+using Capacitor.App.Services.Update;
+using Capacitor.Cli.Core;
 
 namespace Capacitor.App.Platform;
 
@@ -45,10 +47,15 @@ public abstract class DesktopHost : IDisposable {
         var cliDirectory = BundleLayout.CliDirectory(AppContext.BaseDirectory);
         if (OperatingSystem.IsMacOS()) return new MacDesktopHost(cliDirectory, false, SingleInstanceLock.Unenforced);
         if (OperatingSystem.IsWindows()) return new WindowsDesktopHost(cliDirectory, false, SingleInstanceLock.Unenforced);
-        return new LinuxDesktopHost(cliDirectory, false, null, false, SingleInstanceLock.Unenforced);
+        return new LinuxDesktopHost(cliDirectory, false, null, null, SingleInstanceLock.Unenforced);
     }
 
     public string CliDirectory { get; }
+
+    /// A daemon of <paramref name="version"/> on <paramref name="binary"/> as a report, or null when the binary is
+    /// this app's CLI. A restart starts the daemon from the binary it runs, so only this app's CLI moves it on.
+    public virtual DaemonOnOtherInstall? OtherInstall(string version, string binary) =>
+        CanonicalPath.IsWithin(binary, CliDirectory) ? null : new(version, binary);
 
     /// Velopack relaunched this process after applying an update; its hook fires on a failed apply
     /// too, so this means "relaunched", not "updated".
@@ -63,6 +70,9 @@ public abstract class DesktopHost : IDisposable {
 
     /// False while the CLI runs from somewhere that vanishes when the app exits, so nothing may link to it.
     public virtual bool CliOutlivesApp => true;
+
+    /// The app could not copy its CLI to where it keeps it, so a daemon on the copy an earlier run left stays behind.
+    public virtual bool CliCopyFailed => false;
 
     public virtual AppBuilder ConfigureAvalonia(AppBuilder builder) => builder;
 

@@ -384,7 +384,7 @@ public class ChatTabViewModelTests {
             await Assert.That(((UserTurnItem)h.Chat.Items[0]).Text).IsEqualTo("hello");
             await Assert.That(Group(h.Chat, 2).Calls[0].Detail).IsEqualTo("ls -la");
             await Assert.That(Group(h.Chat, 2).Calls[0].Outcome).IsEqualTo(ToolOutcome.Running);
-            await Assert.That(Group(h.Chat, 2).Calls[0].Category).IsEqualTo(ToolCategory.Search);
+            await Assert.That(Group(h.Chat, 2).Calls[0].Category).IsEqualTo(ToolCategory.Command);
             await h.TeardownAsync();
         });
     }
@@ -545,7 +545,7 @@ public class ChatTabViewModelTests {
             File.AppendAllText(path, ToolResultLine + "\n");
             await h.TickAsync();
             await Assert.That(group.LiveCalls.Select(c => c.Name)).IsEquivalentTo(new[] { "Read" });
-            await Assert.That(group.Summary).IsEqualTo("Searched files");
+            await Assert.That(group.Summary).IsEqualTo("Ran a command");
             await Assert.That(group.HasSummary).IsTrue();
             await Assert.That(group.HasFailure).IsFalse();
 
@@ -556,7 +556,7 @@ public class ChatTabViewModelTests {
             File.AppendAllText(path, ToolErrorLine.Replace("t1", "t2") + "\n");
             await h.TickAsync();
             await Assert.That(group.LiveCalls).IsEmpty();
-            await Assert.That(group.Summary).IsEqualTo("Searched files, read a file");
+            await Assert.That(group.Summary).IsEqualTo("Ran a command, read a file");
             await Assert.That(group.HasFailure).IsTrue();
             await Assert.That(group.IsExpanded).IsTrue();
             await h.TeardownAsync();
