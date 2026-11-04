@@ -34,17 +34,22 @@ public class PiHeadlessHarnessTests {
     }
 
     [Test]
-    public async Task The_model_and_system_prompt_reach_the_command_line_and_the_prompt_reaches_stdin() {
+    public async Task The_model_reaches_the_command_line_the_system_prompt_its_file_and_the_prompt_stdin() {
         Skip.When(OperatingSystem.IsWindows(), "the fake pi is a POSIX shell script");
 
-        var argsFile  = Bin.PathTo("args.txt");
-        var stdinFile = Bin.PathTo("stdin.txt");
+        var argsFile   = Bin.PathTo("args.txt");
+        var stdinFile  = Bin.PathTo("stdin.txt");
+        var systemCopy = Bin.PathTo("system.txt");
         var harness   = Harness(TestBinaries.Searching(Bin, "pi"));
 
         Bin.CreateExecutable("pi", $$"""
             #!/bin/sh
             printf '%s\n' "$@" > '{{argsFile}}'
             cat > '{{stdinFile}}'
+            while [ $# -gt 0 ]; do
+              if [ "$1" = "--system-prompt" ]; then cp "$2" '{{systemCopy}}'; fi
+              shift
+            done
             exit 0
             """);
 
@@ -55,7 +60,7 @@ public class PiHeadlessHarnessTests {
         var args = await File.ReadAllTextAsync(argsFile);
 
         await Assert.That(args).Contains("--model\nsome-model\n");
-        await Assert.That(args).Contains("--system-prompt\nBe terse.\n");
+        await Assert.That(await File.ReadAllTextAsync(systemCopy)).IsEqualTo("Be terse.");
         await Assert.That(await File.ReadAllTextAsync(stdinFile)).Contains("the-prompt");
     }
 }

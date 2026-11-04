@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Headless;
 
@@ -13,6 +14,10 @@ namespace Capacitor.Cli.Core.Harness.Pi;
 /// </remarks>
 static class PiCliRunner {
     public const string NeutralSystemPrompt = "Answer the request directly.";
+
+    const string SystemPromptFile = "system-prompt.md";
+
+    static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>
     /// Runs the prompt once with every tool, extension and user instruction source off, inside a fresh
@@ -51,9 +56,25 @@ static class PiCliRunner {
         }
 
         using (run) {
-            var system = string.IsNullOrWhiteSpace(systemPrompt) ? NeutralSystemPrompt : systemPrompt;
+            HeadlessRunDirectory cwd;
 
-            return await RunCoreAsync(BuildPrompt(prompt, schema), timeout, time, log, run.Path, model, schema, system, executable, ct);
+            try {
+                cwd = run.Child("cwd");
+            } catch (HeadlessRunRefusedException ex) {
+                log(ex.Message);
+
+                return new(null, ClaudeCliFailure.ProcessFailure, Error: ex.Message);
+            }
+
+            using (cwd) {
+                // A file, never argv: on Windows pi is a cmd.exe shim, which cuts an argument at its first
+                // newline and expands %VAR% in it.
+                var systemFile = Path.Combine(run.Path, SystemPromptFile);
+                var system     = string.IsNullOrWhiteSpace(systemPrompt) ? NeutralSystemPrompt : systemPrompt;
+                await File.WriteAllTextAsync(systemFile, system, Utf8NoBom, ct);
+
+                return await RunCoreAsync(BuildPrompt(prompt, schema), timeout, time, log, cwd.Path, model, schema, systemFile, executable, ct);
+            }
         }
     }
 
@@ -65,7 +86,7 @@ static class PiCliRunner {
             string            workingDir,
             string?           model,
             string?           schema,
-            string            systemPrompt,
+            string            systemPromptFile,
             string            executable,
             CancellationToken ct
         ) {
@@ -77,7 +98,7 @@ static class PiCliRunner {
             }
         };
 
-        foreach (var arg in BuildArgs(systemPrompt, model)) {
+        foreach (var arg in BuildArgs(systemPromptFile, model)) {
             psi.ArgumentList.Add(arg);
         }
 
@@ -150,11 +171,12 @@ static class PiCliRunner {
     }
 
     /// <summary>
-    /// The ordered <c>pi</c> argument list. The prompt goes on stdin, never on the command line. Both system
-    /// prompt flags are always passed: they are the only way to displace the user's <c>SYSTEM.md</c> and
-    /// <c>APPEND_SYSTEM.md</c>, which <c>--no-context-files</c> leaves in place.
+    /// The ordered <c>pi</c> argument list. The prompt goes on stdin and the system prompt in a file, which
+    /// <c>--system-prompt</c> reads when given an existing path. Both system prompt flags are always passed:
+    /// they are the only way to displace the user's <c>SYSTEM.md</c> and <c>APPEND_SYSTEM.md</c>, which
+    /// <c>--no-context-files</c> leaves in place.
     /// </summary>
-    internal static List<string> BuildArgs(string systemPrompt, string? model) {
+    internal static List<string> BuildArgs(string systemPromptFile, string? model) {
         List<string> args = [
             "-p",
             "--mode", "json",
@@ -168,7 +190,7 @@ static class PiCliRunner {
             "--no-session",
             // Without it, Pi installs the user's configured npm packages at startup.
             "--offline",
-            "--system-prompt", systemPrompt,
+            "--system-prompt", systemPromptFile,
             "--append-system-prompt", ""
         ];
 

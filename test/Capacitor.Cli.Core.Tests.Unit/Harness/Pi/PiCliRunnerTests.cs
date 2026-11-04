@@ -55,24 +55,43 @@ public class PiCliRunnerTests {
         await Assert.That(Directory.Exists(RunsRoot) ? Directory.EnumerateFileSystemEntries(RunsRoot) : []).IsEmpty();
 
     [Test]
-    public async Task BuildArgs_locks_the_run_down_and_replaces_both_system_prompts() {
-        await Assert.That(PiCliRunner.BuildArgs("You write titles.", null))
-            .IsEquivalentTo([.. Lockdown, "--system-prompt", "You write titles.", "--append-system-prompt", ""], TUnit.Assertions.Enums.CollectionOrdering.Matching);
-    }
-
-    [Test]
     [Arguments(null)]
     [Arguments("")]
     [Arguments("  ")]
-    public async Task BuildArgs_leaves_the_model_to_pi_when_none_is_given(string? model) {
-        await Assert.That(PiCliRunner.BuildArgs(PiCliRunner.NeutralSystemPrompt, model))
-            .IsEquivalentTo([.. Lockdown, "--system-prompt", "Answer the request directly.", "--append-system-prompt", ""], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    public async Task BuildArgs_locks_the_run_down_names_the_system_prompt_file_and_leaves_the_model_to_pi(string? model) {
+        await Assert.That(PiCliRunner.BuildArgs("/r/system-prompt.md", model))
+            .IsEquivalentTo([.. Lockdown, "--system-prompt", "/r/system-prompt.md", "--append-system-prompt", ""], TUnit.Assertions.Enums.CollectionOrdering.Matching);
     }
 
     [Test]
     public async Task BuildArgs_passes_a_model_last() {
-        await Assert.That(PiCliRunner.BuildArgs("s", "anthropic/claude-haiku-4-5"))
-            .IsEquivalentTo([.. Lockdown, "--system-prompt", "s", "--append-system-prompt", "", "--model", "anthropic/claude-haiku-4-5"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That(PiCliRunner.BuildArgs("/r/system-prompt.md", "anthropic/claude-haiku-4-5"))
+            .IsEquivalentTo([.. Lockdown, "--system-prompt", "/r/system-prompt.md", "--append-system-prompt", "", "--model", "anthropic/claude-haiku-4-5"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    /// <summary>The fake records each argument NUL-terminated and copies the file <c>--system-prompt</c> names, so a
+    /// multi-line system prompt is seen arriving whole while no argument carries a newline.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    [Arguments("You write titles.\nUse 100% of the %PATH% & keep \"quotes\".", "You write titles.\nUse 100% of the %PATH% & keep \"quotes\".")]
+    [Arguments(null, PiCliRunner.NeutralSystemPrompt)]
+    [Arguments("  ", PiCliRunner.NeutralSystemPrompt)]
+    public async Task The_system_prompt_reaches_pi_as_a_utf8_file_and_never_on_argv(string? systemPrompt, string expected) {
+        var seen = Tmp.CreateDir("seen").Path;
+        var pi = FakePi($"""
+            cat > /dev/null
+            for a in "$@"; do printf '%s\0' "$a" >> '{seen}/argv'; done
+            while [ $# -gt 0 ]; do [ "$1" = --system-prompt ] && cp "$2" '{seen}/system'; shift; done
+            cat '{Tmp.CreateFile("answer.jsonl", AgentEnd("ok") + "\n")}'
+            """);
+
+        var outcome = await Run(pi, model: "a/m", systemPrompt: systemPrompt);
+
+        await Assert.That(outcome.Result!.Result).IsEqualTo("ok");
+        await Assert.That(await File.ReadAllBytesAsync(Path.Combine(seen, "system"))).IsEquivalentTo(new UTF8Encoding(false).GetBytes(expected), TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        var argv = (await File.ReadAllTextAsync(Path.Combine(seen, "argv"))).Split('\0')[..^1];
+        await Assert.That(argv.Where(a => a.Contains('\n'))).IsEmpty();
+        await Assert.That(argv[^2..]).IsEquivalentTo(["--model", "a/m"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await RunsRootIsEmpty();
     }
 
     [Test]
@@ -214,7 +233,7 @@ public class PiCliRunnerTests {
         await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "listing"))).IsEmpty();
         await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "skip"))).IsEqualTo("1");
         var cwd = (await File.ReadAllTextAsync(Path.Combine(seen, "cwd"))).Trim();
-        await Assert.That(Path.GetFileName(cwd)).StartsWith("pi-test-");
+        await Assert.That(Path.GetFileName(Path.GetDirectoryName(cwd))!).StartsWith("pi-test-");
         await Assert.That(Directory.Exists(cwd)).IsFalse();
         await RunsRootIsEmpty();
     }
