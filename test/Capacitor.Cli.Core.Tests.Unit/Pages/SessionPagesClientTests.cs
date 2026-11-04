@@ -99,13 +99,16 @@ public class SessionPagesClientTests {
         await Assert.ThrowsAsync<OperationCanceledException>(() => client.ReadAsync(Session, cts.Token));
     }
 
-    /// A citation posts the session's canonical id to the page's sources route, and only a success
-    /// counts: an older server without the route, or a page this viewer does not own, records nothing.
+    /// A citation posts the session's canonical id to the page's sources route. A refusal (an older
+    /// server without the route, a page this viewer does not own) is final; a lapsed sign-in or a
+    /// server error may pass.
     [Test]
     [Arguments(HttpStatusCode.NoContent, true)]
     [Arguments(HttpStatusCode.Forbidden, false)]
     [Arguments(HttpStatusCode.NotFound, false)]
-    public async Task A_citation_posts_the_session_to_the_pages_sources(HttpStatusCode status, bool cited) {
+    [Arguments(HttpStatusCode.Unauthorized, null)]
+    [Arguments(HttpStatusCode.BadGateway, null)]
+    public async Task A_citation_posts_the_session_to_the_pages_sources(HttpStatusCode status, bool? cited) {
         var (client, handler) = Build(status);
 
         var result = await client.CiteAsync("p 1", "01234567-89ab-cdef-0123-456789abcdef", CancellationToken.None);

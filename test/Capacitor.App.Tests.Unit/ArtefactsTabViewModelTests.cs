@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using System.Reactive.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -746,25 +747,29 @@ public class ArtefactsTabViewModelTests {
         });
     }
 
-    /// A refused citation (a page this viewer does not own, a server without the route) is not asked
-    /// again on the next read, and reads nothing extra.
+    /// A refused citation (a page this viewer does not own, a server without the route) is asked once;
+    /// one that failed in a way that may pass is asked again on later reads, a bounded number of times.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_refused_citation_is_not_asked_again() {
+    [Arguments(false, 1)]
+    [Arguments(null, ArtefactsTabViewModel.MaxCitationAttempts)]
+    public async Task A_citation_is_asked_again_only_after_a_failure_that_may_pass(bool? answer, int asks) {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            h.Source.CiteAnswer = false;
+            h.Source.CiteAnswer = answer;
             h.Activity.StartFeed("/t/a.jsonl");
             h.Vm.TranscriptKey = "/t/a.jsonl";
             h.PublishPage("c1", pageId: "theirs");
             await h.SwitchAsync(SessionA);
-            await h.Vm.PendingCitationsForTesting!;
 
-            h.Vm.Refresh();
-            await h.SettledAsync();
+            for (var read = 0; read < ArtefactsTabViewModel.MaxCitationAttempts + 1; read++) {
+                await (h.Vm.PendingCitationsForTesting ?? Task.CompletedTask);
+                Dispatcher.UIThread.RunJobs();
+                h.Vm.Refresh();
+                await h.SettledAsync();
+            }
 
-            await Assert.That(h.Source.Cited.Count).IsEqualTo(1);
-            await Assert.That(h.Source.RequestedPages.Count).IsEqualTo(2);
+            await Assert.That(h.Source.Cited.Count).IsEqualTo(asks);
             await h.Vm.TeardownAsync();
         });
     }

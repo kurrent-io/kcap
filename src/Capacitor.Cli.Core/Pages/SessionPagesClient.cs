@@ -35,8 +35,9 @@ public sealed class SessionPagesClient(HttpClient http, string serverUrl) {
         }
     }
 
-    /// Cites <paramref name="sessionId"/> on the page; true only when the server recorded it.
-    public async Task<bool> CiteAsync(string pageId, string sessionId, CancellationToken ct) {
+    /// Cites <paramref name="sessionId"/> on the page: true when the server recorded it, false when it
+    /// refused (not the caller's page, or a server without the route), null when asking again may work.
+    public async Task<bool?> CiteAsync(string pageId, string sessionId, CancellationToken ct) {
         if (WorkContextIds.CanonicalSessionId(sessionId) is not { } id || string.IsNullOrWhiteSpace(pageId)) return false;
 
         try {
@@ -45,9 +46,13 @@ public sealed class SessionPagesClient(HttpClient http, string serverUrl) {
             };
             using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
 
-            return resp.IsSuccessStatusCode;
+            return (int)resp.StatusCode switch {
+                >= 200 and < 300 => true,
+                401 or 408 or 429 or >= 500 => null,
+                _ => false,
+            };
         } catch (Exception e) when (IsTransient(e, ct)) {
-            return false;
+            return null;
         }
     }
 

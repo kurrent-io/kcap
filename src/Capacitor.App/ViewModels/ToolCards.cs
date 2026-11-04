@@ -49,11 +49,12 @@ public static partial class ToolCards {
     }
 
     /// The id of the page a publish result names. Read from the head of the text, so a result cut
-    /// at the transcript's cap still yields the id its first field carries.
+    /// at the transcript's cap still yields the id its first field carries, escaped or not: a cut MCP
+    /// wrapper does not parse, and its text block keeps the inner quotes escaped.
     public static string? PublishedPageId(string? resultText) =>
         McpText(resultText) is { } text && PageIdField().Match(text) is { Success: true } match ? match.Groups[1].Value : null;
 
-    [GeneratedRegex("\"(?:page_id|artefact_id)\"\\s*:\\s*\"([0-9A-Za-z_-]{1,64})\"")]
+    [GeneratedRegex("\\\\?\"(?:page_id|artefact_id)\\\\?\"\\s*:\\s*\\\\?\"([0-9A-Za-z_-]{1,64})\\\\?\"")]
     private static partial Regex PageIdField();
 
     static ToolCard? Document(string? inputJson) {

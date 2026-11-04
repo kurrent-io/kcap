@@ -1,4 +1,5 @@
 using System.Globalization;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Pages;
 
@@ -57,8 +58,8 @@ class ArtefactCommand(IArtefactsApi artefacts) {
         var html = ReadHtml(flags.Positionals[0]);
         if (html is null) return 1;
 
-        var sources = flags.Values("--session");
-        if (sources.Count == 0 && ArgParsing.ResolveSessionIdFromEnv() is { Length: > 0 } ambient) sources.Add(ambient);
+        var sources = flags.Values("--session").Select(SessionIds.Canonical).OfType<string>().ToList();
+        if (sources.Count == 0 && SessionIds.Canonical(ArgParsing.ResolveSessionIdFromEnv()) is { } ambient) sources.Add(ambient);
 
         // --update is a new version of something that already exists, and the server owns everything
         // else about it: a title or an audience passed here would be silently dropped, so say so

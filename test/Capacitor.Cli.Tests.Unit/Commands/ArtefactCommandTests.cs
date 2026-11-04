@@ -26,11 +26,11 @@ public class ArtefactCommandTests {
         var api = new RecordingArtefactsApi();
 
         using var console = ConsoleOutput.StartFullCapture();
-        var exit = await new ArtefactCommand(api).HandleAsync(["artefact", "publish", Page(), "--update", "a1", "--session", "s1"]);
+        var exit = await new ArtefactCommand(api).HandleAsync(["artefact", "publish", Page(), "--update", "a1", "--session", "01234567-89ab-cdef-0123-456789abcdef"]);
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(api.Calls).IsEquivalentTo(new[] { "version:a1" });
-        await Assert.That(api.VersionSources).IsEquivalentTo(new[] { "s1" });
+        await Assert.That(api.VersionSources).IsEquivalentTo(new[] { "0123456789abcdef0123456789abcdef" });
     }
 
     [Test]

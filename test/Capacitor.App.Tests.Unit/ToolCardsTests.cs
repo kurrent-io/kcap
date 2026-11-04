@@ -132,6 +132,7 @@ public class ToolCardsTests {
     [Arguments("""{"page":{"page_id":"abc123","title":"T"}}""", "abc123")]
     [Arguments("""{"artefact":{"artefact_id":"abc123","title":"T","url":"https://k""", "abc123")]
     [Arguments("""{"content":[{"type":"text","text":"{\"page\":{\"page_id\":\"abc123\"}}"}]}""", "abc123")]
+    [Arguments("""{"content":[{"type":"text","text":"{\"page\":{\"page_id\":\"abc123\",\"title""", "abc123")]
     [Arguments("""Error: not found""", null)]
     [Arguments(null, null)]
     public async Task A_publish_result_names_its_page(string? result, string? pageId) =>

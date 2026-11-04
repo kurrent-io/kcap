@@ -44,8 +44,11 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     bool _pagesFailed;
     /// The kind of the last pages answer this lease applied; null until one lands.
     SessionPlansReadKind? _pagesKind;
-    /// Pages this app has already asked the server to cite a session on, so a refusal is not retried.
-    readonly HashSet<(string SessionId, string PageId)> _citationsAsked = [];
+    /// How often each session and page citation was asked; an answer, either way, ends the asking, and
+    /// a failure that may pass is asked again a bounded number of times.
+    readonly Dictionary<(string SessionId, string PageId), int> _citationAttempts = [];
+    readonly HashSet<(string SessionId, string PageId)> _citationsInFlight = [];
+    internal const int MaxCitationAttempts = 3;
     bool _pagesExpanded;
 
     public IAvaloniaReadOnlyList<DocumentRow> Documents => _documents;
@@ -426,16 +429,25 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         if (_source is null || !_pageReads.HasCurrent || _pageReads.CurrentState is not { } sessionId) return;
         if (_activity.FeedKey is not { } feed || feed != TranscriptKey) return;
         var unlisted = _activity.PublishedPageIds
-            .Where(id => listed.All(p => p.Id != id) && _citationsAsked.Add((sessionId, id)))
+            .Where(id => listed.All(p => p.Id != id)
+                && _citationAttempts.GetValueOrDefault((sessionId, id)) < MaxCitationAttempts
+                && _citationsInFlight.Add((sessionId, id)))
             .ToList();
+        foreach (var id in unlisted) _citationAttempts[(sessionId, id)] = _citationAttempts.GetValueOrDefault((sessionId, id)) + 1;
         if (unlisted.Count > 0) PendingCitationsForTesting = CiteAsync(sessionId, unlisted);
     }
 
     async Task CiteAsync(string sessionId, List<string> pageIds) {
         var cited = false;
         foreach (var pageId in pageIds) {
-            try { cited |= await _source!.CitePageAsync(pageId, sessionId, CancellationToken.None); }
+            bool? answer = null;
+            try { answer = await _source!.CitePageAsync(pageId, sessionId, CancellationToken.None); }
             catch (Exception ex) { Console.Error.WriteLine($"kcap: artefacts tab cite: {ex.Message}"); }
+            RxSchedulers.MainThreadScheduler.Schedule(() => {
+                _citationsInFlight.Remove((sessionId, pageId));
+                if (answer is not null) _citationAttempts[(sessionId, pageId)] = MaxCitationAttempts;
+            });
+            cited |= answer == true;
         }
         if (!cited) return;
         RxSchedulers.MainThreadScheduler.Schedule(() => {
