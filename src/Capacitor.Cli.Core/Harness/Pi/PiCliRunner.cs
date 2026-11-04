@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Headless;
 
@@ -14,8 +13,6 @@ namespace Capacitor.Cli.Core.Harness.Pi;
 /// </remarks>
 static class PiCliRunner {
     public const string NeutralSystemPrompt = "Answer the request directly.";
-
-    static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>
     /// Runs the prompt once with every tool, extension and user instruction source off, inside a fresh
@@ -73,16 +70,8 @@ static class PiCliRunner {
             CancellationToken ct
         ) {
         var psi = new ProcessStartInfo {
-            FileName               = executable,
-            WorkingDirectory       = workingDir,
-            RedirectStandardOutput = true,
-            RedirectStandardError  = true,
-            RedirectStandardInput  = true,
-            StandardInputEncoding  = Utf8NoBom,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding  = Encoding.UTF8,
-            UseShellExecute        = false,
-            CreateNoWindow         = true,
+            FileName         = executable,
+            WorkingDirectory = workingDir,
             Environment = {
                 [HostedAgent.SkipVar] = "1"
             }
@@ -92,72 +81,30 @@ static class PiCliRunner {
             psi.ArgumentList.Add(arg);
         }
 
-        using var process = CliProcess.TryStart(psi, log);
+        var events = new PiJsonEvents();
+        var exit   = await HeadlessProcess.RunAsync(psi, input, events.Accept, null, timeout, time, log, ct);
 
-        if (process is null) {
-            log("Failed to start pi process");
+        if (exit is null) return new(null, ClaudeCliFailure.ProcessFailure, Error: "pi could not be started");
+        if (exit.TimedOut) return new(null, ClaudeCliFailure.Timeout, events.Usage);
 
-            return new(null, ClaudeCliFailure.ProcessFailure, Error: "pi could not be started");
-        }
-
-        // Read without a token so the events seen before a kill survive it.
-        var events     = new PiJsonEvents();
-        var stdoutTask = ReadEventsAsync(process.StandardOutput, events);
-        var stderrTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
-
-        using var timeoutCts = new CancellationTokenSource(timeout, time);
-        using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-
-        try {
-            await process.StandardInput.WriteAsync(input.AsMemory(), linkedCts.Token);
-            await process.StandardInput.FlushAsync(linkedCts.Token);
-            process.StandardInput.Close();
-
-            await process.WaitForExitAsync(linkedCts.Token);
-        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-            await KillAsync(process, stdoutTask, time);
-
-            throw;
-        } catch (OperationCanceledException) {
-            log($"Pi process timed out ({timeout.TotalSeconds:0}s), killing");
-            await KillAsync(process, stdoutTask, time);
-
-            return new(null, ClaudeCliFailure.Timeout, events.Usage);
-        } catch (Exception ex) {
-            log($"Failed to stream prompt to pi stdin: {ex.Message}");
-            await KillAsync(process, stdoutTask, time);
-
-            return new(null, ClaudeCliFailure.ProcessFailure, events.Usage, Error: ex.Message);
-        }
-
-        try {
-            await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(linkedCts.Token);
-        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-            throw;
-        } catch (OperationCanceledException) {
-            // A descendant that outlived pi holds the pipe; pi itself has written all it will.
-            log("Pi exited but its output stayed open to the deadline; using what was read");
-            CloseOutput(process);
-        }
-
-        return Outcome(events, process.ExitCode, stderrTask.IsCompletedSuccessfully ? stderrTask.Result : "", model, schema, log);
+        return Outcome(events, exit, model, schema, log);
     }
 
-    static ClaudeCliOutcome Outcome(PiJsonEvents events, int exitCode, string stderr, string? model, string? schema, Action<string> log) {
+    static ClaudeCliOutcome Outcome(PiJsonEvents events, HeadlessProcessExit exit, string? model, string? schema, Action<string> log) {
         var usage = events.Usage;
 
         switch (events.StopReason) {
             case null: {
-                var trimmed = stderr.Trim();
+                var trimmed = exit.Stderr.Trim();
                 var tail    = trimmed.Length > 800 ? "…" + trimmed[^800..] : trimmed;
-                var message = tail.Length > 0 ? tail : $"pi exited with code {exitCode} and no reply";
-                log($"Pi ended without a reply: {SanitizeForLog(message)}");
+                var message = tail.Length > 0 ? tail : $"pi exited with code {exit.ExitCode} and no reply";
+                log($"Pi ended without a reply: {HeadlessProcess.ForLog(message)}");
 
                 return new(null, HeadlessFailureClassifier.Classify(null, tail), usage, Error: message);
             }
             case "error": {
                 var message = events.ErrorMessage;
-                log($"Pi reported an error: {SanitizeForLog(message ?? "")}");
+                log($"Pi reported an error: {HeadlessProcess.ForLog(message ?? "")}");
 
                 return new(null, HeadlessFailureClassifier.Classify(HeadlessFailureClassifier.StatusFromMessage(message), message), usage,
                     Error: message ?? "pi stopped with an error");
@@ -189,7 +136,7 @@ static class PiCliRunner {
         return new(
             new ClaudeCliResult(
                 Result: reply,
-                Model: string.IsNullOrWhiteSpace(model) ? null : model,
+                Model: string.IsNullOrWhiteSpace(model) ? events.Model : model,
                 InputTokens: usage?.InputTokens           ?? 0,
                 OutputTokens: usage?.OutputTokens         ?? 0,
                 CacheReadTokens: usage?.CacheReadTokens   ?? 0,
@@ -235,50 +182,4 @@ static class PiCliRunner {
 
     internal static string BuildPrompt(string prompt, string? jsonSchema) =>
         string.IsNullOrWhiteSpace(jsonSchema) ? prompt : $"{prompt}\n\n{StructuredReply.SchemaInstruction(jsonSchema)}";
-
-    static async Task ReadEventsAsync(StreamReader stdout, PiJsonEvents events) {
-        try {
-            while (await stdout.ReadLineAsync() is { } line) {
-                events.Accept(line);
-            }
-        } catch (Exception e) when (e is ObjectDisposedException or IOException) { }
-    }
-
-    /// <summary>The run directory is removed next, so the process is waited out; a grandchild that inherited
-    /// stdout can hold the pipe open past the kill, so the waits are bounded.</summary>
-    static async Task KillAsync(Process process, Task stdoutTask, TimeProvider time) {
-        try { ProcessTree.Kill(process); } catch {
-            /* already gone */
-        }
-
-        try {
-            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5), time);
-            await stdoutTask.WaitAsync(TimeSpan.FromSeconds(5), time);
-        } catch {
-            CloseOutput(process);
-        }
-    }
-
-    /// <summary>Ends reads a descendant would otherwise keep pending: the process does not dispose its own readers.</summary>
-    static void CloseOutput(Process process) {
-        try { process.StandardOutput.Dispose(); } catch { /* best effort */ }
-        try { process.StandardError.Dispose(); } catch { /* best effort */ }
-    }
-
-    static string SanitizeForLog(string value) {
-        var sb = new StringBuilder(value.Length);
-
-        foreach (var ch in value) {
-            if (ch is '\r' or '\n') {
-                sb.Append("\\n");
-                continue;
-            }
-
-            if (char.IsControl(ch)) continue;
-
-            sb.Append(ch);
-        }
-
-        return sb.ToString();
-    }
 }

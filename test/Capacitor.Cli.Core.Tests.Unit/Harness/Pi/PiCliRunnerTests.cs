@@ -104,13 +104,13 @@ public class PiCliRunnerTests {
     }
 
     [Test, ExcludeOn(OS.Windows)]
-    public async Task A_captured_success_is_a_result_with_its_usage_and_cost() {
-        var outcome = await Run(Replaying(Fixture("success")), model: "claude-haiku-4-5");
+    public async Task A_captured_success_is_a_result_with_its_usage_cost_and_the_model_pi_chose() {
+        var outcome = await Run(Replaying(Fixture("success")));
 
         await Assert.That(outcome.Failure).IsNull();
         var result = outcome.Result!;
         await Assert.That(result.Result).EndsWith("""{"verdict":"fail","reason":"The loop starts at index 1 instead of 0, causing the first element of the list to be excluded from the sum."}""");
-        await Assert.That(result.Model).IsEqualTo("claude-haiku-4-5");
+        await Assert.That(result.Model).IsEqualTo("claude-haiku-4-5-20251001");
         await Assert.That(result.InputTokens + result.OutputTokens + result.CacheReadTokens + result.CacheWriteTokens).IsEqualTo(4747);
         await Assert.That(Math.Round(result.CostUsd!.Value, 4)).IsEqualTo(0.0061);
         await Assert.That(outcome.Usage).IsNotNull();
@@ -141,6 +141,13 @@ public class PiCliRunnerTests {
         var outcome = await Run(ReplayingLines(AgentEnd(text)));
 
         await Assert.That(outcome.Failure).IsEqualTo(ClaudeCliFailure.OutputUnparseable);
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_requested_model_is_reported_as_requested() {
+        var outcome = await Run(Replaying(Fixture("success")), model: "anthropic/claude-haiku-4-5");
+
+        await Assert.That(outcome.Result!.Model).IsEqualTo("anthropic/claude-haiku-4-5");
     }
 
     [Test, ExcludeOn(OS.Windows)]

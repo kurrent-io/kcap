@@ -3,7 +3,9 @@ using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Pi;
 
-/// <summary>Fixtures are <c>pi -p --mode json</c> output captured from real runs, identifiers replaced.</summary>
+/// <summary>Fixtures are <c>pi -p --mode json</c> output captured from real runs, identifiers replaced. <c>success</c>
+/// was captured with tools on, before the lockdown: it is kept for its two assistant messages, whose usage must be
+/// summed.</summary>
 public class PiJsonEventsTests {
     static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "fixtures", "pi-headless", $"{name}.jsonl");
 
@@ -22,6 +24,7 @@ public class PiJsonEventsTests {
 
         await Assert.That(events.StopReason).IsEqualTo("stop");
         await Assert.That(events.ErrorMessage).IsNull();
+        await Assert.That(events.Model).IsEqualTo("claude-haiku-4-5-20251001");
         await Assert.That(events.Reply!).StartsWith("Now I can analyze this function.");
         await Assert.That(events.Reply!).EndsWith("""{"verdict":"fail","reason":"The loop starts at index 1 instead of 0, causing the first element of the list to be excluded from the sum."}""");
 

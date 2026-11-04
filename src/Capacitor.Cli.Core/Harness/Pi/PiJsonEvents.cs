@@ -18,6 +18,9 @@ sealed class PiJsonEvents {
 
     public string? ErrorMessage { get; private set; }
 
+    /// <summary>The model that wrote the final assistant message, as Pi names it.</summary>
+    public string? Model { get; private set; }
+
     public ClaudeCliUsage? Usage { get; private set; }
 
     public void Accept(string line) {
@@ -57,6 +60,7 @@ sealed class PiJsonEvents {
 
         StopReason   = final.Str("stopReason");
         ErrorMessage = final.Str("errorMessage");
+        Model        = final.Str("model");
         Reply        = TextOf(final);
     }
 
