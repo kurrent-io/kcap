@@ -45,21 +45,29 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
 
     /// What the process being replaced shows from the moment the update is accepted until it exits: quitting
     /// first quiesces its agents' connections, which can take a while, and nothing else is on screen meanwhile.
-    public static UpdateFinishViewModel Closing(string to, TimeProvider time) =>
-        new(to, time, OperatingSystem.IsWindows());
+    public static UpdateFinishViewModel Closing(string to, TimeProvider time, DaemonHandoff handoff = DaemonHandoff.None) =>
+        new(to, time, OperatingSystem.IsWindows(), handoff);
 
     /// <param name="stopsDaemon">The installer stops the daemon with the app, as Velopack does on Windows.</param>
-    internal UpdateFinishViewModel(string to, TimeProvider time, bool stopsDaemon) {
+    /// <param name="handoff">What the app did with the daemon before it began to close.</param>
+    internal UpdateFinishViewModel(string to, TimeProvider time, bool stopsDaemon, DaemonHandoff handoff = DaemonHandoff.None) {
         _time = time;
         _closing = true;
         OpenCommand = ReactiveCommand.Create(() => { });
         SetSteps([
-            stopsDaemon
-                ? new("Closing kcap and the daemon", "Eligible agents resume if auto-resume is on", UpdateStepState.Running)
-                : new("Closing kcap", "The daemon and its agents keep running", UpdateStepState.Running),
+            ClosingStep(stopsDaemon, handoff),
             new($"Installing kcap {Display(to)}", "Reopens when it is done", UpdateStepState.Pending),
         ]);
     }
+
+    internal static UpdateStep ClosingStep(bool stopsDaemon, DaemonHandoff handoff) => (stopsDaemon, handoff) switch {
+        (false, _) => new("Closing kcap", "The daemon and its agents keep running", UpdateStepState.Running),
+        (true, DaemonHandoff.Stopped) => new("Closing kcap", "The daemon stopped. Eligible agents resume after the update", UpdateStepState.Running),
+        (true, DaemonHandoff.NotRunning) => new("Closing kcap", "The daemon is not running", UpdateStepState.Running),
+        (true, DaemonHandoff.Interrupted) => new("Closing kcap and the daemon",
+            "The daemon did not stop by itself. Running agents are interrupted. Eligible agents resume if auto-resume is on", UpdateStepState.Running),
+        _ => new("Closing kcap and the daemon", "Eligible agents resume if auto-resume is on", UpdateStepState.Running),
+    };
 
     public UpdateFinishViewModel(
             AppUpdateTransition transition, IObservable<AttachStatus> status, IObservable<(string? Version, string? Connection)> daemon,

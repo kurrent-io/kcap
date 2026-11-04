@@ -4,7 +4,10 @@ namespace Capacitor.App.Services.Mutation;
 
 public enum MutationVerb {
     Install, Replace, StartVerified, DetachedStart, Reload, AccountAdd, AccountRemove, AccountRename, AccountRewire, AccountRefresh,
-    InstallWindowsService
+    InstallWindowsService,
+    /// Windows: the daemon stops at a turn boundary before the updater replaces its install. Runs only through
+    /// <see cref="DaemonMutationLane.RunExclusiveAsync"/>.
+    StopForUpdate
 }
 
 public static class MutationVerbExtensions {

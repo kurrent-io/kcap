@@ -189,6 +189,23 @@ internal sealed partial class RestartCoordinator : BackgroundService {
     /// <summary>One poll iteration (timer-driven; also the unit-test entry point).</summary>
     internal void Tick() => Evaluate();
 
+    static readonly TimeSpan TurnBoundaryPoll = TimeSpan.FromSeconds(1);
+
+    /// <summary>The gate a self-detected update restart waits on before its <see cref="TurnWait"/> runs out.</summary>
+    internal bool AtTurnBoundaryNow => !IsBusy() && AtTurnBoundary();
+
+    /// <summary>Waits on that same gate, for at most <see cref="TurnWait"/>; false when the wait ran out first.</summary>
+    internal async Task<bool> WaitForTurnBoundaryAsync(CancellationToken ct) {
+        var deadline = _time.GetUtcNow() + TurnWait;
+        while (!AtTurnBoundaryNow) {
+            var remaining = deadline - _time.GetUtcNow();
+            if (remaining <= TimeSpan.Zero) return false;
+            await Task.Delay(remaining < TurnBoundaryPoll ? remaining : TurnBoundaryPoll, _time, ct).ConfigureAwait(false);
+        }
+
+        return true;
+    }
+
     /// <summary>
     /// Detect a binary change (if not already pending), then fire the strategy if the gate
     /// allows. The fire decision claims <c>_fired</c> under the lock for single-fire safety,

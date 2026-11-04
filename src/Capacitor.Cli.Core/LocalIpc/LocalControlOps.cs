@@ -194,6 +194,55 @@ public sealed class LocalControlOps(DaemonStore store, string daemonName, TimePr
         };
     }
 
+    /// <summary>Asks the daemon to exit for good, keeping its agents for the next daemon to resume, once its interactive
+    /// agents reach a turn boundary or its own turn wait runs out. <paramref name="waiting"/> is told that wait when the
+    /// daemon holds the stop. Cancelling <paramref name="ct"/> closes the connection, which withdraws a stop still held.
+    /// Returns once the daemon says it is stopping; a refusal or a broken exchange throws.</summary>
+    public async Task StopAtTurnBoundaryAsync(Action<TimeSpan>? waiting, CancellationToken ct) {
+        using var sock = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        try {
+            using (var connectTimeoutCts = new CancellationTokenSource(ConnectTimeout, _time))
+            using (var connectLinkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, connectTimeoutCts.Token))
+                await sock.ConnectAsync(new UnixDomainSocketEndPoint(store.SocketPath(daemonName)), connectLinkedCts.Token);
+
+            await using var stream = new NetworkStream(sock, ownsSocket: false);
+            var request = new ShutdownRequestDto("keep", "final", AtTurnBoundary: true);
+            await FrameCodec.WriteAsync(stream, LocalFrame.Shutdown(request), ct);
+
+            var reply = await ReadReplyAsync(stream, ReplyTimeout, ct);
+            if (reply.Type == FrameType.ShutdownAck && ShutdownIpc.TryParseQueued(reply.Text, out var wait)) {
+                waiting?.Invoke(wait);
+                reply = await ReadReplyAsync(stream, wait + StopReplyTimeout, ct);
+            }
+
+            switch (reply.Type) {
+                case FrameType.ShutdownAck when reply.Text == "stopping":
+                    return;
+                case FrameType.Error:
+                    throw new LocalControlOpsException(DaemonRejected, reply.Text);
+                default:
+                    throw new LocalControlOpsException(UnexpectedReply, $"unexpected daemon response to shutdown ({reply.Type} {reply.Text})");
+            }
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+            throw;
+        } catch (OperationCanceledException) {
+            throw new LocalControlOpsException(TimedOut, "timed out waiting for the daemon");
+        } catch (EndOfStreamException ex) {
+            throw new LocalControlOpsException(UnexpectedReply, ex.Message);
+        } catch (InvalidDataException ex) {
+            throw new LocalControlOpsException(UnexpectedReply, ex.Message);
+        } catch (Exception ex) when (ex is IOException or SocketException) {
+            throw new LocalControlOpsException(DaemonUnreachable, ex.Message);
+        }
+    }
+
+    async Task<LocalFrame> ReadReplyAsync(Stream stream, TimeSpan timeout, CancellationToken ct) {
+        using var timeoutCts = new CancellationTokenSource(timeout, _time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+        return await FrameCodec.ReadAsync(stream, linked.Token)
+            ?? throw new LocalControlOpsException(UnexpectedReply, "daemon closed the connection without replying");
+    }
+
     public async Task<DaemonSettingsAckDto> PutDaemonSettingsAsync(DaemonSettingsPutDto put, CancellationToken ct) {
         var json  = JsonSerializer.Serialize(put, SettingsIpcJsonContext.Default.DaemonSettingsPutDto);
         var reply = await ExchangeAsync(LocalFrame.SettingsJson(FrameType.DaemonSettingsPut, json), ReplyTimeout, ct);

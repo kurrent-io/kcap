@@ -10,7 +10,10 @@ namespace Capacitor.App.Services.Update;
 /// how a launch knows it finishes an update, and whether the update applied at all: Velopack relaunches the old
 /// version after a failed apply, so a relaunch alone proves nothing.
 /// </summary>
-public sealed record AppUpdateTransition(string Id, string Entry, string? From, string To, DateTimeOffset StartedAt) {
+/// <param name="DaemonStopped">The old process stopped the daemon before handing over, so no supervisor brings it back
+/// and the new one starts it. A record without the field, as an older version writes, reads as false.</param>
+public sealed record AppUpdateTransition(
+        string Id, string Entry, string? From, string To, DateTimeOffset StartedAt, bool DaemonStopped = false) {
     public const string FileName = "app-update-transition.json";
     public const string InApp = "in_app";
     public const string PendingAtStartup = "pending_at_startup";
@@ -19,8 +22,8 @@ public sealed record AppUpdateTransition(string Id, string Entry, string? From, 
     /// Past this the record belongs to a handover that never reached a new process.
     internal static readonly TimeSpan Freshness = TimeSpan.FromMinutes(30);
 
-    public static AppUpdateTransition Begin(string entry, string? from, string to, TimeProvider time) =>
-        new(Guid.NewGuid().ToString("N")[..12], entry, from, to, time.GetUtcNow());
+    public static AppUpdateTransition Begin(string entry, string? from, string to, TimeProvider time, bool daemonStopped = false) =>
+        new(Guid.NewGuid().ToString("N")[..12], entry, from, to, time.GetUtcNow(), daemonStopped);
 
     /// <summary>Whether the running app is the version this update installs; build metadata is ignored.</summary>
     public bool AppliedTo(string runningVersion) => PrereleaseSemver.Compare(Core(To), Core(runningVersion)) == 0;
@@ -31,6 +34,7 @@ public sealed record AppUpdateTransition(string Id, string Entry, string? From, 
         Directory.CreateDirectory(config.Directory);
         var json = new JsonObject {
             ["id"] = Id, ["entry"] = Entry, ["from"] = From, ["to"] = To, ["started_at"] = StartedAt.ToString("o"),
+            ["daemon_stopped"] = DaemonStopped,
         }.ToJsonString();
         var path = config.Path(FileName);
         var staging = path + "." + Guid.NewGuid().ToString("N");
@@ -54,7 +58,8 @@ public sealed record AppUpdateTransition(string Id, string Entry, string? From, 
                 && node["id"]?.GetValue<string>() is { Length: > 0 } id
                 && node["entry"]?.GetValue<string>() is { Length: > 0 } entry
                 && DateTimeOffset.TryParse(node["started_at"]?.GetValue<string>(), out var started)
-                ? new AppUpdateTransition(id, entry, node["from"]?.GetValue<string>(), to, started)
+                ? new AppUpdateTransition(id, entry, node["from"]?.GetValue<string>(), to, started,
+                    node["daemon_stopped"] is JsonValue stopped && stopped.TryGetValue<bool>(out var wasStopped) && wasStopped)
                 : null;
             var age = time.GetUtcNow() - transition?.StartedAt;
             return age is { } a && a >= TimeSpan.Zero && a < Freshness ? transition : null;

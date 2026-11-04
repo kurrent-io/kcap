@@ -66,6 +66,22 @@ public class ExpectedDaemonRestartTests {
         await Assert.That(h.Shown!.Reason).IsEqualTo(ExpectedDaemonRestart.Reason);
     }
 
+    /// <summary>An update that stopped the daemon itself leaves nothing to bring it back but this launch, so the ensure
+    /// must not wait the outage out, while the outage still reads as the update's restart.</summary>
+    [Test]
+    public async Task A_daemon_the_update_stopped_reads_as_restarting_but_is_not_waited_for() {
+        var raw = new BehaviorSubject<AttachStatus>(Connected);
+        AttachStatus? shown = null;
+        using var restart = new ExpectedDaemonRestart(raw, new BehaviorSubject<bool>(false), () => true, () => Task.CompletedTask,
+            new FakeTimeProvider(), appStartsDaemon: () => true);
+        using var subscription = restart.Status.Subscribe(s => shown = s);
+
+        raw.OnNext(Down);
+
+        await Assert.That(shown!.Reason).IsEqualTo(ExpectedDaemonRestart.Reason);
+        await Assert.That(restart.Expected).IsFalse();
+    }
+
     [Test]
     public async Task An_incompatible_daemon_is_never_relabelled() {
         using var h = new Harness { JustUpdated = true };
