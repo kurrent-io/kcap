@@ -19,23 +19,27 @@ public sealed partial class MacAppRemoval : IAppRemoval {
     readonly IProcessRunner        _runner;
     readonly UserHome              _home;
     readonly string                _bundleRoot;
-    readonly IReadOnlyList<string> _linkFolders;
+    readonly Func<string, KcapLinkRemover> _linkRemover;
     readonly MacUpdaterFiles?      _updaterFiles;
 
-    public MacAppRemoval(IProcessRunner runner, UserHome home, string bundleRoot)
-        : this(runner, home, bundleRoot, KcapLinkFolders.For(home), MacUpdaterFiles.ForCurrentBundle(bundleRoot, home)) { }
+    public MacAppRemoval(IProcessRunner runner, UserHome home, ConfigRoot config, string bundleRoot)
+        : this(runner, home, bundleRoot, binary => KcapLinkRemover.For(home, config, binary), MacUpdaterFiles.ForCurrentBundle(bundleRoot, home)) { }
 
     internal MacAppRemoval(IProcessRunner runner, UserHome home, string bundleRoot, IReadOnlyList<string> linkFolders,
-            MacUpdaterFiles? updaterFiles = null) {
+            MacUpdaterFiles? updaterFiles = null)
+        : this(runner, home, bundleRoot, binary => new KcapLinkRemover(linkFolders, binary), updaterFiles) { }
+
+    MacAppRemoval(IProcessRunner runner, UserHome home, string bundleRoot, Func<string, KcapLinkRemover> linkRemover,
+            MacUpdaterFiles? updaterFiles) {
         _runner      = runner;
         _home        = home;
         _bundleRoot  = bundleRoot;
-        _linkFolders = linkFolders;
+        _linkRemover = linkRemover;
         _updaterFiles = updaterFiles;
     }
 
     public async Task<IReadOnlyList<string>> RemoveLinksAsync(CancellationToken ct) {
-        var remover = new KcapLinkRemover(_linkFolders, BundleBinary);
+        var remover = _linkRemover(BundleBinary);
         await RemoveAsAdminAsync(remover.Remove(), ct).ConfigureAwait(false);
         return [.. remover.Find(), .. RemoveProfileLines()];
     }

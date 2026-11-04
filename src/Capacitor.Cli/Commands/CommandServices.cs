@@ -167,7 +167,7 @@ public static class CommandServices {
         services.AddTransient<McpKnowledgeServer>();
         services.AddTransient<McpReviewServer>();
         services.AddTransient<McpJudgeServer>();
-        services.AddSingleton(sp => new KcapLinkRemover(KcapLinkFolders.For(sp.GetRequiredService<UserHome>()), Environment.ProcessPath ?? ""));
+        services.AddSingleton(sp => KcapLinkRemover.For(sp.GetRequiredService<UserHome>(), sp.GetRequiredService<ConfigRoot>(), Environment.ProcessPath ?? ""));
         services.AddTransient<UninstallCommand>();
         services.AddTransient<UpdateCommand>();
         services.AddTransient<RefreshCommand>();
