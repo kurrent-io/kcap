@@ -14,7 +14,7 @@ public static class RailClearance {
     // from the buttons, at any zoom; only their size scales.
     static readonly bool BesideWindowButtons = OperatingSystem.IsMacOS();
     const double WindowButtonsMiddle = 14;
-    const double CentreBesideWindowButtons = 92;
+    const double CentreBesideWindowButtons = 82;
 
     public static readonly double ButtonSize = BesideWindowButtons ? 24 : 30;
     public const double Spacing = 4;
