@@ -167,6 +167,40 @@ public class AdoptionPreflightTests {
     }
 
     [Test]
+    public async Task A_recorded_Left_install_with_the_same_identity_stays_left() {
+        var s        = Script("a");
+        var recorded = new RecordedInstall(s.Install, InstallState.Left, LeftReason.PromptCancelled, null, null, null);
+        var plan     = Plan(Evidence([s.Install], s.Link), AdoptionRecord.Empty with { Installs = [recorded] },
+            canWrite: f => f != s.LinkFolder, stable: s.LinkFolder);
+        await Assert.That(plan.Installs.Single().Left).IsEqualTo(LeftReason.PromptCancelled);
+        await Assert.That(plan.HoldReason).IsNull();
+    }
+
+    [Test]
+    public async Task A_recorded_Left_install_whose_identity_changed_is_eligible_again() {
+        var s        = Script("a");
+        var recorded = new RecordedInstall(s.Install with { Identity = "old" }, InstallState.Left, LeftReason.PromptCancelled, null, null, null);
+        var plan     = Plan(Evidence([s.Install], s.Link), AdoptionRecord.Empty with { Installs = [recorded] }, stable: s.LinkFolder);
+        await Assert.That(plan.Installs.Single().Left).IsNull();
+    }
+
+    [Test]
+    public async Task A_unit_PATH_finding_kcap_does_not_spare_a_missing_login_PATH_link() {
+        var s    = Script("a");
+        var plan = Plan(Evidence([s.Install], null, units: [Unit("u", s.Link)]), stable: s.LinkFolder);
+        await Assert.That(plan.NeedsStableLink).IsTrue();
+    }
+
+    [Test]
+    public async Task One_link_reached_through_two_path_strings_is_planned_once() {
+        var s     = Script("a");
+        var alias = Path.Combine(Tmp.Path, "alias");
+        Directory.CreateSymbolicLink(alias, s.LinkFolder);
+        var plan  = Plan(Evidence([s.Install], s.Link, units: [Unit("u", Path.Combine(alias, "kcap"))]), stable: s.LinkFolder);
+        await Assert.That(plan.Installs.Single().Links.Count).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Until_PR_C_a_batch_needing_administrator_holds() {
         var s    = Script("a");
         var plan = Plan(Evidence([s.Install], s.Link), canWrite: f => f != s.LinkFolder, stable: s.LinkFolder);

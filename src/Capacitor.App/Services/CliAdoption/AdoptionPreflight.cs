@@ -15,9 +15,11 @@ public static class AdoptionPreflight {
         if (record.MachineSwitched) return new AdoptionPlan(null, [], false, evidence.Installs);
 
         var locations = new[] { evidence.KcapOnLoginPath }.Concat(evidence.Units.Select(u => u.KcapOnStoredPath))
-            .OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+            .OfType<string>().DistinctBy(LinkKey, PathComparison.Comparer).ToList();
 
-        var installs = evidence.Installs.Select(i => PlanInstall(i, evidence, locations, bundleCli, appInSystemApplications, userCanWrite)).ToList();
+        var installs = evidence.Installs.Select(i => RecordedLeft(i, record) is { } kept
+            ? PlanInstall(i, evidence, locations, bundleCli, appInSystemApplications, userCanWrite) with { Left = kept }
+            : PlanInstall(i, evidence, locations, bundleCli, appInSystemApplications, userCanWrite)).ToList();
 
         var hold = evidence.Installs.Any(i => PrereleaseSemver.IsNewer(i.Version, appVersion)) ? NewerInstall
             : evidence.LoginPath is null                                                       ? PathUnknown
@@ -26,8 +28,8 @@ public static class AdoptionPreflight {
 
         var eligible = installs.Where(p => p.Left is null).ToList();
         var stable = stableFolders.Select(CanonicalPath.Resolve).ToList();
-        var needsStable = eligible.Count > 0 && (locations.Count == 0
-            || eligible.SelectMany(p => p.Links).Any(l => !stable.Contains(CanonicalPath.Resolve(Path.GetDirectoryName(l.Path)!), StringComparer.Ordinal)));
+        var needsStable = eligible.Count > 0 && (locations.Count == 0 || evidence.KcapOnLoginPath is null
+            || eligible.SelectMany(p => p.Links).Any(l => !stable.Contains(CanonicalPath.Resolve(Path.GetDirectoryName(l.Path)!), PathComparison.Comparer)));
 
         return new AdoptionPlan(hold, installs, needsStable, []);
     }
@@ -52,6 +54,15 @@ public static class AdoptionPreflight {
 
         return new InstallPlan(install, left, needsAdministrator, links);
     }
+
+    static string LinkKey(string location) =>
+        Path.Join(CanonicalPath.Resolve(Path.GetDirectoryName(location)!), Path.GetFileName(location));
+
+    static LeftReason? RecordedLeft(OtherCliInstall install, AdoptionRecord record) =>
+        record.Installs.FirstOrDefault(r => PathComparison.Equal(CanonicalPath.Resolve(r.Install.Root), CanonicalPath.Resolve(install.Root)))
+            is { State: InstallState.Left, Reason: { } reason } recorded && recorded.Install.Identity == install.Identity
+            ? reason
+            : null;
 
     static bool Inside(OtherCliInstall install, string path) =>
         CanonicalPath.IsWithin(path, install.Root) || install.OwnedEntries.Any(e => CanonicalPath.IsWithin(path, e));
