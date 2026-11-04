@@ -161,6 +161,8 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
                 return BuildToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true);
             }
 
+            if (toolName == "get_memory") await RecordUseAsync(client, baseUrl, body);
+
             return BuildToolResult(id, toolName switch {
                 "update_memory" => WithUncheckedVersionNotice(arguments, body),
                 "save_memory"   => WithLogFormNotice(arguments, body),
@@ -244,6 +246,27 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
         if (OptionalInt(args, "limit") is { } limit) qs.Add($"limit={limit}");
 
         return $"{baseUrl}/api/memories/search?{string.Join("&", qs)}";
+    }
+
+    /// <summary>Counts the fetch toward the memory's ranking. The server's GET counts nothing, because a browser sends
+    /// one from any site; a server older than the use route answers 404 or 405, which counts nothing either, and a
+    /// count that does not land never fails the fetch it follows.</summary>
+    internal static async Task RecordUseAsync(HttpClient client, string baseUrl, string memoryBody) {
+        string? memoryId;
+
+        try {
+            memoryId = JsonNode.Parse(memoryBody)?["memory_id"]?.GetValue<string>();
+        } catch (Exception ex) when (ex is JsonException or InvalidOperationException) {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(memoryId)) return;
+
+        try {
+            using var _ = await client.PostAsync($"{baseUrl}/api/memories/{Uri.EscapeDataString(memoryId)}/uses", null);
+        } catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) {
+            // A count that does not land costs the ranking one fetch and nothing else.
+        }
     }
 
     internal static string BuildGetUrl(string baseUrl, JsonObject? args, string? cwdRepoHash, string? machineId) =>
