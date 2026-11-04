@@ -20,11 +20,11 @@ public static class CanonicalPath {
 
     /// <summary>The fully resolved path, or false with the best-effort one: the walk ran out of
     /// symlink traversals, which is a chain too long to follow or a cycle.</summary>
-    // A rooted path is walked exactly as given: GetFullPath would fold its `..` lexically, before
-    // the component ahead of it has been resolved, which is the escape this walk exists to refuse.
-    // A relative one has no base but the process's own, so it is rooted the only way there is.
+    // The path itself never goes through GetFullPath: that folds `..` lexically, before the component
+    // ahead of it has been resolved, which is the escape this walk exists to refuse. A relative path is
+    // joined, unnormalized, to the same base GetFullPath would have used.
     public static bool TryResolve(string path, out string resolved) =>
-        RealPath(Path.IsPathRooted(path) ? path : Path.GetFullPath(path), out resolved);
+        RealPath(Path.IsPathRooted(path) ? path : Path.Join(Path.GetFullPath("."), path), out resolved);
 
     /// <summary>Whether <paramref name="candidate"/> resolves to <paramref name="boundary"/> itself
     /// or to something beneath it. A path that could not be fully resolved — either side — is within

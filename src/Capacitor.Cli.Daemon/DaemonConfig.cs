@@ -638,26 +638,6 @@ public class DaemonConfig {
         return errors;
     }
 
-    public bool IsRepoAllowed(string repoPath) {
-        if (AllowedRepoPaths.Length == 0) {
-            return true;
-        }
-
-        // Compare with forward slashes so an operator's "/*" wildcard and prefix matching work
-        // regardless of the host's native separator (Windows canonical paths use '\'). No-op on POSIX.
-        var path = repoPath.Replace('\\', '/');
-
-        return AllowedRepoPaths.Any(raw => {
-                var pattern = raw.Replace('\\', '/');
-
-                if (pattern.EndsWith("/*")) {
-                    var prefix = pattern[..^1]; // keep trailing slash: "/allowed/"
-
-                    return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || string.Equals(path, pattern[..^2], StringComparison.OrdinalIgnoreCase);
-                }
-
-                return string.Equals(path, pattern, StringComparison.OrdinalIgnoreCase);
-            }
-        );
-    }
+    public bool IsRepoAllowed(string repoPath) =>
+        AllowedRepoPaths.Length == 0 || AllowedRepoPaths.Any(pattern => RepoPathPattern.Matches(pattern, repoPath));
 }

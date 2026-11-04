@@ -6,19 +6,27 @@ namespace Capacitor.App.Services;
 /// The chosen account per host, vendor and repository, kept in <see cref="AppState.AccountByRepo"/>
 /// under "host/vendor:repo". A key splits on its first '/' and the first ':' after it — host ids
 /// are GUID "N" strings and vendor tokens hold neither — so a repo path may carry both. The repo
-/// part is "" for the not-yet-in-a-repository target (HomeViewModel.ScratchRepoPath).
+/// part is "" for the not-yet-in-a-repository target (HomeViewModel.ScratchRepoPath). A remote host's
+/// repo part is compared ordinally: this app cannot know that host's case rule, and a Linux host keeps
+/// two directories differing only in case apart.
 public static class AccountMemory {
-    public static string KeyFor(string hostId, string vendor, string repoPath) =>
-        $"{hostId}/{vendor}:{PlatformPaths.Normalize(repoPath)}";
+    public static string KeyFor(string hostId, string vendor, string repoPath, bool remote) =>
+        $"{hostId}/{vendor}:{(remote ? RemoteForm(repoPath) : PlatformPaths.Normalize(repoPath))}";
 
-    /// The repo part is compared under PlatformPaths.Comparer on read: System.Text.Json rebuilds
-    /// the dictionary with an ordinal comparer on load, so a comparer set at write time would not
-    /// survive the round-trip.
-    public static string? Lookup(IReadOnlyDictionary<string, string>? byRepo, string hostId, string vendor, string repoPath) {
+    // A remote host is not this one: only `/` separates there, so a trailing backslash is part of the name.
+    static string RemoteForm(string repoPath) {
+        var trimmed = repoPath.TrimEnd('/');
+        return trimmed.Length == 0 && repoPath.Length > 0 ? "/" : trimmed;
+    }
+
+    /// The repo part is compared on read: System.Text.Json rebuilds the dictionary with an ordinal
+    /// comparer on load, so a comparer set at write time would not survive the round-trip.
+    public static string? Lookup(
+            IReadOnlyDictionary<string, string>? byRepo, string hostId, string vendor, string repoPath, bool remote) {
         if (byRepo is null) return null;
 
         foreach (var entry in byRepo)
-            if (Matches(entry.Key, hostId, vendor, repoPath))
+            if (Matches(entry.Key, hostId, vendor, repoPath, remote))
                 return entry.Value;
 
         return null;
@@ -26,18 +34,18 @@ public static class AccountMemory {
 
     /// A null accountId clears the choice and adds nothing.
     public static IReadOnlyDictionary<string, string> With(
-        IReadOnlyDictionary<string, string>? existing, string hostId, string vendor, string repoPath, string? accountId) {
+        IReadOnlyDictionary<string, string>? existing, string hostId, string vendor, string repoPath, bool remote, string? accountId) {
         var next = new Dictionary<string, string>();
         if (existing is not null)
             foreach (var entry in existing)
-                if (!Matches(entry.Key, hostId, vendor, repoPath))
+                if (!Matches(entry.Key, hostId, vendor, repoPath, remote))
                     next[entry.Key] = entry.Value;
 
-        if (accountId is not null) next[KeyFor(hostId, vendor, repoPath)] = accountId;
+        if (accountId is not null) next[KeyFor(hostId, vendor, repoPath, remote)] = accountId;
         return next.Count == 0 ? FrozenDictionary<string, string>.Empty : next;
     }
 
-    static bool Matches(string key, string hostId, string vendor, string repoPath) {
+    static bool Matches(string key, string hostId, string vendor, string repoPath, bool remote) {
         var slash = key.IndexOf('/');
         if (slash < 0) return false;
 
@@ -46,6 +54,8 @@ public static class AccountMemory {
 
         return key.AsSpan(0, slash).SequenceEqual(hostId)
             && key.AsSpan(slash + 1, colon - slash - 1).SequenceEqual(vendor)
-            && PlatformPaths.Comparer.Equals(key[(colon + 1)..], repoPath);
+            && (remote
+                ? string.Equals(RemoteForm(key[(colon + 1)..]), RemoteForm(repoPath), StringComparison.Ordinal)
+                : PlatformPaths.Comparer.Equals(key[(colon + 1)..], repoPath));
     }
 }
