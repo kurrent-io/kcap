@@ -40,7 +40,10 @@ public sealed class AccountChooser {
 
     public static string UnavailableReason(string label) => $"{label} is not available on this machine";
 
+    /// A change of remoteness drops the snapshot: it belongs to the other kind of host, and judging this
+    /// target's memory against it under this target's path rule could clear a valid choice.
     public void EnterTarget(string repoPath, string vendor, bool remote) {
+        if (remote != _remote) _snapshot = null;
         _repoPath = repoPath;
         _vendor   = vendor;
         _remote   = remote;

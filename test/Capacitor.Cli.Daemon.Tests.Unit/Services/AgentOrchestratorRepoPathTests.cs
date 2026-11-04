@@ -34,4 +34,30 @@ public class AgentOrchestratorRepoPathTests {
         await Assert.That(claude.LastContext.Worktree.SourceRepo).IsEqualTo(canonical);
         await Assert.That(server.AgentRegisteredRepoPaths).Contains(("agent-link", (string?)link));
     }
+
+    /// <summary>A relative path names whatever the daemon's working directory leads to, so it is refused
+    /// even when that happens to be inside the allowed tree.</summary>
+    [Test]
+    public async Task A_relative_launch_path_is_refused_even_where_it_would_resolve_into_the_allowed_tree() {
+        using var repo = GitRepo.CreateWithCommit();
+        var canonical  = CanonicalPath.Resolve(repo);
+#pragma warning disable RS0030 // a relative path means the working directory, which is the point
+        var relative = Path.GetRelativePath(Environment.CurrentDirectory, canonical);
+#pragma warning restore RS0030
+        Skip.When(Path.IsPathRooted(relative), "the temp folder is on another volume than the working directory");
+
+        var server = new CaptureServerConnection();
+        var claude = new SpyHostedAgentRuntimeFactory("claude") { SupportsUnattended = true };
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
+            allowedRepoPath: canonical, extraRuntimeFactories: [claude]);
+
+        await orch.HandleLaunchAgentForTest(new LaunchAgentCommand(
+            AgentId: "agent-relative", Prompt: "do work", Model: "default", Effort: null, RepoPath: relative,
+            Tools: null, AttachmentIds: null, Vendor: "claude"));
+
+        await Assert.That(server.LaunchFailedCalls).Contains(("agent-relative", $"Repo path not allowed: {relative}"));
+        await Assert.That(claude.StartCalls).IsEqualTo(0);
+    }
 }

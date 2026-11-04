@@ -2893,7 +2893,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // A local spawn was never held to the allowed-repo list, so neither is its resume. A scratch
             // launch names no repository to allow, find or report on. Every in-place route is authorized here the
             // way a borrowed directory is, which also admits a path below an allowed git root.
-            var resolvedRepo = !cmd.ScratchWorkspace && !string.IsNullOrEmpty(repoPath) && CanonicalPath.TryResolve(repoPath, out var resolved)
+            // A relative path would resolve against the daemon's own working directory; it stays unresolved,
+            // so the allow-list matches nothing and the launch is refused.
+            var resolvedRepo = !cmd.ScratchWorkspace && !string.IsNullOrEmpty(repoPath) && Path.IsPathFullyQualified(repoPath)
+                            && CanonicalPath.TryResolve(repoPath, out var resolved)
                 ? resolved
                 : null;
 

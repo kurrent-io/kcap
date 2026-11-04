@@ -184,7 +184,7 @@ public partial class WorktreeManager {
 
                 await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 await RunGit(repoPath, GitTimeout, time, "update-ref", fetchedRef, start.Sha);
-                RefuseIfSourceMoved(repoPath, pinned);
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
 
                 switch (start.Checkout) {
                     case HandoffCheckout.CreateBranch:

@@ -104,7 +104,7 @@ public class HomeViewModelAccountTests {
                 DaemonStatusDto? local = null, string? localMachineId = null, Func<CancellationToken, Task<string?>>? viewerId = null) {
             if (memory is not null)
                 await Store.UpdateAsync(s => s with {
-                    AccountByRepo = memory.ToDictionary(m => AccountMemory.KeyFor(m.Host, m.Vendor, m.Repo), m => m.Id),
+                    AccountByRepo = memory.ToDictionary(m => AccountMemory.KeyFor(m.Host, m.Vendor, m.Repo, remote: false), m => m.Id),
                 });
             Daemon.SnapshotsSubject.OnNext(local ?? FakeDaemonClientService.Snap());
             Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
@@ -441,7 +441,7 @@ public class HomeViewModelAccountTests {
             await vm.SelectMachineAsync("box-2", isLocal: false);
             await Assert.That(vm.SelectedAccountLabel).IsEqualTo("shared-work");
             await Assert.That((await rig.Store.LoadAsync()).AccountByRepo!.Keys).IsEquivalentTo(
-                new[] { AccountMemory.KeyFor("h9", "claude", "/w/repo") });
+                new[] { AccountMemory.KeyFor("h9", "claude", "/w/repo", remote: true) });
         });
     }
 

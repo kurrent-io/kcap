@@ -278,18 +278,18 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await Assert.That(f.Orch.GetAgentForTest(AgentId)!.LaunchFailureVerdictReported).IsEqualTo(0);
     }
 
-    /// <summary>Consent judges the directory the resume runs in: a rule naming only the symlink does not admit its
-    /// target.</summary>
+    /// <summary>Consent judges the directory the resume runs in: a rule denying that directory refuses a resume
+    /// recorded under a symlink to it, whatever the default.</summary>
     [Test]
     public async Task Consent_judges_where_a_symlinked_directory_resolves() {
         var link   = Tmp.PathTo("link");
         var policy = Tmp.CreateDir("consent");
         var store  = new LaunchConsentStore(policy, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeProvider.System);
-        store.TryReplace(new LaunchConsentPolicy(LaunchConsentDefault.Deny, 5, [new LaunchConsentRule("allow", null, null, link, null)]), out _);
         var gate = new LaunchConsentGate(store, new LaunchConsentDecisionLog(policy, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
             prompter: null, TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<LaunchConsentGate>.Instance);
         await using var f = new Fixture(Tmp, new LoadableFactory("claude"), consent: gate);
         Directory.CreateSymbolicLink(link, f.Checkout);
+        store.TryReplace(new LaunchConsentPolicy(LaunchConsentDefault.Allow, 5, [new LaunchConsentRule("deny", null, null, f.Checkout, null)]), out _);
 
         await f.Orch.HandleLaunchAgentForTest(f.Launch(directory: link));
 

@@ -368,10 +368,28 @@ public class AccountChooserTests {
 
         _remoteFlags.Clear();
         chooser.EnterTarget(Repo, "claude", remote: false);
+        chooser.SetSnapshot(Snapshot("h1", Account("a2", "work", "/u/.claude-work")));
         chooser.Pick("a2");
 
         await Assert.That(_remoteFlags).IsNotEmpty();
         await Assert.That(_remoteFlags.Any(remote => remote)).IsFalse();
+    }
+
+    /// <summary>The snapshot at hand belongs to the remote host just left; judging the local target's
+    /// memory against it would drop an entry that snapshot was never going to list.</summary>
+    [Test]
+    public async Task Leaving_a_remote_target_does_not_judge_local_memory_against_the_remote_snapshot() {
+        _memory[("h1", "claude", "/r/app")] = "local-only";
+        var chooser = NewChooser();
+        chooser.EnterTarget("/r/App", "claude", remote: true);
+        chooser.SetMemoryLoaded(true);
+        chooser.SetSupport(AccountSupport.Supported, fetchFailed: false);
+        chooser.SetSnapshot(HomeAndWork);
+
+        chooser.EnterTarget("/r/app", "claude", remote: false);
+
+        await Assert.That(_writes).DoesNotContain("h1/claude:/r/app=null");
+        await Assert.That(_memory[("h1", "claude", "/r/app")]).IsEqualTo("local-only");
     }
 
     [Test]

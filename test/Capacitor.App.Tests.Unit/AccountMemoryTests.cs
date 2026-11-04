@@ -35,6 +35,12 @@ public class AccountMemoryTests {
         await Assert.That(AccountMemory.Lookup(byRepo, Host, "claude", "/w/repo/", remote: true)).IsEqualTo("a2");
         await Assert.That(AccountMemory.Lookup(byRepo, Host, "claude", "/W/REPO", remote: true)).IsNull();
 
+        // Only `/` separates on a remote host, whatever this one uses: a trailing backslash is part of a name.
+        var backslashed = AccountMemory.With(byRepo, Host, "claude", "/w/repo\\", remote: true, "a3");
+        await Assert.That(backslashed.Count).IsEqualTo(3);
+        await Assert.That(AccountMemory.Lookup(backslashed, Host, "claude", "/w/repo", remote: true)).IsEqualTo("a2");
+        await Assert.That(AccountMemory.Lookup(backslashed, Host, "claude", "/w/repo\\", remote: true)).IsEqualTo("a3");
+
         var cleared = AccountMemory.With(byRepo, Host, "claude", "/w/repo", remote: true, null);
 
         await Assert.That(AccountMemory.Lookup(cleared, Host, "claude", "/w/Repo", remote: true)).IsEqualTo("a1");

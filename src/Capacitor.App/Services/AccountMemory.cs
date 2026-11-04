@@ -10,8 +10,14 @@ namespace Capacitor.App.Services;
 /// repo part is compared ordinally: this app cannot know that host's case rule, and a Linux host keeps
 /// two directories differing only in case apart.
 public static class AccountMemory {
-    public static string KeyFor(string hostId, string vendor, string repoPath) =>
-        $"{hostId}/{vendor}:{PlatformPaths.Normalize(repoPath)}";
+    public static string KeyFor(string hostId, string vendor, string repoPath, bool remote) =>
+        $"{hostId}/{vendor}:{(remote ? RemoteForm(repoPath) : PlatformPaths.Normalize(repoPath))}";
+
+    // A remote host is not this one: only `/` separates there, so a trailing backslash is part of the name.
+    static string RemoteForm(string repoPath) {
+        var trimmed = repoPath.TrimEnd('/');
+        return trimmed.Length == 0 && repoPath.Length > 0 ? "/" : trimmed;
+    }
 
     /// The repo part is compared on read: System.Text.Json rebuilds the dictionary with an ordinal
     /// comparer on load, so a comparer set at write time would not survive the round-trip.
@@ -35,7 +41,7 @@ public static class AccountMemory {
                 if (!Matches(entry.Key, hostId, vendor, repoPath, remote))
                     next[entry.Key] = entry.Value;
 
-        if (accountId is not null) next[KeyFor(hostId, vendor, repoPath)] = accountId;
+        if (accountId is not null) next[KeyFor(hostId, vendor, repoPath, remote)] = accountId;
         return next.Count == 0 ? FrozenDictionary<string, string>.Empty : next;
     }
 
@@ -49,7 +55,7 @@ public static class AccountMemory {
         return key.AsSpan(0, slash).SequenceEqual(hostId)
             && key.AsSpan(slash + 1, colon - slash - 1).SequenceEqual(vendor)
             && (remote
-                ? string.Equals(key[(colon + 1)..], PlatformPaths.Normalize(repoPath), StringComparison.Ordinal)
+                ? string.Equals(key[(colon + 1)..], RemoteForm(repoPath), StringComparison.Ordinal)
                 : PlatformPaths.Comparer.Equals(key[(colon + 1)..], repoPath));
     }
 }

@@ -126,6 +126,16 @@ public class RepoPathPatternTests {
         await Assert.That(RepoPathPattern.Matches(Tmp.PathTo("allowed") + "\\*", swapped)).IsTrue();
     }
 
+    [Test]
+    [RunOn(OS.Windows)]
+    public async Task A_drive_root_glob_matches_everything_on_that_drive() {
+        var project = Tmp.CreateDir("project");
+        var drive   = Path.GetPathRoot(project.Path)!;
+
+        await Assert.That(RepoPathPattern.Matches(drive + "*", project)).IsTrue();
+        await Assert.That(RepoPathPattern.Matches(drive.TrimEnd('\\') + "/*", project)).IsTrue();
+    }
+
     static string ShortNameOf(string path) {
         var start = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/d /s /c \"for %I in (\"{path}\") do @echo %~sI\"") {
             RedirectStandardOutput = true, UseShellExecute = false,
