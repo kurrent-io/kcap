@@ -300,6 +300,32 @@ public class LocalControlShutdownTests {
         });
     }
 
+    /// <summary>The restart frame's turn-boundary mode queues behind an agent mid-turn, where a bare restart
+    /// would fire.</summary>
+    [Test]
+    public async Task A_turn_boundary_restart_is_queued_until_the_turn_ends() {
+        using var atBoundary = new ManualResetEventSlim();
+        RestartCoordinator? coordinator = null;
+        await RunCoreAsync("rs-turn", restart => {
+            coordinator = restart;
+            restart.AtTurnBoundary = () => atBoundary.IsSet;
+        }, async (_, spy, _, sockPath, ct) => {
+            using var sock = await ConnectAsync(sockPath, ct);
+            await using var stream = new NetworkStream(sock, ownsSocket: false);
+            await FrameCodec.WriteAsync(stream, LocalFrame.Restart(RestartIpc.TurnBoundaryMode), ct);
+
+            var reply = await FrameCodec.ReadAsync(stream, ct);
+
+            await Assert.That(reply!.Type).IsEqualTo(FrameType.RestartAck);
+            await Assert.That(reply.Text).IsEqualTo("queued");
+            await Assert.That(spy.Calls).IsEqualTo(0);
+
+            atBoundary.Set();
+            coordinator!.Tick();
+            await Assert.That(spy.Calls).IsEqualTo(1);
+        });
+    }
+
     [Test]
     public async Task Malformed_shutdown_answers_an_error() =>
         await RunAsync("sd-bad", null, async (orch, spy, lifetime, send) => {

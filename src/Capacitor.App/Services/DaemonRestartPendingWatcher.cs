@@ -18,7 +18,7 @@ public sealed class DaemonRestartPendingWatcher : IDisposable {
     // Owned, so disposal ends the poll even when the caller's lifetime token is never cancelled
     // (startup-failure cleanup disposes the graph's pieces without cancelling it).
     readonly CancellationTokenSource _lifetime;
-    readonly BehaviorSubject<bool> _pending = new(false);
+    readonly BehaviorSubject<DaemonRestartWait> _wait = new(DaemonRestartWait.None);
     readonly Lock _lock = new();
     IDisposable? _subscription;
     bool _disposed;
@@ -34,7 +34,10 @@ public sealed class DaemonRestartPendingWatcher : IDisposable {
     }
 
     /// True while the marker exists. Replays the current value to a new subscriber.
-    public IObservable<bool> Pending => _pending.DistinctUntilChanged();
+    public IObservable<bool> Pending => _wait.Select(wait => wait != DaemonRestartWait.None).DistinctUntilChanged();
+
+    /// What the queued restart waits for, as its marker records it. Replays the current value to a new subscriber.
+    public IObservable<DaemonRestartWait> Wait => _wait.DistinctUntilChanged();
 
     public void Start() {
         Refresh();
@@ -50,7 +53,7 @@ public sealed class DaemonRestartPendingWatcher : IDisposable {
     void Refresh() {
         lock (_lock) {
             if (_disposed) return;
-            _pending.OnNext(DaemonRestartMarker.TryRead(_store, _daemonName) is not null);
+            _wait.OnNext(DaemonRestartMarker.TryRead(_store, _daemonName).ToRestartWait());
         }
     }
 

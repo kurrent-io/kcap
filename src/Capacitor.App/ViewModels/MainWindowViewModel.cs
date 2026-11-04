@@ -9,6 +9,7 @@ using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.LocalEdition;
 using Avalonia.Media;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Update;
 using Capacitor.App.Views;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.Cli.Core.Commands;
@@ -82,6 +83,13 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public string UpdateContextName => LocalStack is not null ? "kcap local" : TenantName.Length > 0 ? TenantName : "kcap";
 
     internal const string RestartPendingMessage = "The daemon is waiting for active turns. It restarts when the configured wait ends. Long turns may be interrupted. Eligible agents resume if auto-resume is on. Other sessions may need attention.";
+
+    internal const string RestartWhenNoAgentsMessage = "The daemon restarts once it has no agents, idle ones included, with no time limit. To restart it now, run kcap daemon restart. Eligible agents resume if auto-resume is on.";
+
+    internal const string RestartUnstatedMessage = "The daemon has a restart queued but did not record what it waits for. If it stays pending, run kcap daemon restart. Eligible agents resume if auto-resume is on.";
+
+    internal static string OtherInstallMessage(DaemonOnOtherInstall daemon) =>
+        $"The daemon runs kcap {CapacitorVersion.Display(daemon.Version)} from {daemon.Executable}. Updating this app does not change it, and restarting it starts the same version again. Update that install (for npm, run kcap update) and the daemon moves to its new version at a turn boundary.";
 
     internal const string BackgroundPriorityMessage = "Daemon runs at background priority — agent terminals lag under load.";
 
@@ -355,7 +363,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// Null means it never shows.
     /// </param>
     /// <param name="restartPending">
-    /// DaemonRestartPendingWatcher.Pending. Null means the alert for it never shows.
+    /// DaemonRestartPendingWatcher.Wait. Null means the alert for it never shows.
+    /// </param>
+    /// <param name="daemonOnOtherInstall">
+    /// StaleDaemonNudge.OtherInstall. Null means the alert for it never shows.
     /// </param>
     /// <param name="originOf">
     /// Which lane an agent id belongs to, for routing a click at the right workspace. Null reads
@@ -385,7 +396,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             Func<string, WorkspaceViewModel>? workspaceFactory = null, SessionRailViewModel? rail = null,
             string? tenantName = null, IObservable<string?>? lifecycleAttention = null,
             IObservable<string?>? identityReport = null,
-            IObservable<ServerLaneStatus>? laneStatus = null, IObservable<bool>? restartPending = null,
+            IObservable<ServerLaneStatus>? laneStatus = null, IObservable<DaemonRestartWait>? restartPending = null,
+            IObservable<DaemonOnOtherInstall?>? daemonOnOtherInstall = null,
             Func<string, AgentOrigin?>? originOf = null, Func<string, RemoteSessionViewModel?>? remoteWorkspaceFactory = null,
             IAgentDirectory? directory = null,
             Action<FeedbackCategory>? openFeedback = null, IUrlOpener? opener = null,
@@ -589,8 +601,13 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             // marshalled like status/snapshots above before it touches a bound property.
             var pendingWhileConnected = status
                 .CombineLatest(
-                    (restartPending ?? Observable.Return(false)).ObserveOn(RxSchedulers.MainThreadScheduler),
-                    (st, pending) => pending && st.State == AttachState.Connected)
+                    (restartPending ?? Observable.Return(DaemonRestartWait.None)).ObserveOn(RxSchedulers.MainThreadScheduler),
+                    (st, wait) => st.State == AttachState.Connected ? wait : DaemonRestartWait.None)
+                .DistinctUntilChanged();
+            var otherInstallWhileConnected = status
+                .CombineLatest(
+                    (daemonOnOtherInstall ?? Observable.Return<DaemonOnOtherInstall?>(null)).ObserveOn(RxSchedulers.MainThreadScheduler),
+                    (st, other) => st.State == AttachState.Connected ? other : null)
                 .DistinctUntilChanged();
 
             var localServer = Home?.LocalServer is { } recovery
@@ -608,9 +625,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             var alert = status
                 .CombineLatest(daemonConnection, signedOut, failed, signInVisible, moving,
                     (st, connection, expired, broken, canSignIn, isMoving) => (st, connection, expired, broken, canSignIn, isMoving))
-                .CombineLatest(localAlert, pendingWhileConnected,
-                    (d, local, pending) => AlertFor(d.st, d.connection, d.expired, d.broken, d.canSignIn, d.isMoving,
-                        local, pending))
+                .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected,
+                    (d, local, other, pending) => AlertFor(d.st, d.connection, d.expired, d.broken, d.canSignIn, d.isMoving,
+                        local, other, pending))
                 .DistinctUntilChanged();
             _alert = alert
                 .ToProperty(this, x => x.Alert, (RailAlert?)null)
@@ -1305,6 +1322,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     internal const string ReconnectingText      = "Reconnecting…";
     internal const string ServerLostText        = "Server disconnected";
     internal const string RestartPendingText    = "Daemon restart pending";
+    internal const string DaemonNotUpdatedText  = "Daemon not updated";
     internal const string LocalStoppedText      = "Local server stopped";
     internal const string LocalChangingText     = "Local server changing…";
     internal const string LocalRestartingText   = "Local server restarting…";
@@ -1334,9 +1352,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// server that refused the app, or a daemon still down after a start that did not work.</param>
     /// <param name="moving">The daemon is moving to the Windows service, which brings it back itself.</param>
     /// <param name="local">The local server's own alert, from <see cref="LocalServerAlertFor"/>.</param>
+    /// <param name="otherInstall">An app update left the daemon behind on a kcap it does not ship. Only a restart waiting
+    /// for turns outranks it, since that follows an update to the other install; any other brings back the same version.</param>
     internal static RailAlert? AlertFor(
             AttachStatus status, string daemonConnection, bool signedOut = false, bool failed = false,
-            bool canSignIn = false, bool moving = false, RailAlert? local = null, bool restartPending = false) {
+            bool canSignIn = false, bool moving = false, RailAlert? local = null, DaemonOnOtherInstall? otherInstall = null,
+            DaemonRestartWait restartPending = DaemonRestartWait.None) {
         var needsUser = failed ? StatusColors.Disrupted : StatusColors.InProgress;
         if (signedOut) return new(SignInRequiredText, needsUser, canSignIn ? RailRecovery.SignIn : RailRecovery.None);
         if (status.State == AttachState.Connecting) return new(DaemonConnectingText, StatusColors.Pending);
@@ -1356,7 +1377,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             "connecting"   => new(ServerConnectingText, StatusColors.Pending),
             "reconnecting" => new(ReconnectingText, StatusColors.Pending),
             "disconnected" => new(ServerLostText, StatusColors.InProgress),
-            _ when restartPending => new(RestartPendingText, StatusColors.InProgress, Detail: RestartPendingMessage),
+            _ when restartPending == DaemonRestartWait.Turns => new(RestartPendingText, StatusColors.InProgress, Detail: RestartPendingMessage),
+            _ when otherInstall is { } other => new(DaemonNotUpdatedText, StatusColors.InProgress, Detail: OtherInstallMessage(other)),
+            _ when restartPending == DaemonRestartWait.Agents => new(RestartPendingText, StatusColors.InProgress, Detail: RestartWhenNoAgentsMessage),
+            _ when restartPending == DaemonRestartWait.Unstated => new(RestartPendingText, StatusColors.InProgress, Detail: RestartUnstatedMessage),
             _ => null,
         };
     }

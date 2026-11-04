@@ -21,6 +21,23 @@ public class DaemonRestartMarkerTests {
 
         await Assert.That(new DaemonRestartMarker("v1", "self-detected", when).Describe()).Contains("newer binary detected on disk");
         await Assert.That(new DaemonRestartMarker("v1", "requested", when).Describe()).DoesNotContain("newer binary");
+        await Assert.That(new DaemonRestartMarker("v1", "turn-boundary", when).Describe()).Contains("at the next turn boundary");
+        await Assert.That(new DaemonRestartMarker("v1", "when-idle", when).Describe()).Contains("once no agents are left");
+    }
+
+    /// <summary>A bare request, or a reason this build does not know, claims neither wait: a bare restart that is
+    /// pending waits for a retry or a manual restart, not for agents.</summary>
+    [Test]
+    [Arguments("self-detected", true, false)]
+    [Arguments("turn-boundary", true, false)]
+    [Arguments("when-idle", false, true)]
+    [Arguments("requested", false, false)]
+    [Arguments("from-a-newer-daemon", false, false)]
+    public async Task A_marker_claims_only_the_wait_its_reason_names(string reason, bool turns, bool noAgents) {
+        var marker = new DaemonRestartMarker("v1", reason, DateTimeOffset.UnixEpoch);
+
+        await Assert.That(marker.WaitsForTurns).IsEqualTo(turns);
+        await Assert.That(marker.WaitsForNoAgents).IsEqualTo(noAgents);
     }
 
     [Test]
