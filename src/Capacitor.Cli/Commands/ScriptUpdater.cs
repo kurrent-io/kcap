@@ -166,6 +166,9 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
     /// Deletes the version directories and moved-aside copies an update leaves behind, keeping
     /// <paramref name="keep"/>: the new version and the one it replaced, which a daemon or agent started
     /// before the switch is likely still running. Anything else in use stays too. Returns how many went.
+    ///
+    /// <para>A <c>versions</c> that is a link (a junction on Windows) is pruned not at all, and a linked entry
+    /// inside it is skipped: what a link reaches is not kcap's to empty, however version-like its names.</para>
     /// </summary>
     internal int PruneVersions(ScriptInstallLayout layout, IEnumerable<string?> keep) {
         var kept = keep.OfType<string>().ToArray();
@@ -173,8 +176,11 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
 
         IEnumerable<DirectoryInfo> candidates;
         try {
-            candidates = new DirectoryInfo(layout.Versions).EnumerateDirectories()
-                .Where(d => d.LinkTarget is null)
+            var versions = new DirectoryInfo(layout.Versions);
+            if (!versions.Exists || IsLink(versions)) return 0;
+
+            candidates = versions.EnumerateDirectories()
+                .Where(d => !IsLink(d))
                 .Where(d => ReleaseManifest.IsValidVersion(d.Name) || d.Name.StartsWith(".replaced-", StringComparison.Ordinal))
                 .Where(d => !kept.Any(k => PathsEqual(k, d.FullName)))
                 .ToArray();
@@ -195,6 +201,8 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
 
         return pruned;
     }
+
+    static bool IsLink(DirectoryInfo dir) => dir.Attributes.HasFlag(FileAttributes.ReparsePoint) || dir.LinkTarget is not null;
 
     /// <summary>
     /// True when a file in <paramref name="dir"/> cannot be opened exclusively for writing. A running

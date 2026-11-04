@@ -227,13 +227,32 @@ public class ScriptUpdaterTests {
         var layout = new ScriptInstallLayout(tmp.Path);
         foreach (var name in new[] { "1.0.0", "1.1.0", "1.2.0", "1.3.0-beta.1", ".replaced-1.2.0-abc", ".update-12-def", ".staging-34", "notes" })
             tmp.CreateFile($"versions/{name}/bin/kcap");
+        var unrelated = tmp.CreateFile("elsewhere/bin/kcap");
+        DirectoryLink.Create(layout.VersionDir("0.9.0"), tmp.PathTo("elsewhere"));
         var updater = new ScriptUpdater(null!) { InUse = dir => Path.GetFileName(dir) == "1.1.0" };
 
         var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.3.0-beta.1"), layout.VersionDir("1.2.0"), null]);
 
         await Assert.That(pruned).IsEqualTo(2);
         await Assert.That(Directory.EnumerateDirectories(layout.Versions).Select(p => Path.GetFileName(p)!).ToArray())
-            .IsEquivalentTo(["1.1.0", "1.2.0", "1.3.0-beta.1", ".update-12-def", ".staging-34", "notes"]);
+            .IsEquivalentTo(["0.9.0", "1.1.0", "1.2.0", "1.3.0-beta.1", ".update-12-def", ".staging-34", "notes"]);
+        await Assert.That(File.Exists(unrelated)).IsTrue();
+    }
+
+    /// <summary>A <c>versions</c> that is a link reaches a directory kcap does not own, however much of it looks
+    /// like versions, so nothing behind it is pruned. On Windows the link is a junction.</summary>
+    [Test]
+    public async Task Pruning_through_a_linked_versions_directory_deletes_nothing() {
+        using var tmp = new TempDir();
+        var layout = new ScriptInstallLayout(tmp.CreateDir("root"));
+        var unrelated = new[] { "0.9.0", "1.0.0", ".replaced-1.0.0-abc" }.Select(name => tmp.CreateFile($"shared/{name}/data")).ToArray();
+        DirectoryLink.Create(layout.Versions, tmp.PathTo("shared"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.1.0")]);
+
+        await Assert.That(pruned).IsEqualTo(0);
+        foreach (var file in unrelated) await Assert.That(File.Exists(file)).IsTrue();
     }
 
     /// <summary>Only the new version and the one it replaced are kept, so a rollback deletes an unused
