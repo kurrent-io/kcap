@@ -58,6 +58,35 @@ public class HeadlessProcessTests {
         await Assert.That(exit).IsEqualTo(new HeadlessProcessExit(1, false, false, "No models available"));
     }
 
+    /// <summary>The child closes its stdin and stays alive, so only a kill on the failed write ends the run
+    /// before the deadline.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_broken_input_pipe_kills_a_child_that_is_still_running_before_the_outcome() {
+        var go  = Path.Combine(Tmp.Path, "go");
+        var run = Run(Script($"while [ ! -f '{go}' ]; do sleep 0.05; done\nexec 0<&-\necho 'closed' >&2\nexec sleep 30"),
+            new string('x', 1 << 20));
+        var (pid, identity) = await ChildAsync();
+        await File.WriteAllTextAsync(go, "");
+        var exit = await run;
+
+        await Assert.That(exit!.TimedOut).IsFalse();
+        await Assert.That(exit.Stderr).IsEqualTo("closed");
+        await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task Any_other_input_failure_kills_the_child_before_propagating() {
+        (int Pid, string Identity) child = (0, "");
+
+        var run = HeadlessProcess.RunAsync(Script("exec sleep 30"), async (_, _) => {
+                child = await ChildAsync();
+                throw new InvalidOperationException("writer broke");
+            }, _ => { }, null, TimeSpan.FromSeconds(20), TimeProvider.System, _ => { }, CancellationToken.None);
+
+        await Assert.That(async () => await run).Throws<InvalidOperationException>().WithMessage("writer broke");
+        await Assert.That(PidIdentity.IsGone(child.Pid, child.Identity)).IsTrue();
+    }
+
     [Test, ExcludeOn(OS.Windows)]
     public async Task A_stderr_line_can_kill_the_child_early() {
         var go = Path.Combine(Tmp.Path, "go");

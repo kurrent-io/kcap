@@ -19,9 +19,27 @@ static class HeadlessProcess {
     /// the process. Returns null when it could not be started. The deadline kills it and returns
     /// <see cref="HeadlessProcessExit.TimedOut"/>; external cancellation kills it and propagates.
     /// </summary>
-    public static async Task<HeadlessProcessExit?> RunAsync(
+    public static Task<HeadlessProcessExit?> RunAsync(
             ProcessStartInfo    psi,
             string?             stdin,
+            Action<string>      onStdout,
+            Func<string, bool>? onStderr,
+            TimeSpan            timeout,
+            TimeProvider        time,
+            Action<string>      log,
+            CancellationToken   ct
+        ) =>
+        RunAsync(psi, async (input, token) => {
+            if (stdin is not null) {
+                await input.WriteAsync(stdin.AsMemory(), token);
+                await input.FlushAsync(token);
+            }
+        }, onStdout, onStderr, timeout, time, log, ct);
+
+    /// <summary>As the string overload, with <paramref name="writeInput"/> writing stdin, which is closed after it.</summary>
+    internal static async Task<HeadlessProcessExit?> RunAsync(
+            ProcessStartInfo                           psi,
+            Func<StreamWriter, CancellationToken, Task> writeInput,
             Action<string>      onStdout,
             Func<string, bool>? onStderr,
             TimeSpan            timeout,
@@ -57,7 +75,26 @@ static class HeadlessProcess {
         using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
         try {
-            await WriteInputAsync(process, stdin, name, log, linkedCts.Token);
+            try {
+                await writeInput(process.StandardInput, linkedCts.Token);
+
+                process.StandardInput.Close();
+            } catch (Exception ex) when (ex is not OperationCanceledException) {
+                // A process that exits before reading its input breaks the pipe; what it said on the way out is
+                // still the outcome. Any failed write kills the child first, so it never outlives the run.
+                log($"{name} could not be given its input: {ForLog(ex.Message)}");
+
+                try { process.StandardInput.Dispose(); } catch { /* the pipe is already broken */ }
+
+                await KillAsync(process, stdoutTask, stderrTask, time);
+                ct.ThrowIfCancellationRequested();
+
+                if (ex is not IOException) throw;
+
+                return timeoutCts.IsCancellationRequested
+                    ? new(null, true, false, stderr.Text)
+                    : new(ExitCodeOf(process), false, false, stderr.Text);
+            }
 
             var exited = process.WaitForExitAsync(linkedCts.Token);
 
@@ -112,20 +149,11 @@ static class HeadlessProcess {
         return sb.ToString();
     }
 
-    /// <summary>A process that exits before reading its input breaks the pipe; what it said on the way out is
-    /// still the outcome, so the run goes on to collect it.</summary>
-    static async Task WriteInputAsync(Process process, string? stdin, string name, Action<string> log, CancellationToken ct) {
+    static int? ExitCodeOf(Process process) {
         try {
-            if (stdin is not null) {
-                await process.StandardInput.WriteAsync(stdin.AsMemory(), ct);
-                await process.StandardInput.FlushAsync(ct);
-            }
-
-            process.StandardInput.Close();
-        } catch (IOException ex) {
-            log($"{name} stopped reading its input: {ex.Message}");
-
-            try { process.StandardInput.Dispose(); } catch { /* the pipe is already broken */ }
+            return process.HasExited ? process.ExitCode : null;
+        } catch (InvalidOperationException) {
+            return null;
         }
     }
 
