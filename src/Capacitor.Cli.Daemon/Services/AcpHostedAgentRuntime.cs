@@ -1358,6 +1358,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             // drop — whose reconnect sweep answers the pending permission with a cancelled decline —
             // never renders as a user-facing "not permitted" note.
             var completedNormally = false;
+            string? promptError = null;
 
             try {
                 await SendPromptAsync(connection, turn, ct).ConfigureAwait(false);
@@ -1369,11 +1370,18 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                 // reconnect spec §5.3).
                 turn.Written?.TrySetException(ex);
                 _logger.LogDebug(ex, "ACP: session/prompt turn faulted; flushing this turn's partial buffer.");
+
+                if (ex is AcpRpcException rpc) promptError = rpc.Message;
             } finally {
                 // C4 inverted (reconnect spec §5.4): the flush is KEPT on the crash path — under
                 // skip-whole-replay nothing is ever re-emitted from replay, so the flushed partial
                 // run cannot be duplicated; it is the only copy of what the agent said before dying.
                 FlushOpenRun();
+
+                // The agent answered the prompt with an error, such as a model its provider no longer
+                // serves: without a note the turn just ends, looking idle rather than failed.
+                if (promptError is not null)
+                    EmitPromptErrorNote(promptError);
 
                 // A permission refused mid-turn with nothing else said leaves the chat looking idle
                 // rather than refused — say so, but only for a turn that ran to its stopReason, so a
@@ -2799,6 +2807,13 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// cancelled (see <see cref="NotePermissionOutcome"/>) and the agent never said anything
     /// afterward — e.g. a vendor whose tool reports a rejection to itself but never turns that
     /// into assistant text.</summary>
+    void EmitPromptErrorNote(string message) =>
+        EmitEnvelope(new AcpEventEnvelope(
+            Seq: 0,
+            Kind: AcpEventKind.SystemNote,
+            Text: $"{_vendor} could not finish the turn: {(message.Length > 500 ? message[..500] + "…" : message)}",
+            TimestampIso: NowIso()));
+
     void EmitSilentPermissionRefusalNote() =>
         EmitEnvelope(new AcpEventEnvelope(
             Seq: 0,

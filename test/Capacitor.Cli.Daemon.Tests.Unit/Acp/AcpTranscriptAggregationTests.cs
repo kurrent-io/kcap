@@ -299,6 +299,24 @@ public class AcpTranscriptAggregationTests {
 
     static JsonElement Update(JsonElement update) => FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, update);
 
+    /// <summary>An agent that rejects the prompt, as Vibe does when its model is gone, leaves the transcript saying
+    /// why rather than an idle session with nothing after the user's message.</summary>
+    [Test]
+    public async Task A_prompt_the_agent_rejects_leaves_a_note_with_its_error() {
+        await using var h = new Harness();
+        h.Fake.FailNextPrompt(-31002, "Invalid API key (from env var MISTRAL_API_KEY).");
+
+        h.StartFakeAgentLoop();
+        await h.Runtime.StartAsync("/abs/worktree", "hi", h.Cts.Token).WaitAsync(HangGuard);
+
+        await ReadEnvelopeAsync(h.Runtime); // UserMessage
+        await ReadEnvelopeAsync(h.Runtime); // the default script's message chunk, flushed at turn end
+
+        var note = await ReadEnvelopeAsync(h.Runtime);
+        await Assert.That(note.Kind).IsEqualTo(AcpEventKind.SystemNote);
+        await Assert.That(note.Text).Contains("could not finish the turn: Invalid API key (from env var MISTRAL_API_KEY).");
+    }
+
     /// <summary>Vibe interleaves a <c>usage_update</c> with <c>used: 0</c>, which carries nothing to emit; without
     /// this the thinking renders as two blocks split mid-sentence.</summary>
     [Test]
