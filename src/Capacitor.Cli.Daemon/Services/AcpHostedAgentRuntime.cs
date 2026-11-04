@@ -309,6 +309,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     readonly Func<AcpNotification, IReadOnlyList<AcpEventEnvelope>>? _turnUsageReader;
     readonly Func<AcpNotification, AcpSubagentSignal?>? _subagentReader;
     readonly AcpQuestionProtocol? _questionProtocol;
+    readonly AcpAnnouncedToolCalls? _announcedToolCalls;
 
     // A subagent's ACP sessionId → the agent id its events carry. Entries stay after it finishes, so a
     // straggling update is still not mistaken for the hosted agent's own.
@@ -530,12 +531,14 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             Func<JsonElement, IReadOnlySet<string>, bool>?                                  admissionMatcher = null,
             Func<AcpNotification, IReadOnlyList<AcpEventEnvelope>>?                         turnUsageReader = null,
             Func<AcpNotification, AcpSubagentSignal?>?                                      subagentReader = null,
+            bool                                                                            completesPermissionToolCall = false,
             AcpQuestionProtocol?                                                            questionProtocol = null
         ) {
         _sessionNewMeta = sessionNewMeta;
         _turnUsageReader = turnUsageReader;
         _subagentReader  = subagentReader;
         _questionProtocol = questionProtocol;
+        _announcedToolCalls = completesPermissionToolCall ? new AcpAnnouncedToolCalls() : null;
         _journal = journal;
         _admittedToolIds = admittedToolIds;
         _policySnapshot  = policySnapshot;
@@ -697,6 +700,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     string DiagnosticBinary =>
         _vendor == AcpVendorDescriptors.Cursor.Vendor ? "cursor-agent"
             : _vendor == AcpVendorDescriptors.Kiro.Vendor ? "kiro-cli"
+            : _vendor == AcpVendorDescriptors.MistralVibe.Vendor ? "vibe-acp"
             : _vendor;
 
     // Kiro deliberately gets a hint that names NO command. Cursor and Copilot name a verified login
@@ -714,7 +718,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     ? "verify Kiro CLI is signed in and your subscription/entitlement is active"
                     : _vendor == AcpVendorDescriptors.Gemini.Vendor
                         ? GeminiAuthHint
-                        : $"authenticate `{_vendor}` and verify your subscription/entitlement";
+                        : _vendor == AcpVendorDescriptors.MistralVibe.Vendor
+                            ? "run `vibe-acp --setup` to store a Mistral API key"
+                            : $"authenticate `{_vendor}` and verify your subscription/entitlement";
 
     /// <summary>
     /// Gemini's hint, worded as a POSSIBILITY rather than a diagnosis — and that is a requirement, not
@@ -1674,6 +1680,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             _logger.LogDebug("ACP: dropped a session/update for an unannounced session.");
             return;
         }
+
+        _announcedToolCalls?.Observe(updateElement);
 
         var reduced = Reduce(updateElement.Clone());
 
@@ -2995,7 +3003,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             // bridge call (and with it the server-side card) — disposing here would sever that
             // propagation path. Disposal rides the bridge task's own settlement instead.
             var linked     = CancellationTokenSource.CreateLinkedTokenSource(ct, entry.Cts.Token);
-            var bridgeTask = _interactionBridge!.HandleAsync(request, linked.Token);
+            var bridgeTask = _interactionBridge!.HandleAsync(_announcedToolCalls?.Complete(request) ?? request, linked.Token);
             _ = bridgeTask.ContinueWith(
                 t => { _ = t.Exception; linked.Dispose(); },
                 CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);

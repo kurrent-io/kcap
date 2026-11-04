@@ -205,9 +205,23 @@ public class AcpVendorDescriptorTests {
         AcpVendorDescriptor[] all = [
             AcpVendorDescriptors.Cursor, AcpVendorDescriptors.Copilot, AcpVendorDescriptors.Kiro,
             AcpVendorDescriptors.OpenCode, AcpVendorDescriptors.Grok, AcpVendorDescriptors.Gemini,
+            AcpVendorDescriptors.MistralVibe,
         ];
 
         await Assert.That(all.Where(d => d.InjectsKcapMcpServers).Select(d => d.Vendor)).IsEquivalentTo(["grok"]);
+    }
+
+    /// <summary>Filling a request from an earlier announcement gives a kind-less frame a kind its preset can match,
+    /// so it is declared only where a vendor was measured to send the call by id alone.</summary>
+    [Test]
+    public async Task Only_Mistral_Vibe_completes_a_permission_request_from_its_tool_call() {
+        AcpVendorDescriptor[] all = [
+            AcpVendorDescriptors.Cursor, AcpVendorDescriptors.Copilot, AcpVendorDescriptors.Kiro,
+            AcpVendorDescriptors.OpenCode, AcpVendorDescriptors.Grok, AcpVendorDescriptors.Gemini,
+            AcpVendorDescriptors.MistralVibe,
+        ];
+
+        await Assert.That(all.Where(d => d.CompletesPermissionToolCall).Select(d => d.Vendor)).IsEquivalentTo(["mistral-vibe"]);
     }
 
     [Test]
@@ -392,6 +406,7 @@ public class AcpVendorDescriptorTests {
         await Assert.That(AcpVendorDescriptors.Kiro.SupportsReconnectResume).IsFalse();
         await Assert.That(AcpVendorDescriptors.Gemini.SupportsReconnectResume).IsFalse();
         await Assert.That(AcpVendorDescriptors.Grok.SupportsReconnectResume).IsFalse();
+        await Assert.That(AcpVendorDescriptors.MistralVibe.SupportsReconnectResume).IsFalse();
     }
 
     /// <summary>Restart resume is enabled on its own probe (docs/probes/2026-10-19-acp-restart-resume/),
@@ -405,6 +420,7 @@ public class AcpVendorDescriptorTests {
         await Assert.That(AcpVendorDescriptors.Kiro.SupportsRestartResume).IsFalse();
         await Assert.That(AcpVendorDescriptors.Gemini.SupportsRestartResume).IsFalse();
         await Assert.That(AcpVendorDescriptors.Grok.SupportsRestartResume).IsFalse();
+        await Assert.That(AcpVendorDescriptors.MistralVibe.SupportsRestartResume).IsFalse();
     }
 
     /// <summary>

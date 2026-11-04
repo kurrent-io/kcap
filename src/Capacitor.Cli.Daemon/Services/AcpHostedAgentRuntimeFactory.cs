@@ -294,6 +294,7 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
                 sessionNewMeta: descriptor.SessionNewMeta,
                 turnUsageReader: descriptor.TurnUsageReader,
                 subagentReader: descriptor.SubagentReader,
+                completesPermissionToolCall: descriptor.CompletesPermissionToolCall,
                 questionProtocol: descriptor.QuestionProtocol
             );
 
