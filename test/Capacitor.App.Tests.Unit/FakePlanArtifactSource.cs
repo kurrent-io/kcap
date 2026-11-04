@@ -15,6 +15,8 @@ sealed class FakePlanArtifactSource : IPlanArtifactSource {
 
     public readonly List<string> Requested = [];
     public readonly List<string> RequestedPages = [];
+    public readonly List<(string PageId, string SessionId)> Cited = [];
+    public bool CiteAnswer = true;
     public PlanArtifactsRead Default = new(SessionPlansReadKind.Ready, new PlanArtifactsResponseDto());
     public SessionPagesRead DefaultPages = SessionPagesRead.Of(SessionPlansReadKind.Ready);
 
@@ -62,5 +64,10 @@ sealed class FakePlanArtifactSource : IPlanArtifactSource {
         }
         await Task.Yield();
         return _scriptedPages.Count > 0 ? _scriptedPages.Dequeue() : DefaultPages;
+    }
+
+    public Task<bool> CitePageAsync(string pageId, string sessionId, CancellationToken ct) {
+        Cited.Add((pageId, sessionId));
+        return Task.FromResult(CiteAnswer);
     }
 }

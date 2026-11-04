@@ -15,9 +15,11 @@ public class SessionPagesClientTests {
 
     sealed class Handler(HttpStatusCode status, string body = "{}") : HttpMessageHandler {
         public Uri? Requested;
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+        public string? RequestBody;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
             Requested = request.RequestUri;
-            return Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+            RequestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
+            return new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
         }
     }
 
@@ -95,5 +97,21 @@ public class SessionPagesClientTests {
         cts.Cancel();
 
         await Assert.ThrowsAsync<OperationCanceledException>(() => client.ReadAsync(Session, cts.Token));
+    }
+
+    /// A citation posts the session's canonical id to the page's sources route, and only a success
+    /// counts: an older server without the route, or a page this viewer does not own, records nothing.
+    [Test]
+    [Arguments(HttpStatusCode.NoContent, true)]
+    [Arguments(HttpStatusCode.Forbidden, false)]
+    [Arguments(HttpStatusCode.NotFound, false)]
+    public async Task A_citation_posts_the_session_to_the_pages_sources(HttpStatusCode status, bool cited) {
+        var (client, handler) = Build(status);
+
+        var result = await client.CiteAsync("p 1", "01234567-89ab-cdef-0123-456789abcdef", CancellationToken.None);
+
+        await Assert.That(result).IsEqualTo(cited);
+        await Assert.That(handler.Requested!.AbsoluteUri).IsEqualTo("https://server.test/api/artefacts/p%201/sources");
+        await Assert.That(handler.RequestBody).IsEqualTo($$"""{"session_id":"{{Session}}"}""");
     }
 }
