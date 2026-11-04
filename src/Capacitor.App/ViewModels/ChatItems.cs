@@ -155,6 +155,8 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     // Only a paired marker is emphasis; a lone "**" is the note's own text. Code spans are masked
     // first so a pair can wrap one ("**Run `__init__`**") without reaching inside it.
     static string WithoutEmphasis(string text) {
+        // Text already holding a placeholder character cannot be masked without ambiguity.
+        if (text.AsSpan().IndexOfAny(SpanOpen, SpanClose) >= 0) return WholeLineEmphasis().Replace(StripStrong(text), "$2");
         var spans = new List<string>();
         var masked = new System.Text.StringBuilder();
         var i = 0;
@@ -168,10 +170,11 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
             spans.Add(text[(i + run)..close]);
             i = close + run;
         }
-        var strong = PairedUnderscores().Replace(PairedStars().Replace(masked.ToString(), "$1"), "$1");
-        var plain = WholeLineEmphasis().Replace(strong, "$2");
+        var plain = WholeLineEmphasis().Replace(StripStrong(masked.ToString()), "$2");
         return MaskedSpan().Replace(plain, m => spans[int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)]);
     }
+
+    static string StripStrong(string text) => PairedUnderscores().Replace(PairedStars().Replace(text, "$1"), "$1");
 
     const char SpanOpen = '';
     const char SpanClose = '';
