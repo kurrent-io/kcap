@@ -1,3 +1,5 @@
+using System.Buffers.Text;
+using System.Text;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Accounts.Readings;
@@ -81,7 +83,7 @@ public class VendorCliWatcherTests {
                 refresh: Refreshes.Add,
                 stat: path => Stats.GetValueOrDefault(path),
                 time: TimeProvider.System,
-                statCatalog: path => CatalogStats.TryGetValue(path, out var stat) ? stat : new(path, false, 0, 0),
+                statCatalog: (path, _) => CatalogStats.TryGetValue(path, out var stat) ? stat : new(path, false, 0, 0),
                 catalogBaselines: catalogBaselines);
         }
     }
@@ -315,6 +317,66 @@ public class VendorCliWatcherTests {
         h.Watcher.Tick();
 
         await Assert.That(h.Refreshes.Count).IsEqualTo(1);
+    }
+
+    /// A running vendor rewrites its catalog and auth files on every refetch and token refresh;
+    /// only a rewrite that changes the models or the account may re-probe. Each rewrite moves the
+    /// write time, so a size-and-time fingerprint alone would fire on every row.
+    [Test]
+    [Arguments("""{"fetched_at":"t1","etag":"e1","models":[{"slug":"gpt-5"}]}""",
+               """{"fetched_at":"t2","etag":"e2","models":[{"slug":"gpt-5"}]}""", false)]
+    [Arguments("""{"fetched_at":"t1","models":[{"slug":"gpt-5"}]}""",
+               """{"fetched_at":"t1","models":[{"slug":"gpt-5"},{"slug":"gpt-6"}]}""", true)]
+    [Arguments("""{"auth_mode":"chatgpt","tokens":{"id_token":"a","access_token":"b","refresh_token":"c","account_id":"x"},"last_refresh":"t1"}""",
+               """{"auth_mode":"chatgpt","tokens":{"id_token":"d","access_token":"e","refresh_token":"f","account_id":"x"},"last_refresh":"t2"}""", false)]
+    [Arguments("""{"auth_mode":"chatgpt","tokens":{"access_token":"b","account_id":"x"}}""",
+               """{"auth_mode":"chatgpt","tokens":{"access_token":"b","account_id":"y"}}""", true)]
+    [Arguments("""{"anthropic":{"type":"oauth","access":"a","refresh":"r","expires":1}}""",
+               """{"anthropic":{"type":"oauth","access":"b","refresh":"s","expires":2}}""", false)]
+    [Arguments("""{"models":[{"slug":"gpt-5","priority":1}],"client_version":"1"}""",
+               """{"client_version":"1","models":[{"priority":1,"slug":"gpt-5"}]}""", false)]
+    [Arguments("""{"models":[{"slug":"gpt-5"},{"slug":"gpt-6"}]}""",
+               """{"models":[{"slug":"gpt-6"},{"slug":"gpt-5"}]}""", true)]
+    [Arguments("not json", "not json", false)]
+    [Arguments("not json", "not json either", true)]
+    public async Task A_rewritten_catalog_file_re_probes_only_when_its_catalog_content_changed(
+            string before, string after, bool refreshes) {
+        using var tmp = new TempDir();
+        var file      = tmp.CreateFile("catalog.json", before);
+        File.SetLastWriteTimeUtc(file, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var refreshed = new List<string>();
+        var watcher   = VendorCliWatcher.ForTest([("codex", "", [file])], refreshed.Add, _ => null, TimeProvider.System);
+        watcher.PrimeBaselines();
+
+        File.WriteAllText(file, after);
+        File.SetLastWriteTimeUtc(file, new DateTime(2026, 1, 1, 0, 0, 30, DateTimeKind.Utc));
+        watcher.Tick();
+
+        await Assert.That(refreshed.Count).IsEqualTo(refreshes ? 1 : 0);
+    }
+
+    /// Codex carries the ChatGPT plan in its ID token's claims, so a refresh that reissues the token
+    /// re-probes only when a claim other than the reissue stamps changed.
+    [Test]
+    [Arguments("""{"iat":1,"exp":2,"jti":"a","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}""",
+               """{"iat":3,"exp":4,"jti":"b","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}""", false)]
+    [Arguments("""{"iat":1,"https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}""",
+               """{"iat":1,"https://api.openai.com/auth":{"chatgpt_plan_type":"pro"}}""", true)]
+    public async Task A_reissued_codex_id_token_re_probes_only_when_its_claims_changed(
+            string before, string after, bool refreshes) {
+        static string Auth(string claims) =>
+            $$$"""{"auth_mode":"chatgpt","tokens":{"id_token":"h.{{{Base64Url.EncodeToString(Encoding.UTF8.GetBytes(claims))}}}.s","account_id":"x"}}""";
+
+        using var tmp = new TempDir();
+        var file      = tmp.CreateFile("auth.json", Auth(before));
+        var refreshed = new List<string>();
+        var watcher   = VendorCliWatcher.ForTest([("codex", "", [file])], refreshed.Add, _ => null, TimeProvider.System);
+        watcher.PrimeBaselines();
+
+        File.WriteAllText(file, Auth(after) + " ");
+        watcher.Tick();
+
+        await Assert.That(refreshed.Count).IsEqualTo(refreshes ? 1 : 0);
     }
 
     [Test]
