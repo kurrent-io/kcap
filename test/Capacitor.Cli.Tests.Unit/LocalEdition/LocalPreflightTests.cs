@@ -372,6 +372,21 @@ public class LocalPreflightTests {
         await Assert.That(plan.Hint).IsEqualTo(PlanHint.Install);
     }
 
+    /// <summary>1.4.0 has no local edition for Windows: its <c>kcap local</c> says the edition runs on macOS only, so a
+    /// copy of it first on a Windows PATH is refused there, and only there.</summary>
+    [Test]
+    public async Task On_windows_a_kcap_up_to_the_last_release_without_its_local_edition_is_refused() {
+        var windows = new LocalPlatform(false, false, false, Architecture.X64) { IsWindows = true };
+        var copy    = new ClientCopy(ClientCopyKind.OnPath, @"C:\npm\kcap.cmd", "1.4.0");
+
+        var failure = await Refusal(() => Preflight(platform: windows, copies: copy).Check(Version));
+
+        await Assert.That(failure.Code).IsEqualTo(LocalInstallFailureCode.ClientBelowFloor);
+        await Assert.That(failure.Message).Contains("needs a kcap newer than 1.4.0");
+        await Assert.That(Preflight(copies: copy).Check(Version).Hint).IsEqualTo(PlanHint.Install);
+        await Assert.That(Preflight(platform: windows, copies: copy with { Version = "1.4.1-beta.2.12" }).Check(Version).Hint).IsEqualTo(PlanHint.Install);
+    }
+
     [Test]
     public async Task A_kcap_on_path_below_the_floor_is_refused_naming_it() {
         var failure = await Refusal(() => Preflight(copies: new ClientCopy(ClientCopyKind.OnPath, "/usr/local/bin/kcap", "1.2.0")).Check(Version));
