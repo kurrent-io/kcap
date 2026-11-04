@@ -212,15 +212,17 @@ public partial class WorktreeManager {
                 }
             });
         } catch {
-            await RollBackUnlessMovedAsync(repoPath, pinned, commonDir, async () => {
-                if (registered)
-                    await WithWorktreeMetadataGate(repoPath, time, async () => {
-                        if (await RepositoryStillAtAsync(repoPath, pinned, commonDir))
-                            await RunGitBestEffort(repoPath, time, "worktree", "remove", "--force", worktreePath);
-                    });
-                if (await RepositoryStillAtAsync(repoPath, pinned, commonDir))
-                    await RunGitBestEffort(repoPath, time, "update-ref", "-d", fetchedRef);
-            });
+            try {
+                await RollBackUnlessMovedAsync(repoPath, pinned, commonDir, async () => {
+                    if (registered)
+                        await WithWorktreeMetadataGate(repoPath, time, async () => {
+                            if (await RepositoryStillAtAsync(repoPath, pinned, commonDir))
+                                await RunGitBestEffort(repoPath, time, "worktree", "remove", "--force", worktreePath);
+                        });
+                    if (await RepositoryStillAtAsync(repoPath, pinned, commonDir))
+                        await RunGitBestEffort(repoPath, time, "update-ref", "-d", fetchedRef);
+                });
+            } catch { /* keep the original failure */ }
             throw;
         }
 

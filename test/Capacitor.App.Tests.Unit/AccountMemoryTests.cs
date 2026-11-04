@@ -46,6 +46,16 @@ public class AccountMemoryTests {
         await Assert.That(AccountMemory.Lookup(cleared, Host, "claude", "/w/Repo", remote: true)).IsEqualTo("a1");
     }
 
+    /// <summary>A key written by the local path rule can carry more trailing slashes than a remote path keeps;
+    /// it still finds its choice.</summary>
+    [Test]
+    public async Task A_remote_key_with_extra_trailing_slashes_still_matches() {
+        var byRepo = new Dictionary<string, string> { [$"{Host}/claude:/w/repo//"] = "a1" };
+
+        await Assert.That(AccountMemory.Lookup(byRepo, Host, "claude", "/w/repo", remote: true)).IsEqualTo("a1");
+        await Assert.That(AccountMemory.With(byRepo, Host, "claude", "/w/repo", remote: true, "a2").Count).IsEqualTo(1);
+    }
+
     [Test]
     public async Task Lookup_without_a_store_finds_nothing() {
         await Assert.That(AccountMemory.Lookup(null, Host, "claude", "/home/a/kcap-cli", remote: false)).IsNull();

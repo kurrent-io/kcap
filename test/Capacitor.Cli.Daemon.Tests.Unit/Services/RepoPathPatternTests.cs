@@ -136,6 +136,16 @@ public class RepoPathPatternTests {
         await Assert.That(RepoPathPattern.Matches(drive.TrimEnd('\\') + "/*", project)).IsTrue();
     }
 
+    /// <summary>An exact <c>C:</c> names the drive's working directory, not its root, so it admits neither.</summary>
+    [Test]
+    [RunOn(OS.Windows)]
+    public async Task An_exact_drive_letter_admits_nothing() {
+        var drive = Path.GetPathRoot(Tmp.Path)!;
+
+        await Assert.That(RepoPathPattern.Matches(drive.TrimEnd('\\'), drive)).IsFalse();
+        await Assert.That(RepoPathPattern.Matches(drive.TrimEnd('\\'), Tmp.Path)).IsFalse();
+    }
+
     static string ShortNameOf(string path) {
         var start = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/d /s /c \"for %I in (\"{path}\") do @echo %~sI\"") {
             RedirectStandardOutput = true, UseShellExecute = false,

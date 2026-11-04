@@ -55,7 +55,7 @@ public static class AccountMemory {
         return key.AsSpan(0, slash).SequenceEqual(hostId)
             && key.AsSpan(slash + 1, colon - slash - 1).SequenceEqual(vendor)
             && (remote
-                ? string.Equals(key[(colon + 1)..], RemoteForm(repoPath), StringComparison.Ordinal)
+                ? string.Equals(RemoteForm(key[(colon + 1)..]), RemoteForm(repoPath), StringComparison.Ordinal)
                 : PlatformPaths.Comparer.Equals(key[(colon + 1)..], repoPath));
     }
 }
