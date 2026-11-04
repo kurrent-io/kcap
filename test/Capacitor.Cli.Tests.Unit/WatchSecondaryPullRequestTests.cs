@@ -1,5 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.RepoEvidence;
 using TUnit.Assertions.Enums;
 
@@ -310,5 +311,85 @@ public class WatchSecondaryPullRequestTests {
         }, ct: cts.Token);
 
         await Assert.That(cancelledDuringPost).IsTrue();
+    }
+
+    static string ToolUse(string tool, string path) =>
+        $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","name":"{{{tool}}}","input":{"file_path":"{{{path}}}"}}]}}""";
+
+    static (WatchState State, string SubagentsDir) SessionWatcherWithSubagents(string dir) {
+        var parent    = Path.Combine(dir, "session.jsonl");
+        var subagents = ClaudeSubagentFiles.DirectoryOf(parent);
+        Directory.CreateDirectory(subagents);
+        return (new WatchState { SecondaryRoots = new SecondaryRepoRoots(FakeFindRoot, "/h/dev/server"), SubagentCheckouts = new ClaudeSubagentCheckouts(parent) }, subagents);
+    }
+
+    static async Task<(List<string> Probed, List<RepositoryPayload> Posted)> ObserveAndLink(WatchState state) {
+        var probed = new List<string>();
+        var posted = new List<RepositoryPayload>();
+
+        WatchCommand.ObserveSubagentCheckouts(state, TimeProvider.System);
+        await Link(state,
+            (root, _) => { probed.Add(root); return Task.FromResult<RepositoryPayload?>(CliPr()); },
+            (pr, _) => { posted.Add(pr); return Task.FromResult(true); });
+
+        return (probed, posted);
+    }
+
+    /// Two subagents changing files in the same checkout cost one probe, and its PR is posted by the session watcher.
+    [Test]
+    public async Task A_pr_on_a_checkout_subagents_changed_is_linked_once_by_the_session_watcher() {
+        using var dir = new TempDir();
+        var (state, subagents) = SessionWatcherWithSubagents(dir.Path);
+        await File.WriteAllLinesAsync(Path.Combine(subagents, "agent-a1.jsonl"), [ToolUse("Edit", $"{CliRoot}/src/x.cs")]);
+        await File.WriteAllLinesAsync(Path.Combine(subagents, "agent-a2.jsonl"), [ToolUse("Write", $"{CliRoot}/src/y.cs")]);
+
+        var (probed, posted) = await ObserveAndLink(state);
+
+        await Assert.That(probed).IsEquivalentTo([CliRoot]);
+        await Assert.That(posted).Count().IsEqualTo(1);
+        await Assert.That(posted[0].PrNumber).IsEqualTo(915);
+    }
+
+    [Test]
+    public async Task A_checkout_a_subagent_only_read_is_never_probed() {
+        using var dir = new TempDir();
+        var (state, subagents) = SessionWatcherWithSubagents(dir.Path);
+        await File.WriteAllLinesAsync(Path.Combine(subagents, "agent-a1.jsonl"), [ToolUse("Read", $"{CliRoot}/src/x.cs")]);
+
+        var (probed, posted) = await ObserveAndLink(state);
+
+        await Assert.That(probed).IsEmpty();
+        await Assert.That(posted).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_pr_url_in_a_subagents_tool_output_is_not_linked() {
+        using var dir = new TempDir();
+        var (state, subagents) = SessionWatcherWithSubagents(dir.Path);
+        await File.WriteAllLinesAsync(Path.Combine(subagents, "agent-a1.jsonl"), [
+            ToolUse("Read", $"{CliRoot}/src/x.cs"),
+            """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"See https://github.com/kurrent-io/kcap-cli/pull/915"}]}}""",
+        ]);
+
+        var (probed, posted) = await ObserveAndLink(state);
+
+        await Assert.That(probed).IsEmpty();
+        await Assert.That(posted).IsEmpty();
+    }
+
+    /// A subagent that changes a checkout after an earlier pass read its transcript still has it probed.
+    [Test]
+    public async Task A_change_appended_after_a_pass_is_seen_by_the_next() {
+        using var dir = new TempDir();
+        var (state, subagents) = SessionWatcherWithSubagents(dir.Path);
+        var transcript = Path.Combine(subagents, "agent-a1.jsonl");
+        await File.WriteAllLinesAsync(transcript, [ToolUse("Read", $"{CliRoot}/src/x.cs")]);
+        await ObserveAndLink(state);
+
+        await File.AppendAllLinesAsync(transcript, [ToolUse("Edit", $"{CliRoot}/src/x.cs")]);
+        var (probed, posted) = await ObserveAndLink(state);
+
+        await Assert.That(probed).IsEquivalentTo([CliRoot]);
+        await Assert.That(posted).Count().IsEqualTo(1);
     }
 }
