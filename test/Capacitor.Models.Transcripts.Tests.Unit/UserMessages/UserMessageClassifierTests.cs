@@ -13,7 +13,7 @@ public class UserMessageClassifierTests {
 
     [Test]
     [Arguments("[TB4] Migrate the settings page to the new form kit")]
-    [Arguments("<pasted_content>\nhttps://linear.app/kurrent/issue/AI-3003\n</pasted_content>")]
+    [Arguments("<pasted_content>\nhttps://example.com/issues/42\n</pasted_content>")]
     [Arguments("this arrived earlier, what does it mean?\n\n<task-notification>\n<task-id>bq1</task-id>\n</task-notification>")]
     [Arguments("<35;14;37M")]
     [Arguments("/exit")]
@@ -22,7 +22,7 @@ public class UserMessageClassifierTests {
     [Arguments("<user_shell_command>\n<command>\nkcap whoami\n</command>\n<result>\nOutput:\ndemo\n</result>\n</user_shell_command>")]
     [Arguments("<user_action>\n  <action>review</action>\n</user_action>")]
     [Arguments("<recommended_plugins>\nx\n</recommended_plugins>\n\nFix the projector rebuild")]
-    [Arguments("<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>\n\n\nFix AI-3588")]
+    [Arguments("<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>\n\n\nFix the projector rebuild")]
     [Arguments("")]
     public async Task A_person_opens_a_turn(string text) =>
         await Assert.That(KindOf(text)).IsEqualTo(UserMessageKind.Person);
