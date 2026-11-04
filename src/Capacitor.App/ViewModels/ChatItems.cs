@@ -168,15 +168,20 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
             spans.Add(text[(i + run)..close]);
             i = close + run;
         }
-        var plain = WholeLineEmphasis().Replace(PairedStrong().Replace(masked.ToString(), "$2"), "$2");
+        var strong = PairedUnderscores().Replace(PairedStars().Replace(masked.ToString(), "$1"), "$1");
+        var plain = WholeLineEmphasis().Replace(strong, "$2");
         return MaskedSpan().Replace(plain, m => spans[int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)]);
     }
 
     const char SpanOpen = '';
     const char SpanClose = '';
 
-    [GeneratedRegex(@"(\*\*|__)(?=\S)(.+?)(?<=\S)\1")]
-    private static partial Regex PairedStrong();
+    [GeneratedRegex(@"\*\*(?=\S)(.+?)(?<=\S)\*\*")]
+    private static partial Regex PairedStars();
+
+    // Underscores never embolden inside a word, so "user__id__" stays an identifier.
+    [GeneratedRegex(@"(?<![\p{L}\p{N}])__(?=\S)(.+?)(?<=\S)__(?![\p{L}\p{N}])")]
+    private static partial Regex PairedUnderscores();
 
     [GeneratedRegex(@"^([*_])(?=\S)(.+?)(?<=\S)\1$")]
     private static partial Regex WholeLineEmphasis();
