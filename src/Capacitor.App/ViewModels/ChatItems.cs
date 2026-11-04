@@ -152,16 +152,45 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
         return stripped.Length > 0 ? stripped : null;
     }
 
-    // Text inside a code span is literal: "src/**/test.cs" keeps its stars.
+    // Text inside a code span is literal: "src/**/test.cs" keeps its stars. A span opens and
+    // closes on backtick runs of equal length; an unmatched run is plain text.
     static string WithoutEmphasis(string text) {
-        var parts = text.Split('`');
-        for (var i = 0; i < parts.Length; i += 2)
-            parts[i] = parts[i].Replace("**", "", StringComparison.Ordinal).Replace("__", "", StringComparison.Ordinal);
-        if (parts.Length > 0) {
-            parts[0] = parts[0].TrimStart('*', '_');
-            if (parts.Length % 2 == 1) parts[^1] = parts[^1].TrimEnd('*', '_');
+        var parts = new List<(string Text, bool Code)>();
+        var plain = new System.Text.StringBuilder();
+        var i = 0;
+        while (i < text.Length) {
+            if (text[i] != '`') { plain.Append(text[i++]); continue; }
+            var run = 1;
+            while (i + run < text.Length && text[i + run] == '`') run++;
+            var close = ClosingRun(text, i + run, run);
+            if (close < 0) { plain.Append('`', run); i += run; continue; }
+            parts.Add((plain.ToString(), false));
+            plain.Clear();
+            parts.Add((text[(i + run)..close], true));
+            i = close + run;
         }
-        return string.Concat(parts);
+        parts.Add((plain.ToString(), false));
+
+        for (var p = 0; p < parts.Count; p++) {
+            if (parts[p].Code) continue;
+            var s = parts[p].Text.Replace("**", "", StringComparison.Ordinal).Replace("__", "", StringComparison.Ordinal);
+            if (p == 0) s = s.TrimStart('*', '_');
+            if (p == parts.Count - 1) s = s.TrimEnd('*', '_');
+            parts[p] = (s, false);
+        }
+        return string.Concat(parts.Select(part => part.Text));
+    }
+
+    static int ClosingRun(string text, int from, int length) {
+        var i = from;
+        while (i < text.Length) {
+            if (text[i] != '`') { i++; continue; }
+            var run = 1;
+            while (i + run < text.Length && text[i + run] == '`') run++;
+            if (run == length) return i;
+            i += run;
+        }
+        return -1;
     }
 
     [GeneratedRegex(@"^([-*_])(\s*\1){2,}\s*$")]
