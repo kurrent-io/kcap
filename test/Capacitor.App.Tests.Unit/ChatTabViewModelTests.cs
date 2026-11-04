@@ -1105,7 +1105,7 @@ public class ChatTabViewModelTests {
                      ("> ## Summary", "Summary"), ("* item", "item"), ("+ item", "item"), ("- # Findings", "Findings"), ("# - Findings", "Findings"), (">  ## Findings", "Findings"), ("Inspect `src/**/test.cs`", "Inspect src/**/test.cs"), ("**Run `__init__`**", "Run __init__"), ("Inspect ``src/**/test.cs``", "Inspect src/**/test.cs"),
                      ("Inspect `src/**/test.cs", "Inspect `src/**/test.cs"), ("Inspect src/**/test.cs", "Inspect src/**/test.cs"),
                      ("Ran **all** the __unit__ tests", "Ran all the unit tests"), ("Check user__id__ field", "Check user__id__ field"),
-                     ("Saw 0 in **`x`**", "Saw 0 in `x`") })
+                     ("Saw \uE0000\uE001 in **`x`**", "Saw \uE0000\uE001 in x"), ("Observed \uE000 in `**secret**`", "Observed \uE000 in **secret**") })
             await Assert.That(new SystemNoteItem(literal + "\nMore.", SystemNoteItem.AgentReportLabel).HeaderLabel)
                 .IsEqualTo($"Subagent report · {peek}");
 

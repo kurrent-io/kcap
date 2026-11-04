@@ -155,8 +155,10 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     // Only a paired marker is emphasis; a lone "**" is the note's own text. Code spans are masked
     // first so a pair can wrap one ("**Run `__init__`**") without reaching inside it.
     static string WithoutEmphasis(string text) {
-        // Text already holding a placeholder character cannot be masked without ambiguity.
-        if (text.AsSpan().IndexOfAny(SpanOpen, SpanClose) >= 0) return WholeLineEmphasis().Replace(StripStrong(text), "$2");
+        // A code span stands in as mark-index-mark, with a mark the text does not contain, so a
+        // span's contents never meet the emphasis patterns and nothing in the text reads as one.
+        var mark = '\uE000';
+        while (text.Contains(mark)) mark++;
         var spans = new List<string>();
         var masked = new System.Text.StringBuilder();
         var i = 0;
@@ -166,18 +168,17 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
             while (i + run < text.Length && text[i + run] == '`') run++;
             var close = ClosingRun(text, i + run, run);
             if (close < 0) { masked.Append('`', run); i += run; continue; }
-            masked.Append(SpanOpen).Append(spans.Count).Append(SpanClose);
+            masked.Append(mark).Append(spans.Count).Append(mark);
             spans.Add(text[(i + run)..close]);
             i = close + run;
         }
-        var plain = WholeLineEmphasis().Replace(StripStrong(masked.ToString()), "$2");
-        return MaskedSpan().Replace(plain, m => spans[int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)]);
+        var parts = WholeLineEmphasis().Replace(StripStrong(masked.ToString()), "$2").Split(mark);
+        for (var p = 1; p < parts.Length; p += 2)
+            parts[p] = spans[int.Parse(parts[p], System.Globalization.CultureInfo.InvariantCulture)];
+        return string.Concat(parts);
     }
 
     static string StripStrong(string text) => PairedUnderscores().Replace(PairedStars().Replace(text, "$1"), "$1");
-
-    const char SpanOpen = '';
-    const char SpanClose = '';
 
     [GeneratedRegex(@"\*\*(?=\S)(.+?)(?<=\S)\*\*")]
     private static partial Regex PairedStars();
@@ -188,9 +189,6 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
 
     [GeneratedRegex(@"^([*_])(?=\S)(.+?)(?<=\S)\1$")]
     private static partial Regex WholeLineEmphasis();
-
-    [GeneratedRegex("(\\d+)")]
-    private static partial Regex MaskedSpan();
 
     static int ClosingRun(string text, int from, int length) {
         var i = from;
