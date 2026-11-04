@@ -148,4 +148,16 @@ public class VendorModelCatalogsTests {
         await Assert.That(present.Exists).IsTrue();
         await Assert.That(missing).IsNotEqualTo(present);
     }
+
+    /// A file whose size and write time match the previous fingerprint is not read again: the
+    /// previous digest, here one no content could hash to, comes back unchanged.
+    [Test]
+    public async Task CatalogPathStat_reuses_the_previous_digest_for_an_untouched_file() {
+        var path     = Tmp.CreateFile("models_cache.json", "{}");
+        var first    = CatalogPathStat.Of(path);
+        var previous = first with { Digest = "untouched" };
+
+        await Assert.That(CatalogPathStat.Of(path, previous).Digest).IsEqualTo("untouched");
+        await Assert.That(CatalogPathStat.Of(path, previous with { Length = first.Length + 1 }).Digest).IsEqualTo(first.Digest);
+    }
 }
