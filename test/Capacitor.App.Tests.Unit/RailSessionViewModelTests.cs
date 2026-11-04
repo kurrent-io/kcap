@@ -499,7 +499,7 @@ public class RailSessionViewModelTests {
 
             await Assert.That(row.IsTerminalSession).IsTrue();
             await Assert.That(row.IsEnded).IsFalse();
-            await Assert.That(row.Meta).IsEqualTo("25m");
+            await Assert.That(row.Meta).IsEqualTo("25m ago");
             await Assert.That(RailSessionViewModel.TerminalTooltip).IsEqualTo("Started in a terminal, not hosted by a daemon");
 
             using var hosted = new RailSessionViewModel(ServerRow(status: "active", hosted: true), new BehaviorSubject<string?>(null), NoPending, NotStale,
@@ -508,8 +508,8 @@ public class RailSessionViewModelTests {
         });
     }
 
-    /// The row's time is the one the rail orders by, so a live row between two ended ones reads in
-    /// sequence under either sort.
+    /// The row's time is the one the rail orders by, in the same form on live and ended rows, so a
+    /// live row between two ended ones reads in sequence under either sort.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_time_shown_follows_the_rail_sort() {
@@ -526,7 +526,23 @@ public class RailSessionViewModelTests {
 
             sort.OnNext(RailSort.Created);
             await Assert.That(ended.Meta).IsEqualTo("5h ago · 3h 52m");
-            await Assert.That(live.Meta).IsEqualTo("5h 52m");
+            await Assert.That(live.Meta).IsEqualTo("5h ago");
+        });
+    }
+
+    /// Past a day the rows still count hours, or neighbours started 25h and 30h ago would both read
+    /// "1d ago"; from two days on they count days.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_row_counts_hours_until_two_days() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var day = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, At(Ended.AddHours(30)));
+            using var twoDays = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, At(Ended.AddHours(49)));
+
+            await Assert.That(day.Meta).IsEqualTo("30h ago · 3h 52m");
+            await Assert.That(twoDays.Meta).IsEqualTo("2d ago · 3h 52m");
         });
     }
 

@@ -228,31 +228,34 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    /// The time shown is the one the rail sorts by: when the session started under Created, when it
-    /// was last active otherwise, so the order reads off the rows. An ended row adds how long it ran;
-    /// a live one the kind, borrow and subagent notes a daemon row carries. A remote registry row's
-    /// registration time is neither, so it shows no time.
+    /// Every row shows the time the rail sorts by, in one format: when the session started under
+    /// Created, when it was last active otherwise. An ended row adds how long it ran; a live one the
+    /// kind, borrow and subagent notes a daemon row carries. A remote registry row's registration time
+    /// is neither, so it shows no time.
     string MetaFor(AgentRow row) {
-        var now = _time.GetUtcNow();
         var created = AsUtc(row.CreatedAt);
         if (row.IsEndedSession && row.EndedAt is { } endedRaw) {
             var ended = AsUtc(endedRaw);
-            var shown = _sort == RailSort.Created ? created : ended;
-            return $"{RelativeTime.Ago(new DateTimeOffset(shown), now, _time.LocalTimeZone)} · {UptimeFormat.Format(ended - created)}";
+            return $"{Since(_sort == RailSort.Created ? created : ended)} · {UptimeFormat.Format(ended - created)}";
         }
         var kind = row.Kind is "agent" or "session" ? null : row.Kind;
         var borrowed = row.WorkLocation == WorkLocationText.Borrowed ? "borrowed" : null;
         var age = row.Origin == AgentOrigin.Remote ? null
-            : _sort == RailSort.LastUpdated
-                ? RelativeTime.Ago(new DateTimeOffset(AsUtc(row.LastActivityAt ?? row.CreatedAt)), now, _time.LocalTimeZone)
-                : LiveAge(now.UtcDateTime - created);
+            : Since(_sort == RailSort.Created ? created : AsUtc(row.LastActivityAt ?? row.CreatedAt));
         var subagents = row.LiveSubagents is int live and > 0 ? $"{live} subagent{(live == 1 ? "" : "s")}" : null;
         return Join(kind, borrowed, age, subagents);
     }
 
-    /// The age ticks once a minute, so a count of seconds would sit still beside the status word
-    /// and read as how long the agent has been working, which the chat counts per turn.
-    internal static string LiveAge(TimeSpan age) => age < TimeSpan.FromMinutes(1) ? "<1m" : UptimeFormat.Format(age);
+    /// Hours up to two days: the rail's rows cluster in the last day or two, where whole days would
+    /// print the same "1d ago" on neighbours and hide their order.
+    string Since(DateTime utc) {
+        var now = _time.GetUtcNow();
+        var at = new DateTimeOffset(utc);
+        var age = now - at;
+        return age >= TimeSpan.FromHours(1) && age < TimeSpan.FromDays(2)
+            ? $"{(int)age.TotalHours}h ago"
+            : RelativeTime.Ago(at, now, _time.LocalTimeZone);
+    }
 
     /// A local stamp is converted rather than relabelled: relabelling shifts it by the UTC offset,
     /// enough to move an age across a day boundary.
