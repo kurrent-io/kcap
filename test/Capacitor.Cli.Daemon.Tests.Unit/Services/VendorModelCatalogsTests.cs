@@ -171,7 +171,7 @@ public class VendorModelCatalogsTests {
         var path     = Tmp.CreateFile("auth.json", "{}");
         var previous = CatalogPathStat.Of(path);
         File.WriteAllText(path, """{"account_id":"y"}""");
-        File.SetUnixFileMode(path, UnixFileMode.None);
+        MakeUnreadable(path);
         try {
             await Assert.That(CatalogPathStat.Of(path, previous)).IsEqualTo(previous);
         } finally {
@@ -186,7 +186,7 @@ public class VendorModelCatalogsTests {
     public async Task CatalogPathStat_an_unreadable_file_turning_readable_is_a_change() {
         Skip.Unless(!OperatingSystem.IsWindows(), "Unreadability comes from a POSIX file mode.");
         var path = Tmp.CreateFile("auth.json", "{}");
-        File.SetUnixFileMode(path, UnixFileMode.None);
+        MakeUnreadable(path);
         CatalogPathStat unreadable;
         try {
             unreadable = CatalogPathStat.Of(path);
@@ -197,5 +197,18 @@ public class VendorModelCatalogsTests {
 
         await Assert.That(unreadable.Digest).IsNull();
         await Assert.That(CatalogPathStat.SameCatalog([readable], [unreadable])).IsFalse();
+    }
+
+    /// Skips the test on a host whose privileges read through the file mode, such as root.
+    [UnsupportedOSPlatform("windows")]
+    static void MakeUnreadable(string path) {
+        File.SetUnixFileMode(path, UnixFileMode.None);
+        try {
+            File.ReadAllBytes(path);
+        } catch (UnauthorizedAccessException) {
+            return;
+        }
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        Skip.Test("This host reads a file whatever its mode.");
     }
 }
