@@ -353,7 +353,7 @@ public class ScriptUpdaterTests {
     [Test]
     public async Task A_leftover_pruning_directory_is_removed() {
         using var tmp = new TempDir();
-        tmp.CreateFile("root/versions/.pruning-0.9.0-abc/lib/file");
+        tmp.CreateFile($"root/versions/.pruning-0.9.0-{Guid.NewGuid():N}/lib/file");
         var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
         var updater = new ScriptUpdater(null!) { InUse = _ => false };
 
@@ -363,6 +363,22 @@ public class ScriptUpdaterTests {
         await Assert.That(Directory.EnumerateFileSystemEntries(layout.Versions).ToArray()).IsEmpty();
     }
 
+    /// <summary>Only the exact name the updater gives a version it is deleting marks a tombstone; a directory that
+    /// merely starts with <c>.pruning-</c> is someone else's.</summary>
+    [Test]
+    public async Task A_directory_named_like_a_tombstone_but_not_made_by_kcap_is_kept() {
+        using var tmp = new TempDir();
+        string[] names = [".pruning-backups", ".pruning-0.9.0-abc", $".pruning-notes-{Guid.NewGuid():N}", $".pruning-0.9.0-{Guid.NewGuid().ToString("N").ToUpperInvariant()}"];
+        var files   = names.Select(name => tmp.CreateFile($"root/versions/{name}/data")).ToArray();
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+
+        var pruned = updater.PruneVersions(layout, keep: [], TextWriter.Null);
+
+        await Assert.That(pruned).IsEqualTo(0);
+        foreach (var file in files) await Assert.That(File.Exists(file)).IsTrue();
+    }
+
     /// <summary>A <c>.pruning-</c> name proves nothing about where a link goes, so a linked one is left as it is.
     /// On Windows the link is a junction.</summary>
     [Test]
@@ -370,14 +386,15 @@ public class ScriptUpdaterTests {
         using var tmp = new TempDir();
         tmp.CreateDir("root/versions");
         var outside = tmp.CreateFile("outside/lib/file");
-        DirectoryLink.Create(tmp.PathTo("root/versions/.pruning-x"), tmp.PathTo("outside"));
+        var link    = tmp.PathTo($"root/versions/.pruning-0.9.0-{Guid.NewGuid():N}");
+        DirectoryLink.Create(link, tmp.PathTo("outside"));
         var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
         var updater = new ScriptUpdater(null!) { InUse = _ => false };
 
         var pruned = updater.PruneVersions(layout, keep: [], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(0);
-        await Assert.That(new DirectoryInfo(tmp.PathTo("root/versions/.pruning-x")).LinkTarget).IsNotNull();
+        await Assert.That(new DirectoryInfo(link).LinkTarget).IsNotNull();
         await Assert.That(File.Exists(outside)).IsTrue();
     }
 

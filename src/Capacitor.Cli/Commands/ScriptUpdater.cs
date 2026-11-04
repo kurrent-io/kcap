@@ -189,9 +189,7 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
 
             var kept = keep.OfType<string>().Select(CanonicalPath.Resolve).ToArray();
             candidates = versions.EnumerateDirectories()
-                .Where(d => IsPruning(d.Name)
-                    || ((ReleaseManifest.IsValidVersion(d.Name) || d.Name.StartsWith(".replaced-", StringComparison.Ordinal))
-                        && !kept.Any(k => PathsEqual(k, d.FullName))))
+                .Where(d => IsPruning(d.Name) || (IsVersionName(d.Name) && !kept.Any(k => PathsEqual(k, d.FullName))))
                 .Select(d => d.FullName)
                 .Where(d => IsDeletable(root, d))
                 .ToArray();
@@ -210,7 +208,7 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
 
                 var pruning = dir;
                 if (!IsPruning(name)) {
-                    pruning = Path.Combine(Path.GetDirectoryName(dir)!, $"{PruningPrefix}{name}-{Guid.NewGuid():N}");
+                    pruning = Path.Combine(Path.GetDirectoryName(dir)!, PruningName(name, Guid.NewGuid()));
                     Directory.Move(dir, pruning);
                 }
 
@@ -224,9 +222,26 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
         return pruned;
     }
 
+    static bool IsVersionName(string name) =>
+        ReleaseManifest.IsValidVersion(name) || name.StartsWith(".replaced-", StringComparison.Ordinal);
+
     const string PruningPrefix = ".pruning-";
 
-    static bool IsPruning(string name) => name.StartsWith(PruningPrefix, StringComparison.Ordinal);
+    /// <summary>The name a version is renamed to while it is deleted. <see cref="IsPruning"/> accepts exactly this
+    /// form and nothing else, because the name alone is what marks such a directory as kcap's.</summary>
+    static string PruningName(string version, Guid id) => $"{PruningPrefix}{version}-{id:N}";
+
+    static bool IsPruning(string name) {
+        const int idLength = 32;
+        if (!name.StartsWith(PruningPrefix, StringComparison.Ordinal) || name.Length < PruningPrefix.Length + 1 + idLength + 1)
+            return false;
+
+        var version = name[PruningPrefix.Length..^(idLength + 1)];
+        var id      = name[^idLength..];
+
+        return name[^(idLength + 1)] == '-' && IsVersionName(version) && Guid.TryParseExact(id, "N", out var parsed)
+            && PruningName(version, parsed) == name;
+    }
 
     static bool IsDeletable(string root, string dir) =>
         IsPruning(Path.GetFileName(dir)) ? IsUnlinkedVersionsEntry(root, dir) : IsInstalledVersion(root, dir);
