@@ -295,22 +295,38 @@ public class AgentOrchestratorParticipantResumeOnBootTests {
         await Assert.That(f.Factory.LastRuntime!.UserInputs.Any(i => i.Contains("round 2"))).IsTrue();
     }
 
-    /// <summary>A held round is acknowledged once held, so the server stops resending it, and a resend that arrives
-    /// while it waits is neither held again nor typed twice.</summary>
+    /// <summary>A held round is acknowledged only once delivered, so a resume that fails leaves the server still
+    /// resending it; a resend that arrives while it waits is neither held again nor typed twice.</summary>
     [Test]
-    public async Task A_held_round_is_acknowledged_and_a_resend_is_not_held_again() {
+    public async Task A_held_round_is_acknowledged_once_delivered_and_a_resend_is_not_held_again() {
         var (f, lane) = await StartHandshake();
         await using var _ = f.Orch;
         var round = Round("round 2");
 
         await f.Orch.HandleSendInputForTest(round);
+        await f.Orch.HandleSendInputForTest(round);
+        await Assert.That(f.Server.InputAcks).IsEmpty();
+
+        f.Factory.Gate!.SetResult();
+        await WaitHarness.WaitBoundedAsync(lane, "the resume lane");
+
+        await Assert.That(f.Factory.LastRuntime!.UserInputs.Count(i => i.Contains("round 2"))).IsEqualTo(1);
         await Assert.That(f.Server.InputAcks).IsEquivalentTo([(round.DispatchId!.Value, "reviewer-1")]);
+    }
+
+    /// <summary>A round held for a resume that fails is refused and never acknowledged.</summary>
+    [Test]
+    public async Task A_held_round_whose_resume_fails_is_refused_and_never_acknowledged() {
+        var (f, lane) = await StartHandshake(fails: true);
+        await using var _ = f.Orch;
+        var round = Round("round 2");
 
         await f.Orch.HandleSendInputForTest(round);
         f.Factory.Gate!.SetResult();
         await WaitHarness.WaitBoundedAsync(lane, "the resume lane");
 
-        await Assert.That(f.Factory.LastRuntime!.UserInputs.Count(i => i.Contains("round 2"))).IsEqualTo(1);
+        await Assert.That(f.Server.InputRejections).IsEquivalentTo([(round.DispatchId!.Value, "reviewer-1", "unknown_agent")]);
+        await Assert.That(f.Server.InputAcks).IsEmpty();
     }
 
     [Test]

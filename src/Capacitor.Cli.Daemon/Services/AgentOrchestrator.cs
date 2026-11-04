@@ -898,6 +898,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             Microsoft.Extensions.Logging.Abstractions.NullLogger<AdmissionFence>.Instance);
         _shutdownCts       = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
         _time              = time;
+        _dispatchedInputs  = new(time);
         _heartbeatTimer    = new(HeartbeatInterval, time);
         _daemonHeartbeat   = new(TimeSpan.FromSeconds(7), time);
         _tokenRefresh      = new(TimeSpan.FromSeconds(60), time);
@@ -5007,7 +5008,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
-    /// <summary>Tells the server the dispatch was taken, so it stops resending it. Not awaited by the
+    /// <summary>Tells the server the dispatch was typed, so it stops resending it. Not awaited by the
     /// caller's delivery path: the report is a server round trip, and a lost one only earns a resend that
     /// is answered here again.</summary>
     void AcknowledgeInput(SendInputCommand cmd) {
@@ -5035,8 +5036,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         try {
             switch (TryHoldForResume(cmd)) {
+                // Acknowledged only once delivered: a resume that fails drops the round, and the server must
+                // still be resending it then. Its resends meanwhile find it in flight and are ignored.
                 case true:
-                    AcknowledgeInput(cmd);
                     return;
                 case false:
                     await ReportInputDroppedAsync(cmd, SendInputDropReason.QueueFull);
