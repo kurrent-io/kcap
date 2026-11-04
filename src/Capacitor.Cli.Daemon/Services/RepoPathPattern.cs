@@ -18,6 +18,10 @@ public static class RepoPathPattern {
         var glob = IsGlob(pattern);
         var root = glob ? pattern[..^2] : pattern;
         if (root.Length == 0) root = "/";
+        if (OperatingSystem.IsWindows()) {
+            root     = WindowsPathSpelling.Fold(root);
+            repoPath = WindowsPathSpelling.Fold(repoPath);
+        }
         if (!Path.IsPathFullyQualified(root) || !Path.IsPathFullyQualified(repoPath)) return false;
 
         if (!TryResolve(root, out var resolvedRoot) || !TryResolve(repoPath, out var resolvedPath)) return false;

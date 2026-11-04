@@ -101,6 +101,31 @@ public class RepoPathPatternTests {
         await Assert.That(RepoPathPattern.Matches(Tmp.PathTo("Elsewhere") + "\\*", shortProject)).IsFalse();
     }
 
+    /// <summary>The spellings of one directory a Windows request can arrive in all match the entry naming
+    /// it plainly; an extended spelling with no plain equivalent does not.</summary>
+    [Test]
+    [RunOn(OS.Windows)]
+    [Arguments(@"\\?\", "", true)]
+    [Arguments(@"\\.\", "", true)]
+    [Arguments("", @"\", true)]
+    [Arguments(@"\\?\", ".", false)]
+    public async Task A_windows_spelling_of_an_allowed_directory_matches_its_plain_entry(string prefix, string suffix, bool expected) {
+        string project = Tmp.CreateDir("allowed", "project");
+
+        await Assert.That(RepoPathPattern.Matches(Tmp.PathTo("allowed") + "\\*", prefix + project + suffix)).IsEqualTo(expected);
+    }
+
+    [Test]
+    [RunOn(OS.Windows)]
+    public async Task Forward_slashes_and_drive_letter_case_reach_the_same_entry() {
+        string project = Tmp.CreateDir("allowed", "project");
+        var swapped = char.IsUpper(project[0]) ? char.ToLowerInvariant(project[0]) + project[1..] : char.ToUpperInvariant(project[0]) + project[1..];
+
+        await Assert.That(RepoPathPattern.Matches(Tmp.PathTo("allowed") + "\\*", project.Replace('\\', '/'))).IsTrue();
+        await Assert.That(RepoPathPattern.Matches(Tmp.PathTo("allowed").Replace('\\', '/') + "/*", project)).IsTrue();
+        await Assert.That(RepoPathPattern.Matches(Tmp.PathTo("allowed") + "\\*", swapped)).IsTrue();
+    }
+
     static string ShortNameOf(string path) {
         var start = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/d /s /c \"for %I in (\"{path}\") do @echo %~sI\"") {
             RedirectStandardOutput = true, UseShellExecute = false,
