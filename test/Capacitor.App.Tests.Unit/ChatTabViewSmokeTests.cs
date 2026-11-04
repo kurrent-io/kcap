@@ -1483,8 +1483,8 @@ public class ChatTabViewSmokeTests {
                 .ToList();
             await Assert.That(chips).Contains("You");
             await Assert.That(chips).Contains(host.Chat.AssistantTitle);
-            await Assert.That(chips).Contains("Note");
-            var you = host.View.GetVisualDescendants().OfType<TextBlock>()
+            await Assert.That(chips).Contains("Background task · Agent finished");
+            var you =host.View.GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Classes.Contains("toolKindChip") && t.Text == "You");
             await Assert.That(you.HorizontalAlignment).IsEqualTo(Avalonia.Layout.HorizontalAlignment.Left);
             var times = host.View.GetVisualDescendants().OfType<TextBlock>()
@@ -1906,7 +1906,8 @@ public class ChatTabViewSmokeTests {
     }
 
     /// Pins the system note's surface: a muted card carrying the note as markdown, distinct from
-    /// the user bubble and the assistant prose around it.
+    /// the user bubble and the assistant prose around it. A task notification starts folded, so
+    /// its markdown renders only once opened.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_system_note_renders_as_a_muted_markdown_card() {
@@ -1917,8 +1918,13 @@ public class ChatTabViewSmokeTests {
             ]));
 
             var card = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("systemNote"));
-            var text = card.GetVisualDescendants().OfType<TextBlock>().Where(t => t.Classes.Contains("markdown-paragraph")).ToList();
-            await Assert.That(text.Select(t => t.Inlines?.Text ?? t.Text ?? "")).IsEquivalentTo(new[] { "Agent finished", "All good." }, CollectionOrdering.Matching);
+            List<TextBlock> Paragraphs() => card.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.Classes.Contains("markdown-paragraph") && t.IsEffectivelyVisible).ToList();
+            await Assert.That(Paragraphs()).IsEmpty();
+
+            Click(host, card.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("toolSummary")));
+            host.Settle();
+            await Assert.That(Paragraphs().Select(t => t.Inlines?.Text ?? t.Text ?? "")).IsEquivalentTo(new[] { "Agent finished", "All good." }, CollectionOrdering.Matching);
             await host.CloseAsync();
         });
     }
