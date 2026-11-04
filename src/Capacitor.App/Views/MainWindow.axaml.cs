@@ -73,16 +73,15 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         ApplyRailClearance();
     }
 
-    /// How far a header at the content's leading edge pads to clear the show-sidebar button; zero
-    /// while the rail shows.
+    /// How far a header at the content's leading edge pads to clear the window controls; zero while
+    /// the rail shows.
     public double RailLeading => Panes.RailCollapsed ? RailClearance.Leading(_scale) : 0;
 
     public event EventHandler? RailLeadingChanged;
 
     void ApplyRailClearance() {
         var origin = RailClearance.ButtonOrigin(_scale);
-        RailToggleButton.Margin = new Thickness(origin.X, origin.Y, 0, 0);
-        SessionRail.AlignChromeButtons(origin.Y, RailClearance.ButtonSize);
+        WindowControls.Margin = new Thickness(origin.X, origin.Y, 0, 0);
         LauncherHeader.Margin = new Thickness(Math.Max(0, RailLeading - LauncherPane.Margin.Left), 0, 0, 0);
         RailLeadingChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -186,8 +185,12 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public MainWindow() {
         InitializeComponent();
-        RailToggleButton.MinWidth = RailToggleButton.MinHeight = RailClearance.ButtonSize;
-        RailToggleButton.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
+        WindowControls.Spacing = RailClearance.Spacing;
+        RailToggleButton.Margin = new Thickness(0, 0, RailClearance.ToggleGap - RailClearance.Spacing, 0);
+        foreach (var button in new[] { RailToggleButton, BackButton, ForwardButton }) {
+            button.MinWidth = button.MinHeight = RailClearance.ButtonSize;
+            button.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
+        }
         SessionsSurface.SizeChanged += (_, e) => RailColumn.MaxWidth = PaneLayout.MaxWidth(e.NewSize.Width, PaneLayout.RailMinWidth, PaneLayout.ContentMinWidth);
         Panes.Changed += (_, _) => ApplyRail();
         ApplyRail();

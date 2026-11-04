@@ -116,8 +116,7 @@ public class PaneLayoutMemoryTests {
             await Assert.That(window.ContentPane.Bounds.Width).IsEqualTo(1400);
             await Assert.That(toggle.IsEffectivelyVisible).IsTrue();
             await Assert.That(Place()).IsEqualTo(expanded);
-            await Assert.That(toggle.Bounds.Bottom).IsLessThanOrEqualTo(44);
-            await Assert.That(toggle.Bounds.Right).IsLessThanOrEqualTo(RailClearance.Leading(1));
+            await Assert.That(Place().Y + toggle.Bounds.Height).IsLessThanOrEqualTo(44);
 
             toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
@@ -142,25 +141,33 @@ public class PaneLayoutMemoryTests {
         });
     }
 
-    /// Back and forward sit on the toggle's line, so the rail's top row reads as one row of controls.
+    /// Back and forward stay beside the toggle on its line whether the rail shows or not.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_rails_history_buttons_share_the_toggles_line() {
+    public async Task Back_and_forward_stay_beside_the_toggle_in_both_rail_states() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var window = new MainWindow { Width = 1400, Height = 800 };
             window.Show();
             window.UpdateLayout();
-            double Middle(Control c) => c.TranslatePoint(new Point(0, c.Bounds.Height / 2), window)!.Value.Y;
-            var back = window.SessionRail.FindControl<Button>("BackButton")!;
-            await Assert.That(Middle(back)).IsEqualTo(Middle(window.RailToggleButton)).Within(0.5);
+            Point Middle(Control c) => c.TranslatePoint(new Point(c.Bounds.Width / 2, c.Bounds.Height / 2), window)!.Value;
+            var back = Middle(window.BackButton);
+            var forward = Middle(window.ForwardButton);
+            await Assert.That(back.Y).IsEqualTo(Middle(window.RailToggleButton).Y).Within(0.5);
+            await Assert.That(back.X).IsGreaterThan(Middle(window.RailToggleButton).X);
+
+            window.Panes.RailCollapsed = true;
+            window.UpdateLayout();
+            await Assert.That(window.BackButton.IsEffectivelyVisible).IsTrue();
+            await Assert.That(Middle(window.BackButton)).IsEqualTo(back);
+            await Assert.That(Middle(window.ForwardButton)).IsEqualTo(forward);
             window.Close();
         });
     }
 
-    /// The header must clear the floating button only while it shows, and give the space back after.
+    /// The header must clear the window controls only while the rail is collapsed, and give the space back after.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_session_header_clears_the_show_sidebar_button_while_the_rail_is_collapsed() {
+    public async Task A_session_header_clears_the_window_controls_while_the_rail_is_collapsed() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var window = new MainWindow { Width = 1400, Height = 800 };
             var view = new WorkspaceView();
@@ -174,8 +181,8 @@ public class PaneLayoutMemoryTests {
 
             window.Panes.RailCollapsed = true;
             window.UpdateLayout();
-            var button = window.RailToggleButton;
-            await Assert.That(TitleLeft()).IsGreaterThanOrEqualTo(button.Bounds.Right);
+            var controlsRight = window.ForwardButton.TranslatePoint(new Point(window.ForwardButton.Bounds.Width, 0), window.ContentPane)!.Value.X;
+            await Assert.That(TitleLeft()).IsGreaterThan(controlsRight);
 
             window.Panes.RailCollapsed = false;
             window.UpdateLayout();

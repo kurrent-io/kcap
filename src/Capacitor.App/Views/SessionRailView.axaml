@@ -133,22 +133,10 @@
             BorderThickness="0,0,1,0" BorderBrush="{StaticResource KcapBorderBrush}">
         <DockPanel Margin="0">
             <StackPanel DockPanel.Dock="Top">
-                <!-- 44px chrome row: the macOS traffic lights and the window's sidebar toggle overlay
-                     its left end (the window extends the client area into the title bar). Empty
-                     space here drags the window — wired in code-behind. -->
-                <Grid Height="44" Background="Transparent" PointerPressed="OnChromePointerPressed">
-                    <StackPanel x:Name="RailChromeButtons" Orientation="Horizontal" Spacing="2" HorizontalAlignment="Right"
-                                VerticalAlignment="Center" Margin="0,0,10,0">
-                        <Button x:Name="BackButton" Classes="kcapGhost kcapIcon" Command="{Binding GoBackCommand}"
-                                ToolTip.Tip="{x:Static views:ShortcutLabels.BackTip}" AutomationProperties.Name="Back">
-                            <views:AppIcon Kind="ArrowLeft" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
-                        </Button>
-                        <Button x:Name="ForwardButton" Classes="kcapGhost kcapIcon" Command="{Binding GoForwardCommand}"
-                                ToolTip.Tip="{x:Static views:ShortcutLabels.ForwardTip}" AutomationProperties.Name="Forward">
-                            <views:AppIcon Kind="ArrowRight" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
-                        </Button>
-                    </StackPanel>
-                </Grid>
+                <!-- 44px chrome row, under the macOS traffic lights and the window's own controls
+                     (the window extends the client area into the title bar). It drags the window —
+                     wired in code-behind. -->
+                <Grid Height="44" Background="Transparent" PointerPressed="OnChromePointerPressed" />
 
                 <!-- Deselects the workspace (the pane's empty state IS the launcher), or nudges the launcher already showing. -->
                 <Button x:Name="RailNewSessionButton" Classes="kcapChip" HorizontalAlignment="Stretch" Margin="10,0,10,10"

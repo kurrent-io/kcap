@@ -45,15 +45,6 @@ public partial class SessionRailView : UserControl {
     // The rail's 44px chrome row IS the title bar on this surface — see WindowChrome.
     void OnChromePointerPressed(object? sender, PointerPressedEventArgs e) => WindowChrome.BeginDrag(this, e);
 
-    /// Puts back and forward on the window's sidebar toggle line, at its size.
-    public void AlignChromeButtons(double top, double size) {
-        RailChromeButtons.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
-        RailChromeButtons.Margin = new Thickness(0, top, 10, 0);
-        foreach (var button in new[] { BackButton, ForwardButton }) {
-            button.MinWidth = button.MinHeight = size;
-            button.Padding = new Thickness((size - 16) / 2);
-        }
-    }
 
     // Button.OnClick raises ClickEvent before reading Command, and Flyout.Hide detaches the popup
     // parent and clears inherited DataContext on its rows, so capture and run Command here.

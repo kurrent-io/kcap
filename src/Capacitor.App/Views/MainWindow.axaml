@@ -108,13 +108,23 @@
                                   DragDelta="OnRailSplitterDragDelta" DragCompleted="OnRailSplitterDragCompleted" />
                 </Grid>
 
-                <!-- One toggle that never moves: over the rail's chrome row while it shows, over the
-                     content's top-left corner once it collapses to nothing, where each header pads
-                     clear of it through RailClearance. -->
-                <Button x:Name="RailToggleButton" Classes="kcapGhost kcapIcon"
-                        HorizontalAlignment="Left" VerticalAlignment="Top" Click="OnRailToggleClick">
-                    <views:AppIcon x:Name="RailToggleIcon" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
-                </Button>
+                <!-- Window controls that never move: over the rail's chrome row while it shows, over
+                     the content's top-left corner once it collapses to nothing, where each header
+                     pads clear of them through RailClearance. -->
+                <StackPanel x:Name="WindowControls" Orientation="Horizontal"
+                            HorizontalAlignment="Left" VerticalAlignment="Top">
+                    <Button x:Name="RailToggleButton" Classes="kcapGhost kcapIcon" Click="OnRailToggleClick">
+                        <views:AppIcon x:Name="RailToggleIcon" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                    </Button>
+                    <Button x:Name="BackButton" Classes="kcapGhost kcapIcon" Command="{Binding GoBackCommand}"
+                            ToolTip.Tip="{x:Static views:ShortcutLabels.BackTip}" AutomationProperties.Name="Back">
+                        <views:AppIcon Kind="ArrowLeft" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                    </Button>
+                    <Button x:Name="ForwardButton" Classes="kcapGhost kcapIcon" Command="{Binding GoForwardCommand}"
+                            ToolTip.Tip="{x:Static views:ShortcutLabels.ForwardTip}" AutomationProperties.Name="Forward">
+                        <views:AppIcon Kind="ArrowRight" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                    </Button>
+                </StackPanel>
             </Panel>
         </LayoutTransformControl>
 
