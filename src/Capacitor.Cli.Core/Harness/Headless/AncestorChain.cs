@@ -99,17 +99,23 @@ internal static class AncestorChain {
     static string? UnixViolation(string path) {
         if (!FileOwner.Available) return "no system `stat` command can read directory owners";
 
-        return UnixWriteViolation(path, FileOwner.GroupOf, DirectoryAcl.HasExtended, FileOwner.Effective, ReadOrNull("/etc/group"), ReadOrNull("/etc/passwd"))
+        return UnixWriteViolation(path, FileOwner.GroupOf, DirectoryAcl.HasExtended, DirectoryAcl.AncestorViolation, FileOwner.Effective, ReadOrNull("/etc/group"), ReadOrNull("/etc/passwd"))
             ?? UnixOwnerViolation(path, FileOwner.Of, FileOwner.Effective);
     }
 
     /// <summary>The Unix write rule, with the two account files as text so it runs on any host. A file that could
-    /// not be read is null, which proves nothing about a group. Only a group-writable directory is asked about an ACL:
-    /// macOS home directories carry one by default.</summary>
+    /// not be read is null, which proves nothing about a group. <paramref name="hasExtendedAcl"/> is asked only of a
+    /// group-writable directory, since macOS home directories carry an ACL by default;
+    /// <paramref name="aclViolation"/> of every directory on the chain.</summary>
     public static string? UnixWriteViolation(
-            string path, Func<string, uint?> groupOf, Func<string, bool?> hasExtendedAcl, uint self, string? groupFile, string? passwdFile) {
+            string path, Func<string, uint?> groupOf, Func<string, bool?> hasExtendedAcl, Func<string, string?> aclViolation,
+            uint self, string? groupFile, string? passwdFile) {
         if (DirectoryExposure.GrantingWrite(path, UnixFileMode.OtherWrite) is [var shared, ..])
             return $"'{shared}' is writable by others and not sticky";
+
+        foreach (var dir in DirectoryExposure.Ancestors(path)) {
+            if (aclViolation(dir) is { } why) return why;
+        }
 
         foreach (var dir in DirectoryExposure.GrantingWrite(path, UnixFileMode.GroupWrite)) {
             if (groupOf(dir) is not { } gid) return $"'{dir}' is writable by its group and not sticky, and its group cannot be read";

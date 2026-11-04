@@ -198,7 +198,7 @@ public class AncestorChainTests {
         var leaf   = Tmp.CreateDir("shared", "leaf").Path;
         File.SetUnixFileMode(shared, (UnixFileMode)mode);
 
-        var violation = AncestorChain.UnixWriteViolation(leaf, _ => gid, _ => false, Self, Group, Passwd);
+        var violation = AncestorChain.UnixWriteViolation(leaf, _ => gid, _ => false, _ => null, Self, Group, Passwd);
 
         if (why is null) await Assert.That(violation).IsNull();
         else await Assert.That(violation!).Contains(why);
@@ -210,7 +210,7 @@ public class AncestorChainTests {
         var shared = Tmp.CreateDir("shared").Path;
         File.SetUnixFileMode(shared, (UnixFileMode)0b111_111_101);
 
-        await Assert.That(AncestorChain.UnixWriteViolation(Tmp.CreateDir("shared", "leaf").Path, _ => null, _ => false, Self, Group, Passwd)!)
+        await Assert.That(AncestorChain.UnixWriteViolation(Tmp.CreateDir("shared", "leaf").Path, _ => null, _ => false, _ => null, Self, Group, Passwd)!)
             .Contains("its group cannot be read");
     }
 
@@ -241,13 +241,111 @@ public class AncestorChainTests {
         var shared = Tmp.CreateDir("shared").Path;
         var leaf   = Tmp.CreateDir("shared", "leaf").Path;
 
-        await Assert.That(AncestorChain.UnixWriteViolation(leaf, _ => 1000, _ => throw new InvalidOperationException("asked"), Self, Group, Passwd)).IsNull();
+        await Assert.That(AncestorChain.UnixWriteViolation(leaf, _ => 1000, _ => throw new InvalidOperationException("asked"), _ => null, Self, Group, Passwd)).IsNull();
 
         File.SetUnixFileMode(shared, (UnixFileMode)0b111_111_101);
-        var violation = AncestorChain.UnixWriteViolation(leaf, _ => 1000, _ => acl, Self, Group, Passwd);
+        var violation = AncestorChain.UnixWriteViolation(leaf, _ => 1000, _ => acl, _ => null, Self, Group, Passwd);
 
         if (why is null) await Assert.That(violation).IsNull();
         else await Assert.That(violation!).Contains(why);
+    }
+
+    const string ModeLine = "drwxr-xr-x@ 123 tony  staff  3936 Nov  4 17:45 /Users/tony\n";
+
+    /// <summary>Lines as <c>ls -lde</c> printed them on macOS, which spells <c>write</c> as <c>add_file</c> on a directory
+    /// and prints a principal it cannot name as a UUID.</summary>
+    [Test]
+    [Arguments(" 0: group:everyone deny delete\n", null)]
+    [Arguments(" 0: group:everyone inherited deny delete,delete_child\n", null)]
+    [Arguments(" 0: group:staff allow list,search,file_inherit,directory_inherit\n", null)]
+    [Arguments(" 0: group:staff inherited allow list,search,writeattr\n", null)]
+    [Arguments(" 0: user:tony allow add_file,delete_child,chown\n", null)]
+    [Arguments(" 0: user:root inherited allow writesecurity,chown\n", null)]
+    [Arguments(" 0: group:wheel allow add_subdirectory\n", null)]
+    [Arguments(" 0: group:staff allow write\n", "group:staff write")]
+    [Arguments(" 0: group:staff allow delete\n", "group:staff delete")]
+    [Arguments(" 0: group:staff allow delete_child\n", "group:staff delete_child")]
+    [Arguments(" 0: group:staff allow add_file\n", "group:staff add_file")]
+    [Arguments(" 0: group:staff allow add_subdirectory\n", "group:staff add_subdirectory")]
+    [Arguments(" 0: group:staff allow append\n", "group:staff append")]
+    [Arguments(" 0: group:staff allow writesecurity\n", "group:staff writesecurity")]
+    [Arguments(" 0: group:staff allow chown\n", "group:staff chown")]
+    [Arguments(" 0: group:staff inherited allow list,add_file\n", "group:staff add_file")]
+    [Arguments(" 0: group:Some Group allow delete_child\n", "group:Some Group delete_child")]
+    [Arguments(" 0: FFFFEEEE-DDDD-CCCC-BBBB-AAAAFFFFFFFE allow add_file\n", "FFFFEEEE-DDDD-CCCC-BBBB-AAAAFFFFFFFE add_file")]
+    [Arguments(" 0: group:everyone deny delete\n 1: group:admin allow delete\n", "group:admin delete")]
+    [Arguments(" 0: group:staff allow newright\n", "'newright'")]
+    [Arguments(" 0: group:staff allow\n", "cannot be read")]
+    [Arguments(" 0: group:staff maybe delete\n", "cannot be read")]
+    [Arguments(" 0: allow delete\n", "cannot be read")]
+    [Arguments("not an entry\n", "cannot be read")]
+    public async Task A_macos_acl_refuses_only_an_allow_of_a_replace_right_to_someone_else(string entries, string? why) {
+        var violation = DirectoryAcl.MacListingViolation(ModeLine + entries, ["user:root", "group:wheel", "user:tony"]);
+
+        if (why is null) await Assert.That(violation).IsNull();
+        else await Assert.That(violation!).Contains(why);
+    }
+
+    [Test]
+    [Arguments("")]
+    [Arguments("ls: /Users/tony: No such file or directory\n")]
+    [Arguments("-rwxr-xr-x  1 tony  staff  64 Nov  4 17:45 /Users/tony\n")]
+    public async Task A_macos_listing_that_cannot_be_read_is_a_violation(string listing) =>
+        await Assert.That(DirectoryAcl.MacListingViolation(listing, ["user:tony"])!).Contains("cannot be read");
+
+    [Test]
+    public async Task A_macos_listing_with_no_acl_or_for_a_link_passes() {
+        await Assert.That(DirectoryAcl.MacListingViolation("drwxr-xr-x  23 root  wheel  736 Oct 22 19:10 /\n", ["user:tony"])).IsNull();
+        await Assert.That(DirectoryAcl.MacListingViolation("lrwxr-xr-x@ 1 root  wheel  11 Oct 22 19:10 /var -> private/var\n", ["user:tony"])).IsNull();
+    }
+
+    /// <summary>A missing directory is a violation only if it is actually read, so this shows who asks: macOS
+    /// reads every ancestor, Linux reads none, its mask being in the mode.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task Only_macos_reads_the_acl_of_every_ancestor() {
+        var violation = DirectoryAcl.AncestorViolation(Tmp.PathTo("missing"));
+
+        if (OperatingSystem.IsMacOS()) await Assert.That(violation!).Contains("cannot be read");
+        else await Assert.That(violation).IsNull();
+    }
+
+    [Test]
+    public async Task The_write_rule_asks_about_the_acl_of_every_ancestor_and_stops_at_a_violation() {
+        var leaf  = Tmp.CreateDir("a", "leaf").Path;
+        var asked = new List<string>();
+
+        await Assert.That(AncestorChain.UnixWriteViolation(leaf, _ => null, _ => false, d => { asked.Add(d); return null; }, Self, Group, Passwd)).IsNull();
+        await Assert.That(asked).Contains(DirectoryExposure.Physical(leaf));
+        await Assert.That(asked).Contains("/");
+
+        await Assert.That(AncestorChain.UnixWriteViolation(leaf, _ => null, _ => false, _ => "named", Self, Group, Passwd)).IsEqualTo("named");
+    }
+
+    /// <summary>On a real ancestor, through the whole chain check: the home directory's own deny entry must keep passing.
+    /// The ACL goes again afterwards, or a deny of delete would stop the temp directory's removal.</summary>
+    [Test, RunOn(OS.MacOs)]
+    [Arguments("group:everyone deny delete", null)]
+    [Arguments("user:nobody allow write", "allows")]
+    [Arguments("group:staff allow delete_child", "group:staff delete_child")]
+    public async Task A_real_macos_acl_on_an_ancestor_is_judged(string entry, string? why) {
+        var ancestor = Tmp.CreateDir("ancestor").Path;
+        var leaf     = Tmp.CreateDir("ancestor", "leaf").Path;
+        await Chmod("+a", entry, ancestor);
+
+        try {
+            var violation = AncestorChain.Violation(leaf);
+
+            if (why is null) await Assert.That(violation).IsNull();
+            else await Assert.That(violation!).Contains(why);
+        } finally {
+            await Chmod("-N", ancestor);
+        }
+    }
+
+    static async Task Chmod(params string[] args) {
+        using var process = Process.Start(new ProcessStartInfo("/bin/chmod", args) { UseShellExecute = false })!;
+        await process.WaitForExitAsync();
+        if (process.ExitCode != 0) throw new InvalidOperationException($"chmod {string.Join(' ', args)} exited {process.ExitCode}");
     }
 
     /// <summary>On macOS <c>ls</c> may print <c>@</c> for the same directory, which also refuses, so an ACL must never
