@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Acp;
+using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Daemon.Acp;
 using Capacitor.Cli.Daemon.Harness.Antigravity;
 using Capacitor.Cli.Daemon.Harness.Kiro;
@@ -56,21 +57,6 @@ internal static class OpenCodeReviewerPermissions {
     internal static readonly ImmutableArray<string> ReadTools = ["read", "grep", "glob", "list"];
 
     /// <summary>
-    /// Tools that must never appear as <c>allow</c>. Asserted by test against the built document, so a
-    /// future edit that widens the posture goes red rather than shipping.
-    ///
-    /// <para><c>skill</c> is on this list for a reason beyond tool hygiene: OpenCode reads skills from
-    /// <c>~/.agents/skills</c> and <c>~/.claude</c>, which are HOME-relative and therefore NOT
-    /// suppressed by the isolated config dir — so the review-flows skill is visible to a reviewer, the
-    /// derail hazard where a reviewer tries to START a flow instead of submitting its result. Denying
-    /// the <c>skill</c> tool closes that structurally rather than by wording: OpenCode omits the skills
-    /// section from its system prompt entirely when the tool is disabled, so there is nothing for a
-    /// reviewer to be derailed by.</para>
-    /// </summary>
-    internal static readonly ImmutableArray<string> ForbiddenTools =
-        ["write", "edit", "patch", "bash", "webfetch", "websearch", "task", "skill", "todowrite"];
-
-    /// <summary>
     /// The JSON value for <c>OPENCODE_PERMISSION</c>: <c>"*": "deny"</c>, the read family, and one
     /// <c>{server}_*</c> entry per injected server.
     ///
@@ -113,8 +99,8 @@ internal static class OpenCodeReviewerPermissions {
         //
         // Naming each forbidden tool makes the question moot: the env now carries a specific key for
         // each, so it wins per key on any merge order, whether or not any file config loaded. It also
-        // makes ForbiddenTools load-bearing rather than a list only tests read.
-        foreach (var tool in ForbiddenTools)
+        // makes OpenCodeForbiddenTools load-bearing rather than a list only tests read.
+        foreach (var tool in OpenCodeForbiddenTools.Names)
             permission[tool] = (JsonNode?)"deny";
 
         foreach (var tool in ReadTools)

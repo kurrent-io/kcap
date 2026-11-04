@@ -4,6 +4,7 @@
         <None Include="../fixtures/gh/*.json" Link="fixtures/gh/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
         <None Include="../fixtures/codex/*.jsonl" Link="fixtures/codex/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
         <None Include="../fixtures/pi-headless/*.jsonl" Link="fixtures/pi-headless/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+        <None Include="../fixtures/opencode-headless/*" Link="fixtures/opencode-headless/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
         <None Include="../fixtures/eval-evidence/*.json" Link="fixtures/eval-evidence/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
         <None Include="../fixtures/eval-strategies/**/*" Link="fixtures/eval-strategies/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
