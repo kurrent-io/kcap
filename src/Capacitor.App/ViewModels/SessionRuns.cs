@@ -89,7 +89,6 @@ public sealed class SessionRuns(TimeProvider time) {
                     break;
                 case RunSignal.Resumed resumed:
                     (detachedHere ??= new(StringComparer.Ordinal)).Add(resumed.CallId);
-                    _reported.Add(resumed.AgentId);
                     Resume(resumed);
                     break;
                 case RunSignal.Waiting waiting:

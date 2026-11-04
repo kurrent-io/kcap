@@ -416,12 +416,14 @@ public class SessionRunsTests {
     }
 
     /// The run a resume follows can still read running, its notification landing after the resume though
-    /// dated before it, by call or by agent id alone. The resume ends it without an outcome, and the
-    /// notification supplies one there rather than ending the new run. An agent with no row adds none.
+    /// dated before it, by call or by agent id alone and cut off before its status or not. The resume ends
+    /// it without an outcome, and the notification dates it there rather than ending the new run. An
+    /// agent with no row adds none.
     [Test]
-    [Arguments("c1")]
-    [Arguments(null)]
-    public async Task A_resume_ends_the_run_before_it_and_that_runs_late_notification_lands_there(string? callId) {
+    [Arguments("c1", RunOutcome.Failed)]
+    [Arguments(null, RunOutcome.Failed)]
+    [Arguments(null, null)]
+    public async Task A_resume_ends_the_run_before_it_and_that_runs_late_notification_lands_there(string? callId, RunOutcome? outcome) {
         var s = new SessionRuns(Clock());
         s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
         s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5)), Resumed("m2", "zz", T0.AddMinutes(5))));
@@ -429,10 +431,24 @@ public class SessionRunsTests {
         await Assert.That(s.Rows[0].State).IsEqualTo(RunState.Done);
         await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
 
-        s.Apply(Signals(Finished(callId, "a1", RunOutcome.Failed, at: T0.AddMinutes(4))));
-        await Assert.That(s.Rows[0].State).IsEqualTo(RunState.Failed);
+        s.Apply(Signals(Finished(callId, "a1", outcome, at: T0.AddMinutes(4))));
+        await Assert.That(s.Rows[0].State).IsEqualTo(outcome is null ? RunState.Done : RunState.Failed);
         await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(4));
         await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+    }
+
+    /// Where no notification reaches the stream, a stop is every run's only end, a resumed run's included.
+    [Test]
+    public async Task A_resumed_run_of_an_agent_the_transcript_never_reported_ends_on_its_stop() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Stop("a1", T0.AddMinutes(2))));
+        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5))));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+
+        s.Apply(Signals(Stop("a1", T0.AddMinutes(20))));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Done);
+        await Assert.That(s.Rows[1].EndedAt).IsEqualTo(T0.AddMinutes(20));
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(2));
     }
 
     /// The local feed names a launch from its meta file after the lines are folded, so on a reopen it

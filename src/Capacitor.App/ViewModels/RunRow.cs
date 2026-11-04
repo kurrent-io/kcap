@@ -103,10 +103,11 @@ public sealed class RunRow : ReactiveObject {
     }
 
     /// An end with an outcome is final. One without reads as done until one with an outcome
-    /// arrives, and the earlier of the two dates the row: the server stamps a stop when it heard
-    /// it, which an import or a spooled hook puts long after the run ended.
+    /// arrives, and the earliest end dates the row: the server stamps a stop when it heard it,
+    /// which an import or a spooled hook puts long after the run ended, and a resume ends the run
+    /// before it when it is heard, which can be after that run's own notification is dated.
     internal void End(RunState? outcome, DateTimeOffset at) {
-        if (IsEnded && (!_outcomeUnknown || (outcome is null && !_endedByStop))) return;
+        if (IsEnded && !_outcomeUnknown) return;
         EndedAt = EndedAt is { } bare && bare < at ? bare : at;
         Outcome = outcome ?? RunState.Done;
         _outcomeUnknown = outcome is null;
