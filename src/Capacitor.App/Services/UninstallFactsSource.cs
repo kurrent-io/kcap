@@ -5,7 +5,8 @@ namespace Capacitor.App.Services;
 /// Gathers what the uninstall confirmation names. A fact that cannot be read is logged and left
 /// out, and the terminal PATH gets a deadline, so neither a failure nor a slow login shell keeps
 /// the confirmation from showing. A list that cannot be read is null, so the confirmation can tell
-/// "none" from "unknown".
+/// "none" from "unknown". <see cref="FindOtherInstalls"/> reads the terminal PATH where the macOS reading does not
+/// apply.
 public sealed record UninstallFactsSource(
     Func<string?> LocalServerUrl,
     string AttachedDaemon,
@@ -17,7 +18,9 @@ public sealed record UninstallFactsSource(
     TimeSpan TerminalPathTimeout,
     TimeProvider Time,
     TextWriter Log,
-    Func<IReadOnlyList<string>>? PathProfiles = null) {
+    Func<IReadOnlyList<string>>? PathProfiles = null,
+    Func<string?>? UserPathFolder = null,
+    Func<string?, IReadOnlyList<OtherKcapInstall>>? FindOtherInstalls = null) {
     public async Task<UninstallFacts> GatherAsync(CancellationToken ct) {
         var terminalPath = await ReadTerminalPathAsync(ct).ConfigureAwait(false);
 
@@ -29,8 +32,11 @@ public sealed record UninstallFactsSource(
             Read(HostedServerUrl, "the server", null),
             terminalPath is null
                 ? null
-                : Read<IReadOnlyList<OtherKcapInstall>?>(() => OtherKcapInstalls.Find(terminalPath, BundleRoot), "other kcap installs", null),
-            PathProfiles is null ? [] : Read<IReadOnlyList<string>?>(PathProfiles, "shell profiles", null));
+                : Read<IReadOnlyList<OtherKcapInstall>?>(
+                    () => FindOtherInstalls is { } find ? find(terminalPath) : OtherKcapInstalls.Find(terminalPath, BundleRoot),
+                    "other kcap installs", null),
+            PathProfiles is null ? [] : Read<IReadOnlyList<string>?>(PathProfiles, "shell profiles", null),
+            UserPathFolder is null ? null : Read(UserPathFolder, "the user PATH", null));
     }
 
     async Task<string?> ReadTerminalPathAsync(CancellationToken ct) {
