@@ -79,7 +79,9 @@ Run on Windows, where the kill is `taskkill /T /F` on the spawned `vibe-acp`; ar
 `mistral-vibe-3.0.1-summary.json`
 
 - After a mid-turn kill, a fresh process's `session/load` succeeds, and the post-load prompt works
-- **The barrier holds:** `after_response_conversation` is 0, the only trailer an `available_commands_update`
+- **The barrier holds:** `after_response_conversation` is 0, the only trailer an `available_commands_update`. The
+  reader marks the barrier when it records the load response, so an update it reads next is never counted as
+  replay because the request had not resumed yet
 - The interrupted turn replays as its user message alone (`user_only`), and the one tool call's
   `toolCallId` is the same live and replayed
 - Unlike the four vendors above, Vibe sets `messageId` on user, thought and message chunks
