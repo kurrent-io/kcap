@@ -60,6 +60,7 @@ static class OpenCodeCliRunner {
             run = runs.Create("opencode");
 
             using var cwd        = run.Child("cwd");
+            using var home       = run.Child("home");
             using var configHome = run.Child("xdg-config");
             using var configDir  = run.Child("config");
             using var data       = run.Child("data");
@@ -68,7 +69,7 @@ static class OpenCodeCliRunner {
             var promptFile = Path.Combine(cwd.Path, PromptFile);
             await File.WriteAllTextAsync(promptFile, BuildPrompt(prompt, systemPrompt, schema), Utf8NoBom, ct);
 
-            var env = BuildEnvironment(inheritedEnv, new(configHome.Path, configDir.Path, data.Path, state.Path), config);
+            var env = BuildEnvironment(inheritedEnv, new(home.Path, configHome.Path, configDir.Path, data.Path, state.Path), config, paths.Home);
 
             return await RunCoreAsync(promptFile, env, timeout, time, log, cwd.Path, model, schema, executable, ct);
         } catch (HeadlessRunRefusedException ex) {
@@ -209,13 +210,17 @@ static class OpenCodeCliRunner {
 
     /// <summary>The inherited environment with the lockdown set over it. Provider keys are kept: for OpenCode a
     /// key usually is the sign-in. <c>OPENCODE_CONFIG_DIR</c> adds a config layer rather than replacing
-    /// <c>$XDG_CONFIG_HOME/opencode</c>, so both are private. <c>OPENCODE_PERMISSION</c> is overwritten because
-    /// it outranks every config's permissions, so an inherited allow-all would reopen the tools. The cache stays
-    /// the user's: with models fetch off, it holds the model list.</summary>
+    /// <c>$XDG_CONFIG_HOME/opencode</c>, so both are private, and OpenCode always loads
+    /// <c>.opencode/opencode.json</c> under its home (<c>OPENCODE_TEST_HOME</c>, else the OS home), so both
+    /// homes are private too. <c>OPENCODE_PERMISSION</c> is overwritten because it outranks every config's
+    /// permissions, so an inherited allow-all would reopen the tools. The cache stays the user's, pinned
+    /// because it would otherwise follow the private home: with models fetch off, it holds the model list.
+    /// <paramref name="userHome"/> stands in for an inherited home that is not set.</summary>
     internal static Dictionary<string, string?> BuildEnvironment(
             IReadOnlyDictionary<string, string?> inherited,
             OpenCodeRunDirectories               dirs,
-            OpenCodeHeadlessConfig               config
+            OpenCodeHeadlessConfig               config,
+            string                               userHome
         ) {
         var env = new Dictionary<string, string?>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
@@ -223,7 +228,12 @@ static class OpenCodeCliRunner {
             if (value is not null) env[key] = value;
         }
 
+        env["XDG_CACHE_HOME"] = UserCacheHome(env, userHome);
+
         env.Remove("OPENCODE_CONFIG");
+        env["HOME"]                             = dirs.Home;
+        env["OPENCODE_TEST_HOME"]               = dirs.Home;
+        if (OperatingSystem.IsWindows()) env["USERPROFILE"] = dirs.Home;
         env["XDG_CONFIG_HOME"]                  = dirs.ConfigHome;
         env["OPENCODE_CONFIG_DIR"]              = dirs.ConfigDir;
         env["XDG_DATA_HOME"]                    = dirs.DataHome;
@@ -240,5 +250,15 @@ static class OpenCodeCliRunner {
         if (config.AuthContent is { } auth) env["OPENCODE_AUTH_CONTENT"] = auth;
 
         return env;
+    }
+
+    /// <summary>Where OpenCode would put its cache under <paramref name="env"/>: <c>XDG_CACHE_HOME</c>, else
+    /// <c>.cache</c> under the OS home (<c>USERPROFILE</c> on Windows, <c>HOME</c> elsewhere).</summary>
+    static string UserCacheHome(IReadOnlyDictionary<string, string?> env, string userHome) {
+        if (env.GetValueOrDefault("XDG_CACHE_HOME") is { Length: > 0 } cache) return cache;
+
+        var home = env.GetValueOrDefault(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME");
+
+        return Path.Combine(string.IsNullOrEmpty(home) ? userHome : home, ".cache");
     }
 }

@@ -48,7 +48,7 @@ public class OpenCodeCliRunnerTests {
         ["part"] = new JsonObject { ["type"] = "text", ["text"] = text },
     }.ToJsonString();
 
-    static readonly OpenCodeRunDirectories Dirs = new("/run/xdg-config", "/run/config", "/run/data", "/run/state");
+    static readonly OpenCodeRunDirectories Dirs = new("/run/home", "/run/xdg-config", "/run/config", "/run/data", "/run/state");
 
     const string StepFinish =
         """{"type":"step_finish","part":{"tokens":{"input":10,"output":2,"reasoning":0,"cache":{"read":3,"write":1}},"cost":0.0005}}""";
@@ -96,10 +96,15 @@ public class OpenCodeCliRunnerTests {
             ["XDG_DATA_HOME"]           = "/user/data",
             ["XDG_STATE_HOME"]          = "/user/state",
             ["XDG_CACHE_HOME"]          = "/user/cache",
+            ["HOME"]                    = "/user",
+            ["OPENCODE_TEST_HOME"]      = "/user/test-home",
             ["ANTHROPIC_API_KEY"]       = "sk-kept",
-        }, Dirs, config);
+        }, Dirs, config, "/fallback");
 
         await Assert.That(env.ContainsKey("OPENCODE_CONFIG")).IsFalse();
+        await Assert.That(env["HOME"]).IsEqualTo("/run/home");
+        await Assert.That(env["OPENCODE_TEST_HOME"]).IsEqualTo("/run/home");
+        if (OperatingSystem.IsWindows()) await Assert.That(env["USERPROFILE"]).IsEqualTo("/run/home");
         await Assert.That(env["XDG_CONFIG_HOME"]).IsEqualTo("/run/xdg-config");
         await Assert.That(env["OPENCODE_CONFIG_DIR"]).IsEqualTo("/run/config");
         await Assert.That(env["XDG_DATA_HOME"]).IsEqualTo("/run/data");
@@ -115,10 +120,25 @@ public class OpenCodeCliRunnerTests {
         await Assert.That(env.ContainsKey("OPENCODE_AUTH_CONTENT")).IsFalse();
     }
 
+    /// <summary>The private home would otherwise move OpenCode's cache, and with models fetch off the model list
+    /// with it.</summary>
+    [Test]
+    public async Task BuildEnvironment_pins_the_cache_under_the_users_own_home_when_none_is_inherited() {
+        var homeVariable = OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME";
+        var config       = new OpenCodeHeadlessConfig("{}", "{}", null);
+
+        var inherited = OpenCodeCliRunner.BuildEnvironment(new Dictionary<string, string?> { [homeVariable] = "/user" }, Dirs, config, "/fallback");
+        var fallback  = OpenCodeCliRunner.BuildEnvironment(new Dictionary<string, string?>(), Dirs, config, "/fallback");
+
+        await Assert.That(inherited["XDG_CACHE_HOME"]).IsEqualTo(Path.Combine("/user", ".cache"));
+        await Assert.That(fallback["XDG_CACHE_HOME"]).IsEqualTo(Path.Combine("/fallback", ".cache"));
+        await Assert.That(fallback[homeVariable]).IsEqualTo("/run/home");
+    }
+
     [Test]
     public async Task BuildEnvironment_passes_the_users_credentials_when_there_are_some() {
         var env = OpenCodeCliRunner.BuildEnvironment(new Dictionary<string, string?>(), Dirs,
-            new OpenCodeHeadlessConfig("{}", "{}", """{"anthropic":{}}"""));
+            new OpenCodeHeadlessConfig("{}", "{}", """{"anthropic":{}}"""), "/fallback");
 
         await Assert.That(env["OPENCODE_AUTH_CONTENT"]).IsEqualTo("""{"anthropic":{}}""");
     }
@@ -265,8 +285,8 @@ public class OpenCodeCliRunnerTests {
             printf '%s\n' "$@" > '{seen}/args'
             pwd > '{seen}/cwd'
             ls -A > '{seen}/listing'
-            ls -A "$XDG_CONFIG_HOME" "$OPENCODE_CONFIG_DIR" "$XDG_DATA_HOME" "$XDG_STATE_HOME" > '{seen}/private-listing'
-            printf '%s\n' "$XDG_CONFIG_HOME" "$OPENCODE_CONFIG_DIR" "$XDG_DATA_HOME" "$XDG_STATE_HOME" > '{seen}/private-dirs'
+            ls -A "$HOME" "$XDG_CONFIG_HOME" "$OPENCODE_CONFIG_DIR" "$XDG_DATA_HOME" "$XDG_STATE_HOME" > '{seen}/private-listing'
+            printf '%s\n' "$HOME" "$OPENCODE_TEST_HOME" "$XDG_CONFIG_HOME" "$OPENCODE_CONFIG_DIR" "$XDG_DATA_HOME" "$XDG_STATE_HOME" > '{seen}/private-dirs'
             printf '%s' "$OPENCODE_PERMISSION" > '{seen}/permission'
             env | grep -c '^OPENCODE_CONFIG=' > '{seen}/config'
             env | grep -c '^OPENCODE_AUTH_CONTENT=' > '{seen}/auth'
@@ -304,7 +324,7 @@ public class OpenCodeCliRunnerTests {
         await Assert.That(Path.GetDirectoryName(run)).IsEqualTo(RunsRoot);
         await Assert.That(Path.GetFileName(run)).StartsWith("opencode-test-");
         await Assert.That(await File.ReadAllLinesAsync(Path.Combine(seen, "private-dirs"))).IsEquivalentTo(
-            new[] { "xdg-config", "config", "data", "state" }.Select(name => Path.Combine(run, name)), TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            new[] { "home", "home", "xdg-config", "config", "data", "state" }.Select(name => Path.Combine(run, name)), TUnit.Assertions.Enums.CollectionOrdering.Matching);
         await Assert.That(Directory.Exists(run)).IsFalse();
         await RunsRootIsEmpty();
     }
