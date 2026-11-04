@@ -113,7 +113,9 @@ internal sealed record WizardGraphOptions(
     // The harnesses a daemon of this name, else this machine, can run headless; null offers no local agent.
     Func<string, CancellationToken, Task<string[]>>?                             HeadlessHarnesses = null,
     // The install page offers to run kcap as a Windows service.
-    bool                                                                         OffersWindowsService = false);
+    bool                                                                         OffersWindowsService = false,
+    // An unpublished bundle steers the edition and install pages away from Local; null decides by whether this is Windows.
+    bool?                                                                        ExplainsUnpublishedBundle = null);
 
 /// The wizard half of the composition root, split out of App so it can be driven
 /// with fakes: nothing here touches a daemon, a socket or the network until a step is used.
@@ -268,6 +270,12 @@ internal static class WizardComposition {
         void OnSettling(LocalSetupSnapshot snapshot) => durable.OnNext(snapshot);
         install.Settling += OnSettling;
 
+        // On Windows an unpublished bundle steers the wizard away from Local; elsewhere the installer's own message stands.
+        var explainUnpublished = options.ExplainsUnpublishedBundle ?? OperatingSystem.IsWindows();
+        bool BundleUnpublished() =>
+            options.Prefetch is { NotPublished: true }
+         || install.Outcome is LocalInstallOutcome.Failed { Code: var code } && code == LocalInstallFailureCode.BundleNotPublished.Wire();
+
         var committedLocalAtStart = CommittedLocal();
         // A workspace already signed in at start is this run's: setup neither moves it to the other edition
         // nor signs it in again.
@@ -276,7 +284,8 @@ internal static class WizardComposition {
             options.Bridges.Telemetry.Funnel,
             () => {
                 RefreshDurable();
-                return LocalUnavailableReason(options.LocalEditionSupported, options.Root, root);
+                return LocalUnavailableReason(options.LocalEditionSupported, options.Root, root)
+                    ?? (explainUnpublished && BundleUnpublished() ? EditionStepViewModel.NotPublishedOnWindows : null);
             },
             locked: () => signedInAtStart || Installed() || Pending() || CommittedLocal(),
             leadWithLocal: () => !File.Exists(root.RegistryPath),
@@ -304,7 +313,11 @@ internal static class WizardComposition {
             time: options.Time,
             mailSupport: options.MailSupport is { } mail ? failures => mail(InstallSupportReport.Build(failures, root)) : null,
             resuming: Pending,
-            windowsServiceOffer: options.OffersWindowsService ? ct => WindowsServiceOfferAsync(options.AppState, cli, ct) : null);
+            windowsServiceOffer: options.OffersWindowsService ? ct => WindowsServiceOfferAsync(options.AppState, cli, ct) : null,
+            bundleUnpublished: explainUnpublished ? BundleUnpublished : null);
+        // The fetch can find the bundle missing while the edition page still leads with Local.
+        void OnNotPublishedFound() => options.Bridges.Post(edition.RestateLocalAvailability);
+        if (explainUnpublished && options.Prefetch is not null) options.Prefetch.NotPublishedFound += OnNotPublishedFound;
         var connect  = new ConnectChoiceViewModel();
         var signIn   = new SignInStepViewModel(
             auth, connect, options.Bridges, claims, options.AppState, options.UrlOpener, time: options.Time,
@@ -410,6 +423,7 @@ internal static class WizardComposition {
             edition.ShowNotice(SignInStepViewModel.SignUpExpiredNotice);
             wizard.TryGoTo(WizardStepId.Edition);
         };
+        installStep.OtherEditionRequested += () => wizard.TryGoTo(WizardStepId.Edition);
         var funnel = WizardFunnel.Attach(wizard, options.Bridges.Telemetry.Funnel,
             daemon.WhenAnyValue(x => x.Satisfied, x => x.Row, (satisfied, row) => (satisfied, row == DaemonRow.AlreadyEnabled)));
         wizard.CloseRequested += signIn.EndSignUpWait;
@@ -417,6 +431,7 @@ internal static class WizardComposition {
         wizard.CloseRequested += () => {
             install.Settling -= OnSettling;
             install.Settled -= OnInstallSettled;
+            if (options.Prefetch is not null) options.Prefetch.NotPublishedFound -= OnNotPublishedFound;
             installStep.Detach();
             funnel.Dispose();
         };

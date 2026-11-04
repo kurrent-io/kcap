@@ -1,8 +1,11 @@
+using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
+using Avalonia.Threading;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.App.Services.Onboarding;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Telemetry;
 
@@ -46,6 +49,112 @@ public class LocalBundlePrefetchTests {
         await prefetch.Completion.WaitAsync(Wait);
 
         await Assert.That(cli.LocalFetchCallCount).IsEqualTo(1);
+    }
+
+    /// A fetch that prints one failed line and exits, once <paramref name="release"/> completes.
+    static FakeKcapCli FetchFailing(string code, int exit, Task? release = null) => new() {
+        LocalFetchBehavior = async (onLine, _) => {
+            if (release is not null) await release;
+            onLine(new StreamedLine(ProcessStreamKind.Stdout, LocalSetupScript.Failed(code)));
+            return new StreamingResult(exit, false, []);
+        },
+    };
+
+    [Test]
+    public async Task A_fetch_that_finds_no_published_bundle_says_so_once() {
+        var cli = FetchFailing("bundle_not_published", LocalBundlePrefetch.NotPublishedExit);
+        var prefetch = new LocalBundlePrefetch(() => cli, CancellationToken.None);
+        var found = 0;
+        prefetch.NotPublishedFound += () => Interlocked.Increment(ref found);
+
+        prefetch.Start();
+        await prefetch.Completion.WaitAsync(Wait);
+
+        await Assert.That(prefetch.NotPublished).IsTrue();
+        await Assert.That(found).IsEqualTo(1);
+    }
+
+    /// A download that failed, a signature that did not verify and an interrupted fetch say nothing about what is
+    /// published, so none of them steers the wizard away from the local edition.
+    [Test]
+    [Arguments("download_failed", 1)]
+    [Arguments("verification_failed", 1)]
+    [Arguments("cancelled", 130)]
+    public async Task A_fetch_that_fails_otherwise_is_not_taken_for_an_unpublished_bundle(string code, int exit) {
+        var cli = FetchFailing(code, exit);
+        var prefetch = new LocalBundlePrefetch(() => cli, CancellationToken.None);
+        var found = 0;
+        prefetch.NotPublishedFound += () => Interlocked.Increment(ref found);
+
+        prefetch.Start();
+        await prefetch.Completion.WaitAsync(Wait);
+
+        await Assert.That(prefetch.NotPublished).IsFalse();
+        await Assert.That(found).IsEqualTo(0);
+    }
+
+    /// The fetch reports while the page already leads with Local. On Windows the card stops leading and says why; off
+    /// Windows the page stays as it was, and a failed download changes it nowhere.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(true, "bundle_not_published", LocalBundlePrefetch.NotPublishedExit, true)]
+    [Arguments(false, "bundle_not_published", LocalBundlePrefetch.NotPublishedExit, false)]
+    [Arguments(true, "download_failed", 1, false)]
+    public async Task A_bundle_found_unpublished_on_the_edition_page_is_explained_only_on_windows(
+            bool windows, string code, int exit, bool explained) {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cli = FetchFailing(code, exit, release.Task);
+        var prefetch = new LocalBundlePrefetch(() => cli, CancellationToken.None);
+
+        var (before, after, reason, canChoose) = await AvaloniaSession.DispatchAsync(async () => {
+            using var harness = new WizardFixtures.GraphHarness(Config.Root) { LocalRoot = new LocalRoot(Config.PathTo("local")) };
+            var graph = WizardComposition.BuildGraph(harness.Options() with {
+                Prefetch                  = prefetch,
+                ExplainsUnpublishedBundle = windows,
+                Bridges = WizardComposition.BuildBridges(
+                    action => Dispatcher.UIThread.Post(action), CliTelemetry.Disabled(TimeProvider.System), AuthEndpoints.Defaults),
+            });
+            await graph.ViewModel.PendingEnterForTesting;
+            var edition = graph.Steps.OfType<EditionStepViewModel>().Single();
+            var before = edition.LocalPreselected;
+
+            release.SetResult();
+            await prefetch.Completion.WaitAsync(Wait);
+            Dispatcher.UIThread.RunJobs();
+
+            return (before, edition.LocalPreselected, edition.LocalUnavailableReason, await edition.ChooseLocalCommand.CanExecute.FirstAsync());
+        });
+
+        await Assert.That(before).IsTrue();
+        await Assert.That(after).IsEqualTo(!explained);
+        await Assert.That(reason).IsEqualTo(explained ? EditionStepViewModel.NotPublishedOnWindows : null);
+        await Assert.That(canChoose).IsEqualTo(!explained);
+    }
+
+    /// An install that found no bundle sends the user back to an edition page that no longer offers Local, on Windows.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(true, true)]
+    [Arguments(false, false)]
+    public async Task An_install_that_found_no_bundle_leaves_local_unavailable_only_on_windows(bool windows, bool explained) {
+        var (reason, preselected) = await AvaloniaSession.DispatchAsync(async () => {
+            using var harness = new WizardFixtures.GraphHarness(Config.Root) { LocalRoot = new LocalRoot(Config.PathTo("local")) };
+            harness.Cli.SetupLocalBehavior = LocalSetupScript.Prints(1, LocalSetupScript.Failed("bundle_not_published"));
+            var graph = WizardComposition.BuildGraph(harness.Options() with { ExplainsUnpublishedBundle = windows });
+            await graph.ViewModel.PendingEnterForTesting;
+            var edition = graph.Steps.OfType<EditionStepViewModel>().Single();
+
+            var settled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            graph.Install.Settled += _ => settled.TrySetResult();
+            await graph.Install.StartAsync(LocalEmbeddingChoice.KeywordOnly, CancellationToken.None);
+            await settled.Task.WaitAsync(Wait);
+            await edition.OnEnterAsync(CancellationToken.None);
+
+            return (edition.LocalUnavailableReason, edition.LocalPreselected);
+        });
+
+        await Assert.That(reason).IsEqualTo(explained ? EditionStepViewModel.NotPublishedOnWindows : null);
+        await Assert.That(preselected).IsEqualTo(!explained);
     }
 
     [Test]

@@ -99,7 +99,8 @@ Options:
                               only the server and login steps, ending with
                               "committed" or "failed". Exits 0 on "committed", 1
                               on "failed" (2 for answer_required and
-                              invalid_arguments), and 130 when an interrupt
+                              invalid_arguments; on Windows, 4 for
+                              bundle_not_published), and 130 when an interrupt
                               (Ctrl+C or SIGTERM) was received, whichever line
                               came last. Takes only --single-user, --yes,
                               --no-update-check, --embedding-model,
@@ -303,7 +304,9 @@ changes.
 
   Exit codes: 0 done; 1 failed (setup did not finish; what it changed stays,
   and re-running carries on); 2 refused (nothing attempted: a wrong
-  argument, or an answer a run that cannot ask needs); 130 interrupted.
+  argument, or an answer a run that cannot ask needs); 4, on Windows only,
+  when no local bundle is published for this version yet (--local; nothing
+  installed); 130 interrupted.
 
   --json with --no-prompt: one JSON object per line on stdout, the narration
   on stderr. Each step (server, sign_in, visibility, harnesses, daemon,
