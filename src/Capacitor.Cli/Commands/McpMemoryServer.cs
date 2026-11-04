@@ -161,7 +161,7 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
                 return BuildToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true);
             }
 
-            if (toolName == "get_memory") await RecordUseAsync(client, baseUrl, body);
+            if (toolName == "get_memory") await RecordUseAsync(client, baseUrl, body, time);
 
             return BuildToolResult(id, toolName switch {
                 "update_memory" => WithUncheckedVersionNotice(arguments, body),
@@ -251,7 +251,10 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
     /// <summary>Counts the fetch toward the memory's ranking. The server's GET counts nothing, because a browser sends
     /// one from any site; a server older than the use route answers 404 or 405, which counts nothing either, and a
     /// count that does not land never fails the fetch it follows.</summary>
-    internal static async Task RecordUseAsync(HttpClient client, string baseUrl, string memoryBody) {
+    /// <summary>The longest a fetched memory waits on its use being counted.</summary>
+    internal static readonly TimeSpan UseDeadline = TimeSpan.FromSeconds(2);
+
+    internal static async Task RecordUseAsync(HttpClient client, string baseUrl, string memoryBody, TimeProvider time) {
         string? memoryId;
 
         try {
@@ -262,9 +265,11 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
 
         if (string.IsNullOrEmpty(memoryId)) return;
 
+        using var deadline = new CancellationTokenSource(UseDeadline, time);
+
         try {
-            using var _ = await client.PostAsync($"{baseUrl}/api/memories/{Uri.EscapeDataString(memoryId)}/uses", null);
-        } catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) {
+            using var _ = await client.PostAsync($"{baseUrl}/api/memories/{Uri.EscapeDataString(memoryId)}/uses", null, deadline.Token);
+        } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) {
             // A count that does not land costs the ranking one fetch and nothing else.
         }
     }
