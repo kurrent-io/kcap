@@ -1156,6 +1156,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(FindRepoForRemoteRequest))]
 [JsonSerializable(typeof(BorrowProbeResult))]
 [JsonSerializable(typeof(SendInputCommand))]
+[JsonSerializable(typeof(SendInputAcked))]
 [JsonSerializable(typeof(SendRawInputCommand))]
 [JsonSerializable(typeof(ResizeTerminalCommand))]
 [JsonSerializable(typeof(PrepareEvalCommand))]
@@ -2346,7 +2347,10 @@ public readonly record struct DaemonConnect(
         bool                                        SupportsHandoffLaunch = false,
         // Accepts a LaunchAgentCommand.ResumeInPlace launch. False from a daemon predating it, which would
         // ignore the block and start an ordinary session.
-        bool                                        SupportsResumeInPlace = false
+        bool                                        SupportsResumeInPlace = false,
+        // Answers each SendInput carrying a dispatch id with SendInputAcked once taken, and ignores a resend
+        // of one already taken. An older server ignores it and sends each input once.
+        bool                                        SupportsInputAcks = false
     );
 
 public sealed record UnattendedVendorCapability(

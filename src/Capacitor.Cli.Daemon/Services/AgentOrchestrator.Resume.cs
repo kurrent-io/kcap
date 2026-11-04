@@ -755,6 +755,7 @@ internal partial class AgentOrchestrator {
 
     /// <summary>Guarded by <see cref="_ledgerLock"/>.</summary>
     readonly Dictionary<string, HeldParticipantInput> _heldInput = new(StringComparer.Ordinal);
+    readonly DispatchedInputLedger _dispatchedInputs = new();
 
     /// <summary>How long after start the server is kept from proving old participants absent while this
     /// daemon resumes its own; every participant still unpublished then is failed.</summary>

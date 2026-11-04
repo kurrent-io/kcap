@@ -4998,6 +4998,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     async Task ReportInputDroppedAsync(SendInputCommand cmd, string reason) {
         if (cmd.DispatchId is not { } dispatchId) return;
 
+        _dispatchedInputs.MarkDropped(dispatchId, reason);
+
         try {
             await _server.SendInputRejectedAsync(dispatchId, cmd.AgentId, reason);
         } catch (Exception ex) {
@@ -5005,16 +5007,48 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
+    /// <summary>Tells the server the dispatch was taken, so it stops resending it. Not awaited by the
+    /// caller's delivery path: the report is a server round trip, and a lost one only earns a resend that
+    /// is answered here again.</summary>
+    void AcknowledgeInput(SendInputCommand cmd) {
+        if (cmd.DispatchId is not { } dispatchId) return;
+
+        _dispatchedInputs.MarkTaken(dispatchId);
+        _ = _server.SendInputAckedAsync(dispatchId, cmd.AgentId);
+    }
+
     async Task HandleSendInput(SendInputCommand cmd) {
-        switch (TryHoldForResume(cmd)) {
-            case true:
-                return;
-            case false:
-                await ReportInputDroppedAsync(cmd, SendInputDropReason.QueueFull);
-                return;
+        if (cmd.DispatchId is { } dispatchId) {
+            switch (_dispatchedInputs.Admit(dispatchId, out var dropReason)) {
+                case DispatchState.InFlight:
+                    LogSendInputDuplicateInFlight(cmd.AgentId, dispatchId);
+                    return;
+                case DispatchState.Taken:
+                    LogSendInputDuplicateTaken(cmd.AgentId, dispatchId);
+                    AcknowledgeInput(cmd);
+                    return;
+                case DispatchState.Dropped:
+                    await ReportInputDroppedAsync(cmd, dropReason!);
+                    return;
+            }
         }
 
-        await DeliverSendInputAsync(cmd);
+        try {
+            switch (TryHoldForResume(cmd)) {
+                case true:
+                    AcknowledgeInput(cmd);
+                    return;
+                case false:
+                    await ReportInputDroppedAsync(cmd, SendInputDropReason.QueueFull);
+                    return;
+            }
+
+            await DeliverSendInputAsync(cmd);
+        } catch {
+            if (cmd.DispatchId is { } failed) _dispatchedInputs.Forget(failed);
+
+            throw;
+        }
     }
 
     async Task DeliverSendInputAsync(SendInputCommand cmd) {
@@ -5037,6 +5071,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         LogSendInputReceived(agentId, agent.Runtime.Vendor, text.Length, attachmentIds?.Length ?? 0);
 
         var outcome = await DeliverInputAsync(agent, text, attachmentIds, dispatchId);
+
+        if (outcome.Kind is InputDeliveryKind.Delivered or InputDeliveryKind.QuitRequested) AcknowledgeInput(cmd);
 
         switch (outcome.Kind) {
             case InputDeliveryKind.QuitRequested:
@@ -7023,6 +7059,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "SendInput dropped: agent {AgentId} is private — server-origin input is ignored")]
     partial void LogSendInputPrivateAgent(string agentId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "SendInput {DispatchId} for agent {AgentId} resent while its first copy is still being delivered; ignored")]
+    partial void LogSendInputDuplicateInFlight(string agentId, Guid dispatchId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "SendInput {DispatchId} for agent {AgentId} resent after it was taken; acknowledging again without typing it")]
+    partial void LogSendInputDuplicateTaken(string agentId, Guid dispatchId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "SendInput to agent {AgentId} is a quit command; {Vendor} has no TUI to interpret it, stopping the agent instead of forwarding")]
     partial void LogSendInputQuitCommand(string agentId, string vendor);

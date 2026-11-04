@@ -295,6 +295,24 @@ public class AgentOrchestratorParticipantResumeOnBootTests {
         await Assert.That(f.Factory.LastRuntime!.UserInputs.Any(i => i.Contains("round 2"))).IsTrue();
     }
 
+    /// <summary>A held round is acknowledged once held, so the server stops resending it, and a resend that arrives
+    /// while it waits is neither held again nor typed twice.</summary>
+    [Test]
+    public async Task A_held_round_is_acknowledged_and_a_resend_is_not_held_again() {
+        var (f, lane) = await StartHandshake();
+        await using var _ = f.Orch;
+        var round = Round("round 2");
+
+        await f.Orch.HandleSendInputForTest(round);
+        await Assert.That(f.Server.InputAcks).IsEquivalentTo([(round.DispatchId!.Value, "reviewer-1")]);
+
+        await f.Orch.HandleSendInputForTest(round);
+        f.Factory.Gate!.SetResult();
+        await WaitHarness.WaitBoundedAsync(lane, "the resume lane");
+
+        await Assert.That(f.Factory.LastRuntime!.UserInputs.Count(i => i.Contains("round 2"))).IsEqualTo(1);
+    }
+
     [Test]
     public async Task A_round_for_a_participant_whose_resume_failed_is_reported_unknown_agent() {
         var (f, lane) = await StartHandshake(fails: true);
