@@ -12,6 +12,7 @@ public class AncestorChainTests {
     const string CreatorOwner  = "S-1-3-0";
     const string BuiltinUsers  = "S-1-5-32-545";
     const string AuthUsers     = "S-1-5-11";
+    const string TrustedInstaller = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
 
     // Raw ACE masks: FileSystemRights is annotated Windows-only, and the rule runs on every host.
     public const int DeleteChild  = 0x40;
@@ -27,7 +28,7 @@ public class AncestorChainTests {
     static readonly string[] Owners = [User, LocalSystem];
 
     static string? Rule(bool hasParent, params (string Sid, bool Allows, bool InheritOnly, int Rights)[] entries) =>
-        AncestorChain.WindowsAclViolation(entries, hasParent, Owners);
+        AncestorChain.WindowsAclViolation(User, entries, hasParent, Owners);
 
     [Test]
     [Arguments(DeleteChild)]
@@ -72,6 +73,51 @@ public class AncestorChainTests {
     public async Task A_deny_entry_is_not_a_grant() =>
         await Assert.That(Rule(hasParent: true, (BuiltinUsers, false, false, FullControl))).IsNull();
 
+    /// <summary>An owner can rewrite the DACL whatever it says, so an untrusted owner fails a clean DACL.</summary>
+    [Test]
+    [Arguments(BuiltinUsers)]
+    [Arguments(null)]
+    public async Task An_untrusted_or_unreadable_owner_is_a_violation(string? owner) =>
+        await Assert.That(AncestorChain.WindowsAclViolation(owner, [], hasParent: true, Owners)).IsNotNull();
+
+    [Test]
+    [Arguments(User)]
+    [Arguments(LocalSystem)]
+    [Arguments(OwnerOnlyDirectory.AdministratorsSid)]
+    [Arguments(TrustedInstaller)]
+    public async Task A_trusted_owner_is_allowed(string owner) =>
+        await Assert.That(AncestorChain.WindowsAclViolation(owner, [], hasParent: false, Owners)).IsNull();
+
+    [Test]
+    public async Task An_ancestor_whose_owner_cannot_be_read_is_a_violation() {
+        var leaf    = Tmp.CreateDir("a", "leaf").Path;
+        var blind   = Path.GetFullPath(Tmp.PathTo("a"));
+        var physical = DirectoryExposure.Physical(blind);
+
+        var violation = AncestorChain.UnixOwnerViolation(leaf, d => d == blind || d == physical ? null : 7u, self: 7);
+
+        await Assert.That(violation).IsNotNull();
+        await Assert.That(violation!).Contains("cannot be read");
+    }
+
+    [Test]
+    public async Task A_control_chain_whose_every_owner_reads_as_this_user_passes() =>
+        await Assert.That(AncestorChain.UnixOwnerViolation(Tmp.CreateDir("a", "leaf").Path, _ => 7u, self: 7)).IsNull();
+
+    [Test]
+    public async Task A_missing_entry_on_the_chain_is_a_violation() =>
+        await Assert.That(AncestorChain.UnixOwnerViolation(Tmp.PathTo("gone", "leaf"), _ => 7u, self: 7))
+            .IsNotNull();
+
+    [Test]
+    public async Task An_ancestor_owned_by_another_uid_is_a_violation() {
+        var leaf  = Tmp.CreateDir("a", "leaf").Path;
+        var other = DirectoryExposure.Physical(Tmp.PathTo("a"));
+
+        await Assert.That(AncestorChain.UnixOwnerViolation(leaf, d => d == other ? 9u : 7u, self: 7))
+            .IsEqualTo($"'{other}' is owned by uid 9");
+    }
+
     /// <summary>The link resolves into a world-writable, non-sticky directory: the lexical path is all
     /// owner-only, so only walking the target's chain finds it.</summary>
     [Test, ExcludeOn(OS.Windows)]
@@ -79,6 +125,7 @@ public class AncestorChainTests {
     public async Task A_link_in_the_chain_is_checked_through_its_target() {
         var shared = Tmp.CreateDir("shared").Path;
         var target = Tmp.CreateDir("shared", "target").Path;
+        Tmp.CreateDir("shared", "target", "leaf");
         File.SetUnixFileMode(shared, (UnixFileMode)0b111_111_111);
         var link = Tmp.PathTo("link");
         Directory.CreateSymbolicLink(link, target);

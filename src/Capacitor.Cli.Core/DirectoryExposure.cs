@@ -72,7 +72,7 @@ public static class DirectoryExposure {
     /// <summary>A link cannot be repointed in place, only unlinked and recreated, which its owner may do
     /// without write on its directory only when that directory is sticky. Elsewhere the link's own owner
     /// holds no power over the path, and <c>stat</c> would report it rather than its target's.</summary>
-    static bool IsLinkOutsideStickyDirectory(string path) {
+    internal static bool IsLinkOutsideStickyDirectory(string path) {
         if (OperatingSystem.IsWindows()) return false;
 
         try {

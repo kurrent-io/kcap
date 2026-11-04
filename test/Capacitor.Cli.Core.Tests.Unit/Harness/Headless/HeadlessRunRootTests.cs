@@ -90,6 +90,51 @@ public class HeadlessRunRootTests {
         await Assert.That(Directory.Exists(live.Path)).IsTrue();
     }
 
+    [Test]
+    public async Task SweepStale_leaves_a_headless_runs_link_and_its_target_alone() {
+        var state  = Tmp.CreateDir("state").Path;
+        var victim = Tmp.CreateFile(["victim", "pi-old-0123456789abcdef0123456789abcdef", "keep.txt"], "keep");
+        Directory.CreateSymbolicLink(Path.Combine(state, "headless-runs"), Tmp.PathTo("victim"));
+
+        var refusal = new HeadlessRunRoot(state, "new").SweepStale();
+
+        await Assert.That(refusal).IsNotNull();
+        await Assert.That(File.Exists(victim)).IsTrue();
+    }
+
+    /// <summary>A link named like a stale run is unlinked, never descended into; a name <see cref="HeadlessRunRoot.Create"/>
+    /// would not make is not touched.</summary>
+    [Test]
+    public async Task SweepStale_unlinks_a_link_inside_the_root_and_keeps_names_it_did_not_make() {
+        var state  = Tmp.CreateDir("state").Path;
+        using var live = new HeadlessRunRoot(state, "new").Create("pi");
+        var root   = Path.Combine(state, "headless-runs");
+        var victim = Tmp.CreateFile(["victim", "keep.txt"], "keep");
+        var link   = Path.Combine(root, "pi-old-0123456789abcdef0123456789abcdef");
+        Directory.CreateSymbolicLink(link, Tmp.PathTo("victim"));
+        var foreign = Directory.CreateDirectory(Path.Combine(root, "not-a-run")).FullName;
+
+        var refusal = new HeadlessRunRoot(state, "new").SweepStale();
+
+        await Assert.That(refusal).IsNull();
+        await Assert.That(Path.Exists(link)).IsFalse();
+        await Assert.That(File.Exists(victim)).IsTrue();
+        await Assert.That(Directory.Exists(foreign)).IsTrue();
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task SweepStale_leaves_a_root_wider_than_owner_only_alone() {
+        var state = Tmp.CreateDir("state").Path;
+        var stale = new HeadlessRunRoot(state, "old").Create("pi");
+        File.SetUnixFileMode(Path.Combine(state, "headless-runs"), Everyone);
+
+        var refusal = new HeadlessRunRoot(state, "new").SweepStale();
+
+        await Assert.That(refusal).IsNotNull();
+        await Assert.That(Directory.Exists(stale.Path)).IsTrue();
+    }
+
     [Test, RunOn(OS.Windows)]
     [SupportedOSPlatform("windows")]
     public async Task Create_on_windows_leaves_an_owner_only_run_directory() {
