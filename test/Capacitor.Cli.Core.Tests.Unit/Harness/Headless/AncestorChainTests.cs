@@ -261,7 +261,8 @@ public class AncestorChainTests {
     [Arguments(" 0: group:staff inherited allow list,search,writeattr\n", null)]
     [Arguments(" 0: user:tony allow add_file,delete_child,chown\n", null)]
     [Arguments(" 0: user:root inherited allow writesecurity,chown\n", null)]
-    [Arguments(" 0: group:wheel allow add_subdirectory\n", null)]
+    [Arguments(" 0: group:wheel allow add_subdirectory\n", "group:wheel add_subdirectory")]
+    [Arguments(" 0: group:wheel allow list,search\n", null)]
     [Arguments(" 0: group:staff allow write\n", "group:staff write")]
     [Arguments(" 0: group:staff allow delete\n", "group:staff delete")]
     [Arguments(" 0: group:staff allow delete_child\n", "group:staff delete_child")]
@@ -280,7 +281,7 @@ public class AncestorChainTests {
     [Arguments(" 0: allow delete\n", "cannot be read")]
     [Arguments("not an entry\n", "cannot be read")]
     public async Task A_macos_acl_refuses_only_an_allow_of_a_replace_right_to_someone_else(string entries, string? why) {
-        var violation = DirectoryAcl.MacListingViolation(ModeLine + entries, ["user:root", "group:wheel", "user:tony"]);
+        var violation = DirectoryAcl.MacListingViolation(ModeLine + entries, ["user:root", "user:tony"]);
 
         if (why is null) await Assert.That(violation).IsNull();
         else await Assert.That(violation!).Contains(why);

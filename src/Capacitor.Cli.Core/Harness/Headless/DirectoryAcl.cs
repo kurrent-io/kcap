@@ -31,7 +31,7 @@ internal static class DirectoryAcl {
         if (!OperatingSystem.IsMacOS()) return null;
 
         return Ls("-lde", directory) is { } listing
-            ? MacListingViolation(listing, ["user:root", "group:wheel", $"user:{Environment.UserName}"]) is { } why ? $"'{directory}': {why}" : null
+            ? MacListingViolation(listing, ["user:root", $"user:{Environment.UserName}"]) is { } why ? $"'{directory}': {why}" : null
             : $"the ACL of '{directory}' cannot be read";
     }
 
