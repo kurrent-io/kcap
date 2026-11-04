@@ -1103,7 +1103,8 @@ public class ChatTabViewModelTests {
 
         foreach (var (literal, peek) in new[] { ("-10% change in throughput", "-10% change in throughput"), ("#123 is fixed", "#123 is fixed"),
                      ("> ## Summary", "Summary"), ("* item", "item"), ("+ item", "item"), ("- # Findings", "Findings"), ("# - Findings", "Findings"), (">  ## Findings", "Findings"), ("Inspect `src/**/test.cs`", "Inspect src/**/test.cs"), ("**Run `__init__`**", "Run __init__"), ("Inspect ``src/**/test.cs``", "Inspect src/**/test.cs"),
-                     ("Inspect `src/**/test.cs", "Inspect `src//test.cs") })
+                     ("Inspect `src/**/test.cs", "Inspect `src/**/test.cs"), ("Inspect src/**/test.cs", "Inspect src/**/test.cs"),
+                     ("Ran **all** the __unit__ tests", "Ran all the unit tests") })
             await Assert.That(new SystemNoteItem(literal + "\nMore.", SystemNoteItem.AgentReportLabel).HeaderLabel)
                 .IsEqualTo($"Subagent report · {peek}");
 

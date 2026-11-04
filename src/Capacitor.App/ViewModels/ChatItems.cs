@@ -152,35 +152,39 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
         return stripped.Length > 0 ? stripped : null;
     }
 
-    // Text inside a code span is literal: "src/**/test.cs" keeps its stars. A span opens and
-    // closes on backtick runs of equal length; an unmatched run is plain text.
+    // Only a paired marker is emphasis; a lone "**" is the note's own text. Code spans are masked
+    // first so a pair can wrap one ("**Run `__init__`**") without reaching inside it.
     static string WithoutEmphasis(string text) {
-        var parts = new List<(string Text, bool Code)>();
-        var plain = new System.Text.StringBuilder();
+        var spans = new List<string>();
+        var masked = new System.Text.StringBuilder();
         var i = 0;
         while (i < text.Length) {
-            if (text[i] != '`') { plain.Append(text[i++]); continue; }
+            if (text[i] != '`') { masked.Append(text[i++]); continue; }
             var run = 1;
             while (i + run < text.Length && text[i + run] == '`') run++;
             var close = ClosingRun(text, i + run, run);
-            if (close < 0) { plain.Append('`', run); i += run; continue; }
-            parts.Add((plain.ToString(), false));
-            plain.Clear();
-            parts.Add((text[(i + run)..close], true));
+            if (close < 0) { masked.Append('`', run); i += run; continue; }
+            masked.Append(SpanOpen).Append(spans.Count).Append(SpanClose);
+            spans.Add(text[(i + run)..close]);
             i = close + run;
         }
-        parts.Add((plain.ToString(), false));
-
-        for (var p = 0; p < parts.Count; p++) {
-            if (parts[p].Code) continue;
-            var s = parts[p].Text.Replace("**", "", StringComparison.Ordinal).Replace("__", "", StringComparison.Ordinal);
-            if (p == 0) s = s.TrimStart('*', '_');
-            if (p == parts.Count - 1) s = s.TrimEnd('*', '_');
-            parts[p] = (s, false);
-        }
-        return string.Concat(parts.Select(part => part.Text));
+        var plain = WholeLineEmphasis().Replace(PairedStrong().Replace(masked.ToString(), "$2"), "$2");
+        return MaskedSpan().Replace(plain, m => spans[int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)]);
     }
 
+    const char SpanOpen = '';
+    const char SpanClose = '';
+
+    [GeneratedRegex(@"(\*\*|__)(?=\S)(.+?)(?<=\S)\1")]
+    private static partial Regex PairedStrong();
+
+    [GeneratedRegex(@"^([*_])(?=\S)(.+?)(?<=\S)\1$")]
+    private static partial Regex WholeLineEmphasis();
+
+    [GeneratedRegex("(\\d+)")]
+    private static partial Regex MaskedSpan();
+
+    // A span closes on a backtick run of the same length; an unmatched run is plain text.
     static int ClosingRun(string text, int from, int length) {
         var i = from;
         while (i < text.Length) {
