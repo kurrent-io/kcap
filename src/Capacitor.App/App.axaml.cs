@@ -1849,8 +1849,7 @@ public partial class App : Application {
             UsageNotice: _usageNotice,
             ReportCliSetup: ReportWizardCliSetupAsync,
             ReadVisibilityOptions: ReadWizardVisibilityOptionsAsync,
-            // The repair relinks through a login shell and an administrator prompt, neither of which it has on Windows.
-            RepairClients: OperatingSystem.IsWindows() ? null : StaleClientRepair.ForApp(runner, probe, shimTarget, _userHome).RunAsync,
+            RepairClients: StaleClientRepair.ForApp(runner, probe, shimTarget, _userHome).RunAsync,
             MailSupport: report => FeedbackMail.Send(
                 new FeedbackSubmission(FeedbackCategory.Bug, report, Guid.NewGuid(), FeedbackSource.Desktop),
                 SystemBrowser.Instance, Capacitor.Cli.Core.Auth.Clipboard.TryCopy),

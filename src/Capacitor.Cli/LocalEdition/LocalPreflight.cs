@@ -80,14 +80,14 @@ sealed class LocalPreflight(
     }
 
     void CheckClients() {
-        if (copies?.Find().FirstOrDefault(c => !LocalClientFloor.Admits(c.Version)) is not { } old) return;
+        if (copies?.Find().FirstOrDefault(c => !LocalClientFloor.AdmitsOn(platform.IsWindows, c.Version)) is not { } old) return;
 
         var which = old.Kind == ClientCopyKind.DesktopApp ? $"The desktop app's kcap ({old.Path})" : $"The kcap on PATH ({old.Path})";
         var found = old.Version is { } v ? $"is {v}" : "did not report its version";
         var fix   = old.Kind == ClientCopyKind.DesktopApp ? "Update the desktop app" : "Update or remove it";
 
         throw Refuse(LocalInstallFailureCode.ClientBelowFloor,
-            $"{which} {found}, and a local installation needs a kcap newer than {LocalClientFloor.NewestRefused}. {fix} before setting up a local installation.");
+            $"{which} {found}, and a local installation needs a kcap newer than {LocalClientFloor.NewestRefusedOn(platform.IsWindows)}. {fix} before setting up a local installation.");
     }
 
     void CheckSockets() {

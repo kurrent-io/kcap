@@ -367,16 +367,23 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         } finally {
             Repairing = false;
         }
-        if (!repair.Ready) ClientProblem = ProblemText(repair);
+        if (!repair.Ready) ClientProblem = ProblemText(repair, OperatingSystem.IsWindows());
 
         return repair.Ready;
     }
 
-    static string ProblemText(ClientRepairOutcome outcome) => outcome switch {
+    internal static string ProblemText(ClientRepairOutcome outcome, bool windows) => outcome switch {
         ClientRepairOutcome.Cancelled c =>
             $"An older kcap at {c.Path} has to be updated before kcap can install, and macOS needs your password to do it. Try again to update it.",
+        // A Windows install of the app is updated in place, never moved aside.
+        ClientRepairOutcome.OldApp a when windows =>
+            $"The kcap app installed at {a.Path} is an older version. Update the kcap app, then try again.",
         ClientRepairOutcome.OldApp a =>
             $"An older copy of the kcap app is at {a.Path}. Move it to the Trash, then try again.",
+        ClientRepairOutcome.Unrepairable u =>
+            $"An older kcap at {u.Path} comes first on PATH, and setup can't update it. Update or remove it, then try again.",
+        ClientRepairOutcome.StillOld s =>
+            $"npm updated the kcap at {s.Path}{(s.Version is { } v ? $" to {v.Split('+')[0]}" : "")}, but that version can't run the local edition on Windows yet. Remove it, or take its folder off PATH, then try again.",
         ClientRepairOutcome.Failed f =>
             $"kcap couldn't update the older kcap at {f.Path}: {f.Reason} Try again to update it.",
         _ => OldClientText,
