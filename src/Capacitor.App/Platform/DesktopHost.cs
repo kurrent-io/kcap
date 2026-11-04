@@ -71,6 +71,9 @@ public abstract class DesktopHost : IDisposable {
     /// False while the CLI runs from somewhere that vanishes when the app exits, so nothing may link to it.
     public virtual bool CliOutlivesApp => true;
 
+    /// The app could not copy its CLI to where it keeps it, so a daemon on the copy an earlier run left stays behind.
+    public virtual bool CliCopyFailed => false;
+
     public virtual AppBuilder ConfigureAvalonia(AppBuilder builder) => builder;
 
     /// Blocks until the platform can show a window.

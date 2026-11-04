@@ -6,7 +6,7 @@ using Capacitor.Cli.Core.LocalIpc;
 namespace Capacitor.App.Services.Update;
 
 /// <summary>
-/// After an update, deals with a daemon still connected on an older version. A daemon restarts itself when its binary
+/// After an update, or on a launch that could not copy its CLI, deals with a daemon still connected on an older version. A daemon restarts itself when its binary
 /// changes, but one that started while the update was replacing that binary can miss the change, and stays on the old
 /// version until something restarts it: that daemon, with no restart queued, is asked once to restart at its agents'
 /// next turn boundary. A daemon running a binary this app's update did not replace, such as an npm install, would come
@@ -60,6 +60,12 @@ public sealed class StaleDaemonNudge : IDisposable {
 
     /// The daemon this run found on a binary its update did not replace, while it stays behind.
     public IObservable<DaemonOnOtherInstall?> OtherInstall => _otherInstall.DistinctUntilChanged();
+
+    /// The version this launch holds a connected daemon to, or null to leave it alone: the one an update it finishes
+    /// installed, else this app's own when it could not copy its CLI. Nothing else reports a daemon left on the old
+    /// copy, and reopening the app is how the user retries the copy.
+    public static string? TargetVersion(AppUpdateTransition? finishing, bool cliCopyFailed, string running) =>
+        finishing?.To ?? (cliCopyFailed ? running : null);
 
     internal static bool Behind(string? daemonVersion, string appVersion) =>
         daemonVersion is { Length: > 0 } && PrereleaseSemver.IsNewer(Core(appVersion), Core(daemonVersion));

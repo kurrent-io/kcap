@@ -54,6 +54,7 @@ public class LinuxDesktopHostTests {
             .IsEqualTo(new DaemonOnOtherInstall("1.4.0", Path.Combine(staged, "kcap-daemon"), "No space left on device"));
         await Assert.That(host.OtherInstall("1.4.0", npm)).IsEqualTo(new DaemonOnOtherInstall("1.4.0", npm));
         await Assert.That(host.OtherInstall("1.4.0", Path.Combine(mount, "kcap-daemon"))).IsNull();
+        await Assert.That(host.CliCopyFailed).IsTrue();
     }
 
     /// The copy's daemon binary was replaced before a later file failed, so a restart there loads this version.

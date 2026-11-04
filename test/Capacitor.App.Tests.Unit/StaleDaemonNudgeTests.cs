@@ -139,6 +139,17 @@ public class StaleDaemonNudgeTests {
         await Assert.That(current.Modes).IsEmpty();
     }
 
+    /// A reopen that still cannot copy the CLI finishes no update, yet the daemon on the old copy must still be reported.
+    [Test]
+    [Arguments(false, true, "1.4.2")]
+    [Arguments(false, false, null)]
+    [Arguments(true, true, "1.4.1")]
+    [Arguments(true, false, "1.4.1")]
+    public async Task A_launch_checks_the_daemon_after_an_update_or_a_failed_cli_copy(bool updated, bool cliCopyFailed, string? target) {
+        var finishing = updated ? AppUpdateTransition.Begin(AppUpdateTransition.InApp, "1.4.0", "1.4.1", TimeProvider.System) : null;
+        await Assert.That(StaleDaemonNudge.TargetVersion(finishing, cliCopyFailed, "1.4.2")).IsEqualTo(target);
+    }
+
     [Test]
     [Arguments("1.4.0", true)]
     [Arguments("1.4.1+abc", false)]
