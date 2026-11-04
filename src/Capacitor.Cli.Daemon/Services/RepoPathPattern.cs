@@ -34,7 +34,10 @@ public static class RepoPathPattern {
     // `/allowed\secret` is one directory beside `/allowed`, not one inside it.
     static bool TryResolve(string path, out string resolved) {
         var ok = CanonicalPath.TryResolve(path, out var real);
-        if (OperatingSystem.IsWindows()) real = real.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        if (OperatingSystem.IsWindows()) {
+            real = real.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+            if (WindowsLongPath.TryExpand(real, out var expanded)) real = expanded;
+        }
         resolved = Path.TrimEndingDirectorySeparator(real);
 
         return ok;

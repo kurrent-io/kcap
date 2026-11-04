@@ -84,6 +84,34 @@ public class RepoPathPatternTests {
         await Assert.That(RepoPathPattern.Matches(allowed + "/*", allowed.PathTo("secret"))).IsTrue();
     }
 
+    /// <summary>A Windows path can name a directory by its 8.3 alias, which no link resolution expands; a
+    /// request spelled that way must still match the entry naming the directory in full.</summary>
+    [Test]
+    [RunOn(OS.Windows)]
+    public async Task A_short_name_request_matches_the_long_entry_for_the_same_directory() {
+        var allowed = Tmp.CreateDir("Allowed Repositories");
+        var project = allowed.CreateDir("project with a long name");
+        var shortProject = ShortNameOf(project);
+
+        Skip.When(string.Equals(Path.GetFileName(shortProject), "project with a long name", StringComparison.OrdinalIgnoreCase),
+            "8.3 short names are disabled on this volume, so no short spelling exists to test");
+
+        await Assert.That(RepoPathPattern.Matches(Tmp.PathTo("Allowed Repositories") + "\\*", shortProject)).IsTrue();
+        await Assert.That(RepoPathPattern.Matches(project, shortProject)).IsTrue();
+        await Assert.That(RepoPathPattern.Matches(Tmp.PathTo("Elsewhere") + "\\*", shortProject)).IsFalse();
+    }
+
+    static string ShortNameOf(string path) {
+        var start = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/d /s /c \"for %I in (\"{path}\") do @echo %~sI\"") {
+            RedirectStandardOutput = true, UseShellExecute = false,
+        };
+        using var cmd = System.Diagnostics.Process.Start(start)!;
+        var output = cmd.StandardOutput.ReadToEnd().Trim();
+        cmd.WaitForExit();
+
+        return output;
+    }
+
     [Test]
     public async Task A_symlink_cycle_matches_nothing() {
         var allowed = Tmp.CreateDir("allowed");
