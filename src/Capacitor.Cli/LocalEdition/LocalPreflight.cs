@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using System.Text;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
@@ -26,8 +27,10 @@ sealed class LocalPreflight(
         return plan;
     }
 
-    /// <summary>Under the lease, after recovery: a journal still present is a bug in the caller.</summary>
+    /// <summary>Under the lease, after recovery: a journal still present is a bug in the caller. A rollback can leave
+    /// the root holding nothing, so on Windows its owner is checked again before a new installation goes in.</summary>
     public LocalPlan Recheck(string version) {
+        if (OperatingSystem.IsWindows()) CheckRootOwner();
         var plan = Decide(version, afterRecovery: true);
         CheckClients();
 
@@ -104,7 +107,10 @@ sealed class LocalPreflight(
     }
 
     void CheckAncestors() {
-        if (OperatingSystem.IsWindows()) return;
+        if (OperatingSystem.IsWindows()) {
+            CheckRootOwner();
+            return;
+        }
 
         for (var dir = ResolvedDirectory(root.Directory); dir is not null; dir = Path.GetDirectoryName(dir)) {
             if (!Directory.Exists(dir)) continue;
@@ -114,6 +120,17 @@ sealed class LocalPreflight(
 
             throw Refuse(LocalInstallFailureCode.UnsafeRoot, $"{dir} is writable by every user, so the local server refuses to start under it. Run chmod o-w on it, or set {LocalRoot.EnvVar} to a directory under your home.");
         }
+    }
+
+    /// <summary>Another account owning the root can rewrite its DACL whatever kcap sets, so a new installation is
+    /// refused there. A root that already holds one is left to <see cref="LocalRoot.EnsureCreated"/>, which warns.</summary>
+    [SupportedOSPlatform("windows")]
+    void CheckRootOwner() {
+        if (!Directory.Exists(root.Directory) || root.HoldsInstallation) return;
+        if (LocalRootAccess.ForeignOwner(root.Directory) is not { } why) return;
+
+        throw Refuse(LocalInstallFailureCode.UnsafeRoot,
+            $"{root.Directory} cannot be made private to you: {why}. Set {LocalRoot.EnvVar} to a directory you create yourself, or to one under your user profile.");
     }
 
     PlanHint ReadHint(out LocalInstallation? existing) {
