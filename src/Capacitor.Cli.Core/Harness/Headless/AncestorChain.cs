@@ -22,7 +22,8 @@ internal static class AncestorChain {
     const int GenericAll  = 0x10000000;
 
     /// <summary>The first violation found, nearest first, or null when the chain is private. Unix: every
-    /// directory owned by this user or root and not writable by group or others unless sticky. Windows: every
+    /// directory owned by this user or root, and unless sticky not writable by others, nor by a group this user
+    /// is not provably alone in. Windows: every
     /// directory owned by a trusted account, and no other account holding a right that can replace the next
     /// entry down.</summary>
     public static string? Violation(string path) {
@@ -98,10 +99,32 @@ internal static class AncestorChain {
     static string? UnixViolation(string path) {
         if (!FileOwner.Available) return "no system `stat` command can read directory owners";
 
-        if (DirectoryExposure.GrantingWrite(path, UnixFileMode.GroupWrite | UnixFileMode.OtherWrite) is [var shared, ..])
-            return $"'{shared}' is writable by group or others and not sticky";
+        return UnixWriteViolation(path, FileOwner.GroupOf, FileOwner.Effective, ReadOrNull("/etc/group"), ReadOrNull("/etc/passwd"))
+            ?? UnixOwnerViolation(path, FileOwner.Of, FileOwner.Effective);
+    }
 
-        return UnixOwnerViolation(path, FileOwner.Of, FileOwner.Effective);
+    /// <summary>The Unix write rule, with the two account files as text so it runs on any host. A file that could
+    /// not be read is null, which proves nothing about a group.</summary>
+    public static string? UnixWriteViolation(string path, Func<string, uint?> groupOf, uint self, string? groupFile, string? passwdFile) {
+        if (DirectoryExposure.GrantingWrite(path, UnixFileMode.OtherWrite) is [var shared, ..])
+            return $"'{shared}' is writable by others and not sticky";
+
+        foreach (var dir in DirectoryExposure.GrantingWrite(path, UnixFileMode.GroupWrite)) {
+            if (groupOf(dir) is not { } gid) return $"'{dir}' is writable by its group and not sticky, and its group cannot be read";
+
+            if (SoleMemberGroup.Violation(gid, self, groupFile, passwdFile) is { } why)
+                return $"'{dir}' is writable by group {gid} and not sticky: {why}";
+        }
+
+        return null;
+    }
+
+    static string? ReadOrNull(string path) {
+        try {
+            return File.ReadAllText(path);
+        } catch (Exception) {
+            return null;
+        }
     }
 
     [SupportedOSPlatform("windows")]

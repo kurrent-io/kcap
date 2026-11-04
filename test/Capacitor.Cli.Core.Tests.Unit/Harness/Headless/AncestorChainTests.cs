@@ -139,6 +139,86 @@ public class AncestorChainTests {
             .IsEqualTo($"'{other}' is owned by uid 9");
     }
 
+    const uint Self = 1000;
+
+    const string Passwd = """
+        ## a comment, as macOS has
+        root:x:0:0:root:/root:/bin/sh
+        alice:x:1000:1000:Alice:/home/alice:/bin/sh
+        bob:x:1001:1001:Bob:/home/bob:/bin/sh
+        """;
+
+    const string Group = """
+        root:x:0:
+        alice:x:1000:
+        bob:x:1001:
+        team:x:2000:alice,bob
+        solo:x:2001:alice
+        empty:x:2002:
+        """;
+
+    [Test]
+    [Arguments(1000u, Group, Passwd, null)]                                         // user-private: primary, no members
+    [Arguments(2001u, Group, Passwd, null)]                                         // listed member and nobody else
+    [Arguments(2000u, Group, Passwd, "'bob' is a member")]
+    [Arguments(1001u, Group, Passwd, "'bob' has it as its primary group")]
+    [Arguments(0u, Group, Passwd, "'root' has it as its primary group")]
+    [Arguments(3000u, Group, Passwd, "does not list it")]                           // an LDAP or other NSS group
+    [Arguments(2002u, Group, Passwd, "not shown to be in it")]
+    [Arguments(1000u, null, Passwd, "/etc/group cannot be read")]
+    [Arguments(1000u, Group, null, "/etc/passwd cannot be read")]
+    [Arguments(1000u, "+:::\n" + Group, Passwd, "/etc/group has a line")]            // includes a directory service
+    [Arguments(1000u, Group, "+::::::\n" + Passwd, "/etc/passwd has a line")]
+    [Arguments(1000u, "alice:x:notanumber:\n", Passwd, "/etc/group has a line")]
+    [Arguments(1000u, Group, "alice:x:1000\n", "/etc/passwd has a line")]
+    public async Task A_group_counts_as_private_only_when_the_account_files_prove_this_user_is_alone_in_it(
+            uint gid, string? groupFile, string? passwdFile, string? why) {
+        var violation = SoleMemberGroup.Violation(gid, Self, groupFile, passwdFile);
+
+        if (why is null) await Assert.That(violation).IsNull();
+        else await Assert.That(violation!).Contains(why);
+    }
+
+    [Test]
+    public async Task Two_account_names_on_this_uid_are_one_user() =>
+        await Assert.That(SoleMemberGroup.Violation(2003, Self, "pair:x:2003:alice,alias\n",
+            "alice:x:1000:1000::/h:/s\nalias:x:1000:1000::/h:/s\n")).IsNull();
+
+    /// <summary>The gid and account files are injected over real directory modes: the bits are what is under test,
+    /// and the same proof that admits the group must not admit the others bit.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    [UnsupportedOSPlatform("windows")]
+    [Arguments(0b111_111_101, 1000u, null)]
+    [Arguments(0b111_111_101, 2000u, "writable by group 2000")]
+    [Arguments(0b111_111_101, 3000u, "writable by group 3000")]
+    [Arguments(0b111_111_111, 1000u, "writable by others")]
+    public async Task The_write_rule_admits_a_group_writable_directory_only_on_that_proof(int mode, uint gid, string? why) {
+        var shared = Tmp.CreateDir("shared").Path;
+        var leaf   = Tmp.CreateDir("shared", "leaf").Path;
+        File.SetUnixFileMode(shared, (UnixFileMode)mode);
+
+        var violation = AncestorChain.UnixWriteViolation(leaf, _ => gid, Self, Group, Passwd);
+
+        if (why is null) await Assert.That(violation).IsNull();
+        else await Assert.That(violation!).Contains(why);
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task A_group_writable_directory_whose_gid_cannot_be_read_is_a_violation() {
+        var shared = Tmp.CreateDir("shared").Path;
+        File.SetUnixFileMode(shared, (UnixFileMode)0b111_111_101);
+
+        await Assert.That(AncestorChain.UnixWriteViolation(Tmp.CreateDir("shared", "leaf").Path, _ => null, Self, Group, Passwd)!)
+            .Contains("its group cannot be read");
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task The_gid_is_read_from_the_system() {
+        await Assert.That(FileOwner.GroupOf("/")).IsEqualTo(0u);
+        await Assert.That(FileOwner.GroupOf(Tmp.PathTo("missing"))).IsNull();
+    }
+
     /// <summary>The link resolves into a world-writable, non-sticky directory: the lexical path is all
     /// owner-only, so only walking the target's chain finds it.</summary>
     [Test, ExcludeOn(OS.Windows)]

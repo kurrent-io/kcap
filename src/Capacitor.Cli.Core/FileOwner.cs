@@ -15,7 +15,7 @@ public static partial class FileOwner {
 
     /// <summary>The first candidate that reads <c>/</c> as root's, the one owner every system agrees on.
     /// A file that exists but cannot do that is no reader at all.</summary>
-    static readonly Lazy<string?> Stat = new(() => Candidates.FirstOrDefault(c => File.Exists(c) && Read(c, "/") == 0));
+    static readonly Lazy<string?> Stat = new(() => Candidates.FirstOrDefault(c => File.Exists(c) && Read(c, "u", "/") == 0));
 
     public static uint Effective => geteuid();
 
@@ -25,12 +25,15 @@ public static partial class FileOwner {
 
     /// <summary>The owning uid, or null when it cannot be read: on Windows, without a working
     /// <c>stat</c>, or for a path this process cannot stat.</summary>
-    public static uint? Of(string path) => Available ? Read(Stat.Value!, path) : null;
+    public static uint? Of(string path) => Available ? Read(Stat.Value!, "u", path) : null;
 
-    static uint? Read(string stat, string path) {
+    /// <summary>The owning gid, null under the same conditions as <see cref="Of"/>.</summary>
+    public static uint? GroupOf(string path) => Available ? Read(Stat.Value!, "g", path) : null;
+
+    static uint? Read(string stat, string field, string path) {
         try {
             var result = new ProcessRunner(TimeProvider.System)
-                .RunAsync(stat, OperatingSystem.IsMacOS() ? ["-f", "%u", path] : ["-c", "%u", path],
+                .RunAsync(stat, [OperatingSystem.IsMacOS() ? "-f" : "-c", $"%{field}", path],
                     new RunOptions(Timeout: StatTimeout), CancellationToken.None)
                 .GetAwaiter().GetResult();
 
