@@ -148,6 +148,7 @@ public partial class WorktreeManager {
     public async Task<WorktreeInfo> CreateHandoffAsync(
             string repoPath, HandoffStart start, string? name = null, CancellationToken ct = default) {
         ct.ThrowIfCancellationRequested();
+        var pinned       = PinSource(repoPath);
         var worktreeRoot = Path.Combine(repoPath, ".capacitor", "worktrees");
         name ??= await PickWorktreeNameAsync(repoPath, worktreeRoot);
         var worktreePath = Path.Combine(worktreeRoot, name);
@@ -157,6 +158,8 @@ public partial class WorktreeManager {
         if (!detached && !await IsValidRefNameAsync(repoPath, branch))
             throw new InvalidOperationException($"invalid_base_ref: {branch}");
 
+        var commonDir = await ResolvedCommonDirAsync(repoPath);
+        RefuseIfSourceMoved(repoPath, pinned);
         Directory.CreateDirectory(worktreeRoot);
         await ExcludeWorktreeRootAsync(repoPath);
 
@@ -179,7 +182,9 @@ public partial class WorktreeManager {
                     if (checkedOut) throw StartChanged($"{branch} is checked out in another worktree");
                 }
 
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 await RunGit(repoPath, GitTimeout, time, "update-ref", fetchedRef, start.Sha);
+                RefuseIfSourceMoved(repoPath, pinned);
 
                 switch (start.Checkout) {
                     case HandoffCheckout.CreateBranch:

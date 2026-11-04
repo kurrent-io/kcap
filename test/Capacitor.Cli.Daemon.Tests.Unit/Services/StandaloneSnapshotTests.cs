@@ -504,6 +504,29 @@ public class StandaloneSnapshotTests {
 
     }
 
+    /// <summary>The source is swapped for a link out of its tree while creation is held after its claim:
+    /// the copy must be refused rather than taken from wherever the link now leads.</summary>
+    [Test]
+    public async Task A_source_swapped_for_a_link_mid_creation_is_refused() {
+        SkipUnlessPosixSymlinks();
+        using var root = new TempDir("standalone");
+        var source     = root.CreateDir("proj");
+        var outside    = root.CreateDir("outside");
+        source.CreateFile("README.md", "hello");
+        outside.CreateFile("secret.txt", "secret");
+
+        var barrier = new FakeSnapshotBarrier();
+        barrier.At(SnapshotPoint.PostClaim, () => {
+            Directory.Move(source, root.PathTo("proj-moved"));
+            Directory.CreateSymbolicLink(source, outside);
+            return Task.CompletedTask;
+        });
+
+        await Assert.That(async () => await NewManager(barrier).CreateAsync(source, "swapped"))
+            .Throws<InvalidOperationException>().WithMessageContaining("source_repo_moved");
+        await Assert.That(EntryNames(outside)).IsEquivalentTo(new[] { "secret.txt" });
+    }
+
     // ---- 14: claim ownership --------------------------------------------------------------------------
 
     /// <summary>The claim's EXISTENCE excludes a second caller — not the brief non-shared handle.

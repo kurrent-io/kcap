@@ -2985,8 +2985,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 ? $"refs/pull/{reviewInfo.PrNumber}/head"
                 : cmd.BaseRef;
 
-            // A directory under the allowed tree can be swapped for a link after the check above, so the
-            // resolved path is re-walked right before git reads from it.
+            // A directory under the allowed tree can be swapped for a link after the check above. Re-walked
+            // with no await before worktree creation, which pins the source as it resolves on entry.
             if (resume is null && !cmd.Borrowed && !cmd.ScratchWorkspace && !StillResolvesToItself(sourceRepo)) {
                 await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path changed after it was allowed: {repoPath}");
 
