@@ -15,8 +15,12 @@ public sealed class IntelligenceOption : ReactiveObject {
         Detail = detail;
     }
 
-    internal static IntelligenceOption LocalAgent(string harness) => new(harness, $"My local agent: {HarnessLabel(harness)}",
-        $"Runs on this machine through {HarnessLabel(harness)}'s own sign-in and quota. Nothing goes anywhere it does not already send.");
+    internal static IntelligenceOption LocalAgent(string harness) {
+        var label  = HeadlessHarnessProbe.Label(harness);
+        var access = harness is HeadlessHarnessProbe.Pi or HeadlessHarnessProbe.OpenCode ? "sign-in or key" : "sign-in and quota";
+
+        return new(harness, $"My local agent: {label}", $"Runs on this machine through {label}'s own {access}. Nothing goes anywhere it does not already send.");
+    }
 
     internal static IntelligenceOption Provider() => new(ProviderToken, "A provider, with my API key",
         "Anthropic, OpenAI, OpenRouter or Cohere. kcap tries the key with one call before saving it.");
@@ -34,10 +38,4 @@ public sealed class IntelligenceOption : ReactiveObject {
         get => _isSelected;
         set => this.RaiseAndSetIfChanged(ref _isSelected, value);
     }
-
-    static string HarnessLabel(string harness) => harness switch {
-        HeadlessHarnessProbe.Claude => "Claude Code",
-        HeadlessHarnessProbe.Codex  => "Codex",
-        _                           => harness,
-    };
 }
