@@ -178,4 +178,24 @@ public class VendorModelCatalogsTests {
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
     }
+
+    /// A file unreadable since it appeared has no digest to keep; the first fingerprint taken once
+    /// it turns readable is a change even when its size and write time did not move.
+    [Test]
+    [UnsupportedOSPlatform("windows")]
+    public async Task CatalogPathStat_an_unreadable_file_turning_readable_is_a_change() {
+        Skip.Unless(!OperatingSystem.IsWindows(), "Unreadability comes from a POSIX file mode.");
+        var path = Tmp.CreateFile("auth.json", "{}");
+        File.SetUnixFileMode(path, UnixFileMode.None);
+        CatalogPathStat unreadable;
+        try {
+            unreadable = CatalogPathStat.Of(path);
+        } finally {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        var readable = CatalogPathStat.Of(path, unreadable);
+
+        await Assert.That(unreadable.Digest).IsNull();
+        await Assert.That(CatalogPathStat.SameCatalog([readable], [unreadable])).IsFalse();
+    }
 }

@@ -29,12 +29,15 @@ public readonly record struct CatalogPathStat(string Path, bool Exists, long Len
         }
     }
 
-    /// A fingerprint without a digest compares by size and write time.
+    /// Two fingerprints without a digest compare by size and write time. One without a digest
+    /// never matches one with: a file first read once it turns readable must still re-probe.
     internal bool SameCatalogAs(CatalogPathStat other) =>
         Path == other.Path && Exists == other.Exists
-     && (!Exists || (Digest is not null && other.Digest is not null
-            ? Digest == other.Digest
-            : Length == other.Length && LastWriteTicks == other.LastWriteTicks));
+     && (!Exists || (Digest, other.Digest) switch {
+            (null, null)         => Length == other.Length && LastWriteTicks == other.LastWriteTicks,
+            (not null, not null) => Digest == other.Digest,
+            _                    => false,
+        });
 
     internal static bool SameCatalog(ReadOnlySpan<CatalogPathStat> current, ReadOnlySpan<CatalogPathStat> baseline) {
         if (current.Length != baseline.Length) return false;
