@@ -148,12 +148,20 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
         if (line.StartsWith("```") || line.StartsWith("~~~")) return null;
         var unquoted = QuoteMarker().Replace(line.ToString(), "");
         if (Rule().IsMatch(unquoted)) return null;
-        var stripped = LeadMarker().Replace(unquoted, "")
-            .Replace("**", "", StringComparison.Ordinal)
-            .Replace("__", "", StringComparison.Ordinal)
-            .Replace("`", "", StringComparison.Ordinal)
-            .Trim().Trim('*').Trim('_').Trim();
+        var stripped = WithoutEmphasis(LeadMarker().Replace(unquoted, "")).Trim();
         return stripped.Length > 0 ? stripped : null;
+    }
+
+    // Text inside a code span is literal: "src/**/test.cs" keeps its stars.
+    static string WithoutEmphasis(string text) {
+        var parts = text.Split('`');
+        for (var i = 0; i < parts.Length; i += 2)
+            parts[i] = parts[i].Replace("**", "", StringComparison.Ordinal).Replace("__", "", StringComparison.Ordinal);
+        if (parts.Length > 0) {
+            parts[0] = parts[0].TrimStart('*', '_');
+            if (parts.Length % 2 == 1) parts[^1] = parts[^1].TrimEnd('*', '_');
+        }
+        return string.Concat(parts);
     }
 
     [GeneratedRegex(@"^([-*_])(\s*\1){2,}\s*$")]
