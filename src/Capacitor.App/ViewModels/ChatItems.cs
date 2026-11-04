@@ -1,6 +1,7 @@
 using Lucide.Avalonia;
 using System.ComponentModel;
 using System.Reactive;
+using System.Text.RegularExpressions;
 using Avalonia.Collections;
 using Capacitor.App.Views;
 using ReactiveUI.Reactive;
@@ -79,7 +80,7 @@ public sealed class AssistantThinkingItem : ChatItemViewModel {
 
 /// System-attributed text — a finished background task, a reconnect note, another agent's message
 /// — never the user's speech.
-public sealed class SystemNoteItem : ChatItemViewModel {
+public sealed partial class SystemNoteItem : ChatItemViewModel {
     public const string NoteLabel = "Note";
     public const string AgentReportLabel = "Subagent report";
     public const string AgentMessageLabel = "Agent message";
@@ -145,13 +146,22 @@ public sealed class SystemNoteItem : ChatItemViewModel {
 
     static string? Content(ReadOnlySpan<char> line) {
         if (line.StartsWith("```") || line.StartsWith("~~~")) return null;
-        var stripped = line.TrimStart("#>- ").ToString()
+        var text = line.ToString();
+        if (Rule().IsMatch(text)) return null;
+        var stripped = LeadMarker().Replace(text, "")
             .Replace("**", "", StringComparison.Ordinal)
             .Replace("__", "", StringComparison.Ordinal)
             .Replace("`", "", StringComparison.Ordinal)
             .Trim().Trim('*').Trim('_').Trim();
         return stripped.Length > 0 ? stripped : null;
     }
+
+    [GeneratedRegex(@"^([-*_])(\s*\1){2,}\s*$")]
+    private static partial Regex Rule();
+
+    // Only a marker followed by a space is markdown; "-10%" and "#123" are the note's own words.
+    [GeneratedRegex(@"^(>\s?)*(#{1,6}\s+|[-*+]\s+)?")]
+    private static partial Regex LeadMarker();
 }
 
 /// A bang command the user ran, and the output record that follows it. The output arrives later,

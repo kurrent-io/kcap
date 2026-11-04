@@ -1101,6 +1101,14 @@ public class ChatTabViewModelTests {
             await Assert.That(new SystemNoteItem(fenced, SystemNoteItem.AgentReportLabel).HeaderLabel)
                 .IsEqualTo("Subagent report · Findings");
 
+        foreach (var (literal, peek) in new[] { ("-10% change in throughput", "-10% change in throughput"), ("#123 is fixed", "#123 is fixed"),
+                     ("> ## Summary", "Summary"), ("* item", "item"), ("+ item", "item") })
+            await Assert.That(new SystemNoteItem(literal + "\nMore.", SystemNoteItem.AgentReportLabel).HeaderLabel)
+                .IsEqualTo($"Subagent report · {peek}");
+
+        await Assert.That(new SystemNoteItem("* * *\nFindings\nMore.", SystemNoteItem.AgentReportLabel).HeaderLabel)
+            .IsEqualTo("Subagent report · Findings");
+
         foreach (var lone in new[] { "---\n\n**Done.**", "---\n```text\n\nFindings\n```", "Findings\n~~~\n---" })
             await Assert.That(new SystemNoteItem(lone, SystemNoteItem.AgentReportLabel).IsCollapsible).IsFalse();
 
