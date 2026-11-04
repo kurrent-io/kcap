@@ -197,7 +197,7 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
     /// connected as an outage, so the step is not done before it.</param>
     /// <param name="localRunning">The local server is still being upgraded. A daemon already on the new version waits for it
     /// rather than showing done and then dropping back when the server stops.</param>
-    /// <param name="otherInstall">The daemon runs a kcap this app does not ship, so only updating that install moves it on.</param>
+    /// <param name="otherInstall">The daemon runs a binary this app's update did not replace, so a restart does not move it on.</param>
     internal static UpdateStep DaemonStep(AttachStatus status, string? daemonVersion, string? connection, DaemonRestartWait restartPending,
             string appVersion, bool waitedLong = false, DaemonOnOtherInstall? otherInstall = null, bool localRunning = false) {
         const string title = "Daemon";
@@ -214,6 +214,9 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
                 Activity: "Reconnecting the daemon to the server"),
             { State: AttachState.Connected } when newer => new(title, $"Running {Display(daemonVersion!)}, newer than this app", UpdateStepState.Note),
             { State: AttachState.Connected } when restartPending == DaemonRestartWait.Turns => new(title, "Waiting for active turns. Long turns may be interrupted", UpdateStepState.Note),
+            { State: AttachState.Connected } when otherInstall is { CopyFailure: { } failure } copy => new(title,
+                $"Runs {Display(copy.Version)} from this app's copy of its CLI, which it could not replace. Fix that and reopen the app",
+                UpdateStepState.Note, Hint: failure),
             { State: AttachState.Connected } when otherInstall is { } other => new(title,
                 $"Runs {Display(other.Version)} from another install. Update that install to move it on", UpdateStepState.Note, Hint: other.Executable),
             { State: AttachState.Connected } when restartPending == DaemonRestartWait.Agents => new(title,

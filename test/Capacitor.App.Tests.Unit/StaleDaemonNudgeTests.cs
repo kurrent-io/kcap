@@ -25,7 +25,8 @@ public class StaleDaemonNudgeTests {
         readonly IDisposable _otherInstalls;
 
         public Harness() {
-            Nudge = new StaleDaemonNudge("1.4.1", Status, Daemon, Pending, _ => Executable, path => path.StartsWith("/Applications/kcap.app/", StringComparison.Ordinal),
+            Nudge = new StaleDaemonNudge("1.4.1", Status, Daemon, Pending, _ => Executable,
+                (version, path) => path.StartsWith("/Applications/kcap.app/", StringComparison.Ordinal) ? null : new DaemonOnOtherInstall(version, path),
                 (mode, _) => { Modes.Add(mode); return Task.FromResult("queued"); }, (mode, result) => Outcomes.Add((mode, result)), Clock, CancellationToken.None);
             _otherInstalls = Nudge.OtherInstall.Subscribe(OtherInstalls.Add);
         }

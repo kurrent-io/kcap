@@ -26,8 +26,10 @@ public sealed record AppImageInstall(string Image) {
     /// Copies the bundle's CLI and plugin out of the mount and returns the directory to run the CLI
     /// from. Each file is replaced by rename, so a running daemon keeps its old inode and sees an
     /// update the way it does after `kcap update`. When the copy fails the CLI runs from the mount.
+    /// <param name="failure">Set when the copy failed: the copy an earlier run left, and why it could not be replaced.</param>
     /// <param name="build">The running app's own build, which this mount carries; defaults to this assembly's.</param>
-    public string TakeCliOutOfMount(Func<string, string?> getEnv, UserHome home, string appDirectory, string? build = null) {
+    public string TakeCliOutOfMount(Func<string, string?> getEnv, UserHome home, string appDirectory, out CliStagingFailure? failure, string? build = null) {
+        failure = null;
         var bundleCli = BundleLayout.CliDirectory(appDirectory);
         var bundlePlugin = BundleLayout.PluginDirectory(appDirectory);
         var root   = StagedRoot(getEnv, home);
@@ -44,6 +46,7 @@ public sealed record AppImageInstall(string Image) {
             if (identity is not null) File.WriteAllText(stamp, identity);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             Console.Error.WriteLine($"kcap: could not copy the bundled CLI to {root}, running it from the AppImage: {ex.Message}");
+            failure = new CliStagingFailure(target, ex.Message);
             return bundleCli;
         }
 

@@ -1393,11 +1393,12 @@ public partial class App : Application {
         if (_holdingMainWindow && _postUpdate is { } finishing) {
             _staleDaemonNudge = new StaleDaemonNudge(finishing.To, service.Status,
                 service.Snapshots.Select(snap => ((string?)snap.Daemon.Version, snap.Daemon.Pid)), restartPending.Pending,
-                ProcessExecutable.Of, binary => CanonicalPath.IsWithin(binary, Program.Host.CliDirectory),
+                ProcessExecutable.Of, Program.Host.OtherInstall,
                 ops.RequestRestartAsync,
                 (mode, result) => LifecycleLog.Write("daemon_restart_requested", ("mode", mode), ("result", result)), _time, _shutdown.Token);
             _staleDaemonNudge.OtherInstall.Subscribe(other => {
-                if (other is not null) LifecycleLog.Write("daemon_on_other_install", ("version", other.Version), ("executable", other.Executable));
+                if (other is not null)
+                    LifecycleLog.Write("daemon_on_other_install", ("version", other.Version), ("executable", other.Executable), ("copy_failure", other.CopyFailure));
                 daemonOnOtherInstall.OnNext(other);
             });
             ShowUpdateFinishWindow(finishing, expectedRestart.Status,
