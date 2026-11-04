@@ -1,5 +1,6 @@
 using System.Globalization;
 using Capacitor.Cli.Services;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.LocalEdition;
 
@@ -7,14 +8,14 @@ namespace Capacitor.Cli.LocalEdition;
 static class LocalServerActivityReader {
     /// <summary>The plist keeps a job alive only after a failure, so a clean exit is final.</summary>
     public static UnitActivity FromPrint(int exitCode, string stdout, string stderr) {
-        switch (LaunchdUnit.ClassifyPrint(exitCode, stdout, stderr)) {
+        switch (LaunchdPrint.Classify(exitCode, stdout, stderr)) {
             case LabelProbe.Absent:  return UnitActivity.Stopped.Instance;
             case LabelProbe.Unknown: return new UnitActivity.Unknown($"launchctl print failed (exit {exitCode}): {LaunchdUnit.ToolError(stderr)}");
         }
 
         var runs = Field(stdout, "runs = ");
 
-        if (LaunchdUnit.PidFromPrint(stdout) is { } pid) return new UnitActivity.Running(pid) { Starts = runs };
+        if (LaunchdPrint.Pid(stdout) is { } pid) return new UnitActivity.Running(pid) { Starts = runs };
 
         var last = LastExitCode(stdout);
 

@@ -6,6 +6,7 @@ using Capacitor.Cli.Core.Install;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Services;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Commands;
 

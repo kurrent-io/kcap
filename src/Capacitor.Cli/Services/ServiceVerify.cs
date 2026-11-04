@@ -2,6 +2,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Services;
 
@@ -283,8 +284,8 @@ sealed class ServiceVerify(
                 reason = StartGateReason.EvidenceUnreadable;
             } else {
                 try {
-                    var unitEnv = content is not null ? LaunchdUnit.EnvFromPlist(content) : new Dictionary<string, string>();
-                    var unitBinaryPath = content is not null ? LaunchdUnit.BinaryFromPlist(content) : null;
+                    var unitEnv = content is not null ? LaunchdPrint.Environment(content) : new Dictionary<string, string>();
+                    var unitBinaryPath = content is not null ? LaunchdPrint.Binary(content) : null;
                     reason = EvaluateStartGate(unitEnv, unitBinaryPath, UnitIdentity.ResolveDaemonBinary(), _gateEnv!, config, _digestMatches);
                     unitEnv.TryGetValue(ExpectVar, out unitExpectation);
                 } catch {
@@ -438,7 +439,7 @@ sealed class ServiceVerify(
         var content = _readPlist(manager.UnitPath(serviceId));
         bool digestGood;
         try {
-            var binary = content is not null ? LaunchdUnit.BinaryFromPlist(content) : null;
+            var binary = content is not null ? LaunchdPrint.Binary(content) : null;
             digestGood = binary is not null && _digestMatches(binary);
         } catch {
             digestGood = false;
@@ -1078,7 +1079,7 @@ sealed class ServiceVerify(
         string? retiredProfile = null;
         var readable = status == LaunchdUnit.PlistRead.Ok;
         if (readable) {
-            try { LaunchdUnit.EnvFromPlist(content!).TryGetValue(ProfileVar, out retiredProfile); }
+            try { LaunchdPrint.Environment(content!).TryGetValue(ProfileVar, out retiredProfile); }
             catch (Exception ex) when (ex is InvalidDataException or System.Xml.XmlException) { readable = false; }
         }
         if (!readable) return Refuse("unit_unreadable");

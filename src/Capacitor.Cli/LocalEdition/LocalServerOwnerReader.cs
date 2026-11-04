@@ -3,6 +3,7 @@ using System.Xml;
 using System.Xml.Linq;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Services;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.LocalEdition;
 
@@ -10,7 +11,7 @@ namespace Capacitor.Cli.LocalEdition;
 /// files.</summary>
 static class LocalServerOwnerReader {
     public static OwnerReading FromPrint(int exitCode, string stdout, string stderr) {
-        switch (LaunchdUnit.ClassifyPrint(exitCode, stdout, stderr)) {
+        switch (LaunchdPrint.Classify(exitCode, stdout, stderr)) {
             case LabelProbe.Absent:  return OwnerReading.Absent.Instance;
             case LabelProbe.Unknown: return new OwnerReading.Unreadable($"launchctl print failed (exit {exitCode}): {stderr.Trim()}");
         }
