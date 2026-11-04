@@ -45,7 +45,7 @@ public static class UserMessageClassifier {
             origin = null;
         }
 
-        // Reminders ride on the front of asks and triggers alike; what follows them decides.
+        // Reminders ride on asks, triggers and payloads alike; what is left decides.
         var clean = SystemInstructionParser.Parse(text).CleanText.Trim();
 
         if (origin?.IsCompactSummary == true || clean.StartsWith(CompactionPrefix, StringComparison.Ordinal)) return Continue(Compacted);
@@ -54,10 +54,10 @@ public static class UserMessageClassifier {
 
         switch (origin?.Kind) {
             case "task-notification":
-                return Continue(HarnessLabel(text) ?? "Background task finished");
+                return Continue(HarnessLabel(clean) ?? "Background task finished");
 
             case "peer" when origin.IsHandback:
-                return Continue(HarnessLabel(text) ?? "Subagent reported back");
+                return Continue(HarnessLabel(clean) ?? "Subagent reported back");
 
             case "peer":
                 return new(UserMessageKind.Trigger, PeerSession);
@@ -87,22 +87,22 @@ public static class UserMessageClassifier {
         if (Applies(vendor, Codex) && clean.StartsWith("<user_action>", StringComparison.Ordinal))
             return Command("Review results");
 
-        if (origin?.IsMeta == true) return Continue(HarnessLabel(text));
+        if (origin?.IsMeta == true) return Continue(HarnessLabel(clean));
 
-        if (HarnessLabel(text) is { } harness) return Continue(harness);
+        if (HarnessLabel(clean) is { } harness) return Continue(harness);
 
         // Text that is only reminders has nothing of the person in it; an image with no text is an ask.
         if (clean.Length == 0) return text.Length == 0 ? Person : Continue(null);
 
-        // A person may type words a harness also sends, so where Claude records who wrote a line, text
-        // alone decides only for what no person types.
-        var human = origin?.Kind == "human";
+        // A person may type words a harness also sends, so where Claude's origin or Codex's content kinds
+        // record who wrote a line, text alone decides only for what no person types.
+        var human = origin?.Kind == "human" || codexKinds is not null;
 
         // Ahead of the prelude: an aborted-turn block is both, and it is the interrupt a reader needs.
         foreach (var (prefix, label, typeable, owner) in ContinuationPrefixes)
             if (Applies(vendor, owner) && clean.StartsWith(prefix, StringComparison.Ordinal) && !(human && typeable)) return Continue(label);
 
-        if (!human && codexKinds is null && Applies(vendor, Codex) && CodexPrelude.IsMatch(clean)) return Continue(SessionContext);
+        if (!human && Applies(vendor, Codex) && CodexPrelude.IsMatch(clean)) return Continue(SessionContext);
 
         return Person;
     }

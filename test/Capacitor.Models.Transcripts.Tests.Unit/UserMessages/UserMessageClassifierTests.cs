@@ -267,4 +267,16 @@ public class UserMessageClassifierTests {
 
         await Assert.That(UserMessageClassifier.Classify(message)).IsEqualTo(new UserMessageClass(UserMessageKind.Continuation, "/rename x"));
     }
+
+    /// A reminder after a payload is the harness's too, so it leaves the payload wholly the harness's.
+    [Test]
+    public async Task A_notification_followed_by_a_reminder_is_still_the_harness_carrying_on() =>
+        await Assert.That(KindOf("<task-notification>\n<status>completed</status>\n</task-notification>\n<system-reminder>\nx\n</system-reminder>"))
+            .IsEqualTo(UserMessageKind.Continuation);
+
+    /// Codex's user-only content kinds say a person wrote the line, as Claude's human origin does.
+    [Test]
+    public async Task Codex_user_kinds_keep_typeable_words_the_persons() =>
+        await Assert.That(KindOf("Continue from where you left off.", new UserMessageOrigin { ContentItemKinds = ["user.text"] }, vendor: "codex"))
+            .IsEqualTo(UserMessageKind.Person);
 }

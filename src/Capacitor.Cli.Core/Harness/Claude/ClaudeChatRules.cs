@@ -48,22 +48,25 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         if (SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsSidechain)
             || SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsMeta)
             || SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsCompactSummary)
-            || SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) == "task-notification"
+            || SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) is not (null or "human")
             || PeerMessage(slug, raw.Text) is not null) return null;
 
-        // Past the recorded flags, the classifier's verdict is in what Filter displayed: a notification
-        // shows as a note, and a person's message that only quotes one shows as theirs.
+        if (SchemaExtensions.Text(slug, ClaudeCodeExtension.LocalCommand) is { } localCommand) return localCommand;
+        // A command the person ran is acknowledged by its command line, even where its echo shows no row;
+        // anything else is a receipt only when Filter showed it as the person's.
         var text = raw.Text ?? "";
-        if (SchemaExtensions.Text(slug, ClaudeCodeExtension.LocalCommand) is { } localCommand)
-            return SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) is null or "human" ? localCommand : null;
-        if (BashCommand(text) is { } command) return "!" + command;
-        var name = CommandName().Match(text).Groups[1].Value.Trim();
-        if (name.StartsWith('/')) {
-            var args = CommandArgs().Match(text).Groups[1].Value.Trim();
-            return args.Length == 0 ? name : $"{name} {args}";
+        if (UserMessageClassifier.Classify(text, Origin(evt), Vendor).Kind == UserMessageKind.Person) {
+            if (BashCommand(text) is { } command) return "!" + command;
+            var name = CommandName().Match(text).Groups[1].Value.Trim();
+            if (name.StartsWith('/')) {
+                var args = CommandArgs().Match(text).Groups[1].Value.Trim();
+                return args.Length == 0 ? name : $"{name} {args}";
+            }
         }
         return displayed is { Kind: AcpEventKind.UserMessage } user ? user.Text : null;
     }
+
+    static UserMessageOrigin? Origin(CanonicalEvent evt) => evt.Payload is UserMessageReceived m ? UserMessageOrigin.Of(m) : null;
 
     public AcpEventEnvelope? Filter(CanonicalEvent evt, AcpEventEnvelope envelope, ScheduledPrompts? scheduled = null) {
         var slug = SchemaExtensions.Slug(evt.Payload, ClaudeCodeExtension.Slug);
@@ -92,7 +95,7 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
     /// The classifier decides who wrote the message; only the person's words show as theirs.
     static AcpEventEnvelope? UserMessage(CanonicalEvent evt, AcpEventEnvelope envelope, Struct? slug, ScheduledPrompts? scheduled) {
         var raw = envelope.Text ?? "";
-        var cls = UserMessageClassifier.Classify(raw, evt.Payload is UserMessageReceived m ? UserMessageOrigin.Of(m) : null, Vendor, scheduled);
+        var cls = UserMessageClassifier.Classify(raw, Origin(evt), Vendor, scheduled);
 
         // A meta record gets no row of its own: only a command or a trigger in one still shows.
         var meta = SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsMeta);
@@ -103,9 +106,9 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         if (!meta && cls.Kind == UserMessageKind.Continuation && IsTaskNotification(slug, envelope)) return TaskNotificationNote(envelope);
         // A bang command is its own user record: the command in bash-input, the output in
         // bash-stdout/stderr. A message that only quotes those tags is left as written.
-        if (BashCommand(raw) is { } command)
+        if (cls is { Kind: UserMessageKind.Person, IsCommand: true } && BashCommand(raw) is { } command)
             return envelope with { Text = "! " + WithoutAttachmentTrailer(command), ToolKind = ChatDisplayKind.Shell };
-        if (!meta && BashOutput(raw) is { } output)
+        if (!meta && cls.Kind == UserMessageKind.Continuation && BashOutput(raw) is { } output)
             return output.Length == 0 ? null : envelope with { Kind = AcpEventKind.SystemNote, Text = output, ToolKind = ChatDisplayKind.Shell };
 
         switch (cls.Kind) {

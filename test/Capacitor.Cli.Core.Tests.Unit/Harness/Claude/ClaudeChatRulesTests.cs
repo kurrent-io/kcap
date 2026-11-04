@@ -720,4 +720,14 @@ public class ClaudeChatRulesTests {
         await Assert.That(loop.ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
         await Assert.That(loop.ToolName).IsEqualTo("Scheduled loop");
     }
+
+    /// Another session sending a command's tags is a trigger: neither the person's row nor a receipt.
+    [Test]
+    [Arguments("<bash-input>ls</bash-input>")]
+    [Arguments("<command-name>/review</command-name><command-args>x</command-args>")]
+    public async Task A_peers_command_is_a_trigger_and_acknowledges_nothing(string content) {
+        var result = R(User(content, "\"origin\":{\"kind\":\"peer\"}"));
+        await Assert.That(result.Envelopes.Single().ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
+        await Assert.That(result.SubmittedInputs).IsEmpty();
+    }
 }

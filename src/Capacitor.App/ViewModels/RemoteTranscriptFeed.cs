@@ -16,8 +16,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     readonly string _sessionId;
     readonly IChatDisplayRules? _rules;
-    /// Guarded by itself: a superseded tail can still be projecting when the next one starts.
-    readonly ScheduledPrompts _scheduled = new();
+    /// A seed fills its own and it replaces this one only when the seed is taken, so a seed abandoned
+    /// half way leaves nothing behind. Tails add to it in stream order, locked on the instance: a
+    /// superseded tail can still be projecting the event the next one starts from.
+    ScheduledPrompts _scheduled = new();
     readonly SessionDetailReader _readDetail;
     readonly IServerLane _lane;
     readonly TimeProvider _time;
@@ -166,11 +168,13 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         if (fetch.Detail is not { } detail) throw new InvalidOperationException("session detail unavailable");
 
         var lines = new List<ProjectedLine>();
+        var scheduled = new ScheduledPrompts();
         foreach (var evt in detail.Events ?? [])
-            if (evt.Body is { } body && Project(evt.EventType, body.GetRawText(), evt.EventNumber, evt.Timestamp) is { } line) lines.Add(line);
+            if (evt.Body is { } body && Project(evt.EventType, body.GetRawText(), evt.EventNumber, evt.Timestamp, scheduled) is { } line) lines.Add(line);
         lock (_lock) {
             if (_attempt != attempt) return false;
             _verdict = null;
+            _scheduled = scheduled;
             _position = detail.LastEventNumber;
             _pending.Clear();
             _pending.AddRange(lines);
@@ -186,10 +190,14 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// a tail that ends without ever yielding keeps the caller's failure count climbing.
     async Task<bool> TailAsync(int attempt, CancellationToken ct) {
         ulong? from;
-        lock (_lock) from = _position is >= 0 ? (ulong)_position : null;
+        ScheduledPrompts scheduled;
+        lock (_lock) {
+            from = _position is >= 0 ? (ulong)_position : null;
+            scheduled = _scheduled;
+        }
         var received = false;
         await foreach (var envelope in _lane.TailStreamAsync(StreamNames.AgentSession(_sessionId), from, ct).ConfigureAwait(false)) {
-            var line = Project(envelope.EventType, envelope.JsonPayload, (long)envelope.StreamPosition, envelope.Timestamp);
+            var line = Project(envelope.EventType, envelope.JsonPayload, (long)envelope.StreamPosition, envelope.Timestamp, scheduled);
             lock (_lock) {
                 if (_attempt != attempt) return received;
                 // Once per outage: the stream delivering again ends it, however this tail later ends.
@@ -203,12 +211,12 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         return received;
     }
 
-    ProjectedLine? Project(string eventType, string json, long offset, DateTimeOffset? timestamp) {
+    ProjectedLine? Project(string eventType, string json, long offset, DateTimeOffset? timestamp, ScheduledPrompts scheduled) {
         var payload = CanonicalEventJson.TryParse(eventType, json);
         if (payload is null) return null;
         var at = CanonicalEventTime.Of(payload) ?? timestamp ?? _time.GetUtcNow();
         ChatProjectionResult projected;
-        lock (_scheduled) projected = TranscriptChat.Project(new CanonicalEvent(eventType, payload, Guid.Empty, at), _rules, _scheduled);
+        lock (scheduled) projected = TranscriptChat.Project(new CanonicalEvent(eventType, payload, Guid.Empty, at), _rules, scheduled);
         return projected.Envelopes.Count == 0 && projected.SubmittedInputs.Count == 0 && projected.LiteralInputs.Count == 0 && projected.Runs.Count == 0 ? null : new(projected, offset);
     }
 

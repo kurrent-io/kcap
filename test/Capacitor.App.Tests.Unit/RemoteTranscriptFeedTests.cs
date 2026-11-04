@@ -94,6 +94,23 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(live.Lines.Single().Offset).IsEqualTo(2);
     }
 
+    /// What the seed saw scheduled carries into the tail, where the wake-up's prompt comes back.
+    [Test]
+    public async Task A_wake_up_scheduled_in_the_seed_hides_its_prompt_in_the_tail() {
+        using var h = new Harness(vendor: "claude") {
+            NextDetail = new(Detail(Event(0, CanonicalEventTypes.AssistantToolCallsGenerated,
+                """{"tool_calls":[{"call_id":"t1","tool_name":"ScheduleWakeup","arguments":{"prompt":"check CI"}}]}"""))),
+        };
+        h.Access.OnNext(SessionAccessState.Established);
+        await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
+        h.Feed.ReadAppended();
+        h.Lane.PushStreamEvent(Envelope("s1", 1, CanonicalEventTypes.UserMessageReceived, """{"content":"check CI"}"""));
+        await WaitUntilAsync(() => h.Feed.CurrentOffset == 2, what: "the prompt");
+        var prompt = h.Feed.ReadAppended().Lines.Single().Projection;
+        await Assert.That(prompt.Envelopes).IsEmpty();
+        await Assert.That(prompt.SubmittedInputs).IsEmpty();
+    }
+
     [Test]
     public async Task An_event_the_chat_does_not_render_moves_the_position_without_a_row() {
         using var h = new Harness();
