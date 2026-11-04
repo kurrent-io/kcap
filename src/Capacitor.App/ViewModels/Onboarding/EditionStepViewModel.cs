@@ -23,6 +23,8 @@ public sealed class EditionStepViewModel : ReactiveObject, IWizardStep {
     public const string UnsupportedPlatform = "The local edition runs only on Apple silicon Macs and x64 Windows PCs for now, so it isn't available on this machine.";
     public const string CloudProfilePresent =
         "This machine is set up for a cloud workspace. Switching to local setup isn't supported yet.";
+    public const string NotPublishedOnWindows =
+        "The local edition isn't available for this version of kcap on Windows yet.";
 
     readonly SetupFunnel   _funnel;
     readonly Func<string?> _localUnavailableReason;
@@ -116,6 +118,13 @@ public sealed class EditionStepViewModel : ReactiveObject, IWizardStep {
         }
 
         return Task.CompletedTask;
+    }
+
+    /// Asks again whether Local can be chosen, for a reason learned while the page is open; a card that can no
+    /// longer be chosen stops leading.
+    public void RestateLocalAvailability() {
+        LocalUnavailableReason = _localUnavailableReason();
+        if (LocalUnavailableReason is not null) LocalPreselected = false;
     }
 
     public Task<bool> CanLeaveAsync(WizardNavigation direction, CancellationToken ct) => Task.FromResult(true);

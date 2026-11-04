@@ -389,11 +389,13 @@ The first version is for a machine with one user: on a shared machine, other OS 
 {"v":1,"event":"committed","server_url":"http://localhost:9473","installation_id":"…","port":9473,"version":"0.13.0"}
 ```
 
-A failed run ends with `{"v":1,"event":"failed","code":"…","message":"…"}`; after `rolling_back` and `rolled_back` the installation is removed, and its `logs/` directory is kept for diagnosis. The exit code is 0 for `committed` and 1 for `failed` (2 when the code is `answer_required` or `invalid_arguments`: nothing was attempted), or 130 when an interrupt (Ctrl+C or SIGTERM) was received: the last line is still `committed`, or `failed` (with code `cancelled` when the interrupt rolled the install back). The other events are `recovering`, `recovered`, `download_progress`, `unpacked`, `reused` and `committing`.
+A failed run ends with `{"v":1,"event":"failed","code":"…","message":"…"}`; after `rolling_back` and `rolled_back` the installation is removed, and its `logs/` directory is kept for diagnosis. The exit code is 0 for `committed` and 1 for `failed` (2 when the code is `answer_required` or `invalid_arguments`: nothing was attempted; on Windows, 4 when it is `bundle_not_published`: no bundle is published for this version yet), or 130 when an interrupt (Ctrl+C or SIGTERM) was received: the last line is still `committed`, or `failed` (with code `cancelled` when the interrupt rolled the install back). The other events are `recovering`, `recovered`, `download_progress`, `unpacked`, `reused` and `committing`.
 
 The `embeddings_*` events come after `unpacked` for an install and after `preflight_passed` for a reuse, before `starting`, except `embeddings_builtin_removed` (with `path`, `bytes` freed and `message`), which follows `ready` on a reuse that leaves the built-in model unused. `embeddings_model_pulling` and `embeddings_model_progress` (one per whole percent) appear only when Ollama lacks the model, and `embeddings_configured` carries `replaced_model` when it replaced a different one. A step that does not end in `embeddings_configured` ends in `{"v":1,"event":"embeddings_skipped","code":"…","message":"…"}`, which never fails the install, unless the run is cancelled: an interrupt, including one during a built-in model download, takes the cancellation and rollback path and emits no `embeddings_skipped`. The skip's `code` is `declined` (`--no-embeddings`, now or in an earlier setup), `ollama_not_found`, `pull_failed`, `model_unusable` (the model cannot embed text), `write_failed`, `builtin_unavailable` (this version offers no built-in model, or its lookup failed), `model_download_failed` (the built-in model could not be downloaded) or `unrecognised_provider` (the recorded provider is one this kcap does not know, so it is left as it is). Unless it is `declined`, a model configured earlier stays configured.
 
-For development and pre-release builds, `KCAP_LOCAL_BUNDLE_BASE_URL` points the download at another location and `KCAP_LOCAL_BUNDLE_VERSION` picks a different version. The manifest must still verify.
+For development and pre-release builds, `KCAP_LOCAL_BUNDLE_BASE_URL` points the download at another location and `KCAP_LOCAL_BUNDLE_VERSION` picks a different version. The manifest must still verify. On Windows, the message for a version with no published bundle names these variables only while one of them is set.
+
+On Windows, a kcap release can reach users before its local-edition bundle is published. The desktop app then stops recommending the local edition: once it finds no bundle for its version, the local card says the local edition isn't available for this version on Windows yet and can't be chosen, and an install already under way says no local edition is published for this version yet and offers the other ways to set up instead of Try again. A failed download, such as one with no network, still offers Try again.
 
 #### Removing the local edition
 
@@ -470,6 +472,7 @@ kcap setup --org "Acme" --slug acme --tier team --default-visibility org_public 
 | 0 | Done. |
 | 1 | Failed: setup did not finish. What it changed before stopping stays, and re-running it carries on. |
 | 2 | Refused: nothing was attempted — an argument was wrong, or a run that cannot ask was missing an answer. |
+| 4 | Windows only: no local edition bundle is published for this version yet (`--local`); nothing was installed. Elsewhere this is a 1. |
 | 130 | Interrupted (Ctrl+C or SIGTERM). |
 
 **Progress as JSON.** `--json` with `--no-prompt` writes one JSON object per line to stdout for the whole run, for a wrapper to render, and moves the usual narration to stderr. Each step opens with `step_started` and closes with `step_completed`, and the run ends with `done` or `failed`:

@@ -115,4 +115,18 @@ internal sealed class LocalSetupJsonLinesTests {
     [MethodDataSource(nameof(Failures))]
     public async Task An_escaping_exception_maps_to_its_code(Exception error, LocalInstallFailureCode code) =>
         await Assert.That(LocalSetupJsonLines.Classify(error).Code).IsEqualTo(code);
+
+    /// <summary>A script on Windows tells an unpublished bundle from a failed install by setup's exit, as it can by
+    /// fetch's; elsewhere setup keeps the plain failure.</summary>
+    [Test]
+    [Arguments(true, SetupExit.NotPublished)]
+    [Arguments(false, SetupExit.Failed)]
+    public async Task An_unpublished_bundle_has_its_own_exit_only_on_windows(bool windows, int exit) =>
+        await Assert.That(LocalSetupJsonLines.Exit(LocalInstallFailureCode.BundleNotPublished, windows)).IsEqualTo(exit);
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_download_failure_stays_a_plain_failure_on_every_platform(bool windows) =>
+        await Assert.That(LocalSetupJsonLines.Exit(LocalInstallFailureCode.DownloadFailed, windows)).IsEqualTo(SetupExit.Failed);
 }
