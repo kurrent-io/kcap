@@ -95,7 +95,7 @@ public sealed class SessionRuns(TimeProvider time) {
                     Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.RetractStop();
                     break;
                 case RunSignal.Stopped stopped:
-                    if (!_reported.Contains(stopped.AgentId)) RowFor(null, stopped.AgentId, stopped.At)?.Stop(stopped.At);
+                    if (!_reported.Contains(stopped.AgentId)) StoppedRow(stopped)?.Stop(stopped.At);
                     DropHeldIfACandidateEnded();
                     break;
                 case RunSignal.Finished finished:
@@ -241,18 +241,15 @@ public sealed class SessionRuns(TimeProvider time) {
     }
 
     RunRow? Report(RunRow? row, string? agentId) {
-        Reported(agentId, row);
-        Reported(row?.AgentId, row);
+        if (agentId is not null) _reported.Add(agentId);
+        if (row?.AgentId is { } named) _reported.Add(named);
         return row;
     }
 
-    /// A stop heard before the agent's first report can belong to another of its runs, a late one from
-    /// the run before a resume among them, so that report takes back what stops ended on its other runs.
-    void Reported(string? agentId, RunRow? landing) {
-        if (agentId is null || !_reported.Add(agentId)) return;
-        foreach (var other in _rows)
-            if (other.AgentId == agentId && !ReferenceEquals(other, landing)) other.RetractStop();
-    }
+    /// A stop names no run and is dated when the server heard it, which can be after the next run of
+    /// the agent began. An agent's runs stop in order, so it goes to the earliest that has not stopped.
+    RunRow? StoppedRow(RunSignal.Stopped stopped) =>
+        _rows.FirstOrDefault(r => r.AgentId == stopped.AgentId && !r.HeardStop && r.StartedAt <= stopped.At);
 
     /// A known call id decides alone and never falls through to the agent id: a repeated
     /// notification for a first execution must not reach a second one holding the same id. By

@@ -437,20 +437,34 @@ public class SessionRunsTests {
         await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
     }
 
-    /// The server can hear the stop of the run before a resume after the resume, and that run's notification
-    /// later still: the first report on the agent takes back the end the stop made on the resumed run.
+    /// The server can hear the stop of the run before a resume after the resume, ahead of that run's
+    /// notification: the stop goes to the run that has not stopped yet, so the resumed run keeps going.
     [Test]
-    public async Task The_first_report_on_an_agent_takes_back_what_its_stops_ended_on_its_other_runs() {
+    public async Task A_stop_heard_after_a_resume_goes_to_the_run_before_it() {
         var s = new SessionRuns(Clock());
         s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
         s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5)), Stop("a1", T0.AddMinutes(6))));
-        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Done);
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
 
         s.Apply(Signals(Finished("c1", "a1", RunOutcome.Done, at: T0.AddMinutes(4))));
         await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(4));
         await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
-        await Assert.That(s.Rows[1].EndedAt).IsNull();
         await Assert.That(s.RunningCount).IsEqualTo(1);
+    }
+
+    /// A stop that ended an earlier run stays its end when a later run of the agent is the first the
+    /// transcript reports on.
+    [Test]
+    public async Task A_later_runs_report_leaves_an_earlier_run_ended_by_its_stop() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Stop("a1", T0.AddMinutes(2))));
+        s.Apply(Signals(Started("c2", T0.AddMinutes(5)), Detached("c2", "a1")));
+        s.Apply(Signals(Finished("c2", "a1", RunOutcome.Done, at: T0.AddMinutes(6))));
+
+        await Assert.That(s.Rows[0].State).IsEqualTo(RunState.Done);
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(2));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Done);
+        await Assert.That(s.RunningCount).IsEqualTo(0);
     }
 
     /// Where no notification reaches the stream, a stop is every run's only end, a resumed run's included.
