@@ -42,8 +42,8 @@ The daemon's `IHeadlessHarness` returns a `ClaudeCliOutcome` that `HeadlessPromp
 | Prompt delivery | Stdin, which `pi -p` reads when no prompt argument is given (measured) | A file in the run's directory, attached with `--file`, and a short fixed message on argv pointing at it. Never the prompt itself on argv, which is capped near 32K on Windows |
 | Working directory | A fresh empty temporary directory, removed afterwards; the system prompt file sits beside it, not in it | Same, holding only the prompt file |
 | Usage | The final `agent_end` event's assistant messages: tokens and cost | The `step_finish` events: tokens and cost, summed |
-| Outcome | `stopReason` and `errorMessage` of the final assistant message, never the exit code | Its `error` event, its exit code, and its log on stderr |
-| Deadline | Killed at it, every directory removed, usage reported so far kept. The daemon gives the runner a timeout 2 seconds short of the time left to the deadline (never below zero), so the runner's own timeout, which keeps the usage, fires before the daemon's outer deadline, which answers with none | Same |
+| Outcome | `stopReason` and `errorMessage` of the final assistant message, since Pi exits 0 when the provider refuses; a nonzero exit after a clean stop is still a `ProcessFailure` | Its `error` event, its exit code, and its log on stderr. A reply counts only when a `step_finish` follows its text: a stream cut off mid-step exits 0 with part of it |
+| Deadline | Killed at it, every directory removed, usage reported so far kept. The daemon gives the runner a timeout 2 seconds short of the time left to the deadline (never below zero), so the runner's own timeout, which keeps the usage, fires before the daemon's outer deadline, which answers with none. A descendant still holding the output open after the harness exits is killed there too, and the run answers `Timeout`; descendants are listed while the harness runs, since its exit reparents them out of its tree | Same |
 
 ### Lockdown
 
