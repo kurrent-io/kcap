@@ -286,4 +286,27 @@ public class UserMessageClassifierTests {
     public async Task Codex_user_kinds_keep_typeable_words_the_persons() =>
         await Assert.That(KindOf("Continue from where you left off.", new UserMessageOrigin { ContentItemKinds = ["user.text"] }, vendor: "codex"))
             .IsEqualTo(UserMessageKind.Person);
+
+    /// A frame or record the person pasted and then wrote about is their message, not the frame.
+    [Test]
+    [Arguments("<ci-monitor-event>build failed</ci-monitor-event>\n\nwhy did this fail?", null)]
+    [Arguments("<cross-session-message from=\"uds:/tmp/cc.sock\">\nPR has a thread\n</cross-session-message>\nwhat thread?", null)]
+    [Arguments("<user_shell_command>\n<command>\nls\n</command>\n</user_shell_command>\n\nwhy is it empty?", "codex")]
+    [Arguments("<user_action>\n  <action>review</action>\n</user_action>\nexplain the second finding", "codex")]
+    public async Task Words_after_a_complete_frame_are_the_persons(string text, string? vendor) =>
+        await Assert.That(UserMessageClassifier.Classify(text, null, vendor)).IsEqualTo(new UserMessageClass(UserMessageKind.Person, null));
+
+    [Test]
+    public async Task A_frame_cut_off_before_its_close_is_still_the_frame() =>
+        await Assert.That(KindOf("<ci-monitor-event>build fai")).IsEqualTo(UserMessageKind.Trigger);
+
+    /// The lead stands in for a summary's missing flag; a line Claude records as the person's keeps their words.
+    [Test]
+    public async Task A_person_quoting_the_compaction_lead_keeps_their_words() {
+        const string quoted = "This session is being continued from a previous conversation — what did it drop?";
+
+        await Assert.That(KindOf(quoted, new UserMessageOrigin { Kind = "human" })).IsEqualTo(UserMessageKind.Person);
+        await Assert.That(KindOf(quoted)).IsEqualTo(UserMessageKind.Continuation);
+        await Assert.That(KindOf(quoted, new UserMessageOrigin { Kind = "human", IsCompactSummary = true })).IsEqualTo(UserMessageKind.Continuation);
+    }
 }

@@ -48,7 +48,9 @@ public static class UserMessageClassifier {
         // Reminders ride on asks, triggers and payloads alike; what is left decides.
         var clean = SystemInstructionParser.Parse(text).CleanText.Trim();
 
-        if (origin?.IsCompactSummary == true || clean.StartsWith(CompactionPrefix, StringComparison.Ordinal)) return Continue(Compacted);
+        // The lead is the fallback for a summary recorded without its flag; a person quoting it keeps their words.
+        if (origin?.IsCompactSummary == true || (origin?.Kind != "human" && clean.StartsWith(CompactionPrefix, StringComparison.Ordinal)))
+            return Continue(Compacted);
 
         if (origin?.LocalCommand is { } receipt) return Continue(receipt);
 
@@ -80,7 +82,7 @@ public static class UserMessageClassifier {
             return Command(BashCommandParser.DisplayLabel(bash));
         if (Applies(vendor, Codex) && CodexShellCommand.IsMatch(clean))
             return Command(CodexShellCommand.Command(clean) is { } shell ? "$ " + shell : "Shell command");
-        if (Applies(vendor, Codex) && clean.StartsWith("<user_action>", StringComparison.Ordinal))
+        if (Applies(vendor, Codex) && WholeFrame.Is(clean, "<user_action>", "</user_action>"))
             return Command("Review results");
 
         if (origin?.IsMeta == true) return Continue(HarnessLabel(clean));
@@ -158,14 +160,16 @@ public static class UserMessageClassifier {
     static bool IsTrigger(string clean, out string label) {
         label = "";
 
-        if (clean.StartsWith("<ci-monitor-event>", StringComparison.Ordinal)) {
+        if (WholeFrame.Is(clean, "<ci-monitor-event", "</ci-monitor-event>")) {
             label = CiEvent;
             return true;
         }
 
         // Another session talking: the bare frame, or the frame behind the harness's own preamble line.
-        if (clean.StartsWith("<cross-session-message", StringComparison.Ordinal)
-         || (clean.StartsWith(PeerPreamble, StringComparison.Ordinal) && clean.Contains("<cross-session-message", StringComparison.Ordinal))) {
+        var frame = clean.StartsWith(PeerPreamble, StringComparison.Ordinal) && clean.IndexOf(PeerFrame, StringComparison.Ordinal) is var at and > 0
+            ? clean[at..]
+            : clean;
+        if (WholeFrame.Is(frame, PeerFrame, "</cross-session-message>")) {
             label = PeerSession;
             return true;
         }
@@ -174,6 +178,7 @@ public static class UserMessageClassifier {
     }
 
     const string PeerPreamble = "Another Claude session sent a message";
+    const string PeerFrame = "<cross-session-message";
 
     static string? HarnessLabel(string text) => UserPromptDisplay.IsHarnessPayload(text, out var label) ? label : null;
 

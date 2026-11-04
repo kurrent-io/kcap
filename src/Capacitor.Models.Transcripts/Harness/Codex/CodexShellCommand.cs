@@ -1,10 +1,11 @@
+using Capacitor.Models.Transcripts.UserMessages;
+
 namespace Capacitor.Models.Transcripts.Harness.Codex;
 
 /// The message Codex records when the user runs a shell line with `!`: the command, then its result.
 public static class CodexShellCommand {
-    const string Open = "<user_shell_command>";
-
-    public static bool IsMatch(string text) => text.AsSpan().TrimStart().StartsWith(Open, StringComparison.Ordinal);
+    /// The message is the record and nothing else: words after it are the person writing about one.
+    public static bool IsMatch(string text) => WholeFrame.Is(text, "<user_shell_command>", "</user_shell_command>");
 
     /// The command that was run; null when the record names none.
     public static string? Command(string text) {
