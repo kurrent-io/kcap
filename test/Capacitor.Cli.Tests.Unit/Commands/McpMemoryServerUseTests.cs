@@ -8,8 +8,9 @@ using WireMock.Server;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
-/// <summary>get_memory counts its fetch with a POST of its own, since the server's GET counts nothing: for the id the
-/// server answered with, never the slug asked for, and never at the cost of the memory it fetched.</summary>
+/// <summary>get_memory counts its fetch with a POST of its own, and marks its GET so the server does not count the same
+/// fetch there too: for the id the server answered with, never the slug asked for, and never at the cost of the memory
+/// it fetched.</summary>
 public class McpMemoryServerUseTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
@@ -39,7 +40,7 @@ public class McpMemoryServerUseTests {
         return (
             result["content"]![0]!["text"]!.GetValue<string>(),
             result["isError"]?.GetValue<bool>() ?? false,
-            [.. server.LogEntries.Select(e => $"{e.RequestMessage.Method} {e.RequestMessage.Path}")]
+            [.. server.LogEntries.Select(e => $"{e.RequestMessage.Method} {e.RequestMessage.Path}{(e.RequestMessage.Headers?.TryGetValue("X-Kcap-Use", out var use) == true ? $" X-Kcap-Use: {string.Join(',', use)}" : "")}")]
         );
     }
 
@@ -53,7 +54,7 @@ public class McpMemoryServerUseTests {
         await Assert.That(isError).IsFalse();
         await Assert.That(text).IsEqualTo(Memory);
         await Assert.That(requests).IsEquivalentTo(
-            ["GET /api/memories/hnsw-dimensions", $"POST /api/memories/{MemoryId}/uses"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            ["GET /api/memories/hnsw-dimensions X-Kcap-Use: posted", $"POST /api/memories/{MemoryId}/uses"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
     }
 
     /// <summary>A use POST that stalls never holds the memory it follows past its own short deadline.</summary>
@@ -73,6 +74,6 @@ public class McpMemoryServerUseTests {
         var (_, isError, requests) = await GetMemoryAsync(404, "", 200);
 
         await Assert.That(isError).IsTrue();
-        await Assert.That(requests).IsEquivalentTo(["GET /api/memories/hnsw-dimensions"]);
+        await Assert.That(requests).IsEquivalentTo(["GET /api/memories/hnsw-dimensions X-Kcap-Use: posted"]);
     }
 }

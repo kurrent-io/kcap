@@ -135,7 +135,7 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
         try {
             using var httpResponse = toolName switch {
                 "search_memories"     => await client.GetAsync(BuildSearchUrl(baseUrl, arguments, cwdRepoHash, machineId)),
-                "get_memory"          => await client.GetAsync(BuildGetUrl(baseUrl, arguments, cwdRepoHash, machineId)),
+                "get_memory"          => await GetMemoryAsync(client, BuildGetUrl(baseUrl, arguments, cwdRepoHash, machineId)),
                 "save_memory"         => await client.PostAsync($"{baseUrl}/api/memories", ToJsonContent(BuildSaveBody(arguments, cwdRepoHash, machineId))),
                 "update_memory"       => await client.PutAsync($"{baseUrl}/api/memories/{Uri.EscapeDataString(Id(arguments))}", ToJsonContent(BuildUpdateBody(arguments))),
                 "rescope_memory"      => await client.PostAsync($"{baseUrl}/api/memories/{Uri.EscapeDataString(Id(arguments))}/rescope", ToJsonContent(BuildRescopeBody(arguments))),
@@ -251,6 +251,16 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
     /// <summary>Counts the fetch toward the memory's ranking. The server's GET counts nothing, because a browser sends
     /// one from any site; a server older than the use route answers 404 or 405, which counts nothing either, and a
     /// count that does not land never fails the fetch it follows.</summary>
+    /// <summary>Tells the server this fetch's use is posted separately, so its GET does not count the same fetch.</summary>
+    internal const string UseHeader = "X-Kcap-Use";
+
+    static async Task<HttpResponseMessage> GetMemoryAsync(HttpClient client, string url) {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation(UseHeader, "posted");
+
+        return await client.SendAsync(request);
+    }
+
     /// <summary>The longest a fetched memory waits on its use being counted.</summary>
     internal static readonly TimeSpan UseDeadline = TimeSpan.FromSeconds(2);
 
