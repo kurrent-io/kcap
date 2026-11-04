@@ -26,6 +26,28 @@ public class LocalRootTests {
         await Assert.That(root.Directory).IsEqualTo(Tmp.PathTo("stack"));
     }
 
+    /// <summary>An empty registry is what a foreign owner could plant to have a root it controls taken for an
+    /// installation, and so secured with a warning instead of refused.</summary>
+    [Test]
+    [Arguments("""{"schema":1,"active":null,"retired":[]}""", false)]
+    [Arguments("not json", true)]
+    public async Task An_empty_registry_holds_no_installation_and_an_unreadable_one_does(string registry, bool holds) {
+        var root = new LocalRoot(Tmp.CreateDir("local"));
+        Tmp.CreateFile(["local", "install.json"], registry);
+
+        await Assert.That(root.HoldsInstallation).IsEqualTo(holds);
+    }
+
+    [Test]
+    public async Task A_registry_with_an_active_installation_holds_one() {
+        var root = new LocalRoot(Tmp.CreateDir("local"));
+        await Assert.That(root.HoldsInstallation).IsFalse();
+
+        LocalStateFiles.PublishRegistry(root, new InstallRegistry(new LocalInstallation("inst-1", 51234, "http://localhost:51234", "1.4.0"), []));
+
+        await Assert.That(root.HoldsInstallation).IsTrue();
+    }
+
     [Test]
     public async Task EnsureCreated_makes_the_root_owner_only() {
         if (OperatingSystem.IsWindows()) return;

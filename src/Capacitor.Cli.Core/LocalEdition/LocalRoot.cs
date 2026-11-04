@@ -32,8 +32,12 @@ public sealed class LocalRoot(string directory, UserHome? home = null) {
             ? new(Path.Combine(home.Path, ".config", "kcap", "local"), home)
             : new(Path.TrimEndingDirectorySeparator(Path.GetFullPath(configured)), home);
 
-    /// <summary>Whether the root holds a registry or a journal: an installation, or one being set up or torn down.</summary>
-    public bool HoldsInstallation => File.Exists(RegistryPath) || File.Exists(JournalPath);
+    /// <summary>Whether the root holds an active installation, or one being set up or torn down. A registry naming no
+    /// active installation does not count: anyone able to write the root could plant one. A state file that cannot
+    /// be read counts, since setup refuses to go on past it.</summary>
+    public bool HoldsInstallation =>
+        LocalStateFiles.ReadJournal(this) is not StateRead<LifecycleJournalEntry>.Absent
+     || LocalStateFiles.ReadRegistry(this) is StateRead<InstallRegistry>.Present { Value.Active: not null } or StateRead<InstallRegistry>.Unreadable;
 
     /// <summary>Creates the root owner-only, or makes an existing one so, and syncs every level of its
     /// path below the home (the filesystem root when there is none). A symlinked root is refused:
