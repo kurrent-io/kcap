@@ -323,6 +323,22 @@ public class UserMessageClassifierTests {
         await Assert.That(KindOf("This session is being continued from a previous conversation — what?", new UserMessageOrigin { ContentItemKinds = ["user.text"] }, vendor: "codex"))
             .IsEqualTo(UserMessageKind.Person);
 
+    /// A class stored without the session's schedule is checked against it again on read, so a line the schedule
+    /// cannot decide, a trigger or one recorded as the person's, must not ask for that.
+    [Test]
+    [Arguments("deploy", null, null, true)]
+    [Arguments("deploy", "human", null, false)]
+    [Arguments("deploy", null, "user.text", false)]
+    [Arguments("deploy", null, "context.environment", true)]
+    [Arguments("<ci-monitor-event>build failed</ci-monitor-event>", null, null, false)]
+    public async Task Only_a_line_the_schedule_could_decide_is_left_to_the_reader(string text, string? kind, string? contentKind, bool byText) {
+        var origin = new UserMessageOrigin { Kind = kind, ContentItemKinds = contentKind is null ? null : [contentKind] };
+
+        UserMessageClassifier.Classify(text, origin, "codex", null, out var left);
+
+        await Assert.That(left).IsEqualTo(byText);
+    }
+
     /// A loop starts only from the person's `/loop`; a line Claude records as the person's is theirs even when
     /// it repeats a scheduled prompt.
     [Test]

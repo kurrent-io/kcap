@@ -30,8 +30,9 @@ public static class UserMessageClassifier {
     /// <param name="origin">What the harness recorded about who wrote it.</param>
     /// <param name="vendor">The harness that recorded it, when the caller knows.</param>
     /// <param name="scheduled">Prompts the session scheduled for itself so far, when the caller tracks them.</param>
-    /// <param name="byText">True when the decision fell to the checks from <paramref name="scheduled"/> onward,
-    /// so a class stored without the session's schedule has to apply those checks again on read.</param>
+    /// <param name="byText">True when the decision fell to the checks from <paramref name="scheduled"/> onward and
+    /// the schedule could still change it, so a class stored without the session's schedule has to apply those
+    /// checks again on read. A line recorded as the person's is never a firing, so it is final as stored.</param>
     public static UserMessageClass Classify(string text, UserMessageOrigin? origin, string? vendor, ScheduledPrompts? scheduled, out bool byText) {
         byText = false;
 
@@ -75,7 +76,7 @@ public static class UserMessageClassifier {
 
         if (!human && IsTrigger(clean, out var trigger)) return new(UserMessageKind.Trigger, trigger);
 
-        byText = true;
+        byText = !human;
 
         // A firing carries no origin of its own, so a line recorded as the person's is theirs whatever it repeats.
         if (!human && scheduled?.IsLoopFiring(clean) == true) return new(UserMessageKind.Trigger, ScheduledLoop);
