@@ -528,6 +528,19 @@ public class RailSessionViewModelTests {
         });
     }
 
+    /// The server records an end apart from the last activity, and the rail sorts by the activity, so
+    /// that is the time an ended row shows.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_ended_row_shows_its_last_activity_not_its_end() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var row = new RailSessionViewModel(ServerRow() with { LastActivityAt = Ended.AddHours(-1) },
+                new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, At(Ended.AddHours(2)));
+
+            await Assert.That(row.Meta).IsEqualTo("3h ago · 3h 52m");
+        });
+    }
+
     /// Past a day the rows still count hours, or neighbours started 25h and 30h ago would both read
     /// "1d ago"; from a week on they count weeks.
     [Test]
