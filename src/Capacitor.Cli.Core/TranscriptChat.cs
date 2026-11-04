@@ -1,12 +1,14 @@
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Models.Transcripts.UserMessages;
 using Kurrent.Agent.Schema.Events;
 
 namespace Capacitor.Cli.Core;
 
 /// A vendor's say over how its stored events read in the chat: drop one, or rewrite the envelope.
 public interface IChatDisplayRules {
-    AcpEventEnvelope? Filter(CanonicalEvent evt, AcpEventEnvelope envelope);
+    /// <param name="scheduled">What the session scheduled for itself before this event, when the caller tracks it.</param>
+    AcpEventEnvelope? Filter(CanonicalEvent evt, AcpEventEnvelope envelope, ScheduledPrompts? scheduled = null);
 
     /// Most receipts are visible user turns. Vendors may also record hidden command receipts;
     /// injected prompts and background notifications must never acknowledge submitted input.
@@ -26,15 +28,24 @@ public interface IChatDisplayRules {
 
 /// The chat's view of a transcript: the leaf projection, the envelope mapping, one vendor's rules.
 public sealed class TranscriptChatProjection(ITranscriptProjection projection, IChatDisplayRules rules) : IChatTranscriptProjection {
-    public TranscriptContext CreateContext(string sessionId, string? agentId) => projection.CreateContext(sessionId, agentId);
+    public TranscriptContext CreateContext(string sessionId, string? agentId) => new ChatContext(projection.CreateContext(sessionId, agentId));
 
     public IReadOnlyList<AcpEventEnvelope> Project(string line, int lineNumber, DateTimeOffset receivedAt, TranscriptContext context) =>
         ProjectWithInputs(line, lineNumber, receivedAt, context).Envelopes;
 
     public ChatProjectionResult ProjectWithInputs(string line, int lineNumber, DateTimeOffset receivedAt, TranscriptContext context) {
-        var result = projection.Project(line, lineNumber, receivedAt, context);
+        var chat = context as ChatContext;
+        var result = projection.Project(line, lineNumber, receivedAt, chat?.Inner ?? context);
         if (result.Events.Count == 0) return new([], [], []);
-        return ChatProjectionResult.Combine(result.Events.Select(evt => TranscriptChat.Project(evt, rules)).ToArray());
+        return ChatProjectionResult.Combine(result.Events.Select(evt => TranscriptChat.Project(evt, rules, chat?.Scheduled)).ToArray());
+    }
+
+    /// The leaf's context, and what the chat keeps across lines of one transcript.
+    sealed class ChatContext(TranscriptContext inner) : TranscriptContext {
+        public TranscriptContext Inner { get; } = inner;
+        public ScheduledPrompts Scheduled { get; } = new();
+
+        public override void BeginBatch() => Inner.BeginBatch();
     }
 }
 
@@ -69,7 +80,15 @@ public static class TranscriptChat {
     /// The rows for one canonical event, wherever it came from: the envelope mapping, then the
     /// vendor's rules when it has any. Without rules every envelope shows, and a visible user
     /// message is the submitted input.
-    public static ChatProjectionResult Project(CanonicalEvent evt, IChatDisplayRules? rules) {
+    /// <param name="scheduled">The session's scheduled prompts, fed every event in stream order; one
+    /// instance per transcript.</param>
+    public static ChatProjectionResult Project(CanonicalEvent evt, IChatDisplayRules? rules, ScheduledPrompts? scheduled = null) {
+        var result = ProjectEvent(evt, rules, scheduled);
+        scheduled?.Observe(evt.Payload);
+        return result;
+    }
+
+    static ChatProjectionResult ProjectEvent(CanonicalEvent evt, IChatDisplayRules? rules, ScheduledPrompts? scheduled) {
         // Written by the server from the vendor's subagent-stop hook: it says the subagent ended,
         // never how, and carries no call id.
         if (evt.Payload is SubagentCompleted { AgentId.Length: > 0 } completed)
@@ -81,7 +100,7 @@ public static class TranscriptChat {
         if (envelopes.Count == 0) return new([], [], []);
         var parts = new List<ChatProjectionResult>(envelopes.Count);
         foreach (var envelope in envelopes) {
-            var kept = rules is null ? envelope : rules.Filter(evt, envelope);
+            var kept = rules is null ? envelope : rules.Filter(evt, envelope, scheduled);
             // The server's record of a send the agent never received cannot acknowledge that send.
             var undelivered = envelope.ToolKind == ChatDisplayKind.Undelivered;
             var text = undelivered ? null : rules is null

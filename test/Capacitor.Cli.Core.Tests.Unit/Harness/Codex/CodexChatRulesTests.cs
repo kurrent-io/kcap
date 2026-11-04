@@ -42,7 +42,7 @@ public class CodexChatRulesTests {
 
     [Test]
     public async Task Injected_preludes_developer_and_system_roles_are_skipped() {
-        foreach (var prelude in new[] { "<environment_context>", "# AGENTS.md instructions", "<turn_aborted>", "<user_instructions>", "<permissions instructions>", "<recommended_plugins>" })
+        foreach (var prelude in new[] { "<environment_context>", "# AGENTS.md instructions", "<user_instructions>", "<permissions instructions>", "<recommended_plugins>" })
             await Assert.That(P(Item($$"""{"type":"message","role":"user","content":[{"type":"input_text","text":"{{prelude}}\nstuff"}]}"""))).IsEmpty().Because(prelude);
 
         await Assert.That(P(Item("""{"type":"message","role":"developer","content":[{"type":"input_text","text":"x"}]}"""))).IsEmpty();
@@ -180,5 +180,51 @@ public class CodexChatRulesTests {
         var result = chat.ProjectWithInputs(Item("""{"type":"function_call","name":"spawn_agent","call_id":"c1","arguments":"{\"task\":\"t\"}"}"""), 1, Received, chat.CreateContext("a1", null));
         await Assert.That(result.Envelopes).Count().IsEqualTo(1);
         await Assert.That(result.Runs).IsEmpty();
+    }
+
+    static string UserItem(string text) =>
+        Item($$"""{"type":"message","role":"user","content":[{"type":"input_text","text":{{System.Text.Json.JsonSerializer.Serialize(text)}}}]}""");
+
+    [Test]
+    [Arguments("<turn_aborted>\nThe user interrupted the previous turn.\n</turn_aborted>")]
+    [Arguments("The user interrupted the previous turn on purpose. Any running unified exec processes may still be running.")]
+    public async Task An_aborted_turn_is_an_interrupted_note(string text) {
+        var note = P(UserItem(text)).Single();
+        await Assert.That(note.Kind).IsEqualTo(AcpEventKind.SystemNote);
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.Interrupted);
+    }
+
+    /// Context Codex wrote ahead of the person's words in the same message is left out, the words kept.
+    [Test]
+    public async Task A_prelude_ahead_of_the_persons_words_shows_only_the_words() {
+        var row = P(UserItem("<recommended_plugins>\n- pages\n</recommended_plugins>\n\nFix the projector rebuild")).Single();
+        await Assert.That(row.Kind).IsEqualTo(AcpEventKind.UserMessage);
+        await Assert.That(row.Text).IsEqualTo("Fix the projector rebuild");
+    }
+
+    [Test]
+    public async Task A_shell_line_is_its_own_row_acknowledged_as_typed() {
+        var chat = TranscriptChat.For("codex")!;
+        var result = chat.ProjectWithInputs(UserItem("<user_shell_command>\n<command>\nkcap whoami\n</command>\n<result>\nOutput:\ndemo\n</result>\n</user_shell_command>"),
+            1, Received, chat.CreateContext("a1", null));
+        var row = result.Envelopes.Single();
+        await Assert.That(row.ToolKind).IsEqualTo(ChatDisplayKind.Shell);
+        await Assert.That(row.Text).IsEqualTo("! kcap whoami");
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "!kcap whoami" });
+    }
+
+    [Test]
+    public async Task A_ci_event_is_a_trigger_note() {
+        var note = P(UserItem("<ci-monitor-event>build failed</ci-monitor-event>")).Single();
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
+        await Assert.That(note.ToolName).IsEqualTo("CI event");
+        await Assert.That(note.Text).IsEqualTo("build failed");
+    }
+
+    /// Another vendor's rule leaves the same words the person's.
+    [Test]
+    public async Task Another_vendors_harness_text_stays_the_persons() {
+        var row = P(UserItem("[System: what does this nudge mean?]")).Single();
+        await Assert.That(row.Kind).IsEqualTo(AcpEventKind.UserMessage);
     }
 }

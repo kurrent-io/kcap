@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Claude;
 
 /// The chat-level view of Claude records: what the Chat tab shows for each record shape.
@@ -12,11 +14,14 @@ public class ClaudeChatRulesTests {
     [Test]
     [Arguments("")]
     [Arguments(" inspect the queue ")]
-    public async Task Hidden_slash_commands_acknowledge_the_submitted_command_and_arguments(string args) {
+    public async Task A_slash_command_shows_its_command_line_and_acknowledges_it(string args) {
         var chat = TranscriptChat.For("claude")!;
         var result = chat.ProjectWithInputs($$$"""{"type":"user","message":{"content":"<command-name>/review</command-name><command-message>review</command-message><command-args>{{{args}}}</command-args>"}}""", 1, Received, chat.CreateContext("a1", null));
-        await Assert.That(result.Envelopes).IsEmpty();
-        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { args.Trim().Length == 0 ? "/review" : $"/review {args.Trim()}" });
+        var line = args.Trim().Length == 0 ? "/review" : $"/review {args.Trim()}";
+        var row = result.Envelopes.Single();
+        await Assert.That(row.Kind).IsEqualTo(AcpEventKind.UserMessage);
+        await Assert.That(row.Text).IsEqualTo(line);
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { line });
     }
 
     [Test]
@@ -531,13 +536,19 @@ public class ClaudeChatRulesTests {
         await Assert.That(mention.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
         await Assert.That(mention.SubmittedInputs).IsEquivalentTo(new[] { "why did <agent-message from=\"x\"> show up?" });
 
+        // The whole frame typed word for word is the harness's to the classifier, whatever the origin says,
+        // so it shows only once a send matches it.
         var typed = R("""{"type":"user","origin":{"kind":"human"},"message":{"content":"<agent-message from=\"x\">\nwhat is this?\n</agent-message>"}}""");
-        await Assert.That(typed.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
-        await Assert.That(typed.SubmittedInputs.Single()).StartsWith("<agent-message");
+        await Assert.That(typed.Envelopes).IsEmpty();
+        var restored = typed.RestoreSubmittedInputs(text => text.StartsWith("<agent-message", StringComparison.Ordinal));
+        await Assert.That(restored.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
+        await Assert.That(restored.SubmittedInputs.Single()).StartsWith("<agent-message");
 
+        // So is a message opening with the frame's tag, which only a matching send gives back to the person.
         var oneLine = R("""{"type":"user","message":{"content":"<agent-message from=\"x\"> is what?"}}""");
-        await Assert.That(oneLine.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
-        await Assert.That(oneLine.SubmittedInputs).IsEquivalentTo(new[] { "<agent-message from=\"x\"> is what?" });
+        await Assert.That(oneLine.Envelopes).IsEmpty();
+        var typedOneLine = oneLine.RestoreSubmittedInputs(text => text == "<agent-message from=\"x\"> is what?");
+        await Assert.That(typedOneLine.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
     }
 
     [Test]
@@ -615,5 +626,98 @@ public class ClaudeChatRulesTests {
         await Assert.That(stopped.CallId).IsNull();
         await Assert.That(stopped.AgentId).IsEqualTo("a9f262478e032f427");
         await Assert.That(stopped.Outcome).IsEqualTo(RunOutcome.Stopped);
+    }
+
+    static string User(string content, string flags = "") =>
+        JsonSerializer.Serialize(new { type = "user", message = new { content } })[..^1] + (flags.Length > 0 ? "," + flags : "") + "}";
+
+    /// A trigger is labelled as what it is, never as the person, and its frame is left out.
+    [Test]
+    [Arguments("<system-reminder>\nAuto-fix is on.\n</system-reminder>\n\n<ci-monitor-event>Check `build` failed.</ci-monitor-event>", "CI event", "Check `build` failed.")]
+    [Arguments("<cross-session-message from=\"uds:/tmp/cc.sock\">\nPR has a thread\n</cross-session-message>", "Message from another session", "PR has a thread")]
+    public async Task A_trigger_is_a_labelled_note_that_acknowledges_nothing(string content, string label, string body) {
+        var result = R(User(content));
+        var note = result.Envelopes.Single();
+        await Assert.That(note.Kind).IsEqualTo(AcpEventKind.SystemNote);
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
+        await Assert.That(note.ToolName).IsEqualTo(label);
+        await Assert.That(note.Text).IsEqualTo(body);
+        await Assert.That(result.SubmittedInputs).IsEmpty();
+    }
+
+    /// Another session's message carries no agent frame, so it is a trigger rather than an agent's note.
+    [Test]
+    public async Task A_peer_outside_the_agent_frame_is_a_trigger() {
+        var note = R(User("Can you rebase?", "\"origin\":{\"kind\":\"peer\"}")).Envelopes.Single();
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
+        await Assert.That(note.ToolName).IsEqualTo("Message from another session");
+        await Assert.That(note.Text).IsEqualTo("Can you rebase?");
+    }
+
+    [Test]
+    [Arguments("[Request interrupted by user]")]
+    [Arguments("[Request interrupted by user for tool use]")]
+    public async Task An_interrupt_marker_is_an_interrupted_note(string content) {
+        var result = R(User(content));
+        var note = result.Envelopes.Single();
+        await Assert.That(note.Kind).IsEqualTo(AcpEventKind.SystemNote);
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.Interrupted);
+        await Assert.That(note.Text).IsEqualTo("");
+        await Assert.That(result.SubmittedInputs).IsEmpty();
+    }
+
+    /// The harness carrying on is never shown as the person's message.
+    [Test]
+    [Arguments("Stop hook feedback:\n[merge PR #4577 once CI is green]: CI is still running; keep going.")]
+    [Arguments("Continue from where you left off.")]
+    [Arguments("A session-scoped Stop hook is now active with condition: \"merge PR #4577\".")]
+    [Arguments("<!-- kcap-memory-index:v1 -->\n## Team memory")]
+    [Arguments("[Image: source: /private/tmp/demo/images/1.png]")]
+    [Arguments("<system-reminder>\nThe user named this session \"ci-watch\".\n</system-reminder>")]
+    [Arguments("<local-command-stdout>Set model to opus</local-command-stdout>")]
+    public async Task A_continuation_shows_no_row_and_acknowledges_nothing(string content) {
+        var result = R(User(content));
+        await Assert.That(result.Envelopes).IsEmpty();
+        await Assert.That(result.SubmittedInputs).IsEmpty();
+    }
+
+    /// Claude records who wrote a line, and a person may type the words the harness sends after a crash.
+    [Test]
+    public async Task Words_claude_records_as_the_persons_stay_theirs() {
+        var row = R(User("Continue from where you left off.", "\"origin\":{\"kind\":\"human\"}")).Envelopes.Single();
+        await Assert.That(row.Kind).IsEqualTo(AcpEventKind.UserMessage);
+        await Assert.That(row.Text).IsEqualTo("Continue from where you left off.");
+    }
+
+    /// A server event can lose the flag; the summary's lead still says what it is.
+    [Test]
+    public async Task A_compaction_summary_without_its_flag_is_still_a_note() {
+        var note = R(User("This session is being continued from a previous conversation that ran out of context.")).Envelopes.Single();
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.CompactSummary);
+    }
+
+    [Test]
+    public async Task A_notification_followed_by_a_question_is_the_persons() {
+        var row = R(User("<task-notification>\n<status>completed</status>\n</task-notification>\n\nwhy did this open a turn?")).Envelopes.Single();
+        await Assert.That(row.Kind).IsEqualTo(AcpEventKind.UserMessage);
+    }
+
+    /// A wake-up's prompt and a loop's firing come back as plain text, recognisable only once scheduled.
+    [Test]
+    public async Task Scheduled_prompts_are_recognised_once_the_transcript_scheduled_them() {
+        var chat = TranscriptChat.For("claude")!;
+        var context = chat.CreateContext("a1", null);
+        IReadOnlyList<AcpEventEnvelope> Line(string line) => chat.Project(line, 1, Received, context);
+        const string wake = "check CI for PR #4577";
+
+        await Assert.That(Line(User(wake)).Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
+
+        Line($$$"""{"type":"assistant","uuid":"{{{Guid.NewGuid()}}}","message":{"content":[{"type":"tool_use","id":"t1","name":"ScheduleWakeup","input":{"delaySeconds":60,"prompt":"{{{wake}}}"}}]}}""");
+        Line(User("<command-name>/loop</command-name><command-args>10m review threads</command-args>"));
+
+        await Assert.That(Line(User(wake))).IsEmpty();
+        var loop = Line(User("review threads")).Single();
+        await Assert.That(loop.ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
+        await Assert.That(loop.ToolName).IsEqualTo("Scheduled loop");
     }
 }

@@ -3,7 +3,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Models.Transcripts.Harness.Claude;
+using Capacitor.Models.Transcripts.UserMessages;
 using Google.Protobuf.WellKnownTypes;
+using Kurrent.Agent.Schema.Events;
 
 namespace Capacitor.Cli.Core.Harness.Claude;
 
@@ -46,9 +48,11 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         if (SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsSidechain)
             || SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsMeta)
             || SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsCompactSummary)
-            || IsTaskNotification(slug, raw)
+            || SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) == "task-notification"
             || PeerMessage(slug, raw.Text) is not null) return null;
 
+        // Past the recorded flags, the classifier's verdict is in what Filter displayed: a notification
+        // shows as a note, and a person's message that only quotes one shows as theirs.
         var text = raw.Text ?? "";
         if (SchemaExtensions.Text(slug, ClaudeCodeExtension.LocalCommand) is { } localCommand)
             return SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) is null or "human" ? localCommand : null;
@@ -61,7 +65,7 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         return displayed is { Kind: AcpEventKind.UserMessage } user ? user.Text : null;
     }
 
-    public AcpEventEnvelope? Filter(CanonicalEvent evt, AcpEventEnvelope envelope) {
+    public AcpEventEnvelope? Filter(CanonicalEvent evt, AcpEventEnvelope envelope, ScheduledPrompts? scheduled = null) {
         var slug = SchemaExtensions.Slug(evt.Payload, ClaudeCodeExtension.Slug);
         if (SchemaExtensions.Text(slug, ClaudeCodeExtension.LocalCommand) is not null) return null;
         if (!_ownTranscript && SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsSidechain)) return null;
@@ -69,26 +73,10 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         // only record of that message.
         if (envelope.Kind == AcpEventKind.UserMessage && PeerMessage(slug, envelope.Text) is { } peer)
             return peer.Body.Length == 0 ? null : envelope with { Kind = AcpEventKind.SystemNote, Text = peer.Body, ToolKind = peer.Kind };
+        if (envelope.Kind == AcpEventKind.UserMessage) return UserMessage(evt, envelope, slug, scheduled);
         if (SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsMeta)) return null;
 
         switch (envelope.Kind) {
-            case AcpEventKind.UserMessage: {
-                // Claude Code writes its compaction summary as a user record; the user never typed it.
-                if (SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsCompactSummary))
-                    return envelope.Text?.Trim() is { Length: > 0 } summary
-                        ? envelope with { Kind = AcpEventKind.SystemNote, Text = summary, ToolKind = ChatDisplayKind.CompactSummary }
-                        : null;
-                if (IsTaskNotification(slug, envelope)) return TaskNotificationNote(envelope);
-                var raw = envelope.Text ?? "";
-                // A bang command is its own user record: the command in bash-input, the output in
-                // bash-stdout/stderr. A message that only quotes those tags is left as written.
-                if (BashCommand(raw) is { } command)
-                    return envelope with { Text = "! " + WithoutAttachmentTrailer(command), ToolKind = ChatDisplayKind.Shell };
-                if (BashOutput(raw) is { } output)
-                    return output.Length == 0 ? null : envelope with { Kind = AcpEventKind.SystemNote, Text = output, ToolKind = ChatDisplayKind.Shell };
-                var text = StripWrappers(raw);
-                return text.Length == 0 ? null : envelope with { Text = text };
-            }
             case AcpEventKind.ToolCall:
                 return envelope with { ToolKind = ClaudeToolKinds.Of(envelope.ToolName) };
             case AcpEventKind.ToolResult:
@@ -100,6 +88,40 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                 return envelope;
         }
     }
+
+    /// The classifier decides who wrote the message; only the person's words show as theirs.
+    static AcpEventEnvelope? UserMessage(CanonicalEvent evt, AcpEventEnvelope envelope, Struct? slug, ScheduledPrompts? scheduled) {
+        var raw = envelope.Text ?? "";
+        var cls = UserMessageClassifier.Classify(raw, evt.Payload is UserMessageReceived m ? UserMessageOrigin.Of(m) : null, Vendor, scheduled);
+
+        // A meta record gets no row of its own: only a command or a trigger in one still shows.
+        var meta = SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsMeta);
+        if (!meta && cls is { Kind: UserMessageKind.Continuation, Label: UserMessageClassifier.Compacted })
+            return raw.Trim() is { Length: > 0 } summary
+                ? envelope with { Kind = AcpEventKind.SystemNote, Text = summary, ToolKind = ChatDisplayKind.CompactSummary }
+                : null;
+        if (!meta && cls.Kind == UserMessageKind.Continuation && IsTaskNotification(slug, envelope)) return TaskNotificationNote(envelope);
+        // A bang command is its own user record: the command in bash-input, the output in
+        // bash-stdout/stderr. A message that only quotes those tags is left as written.
+        if (BashCommand(raw) is { } command)
+            return envelope with { Text = "! " + WithoutAttachmentTrailer(command), ToolKind = ChatDisplayKind.Shell };
+        if (!meta && BashOutput(raw) is { } output)
+            return output.Length == 0 ? null : envelope with { Kind = AcpEventKind.SystemNote, Text = output, ToolKind = ChatDisplayKind.Shell };
+
+        switch (cls.Kind) {
+            case UserMessageKind.Person when cls is { IsCommand: true, Label: { Length: > 0 } line }:
+                return envelope with { Text = line };
+            case UserMessageKind.Person:
+                var text = StripWrappers(raw);
+                return text.Length == 0 ? null : envelope with { Text = text };
+            case UserMessageKind.Trigger:
+                return ChatNotes.Trigger(envelope, cls, StripWrappers(raw));
+            default:
+                return cls.IsInterrupt ? ChatNotes.Interrupted(envelope) : null;
+        }
+    }
+
+    const string Vendor = "claude";
 
     /// The chat shows a block result's text blocks one per line, where the stored result joins them with
     /// a blank line, as the server writes it.
@@ -188,17 +210,19 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
     /// The body of a message another agent of this session sent, and which kind it is; null for
     /// anything else. The server's events carry no origin_kind, so without one the wrapper is
     /// matched instead: it opens the text, after the one lead line Claude Code puts in front of an
-    /// idle delivery. Any other origin keeps a prompt that quotes the wrapper the user's own.
+    /// idle delivery. Any other origin keeps a prompt that quotes the wrapper the user's own, and a
+    /// peer outside the wrapper is another session, which the classifier labels as a trigger.
     static (string Body, string Kind)? PeerMessage(Struct? slug, string? text) {
         var origin = SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind);
         if (text is null || origin is not (null or "peer")) return null;
+        var handback = origin == "peer" && SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsHandback);
         var span = text.AsSpan().TrimStart();
         if (span.StartsWith(PeerLead, StringComparison.Ordinal) && span.IndexOf('\n') is var lead and >= 0)
             span = span[(lead + 1)..];
         if (!span.StartsWith(PeerOpen, StringComparison.Ordinal))
-            return origin == "peer" ? (text.Trim(), ChatDisplayKind.AgentMessage) : null;
+            return handback ? (text.Trim(), ChatDisplayKind.AgentMessage) : null;
         var bodyStart = span.IndexOf('\n');
-        if (bodyStart < 0) return origin == "peer" ? (text.Trim(), ChatDisplayKind.AgentMessage) : null;
+        if (bodyStart < 0) return handback ? (text.Trim(), ChatDisplayKind.AgentMessage) : null;
         span = span[(bodyStart + 1)..];
         // Text after the close is Claude Code's guidance to the model. A stored record can end
         // before the close.

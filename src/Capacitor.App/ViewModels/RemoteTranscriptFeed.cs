@@ -1,5 +1,6 @@
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
+using Capacitor.Models.Transcripts.UserMessages;
 using Capacitor.Remote.Models;
 using Microsoft.AspNetCore.SignalR;
 
@@ -15,6 +16,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     readonly string _sessionId;
     readonly IChatDisplayRules? _rules;
+    /// Guarded by itself: a superseded tail can still be projecting when the next one starts.
+    readonly ScheduledPrompts _scheduled = new();
     readonly SessionDetailReader _readDetail;
     readonly IServerLane _lane;
     readonly TimeProvider _time;
@@ -204,7 +207,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         var payload = CanonicalEventJson.TryParse(eventType, json);
         if (payload is null) return null;
         var at = CanonicalEventTime.Of(payload) ?? timestamp ?? _time.GetUtcNow();
-        var projected = TranscriptChat.Project(new CanonicalEvent(eventType, payload, Guid.Empty, at), _rules);
+        ChatProjectionResult projected;
+        lock (_scheduled) projected = TranscriptChat.Project(new CanonicalEvent(eventType, payload, Guid.Empty, at), _rules, _scheduled);
         return projected.Envelopes.Count == 0 && projected.SubmittedInputs.Count == 0 && projected.LiteralInputs.Count == 0 && projected.Runs.Count == 0 ? null : new(projected, offset);
     }
 
