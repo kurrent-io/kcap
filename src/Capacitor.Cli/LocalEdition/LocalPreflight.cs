@@ -27,8 +27,10 @@ sealed class LocalPreflight(
         return plan;
     }
 
-    /// <summary>Under the lease, after recovery: a journal still present is a bug in the caller.</summary>
+    /// <summary>Under the lease, after recovery: a journal still present is a bug in the caller. A rollback can leave
+    /// the root holding nothing, so on Windows its owner is checked again before a new installation goes in.</summary>
     public LocalPlan Recheck(string version) {
+        if (OperatingSystem.IsWindows()) CheckRootOwner();
         var plan = Decide(version, afterRecovery: true);
         CheckClients();
 
