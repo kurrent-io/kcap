@@ -10,17 +10,24 @@ namespace Capacitor.Cli.Core.Tests.Unit.Harness.OpenCode;
 public class OpenCodeHeadlessConfigTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
-    string ConfigDir => Path.Combine(Tmp.Path, "config");
-    string DataDir   => Path.Combine(Tmp.Path, "data");
+    string DataDir => Path.Combine(Tmp.Path, "data");
 
-    OpenCodePaths Paths => new(new(Tmp.Path), ConfigDir, null, DataDir);
+    /// <summary>The process's own <c>OPENCODE_CONFIG_DIR</c> is given too, so a test sees that only the inherited
+    /// one names a layer.</summary>
+    OpenCodePaths Paths => new(new(Tmp.PathTo("home")), Tmp.PathTo("process-config-dir"), Tmp.PathTo("xdg"), DataDir);
 
-    string Global(string name, string content) => Tmp.CreateFile(Path.Combine("config", name), content);
+    string Global(string name, string content) => Tmp.CreateFile(Path.Combine("xdg", "opencode", name), content);
 
-    OpenCodeHeadlessConfig Build(string? configFile = null, string? configContent = null) =>
+    string DotOpenCode(string name, string content, string home = "home") => Tmp.CreateFile(Path.Combine(home, ".opencode", name), content);
+
+    string ConfigDir(string name, string content) => Tmp.CreateFile(Path.Combine("config-dir", name), content);
+
+    OpenCodeHeadlessConfig Build(string? configFile = null, string? configContent = null, bool configDir = false, string? testHome = null) =>
         OpenCodeHeadlessConfig.Build(Paths, new Dictionary<string, string?> {
             ["OPENCODE_CONFIG"]         = configFile,
             ["OPENCODE_CONFIG_CONTENT"] = configContent,
+            ["OPENCODE_CONFIG_DIR"]     = configDir ? Tmp.PathTo("config-dir") : null,
+            ["OPENCODE_TEST_HOME"]      = testHome,
         });
 
     static JsonObject Content(OpenCodeHeadlessConfig config) => JsonNode.Parse(config.ConfigContent)!.AsObject();
@@ -40,18 +47,54 @@ public class OpenCodeHeadlessConfigTests {
 
         var file = Tmp.CreateFile("extra.json", """{"model":"a/file"}""");
         await Assert.That(Model(Build(file))).IsEqualTo("a/file");
-        await Assert.That(Model(Build(file, """{"model":"a/content"}"""))).IsEqualTo("a/content");
-        await Assert.That(Model(Build(file, """{"theme":"dark"}"""))).IsEqualTo("a/file");
+
+        DotOpenCode("opencode.json", """{"model":"a/dot-json"}""");
+        await Assert.That(Model(Build(file))).IsEqualTo("a/dot-json");
+
+        DotOpenCode("opencode.jsonc", """{"model":"a/dot-jsonc"}""");
+        await Assert.That(Model(Build(file))).IsEqualTo("a/dot-jsonc");
+
+        ConfigDir("opencode.json", """{"model":"a/dir-json"}""");
+        await Assert.That(Model(Build(file, configDir: true))).IsEqualTo("a/dir-json");
+
+        ConfigDir("opencode.jsonc", """{"model":"a/dir-jsonc"}""");
+        await Assert.That(Model(Build(file, configDir: true))).IsEqualTo("a/dir-jsonc");
+        await Assert.That(Model(Build(file, """{"model":"a/content"}""", configDir: true))).IsEqualTo("a/content");
+        await Assert.That(Model(Build(file, """{"theme":"dark"}""", configDir: true))).IsEqualTo("a/dir-jsonc");
+    }
+
+    /// <summary>OpenCode reads <c>config.json</c> only from the XDG directory, and the process's own
+    /// <c>OPENCODE_CONFIG_DIR</c> is no layer unless the inherited environment names it.</summary>
+    [Test]
+    public async Task Only_opencode_json_and_jsonc_are_read_from_the_home_and_config_directories() {
+        DotOpenCode("config.json", """{"model":"a/dot-config"}""");
+        ConfigDir("config.json", """{"model":"a/dir-config"}""");
+        Tmp.CreateFile(Path.Combine("process-config-dir", "opencode.json"), """{"model":"a/process"}""");
+
+        await Assert.That(Model(Build(configDir: true))).IsNull();
     }
 
     [Test]
-    public async Task Providers_are_merged_by_id_a_later_entry_replacing_an_earlier_one() {
-        Global("opencode.json", """{"provider":{"a":{"options":{"x":1}},"b":{"options":{"y":1}}}}""");
-        var file = Tmp.CreateFile("extra.json", """{"provider":{"b":{"options":{"z":2}}}}""");
+    public async Task An_inherited_opencode_test_home_replaces_the_home_opencode_reads() {
+        DotOpenCode("opencode.json", """{"model":"a/home"}""");
+        DotOpenCode("opencode.json", """{"model":"a/test-home"}""", home: "test-home");
 
-        var provider = Content(Build(file, """{"provider":{"c":{"name":"C"}}}"""))["provider"]!;
+        await Assert.That(Model(Build())).IsEqualTo("a/home");
+        await Assert.That(Model(Build(testHome: Tmp.PathTo("test-home")))).IsEqualTo("a/test-home");
+    }
 
-        await Assert.That(JsonNode.DeepEquals(provider, JsonNode.Parse("""{"a":{"options":{"x":1}},"b":{"options":{"z":2}},"c":{"name":"C"}}"""))).IsTrue();
+    [Test]
+    public async Task Providers_are_merged_deeply_by_id_a_later_value_winning() {
+        Global("opencode.json", """{"provider":{"a":{"options":{"x":1}},"b":{"name":"B","options":{"y":1},"models":{"m1":{}}}}}""");
+        var file = Tmp.CreateFile("extra.json", """{"provider":{"b":{"options":{"y":2,"z":2}}}}""");
+        DotOpenCode("opencode.json", """{"provider":{"b":{"models":{"m2":{}}}}}""");
+        ConfigDir("opencode.json", """{"provider":{"b":{"name":"B2"}}}""");
+
+        var provider = Content(Build(file, """{"provider":{"c":{"name":"C"}}}""", configDir: true))["provider"]!;
+
+        await Assert.That(JsonNode.DeepEquals(provider, JsonNode.Parse(
+                """{"a":{"options":{"x":1}},"b":{"name":"B2","options":{"y":2,"z":2},"models":{"m1":{},"m2":{}}},"c":{"name":"C"}}""")))
+            .IsTrue();
     }
 
     [Test]
@@ -77,9 +120,13 @@ public class OpenCodeHeadlessConfigTests {
     [Arguments("""{"provider":"a"}""")]
     [Arguments("""{"provider":{"a":"b"}}""")]
     public async Task A_malformed_file_layer_is_refused_naming_its_path(string text) {
-        var path = Global("opencode.json", text);
+        foreach (var write in new Func<string, string, string>[] { Global, (n, c) => DotOpenCode(n, c), ConfigDir }) {
+            var path = write("opencode.json", text);
 
-        await Assert.That(() => Build()).Throws<HeadlessRunRefusedException>().WithMessageContaining(path);
+            await Assert.That(() => Build(configDir: true)).Throws<HeadlessRunRefusedException>().WithMessageContaining(path);
+
+            File.Delete(path);
+        }
     }
 
     [Test]
