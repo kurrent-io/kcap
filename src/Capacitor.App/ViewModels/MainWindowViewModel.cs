@@ -89,7 +89,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     internal const string RestartUnstatedMessage = "The daemon has a restart queued but did not record what it waits for. If it stays pending, run kcap daemon restart. Eligible agents resume if auto-resume is on.";
 
     internal static string OtherInstallMessage(DaemonOnOtherInstall daemon) =>
-        $"The daemon runs kcap {CapacitorVersion.Display(daemon.Version)} from {daemon.Executable}. Updating this app does not change it, and restarting it starts the same version again. Update that install (for npm, run kcap update) and the daemon moves to its new version at a turn boundary.";
+        daemon.CopyFailure is { } failure
+            ? $"The daemon runs kcap {CapacitorVersion.Display(daemon.Version)} from {daemon.Executable}, this app's copy of its CLI. The app could not replace that copy, so restarting the daemon starts the same version again: {failure.TrimEnd('.')}. Fix that and reopen the app, and the daemon moves to its new version at a turn boundary."
+            : $"The daemon runs kcap {CapacitorVersion.Display(daemon.Version)} from {daemon.Executable}. Updating this app does not change it, and restarting it starts the same version again. Update that install (for npm, run kcap update) and the daemon moves to its new version at a turn boundary.";
 
     internal const string BackgroundPriorityMessage = "Daemon runs at background priority — agent terminals lag under load.";
 
@@ -1352,8 +1354,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// server that refused the app, or a daemon still down after a start that did not work.</param>
     /// <param name="moving">The daemon is moving to the Windows service, which brings it back itself.</param>
     /// <param name="local">The local server's own alert, from <see cref="LocalServerAlertFor"/>.</param>
-    /// <param name="otherInstall">An app update left the daemon behind on a kcap it does not ship. Only a restart waiting
-    /// for turns outranks it, since that follows an update to the other install; any other brings back the same version.</param>
+    /// <param name="otherInstall">An app update left the daemon behind on a binary it did not replace. Only a restart waiting
+    /// for turns outranks it, since that follows an update to that binary; any other brings back the same version. Nothing
+    /// outranks the app's own copy it could not replace: every restart starts that copy again.</param>
     internal static RailAlert? AlertFor(
             AttachStatus status, string daemonConnection, bool signedOut = false, bool failed = false,
             bool canSignIn = false, bool moving = false, RailAlert? local = null, DaemonOnOtherInstall? otherInstall = null,
@@ -1377,6 +1380,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             "connecting"   => new(ServerConnectingText, StatusColors.Pending),
             "reconnecting" => new(ReconnectingText, StatusColors.Pending),
             "disconnected" => new(ServerLostText, StatusColors.InProgress),
+            _ when otherInstall is { CopyFailure: not null } copy => new(DaemonNotUpdatedText, StatusColors.InProgress, Detail: OtherInstallMessage(copy)),
             _ when restartPending == DaemonRestartWait.Turns => new(RestartPendingText, StatusColors.InProgress, Detail: RestartPendingMessage),
             _ when otherInstall is { } other => new(DaemonNotUpdatedText, StatusColors.InProgress, Detail: OtherInstallMessage(other)),
             _ when restartPending == DaemonRestartWait.Agents => new(RestartPendingText, StatusColors.InProgress, Detail: RestartWhenNoAgentsMessage),
