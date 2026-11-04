@@ -73,6 +73,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         ApplyRailClearance();
     }
 
+    void LimitRail() =>
+        RailColumn.MaxWidth = PaneLayout.MaxWidth(SessionsSurface.Bounds.Width, PaneLayout.RailMinWidth, Panes.RailRestMinWidth);
+
     /// How far a header at the content's leading edge pads to clear the window controls; zero while
     /// the rail shows.
     public double RailLeading => Panes.RailCollapsed ? RailClearance.Leading(_scale) : 0;
@@ -191,8 +194,11 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             button.MinWidth = button.MinHeight = RailClearance.ButtonSize;
             button.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
         }
-        SessionsSurface.SizeChanged += (_, e) => RailColumn.MaxWidth = PaneLayout.MaxWidth(e.NewSize.Width, PaneLayout.RailMinWidth, PaneLayout.ContentMinWidth);
-        Panes.Changed += (_, _) => ApplyRail();
+        SessionsSurface.SizeChanged += (_, _) => LimitRail();
+        Panes.Changed += (_, _) => {
+            ApplyRail();
+            LimitRail();
+        };
         ApplyRail();
         KeyBindings.AddRange(ZoomShortcut.For(this));
         // A move, a display scaling change and a resized work area each change what the screen offers.
@@ -286,7 +292,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         var toggle = ReactiveCommand.Create(ToggleRail);
         KeyBindings.Add(ShortcutLabels.UsesCommandKey
             ? new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Meta), Command = toggle }
-            : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, _ => toggle) });
+            : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, toggle) });
     }
 
     // ⌘K everywhere on macOS. Off macOS Ctrl+K is a terminal key, so it yields to a focused terminal.

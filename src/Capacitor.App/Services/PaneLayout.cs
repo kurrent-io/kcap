@@ -35,6 +35,10 @@ public sealed class PaneLayout {
     public double ContextWidth { get => _contextWidth; set => Set(ref _contextWidth, value); }
     public bool ContextCollapsed { get => _contextCollapsed; set => Set(ref _contextCollapsed, value); }
 
+    /// What the rail leaves beside it: the launcher's minimum, or a session's beside the open work-context pane.
+    public double RailRestMinWidth =>
+        ContextCollapsed ? ContentMinWidth : Math.Max(ContentMinWidth, ContextMinWidth + SessionMinWidth);
+
     public event EventHandler? Changed;
 
     void Set<T>(ref T field, T value) {

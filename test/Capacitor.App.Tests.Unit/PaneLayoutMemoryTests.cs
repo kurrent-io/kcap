@@ -49,7 +49,8 @@ public class PaneLayoutMemoryTests {
         await Assert.That(restored.ContextCollapsed).IsTrue();
     }
 
-    /// A width saved on a larger screen, or a long drag, must leave the content beside it usable.
+    /// A width saved on a larger screen, or a long drag, must leave the content beside it usable,
+    /// including a session beside its open details pane.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_rail_never_lays_out_wider_than_the_content_beside_it_can_spare() {
@@ -57,6 +58,11 @@ public class PaneLayoutMemoryTests {
             var window = new MainWindow { Width = 1400, Height = 800 };
             window.Panes.RailWidth = 5000;
             window.Show();
+            window.UpdateLayout();
+            await Assert.That(window.SessionRail.Bounds.Width)
+                .IsEqualTo(1400 - PaneLayout.ContextMinWidth - PaneLayout.SessionMinWidth);
+
+            window.Panes.ContextCollapsed = true;
             window.UpdateLayout();
             await Assert.That(window.SessionRail.Bounds.Width).IsEqualTo(1400 - PaneLayout.ContentMinWidth);
             window.Close();
