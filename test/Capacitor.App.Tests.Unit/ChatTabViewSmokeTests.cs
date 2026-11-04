@@ -1922,7 +1922,7 @@ public class ChatTabViewSmokeTests {
                 .Where(t => t.Classes.Contains("markdown-paragraph") && t.IsEffectivelyVisible).ToList();
             await Assert.That(Paragraphs()).IsEmpty();
 
-            host.Chat.Items.OfType<SystemNoteItem>().Single().Toggle();
+            Click(host, card.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("toolSummary")));
             host.Settle();
             await Assert.That(Paragraphs().Select(t => t.Inlines?.Text ?? t.Text ?? "")).IsEquivalentTo(new[] { "Agent finished", "All good." }, CollectionOrdering.Matching);
             await host.CloseAsync();

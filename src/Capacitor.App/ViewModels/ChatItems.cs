@@ -98,7 +98,7 @@ public sealed class SystemNoteItem : ChatItemViewModel {
         // can run to pages, so both start folded. A report of one line has nothing to fold.
         if (label is AgentReportLabel or TaskNotificationLabel) {
             var lead = LeadLine(text);
-            IsCollapsible = lead is not null && text.AsSpan().Trim().Length > lead.Value.Length;
+            IsCollapsible = lead is { HasMore: true };
             if (IsCollapsible) _peek = TextElision.End(lead!.Value.Clean, PeekLength);
         } else {
             IsCollapsible = label == CompactSummaryLabel;
@@ -133,18 +133,22 @@ public sealed class SystemNoteItem : ChatItemViewModel {
         if (IsCollapsible) IsExpanded = !IsExpanded;
     }
 
-    static (int Length, string Clean)? LeadLine(string text) {
-        foreach (var raw in text.AsSpan().Trim().EnumerateLines()) {
+    // A rule or a fence marker is not a preview: the first line with words in it is.
+    static (bool HasMore, string Clean)? LeadLine(string text) {
+        string? clean = null;
+        foreach (var raw in text.AsSpan().EnumerateLines()) {
             var line = raw.Trim();
             if (line.IsEmpty) continue;
-            var clean = line.TrimStart("#>- ").ToString()
+            if (clean is not null) return (true, clean);
+            if (line.StartsWith("```")) continue;
+            var stripped = line.TrimStart("#>- ").ToString()
                 .Replace("**", "", StringComparison.Ordinal)
                 .Replace("__", "", StringComparison.Ordinal)
                 .Replace("`", "", StringComparison.Ordinal)
                 .Trim().Trim('*').Trim('_').Trim();
-            return (line.Length, clean);
+            if (stripped.Length > 0) clean = stripped;
         }
-        return null;
+        return clean is null ? null : (false, clean);
     }
 }
 
