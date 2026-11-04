@@ -116,8 +116,7 @@ static class PiCliRunner {
 
         switch (events.StopReason) {
             case null: {
-                var trimmed = exit.Stderr.Trim();
-                var tail    = trimmed.Length > 800 ? "…" + trimmed[^800..] : trimmed;
+                var tail    = StderrTail(exit);
                 var message = tail.Length > 0 ? tail : $"pi exited with code {exit.ExitCode} and no reply";
                 log($"Pi ended without a reply: {HeadlessProcess.ForLog(message)}");
 
@@ -134,6 +133,14 @@ static class PiCliRunner {
                 log($"Pi stopped with '{events.StopReason}'");
 
                 return new(null, ClaudeCliFailure.ProcessFailure, usage, Error: $"pi stopped with '{events.StopReason}'");
+        }
+
+        if (exit.ExitCode != 0) {
+            var tail    = StderrTail(exit);
+            var message = tail.Length > 0 ? $"pi exited with code {exit.ExitCode} after its reply: {tail}" : $"pi exited with code {exit.ExitCode} after its reply";
+            log(HeadlessProcess.ForLog(message));
+
+            return new(null, ClaudeCliFailure.ProcessFailure, usage, Error: message);
         }
 
         var reply = events.Reply?.Trim();
@@ -168,6 +175,12 @@ static class PiCliRunner {
             null,
             usage
         );
+    }
+
+    static string StderrTail(HeadlessProcessExit exit) {
+        var trimmed = exit.Stderr.Trim();
+
+        return trimmed.Length > 800 ? "…" + trimmed[^800..] : trimmed;
     }
 
     /// <summary>

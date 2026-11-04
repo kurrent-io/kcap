@@ -169,6 +169,19 @@ public class PiCliRunnerTests {
         await Assert.That(outcome.Result!.Model).IsEqualTo("anthropic/claude-haiku-4-5");
     }
 
+    /// <summary>The final event is a clean stop, so only the exit code shows the run failed.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_nonzero_exit_after_a_clean_stop_is_a_process_failure_keeping_the_usage() {
+        var events = Tmp.CreateFile("answer.jsonl", AgentEnd("ok") + "\n");
+        var outcome = await Run(FakePi($"cat > /dev/null\ncat '{events}'\necho 'shutdown failed' >&2\nexit 2"));
+
+        await Assert.That(outcome.Result).IsNull();
+        await Assert.That(outcome.Failure).IsEqualTo(ClaudeCliFailure.ProcessFailure);
+        await Assert.That(outcome.Usage!.InputTokens).IsEqualTo(10);
+        await Assert.That(outcome.Error!).Contains("code 2");
+        await Assert.That(outcome.Error!).Contains("shutdown failed");
+    }
+
     [Test, ExcludeOn(OS.Windows)]
     public async Task A_stop_reason_other_than_stop_or_error_is_a_process_failure() {
         var outcome = await Run(ReplayingLines(AgentEnd("half an ans", "length")));
