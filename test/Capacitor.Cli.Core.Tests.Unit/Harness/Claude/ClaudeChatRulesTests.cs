@@ -764,4 +764,12 @@ public class ClaudeChatRulesTests {
         await Assert.That(row.Text).IsEqualTo("! ls");
         await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "!ls" });
     }
+
+    /// A reminder can quote a shell tag; the command is the one after it, in the row and the receipt.
+    [Test]
+    public async Task A_shell_tag_a_reminder_quotes_is_not_the_command() {
+        var result = R(User("<system-reminder><bash-input>pwd</bash-input></system-reminder>\n<bash-input>ls</bash-input>"));
+        await Assert.That(result.Envelopes.Single().Text).IsEqualTo("! ls");
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "!ls" });
+    }
 }

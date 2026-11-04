@@ -48,8 +48,13 @@ public static class UserMessageClassifier {
         // Reminders ride on asks, triggers and payloads alike; what is left decides.
         var clean = SystemInstructionParser.Parse(text).CleanText.Trim();
 
+        // A person may type words a harness also sends, so where Claude's origin or Codex's content kinds
+        // record who wrote a line, text alone decides only for what no person types. Kinds that include
+        // Codex's own context vouch for nothing: the text says whether the person's words follow it.
+        var human = origin?.Kind == "human" || (Applies(vendor, Codex) && origin?.ContentItemKinds is { Count: > 0 } kinds && !CodexPrelude.HasHarnessPart(kinds));
+
         // The lead is the fallback for a summary recorded without its flag; a person quoting it keeps their words.
-        if (origin?.IsCompactSummary == true || (origin?.Kind != "human" && clean.StartsWith(CompactionPrefix, StringComparison.Ordinal)))
+        if (origin?.IsCompactSummary == true || (!human && clean.StartsWith(CompactionPrefix, StringComparison.Ordinal)))
             return Continue(Compacted);
 
         if (origin?.LocalCommand is { } receipt) return Continue(receipt);
@@ -91,11 +96,6 @@ public static class UserMessageClassifier {
 
         // Text that is only reminders has nothing of the person in it; an image with no text is an ask.
         if (clean.Length == 0) return text.Length == 0 ? Person : Continue(null);
-
-        // A person may type words a harness also sends, so where Claude's origin or Codex's content kinds
-        // record who wrote a line, text alone decides only for what no person types. Kinds that include
-        // Codex's own context vouch for nothing: the text says whether the person's words follow it.
-        var human = origin?.Kind == "human" || (Applies(vendor, Codex) && origin?.ContentItemKinds is { Count: > 0 } kinds && !CodexPrelude.HasHarnessPart(kinds));
 
         // Ahead of the prelude: an aborted-turn block is both, and it is the interrupt a reader needs.
         foreach (var (prefix, label, typeable, owner) in ContinuationPrefixes)
@@ -165,11 +165,9 @@ public static class UserMessageClassifier {
             return true;
         }
 
-        // Another session talking: the bare frame, or the frame behind the harness's own preamble line.
-        var frame = clean.StartsWith(PeerPreamble, StringComparison.Ordinal) && clean.IndexOf(PeerFrame, StringComparison.Ordinal) is var at and > 0
-            ? clean[at..]
-            : clean;
-        if (WholeFrame.Is(frame, PeerFrame, "</cross-session-message>")) {
+        // Another session talking: the bare frame, or the frame behind the harness's own preamble line, which
+        // ends at its colon; words of the person's own after the colon are not the preamble.
+        if (WholeFrame.Is(AfterPeerPreamble(clean), PeerFrame, "</cross-session-message>")) {
             label = PeerSession;
             return true;
         }
@@ -179,6 +177,15 @@ public static class UserMessageClassifier {
 
     const string PeerPreamble = "Another Claude session sent a message";
     const string PeerFrame = "<cross-session-message";
+
+    static string AfterPeerPreamble(string clean) {
+        if (!clean.StartsWith(PeerPreamble, StringComparison.Ordinal)) return clean;
+
+        var colon = clean.IndexOf(':');
+        var line = clean.IndexOf('\n');
+
+        return colon < 0 || (line >= 0 && colon > line) ? clean : clean[(colon + 1)..];
+    }
 
     static string? HarnessLabel(string text) => UserPromptDisplay.IsHarnessPayload(text, out var label) ? label : null;
 

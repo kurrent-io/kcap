@@ -309,4 +309,17 @@ public class UserMessageClassifierTests {
         await Assert.That(KindOf(quoted)).IsEqualTo(UserMessageKind.Continuation);
         await Assert.That(KindOf(quoted, new UserMessageOrigin { Kind = "human", IsCompactSummary = true })).IsEqualTo(UserMessageKind.Continuation);
     }
+
+    [Test]
+    [Arguments("Another Claude session sent a message: why did it ping me?\n<cross-session-message from=\"x\">\nhi\n</cross-session-message>", UserMessageKind.Person)]
+    [Arguments("<ci-monitor-event>failed</ci-monitor-event>\nWhy?\n<ci-monitor-event>passed</ci-monitor-event>", UserMessageKind.Person)]
+    [Arguments("<ci-monitor-event>failed</ci-monitor-event>\n<ci-monitor-event>passed</ci-monitor-event>", UserMessageKind.Trigger)]
+    [Arguments("<ci-monitor-events>x</ci-monitor-events>", UserMessageKind.Person)]
+    public async Task Only_frames_and_the_preamble_make_a_trigger(string text, UserMessageKind kind) =>
+        await Assert.That(KindOf(text)).IsEqualTo(kind);
+
+    [Test]
+    public async Task Codex_user_kinds_keep_the_compaction_lead_the_persons() =>
+        await Assert.That(KindOf("This session is being continued from a previous conversation — what?", new UserMessageOrigin { ContentItemKinds = ["user.text"] }, vendor: "codex"))
+            .IsEqualTo(UserMessageKind.Person);
 }
