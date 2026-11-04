@@ -83,21 +83,28 @@ public class TranscriptChatCanonicalTests {
         await Assert.That(identified.AgentId).IsEqualTo("a1");
     }
 
-    /// The server writes it from the subagent-stop hook, which says the subagent ended but not how.
+    /// The server writes it from the subagent-stop hook, which says the subagent stopped but not how. Where
+    /// start records start the rows it ends the run its start began; where the transcript starts them, as
+    /// Claude's does, it names no run.
     [Test]
-    public async Task A_subagent_completion_finishes_by_agent_id_with_no_outcome_under_any_rules() {
+    public async Task A_subagent_completion_ends_a_start_record_run_and_is_a_bare_stop_under_claude() {
         var at = new DateTimeOffset(2026, 9, 17, 10, 1, 0, TimeSpan.Zero);
-        foreach (var rules in new IChatDisplayRules?[] { null, ClaudeChatRules.Instance }) {
-            var result = TranscriptChat.Project(
-                new CanonicalEvent(CanonicalEventTypes.SubagentCompleted, new SubagentCompleted { AgentId = "a1" }, Guid.NewGuid(), at), rules);
-            await Assert.That(result.Envelopes).IsEmpty();
-            await Assert.That(result.SubmittedInputs).IsEmpty();
-            var finished = (RunSignal.Finished)result.Runs.Single();
-            await Assert.That(finished.CallId).IsNull();
-            await Assert.That(finished.AgentId).IsEqualTo("a1");
-            await Assert.That(finished.Outcome).IsNull();
-            await Assert.That(finished.At).IsEqualTo(at);
-        }
+        CanonicalEvent Completion() => new(CanonicalEventTypes.SubagentCompleted, new SubagentCompleted { AgentId = "a1" }, Guid.NewGuid(), at);
+
+        var plain = TranscriptChat.Project(Completion(), rules: null);
+        await Assert.That(plain.Envelopes).IsEmpty();
+        await Assert.That(plain.SubmittedInputs).IsEmpty();
+        var finished = (RunSignal.Finished)plain.Runs.Single();
+        await Assert.That(finished.CallId).IsNull();
+        await Assert.That(finished.AgentId).IsEqualTo("a1");
+        await Assert.That(finished.Outcome).IsNull();
+        await Assert.That(finished.At).IsEqualTo(at);
+
+        var claude = TranscriptChat.Project(Completion(), ClaudeChatRules.Instance);
+        await Assert.That(claude.Envelopes).IsEmpty();
+        var stopped = (RunSignal.Stopped)claude.Runs.Single();
+        await Assert.That(stopped.AgentId).IsEqualTo("a1");
+        await Assert.That(stopped.At).IsEqualTo(at);
         await Assert.That(TranscriptChat.Project(Event(CanonicalEventTypes.SubagentCompleted, new SubagentCompleted()), ClaudeChatRules.Instance).Runs).IsEmpty();
     }
 
