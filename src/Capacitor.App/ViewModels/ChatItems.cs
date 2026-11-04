@@ -146,9 +146,9 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
 
     static string? Content(ReadOnlySpan<char> line) {
         if (line.StartsWith("```") || line.StartsWith("~~~")) return null;
-        var text = line.ToString();
-        if (Rule().IsMatch(text)) return null;
-        var stripped = LeadMarker().Replace(text, "")
+        var unquoted = QuoteMarker().Replace(line.ToString(), "");
+        if (Rule().IsMatch(unquoted)) return null;
+        var stripped = LeadMarker().Replace(unquoted, "")
             .Replace("**", "", StringComparison.Ordinal)
             .Replace("__", "", StringComparison.Ordinal)
             .Replace("`", "", StringComparison.Ordinal)
@@ -159,8 +159,12 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     [GeneratedRegex(@"^([-*_])(\s*\1){2,}\s*$")]
     private static partial Regex Rule();
 
-    // Only a marker followed by a space is markdown; "-10%" and "#123" are the note's own words.
-    [GeneratedRegex(@"^(>\s?)*(#{1,6}\s+|[-*+]\s+)?")]
+    [GeneratedRegex(@"^(>\s?)*")]
+    private static partial Regex QuoteMarker();
+
+    // A heading or list marker counts only when whitespace follows: "-10%" and "#123" are the note's own words.
+    // A rule is checked before this strips, or "- - -" would read as two bullets and a dash.
+    [GeneratedRegex(@"^(#{1,6}\s+|[-*+]\s+)*")]
     private static partial Regex LeadMarker();
 }
 
