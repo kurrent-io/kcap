@@ -70,10 +70,9 @@ public static class TranscriptChat {
     /// vendor's rules when it has any. Without rules every envelope shows, and a visible user
     /// message is the submitted input.
     public static ChatProjectionResult Project(CanonicalEvent evt, IChatDisplayRules? rules) {
-        // Written by the server from the vendor's subagent-stop hook: it says the subagent ended,
-        // never how, and carries no call id.
+        // Written by the server from the vendor's subagent-stop hook.
         if (evt.Payload is SubagentCompleted { AgentId.Length: > 0 } completed)
-            return new([], [], [new RunSignal.Finished(null, completed.AgentId, null, evt.Timestamp)]);
+            return new([], [], [new RunSignal.Stopped(completed.AgentId, evt.Timestamp)]);
         // Written from the subagent-start hook, which names the agent but not its call.
         if (evt.Payload is SubagentStarted started)
             return new([], [], started.AgentId is { Length: > 0 } agentId ? SubagentStart(agentId, started.AgentType, evt.Timestamp, rules) : []);

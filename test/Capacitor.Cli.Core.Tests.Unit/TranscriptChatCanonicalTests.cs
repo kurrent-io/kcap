@@ -83,20 +83,18 @@ public class TranscriptChatCanonicalTests {
         await Assert.That(identified.AgentId).IsEqualTo("a1");
     }
 
-    /// The server writes it from the subagent-stop hook, which says the subagent ended but not how.
+    /// The server writes it from the subagent-stop hook, which names the agent but neither the run nor how it went.
     [Test]
-    public async Task A_subagent_completion_finishes_by_agent_id_with_no_outcome_under_any_rules() {
+    public async Task A_subagent_completion_is_a_stop_by_agent_id_under_any_rules() {
         var at = new DateTimeOffset(2026, 9, 17, 10, 1, 0, TimeSpan.Zero);
         foreach (var rules in new IChatDisplayRules?[] { null, ClaudeChatRules.Instance }) {
             var result = TranscriptChat.Project(
                 new CanonicalEvent(CanonicalEventTypes.SubagentCompleted, new SubagentCompleted { AgentId = "a1" }, Guid.NewGuid(), at), rules);
             await Assert.That(result.Envelopes).IsEmpty();
             await Assert.That(result.SubmittedInputs).IsEmpty();
-            var finished = (RunSignal.Finished)result.Runs.Single();
-            await Assert.That(finished.CallId).IsNull();
-            await Assert.That(finished.AgentId).IsEqualTo("a1");
-            await Assert.That(finished.Outcome).IsNull();
-            await Assert.That(finished.At).IsEqualTo(at);
+            var stopped = (RunSignal.Stopped)result.Runs.Single();
+            await Assert.That(stopped.AgentId).IsEqualTo("a1");
+            await Assert.That(stopped.At).IsEqualTo(at);
         }
         await Assert.That(TranscriptChat.Project(Event(CanonicalEventTypes.SubagentCompleted, new SubagentCompleted()), ClaudeChatRules.Instance).Runs).IsEmpty();
     }

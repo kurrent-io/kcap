@@ -24,6 +24,10 @@ public abstract record RunSignal {
     /// so it has not ended. At least one key is set.
     public sealed record Waiting(string? CallId, string? AgentId, DateTimeOffset At) : RunSignal;
 
+    /// The vendor's stop record, naming the agent but neither which of its runs stopped nor how. A
+    /// Claude agent also stops each time it pauses on background work of its own.
+    public sealed record Stopped(string AgentId, DateTimeOffset At) : RunSignal;
+
     /// The run ended outside its tool result. At least one key is set. A null outcome means the
     /// source knows only that it ended.
     public sealed record Finished(string? CallId, string? AgentId, RunOutcome? Outcome, DateTimeOffset At) : RunSignal;
