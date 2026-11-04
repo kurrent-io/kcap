@@ -719,6 +719,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     readonly SingleFlightRefresh _capabilityRefresh = new();
     int                          _republishRequested;
     int                          _catalogProbeRequested;
+    int                          _rediscoveryRequested;
+    bool                         _discoveryPublicationPending;
+    bool                         _unattendedClassificationPending;
 
     // Hosted-agent PTYs are spawned at a fixed size and never resized. The daemon
     // reports these dims to the server right after the agent registers (and on
@@ -901,6 +904,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _spoolDrain        = new(TimeSpan.FromSeconds(60), time);
         _titleResolve      = new(TimeSpan.FromSeconds(60), time);
         _config            = config;
+        _unattendedClassificationPending = config.StartupUnattendedClassificationPending;
         _configRoot        = configRoot;
         _tokens            = tokens;
         _harnesses         = harnesses;
@@ -1697,27 +1701,63 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return (true, "", false);
     }
 
-    /// <summary>
-    /// Re-resolves the Codex switch, re-probes the vendors advertised at startup and re-registers when
-    /// the advertisement changed or the server has not yet seen the committed Codex resolution — the one
-    /// path through which a running daemon updates what the server knows about its CLI versions, vendor
-    /// model catalogs and Codex transport. Returns at once; the work is single-flighted off the caller's
-    /// stack so a burst of requests coalesces and the last publication is always the newest probe.
-    /// </summary>
+    /// <summary>Periodic discovery retries failed probes and publications even
+    /// when the installed vendor list is unchanged.</summary>
+    internal void RefreshAgentDiscovery() {
+        var installed = _runtimeFactories.Values.Where(f => f.IsAvailable())
+            .Select(f => f.Vendor).OrderBy(v => v, StringComparer.Ordinal);
+        if (Volatile.Read(ref _discoveryPublicationPending) || Volatile.Read(ref _unattendedClassificationPending)
+         || !installed.SequenceEqual(_config.SupportedVendors ?? []))
+            RefreshAdvertisedCapabilities("agent discovery", probeCatalogs: false, rediscoverVendors: true);
+    }
+
+    /// <summary>Refreshes installed vendors, reviewer capabilities and catalogs through one coalescing lane.</summary>
     /// <param name="republishUnchanged">Re-register even when the local advertisement already
     /// reads the same, for a caller that knows the server's copy differs.</param>
     /// <param name="probeCatalogs">False for a caller with no reason to think a model catalog changed,
     /// which then spawns no catalog probe.</param>
-    internal void RefreshAdvertisedCapabilities(string reason, bool republishUnchanged = false, bool probeCatalogs = true) {
+    /// <param name="rediscoverVendors">Re-evaluate launchable vendors after an environment or installation change.</param>
+    internal void RefreshAdvertisedCapabilities(string reason, bool republishUnchanged = false, bool probeCatalogs = true, bool rediscoverVendors = false) {
         // Sticky rather than captured by the delegate: a request folded into a running pass reruns
         // THAT pass's delegate, which would otherwise carry the earlier caller's answer.
         if (republishUnchanged) Interlocked.Exchange(ref _republishRequested, 1);
         else if (probeCatalogs) Interlocked.Exchange(ref _catalogProbeRequested, 1);
+        if (rediscoverVendors) Interlocked.Exchange(ref _rediscoveryRequested, 1);
 
         _capabilityRefresh.Trigger(
             async () => {
                 var republish    = Interlocked.Exchange(ref _republishRequested, 0) == 1;
                 var probeCatalog = Interlocked.Exchange(ref _catalogProbeRequested, 0) == 1;
+                var rediscover   = Interlocked.Exchange(ref _rediscoveryRequested, 0) == 1;
+
+                var vendorsChanged = false;
+                if (rediscover) {
+                    if (Volatile.Read(ref _discoveryPublicationPending)) {
+                        republish = true;
+                        probeCatalog = true;
+                    }
+                    var installed = _runtimeFactories.Values.Where(f => f.IsAvailable())
+                        .Select(f => f.Vendor).OrderBy(v => v, StringComparer.Ordinal).ToArray();
+                    vendorsChanged = !installed.SequenceEqual(_config.SupportedVendors ?? []);
+                    if (vendorsChanged) {
+                        Volatile.Write(ref _discoveryPublicationPending, true);
+                        _config.SupportedVendors = installed;
+                        _config.AcpPresetVendors = installed.Where(Acp.AcpPermissionPresets.RoutedVendors.Contains).ToArray();
+                        _config.PermissionModeVendors = Harness.Claude.ClaudePermissionModePolicy.AdvertisedVendors(installed);
+                        _config.PrReviewVendors = DaemonRunner.AdvertisedPrReviewVendors(_runtimeFactories.Values);
+                        probeCatalog = true;
+                    }
+                    if (vendorsChanged || Volatile.Read(ref _unattendedClassificationPending)) {
+                        DaemonRunner.SeedReviewerFloors(_config.Store.StateDirectory(_config.Name), _config);
+                        var classifications = DaemonRunner.ClassifyUnattendedVendors(_runtimeFactories.Values);
+                        var unattended = DaemonRunner.AdvertisedUnattendedVendors(classifications);
+                        if (!unattended.SequenceEqual(_config.UnattendedVendors ?? []))
+                            Volatile.Write(ref _discoveryPublicationPending, true);
+                        _config.UnattendedVendors = unattended;
+                        Volatile.Write(ref _unattendedClassificationPending,
+                            classifications.Any(s => s.ProbeFailed));
+                    }
+                }
 
                 var codex = CommitCodexResolution();
 
@@ -1760,7 +1800,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                                    || !VendorModelCatalogs.Equal(previousByAccount, mergedByAccount);
                 var unacknowledged = _config.AcknowledgedCodexResolution.Generation != codex.Generation;
 
-                if (!republish && !catalogChanged && !unacknowledged && current is not null && current.SequenceEqual(fresh)) return;
+                if (!vendorsChanged && !republish && !catalogChanged && !unacknowledged && current is not null && current.SequenceEqual(fresh)) return;
 
                 _config.Advertise(fresh, codex);
                 // One reference swap: status serializers on other threads may be enumerating the old one.
@@ -1773,6 +1813,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 LogReAdvertising(_logger, reason,
                     string.Join(", ", fresh.Select(c => $"{c.Vendor} {c.CliVersion ?? DaemonRunner.UnknownCliVersion}")));
                 await _server.ReRegisterAsync();
+                if (rediscover) Volatile.Write(ref _discoveryPublicationPending, false);
             },
             ex => _logger.LogDebug(ex,
                 "Capability refresh ({Reason}) failed; the next registration or launch re-evaluates it.", reason));

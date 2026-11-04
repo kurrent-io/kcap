@@ -111,9 +111,9 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
     public UnattendedSupport DescribeUnattendedSupport() {
         if (!descriptor.SupportsUnattended) return new(false, null);
 
-        var withheld = ReviewerRefusal(descriptor, config, _resolveVendorVersion);
+        var withheld = ReviewerRefusal(descriptor, config, _resolveVendorVersion, out var probeFailed);
 
-        return new(withheld is null, withheld);
+        return new(withheld is null, withheld, probeFailed);
     }
     public bool   SupportsBorrowedReviewFlow => _policy.Supported;
     public bool   BorrowedReviewRequiresIndependentSnapshot =>
@@ -1176,9 +1176,16 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
     /// long-running daemon rather than read a startup snapshot.</para>
     /// </summary>
     internal static string? ReviewerRefusal(
-            AcpVendorDescriptor descriptor, DaemonConfig config, Func<string, string?>? resolveVersion) {
+            AcpVendorDescriptor descriptor, DaemonConfig config, Func<string, string?>? resolveVersion) =>
+        ReviewerRefusal(descriptor, config, resolveVersion, out _);
+
+    static string? ReviewerRefusal(
+            AcpVendorDescriptor descriptor, DaemonConfig config, Func<string, string?>? resolveVersion,
+            out bool probeFailed) {
+        probeFailed = false;
         if (descriptor.Harness is HarnessId.Kiro) {
             var g    = GateInputsFor(descriptor, config, config.KiroUnattendedReviewerEnabled, resolveVersion);
+            probeFailed = g.Enabled && string.IsNullOrEmpty(g.Installed);
             var kiro = KiroReviewerCapability.Decide(g.Enabled, g.Installed, g.Affirmed);
 
             return kiro == KiroReviewerDecision.Allowed
@@ -1188,6 +1195,7 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
 
         if (descriptor.Harness is HarnessId.OpenCode) {
             var g   = GateInputsFor(descriptor, config, config.OpenCodeUnattendedReviewerEnabled, resolveVersion);
+            probeFailed = g.Enabled && string.IsNullOrEmpty(g.Installed);
             var oc  = OpenCodeReviewerCapability.Decide(g.Enabled, g.Installed, g.Affirmed);
 
             return oc == OpenCodeReviewerDecision.Allowed
@@ -1197,6 +1205,7 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
 
         if (descriptor.Harness is HarnessId.Grok) {
             var g    = GateInputsFor(descriptor, config, config.GrokUnattendedReviewerEnabled, resolveVersion);
+            probeFailed = g.Enabled && string.IsNullOrEmpty(g.Installed);
             var grok = GrokReviewerCapability.Decide(g.Enabled, g.Installed, g.Affirmed);
 
             return grok == GrokReviewerDecision.Allowed
@@ -1207,6 +1216,7 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
         if (!UsesMcpNameAllowlistArgv(descriptor)) return null;
 
         var gemini = GateInputsFor(descriptor, config, config.GeminiUnattendedReviewerEnabled, resolveVersion);
+        probeFailed = gemini.Enabled && string.IsNullOrEmpty(gemini.Installed);
         var decision = GeminiReviewerCapability.Decide(gemini.Enabled, gemini.Installed, gemini.Affirmed);
 
         return decision == GeminiReviewerDecision.Allowed

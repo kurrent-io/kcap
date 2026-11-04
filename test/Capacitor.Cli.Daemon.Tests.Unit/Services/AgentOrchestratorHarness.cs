@@ -54,7 +54,7 @@ internal static class AgentOrchestratorHarness {
         var time         = timeProvider ?? TimeProvider.System;
         // A test whose server must read the orchestrator's config, as the one DI singleton does in
         // production, passes the instance it built that server over.
-        var config = sharedConfig ?? new DaemonConfig();
+        var config = sharedConfig ?? new DaemonConfig { Binaries = TestBinaries.None };
         config.Name                = "test";
         config.ServerUrl           = "http://127.0.0.1:1";
         config.ClaudePath          = "claude";
