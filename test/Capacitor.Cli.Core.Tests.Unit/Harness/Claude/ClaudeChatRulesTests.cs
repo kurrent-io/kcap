@@ -779,4 +779,20 @@ public class ClaudeChatRulesTests {
         await Assert.That(result.Envelopes.Single().Text).IsEqualTo("/review x");
         await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "/review x" });
     }
+
+    /// A reminder ahead of a notification can quote another task's tags; the run that ends is the notification's.
+    [Test]
+    public async Task A_reminder_ahead_of_a_notification_does_not_pick_the_task_it_ends() {
+        var finished = R(User("<system-reminder><task-id>other</task-id><status>failed</status></system-reminder>\n<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n</task-notification>"))
+            .Runs.OfType<RunSignal.Finished>().Single();
+        await Assert.That(finished.AgentId).IsEqualTo("a1");
+        await Assert.That(finished.Outcome).IsEqualTo(RunOutcome.Done);
+    }
+
+    /// A hand-back is the subagent's report however Claude delivered it.
+    [Test]
+    public async Task An_unframed_handback_is_a_subagent_report() {
+        var note = R(User("All done.", "\"origin\":{\"kind\":\"peer\",\"handback\":true}")).Envelopes.Single();
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.AgentReport);
+    }
 }

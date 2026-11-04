@@ -12,7 +12,7 @@ public sealed class ScheduledPrompts {
 
     public void Observe(object? payload) {
         switch (payload) {
-            case AssistantToolCallsGenerated calls:
+            case AssistantToolCallsGenerated calls when !IsSidechain(calls):
                 foreach (var call in calls.ToolCalls)
                     if (IsWakeUpTool(call.ToolName) && Key(SchemaExtensions.Text(call.Arguments, "prompt")) is { Length: > 0 } wake)
                         _wakeUps.Add(wake);
@@ -31,12 +31,13 @@ public sealed class ScheduledPrompts {
     public bool IsLoopFiring(string? text) => Key(text) is { Length: > 0 } key && _loops.Contains(key);
 
     // Only the person starts a loop: another session, a subagent or the harness quoting `/loop` does not.
-    static bool IsPersons(UserMessageReceived message) {
-        var slug = SchemaExtensions.Slug(message, ClaudeCodeExtension.Slug);
+    static bool IsPersons(UserMessageReceived message) =>
+        SchemaExtensions.Text(SchemaExtensions.Slug(message, ClaudeCodeExtension.Slug), ClaudeCodeExtension.OriginKind) is null or "human"
+     && !IsSidechain(message);
 
-        return SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) is null or "human"
-            && !SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsSidechain);
-    }
+    // A subagent's schedule is its own; its wake-ups never fire in the session that started it.
+    static bool IsSidechain(object payload) =>
+        SchemaExtensions.Flag(SchemaExtensions.Slug(payload, ClaudeCodeExtension.Slug), ClaudeCodeExtension.IsSidechain);
 
     // Claude Code's own tool, or kcap's MCP tool under whatever server prefix the harness records.
     static bool IsWakeUpTool(string toolName) =>

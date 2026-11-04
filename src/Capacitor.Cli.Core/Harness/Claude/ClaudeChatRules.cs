@@ -180,7 +180,8 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                 return [];
             }
             case AcpEventKind.UserMessage when IsTaskNotification(slug, raw): {
-                var text = raw.Text ?? "";
+                // Read past the reminders that open it, which can quote another task's tags.
+                var text = SystemInstructionParser.StripLeading(raw.Text ?? "");
                 var callId = Tag(TaskToolUseId(), text);
                 var agentId = Tag(TaskId(), text);
                 if (callId is null && agentId is null) return [];
@@ -228,9 +229,9 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         if (span.StartsWith(PeerLead, StringComparison.Ordinal) && span.IndexOf('\n') is var lead and >= 0)
             span = span[(lead + 1)..];
         if (!span.StartsWith(PeerOpen, StringComparison.Ordinal))
-            return handback ? (text.Trim(), ChatDisplayKind.AgentMessage) : null;
+            return handback ? (text.Trim(), ChatDisplayKind.AgentReport) : null;
         var bodyStart = span.IndexOf('\n');
-        if (bodyStart < 0) return handback ? (text.Trim(), ChatDisplayKind.AgentMessage) : null;
+        if (bodyStart < 0) return handback ? (text.Trim(), ChatDisplayKind.AgentReport) : null;
         span = span[(bodyStart + 1)..];
         // Text after the close is Claude Code's guidance to the model. A stored record can end
         // before the close.

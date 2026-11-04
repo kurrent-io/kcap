@@ -339,4 +339,21 @@ public class UserMessageClassifierTests {
         await Assert.That(KindOf("deploy", scheduled: scheduled)).IsEqualTo(UserMessageKind.Trigger);
         await Assert.That(KindOf("deploy", new UserMessageOrigin { Kind = "human" }, scheduled)).IsEqualTo(UserMessageKind.Person);
     }
+
+    /// A frame Claude records as the person's is something they pasted, not a trigger.
+    [Test]
+    public async Task A_frame_recorded_as_the_persons_is_theirs() =>
+        await Assert.That(KindOf("<ci-monitor-event>build failed</ci-monitor-event>", new UserMessageOrigin { Kind = "human" })).IsEqualTo(UserMessageKind.Person);
+
+    /// A subagent's wake-up is scheduled in its own session, so it never fires in the parent's.
+    [Test]
+    public async Task A_subagents_wake_up_is_not_the_parents() {
+        var scheduled = new ScheduledPrompts();
+        var call = new AssistantToolCallsGenerated();
+        call.ToolCalls.Add(new ToolCallInfo { CallId = "t1", ToolName = "ScheduleWakeup", Arguments = Struct.Parser.ParseJson("""{"prompt":"check CI"}""") });
+        call.Extensions[ClaudeCodeExtension.Slug] = ClaudeCodeExtension.Flags(isSidechain: true)!;
+        scheduled.Observe(call);
+
+        await Assert.That(KindOf("check CI", scheduled: scheduled)).IsEqualTo(UserMessageKind.Person);
+    }
 }

@@ -73,7 +73,7 @@ public static class UserMessageClassifier {
                 return Continue(null);
         }
 
-        if (IsTrigger(clean, out var trigger)) return new(UserMessageKind.Trigger, trigger);
+        if (!human && IsTrigger(clean, out var trigger)) return new(UserMessageKind.Trigger, trigger);
 
         byText = true;
 
