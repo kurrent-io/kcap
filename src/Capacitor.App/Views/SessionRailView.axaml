@@ -20,6 +20,10 @@
             <Setter Property="CornerRadius" Value="7" />
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="Cursor" Value="Hand" />
+            <!-- A negative BetweenShowDelay makes every row wait the full ShowDelay; Avalonia's
+                 default opens the next row's tip instantly while the pointer sweeps the rail. -->
+            <Setter Property="ToolTip.ShowDelay" Value="1500" />
+            <Setter Property="ToolTip.BetweenShowDelay" Value="-1" />
         </Style>
         <Style Selector="Border.railSession">
             <Setter Property="Background" Value="Transparent" />
