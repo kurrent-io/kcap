@@ -437,6 +437,22 @@ public class SessionRunsTests {
         await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
     }
 
+    /// The server can hear the stop of the run before a resume after the resume, and that run's notification
+    /// later still: the first report on the agent takes back the end the stop made on the resumed run.
+    [Test]
+    public async Task The_first_report_on_an_agent_takes_back_what_its_stops_ended_on_its_other_runs() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(5)), Stop("a1", T0.AddMinutes(6))));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Done);
+
+        s.Apply(Signals(Finished("c1", "a1", RunOutcome.Done, at: T0.AddMinutes(4))));
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(4));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+        await Assert.That(s.Rows[1].EndedAt).IsNull();
+        await Assert.That(s.RunningCount).IsEqualTo(1);
+    }
+
     /// Where no notification reaches the stream, a stop is every run's only end, a resumed run's included.
     [Test]
     public async Task A_resumed_run_of_an_agent_the_transcript_never_reported_ends_on_its_stop() {

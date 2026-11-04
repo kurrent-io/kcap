@@ -122,9 +122,9 @@ public sealed class RunRow : ReactiveObject {
         _endedByStop = true;
     }
 
-    /// A run waiting on background work of its own has not ended, so the wait takes back an end
-    /// that only a stop record made: the pause's own stop, recorded ahead of the notification.
-    internal void Wait() {
+    /// Takes back an end that only a stop record made: a wait shows the run had not ended, and once
+    /// the transcript reports on the agent, its stops speak for no run in particular.
+    internal void RetractStop() {
         if (!_endedByStop) return;
         Outcome = RunState.Running;
         EndedAt = null;

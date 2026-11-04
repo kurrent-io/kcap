@@ -18,7 +18,7 @@ public sealed class SessionRuns(TimeProvider time) {
     /// The row an agent id currently belongs to; the latest Detached wins.
     readonly Dictionary<string, RunRow> _byAgent = new(StringComparer.Ordinal);
     /// Agents the transcript reports on itself. A stop names no run and a Claude agent stops at every
-    /// pause, so a stop ends only an agent the stream carries no report for.
+    /// pause, so stops count only while the stream carries no report for their agent.
     readonly HashSet<string> _reported = new(StringComparer.Ordinal);
     /// Ids that arrived before the row they name: by call when the source knew it, otherwise in arrival
     /// order. The local meta file and the server's start record can both beat the call's own line.
@@ -92,7 +92,7 @@ public sealed class SessionRuns(TimeProvider time) {
                     Resume(resumed);
                     break;
                 case RunSignal.Waiting waiting:
-                    Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.Wait();
+                    Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.RetractStop();
                     break;
                 case RunSignal.Stopped stopped:
                     if (!_reported.Contains(stopped.AgentId)) RowFor(null, stopped.AgentId, stopped.At)?.Stop(stopped.At);
@@ -241,9 +241,17 @@ public sealed class SessionRuns(TimeProvider time) {
     }
 
     RunRow? Report(RunRow? row, string? agentId) {
-        if (agentId is not null) _reported.Add(agentId);
-        if (row?.AgentId is { } named) _reported.Add(named);
+        Reported(agentId, row);
+        Reported(row?.AgentId, row);
         return row;
+    }
+
+    /// A stop heard before the agent's first report can belong to another of its runs, a late one from
+    /// the run before a resume among them, so that report takes back what stops ended on its other runs.
+    void Reported(string? agentId, RunRow? landing) {
+        if (agentId is null || !_reported.Add(agentId)) return;
+        foreach (var other in _rows)
+            if (other.AgentId == agentId && !ReferenceEquals(other, landing)) other.RetractStop();
     }
 
     /// A known call id decides alone and never falls through to the agent id: a repeated
