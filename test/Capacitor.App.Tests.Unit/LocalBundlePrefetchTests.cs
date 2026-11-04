@@ -301,6 +301,32 @@ public class LocalBundlePrefetchTests {
         await Assert.That(outcome).IsTypeOf<LocalInstallOutcome.Installed>();
     }
 
+    /// Install pressed while the fetch still runs waits it out; a fetch that then finds no bundle settles the run without
+    /// setup, which on Windows could otherwise reach the service's administrator prompt first. Elsewhere setup runs and
+    /// reports the missing bundle itself.
+    [Test]
+    [Arguments(true, 0)]
+    [Arguments(false, 1)]
+    public async Task An_install_that_waited_on_a_fetch_finding_no_bundle_spawns_setup_only_off_windows(bool windows, int spawned) {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var prefetchCli = FetchFailing("bundle_not_published", LocalBundlePrefetch.NotPublishedExit, release.Task);
+        var prefetch = new LocalBundlePrefetch(() => prefetchCli, CancellationToken.None);
+        var setup = new FakeKcapCli { SetupLocalBehavior = LocalSetupScript.Prints(LocalBundlePrefetch.NotPublishedExit, LocalSetupScript.Failed("bundle_not_published")) };
+        var controller = new LocalInstallController(
+            () => setup, LocalSetupScript.NoSetup(Config), () => false, action => action(),
+            TelemetryProbe.Live("setup", Config.Root).Funnel, prefetch, settlesUnpublished: windows);
+        var settled = new TaskCompletionSource<LocalInstallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+        controller.Settled += outcome => settled.TrySetResult(outcome);
+
+        prefetch.Start();
+        await controller.StartAsync(LocalEmbeddingChoice.KeywordOnly, CancellationToken.None);
+        release.SetResult();
+        var outcome = await settled.Task.WaitAsync(Wait);
+
+        await Assert.That(setup.SetupLocalCallCount).IsEqualTo(spawned);
+        await Assert.That(((LocalInstallOutcome.Failed)outcome).Code).IsEqualTo("bundle_not_published");
+    }
+
     [Test]
     public async Task Cancelling_an_install_that_waits_on_the_fetch_stops_both_without_spawning_setup() {
         var fetch = new HeldFetch();

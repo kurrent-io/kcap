@@ -232,7 +232,8 @@ internal static class WizardComposition {
         return new LocalInstallController(
             () => cli, options.LocalRoot, () => IsCommittedLocal(options), options.Bridges.Post,
             options.Bridges.Telemetry.Funnel, options.Prefetch,
-            rememberWindowsServiceDeclined: () => options.AppState.UpdateAsync(s => s with { WindowsServiceDeclined = true }));
+            rememberWindowsServiceDeclined: () => options.AppState.UpdateAsync(s => s with { WindowsServiceDeclined = true }),
+            settlesUnpublished: options.ExplainsUnpublishedBundle ?? OperatingSystem.IsWindows());
     }
 
     /// <summary>A current service already running kcap takes the local server without being asked for, so the
