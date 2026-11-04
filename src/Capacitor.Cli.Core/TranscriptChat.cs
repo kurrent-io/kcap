@@ -12,7 +12,8 @@ public interface IChatDisplayRules {
 
     /// Most receipts are visible user turns. Vendors may also record hidden command receipts;
     /// injected prompts and background notifications must never acknowledge submitted input.
-    string? SubmittedInput(CanonicalEvent evt, AcpEventEnvelope raw, AcpEventEnvelope? displayed) =>
+    /// <param name="scheduled">The same schedule Filter judged the event against.</param>
+    string? SubmittedInput(CanonicalEvent evt, AcpEventEnvelope raw, AcpEventEnvelope? displayed, ScheduledPrompts? scheduled = null) =>
         displayed is { Kind: AcpEventKind.UserMessage } user ? user.Text : null;
 
     /// Possible literal user text before ambiguous wrapper cleanup. These are not receipts until
@@ -105,7 +106,7 @@ public static class TranscriptChat {
             var undelivered = envelope.ToolKind == ChatDisplayKind.Undelivered;
             var text = undelivered ? null : rules is null
                 ? kept is { Kind: AcpEventKind.UserMessage } user ? user.Text : null
-                : rules.SubmittedInput(evt, envelope, kept);
+                : rules.SubmittedInput(evt, envelope, kept, scheduled);
             var literal = envelope.Kind == AcpEventKind.UserMessage && !undelivered ? rules?.LiteralInputs(evt, envelope) ?? [] : [];
             if (kept == envelope && literal.All(candidate => candidate == envelope.Text)) literal = [];
             parts.Add(new(kept is { } visible ? [visible] : [], text is { Length: > 0 } ? [text] : [], rules?.Runs(evt, envelope) ?? []) {

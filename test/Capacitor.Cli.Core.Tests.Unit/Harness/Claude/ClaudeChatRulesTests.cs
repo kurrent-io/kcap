@@ -730,4 +730,28 @@ public class ClaudeChatRulesTests {
         await Assert.That(result.Envelopes.Single().ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
         await Assert.That(result.SubmittedInputs).IsEmpty();
     }
+
+    /// A reminder ahead of a notification or an agent's report leaves it the harness's note, its words kept.
+    [Test]
+    public async Task A_reminder_ahead_of_a_notification_or_a_report_keeps_its_note() {
+        var notification = R(User("<system-reminder>x</system-reminder>\n<task-notification><summary>done</summary><result>report</result></task-notification>")).Envelopes.Single();
+        await Assert.That(notification.ToolKind).IsEqualTo(ChatDisplayKind.TaskNotification);
+        await Assert.That(notification.Text).IsEqualTo("**done**\n\nreport");
+
+        var report = R(User("<system-reminder>x</system-reminder>\n<agent-message from=\"a1\">\n[Subagent hand-back] The report follows:\n  Done.\n</agent-message>")).Envelopes.Single();
+        await Assert.That(report.ToolKind).IsEqualTo(ChatDisplayKind.AgentReport);
+        await Assert.That(report.Text).IsEqualTo("Done.");
+    }
+
+    /// A scheduled firing is the harness's even when its prompt holds a command's tags, so it acknowledges no send.
+    [Test]
+    public async Task A_scheduled_firing_with_a_commands_tags_acknowledges_nothing() {
+        var chat = TranscriptChat.For("claude")!;
+        var context = chat.CreateContext("a1", null);
+        chat.ProjectWithInputs("""{"type":"assistant","uuid":"8f6f1f43-3a64-4a0e-9a8f-5f52a8a3b2c1","message":{"content":[{"type":"tool_use","id":"t1","name":"ScheduleWakeup","input":{"prompt":"<bash-input>ls</bash-input>"}}]}}""", 1, Received, context);
+
+        var firing = chat.ProjectWithInputs(User("<bash-input>ls</bash-input>"), 2, Received, context);
+        await Assert.That(firing.Envelopes).IsEmpty();
+        await Assert.That(firing.SubmittedInputs).IsEmpty();
+    }
 }

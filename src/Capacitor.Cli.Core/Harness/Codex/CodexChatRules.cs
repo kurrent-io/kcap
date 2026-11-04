@@ -22,7 +22,7 @@ public sealed class CodexChatRules : IChatDisplayRules {
         raw is { Kind: AcpEventKind.UserMessage, Text: { Length: > 0 } text } ? [text] : [];
 
     /// A shell line is acknowledged as the `!` line that was typed.
-    public string? SubmittedInput(CanonicalEvent evt, AcpEventEnvelope raw, AcpEventEnvelope? displayed) =>
+    public string? SubmittedInput(CanonicalEvent evt, AcpEventEnvelope raw, AcpEventEnvelope? displayed, ScheduledPrompts? scheduled = null) =>
         displayed switch {
             { Kind: AcpEventKind.UserMessage, ToolKind: ChatDisplayKind.Shell, Text: { } shell } => "!" + shell[ShellPrefix.Length..],
             { Kind: AcpEventKind.UserMessage } user                                               => user.Text,

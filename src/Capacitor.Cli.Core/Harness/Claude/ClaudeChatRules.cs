@@ -42,7 +42,7 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         return pasted == text ? [text] : [text, pasted];
     }
 
-    public string? SubmittedInput(CanonicalEvent evt, AcpEventEnvelope raw, AcpEventEnvelope? displayed) {
+    public string? SubmittedInput(CanonicalEvent evt, AcpEventEnvelope raw, AcpEventEnvelope? displayed, ScheduledPrompts? scheduled = null) {
         if (raw.Kind != AcpEventKind.UserMessage) return null;
         var slug = SchemaExtensions.Slug(evt.Payload, ClaudeCodeExtension.Slug);
         if (SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsSidechain)
@@ -55,7 +55,7 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         // A command the person ran is acknowledged by its command line, even where its echo shows no row;
         // anything else is a receipt only when Filter showed it as the person's.
         var text = raw.Text ?? "";
-        if (UserMessageClassifier.Classify(text, Origin(evt), Vendor).Kind == UserMessageKind.Person) {
+        if (UserMessageClassifier.Classify(text, Origin(evt), Vendor, scheduled).Kind == UserMessageKind.Person) {
             if (BashCommand(text) is { } command) return "!" + command;
             var name = CommandName().Match(text).Groups[1].Value.Trim();
             if (name.StartsWith('/')) {
@@ -103,7 +103,8 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
             return raw.Trim() is { Length: > 0 } summary
                 ? envelope with { Kind = AcpEventKind.SystemNote, Text = summary, ToolKind = ChatDisplayKind.CompactSummary }
                 : null;
-        if (!meta && cls.Kind == UserMessageKind.Continuation && IsTaskNotification(slug, envelope)) return TaskNotificationNote(envelope);
+        if (!meta && cls.Kind == UserMessageKind.Continuation && IsTaskNotification(slug, envelope))
+            return TaskNotificationNote(envelope with { Text = SystemInstructionParser.StripLeading(raw) });
         // A bang command is its own user record: the command in bash-input, the output in
         // bash-stdout/stderr. A message that only quotes those tags is left as written.
         if (cls is { Kind: UserMessageKind.Person, IsCommand: true } && BashCommand(raw) is { } command)
@@ -199,10 +200,11 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         }
     }
 
-    /// The server's events carry no origin_kind, so the text is the other way to know.
+    /// The server's events carry no origin_kind, so the text is the other way to know: how it opens
+    /// once any reminders ahead of it are off.
     static bool IsTaskNotification(Struct? slug, AcpEventEnvelope raw) =>
         SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) == "task-notification"
-        || (raw.Text ?? "").AsSpan().TrimStart().StartsWith("<task-notification>");
+        || SystemInstructionParser.StripLeading(raw.Text ?? "").StartsWith("<task-notification>", StringComparison.Ordinal);
 
     const string PeerOpen = "<agent-message from=\"";
     const string PeerClose = "</agent-message>";
@@ -213,13 +215,14 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
     /// The body of a message another agent of this session sent, and which kind it is; null for
     /// anything else. The server's events carry no origin_kind, so without one the wrapper is
     /// matched instead: it opens the text, after the one lead line Claude Code puts in front of an
-    /// idle delivery. Any other origin keeps a prompt that quotes the wrapper the user's own, and a
-    /// peer outside the wrapper is another session, which the classifier labels as a trigger.
+    /// idle delivery and any reminders. Any other origin keeps a prompt that quotes the wrapper the
+    /// user's own, and a peer outside the wrapper is another session, which the classifier labels as a trigger.
     static (string Body, string Kind)? PeerMessage(Struct? slug, string? text) {
         var origin = SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind);
         if (text is null || origin is not (null or "peer")) return null;
         var handback = origin == "peer" && SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsHandback);
-        var span = text.AsSpan().TrimStart();
+        text = SystemInstructionParser.StripLeading(text);
+        var span = text.AsSpan();
         if (span.StartsWith(PeerLead, StringComparison.Ordinal) && span.IndexOf('\n') is var lead and >= 0)
             span = span[(lead + 1)..];
         if (!span.StartsWith(PeerOpen, StringComparison.Ordinal))

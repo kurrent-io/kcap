@@ -23,6 +23,16 @@ public static partial class SystemInstructionParser {
         return new(blocks.Count > 0 ? clean.Trim() : text, blocks);
     }
 
+    /// The text after the blocks that open it, so what follows them can be read as it starts; blocks
+    /// further on stay.
+    public static string StripLeading(string text) {
+        var rest = text.TrimStart();
+        while (rest.StartsWith('<') && Block().Match(rest) is { Success: true, Index: 0 } block)
+            rest = rest[block.Length..].TrimStart();
+
+        return rest.Length == text.Length ? text : rest;
+    }
+
     [GeneratedRegex(
         @"<(system_instructions|system-instructions|system-reminder|system_reminder|SYSTEM_INSTRUCTIONS)\b[^>]*>([\s\S]*?)</\1>",
         RegexOptions.IgnoreCase
