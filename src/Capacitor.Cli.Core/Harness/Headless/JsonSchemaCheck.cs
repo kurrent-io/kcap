@@ -210,15 +210,20 @@ internal static class JsonSchemaCheck {
         return accept(v.CompareTo(b));
     }
 
+    static bool TryBound(JsonElement bound, out int n) {
+        n = 0;
+        return bound.ValueKind is JsonValueKind.Number && bound.TryGetInt32(out n) && n >= 0;
+    }
+
     static bool Length(JsonElement bound, JsonElement value, Func<int, int, bool> accept) {
         if (value.ValueKind is not JsonValueKind.String) return true;
-        if (!bound.TryGetInt32(out var n)) return false;
+        if (!TryBound(bound, out var n)) return false;
         return accept(new StringInfo(value.GetString()!).LengthInTextElements, n);
     }
 
     static bool ItemCount(JsonElement bound, JsonElement value, Func<int, int, bool> accept) {
         if (value.ValueKind is not JsonValueKind.Array) return true;
-        if (!bound.TryGetInt32(out var n)) return false;
+        if (!TryBound(bound, out var n)) return false;
         return accept(value.GetArrayLength(), n);
     }
 

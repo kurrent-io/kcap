@@ -77,6 +77,20 @@ public class JsonSchemaCheckTests {
         await Assert.That(Check(schema, instance)).IsEqualTo(expected);
 
     [Test]
+    [Arguments("minLength", "\"2\"", "\"abc\"")]
+    [Arguments("maxLength", "\"2\"", "\"a\"")]
+    [Arguments("minLength", "1.5", "\"abc\"")]
+    [Arguments("maxLength", "1.5", "\"a\"")]
+    [Arguments("minLength", "-1", "\"a\"")]
+    [Arguments("minItems", "\"2\"", "[1,2,3]")]
+    [Arguments("maxItems", "\"2\"", "[1]")]
+    [Arguments("minItems", "1.5", "[1,2,3]")]
+    [Arguments("maxItems", "1.5", "[1]")]
+    [Arguments("maxItems", "null", "[1]")]
+    public async Task A_malformed_length_bound_fails_closed(string keyword, string bound, string instance) =>
+        await Assert.That(Check("{\"" + keyword + "\":" + bound + "}", instance)).IsFalse();
+
+    [Test]
     [Arguments("#/$defs/n", "$defs")]
     [Arguments("#/definitions/n", "definitions")]
     public async Task A_local_ref_resolves_into_its_container(string reference, string container) {

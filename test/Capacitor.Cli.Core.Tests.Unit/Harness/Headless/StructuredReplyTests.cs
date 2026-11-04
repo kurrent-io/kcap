@@ -22,6 +22,12 @@ public class StructuredReplyTests {
         await Assert.That(StructuredReply.Accept(reply, TitleSchema) is null).IsTrue();
 
     [Test]
+    [Arguments("""{"minLength":"2"}""", "\"abc\"")]
+    [Arguments("""{"maxItems":1.5}""", "[1]")]
+    public async Task A_malformed_length_bound_refuses_without_throwing(string schema, string reply) =>
+        await Assert.That(StructuredReply.Accept(reply, schema) is null).IsTrue();
+
+    [Test]
     public async Task An_unparseable_schema_refuses_every_reply() =>
         await Assert.That(StructuredReply.Accept("{}", "not json") is null).IsTrue();
 
