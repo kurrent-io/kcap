@@ -11,6 +11,7 @@ using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Antigravity;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Gemini;
@@ -721,6 +722,17 @@ partial class WatchCommand(
                 isFinalDrain: isFinalDrainLocal, cursorGuard: cursorGuard, onCursorRewriteDetected: OnCursorRewriteDetected);
         }
 
+        // Every later read of transcriptPath, the final drain and the session end included, sees the new path. A
+        // moved file keeps its lines, so the drain carries on from the line it had reached. Before the first line
+        // is read, a missing file is one Claude has not written yet.
+        void FollowMovedTranscript() {
+            if (vendor != "claude" || state.LinesProcessed == 0 || File.Exists(transcriptPath)
+             || ClaudeTranscriptMove.Find(transcriptPath) is not { } moved) return;
+
+            Log(time, $"Transcript moved to {moved}; following it");
+            transcriptPath = moved;
+        }
+
         // Register StopWatcher handler — server sends this to tell us to shut down
         hubConnection.On<string>(
             "StopWatcher",
@@ -999,6 +1011,8 @@ partial class WatchCommand(
                     await PostHarnessTitleAsync(titleStore, sessionId, state, cts.Token, TouchHeartbeat);
                 }
 
+                FollowMovedTranscript();
+
                 // gated so this can never interleave with a
                 // concurrently-running reconnect rewind (see cursorRewindGate's declaration above).
                 var drained = await DrainNewLinesGatedAsync(isFinalDrainLocal: false, cts.Token);
@@ -1131,6 +1145,8 @@ partial class WatchCommand(
             state.BufferedLines.Clear();
             state.BufferedLineNumbers.Clear();
         }
+
+        FollowMovedTranscript();
 
         // The turn may have landed after the last poll, so the unsent lines are read again here.
         if (agentId is null && !state.ThresholdReached && UnsentLinesHoldRealTurn(transcriptPath, state.LinesProcessed, vendor, time)) {
