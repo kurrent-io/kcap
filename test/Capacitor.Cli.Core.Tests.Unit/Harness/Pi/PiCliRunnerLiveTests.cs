@@ -165,9 +165,11 @@ public class PiCliRunnerLiveTests {
         await Assert.That(outcome.Failure).IsNull();
     }
 
+    /// <summary>The timeout is shorter than Pi's own startup, so no reply can land first, however fast the model
+    /// is, yet long enough for the wrapper, which records the pid before Pi starts.</summary>
     [Test]
     public async Task The_deadline_kills_pi_and_removes_the_run_directory() {
-        var run = Run(Wrapper(), "Write a 3000-word essay on the history of the teaspoon.", TimeSpan.FromSeconds(2));
+        var run = Run(Wrapper(), "Write a 3000-word essay on the history of the teaspoon.", TimeSpan.FromMilliseconds(500));
 
         var pid      = await ReadPidAsync(PidFile);
         var identity = PidIdentity.Capture(pid);
