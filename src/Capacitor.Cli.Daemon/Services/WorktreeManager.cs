@@ -263,7 +263,7 @@ public partial class WorktreeManager(
                 });
                 LogWorktreeBase(worktreePath, baseRef!, source);
                 var added = Detached(worktreePath, repoPath);
-                await StripOrRollBackAsync(added);
+                await StripOrRollBackAsync(added, pinned, commonDir);
 
                 return added;
             }
@@ -314,7 +314,7 @@ public partial class WorktreeManager(
                 });
                 LogWorktreeBase(worktreePath, baseRef, "origin fetch");
                 var fetched = Detached(worktreePath, repoPath) with { FetchedRef = fetchedRef };
-                await StripOrRollBackAsync(fetched);
+                await StripOrRollBackAsync(fetched, pinned, commonDir);
 
                 return fetched;
             }
@@ -325,7 +325,7 @@ public partial class WorktreeManager(
                     "worktree", "add", "--no-checkout", "--detach", worktreePath);
             });
             var linked = Detached(worktreePath, repoPath);
-            await StripOrRollBackAsync(linked);
+            await StripOrRollBackAsync(linked, pinned, commonDir);
 
             return linked;
         }
@@ -378,6 +378,7 @@ public partial class WorktreeManager(
         // concurrency test can pass by running them sequentially, where the second is refused by the
         // occupied-destination check and the claim's atomicity is never exercised.
         await barrier.ReachedAsync(SnapshotPoint.PreClaim);
+        RefuseIfSourceMoved(repoPath, pinned);
 
         try {
             using (new FileStream(claimPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
@@ -409,10 +410,14 @@ public partial class WorktreeManager(
             Directory.CreateDirectory(worktreePath);
 
             try {
-                return await BuildStandaloneSnapshotAsync(repoPath, worktreePath);
+                return await BuildStandaloneSnapshotAsync(repoPath, pinned, worktreePath);
             } catch {
-                // Only the successful claimant reaches here, so this delete is ownership-gated.
-                try { DeleteTreeNoFollow(worktreePath); } catch { /* keep the original failure */ }
+                // Only the successful claimant reaches here, so this delete is ownership-gated. A moved
+                // source would aim it at another tree.
+                try {
+                    if (SourceStillAt(repoPath, pinned)) DeleteTreeNoFollow(worktreePath);
+                    else LogRollbackSkipped(repoPath);
+                } catch { /* keep the original failure */ }
                 // INSIDE the claim's protected region and after the delete: the exact window in which a
                 // same-name caller must still be excluded.
                 await barrier.ReachedAsync(SnapshotPoint.Rollback);
@@ -420,7 +425,7 @@ public partial class WorktreeManager(
             }
         } finally {
             // Best effort: a stale claim fails CLOSED, refusing that one name until an operator clears it.
-            try { File.Delete(claimPath); } catch { /* the refusal names the file */ }
+            try { if (SourceStillAt(repoPath, pinned)) File.Delete(claimPath); } catch { /* the refusal names the file */ }
         }
     }
 
@@ -482,7 +487,9 @@ public partial class WorktreeManager(
         }
     }
 
-    async Task<WorktreeInfo> BuildStandaloneSnapshotAsync(string repoPath, string worktreePath) {
+    /// <summary>Every write lands under <paramref name="worktreePath"/>, which is spelled through the source, so
+    /// each one after an await re-walks the source first.</summary>
+    async Task<WorktreeInfo> BuildStandaloneSnapshotAsync(string repoPath, string pinned, string worktreePath) {
         // Unique per invocation and created CreateNew, so a collision is detected rather than silently
         // shared, a hostile source cannot plant one that suppresses real content, and a marker orphaned by
         // a crash can never suppress anything on a later run.
@@ -502,16 +509,21 @@ public partial class WorktreeManager(
 
         // BEFORE the initial commit, so the snapshot's own history never carries the hostile config
         // either — a later `git checkout` inside the tree would otherwise restore it.
+        RefuseIfSourceMoved(repoPath, pinned);
         StripWorkspaceMcpConfig(worktreePath);
         var noHooks = NoBranchHooks();
         await RunGit(worktreePath, GitTimeout, time, noHooks, "init");
         var userAttributes = await UserAttributesFileAsync(worktreePath, time);
+        RefuseIfSourceMoved(repoPath, pinned);
         var verbatim       = VerbatimLineEndings(CreateSnapshotAttributesFile(worktreePath, userAttributes));
         // Kept in the snapshot's own config too, so the agent's later diffs compare the bytes that were copied.
-        foreach (var setting in verbatim)
+        foreach (var setting in verbatim) {
+            RefuseIfSourceMoved(repoPath, pinned);
             await RunGit(worktreePath, GitTimeout, time, noHooks, "config", setting.Key, setting.Value);
+        }
         // Inventoried here: `add -A` is where this snapshot's filters resolve.
         var standaloneOverrides = await FilterOverridesForAsync(worktreePath);
+        RefuseIfSourceMoved(repoPath, pinned);
         await RunGit(worktreePath, GitTimeout, time, sourceReadOnly: false, [.. noHooks, .. verbatim, .. standaloneOverrides],
             NoSystemAttributes, "add", "-A");
         // Exit 0 = empty index (greenfield: nothing to copy). Exit 1 = staged content.
@@ -530,6 +542,7 @@ public partial class WorktreeManager(
         var commitArgs = staged.ExitCode == 0
             ? new[] { "commit", "--allow-empty", "-m", "Initial snapshot" }
             : new[] { "commit", "-m", "Initial snapshot" };
+        RefuseIfSourceMoved(repoPath, pinned);
         await RunGit(worktreePath, GitTimeout, time, sourceReadOnly: false,
             [.. noHooks, .. verbatim,
              new("user.email", "daemon@kcap.local"), new("user.name", "kcap"), new("commit.gpgsign", "false")],
@@ -657,16 +670,20 @@ public partial class WorktreeManager(
     /// <para>A rollback failure is swallowed in favour of the original exception: the reason the launch is
     /// being refused is more useful to an operator than whatever went wrong while tidying up after it.</para>
     /// </summary>
-    async Task StripOrRollBackAsync(WorktreeInfo created) {
+    async Task StripOrRollBackAsync(WorktreeInfo created, string pinned, string? pinnedCommonDir) {
         try {
             // The add above used --no-checkout, so the tree is still empty here. Populating it inside the
             // rollback means a filter-inventory failure cleans up like any other fail-closed step.
-            await CheckoutInTargetContextAsync(created.Path);
+            await CheckoutInTargetContextAsync(created.Path, () => RefuseIfRepositoryMovedAsync(created.SourceRepo, pinned, pinnedCommonDir));
+            RefuseIfSourceMoved(created.SourceRepo, pinned);
             StripWorkspaceMcpConfig(created.Path);
             RecordDaemonBaseline(created.Path);
         } catch {
             // A half-created worktree holds nothing of the agent's: its empty index reads as every file deleted.
-            try { await RemoveAsync(created, time, keepUnsavedWork: false); } catch { /* keep the original failure */ }
+            try {
+                await RollBackUnlessMovedAsync(created.SourceRepo, pinned, pinnedCommonDir,
+                    () => RemoveAsync(created, time, keepUnsavedWork: false));
+            } catch { /* keep the original failure */ }
             throw;
         }
     }
@@ -681,9 +698,12 @@ public partial class WorktreeManager(
     /// checkout is what lets the inventory be taken where the filters actually resolve, and
     /// <c>--no-checkout</c> means nothing is materialised before that guarded step.</para>
     /// </summary>
-    async Task CheckoutInTargetContextAsync(string worktreePath) {
+    /// <param name="guard">Runs last before the checkout, which writes the source repository's per-worktree
+    /// index.</param>
+    async Task CheckoutInTargetContextAsync(string worktreePath, Func<Task> guard) {
         var overrides = await FilterOverridesForAsync(worktreePath);
         var noHooks = NoBranchHooks();
+        await guard();
 
         // `reset --hard HEAD`, not `checkout -- .`: --no-checkout leaves the INDEX unpopulated too, so a
         // pathspec matches nothing. This is the step that materialises the tree, and therefore the step

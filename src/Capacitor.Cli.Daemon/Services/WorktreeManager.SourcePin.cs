@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Services;
 
@@ -24,9 +25,24 @@ public partial class WorktreeManager {
 
     /// <summary>Ends on the path walk, with no await after it, so the git write that follows runs on what
     /// was just checked.</summary>
+    async Task<bool> RepositoryStillAtAsync(string repoPath, string pinned, string? pinnedCommonDir) =>
+        string.Equals(await ResolvedCommonDirAsync(repoPath), pinnedCommonDir, StringComparison.Ordinal)
+     && SourceStillAt(repoPath, pinned);
+
+    /// <inheritdoc cref="RepositoryStillAtAsync"/>
     async Task RefuseIfRepositoryMovedAsync(string repoPath, string pinned, string? pinnedCommonDir) {
-        if (!string.Equals(await ResolvedCommonDirAsync(repoPath), pinnedCommonDir, StringComparison.Ordinal))
+        if (!await RepositoryStillAtAsync(repoPath, pinned, pinnedCommonDir))
             throw new InvalidOperationException($"source_repo_moved: {repoPath}");
-        RefuseIfSourceMoved(repoPath, pinned);
     }
+
+    /// <summary>A rollback writes to the source too, so one whose source has moved is skipped: the
+    /// leftovers stay in the repository they were made in, never removed from another.</summary>
+    async Task RollBackUnlessMovedAsync(string repoPath, string pinned, string? pinnedCommonDir, Func<Task> rollBack) {
+        if (await RepositoryStillAtAsync(repoPath, pinned, pinnedCommonDir)) await rollBack();
+        else LogRollbackSkipped(repoPath);
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "{Path} no longer resolves to the repository the worktree was cut from; its rollback was skipped")]
+    partial void LogRollbackSkipped(string path);
 }

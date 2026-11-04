@@ -196,6 +196,7 @@ public partial class WorktreeManager {
                         // the gate cannot do for the user's own git, so the fast-forward moves no tree but ours.
                         await RunGit(repoPath, GitTimeout, time, noHooks, "worktree", "add", "--no-checkout", worktreePath, branch);
                         registered = true;
+                        await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                         var moved = await RunGitCaptureResult(repoPath, GitTimeout, time, false, [],
                             "update-ref", $"refs/heads/{branch}", start.Sha, start.LocalBranchSha!);
                         if (moved.ExitCode != 0) throw StartChanged($"{branch} moved before it could be fast-forwarded");
@@ -211,26 +212,35 @@ public partial class WorktreeManager {
                 }
             });
         } catch {
-            if (registered)
-                await WithWorktreeMetadataGate(repoPath, time, () =>
-                    RunGitBestEffort(repoPath, time, "worktree", "remove", "--force", worktreePath));
-            await RunGitBestEffort(repoPath, time, "update-ref", "-d", fetchedRef);
+            await RollBackUnlessMovedAsync(repoPath, pinned, commonDir, async () => {
+                if (registered)
+                    await WithWorktreeMetadataGate(repoPath, time, async () => {
+                        if (await RepositoryStillAtAsync(repoPath, pinned, commonDir))
+                            await RunGitBestEffort(repoPath, time, "worktree", "remove", "--force", worktreePath);
+                    });
+                if (await RepositoryStillAtAsync(repoPath, pinned, commonDir))
+                    await RunGitBestEffort(repoPath, time, "update-ref", "-d", fetchedRef);
+            });
             throw;
         }
 
-        await StripOrRollBackAsync(created);
+        await StripOrRollBackAsync(created, pinned, commonDir);
 
         try {
             // Written directly: --set-upstream-to refuses a branch outside a single-branch clone's refspec.
             if (start.Checkout == HandoffCheckout.CreateBranch) {
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 await RunGit(repoPath, GitTimeout, time, "config", $"branch.{branch}.remote", "origin");
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 await RunGit(repoPath, GitTimeout, time, "config", $"branch.{branch}.merge", $"refs/heads/{branch}");
             }
 
             var head = (await RunGitCapture(worktreePath, GitTimeout, time, true, "rev-parse", "HEAD")).Trim();
             if (head != start.Sha) throw StartChanged($"the worktree is at {head}, not {start.Sha}");
         } catch {
-            try { await RemoveAsync(created, time, keepUnsavedWork: false); } catch { /* keep the original failure */ }
+            try {
+                await RollBackUnlessMovedAsync(repoPath, pinned, commonDir, () => RemoveAsync(created, time, keepUnsavedWork: false));
+            } catch { /* keep the original failure */ }
             throw;
         }
 
