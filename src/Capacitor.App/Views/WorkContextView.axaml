@@ -855,7 +855,7 @@
 
                     <StackPanel x:Name="UsageSection" Margin="0,18,0,0">
                         <Button x:Name="UsageToggle" Command="{Binding ToggleUsageCommand}" Classes="sectionHeader expandable"
-                                AutomationProperties.Name="Usage">
+                                AutomationProperties.Name="{Binding UsageToggleName}">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                 <TextBlock Text="USAGE" Classes="eyebrow" />
                                 <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
@@ -880,7 +880,7 @@
 
                     <StackPanel x:Name="CheckoutSection" Margin="0,18,0,0">
                         <Button x:Name="CheckoutToggle" Command="{Binding ToggleCheckoutCommand}" Classes="sectionHeader expandable"
-                                AutomationProperties.Name="Checkout">
+                                AutomationProperties.Name="{Binding CheckoutToggleName}">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                 <TextBlock Text="CHECKOUT" Classes="eyebrow" />
                                 <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
@@ -931,7 +931,7 @@
 
                     <StackPanel x:Name="SessionSection" Margin="0,18,0,0">
                         <Button x:Name="SessionToggle" Command="{Binding ToggleSessionCommand}" Classes="sectionHeader expandable"
-                                AutomationProperties.Name="Session">
+                                AutomationProperties.Name="{Binding SessionToggleName}">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                 <TextBlock Text="SESSION" Classes="eyebrow" />
                                 <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">

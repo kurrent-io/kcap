@@ -1963,6 +1963,8 @@ public class WorkContextViewModelTests {
             await Assert.That(second.Vm.SessionExpanded).IsTrue();
             await second.Vm.ToggleSessionCommand.Execute();
             await Assert.That(first.Vm.SessionExpanded).IsFalse();
+            await Assert.That(first.Vm.SessionToggleName).IsEqualTo("Session, collapsed");
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.SessionToggleName));
             await Assert.That(raised).Contains(nameof(WorkContextViewModel.UsageExpanded));
             await Assert.That(raised).Contains(nameof(WorkContextViewModel.CheckoutExpanded));
             await Assert.That(raised).Contains(nameof(WorkContextViewModel.SessionExpanded));

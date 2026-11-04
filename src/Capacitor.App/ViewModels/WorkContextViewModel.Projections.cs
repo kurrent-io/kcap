@@ -222,12 +222,26 @@ public sealed partial class WorkContextViewModel {
         get => _layout.SessionExpanded;
         private set => _layout.SessionExpanded = value;
     }
+    /// A header button has no expand state of its own to announce, so its name carries it.
+    public string UsageToggleName => FoldName("Usage", UsageExpanded);
+    public string CheckoutToggleName => FoldName("Checkout", CheckoutExpanded);
+    public string SessionToggleName => FoldName("Session", SessionExpanded);
+    static string FoldName(string section, bool expanded) => $"{section}, {(expanded ? "expanded" : "collapsed")}";
 
     void OnLayoutChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) {
         switch (e.PropertyName) {
-            case nameof(WorkContextLayout.UsageExpanded):    this.RaisePropertyChanged(nameof(UsageExpanded)); break;
-            case nameof(WorkContextLayout.CheckoutExpanded): this.RaisePropertyChanged(nameof(CheckoutExpanded)); break;
-            case nameof(WorkContextLayout.SessionExpanded):  this.RaisePropertyChanged(nameof(SessionExpanded)); break;
+            case nameof(WorkContextLayout.UsageExpanded):
+                this.RaisePropertyChanged(nameof(UsageExpanded));
+                this.RaisePropertyChanged(nameof(UsageToggleName));
+                break;
+            case nameof(WorkContextLayout.CheckoutExpanded):
+                this.RaisePropertyChanged(nameof(CheckoutExpanded));
+                this.RaisePropertyChanged(nameof(CheckoutToggleName));
+                break;
+            case nameof(WorkContextLayout.SessionExpanded):
+                this.RaisePropertyChanged(nameof(SessionExpanded));
+                this.RaisePropertyChanged(nameof(SessionToggleName));
+                break;
         }
     }
 
