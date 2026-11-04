@@ -84,9 +84,23 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     string _worktree = "—";
     public string Worktree { get => _worktree; private set => this.RaiseAndSetIfChanged(ref _worktree, value); }
     string? _worktreePath;
-    public string? WorktreePath { get => _worktreePath; private set => this.RaiseAndSetIfChanged(ref _worktreePath, value); }
+    public string? WorktreePath {
+        get => _worktreePath;
+        private set {
+            this.RaiseAndSetIfChanged(ref _worktreePath, value);
+            this.RaisePropertyChanged(nameof(CanCopyWorktree));
+        }
+    }
+    public bool CanCopyWorktree => !string.IsNullOrEmpty(_worktreePath);
     string _branch = "—";
-    public string Branch { get => _branch; private set => this.RaiseAndSetIfChanged(ref _branch, value); }
+    public string Branch {
+        get => _branch;
+        private set {
+            this.RaiseAndSetIfChanged(ref _branch, value);
+            this.RaisePropertyChanged(nameof(CanCopyBranch));
+        }
+    }
+    public bool CanCopyBranch => _branch != "—";
     string _harness = "—";
     public string Harness { get => _harness; private set => this.RaiseAndSetIfChanged(ref _harness, value); }
     string _transport = "—";

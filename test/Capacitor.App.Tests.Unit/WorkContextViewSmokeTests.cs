@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -50,11 +51,11 @@ public class WorkContextViewSmokeTests {
             Window = new Window { Content = new WorkContextView { DataContext = Vm }, Width = 320, Height = 900 };
         }
 
-        public async Task ShowAsync(WorkContextRead read) {
+        public async Task ShowAsync(WorkContextRead read, AgentStatusDto? agent = null) {
             Source.Enqueue(read);
             Window.Show();
             Dispatcher.UIThread.RunJobs();
-            Presence.OnNext(WorkspaceFixtures.Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/myproj", sessionId: SessionA));
+            Presence.OnNext(agent ?? WorkspaceFixtures.Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/myproj", sessionId: SessionA));
             await (Vm.PendingReadForTesting ?? Task.CompletedTask);
             await (Vm.Artefacts!.PendingReadForTesting ?? Task.CompletedTask);
             await (Vm.Plan.PendingReadForTesting ?? Task.CompletedTask);
@@ -972,6 +973,39 @@ public class WorkContextViewSmokeTests {
             host.Window.MouseMove(new Point(1, 1));
             Dispatcher.UIThread.RunJobs();
             await Assert.That(ToolTip.GetTip(button) as string).IsEqualTo(SessionA);
+        });
+    }
+
+    /// The worktree row shows only the leaf name, so its click has to copy the full path.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Clicking_the_worktree_and_branch_copies_the_full_path_and_the_branch() {
+        const string worktree = "/repo/myproj/.capacitor/worktrees/agent-1";
+        await RunOnUiAsync(async () => {
+            await using var host = new Host();
+            await host.ShowAsync(KeyOnlyRead(), WorkspaceFixtures.Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/myproj",
+                worktreePath: worktree, workLocation: "owned", sessionId: SessionA, branch: "capacitor/agent-1"));
+            host.Vm.ToggleSessionCommand.Execute().Subscribe();
+            Dispatcher.UIThread.RunJobs();
+            host.Window.UpdateLayout();
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+            var clipboard = host.Window.Clipboard!;
+
+            async Task<string?> ClickAndRead(string name) {
+                var button = host.Find<Button>(name);
+                await Assert.That(button.IsEffectivelyVisible).IsTrue();
+                var origin = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(origin);
+                host.Window.MouseDown(origin, MouseButton.Left);
+                host.Window.MouseUp(origin, MouseButton.Left);
+                Dispatcher.UIThread.RunJobs();
+                return await clipboard.TryGetTextAsync();
+            }
+
+            await Assert.That(host.Vm.Worktree).IsEqualTo("agent-1");
+            await Assert.That(await ClickAndRead("WorktreeButton")).IsEqualTo(worktree);
+            await Assert.That(await ClickAndRead("BranchButton")).IsEqualTo("capacitor/agent-1");
         });
     }
 
