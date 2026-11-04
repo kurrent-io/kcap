@@ -27,7 +27,7 @@ internal static class JsonSchemaCheck {
         "readOnly", "writeOnly", "deprecated",
     ];
 
-    /// The first keyword outside the supported vocabulary, or "$ref" for a non-local reference; null when the schema is fully supported.
+    /// The first keyword outside the supported vocabulary, or one whose value has a shape that cannot be checked ("$ref" for a non-local reference); null when the schema is fully supported.
     public static string? UnsupportedKeyword(JsonElement schema) => Unsupported(schema, 0);
 
     public static bool Matches(JsonElement schema, JsonElement instance) => Validate(schema, schema, instance, 0);
@@ -55,9 +55,12 @@ internal static class JsonSchemaCheck {
                         return name;
                     break;
                 case "properties":
-                    if (p.Value.ValueKind is JsonValueKind.Object)
-                        foreach (var prop in p.Value.EnumerateObject())
-                            if (Unsupported(prop.Value, depth + 1) is { } inner) return inner;
+                    if (p.Value.ValueKind is not JsonValueKind.Object) return name;
+                    foreach (var prop in p.Value.EnumerateObject())
+                        if (Unsupported(prop.Value, depth + 1) is { } inner) return inner;
+                    break;
+                case "required":
+                    if (!IsRequiredList(p.Value)) return name;
                     break;
                 case "items":
                     if (p.Value.ValueKind is JsonValueKind.Array) return name;
@@ -67,9 +70,9 @@ internal static class JsonSchemaCheck {
                     if (Unsupported(p.Value, depth + 1) is { } addInner) return addInner;
                     break;
                 case "anyOf" or "oneOf" or "allOf":
-                    if (p.Value.ValueKind is JsonValueKind.Array)
-                        foreach (var sub in p.Value.EnumerateArray())
-                            if (Unsupported(sub, depth + 1) is { } subInner) return subInner;
+                    if (p.Value.ValueKind is not JsonValueKind.Array) return name;
+                    foreach (var sub in p.Value.EnumerateArray())
+                        if (Unsupported(sub, depth + 1) is { } subInner) return subInner;
                     break;
             }
         }
@@ -124,9 +127,9 @@ internal static class JsonSchemaCheck {
                                           || value.EnumerateArray().All(e => Validate(root, p.Value, e, depth + 1)),
                 "enum"                 => p.Value.ValueKind is JsonValueKind.Array && p.Value.EnumerateArray().Any(e => Equal(e, value)),
                 "const"                => Equal(p.Value, value),
-                "anyOf"                => Subschemas(p.Value).Any(s => Validate(root, s, value, depth + 1)),
-                "oneOf"                => Subschemas(p.Value).Count(s => Validate(root, s, value, depth + 1)) == 1,
-                "allOf"                => Subschemas(p.Value).All(s => Validate(root, s, value, depth + 1)),
+                "anyOf"                => p.Value.ValueKind is JsonValueKind.Array && p.Value.EnumerateArray().Any(s => Validate(root, s, value, depth + 1)),
+                "oneOf"                => p.Value.ValueKind is JsonValueKind.Array && p.Value.EnumerateArray().Count(s => Validate(root, s, value, depth + 1)) == 1,
+                "allOf"                => p.Value.ValueKind is JsonValueKind.Array && p.Value.EnumerateArray().All(s => Validate(root, s, value, depth + 1)),
                 "minimum"              => Compare(p.Value, value, d => d >= 0),
                 "maximum"              => Compare(p.Value, value, d => d <= 0),
                 "exclusiveMinimum"     => Compare(p.Value, value, d => d > 0),
@@ -144,9 +147,6 @@ internal static class JsonSchemaCheck {
 
         return true;
     }
-
-    static IEnumerable<JsonElement> Subschemas(JsonElement list) =>
-        list.ValueKind is JsonValueKind.Array ? list.EnumerateArray() : [];
 
     static bool RefMatches(JsonElement root, JsonElement reference, JsonElement value, int depth) {
         if (reference.ValueKind is not JsonValueKind.String || !TryParseRef(reference.GetString()!, out var container, out var name))
@@ -177,7 +177,8 @@ internal static class JsonSchemaCheck {
     }
 
     static bool PropertiesMatch(JsonElement root, JsonElement properties, JsonElement value, int depth) {
-        if (value.ValueKind is not JsonValueKind.Object || properties.ValueKind is not JsonValueKind.Object) return true;
+        if (properties.ValueKind is not JsonValueKind.Object) return false;
+        if (value.ValueKind is not JsonValueKind.Object) return true;
         foreach (var prop in properties.EnumerateObject())
             if (value.TryGetProperty(prop.Name, out var member) && !Validate(root, prop.Value, member, depth + 1))
                 return false;
@@ -185,12 +186,13 @@ internal static class JsonSchemaCheck {
     }
 
     static bool RequiredPresent(JsonElement required, JsonElement value) {
-        if (value.ValueKind is not JsonValueKind.Object || required.ValueKind is not JsonValueKind.Array) return true;
-        foreach (var name in required.EnumerateArray())
-            if (name.ValueKind is not JsonValueKind.String || !value.TryGetProperty(name.GetString()!, out _))
-                return false;
-        return true;
+        if (!IsRequiredList(required)) return false;
+        if (value.ValueKind is not JsonValueKind.Object) return true;
+        return required.EnumerateArray().All(name => value.TryGetProperty(name.GetString()!, out _));
     }
+
+    static bool IsRequiredList(JsonElement required) =>
+        required.ValueKind is JsonValueKind.Array && required.EnumerateArray().All(name => name.ValueKind is JsonValueKind.String);
 
     static bool AdditionalMatch(JsonElement root, JsonElement schema, JsonElement additional, JsonElement value, int depth) {
         if (value.ValueKind is not JsonValueKind.Object) return true;

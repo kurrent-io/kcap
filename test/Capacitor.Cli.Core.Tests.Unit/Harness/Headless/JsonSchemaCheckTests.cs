@@ -15,6 +15,42 @@ public class JsonSchemaCheckTests {
         return JsonSchemaCheck.UnsupportedKeyword(s.RootElement);
     }
 
+    /// <summary>The gate refuses each shape before a run, and the validator never reads it as unconstrained, whatever
+    /// the instance is: the two are checked apart, so neither can lean on the other.</summary>
+    [Test]
+    [Arguments("""{"properties":[]}""", "properties")]
+    [Arguments("""{"properties":"a"}""", "properties")]
+    [Arguments("""{"properties":null}""", "properties")]
+    [Arguments("""{"required":"a"}""", "required")]
+    [Arguments("""{"required":{"a":1}}""", "required")]
+    [Arguments("""{"required":[1]}""", "required")]
+    [Arguments("""{"required":["a",null]}""", "required")]
+    [Arguments("""{"allOf":{}}""", "allOf")]
+    [Arguments("""{"allOf":"a"}""", "allOf")]
+    [Arguments("""{"anyOf":{}}""", "anyOf")]
+    [Arguments("""{"anyOf":1}""", "anyOf")]
+    [Arguments("""{"oneOf":{}}""", "oneOf")]
+    [Arguments("""{"oneOf":null}""", "oneOf")]
+    public async Task A_malformed_shape_is_refused_by_the_gate_and_fails_validation(string schema, string keyword) {
+        await Assert.That(Unsupported(schema)).IsEqualTo(keyword);
+        await Assert.That(Unsupported("""{"properties":{"a":""" + schema + "}}")).IsEqualTo(keyword);
+        await Assert.That(Unsupported("""{"allOf":[""" + schema + "]}")).IsEqualTo(keyword);
+
+        foreach (var instance in new[] { "{}", """{"a":1}""", "1", "\"a\"", "[]", "null" })
+            await Assert.That(Check(schema, instance)).IsFalse();
+    }
+
+    [Test]
+    [Arguments("""{"properties":{}}""")]
+    [Arguments("""{"required":[]}""")]
+    [Arguments("""{"allOf":[]}""")]
+    [Arguments("""{"anyOf":[{}]}""")]
+    [Arguments("""{"oneOf":[{}]}""")]
+    public async Task The_same_keywords_well_formed_and_empty_stay_supported(string schema) {
+        await Assert.That(Unsupported(schema)).IsNull();
+        await Assert.That(Check(schema, "{}")).IsTrue();
+    }
+
     [Test]
     [Arguments("""{"type":"string"}""", "\"a\"", true)]
     [Arguments("""{"type":"string"}""", "1", false)]
