@@ -180,6 +180,22 @@ public class UninstallRunViewModelTests {
         await Assert.That(string.Join(",", calls)).IsEqualTo("links,support,trash,quit");
     }
 
+    /// The bundle and AppImage removals keep the Trash wording; only a removal that says otherwise changes it.
+    [Test]
+    public async Task A_trashing_removal_reports_the_trash() {
+        var (finished, _, _, _) = Build();
+        var (failed, _, removal, _) = Build();
+        removal.Trashed = false;
+
+        await finished.RunAsync();
+        await failed.RunAsync();
+
+        await Assert.That(finished.Description)
+            .IsEqualTo("kcap’s background services and coding-agent integrations have been removed. The app is in the Trash.");
+        await Assert.That(finished.Lines).Contains("Moved the app to the Trash.");
+        await Assert.That(failed.Description).IsEqualTo("The app could not be moved to the Trash. See the details below to finish.");
+    }
+
     [Test]
     public async Task Trash_failure_reveals_and_waits_for_close() {
         var (vm, _, removal, calls) = Build();

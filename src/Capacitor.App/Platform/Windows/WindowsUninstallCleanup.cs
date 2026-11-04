@@ -15,16 +15,22 @@ public static class WindowsUninstallCleanup {
     internal static readonly TimeSpan DaemonStepTimeout = TimeSpan.FromSeconds(10);
     internal static readonly TimeSpan LocalStepTimeout  = TimeSpan.FromSeconds(15);
 
+    /// Set to "1" on the uninstaller the app starts after its own uninstall finished, which already ran
+    /// `kcap uninstall`: the CLI is not started again over what that removed.
+    public const string CompletedEnvVar = "KCAP_APP_UNINSTALL_COMPLETED";
+
     [SupportedOSPlatform("windows")]
     public static void Run(string appDirectory, UserHome home) {
         var cli = Path.Combine(BundleLayout.CliDirectory(appDirectory), CliResolver.BundledCliFileName);
-        Run(cli, appDirectory, LocalRoot.FromEnvironment(home), RunBounded, () => RemovePath(cli));
+        Run(cli, appDirectory, LocalRoot.FromEnvironment(home), RunBounded, () => RemovePath(cli),
+            Environment.GetEnvironmentVariable(CompletedEnvVar) == "1");
     }
 
     /// <param name="runCli">Runs the CLI with these arguments, its tree killed once the budget is spent.</param>
     internal static void Run(
-            string cli, string appDirectory, LocalRoot local, Action<string, string[], TimeSpan> runCli, Action removePath) {
-        if (File.Exists(cli)) {
+            string cli, string appDirectory, LocalRoot local, Action<string, string[], TimeSpan> runCli, Action removePath,
+            bool appUninstallCompleted = false) {
+        if (!appUninstallCompleted && File.Exists(cli)) {
             runCli(cli, ["daemon", "service", "uninstall", "--under", appDirectory], DaemonStepTimeout);
             if (LocalInstalled(local)) runCli(cli, ["local", "uninstall", "--yes", "--force", "--quick"], LocalStepTimeout);
         }

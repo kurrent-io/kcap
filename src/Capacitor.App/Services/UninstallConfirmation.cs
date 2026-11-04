@@ -13,6 +13,9 @@ public static class UninstallConfirmation {
         else foreach (var profile in facts.PathProfiles)
             lines.Add($"The PATH line kcap added to the shell profile {profile} will be removed.");
 
+        if (facts.UserPathFolder is { } folder)
+            lines.Add($"{folder} will be taken off your user PATH.");
+
         var attached = DaemonStore.Sanitize(facts.AttachedDaemon);
 
         if (facts.Activity is { ActiveAgents: > 0 } active)

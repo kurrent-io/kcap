@@ -699,9 +699,13 @@ public partial class App : Application {
             : OperatingSystem.IsLinux()
                 ? uninstall.BuildAppImageRun(AppImageInstall.Detect(Environment.GetEnvironmentVariable),
                     install => new LinuxAppRemoval(runner, _userHome, install, Environment.GetEnvironmentVariable, _time), cli, () => Quit(0), prepare: prepare)
-                : null;
+                : OperatingSystem.IsWindows()
+                    ? BuildWindowsUninstallRun(desktop, uninstall, cli, () => Quit(0), prepare)
+                    : null;
         if (run is null) {
-            Console.Error.WriteLine("kcap: uninstalling from the app needs the installed kcap.app or the kcap AppImage.");
+            Console.Error.WriteLine(OperatingSystem.IsWindows()
+                ? "kcap: uninstalling from the app needs kcap installed by its Windows installer."
+                : "kcap: uninstalling from the app needs the installed kcap.app or the kcap AppImage.");
             if (!prepareApp) Dispatcher.UIThread.Post(() => Quit(1));
             return false;
         }
@@ -712,6 +716,19 @@ public partial class App : Application {
         desktop.MainWindow = window;
         _ = run.RunAsync();
         return true;
+    }
+
+    // Update.exe ends every process running from the install, this one included, so the removal hands
+    // the install to it only from the exit, after the user has read the result.
+    static UninstallRunViewModel? BuildWindowsUninstallRun(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall,
+            IKcapCli cli, Action quit, Func<Task>? prepare) {
+        if (!OperatingSystem.IsWindows()) return null;
+        if (Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is not { } install) return null;
+        var removal = new Platform.Windows.WindowsAppRemoval(install,
+            new WindowsUserPathInstaller(new WindowsUserPathStore(), new WindowsPathProbe()));
+        var run = uninstall.BuildVelopackRun(install, _ => removal, cli, quit, prepare: prepare);
+        if (run is not null) desktop.Exit += (_, _) => removal.StartUninstallerIfSet();
+        return run;
     }
 
     async Task PrepareAppForUninstallAsync(IReadOnlyList<Window> previous) {
@@ -1418,13 +1435,16 @@ public partial class App : Application {
         _openHarnessesSettings.OnNext(openSettingsOn is null ? null : () => openSettingsOn(SettingsTab.Harnesses));
         ConfigureSettingsMenu(openSettings);
         _appMenu.SetSetupAction(() => _ = RestartForSetupAsync(desktop));
-        if (OperatingSystem.IsMacOS() && InstallLocation.BundleRoot(Environment.ProcessPath) is { } bundleRoot) {
-            var facts = UninstallFactsFor(bundleRoot, service.DaemonName, profiles?.Resolution.ServerUrl, lifecycle, lifecycleProbe);
-            _appMenu.SetUninstallAction(() => _ = UninstallFromAppAsync(desktop, facts));
-        } else if (OperatingSystem.IsLinux() && AppImageInstall.Detect(Environment.GetEnvironmentVariable) is not null) {
-            // The links and the CLI copy live under the staged root, so a kcap that resolves there is this app's.
-            var facts = UninstallFactsFor(AppImageInstall.StagedRoot(Environment.GetEnvironmentVariable, _userHome),
-                service.DaemonName, profiles?.Resolution.ServerUrl, lifecycle, lifecycleProbe);
+        var os = OperatingSystem.IsMacOS() ? OSPlatform.OSX
+            : OperatingSystem.IsLinux() ? OSPlatform.Linux
+            : OperatingSystem.IsWindows() ? OSPlatform.Windows
+            : OSPlatform.FreeBSD;
+        if (UninstallRoot(os,
+                () => InstallLocation.BundleRoot(Environment.ProcessPath),
+                () => AppImageInstall.Detect(Environment.GetEnvironmentVariable) is null ? null
+                    : AppImageInstall.StagedRoot(Environment.GetEnvironmentVariable, _userHome),
+                () => Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory)?.Root) is { } uninstallRoot) {
+            var facts = UninstallFactsFor(uninstallRoot, service.DaemonName, profiles?.Resolution.ServerUrl, lifecycle, lifecycleProbe);
             _appMenu.SetUninstallAction(() => _ = UninstallFromAppAsync(desktop, facts));
         }
 
@@ -1474,6 +1494,14 @@ public partial class App : Application {
         }
     }
 
+    /// The root the uninstall confirmation is read against, or null where this app cannot remove itself: a macOS bundle,
+    /// an AppImage's staged root (its links and CLI copy live there), or a per-user Velopack install on Windows.
+    internal static string? UninstallRoot(OSPlatform os, Func<string?> macBundle, Func<string?> appImage, Func<string?> velopack) =>
+        os == OSPlatform.OSX ? macBundle()
+        : os == OSPlatform.Linux ? appImage()
+        : os == OSPlatform.Windows ? velopack()
+        : null;
+
     UninstallFactsSource UninstallFactsFor(string bundleRoot, string daemonName, string? profileServerUrl,
             DaemonLifecycleController lifecycle, ILoginShellProbe probe) => new(
         LocalServerUrl: () => LocalServerFact.Read(_localRoot),
@@ -1488,7 +1516,11 @@ public partial class App : Application {
         Log: Console.Error,
         PathProfiles: () => OperatingSystem.IsMacOS()
             ? ShellProfile.Removable(_userHome, new KcapLinkRemover(KcapLinkFolders.For(_userHome), Path.Combine(bundleRoot, "Contents", "MacOS", "kcap")).Find())
-            : []);
+            : [],
+        UserPathFolder: OperatingSystem.IsWindows()
+            ? () => Platform.Windows.WindowsAppRemoval.FolderOnUserPath(Path.Combine(Program.Host.CliDirectory, CliResolver.BundledCliFileName))
+            : null,
+        FindOtherInstalls: OperatingSystem.IsWindows() ? path => Platform.Windows.WindowsOtherKcapInstalls.Find(path, bundleRoot) : null);
 
     // The same window owns preparation, removal, and the final acknowledgement.
     async Task UninstallFromAppAsync(IClassicDesktopStyleApplicationLifetime desktop, UninstallFactsSource source) {

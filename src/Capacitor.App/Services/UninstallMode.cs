@@ -1,5 +1,6 @@
 using Capacitor.App.Platform.Linux;
 using Capacitor.App.Platform.Mac;
+using Capacitor.App.Platform.Windows;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Services;
@@ -31,6 +32,15 @@ internal sealed record UninstallMode(bool PurgeLocal) {
             AppImageInstall? install, Func<AppImageInstall, IAppRemoval> removalFor, IKcapCli cli, Action quit, Action<Action>? post = null,
             Func<Task>? prepare = null) =>
         install is not null && File.Exists(install.Image)
+            ? new UninstallRunViewModel(cli, removalFor(install), PurgeLocal, quit, post, prepare)
+            : null;
+
+    /// Null unless the process runs from a per-user Velopack install whose updater is still there: the removal hands
+    /// that install to its uninstaller, so a portable or development run must never reach it.
+    public UninstallRunViewModel? BuildVelopackRun(
+            VelopackInstall? install, Func<VelopackInstall, IAppRemoval> removalFor, IKcapCli cli, Action quit, Action<Action>? post = null,
+            Func<Task>? prepare = null) =>
+        install is not null && File.Exists(install.UpdateExe)
             ? new UninstallRunViewModel(cli, removalFor(install), PurgeLocal, quit, post, prepare)
             : null;
 }
