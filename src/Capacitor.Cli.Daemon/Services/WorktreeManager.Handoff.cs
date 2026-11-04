@@ -161,7 +161,7 @@ public partial class WorktreeManager {
         var commonDir = await ResolvedCommonDirAsync(repoPath);
         RefuseIfSourceMoved(repoPath, pinned);
         Directory.CreateDirectory(worktreeRoot);
-        await ExcludeWorktreeRootAsync(repoPath);
+        await ExcludeWorktreeRootAsync(repoPath, pinned, commonDir);
 
         // Pinning the start under the worktree's own ref keeps a fork head out of the unsaved-work count,
         // and removal deletes it.

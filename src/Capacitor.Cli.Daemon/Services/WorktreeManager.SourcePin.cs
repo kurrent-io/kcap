@@ -12,9 +12,11 @@ public partial class WorktreeManager {
             ? resolved
             : throw new InvalidOperationException($"source_repo_unresolvable: {repoPath}");
 
+    static bool SourceStillAt(string repoPath, string pinned) =>
+        CanonicalPath.TryResolve(repoPath, out var now) && string.Equals(now, pinned, StringComparison.Ordinal);
+
     static void RefuseIfSourceMoved(string repoPath, string pinned) {
-        if (!CanonicalPath.TryResolve(repoPath, out var now) || !string.Equals(now, pinned, StringComparison.Ordinal))
-            throw new InvalidOperationException($"source_repo_moved: {repoPath}");
+        if (!SourceStillAt(repoPath, pinned)) throw new InvalidOperationException($"source_repo_moved: {repoPath}");
     }
 
     async Task<string?> ResolvedCommonDirAsync(string repoPath) =>

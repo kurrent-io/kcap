@@ -251,7 +251,7 @@ public partial class WorktreeManager(
             // symlink is FOLLOWED by this call, so a check placed after the branch decision would run once
             // the snapshot had already been rooted wherever the source tree chose.
             Directory.CreateDirectory(worktreeRoot);
-            await ExcludeWorktreeRootAsync(repoPath);
+            await ExcludeWorktreeRootAsync(repoPath, pinned, commonDir);
 
             var noHooks = NoBranchHooks();
 
@@ -331,8 +331,10 @@ public partial class WorktreeManager(
         }
 
         // Standalone: copy files + git init.
+        // A repository with no commits yet still has a common dir to exclude the snapshot from.
+        var standaloneCommonDir = await ResolvedCommonDirAsync(repoPath);
         var standalone = await CreateStandaloneAsync(repoPath, pinned, name, worktreeRoot, worktreePath);
-        await ExcludeWorktreeRootAsync(repoPath);
+        await ExcludeWorktreeRootAsync(repoPath, pinned, standaloneCommonDir);
 
         return standalone;
     }
