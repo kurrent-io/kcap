@@ -662,9 +662,8 @@ public static partial class DaemonRunner {
         builder.Services.AddSingleton<VendorCliWatcher>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<VendorCliWatcher>());
 
-        if (agentEnvironment is not null)
-            builder.Services.AddHostedService(sp => new AgentDiscoveryRefresh(agentEnvironment,
-                sp.GetRequiredService<AgentOrchestrator>(), time, sp.GetRequiredService<ILogger<AgentDiscoveryRefresh>>()));
+        builder.Services.AddHostedService(sp => new AgentDiscoveryRefresh(agentEnvironment,
+            sp.GetRequiredService<AgentOrchestrator>(), time, sp.GetRequiredService<ILogger<AgentDiscoveryRefresh>>()));
 
         builder.Services.AddSingleton<AccountsPublisher>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<AccountsPublisher>());
@@ -753,7 +752,7 @@ public static partial class DaemonRunner {
 
         config.UnattendedVendors = AdvertisedUnattendedVendors(unattendedStatuses);
         config.StartupUnattendedClassificationPending =
-            unattendedStatuses.Any(s => s.ProbeFailed || s.WithheldReason is not null);
+            unattendedStatuses.Any(s => s.ProbeFailed);
         // Fingerprinted BEFORE the probes: a vendor that updates between the two then reads as a
         // change to the watcher, instead of as the baseline the stale advertisement already matches.
         // Every advertised vendor is recorded, since a catalog-only vendor is watched too.

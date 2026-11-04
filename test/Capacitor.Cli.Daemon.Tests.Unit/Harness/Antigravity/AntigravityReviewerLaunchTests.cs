@@ -484,6 +484,7 @@ public class AntigravityReviewerLaunchTests {
 
         await Assert.That(support.Supported).IsFalse();
         await Assert.That(support.WithheldReason!).StartsWith("antigravity_reviewer_version_unresolved");
+        await Assert.That(support.ProbeFailed).IsTrue();
     }
 
     /// <summary>A missing binary reports as MISSING, not as an unidentifiable version — the presence
@@ -494,6 +495,7 @@ public class AntigravityReviewerLaunchTests {
         var support = Factory(EnabledConfig(), binaryExists: false, version: null).DescribeUnattendedSupport();
 
         await Assert.That(support.WithheldReason!).StartsWith("antigravity_reviewer_binary_missing");
+        await Assert.That(support.ProbeFailed).IsFalse();
     }
 
     /// <summary>Consent is read FIRST and short-circuits before the probe: an installed-but-wedged

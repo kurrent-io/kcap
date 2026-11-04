@@ -1701,7 +1701,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return (true, "", false);
     }
 
-    /// <summary>Periodic discovery retries withheld classifications and failed publications even
+    /// <summary>Periodic discovery retries failed probes and publications even
     /// when the installed vendor list is unchanged.</summary>
     internal void RefreshAgentDiscovery() {
         var installed = _runtimeFactories.Values.Where(f => f.IsAvailable())
@@ -1755,7 +1755,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                             Volatile.Write(ref _discoveryPublicationPending, true);
                         _config.UnattendedVendors = unattended;
                         Volatile.Write(ref _unattendedClassificationPending,
-                            classifications.Any(s => s.ProbeFailed || s.WithheldReason is not null));
+                            classifications.Any(s => s.ProbeFailed));
                     }
                 }
 

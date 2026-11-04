@@ -158,6 +158,7 @@ public class PiReviewerLaunchTests {
 
         await Assert.That(support.Supported).IsFalse();
         await Assert.That(support.WithheldReason!).StartsWith(code);
+        await Assert.That(support.ProbeFailed).IsEqualTo(enabled && posix && binary && installed is null);
     }
 
     [Test]

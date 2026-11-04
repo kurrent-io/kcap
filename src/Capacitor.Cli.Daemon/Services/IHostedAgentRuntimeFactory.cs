@@ -17,7 +17,7 @@ namespace Capacitor.Cli.Daemon.Services;
 /// <param name="WithheldReason">Non-null only when the vendor CAN host unattended agents and this
 /// daemon is refusing to offer it. Null both when the vendor is offered and when it never claimed
 /// unattended support in the first place.</param>
-/// <param name="ProbeFailed">The support probe faulted or exceeded its deadline, so its answer is unknown.</param>
+/// <param name="ProbeFailed">A support or version probe could not establish an answer, so classification may be retried.</param>
 internal readonly record struct UnattendedSupport(bool Supported, string? WithheldReason, bool ProbeFailed = false);
 
 /// <summary>
