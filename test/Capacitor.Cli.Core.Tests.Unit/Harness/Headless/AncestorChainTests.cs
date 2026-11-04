@@ -101,6 +101,27 @@ public class AncestorChainTests {
     }
 
     [Test]
+    public async Task An_owner_read_that_throws_is_a_violation_not_an_exception() {
+        var leaf = Tmp.CreateDir("a", "leaf").Path;
+
+        var violation = AncestorChain.UnixOwnerViolation(leaf, _ => throw new InvalidOperationException("no stat"), self: 7);
+
+        await Assert.That(violation).IsNotNull();
+        await Assert.That(violation!).Contains("cannot be read");
+    }
+
+    /// <summary>The DACL's entries are read lazily, so a failure translating one surfaces inside the rule.</summary>
+    [Test]
+    public async Task A_dacl_whose_entries_throw_while_read_is_a_violation_not_an_exception() {
+        static IEnumerable<(string, bool, bool, int)> Throwing() {
+            yield return (User, true, false, FullControl);
+            throw new InvalidOperationException("identity not mapped");
+        }
+
+        await Assert.That(AncestorChain.WindowsAclViolation(User, Throwing(), hasParent: true, Owners)).Contains("cannot be read");
+    }
+
+    [Test]
     public async Task A_control_chain_whose_every_owner_reads_as_this_user_passes() =>
         await Assert.That(AncestorChain.UnixOwnerViolation(Tmp.CreateDir("a", "leaf").Path, _ => 7u, self: 7)).IsNull();
 
@@ -136,12 +157,11 @@ public class AncestorChainTests {
         await Assert.That(violation!).Contains(Tmp.GetResolvedPath("shared"));
     }
 
-    [Test, ExcludeOn(OS.Windows)]
-    [UnsupportedOSPlatform("windows")]
+    [Test]
     public async Task A_link_this_user_owns_into_a_private_chain_is_allowed() {
         var target = Tmp.CreateDir("target").Path;
         var link = Tmp.PathTo("link");
-        Directory.CreateSymbolicLink(link, target);
+        DirectoryLink.Create(link, target);
 
         await Assert.That(AncestorChain.Violation(link)).IsNull();
     }

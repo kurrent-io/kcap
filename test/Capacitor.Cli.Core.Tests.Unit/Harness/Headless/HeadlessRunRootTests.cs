@@ -68,7 +68,7 @@ public class HeadlessRunRootTests {
         var run     = new HeadlessRunRoot(Tmp.CreateDir("state").Path, "epoch1").Create("opencode");
         var child   = run.Child("data");
         File.WriteAllText(Path.Combine(child.Path, "session.db"), "x");
-        Directory.CreateSymbolicLink(Path.Combine(child.Path, "escape"), Tmp.PathTo("outside"));
+        DirectoryLink.Create(Path.Combine(child.Path, "escape"), Tmp.PathTo("outside"));
 
         run.Dispose();
 
@@ -90,11 +90,30 @@ public class HeadlessRunRootTests {
         await Assert.That(Directory.Exists(live.Path)).IsTrue();
     }
 
+    /// <summary>Most daemons never run Pi or OpenCode, so a root not made yet is nothing to report at start.</summary>
+    [Test]
+    public async Task SweepStale_with_no_root_yet_has_nothing_to_report() {
+        var state = Tmp.CreateDir("state").Path;
+
+        await Assert.That(new HeadlessRunRoot(state, "new").SweepStale()).IsNull();
+        await Assert.That(Directory.Exists(Path.Combine(state, "headless-runs"))).IsFalse();
+    }
+
+    /// <summary>A NUL in the path makes every filesystem call throw <see cref="ArgumentException"/>, outside the IO
+    /// kinds: the sweep the daemon runs at start still reports rather than throws, and a run is refused.</summary>
+    [Test]
+    public async Task A_check_that_throws_anything_is_a_refusal_never_an_exception() {
+        var root = new HeadlessRunRoot(Tmp.PathTo("state") + "\0x", "new");
+
+        await Assert.That(root.SweepStale()).IsNotNull();
+        await Assert.That(() => root.Create("pi")).Throws<HeadlessRunRefusedException>();
+    }
+
     [Test]
     public async Task SweepStale_leaves_a_headless_runs_link_and_its_target_alone() {
         var state  = Tmp.CreateDir("state").Path;
         var victim = Tmp.CreateFile(["victim", "pi-old-0123456789abcdef0123456789abcdef", "keep.txt"], "keep");
-        Directory.CreateSymbolicLink(Path.Combine(state, "headless-runs"), Tmp.PathTo("victim"));
+        DirectoryLink.Create(Path.Combine(state, "headless-runs"), Tmp.PathTo("victim"));
 
         var refusal = new HeadlessRunRoot(state, "new").SweepStale();
 
@@ -111,7 +130,7 @@ public class HeadlessRunRootTests {
         var root   = Path.Combine(state, "headless-runs");
         var victim = Tmp.CreateFile(["victim", "keep.txt"], "keep");
         var link   = Path.Combine(root, "pi-old-0123456789abcdef0123456789abcdef");
-        Directory.CreateSymbolicLink(link, Tmp.PathTo("victim"));
+        DirectoryLink.Create(link, Tmp.PathTo("victim"));
         var foreign = Directory.CreateDirectory(Path.Combine(root, "not-a-run")).FullName;
 
         var refusal = new HeadlessRunRoot(state, "new").SweepStale();

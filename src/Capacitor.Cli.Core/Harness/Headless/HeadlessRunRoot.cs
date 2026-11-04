@@ -18,52 +18,35 @@ public sealed class HeadlessRunRoot(string stateDir, string daemonEpoch) {
 
         Verify(_root);
 
-        string? violation;
-
-        try {
-            violation = AncestorChain.Violation(_root);
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            violation = ex.Message;
-        }
-
-        if (violation is not null) throw new HeadlessRunRefusedException($"'{_root}' is not private: {violation}.");
+        if (AncestorChain.Violation(_root) is { } violation) throw new HeadlessRunRefusedException($"'{_root}' is not private: {violation}.");
 
         return CreatePrivate(Path.Combine(_root, $"{prefix}-{_epoch}-{Guid.NewGuid():N}"));
     }
 
     /// <summary>Removes the run directories of other epochs, which a crash left behind. Touches nothing
     /// unless the root is a real, owner-only directory on a private chain, and only entries named as
-    /// <see cref="Create"/> names them. Returns why it did not sweep, or null.</summary>
+    /// <see cref="Create"/> names them. Returns why it did not sweep, or null, also when there is no root
+    /// yet. Never throws: the daemon calls it at start.</summary>
     public string? SweepStale() {
-        string? violation;
-
         try {
-            violation = RootViolation();
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            violation = ex.Message;
-        }
+            if (!Path.Exists(_root) && new FileInfo(_root).LinkTarget is null) return null;
 
-        if (violation is not null) return $"'{_root}' was not swept: {violation}.";
+            if (RootViolation() is { } violation) return $"'{_root}' was not swept: {violation}.";
 
-        IEnumerable<string> entries;
+            foreach (var entry in Directory.EnumerateFileSystemEntries(_root).ToList()) {
+                if (!IsRunName(Path.GetFileName(entry), out var epoch) || epoch == _epoch) continue;
 
-        try {
-            entries = [.. Directory.EnumerateFileSystemEntries(_root)];
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                try {
+                    NoFollowTree.Delete(entry);
+                } catch (Exception) {
+                    // Retried by the next start's sweep.
+                }
+            }
+
+            return null;
+        } catch (Exception ex) {
             return $"'{_root}' was not swept: {ex.Message}";
         }
-
-        foreach (var entry in entries) {
-            if (!IsRunName(Path.GetFileName(entry), out var epoch) || epoch == _epoch) continue;
-
-            try {
-                NoFollowTree.Delete(entry);
-            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                // Retried by the next start's sweep.
-            }
-        }
-
-        return null;
     }
 
     string? RootViolation() {
@@ -73,9 +56,15 @@ public sealed class HeadlessRunRoot(string stateDir, string daemonEpoch) {
         if (attributes.HasFlag(FileAttributes.ReparsePoint)) return "it is a link";
         if (!attributes.HasFlag(FileAttributes.Directory)) return "it is not a directory";
 
-        var ownerOnly = OperatingSystem.IsWindows()
-            ? OwnerOnlyDirectory.Violation(_root)
-            : (File.GetUnixFileMode(_root) & GroupOrOther) != 0 ? "it is not mode 0700" : null;
+        string? ownerOnly;
+
+        try {
+            ownerOnly = OperatingSystem.IsWindows()
+                ? OwnerOnlyDirectory.Violation(_root)
+                : (File.GetUnixFileMode(_root) & GroupOrOther) != 0 ? "it is not mode 0700" : null;
+        } catch (Exception ex) {
+            ownerOnly = $"its access cannot be read: {ex.Message}";
+        }
 
         return ownerOnly ?? AncestorChain.Violation(_root);
     }
@@ -107,7 +96,7 @@ public sealed class HeadlessRunRoot(string stateDir, string daemonEpoch) {
     static void Verify(string path) {
         try {
             OwnerOnlyDirectory.CreateVerified(path);
-        } catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException) {
+        } catch (Exception ex) {
             throw new HeadlessRunRefusedException(ex.Message);
         }
     }
