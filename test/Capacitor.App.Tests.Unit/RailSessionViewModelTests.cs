@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
@@ -494,7 +495,7 @@ public class RailSessionViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var time = At(Started.AddMinutes(25));
             using var row = new RailSessionViewModel(ServerRow(status: "active"), new BehaviorSubject<string?>(null), NoPending, NotStale,
-                _ => { }, _ => { }, time);
+                _ => { }, _ => { }, time, sort: Observable.Return(RailSort.Created));
 
             await Assert.That(row.IsTerminalSession).IsTrue();
             await Assert.That(row.IsEnded).IsFalse();
@@ -504,6 +505,28 @@ public class RailSessionViewModelTests {
             using var hosted = new RailSessionViewModel(ServerRow(status: "active", hosted: true), new BehaviorSubject<string?>(null), NoPending, NotStale,
                 _ => { }, _ => { }, time);
             await Assert.That(hosted.IsTerminalSession).IsFalse();
+        });
+    }
+
+    /// The row's time is the one the rail orders by, so a live row between two ended ones reads in
+    /// sequence under either sort.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_time_shown_follows_the_rail_sort() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var sort = new BehaviorSubject<RailSort>(RailSort.LastUpdated);
+            var time = At(Ended.AddHours(2));
+            using var ended = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, time, sort: sort);
+            using var live = new RailSessionViewModel(ServerRow(status: "active") with { LastActivityAt = Ended },
+                new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, time, sort: sort);
+
+            await Assert.That(ended.Meta).IsEqualTo("2h ago · 3h 52m");
+            await Assert.That(live.Meta).IsEqualTo("2h ago");
+
+            sort.OnNext(RailSort.Created);
+            await Assert.That(ended.Meta).IsEqualTo("5h ago · 3h 52m");
+            await Assert.That(live.Meta).IsEqualTo("5h 52m");
         });
     }
 
