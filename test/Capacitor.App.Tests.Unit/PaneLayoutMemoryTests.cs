@@ -150,6 +150,24 @@ public class PaneLayoutMemoryTests {
         });
     }
 
+    /// A wide saved width or a long drag must leave the session beside the details pane usable.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_details_pane_never_lays_out_wider_than_the_session_beside_it_can_spare() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var window = new MainWindow { Width = 1400, Height = 800 };
+            window.Panes.RailCollapsed = true;
+            window.Panes.ContextWidth = 5000;
+            var view = new WorkspaceView();
+            window.ContentPane.Children.Add(view);
+            window.Show();
+            window.UpdateLayout();
+            var pane = view.FindControl<WorkContextView>("WorkContextHost")!;
+            await Assert.That(pane.Bounds.Width).IsEqualTo(view.Bounds.Width - PaneLayout.SessionMinWidth);
+            window.Close();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_details_pane_hides_from_its_own_header_and_shows_from_the_session_header() {
