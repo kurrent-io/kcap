@@ -117,10 +117,13 @@ public sealed class LocalInstallController(
         var unexplained = kcap.CliPath is null ? "cli_missing" : "no_failure_line";
         StreamingResult result;
         try {
-            if (!await AwaitPrefetchAsync(progress, interrupt).ConfigureAwait(false)) {
+            var waited = await AwaitPrefetchAsync(progress, interrupt).ConfigureAwait(false);
+            var unpublished = waited && settlesUnpublished && prefetch is { NotPublished: true }
+                           && !await Task.Run(() => LocalSetupState.Pending(root)).ConfigureAwait(false);
+            if (!waited || unpublished && interrupt.IsCancellationRequested) {
                 post(() => progress.Apply(CancelledLine));
                 result = new StreamingResult(130, false, []);
-            } else if (settlesUnpublished && prefetch is { NotPublished: true } && !await Task.Run(() => LocalSetupState.Pending(root)).ConfigureAwait(false)) {
+            } else if (unpublished) {
                 post(() => progress.Apply(NotPublishedLine));
                 result = new StreamingResult(LocalBundlePrefetch.NotPublishedExit, false, []);
             } else {
