@@ -127,7 +127,7 @@ public class SessionRailViewModelTests {
             using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, time);
             directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("a", "/repo", created: time.GetUtcNow().UtcDateTime), new RepoIdentity("path:/repo", "repo")));
             var session = rail.Groups.Single().Sessions.Single();
-            await Assert.That(session.Meta).IsEqualTo("just now");
+            await Assert.That(session.Meta).IsEqualTo("<1m ago");
             time.Advance(TimeSpan.FromMinutes(2));
             await Assert.That(session.Meta).IsEqualTo("2m ago");
         });

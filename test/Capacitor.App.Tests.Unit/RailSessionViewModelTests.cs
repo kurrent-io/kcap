@@ -476,16 +476,14 @@ public class RailSessionViewModelTests {
         });
     }
 
-    /// Ended on the 22nd's afternoon and read on the 25th's morning: only 2d 16h, but three dates
-    /// back, where the day groups file it, so the row reads "3d ago" rather than "2d ago".
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task An_ended_row_ages_in_calendar_days_like_the_day_groups() {
+    public async Task An_ended_row_ages_in_days_and_hours() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var row = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
                 _ => { }, _ => { }, At(new DateTime(2026, 10, 25, 9, 0, 0, DateTimeKind.Utc)));
 
-            await Assert.That(row.Meta).IsEqualTo("3d ago · 3h 52m");
+            await Assert.That(row.Meta).IsEqualTo("2d 16h ago · 3h 52m");
         });
     }
 
@@ -525,24 +523,24 @@ public class RailSessionViewModelTests {
             await Assert.That(live.Meta).IsEqualTo("2h ago");
 
             sort.OnNext(RailSort.Created);
-            await Assert.That(ended.Meta).IsEqualTo("5h ago · 3h 52m");
-            await Assert.That(live.Meta).IsEqualTo("5h ago");
+            await Assert.That(ended.Meta).IsEqualTo("5h 52m ago · 3h 52m");
+            await Assert.That(live.Meta).IsEqualTo("5h 52m ago");
         });
     }
 
     /// Past a day the rows still count hours, or neighbours started 25h and 30h ago would both read
-    /// "1d ago"; from two days on they count days.
+    /// "1d ago"; from a week on they count weeks.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_row_counts_hours_until_two_days() {
+    public async Task A_row_counts_hours_until_a_week() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var day = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
                 _ => { }, _ => { }, At(Ended.AddHours(30)));
-            using var twoDays = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
-                _ => { }, _ => { }, At(Ended.AddHours(49)));
+            using var overAWeek = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, At(Ended.AddDays(8)));
 
-            await Assert.That(day.Meta).IsEqualTo("30h ago · 3h 52m");
-            await Assert.That(twoDays.Meta).IsEqualTo("2d ago · 3h 52m");
+            await Assert.That(day.Meta).IsEqualTo("1d 6h ago · 3h 52m");
+            await Assert.That(overAWeek.Meta).IsEqualTo("1w ago · 3h 52m");
         });
     }
 
