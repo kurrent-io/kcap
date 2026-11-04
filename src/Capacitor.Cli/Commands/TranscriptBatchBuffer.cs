@@ -50,6 +50,22 @@ sealed class TranscriptBatchBuffer {
         _bytes = 0;
     }
 
+    /// <summary>Sends <paramref name="batch"/> chunk by chunk, stopping at the first acknowledged short of its last line.
+    /// <paramref name="send"/> returns the acknowledged next line, or null when the transport acknowledges none. Null when
+    /// <paramref name="mayContinue"/> refuses a chunk.</summary>
+    public static async Task<ChunkedSend?> SendAsync(TranscriptBatch batch, Func<TranscriptBatch, Task<int?>> send, Func<bool> mayContinue) {
+        int? acked = null;
+
+        foreach (var chunk in Split(batch)) {
+            if (!mayContinue()) return null;
+
+            acked = await send(chunk);
+            if (acked is { } next && chunk.LineNumbers!.Length > 0 && next <= chunk.LineNumbers[^1]) return new(acked, Complete: false);
+        }
+
+        return new(acked, Complete: true);
+    }
+
     public static IEnumerable<TranscriptBatch> Split(TranscriptBatch batch) {
         if (batch.LineNumbers is not { } numbers || numbers.Length != batch.Lines.Length)
             throw new ArgumentException("Every captured line requires its source line number.", nameof(batch));
