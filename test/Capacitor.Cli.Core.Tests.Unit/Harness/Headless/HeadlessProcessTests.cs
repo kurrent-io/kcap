@@ -153,6 +153,29 @@ public class HeadlessProcessTests {
         await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
     }
 
+    /// <summary>The descendant is orphaned as the script starts, before any listing can see it, so no kill reaches
+    /// it and it holds the output for the whole run: only the budget ends the cleanup. Given stdin, it also holds the
+    /// read end of a pipe nobody is reading.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Cleanup_ends_within_one_budget_while_a_descendant_out_of_reach_holds_the_pipes(bool holdsStdin) {
+        var redirect = holdsStdin ? "<&0" : "";
+        var run = Run(Script($"(sleep 30 {redirect} & echo $! > '{DescendantFile}')\nexec sleep 30"),
+            holdsStdin ? new string('x', 1 << 20) : null, timeout: TimeSpan.FromSeconds(1));
+        var started = Environment.TickCount64;
+        var (pid, identity) = await ChildAsync(DescendantFile);
+
+        try {
+            var exit = await run.WaitAsync(TimeSpan.FromSeconds(30));
+
+            await Assert.That(exit!.TimedOut).IsTrue();
+            await Assert.That(Environment.TickCount64 - started).IsLessThan(4_500);
+        } finally {
+            ProcessTree.Kill(pid, identity);
+        }
+    }
+
     [Test, ExcludeOn(OS.Windows)]
     public async Task Cancellation_kills_the_child_before_propagating() {
         using var cts = new CancellationTokenSource();

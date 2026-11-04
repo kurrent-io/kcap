@@ -6,11 +6,15 @@ namespace Capacitor.Cli.Core.Harness.Headless;
 
 /// <summary>
 /// Runs one headless harness process to its end: optional stdin, stdout and stderr streamed line by line,
-/// an absolute deadline, and external cancellation. Every kill is waited out, with a bound, so the caller can
-/// remove the run's directory once this returns or throws.
+/// an absolute deadline, and external cancellation. Cleanup waits share one <see cref="CleanupLimit"/>, so a process
+/// that outlives it is left killed but unconfirmed, the caller's removal of the run's directory is best effort, and
+/// the next daemon start's sweep is the backstop.
 /// </summary>
 static class HeadlessProcess {
-    static readonly TimeSpan AfterKill   = TimeSpan.FromSeconds(5);
+    /// <summary>All the cleanup of one run may wait, from its first kill. A daemon adapter's timeout stops this short
+    /// of the deadline, so a timeout answer arrives by it.</summary>
+    public static readonly TimeSpan CleanupLimit = TimeSpan.FromSeconds(2);
+
     static readonly TimeSpan ExitGrace   = TimeSpan.FromSeconds(1);
     static readonly TimeSpan TrackPeriod = TimeSpan.FromMilliseconds(500);
     static readonly TimeSpan GonePoll    = TimeSpan.FromMilliseconds(20);
@@ -78,12 +82,13 @@ static class HeadlessProcess {
         using var timeoutCts = new CancellationTokenSource(timeout, time);
         using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
         using var survivors  = new Survivors(process, time);
+        var       budget     = new CleanupBudget();
 
         try {
             return await RunToEndAsync();
         } finally {
             // Every path ends here, so nothing the process started outlives the run or holds its directory.
-            await survivors.KillAsync(AfterKill);
+            await survivors.KillAsync(budget);
         }
 
         async Task<HeadlessProcessExit> RunToEndAsync() {
@@ -102,7 +107,7 @@ static class HeadlessProcess {
                     // A broken pipe usually means the child is exiting; its own exit code is the outcome only if
                     // it ends before the kill does.
                     var exitedOnItsOwn = await ExitCodeWithinAsync(process, ExitGrace, time);
-                    await KillAsync(process, survivors, stdoutTask, stderrTask, time);
+                    await KillAsync(process, survivors, budget, stdoutTask, stderrTask);
                     ct.ThrowIfCancellationRequested();
 
                     if (ex is not IOException) throw;
@@ -113,19 +118,19 @@ static class HeadlessProcess {
                 var exited = process.WaitForExitAsync(linkedCts.Token);
 
                 if (await Task.WhenAny(exited, killEarly.Task) != exited) {
-                    await KillAsync(process, survivors, stdoutTask, stderrTask, time);
+                    await KillAsync(process, survivors, budget, stdoutTask, stderrTask);
 
                     return new(null, false, true, stderr.Text);
                 }
 
                 await exited;
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-                await KillAsync(process, survivors, stdoutTask, stderrTask, time);
+                await KillAsync(process, survivors, budget, stdoutTask, stderrTask);
 
                 throw;
             } catch (OperationCanceledException) {
                 log($"{name} timed out ({timeout.TotalSeconds:0}s), killing");
-                await KillAsync(process, survivors, stdoutTask, stderrTask, time);
+                await KillAsync(process, survivors, budget, stdoutTask, stderrTask);
 
                 return new(null, true, false, stderr.Text);
             }
@@ -133,13 +138,13 @@ static class HeadlessProcess {
             try {
                 await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(linkedCts.Token);
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-                await KillAsync(process, survivors, stdoutTask, stderrTask, time);
+                await KillAsync(process, survivors, budget, stdoutTask, stderrTask);
 
                 throw;
             } catch (OperationCanceledException) {
                 // A descendant that outlived the process holds the pipe, and may still be writing into the run directory.
                 log($"{name} exited but a descendant kept its output open to the deadline, killing it");
-                await KillAsync(process, survivors, stdoutTask, stderrTask, time);
+                await KillAsync(process, survivors, budget, stdoutTask, stderrTask);
 
                 return new(null, true, false, stderr.Text);
             }
@@ -180,10 +185,11 @@ static class HeadlessProcess {
             }
         }
 
-        /// <summary>Kills every descendant seen that is still the same process, then waits up to
+        /// <summary>Kills every descendant seen that is still the same process, then waits within
         /// <paramref name="budget"/> for each to be gone: a kill can return with termination still pending, and a
         /// process still alive can keep the run directory from being removed.</summary>
-        public async Task KillAsync(TimeSpan budget) {
+        public async Task KillAsync(CleanupBudget budget) {
+            budget.Begin();
             _stop.Cancel();
 
             List<(int Pid, string Identity, Process? Handle)> killed = [];
@@ -203,20 +209,16 @@ static class HeadlessProcess {
                     killed.Add((pid, identity, handle));
                 }
 
-                // Real time: these are real processes, and a test's fake clock would never end the wait.
-                var start = TimeProvider.System.GetTimestamp();
-
                 foreach (var (pid, identity, handle) in killed) {
-                    var left = budget - TimeProvider.System.GetElapsedTime(start);
-                    if (left <= TimeSpan.Zero) return;
+                    if (budget.Left <= TimeSpan.Zero) return;
 
                     if (handle is not null) {
-                        try { await handle.WaitForExitAsync().WaitAsync(left, TimeProvider.System); } catch (Exception) { /* bounded */ }
+                        try { await handle.WaitForExitAsync().WaitAsync(budget.Left, TimeProvider.System); } catch (Exception) { /* left unconfirmed */ }
 
                         continue;
                     }
 
-                    while (ProcessStartToken.Matches(pid, identity) == true && TimeProvider.System.GetElapsedTime(start) < budget)
+                    while (ProcessStartToken.Matches(pid, identity) == true && budget.Left > TimeSpan.Zero)
                         await Task.Delay(GonePoll, TimeProvider.System);
                 }
             } finally {
@@ -237,6 +239,24 @@ static class HeadlessProcess {
             }
 
             return null;
+        }
+    }
+
+    /// <summary>What is left of <see cref="CleanupLimit"/> since the run's first kill. Real time: these are real
+    /// processes, and a test's fake clock would never end a wait on them.</summary>
+    sealed class CleanupBudget {
+        long? _start;
+
+        public void Begin() => _start ??= TimeProvider.System.GetTimestamp();
+
+        public TimeSpan Left {
+            get {
+                if (_start is not { } start) return CleanupLimit;
+
+                var left = CleanupLimit - TimeProvider.System.GetElapsedTime(start);
+
+                return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+            }
         }
     }
 
@@ -278,17 +298,19 @@ static class HeadlessProcess {
 
     /// <summary>A grandchild that inherited the output pipes can hold them open past the kill, so every wait is
     /// bounded.</summary>
-    static async Task KillAsync(Process process, Survivors survivors, Task stdoutTask, Task stderrTask, TimeProvider time) {
+    static async Task KillAsync(Process process, Survivors survivors, CleanupBudget budget, Task stdoutTask, Task stderrTask) {
+        budget.Begin();
+
         try { ProcessTree.Kill(process); } catch {
             /* already gone */
         }
 
         // Before the output wait: a descendant still holding the pipes would otherwise run it to its bound.
-        await survivors.KillAsync(AfterKill);
+        await survivors.KillAsync(budget);
 
         try {
-            await process.WaitForExitAsync().WaitAsync(AfterKill, time);
-            await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(AfterKill, time);
+            await process.WaitForExitAsync().WaitAsync(budget.Left, TimeProvider.System);
+            await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(budget.Left, TimeProvider.System);
         } catch {
             CloseOutput(process);
         }
