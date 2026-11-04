@@ -10,7 +10,8 @@ sealed partial class LaunchdServiceManager(
     TimeProvider time,
     UnitFileWriter? writeUnit = null,
     Func<string, string[], (int ExitCode, string StdOut, string StdErr)>? runProcess = null,
-    Func<string, string[], TimeSpan, (int ExitCode, string StdOut, string StdErr, bool TimedOut)>? runBounded = null
+    Func<string, string[], TimeSpan, (int ExitCode, string StdOut, string StdErr, bool TimedOut)>? runBounded = null,
+    DaemonStore? store = null
 ) : IServiceManager, IVerifyServiceManager {
     readonly UnitFileWriter _writeUnit = writeUnit ?? ((path, content, encoding) => ServiceFiles.WriteOwnerOnly(path, content, encoding));
 
@@ -471,6 +472,7 @@ sealed partial class LaunchdServiceManager(
         }
 
         if (File.Exists(path)) File.Delete(path);
+        if (store?.RepointPreimagePath(serviceId) is { } preimage && File.Exists(preimage)) File.Delete(preimage);
         error = null;
         return true;
     }

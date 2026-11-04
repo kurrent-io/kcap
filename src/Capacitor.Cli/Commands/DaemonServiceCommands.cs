@@ -56,7 +56,7 @@ sealed class DaemonServiceCommands(
 
         IServiceManager manager;
         try {
-            manager = ServiceManagerFactory.ForCurrentOs(root, home, time);
+            manager = ServiceManagerFactory.ForCurrentOs(root, home, time, store: store);
         } catch (PlatformNotSupportedException ex) {
             await Console.Error.WriteLineAsync(ex.Message);
             return 1;
@@ -948,8 +948,8 @@ sealed class DaemonServiceCommands(
     async Task<int> RepointLaunchdAsync(LaunchdServiceManager launchd, IReadOnlyList<string> units, string dir, string daemonPath) {
         var (failed, deferred) = (false, false);
 
-        foreach (var unit in units) {
-            var preimage = launchd.UnitPath(unit) + ".kcap-repoint-preimage";
+        foreach (var unit in units.Union(store.RepointPreimageNames())) {
+            var preimage = store.RepointPreimagePath(unit);
             bool Within(string? binary) => binary is not null && CanonicalPath.IsWithin(binary, dir);
             // A preimage marks a run cut short with the plist already rewritten.
             bool Owned() => File.Exists(preimage) || Within(launchd.UnitBinary(unit));
@@ -993,6 +993,9 @@ sealed class DaemonServiceCommands(
                         break;
                     case UnitRefresh.NotLoaded or UnitRefresh.Current:
                         await Console.Out.WriteLineAsync($"Daemon '{unit}': runs {runs} from its next start.");
+                        break;
+                    case UnitRefresh.UnitMissing:
+                        await Console.Out.WriteLineAsync($"Daemon '{unit}': no service unit is installed, so nothing was repointed.");
                         break;
                     case UnitRefresh.Deferred:
                         await Console.Error.WriteLineAsync($"Daemon '{unit}' {DeferralReason(stop)}, so it still runs from {dir}. Try again once it is idle.");

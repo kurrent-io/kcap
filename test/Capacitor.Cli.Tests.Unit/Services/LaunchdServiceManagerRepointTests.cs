@@ -4,11 +4,12 @@ namespace Capacitor.Cli.Tests.Unit.Services;
 
 /// <summary>
 /// A repoint moves a job off another install's daemon. A stopped job stays stopped, since every bootstrap of a
-/// kcap unit starts it, and the original plist is held beside the unit from before its daemon is stopped until
-/// the job runs again.
+/// kcap unit starts it, and the original plist is held in the daemon store from before its daemon is stopped
+/// until the job runs again.
 /// </summary>
 public class LaunchdServiceManagerRepointTests {
     [TempHome] public required TempHome Home { get; init; }
+    [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
 
     const string Old    = "/npm/lib/node_modules/@kurrent/kcap-darwin-arm64/bin/kcap-daemon";
     const string Bundle = "/Applications/kcap.app/Contents/MacOS/kcap-daemon";
@@ -21,7 +22,7 @@ public class LaunchdServiceManagerRepointTests {
         "test", binary, "/home/u/.config/kcap/daemon-test.log", new Dictionary<string, string> { ["KCAP_PROFILE"] = "work" }, ["--max-agents", "4"]));
 
     string PlistPath => LaunchdUnit.PlistPath(Home, "test");
-    string Preimage  => PlistPath + ".kcap-repoint-preimage";
+    string Preimage  => Daemons.Store.RepointPreimagePath("test");
 
     void Seed(string binary) {
         Directory.CreateDirectory(LaunchdUnit.AgentsDir(Home));
@@ -29,7 +30,7 @@ public class LaunchdServiceManagerRepointTests {
     }
 
     UnitRefresh Repoint(FakeLaunchctl launchctl, Func<bool> stopForReload, out string? error) =>
-        launchctl.Manager().RefreshUnit(
+        launchctl.Manager(Daemons.Store).RefreshUnit(
             "test", stopForReload, Plenty, out error, Stabilize, leaveStoppedUnloaded: true, preimagePath: Preimage);
 
     [Test]
@@ -121,5 +122,21 @@ public class LaunchdServiceManagerRepointTests {
         await Assert.That(File.Exists(Preimage)).IsFalse();
         await Assert.That(launchctl.Program("test")).IsEqualTo(Bundle);
         await Assert.That(File.ReadAllText(PlistPath)).IsEqualTo(Plist(Bundle));
+    }
+
+    [Test]
+    public async Task Uninstall_removes_the_unit_s_preimage() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        Seed(Bundle);
+        File.WriteAllText(Preimage, Plist(Old));
+        var launchctl = new FakeLaunchctl(Home);
+        launchctl.Load("test", Bundle);
+
+        var removed = launchctl.Manager(Daemons.Store).Uninstall("test", out var error);
+
+        await Assert.That(removed).IsTrue();
+        await Assert.That(error).IsNull();
+        await Assert.That(File.Exists(PlistPath)).IsFalse();
+        await Assert.That(File.Exists(Preimage)).IsFalse();
     }
 }

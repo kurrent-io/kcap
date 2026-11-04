@@ -28,17 +28,18 @@ public partial class DaemonServiceRepointTests {
         new Dictionary<string, string> { ["KCAP_PROFILE"] = "work" }, ["--max-agents", "4"]);
 
     string PlistPath(string id) => LaunchdUnit.PlistPath(Home, id);
-    string Preimage(string id)  => PlistPath(id) + ".kcap-repoint-preimage";
+    string Preimage(string id)  => Daemons.Store.RepointPreimagePath(id);
 
     void Install(string id, string binary) {
         Directory.CreateDirectory(LaunchdUnit.AgentsDir(Home));
         File.WriteAllText(PlistPath(id), LaunchdUnit.Plist(Spec(id, binary)));
     }
 
-    DaemonServiceCommands Commands(FakeLaunchctl launchctl, ReloadStop answer = ReloadStop.Exited) =>
-        new(Daemons.Store, Config.Root, Resolutions.None(Config.Root), launchctl.Manager(), "unused", Home, TimeProvider.System) {
+    DaemonServiceCommands Commands(FakeLaunchctl launchctl, ReloadStop answer = ReloadStop.Exited, Action<string>? atStop = null) =>
+        new(Daemons.Store, Config.Root, Resolutions.None(Config.Root), launchctl.Manager(Daemons.Store), "unused", Home, TimeProvider.System) {
             HostsCaller   = _ => false,
             ReloadStopper = id => {
+                atStop?.Invoke(id);
                 if (answer == ReloadStop.Exited) launchctl.Exit(id);
                 return answer;
             },
@@ -97,6 +98,46 @@ public partial class DaemonServiceRepointTests {
         await Assert.That(File.ReadAllText(PlistPath("npm"))).IsEqualTo(LaunchdUnit.Plist(Spec("npm", Bundle)));
         await Assert.That(launchctl.Program("npm")).IsEqualTo(Bundle);
         await Assert.That(File.Exists(Preimage("npm"))).IsFalse();
+    }
+
+    /// <summary>launchd may load any file in LaunchAgents at login, and a preimage carries the unit's own Label.</summary>
+    [Test]
+    public async Task The_preimage_is_kept_in_the_daemon_store_and_never_in_LaunchAgents() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        Install("npm", OldDaemon);
+        var launchctl = new FakeLaunchctl(Home);
+        launchctl.Load("npm", OldDaemon);
+        (bool Exists, UnixFileMode? Mode, string[] Agents)? atStop = null;
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(launchctl, atStop: id => {
+            if (OperatingSystem.IsWindows()) return;
+            var exists = File.Exists(Preimage(id));
+            atStop = (exists, exists ? File.GetUnixFileMode(Preimage(id)) : null,
+                [.. Directory.EnumerateFileSystemEntries(LaunchdUnit.AgentsDir(Home)).Select(Path.GetFileName).OfType<string>()]);
+        }).RepointFrom(Dir, Bundle);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(atStop?.Exists).IsTrue();
+        await Assert.That(atStop?.Mode).IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        await Assert.That(atStop?.Agents).IsEquivalentTo([Path.GetFileName(PlistPath("npm"))]);
+        await Assert.That(File.Exists(Preimage("npm"))).IsFalse();
+    }
+
+    /// <summary>A preimage outlives its unit when the plist is removed some other way than `service uninstall`.</summary>
+    [Test]
+    public async Task An_orphan_preimage_with_no_unit_is_dropped() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        File.WriteAllText(Preimage("gone"), LaunchdUnit.Plist(Spec("gone", OldDaemon)));
+        var launchctl = new FakeLaunchctl(Home);
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(launchctl).RepointFrom(Dir, Bundle);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(File.Exists(Preimage("gone"))).IsFalse();
+        await Assert.That(File.Exists(PlistPath("gone"))).IsFalse();
+        await Assert.That(launchctl.Calls).IsEmpty();
     }
 
     [Test]

@@ -32,13 +32,14 @@ sealed class FakeLaunchctl(UserHome home) {
 
     public string[] Verbs => [.. Calls.Select(c => c[0])];
 
-    public LaunchdServiceManager Manager() => new(home, TimeProvider.System,
+    public LaunchdServiceManager Manager(DaemonStore? store = null) => new(home, TimeProvider.System,
         writeUnit: (path, content, _) => File.WriteAllText(path, content),
         runProcess: (tool, args) => {
             var (exit, stdout, stderr, _) = Run(tool, args, TimeSpan.Zero);
             return (exit, stdout, stderr);
         },
-        runBounded: Run);
+        runBounded: Run,
+        store: store);
 
     (int, string, string, bool) Run(string tool, string[] args, TimeSpan timeout) {
         Calls.Add(args);
