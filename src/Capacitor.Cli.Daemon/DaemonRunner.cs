@@ -752,6 +752,8 @@ public static partial class DaemonRunner {
         var unattendedStatuses = ClassifyUnattendedVendors(runtimeFactories);
 
         config.UnattendedVendors = AdvertisedUnattendedVendors(unattendedStatuses);
+        config.StartupUnattendedClassificationPending =
+            unattendedStatuses.Any(s => s.ProbeFailed || s.WithheldReason is not null);
         // Fingerprinted BEFORE the probes: a vendor that updates between the two then reads as a
         // change to the watcher, instead of as the baseline the stale advertisement already matches.
         // Every advertised vendor is recorded, since a catalog-only vendor is watched too.

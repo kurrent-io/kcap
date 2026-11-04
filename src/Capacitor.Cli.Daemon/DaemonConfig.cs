@@ -180,6 +180,8 @@ public class DaemonConfig {
     /// </summary>
     public string[]? UnattendedVendors { get; set; }
 
+    internal bool StartupUnattendedClassificationPending { get; set; }
+
     /// <summary>Setting this keeps the Codex resolution already paired with the capabilities; a caller
     /// that computed them from a resolution publishes both through <see cref="Advertise"/>.</summary>
     public IReadOnlyList<UnattendedVendorCapability>? UnattendedVendorCapabilities {

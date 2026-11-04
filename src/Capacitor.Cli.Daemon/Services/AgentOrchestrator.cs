@@ -904,6 +904,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _spoolDrain        = new(TimeSpan.FromSeconds(60), time);
         _titleResolve      = new(TimeSpan.FromSeconds(60), time);
         _config            = config;
+        _unattendedClassificationPending = config.StartupUnattendedClassificationPending;
         _configRoot        = configRoot;
         _tokens            = tokens;
         _harnesses         = harnesses;

@@ -43,10 +43,9 @@ public class AgentOrchestratorCapabilityRefreshTests {
         return (orch, server, captured!);
     }
 
-    // No unattended vendors, so the capability half reads unchanged and only the catalog decides.
     static (AgentOrchestrator Orchestrator, CaptureServerConnection Server, DaemonConfig Config) BuildWithCatalog(
             StubCatalogFactory factory, Dictionary<string, VendorModelOption[]>? initial,
-            bool supported = true, Exception? registerThrow = null) {
+            bool supported = true, Exception? registerThrow = null, bool classifyAtStartup = false) {
         var server = new CaptureServerConnection { RegisterDaemonThrow = registerThrow };
         DaemonConfig? captured = null;
         var orch = AgentOrchestratorHarness.BuildOrchestrator(
@@ -57,6 +56,11 @@ public class AgentOrchestratorCapabilityRefreshTests {
                 config.UnattendedVendorCapabilities = [];
                 config.VendorModels                 = initial;
                 config.SupportedVendors             = supported ? [factory.Vendor] : [];
+                if (classifyAtStartup) {
+                    var statuses = DaemonRunner.ClassifyUnattendedVendors([factory]);
+                    config.UnattendedVendors = DaemonRunner.AdvertisedUnattendedVendors(statuses);
+                    config.StartupUnattendedClassificationPending = statuses.Any(s => s.ProbeFailed || s.WithheldReason is not null);
+                }
                 captured = config;
             });
         return (orch, server, captured!);
@@ -83,35 +87,38 @@ public class AgentOrchestratorCapabilityRefreshTests {
     }
 
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task Discovery_retries_withheld_classification_without_an_installation_change(bool throws) {
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task Discovery_retries_withheld_classification_without_an_installation_change(bool throws, bool startup) {
         var factory = new StubCatalogFactory("cursor", models: null) {
             CliPathOverride = "",
             UnattendedProbe = () => throws
                 ? throw new TimeoutException("temporary probe failure")
                 : new(false, "cursor_reviewer_version_unresolved: temporary probe failure")
         };
-        var (orch, server, config) = BuildWithCatalog(factory, initial: null, supported: false);
+        var (orch, server, config) = BuildWithCatalog(factory, initial: null, supported: startup, classifyAtStartup: startup);
         await using var _ = orch;
+        var discoveryPublications = startup ? 0 : 1;
 
         orch.RefreshAgentDiscovery();
         await orch.CapabilityRefreshForTest;
         await Assert.That(config.SupportedVendors).IsEquivalentTo(["cursor"]);
         await Assert.That(config.UnattendedVendors).IsEmpty();
-        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(1);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(discoveryPublications);
 
         factory.UnattendedProbe = () => new(true, null);
         orch.RefreshAgentDiscovery();
         await orch.CapabilityRefreshForTest;
         await Assert.That(config.UnattendedVendors).IsEquivalentTo(["cursor"]);
-        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(2);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(discoveryPublications + 1);
 
         var probes = factory.UnattendedProbeCalls;
         orch.RefreshAgentDiscovery();
         await orch.CapabilityRefreshForTest;
         await Assert.That(factory.UnattendedProbeCalls).IsEqualTo(probes);
-        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(2);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(discoveryPublications + 1);
     }
 
     [Test]
