@@ -1,5 +1,6 @@
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
@@ -686,6 +687,85 @@ public class LocalInstallerTests {
         await Assert.That(_events.Reports.OfType<LocalInstallEvent.EmbeddingBuiltinConfigured>().Single()).IsEqualTo(new LocalInstallEvent.EmbeddingBuiltinConfigured());
         await Assert.That(EventAt<LocalInstallEvent.EmbeddingBuiltinConfigured>()).IsLessThan(EventAt<LocalInstallEvent.Starting>());
         await Assert.That(LocalEmbeddingFile.Read(Root)).IsEqualTo(LocalEmbeddingSetting.Builtin(Models.ModelSet));
+    }
+
+    /// <summary>A setup that keeps the built-in model keeps its files; one that leaves it unused deletes them once the
+    /// server runs without them, and says how much space came back.</summary>
+    [Test]
+    public async Task Leaving_the_builtin_model_unused_deletes_it_and_reports_the_space() {
+        await Install();
+        await ReuseOffering(new LocalEmbeddingAnswer.Builtin());
+        _events.Reports.Clear();
+
+        await ReuseOffering(new LocalEmbeddingAnswer.Default());
+
+        await Assert.That(File.Exists(ModelFile)).IsTrue();
+        await Assert.That(_events.Reports.OfType<LocalInstallEvent.EmbeddingBuiltinRemoved>()).IsEmpty();
+
+        await ReuseOffering(new LocalEmbeddingAnswer.Skip());
+
+        await Assert.That(Directory.Exists(Path.Combine(Root.Directory, "models", Models.ModelSet))).IsFalse();
+        await Assert.That(_events.Reports.OfType<LocalInstallEvent.EmbeddingBuiltinRemoved>().Single())
+            .IsEqualTo(new LocalInstallEvent.EmbeddingBuiltinRemoved(Path.Combine(Root.Directory, "models"), ModelOnnx.Length, 0));
+        await Assert.That(EventAt<LocalInstallEvent.Ready>()).IsLessThan(EventAt<LocalInstallEvent.EmbeddingBuiltinRemoved>());
+    }
+
+    [Test]
+    public async Task A_server_that_does_not_answer_as_this_installation_deletes_no_model() {
+        await Install();
+        await ReuseOffering(new LocalEmbeddingAnswer.Builtin());
+        Server.Override = path => path != "/auth/config" ? null : PendingAnswer();
+
+        await Assert.ThrowsAsync<LocalInstallFailure>(() => ReuseOffering(new LocalEmbeddingAnswer.Skip()));
+
+        await Assert.That(File.Exists(ModelFile)).IsTrue();
+        await Assert.That(_events.Reports.OfType<LocalInstallEvent.EmbeddingBuiltinRemoved>()).IsEmpty();
+    }
+
+    /// <summary>A lost record reads as no choice, which a built-in unit already "serves" as keyword search: the model goes
+    /// only once the unit is rewritten without it, and never on a run that chose nothing.</summary>
+    [Test]
+    public async Task A_lost_record_deletes_the_model_only_after_rewriting_the_builtin_unit() {
+        await Install();
+        await ReuseOffering(new LocalEmbeddingAnswer.Builtin());
+        LocalEmbeddingFile.Delete(Root);
+
+        await Install(new(false, false));
+
+        await Assert.That(File.Exists(ModelFile)).IsTrue();
+        await Assert.That(EmbeddingEnvironment()).IsEquivalentTo(BuiltinEnvironment);
+
+        await ReuseOffering(new LocalEmbeddingAnswer.Skip());
+
+        await Assert.That(EmbeddingEnvironment()).IsEmpty();
+        await Assert.That(File.Exists(ModelFile)).IsFalse();
+    }
+
+    /// <summary>A settled keyword record already describes the unit, so a model file that resisted deletion is retried
+    /// on the next setup without rewriting and restarting the unit.</summary>
+    [Test, UnsupportedOSPlatform("windows")]
+    public async Task An_undeletable_model_is_retried_without_rewriting_a_settled_unit() {
+        await Install();
+        await ReuseOffering(new LocalEmbeddingAnswer.Builtin());
+        var set = Path.GetDirectoryName(ModelFile)!;
+        File.SetUnixFileMode(set, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        try {
+            await ReuseOffering(new LocalEmbeddingAnswer.Skip());
+            _log.Clear();
+            _events.Reports.Clear();
+
+            await ReuseOffering(new LocalEmbeddingAnswer.Skip());
+
+            await Assert.That(_log).DoesNotContain("install");
+            await Assert.That(_events.Reports.OfType<LocalInstallEvent.EmbeddingBuiltinRemoved>().Single().Left).IsEqualTo(ModelOnnx.Length);
+        } finally {
+            File.SetUnixFileMode(set, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        await Install(new(false, false));
+
+        await Assert.That(File.Exists(ModelFile)).IsFalse();
     }
 
     [Test]
