@@ -1,12 +1,12 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 
-namespace Capacitor.Cli.Services;
+namespace Capacitor.Cli.Core;
 
 /// <summary>Which account owns a path. No BCL API exposes a file's owner, and <c>struct stat</c> differs by
 /// platform, architecture and libc, so the owner comes from the system's own <c>stat</c> command rather than
 /// a hand-marshalled struct that could misread it on one target.</summary>
-static partial class FileOwner {
+public static partial class FileOwner {
     static readonly TimeSpan StatTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>System locations only, never PATH: a directory on PATH another account can write would
@@ -29,11 +29,13 @@ static partial class FileOwner {
 
     static uint? Read(string stat, string path) {
         try {
-            var (code, stdout, _, timedOut) = ServiceProcess.RunBounded(
-                stat, OperatingSystem.IsMacOS() ? ["-f", "%u", path] : ["-c", "%u", path], StatTimeout);
+            var result = new ProcessRunner(TimeProvider.System)
+                .RunAsync(stat, OperatingSystem.IsMacOS() ? ["-f", "%u", path] : ["-c", "%u", path],
+                    new RunOptions(Timeout: StatTimeout), CancellationToken.None)
+                .GetAwaiter().GetResult();
 
-            return !timedOut && code == 0
-                && uint.TryParse(stdout.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var uid)
+            return !result.TimedOut && result.ExitCode == 0
+                && uint.TryParse(result.Stdout.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var uid)
                 ? uid
                 : null;
         } catch (Exception) {

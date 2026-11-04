@@ -1,7 +1,6 @@
 using System.Runtime.Versioning;
-using Capacitor.Cli.Services;
 
-namespace Capacitor.Cli.Tests.Unit.Services;
+namespace Capacitor.Cli.Core.Tests.Unit;
 
 /// <summary>A unit written 0600 into a directory nobody else can write is still replaceable when something
 /// above it is writable — renaming an entry needs write on its directory, not on the entry.</summary>

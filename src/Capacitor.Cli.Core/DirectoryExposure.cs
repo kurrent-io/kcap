@@ -1,17 +1,11 @@
-namespace Capacitor.Cli.Services;
+namespace Capacitor.Cli.Core;
 
-/// <summary>Which directories on the path to a service unit let accounts other than the owner replace what
-/// is inside them.
-///
-/// <para>A unit written <c>0600</c> into a directory nobody else can write is still replaceable if
-/// something ABOVE it is: write permission on a directory is permission to rename its entries, so an
-/// account that can write <c>~/.config</c> can swap the whole <c>systemd/user</c> directory for one of its
-/// own. The mode of the unit and of its immediate directory says nothing about that.</para>
-///
-/// <para>Mode bits are half of it: a directory's owner can rename its entries whatever the bits say. So
-/// <see cref="ForeignOwned(string)"/> reports the ancestors owned by another account, and
-/// <see cref="GrantingWrite"/> the ones whose bits let another class write.</para></summary>
-static class DirectoryExposure {
+/// <summary>Which directories on the path to an entry let accounts other than the owner replace what is
+/// inside them. Write on a directory is permission to rename its entries, so a <c>0600</c> file in a
+/// private directory is still replaceable when anything above it is writable; and a directory's owner can
+/// rename its entries whatever the bits say. <see cref="GrantingWrite"/> reports the first kind,
+/// <see cref="ForeignOwned(string)"/> the second.</summary>
+public static class DirectoryExposure {
     /// <summary>The directories from <paramref name="directory"/> up to the filesystem root that let a
     /// class named in <paramref name="writeBits"/> replace their entries, nearest first. Empty means no
     /// mode bit on the path grants it.
@@ -93,7 +87,14 @@ static class DirectoryExposure {
 
     /// <summary>The directory the kernel reaches for <paramref name="directory"/>, every symlinked component
     /// replaced by its target.</summary>
-    public static string Physical(string directory) => Resolve(Path.GetFullPath(directory), depth: 0, []);
+    public static string Physical(string directory) => Resolve(Path.GetFullPath(directory), depth: 0, [], []);
+
+    /// <summary>Every symlink or junction the kernel follows to reach <paramref name="directory"/>.</summary>
+    internal static IReadOnlyList<string> Links(string directory) {
+        var links = new List<string>();
+        Resolve(Path.GetFullPath(directory), depth: 0, [], links);
+        return links;
+    }
 
     static bool Grants(UnixFileMode mode, UnixFileMode writeBits, UnixFileMode write, UnixFileMode execute) =>
         writeBits.HasFlag(write) && mode.HasFlag(write) && mode.HasFlag(execute);
@@ -102,9 +103,9 @@ static class DirectoryExposure {
     /// every directory that holds a symlink met on the way, with their own ancestors: whoever can rename a
     /// link can point the path elsewhere, so a link's directory counts as much as the ones it leads to.
     /// The given path's own lexical chain is the first such holder.</summary>
-    static IEnumerable<string> Ancestors(string directory) {
+    internal static IEnumerable<string> Ancestors(string directory) {
         var holders = new List<string> { Path.GetFullPath(directory) };
-        var physical = Resolve(Path.GetFullPath(directory), depth: 0, holders);
+        var physical = Resolve(Path.GetFullPath(directory), depth: 0, holders, links: []);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var start in holders.Prepend(physical))
             for (var d = start; !string.IsNullOrEmpty(d); d = Path.GetDirectoryName(d)!)
@@ -117,7 +118,7 @@ static class DirectoryExposure {
     /// written: the target is an ordinary path and may itself sit under links, so accepting it leaves the
     /// very prefix this exists to resolve unresolved. A Mac shows it without any exotic setup — a link into <c>/var/...</c> lands back
     /// on the symlink into <c>/private</c>.</summary>
-    static string Resolve(string full, int depth, List<string> holders) {
+    static string Resolve(string full, int depth, List<string> holders, List<string> links) {
         if (depth > 20) return full;   // a cycle ResolveLinkTarget did not refuse
 
         var root    = Path.GetPathRoot(full)!;
@@ -134,7 +135,8 @@ static class DirectoryExposure {
                 // directory holding every link in a chain is recorded.
                 if (Directory.ResolveLinkTarget(current, returnFinalTarget: false) is { } target) {
                     holders.Add(Path.GetDirectoryName(current)!);
-                    current = Resolve(target.FullName, depth + 1, holders);
+                    links.Add(current);
+                    current = Resolve(target.FullName, depth + 1, holders, links);
                 }
             } catch (IOException) { /* keep the lexical component */ }
         }
