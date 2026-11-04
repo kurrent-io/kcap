@@ -754,4 +754,14 @@ public class ClaudeChatRulesTests {
         await Assert.That(firing.Envelopes).IsEmpty();
         await Assert.That(firing.SubmittedInputs).IsEmpty();
     }
+
+    /// A reminder beside a bang command is the harness's: the row and the receipt are still the command's.
+    [Test]
+    public async Task A_bang_command_behind_a_reminder_is_still_its_shell_row() {
+        var result = R(User("<system-reminder>x</system-reminder>\n<bash-input>ls</bash-input>"));
+        var row = result.Envelopes.Single();
+        await Assert.That(row.ToolKind).IsEqualTo(ChatDisplayKind.Shell);
+        await Assert.That(row.Text).IsEqualTo("! ls");
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "!ls" });
+    }
 }

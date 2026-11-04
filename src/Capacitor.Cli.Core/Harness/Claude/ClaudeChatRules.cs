@@ -356,11 +356,11 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         return built.ToString();
     }
 
-    /// The command when the whole message is a bash-input tag; null when the tag is quoted
-    /// inside other text or the command is blank.
+    /// The command when the whole message is a bash-input tag, reminders beside it aside; null when the
+    /// tag is quoted inside other text or the command is blank.
     static string? BashCommand(string text) {
         var tag = BashInput().Match(text);
-        if (!tag.Success || BashInput().Replace(text, "").Trim().Length > 0) return null;
+        if (!tag.Success || OutsideTags(BashInput().Replace(text, ""))) return null;
         var command = tag.Groups[1].Value.Trim();
         return command.Length == 0 ? null : command;
     }
@@ -377,12 +377,16 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         var stdout = BashStdout().Match(text);
         var stderr = BashStderr().Match(text);
         if (!stdout.Success && !stderr.Success) return null;
-        if (BashStderr().Replace(BashStdout().Replace(text, ""), "").Trim().Length > 0) return null;
+        if (OutsideTags(BashStderr().Replace(BashStdout().Replace(text, ""), ""))) return null;
         var parts = new List<string>(2);
         if (stdout.Success && stdout.Groups[1].Value.Trim() is { Length: > 0 } o) parts.Add(o);
         if (stderr.Success && stderr.Groups[1].Value.Trim() is { Length: > 0 } e) parts.Add(e);
         return string.Join("\n", parts);
     }
+
+    /// Whether anything but reminders is left once a shell payload's own tags are out. Judged outside
+    /// the tags, so markup a command printed is never taken for the harness's.
+    static bool OutsideTags(string rest) => SystemInstructionParser.Parse(rest).CleanText.Trim().Length > 0;
 
     [GeneratedRegex(@"<command-name>(.*?)</command-name>", RegexOptions.Singleline)]
     private static partial Regex CommandName();
