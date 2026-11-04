@@ -683,6 +683,46 @@
                     </Border>
                 </StackPanel>
 
+                <StackPanel x:Name="PagesSection" Margin="0,18,0,0" IsVisible="{Binding Artefacts.HasPages, FallbackValue=False}">
+                    <Button x:Name="PagesHeader" Classes="sectionHeader" Classes.expandable="{Binding Artefacts.PagesOverflow}"
+                            Command="{Binding Artefacts.TogglePagesCommand}" AutomationProperties.Name="Pages">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <TextBlock Text="PAGES" Classes="eyebrow" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock x:Name="PagesCount" Text="{Binding Artefacts.PagesMeta}" Classes="sectionMeta" />
+                                <Panel Width="12" Height="12" IsVisible="{Binding Artefacts.PagesOverflow}">
+                                    <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding Artefacts.PagesExpanded}" />
+                                    <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !Artefacts.PagesExpanded}" />
+                                </Panel>
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                    <Border Classes="sectionBody">
+                        <ItemsControl x:Name="PageList" ItemsSource="{Binding Artefacts.VisiblePages}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="10" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PageRow">
+                                    <Button Classes="copyValue"
+                                            Command="{Binding $parent[views:WorkContextView].((vm:WorkContextViewModel)DataContext).Artefacts.OpenPageCommand}"
+                                            CommandParameter="{Binding}" ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding Title}"
+                                            HorizontalAlignment="Stretch">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
+                                                       TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{StaticResource KcapTextBrush}" />
+                                            <TextBlock Text="{Binding UpdatedLabel}" Classes="prMuted" FontSize="12" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </StackPanel>
+
                 <!-- Plan: read from the server, so unlike AGENTS & COMMANDS it shows nothing while signed out. -->
                 <StackPanel x:Name="PlanSection" IsVisible="{Binding Plan.ShowsPlan}" Margin="0,18,0,0">
                     <TextBlock Text="Loading plan…" FontSize="13" Foreground="{StaticResource KcapMutedBrush}"

@@ -49,6 +49,9 @@ public sealed class ServerPlanArtifactSource : IPlanArtifactSource, IPageContent
 
     public SessionPagesRead? CachedPages(string sessionId) => _lastPages.Get(sessionId);
 
+    public Task<bool?> CitePageAsync(string pageId, string sessionId, CancellationToken ct) =>
+        Uncached((channel, token) => channel.Pages.CiteAsync(pageId, sessionId, token), _ => false, null, null, ct);
+
     public Task<PageContentRead> ReadContentAsync(string artefactId, int? version, CancellationToken ct) =>
         Uncached((channel, token) => channel.PageContent.ReadContentAsync(artefactId, version, token), read => read is PageContentRead.SignedOut,
             new PageContentRead.SignedOut(), new PageContentRead.Unreachable(), ct);

@@ -1,4 +1,5 @@
 using System.Globalization;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Pages;
 
@@ -57,6 +58,9 @@ class ArtefactCommand(IArtefactsApi artefacts) {
         var html = ReadHtml(flags.Positionals[0]);
         if (html is null) return 1;
 
+        var sources = flags.Values("--session").Select(SessionIds.Canonical).OfType<string>().ToList();
+        if (sources.Count == 0 && SessionIds.Canonical(ArgParsing.ResolveSessionIdFromEnv()) is { } ambient) sources.Add(ambient);
+
         // --update is a new version of something that already exists, and the server owns everything
         // else about it: a title or an audience passed here would be silently dropped, so say so
         // rather than appear to have applied them.
@@ -64,15 +68,12 @@ class ArtefactCommand(IArtefactsApi artefacts) {
             if (flags.Has("--title") || flags.Has("--description") || flags.Has("--visibility") || flags.Has("--to"))
                 return Fail("--update publishes content only. Change the audience with `kcap page share`; a title cannot be changed after publishing.");
 
-            return Report(await artefacts.PublishVersionAsync(updateId, html), "published");
+            return Report(await artefacts.PublishVersionAsync(updateId, html, sources), "published");
         }
 
         // A title the caller did not give is the file's own name: better than "Untitled", and it is
         // what they will recognize in a listing.
         var title = flags.Value("--title") ?? Path.GetFileNameWithoutExtension(flags.Positionals[0]);
-
-        var sources = flags.Values("--session");
-        if (sources.Count == 0 && ArgParsing.ResolveSessionIdFromEnv() is { Length: > 0 } ambient) sources.Add(ambient);
 
         var grants = ParseGrants(flags.Values("--to"));
         if (grants is null) return 1;
