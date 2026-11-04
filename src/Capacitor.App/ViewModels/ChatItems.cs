@@ -110,7 +110,6 @@ public sealed class SystemNoteItem : ChatItemViewModel {
     public string Text { get; }
     public string Label { get; }
 
-    /// Folded, the header carries the note's first line: a task's summary, a report's opening.
     public string HeaderLabel => _isExpanded || string.IsNullOrEmpty(_peek) ? Label : $"{Label} · {_peek}";
     public LucideIconKind IconKind => ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
     public bool IsCollapsible { get; }
@@ -126,7 +125,7 @@ public sealed class SystemNoteItem : ChatItemViewModel {
         }
     }
 
-    public string ToggleAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {Label}";
+    public string ToggleAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {HeaderLabel}";
 
     public ReactiveCommand<Unit, Unit> ToggleCommand { get; }
 
@@ -134,16 +133,15 @@ public sealed class SystemNoteItem : ChatItemViewModel {
         if (IsCollapsible) IsExpanded = !IsExpanded;
     }
 
-    /// The first non-blank line as written (its length decides whether anything follows it) and
-    /// with its markdown emphasis and heading marks removed.
     static (int Length, string Clean)? LeadLine(string text) {
         foreach (var raw in text.AsSpan().Trim().EnumerateLines()) {
             var line = raw.Trim();
             if (line.IsEmpty) continue;
-            var clean = line.TrimStart("#>-* ").ToString()
+            var clean = line.TrimStart("#>- ").ToString()
                 .Replace("**", "", StringComparison.Ordinal)
+                .Replace("__", "", StringComparison.Ordinal)
                 .Replace("`", "", StringComparison.Ordinal)
-                .Trim();
+                .Trim().Trim('*').Trim('_').Trim();
             return (line.Length, clean);
         }
         return null;

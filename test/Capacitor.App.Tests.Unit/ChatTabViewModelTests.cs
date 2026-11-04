@@ -1089,6 +1089,13 @@ public class ChatTabViewModelTests {
         await Assert.That(report.IsCollapsible).IsTrue();
         await Assert.That(report.IsExpanded).IsFalse();
         await Assert.That(report.HeaderLabel).IsEqualTo("Subagent report · Findings for Auth");
+        await Assert.That(report.ToggleAccessibleName).IsEqualTo("Expand Subagent report · Findings for Auth");
+        report.Toggle();
+        await Assert.That(report.ToggleAccessibleName).IsEqualTo("Collapse Subagent report");
+
+        foreach (var emphasised in new[] { "*Finished task*", "_Finished task_", "- **Finished task**" })
+            await Assert.That(new SystemNoteItem(emphasised + "\n\nBody.", SystemNoteItem.AgentReportLabel).HeaderLabel)
+                .IsEqualTo("Subagent report · Finished task");
 
         var other = new SystemNoteItem("Reconnected.\nResumed the session.");
         await Assert.That(other.IsCollapsible).IsFalse();
