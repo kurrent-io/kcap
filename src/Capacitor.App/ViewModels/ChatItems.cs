@@ -159,7 +159,7 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     [GeneratedRegex(@"^([-*_])(\s*\1){2,}\s*$")]
     private static partial Regex Rule();
 
-    [GeneratedRegex(@"^(>\s?)*")]
+    [GeneratedRegex(@"^(\s*>)*\s*")]
     private static partial Regex QuoteMarker();
 
     // A heading or list marker counts only when whitespace follows: "-10%" and "#123" are the note's own words.
