@@ -58,17 +58,22 @@ public class UpdateFinishViewModelTests {
     public async Task A_queued_restart_names_what_it_waits_for() {
         var turns = UpdateFinishViewModel.DaemonStep(Connected, "1.4.0", "connected", DaemonRestartWait.Turns, "1.4.1");
         var agents = UpdateFinishViewModel.DaemonStep(Connected, "1.4.0", "connected", DaemonRestartWait.Agents, "1.4.1");
+        var unstated = UpdateFinishViewModel.DaemonStep(Connected, "1.4.0", "connected", DaemonRestartWait.Unstated, "1.4.1");
 
         await Assert.That(turns.Detail).IsEqualTo("Waiting for active turns. Long turns may be interrupted");
         await Assert.That(agents.Detail).IsEqualTo("Restarts once it has no agents, idle ones included");
+        await Assert.That(unstated.Detail).IsEqualTo("A restart is queued");
     }
 
-    /// Restarting a daemon that runs another install does not move it on, so the step settles on what will.
+    /// Restarting a daemon that runs another install does not move it on, so the step settles on what will, even with a
+    /// when-idle restart already queued.
     [Test]
-    public async Task A_daemon_on_another_install_settles_on_a_note_naming_it() {
+    [Arguments(DaemonRestartWait.None)]
+    [Arguments(DaemonRestartWait.Agents)]
+    public async Task A_daemon_on_another_install_settles_on_a_note_naming_it(DaemonRestartWait wait) {
         var other = new DaemonOnOtherInstall("1.4.0+abc", "/opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
 
-        var step = UpdateFinishViewModel.DaemonStep(Connected, "1.4.0+abc", "connected", DaemonRestartWait.None, "1.4.1", otherInstall: other);
+        var step = UpdateFinishViewModel.DaemonStep(Connected, "1.4.0+abc", "connected", wait, "1.4.1", otherInstall: other);
 
         await Assert.That(step.State).IsEqualTo(UpdateStepState.Note);
         await Assert.That(step.Detail).IsEqualTo("Runs 1.4.0 from another install. Update that install to move it on");

@@ -491,29 +491,36 @@ public class MainWindowViewModelTests {
             .IsEqualTo(MainWindowViewModel.ReconnectingText);
     }
 
-    /// A when-idle restart has no turn wait to promise: idle agents hold it for as long as they stay.
+    /// A when-idle restart has no turn wait to promise: idle agents hold it for as long as they stay. A marker that does
+    /// not say what it waits for promises neither.
     [Test]
-    public async Task AlertFor_a_restart_waiting_for_no_agents_says_so() {
+    [Arguments(DaemonRestartWait.Agents, MainWindowViewModel.RestartWhenNoAgentsMessage)]
+    [Arguments(DaemonRestartWait.Unstated, MainWindowViewModel.RestartUnstatedMessage)]
+    public async Task AlertFor_a_restart_not_waiting_for_turns_says_what_it_waits_for(DaemonRestartWait wait, string message) {
         var connected = new AttachStatus(AttachState.Connected, null, null);
 
-        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: DaemonRestartWait.Agents);
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: wait);
 
         await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
-        await Assert.That(pending.Detail).IsEqualTo(MainWindowViewModel.RestartWhenNoAgentsMessage);
+        await Assert.That(pending.Detail).IsEqualTo(message);
     }
 
-    /// A restart queued once the other install is updated is what moves the daemon on, so it outranks the report.
+    /// A restart waiting for turns follows an update to the other install, so it outranks the report; any other queued
+    /// restart brings back the same version, so the report outranks it.
     [Test]
-    public async Task AlertFor_a_daemon_on_another_install_names_it_until_a_restart_is_queued() {
+    [Arguments(DaemonRestartWait.None, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Agents, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Unstated, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Turns, MainWindowViewModel.RestartPendingText)]
+    public async Task AlertFor_a_daemon_on_another_install_is_outranked_only_by_a_turn_wait(DaemonRestartWait wait, string text) {
         var connected = new AttachStatus(AttachState.Connected, null, null);
         var other = new DaemonOnOtherInstall("1.4.1-beta.2+d12e8ca", "/opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
 
-        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: other);
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: other, restartPending: wait);
 
-        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonNotUpdatedText);
-        await Assert.That(alert.Detail).Contains("kcap 1.4.1-beta.2 from /opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
-        await Assert.That(MainWindowViewModel.AlertFor(connected, "connected", otherInstall: other, restartPending: DaemonRestartWait.Turns)!.Text)
-            .IsEqualTo(MainWindowViewModel.RestartPendingText);
+        await Assert.That(alert!.Text).IsEqualTo(text);
+        if (text == MainWindowViewModel.DaemonNotUpdatedText)
+            await Assert.That(alert.Detail).Contains("kcap 1.4.1-beta.2 from /opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
     }
 
     [Test]

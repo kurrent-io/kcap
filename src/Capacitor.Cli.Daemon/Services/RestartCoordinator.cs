@@ -182,7 +182,9 @@ internal sealed partial class RestartCoordinator : BackgroundService {
                 if (force) _force = true;
 
                 if (!force) {
-                    var reason = waitsForTurn ? DaemonRestartMarker.TurnBoundary : DaemonRestartMarker.Requested;
+                    var reason = waitsForTurn ? DaemonRestartMarker.TurnBoundary
+                        : whenIdle ? DaemonRestartMarker.WhenIdle
+                        : DaemonRestartMarker.Requested;
                     DaemonRestartMarker.Write(_store, _name, new DaemonRestartMarker(_version, reason, _time.GetUtcNow()));
                     LogQueued(_logger, reason);
                 }

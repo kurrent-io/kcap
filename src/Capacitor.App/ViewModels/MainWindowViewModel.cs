@@ -86,6 +86,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
 
     internal const string RestartWhenNoAgentsMessage = "The daemon restarts once it has no agents, idle ones included, with no time limit. To restart it now, run kcap daemon restart. Eligible agents resume if auto-resume is on.";
 
+    internal const string RestartUnstatedMessage = "The daemon has a restart queued but did not record what it waits for. If it stays pending, run kcap daemon restart. Eligible agents resume if auto-resume is on.";
+
     internal static string OtherInstallMessage(DaemonOnOtherInstall daemon) =>
         $"The daemon runs kcap {CapacitorVersion.Display(daemon.Version)} from {daemon.Executable}. Updating this app does not change it, and restarting it starts the same version again. Update that install (for npm, run kcap update) and the daemon moves to its new version at a turn boundary.";
 
@@ -1350,8 +1352,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// server that refused the app, or a daemon still down after a start that did not work.</param>
     /// <param name="moving">The daemon is moving to the Windows service, which brings it back itself.</param>
     /// <param name="local">The local server's own alert, from <see cref="LocalServerAlertFor"/>.</param>
-    /// <param name="otherInstall">An app update left the daemon behind on a kcap it does not ship. A queued restart
-    /// outranks it: that restart is what moves the daemon on once the other install is updated.</param>
+    /// <param name="otherInstall">An app update left the daemon behind on a kcap it does not ship. Only a restart waiting
+    /// for turns outranks it, since that follows an update to the other install; any other brings back the same version.</param>
     internal static RailAlert? AlertFor(
             AttachStatus status, string daemonConnection, bool signedOut = false, bool failed = false,
             bool canSignIn = false, bool moving = false, RailAlert? local = null, DaemonOnOtherInstall? otherInstall = null,
@@ -1376,8 +1378,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             "reconnecting" => new(ReconnectingText, StatusColors.Pending),
             "disconnected" => new(ServerLostText, StatusColors.InProgress),
             _ when restartPending == DaemonRestartWait.Turns => new(RestartPendingText, StatusColors.InProgress, Detail: RestartPendingMessage),
-            _ when restartPending == DaemonRestartWait.Agents => new(RestartPendingText, StatusColors.InProgress, Detail: RestartWhenNoAgentsMessage),
             _ when otherInstall is { } other => new(DaemonNotUpdatedText, StatusColors.InProgress, Detail: OtherInstallMessage(other)),
+            _ when restartPending == DaemonRestartWait.Agents => new(RestartPendingText, StatusColors.InProgress, Detail: RestartWhenNoAgentsMessage),
+            _ when restartPending == DaemonRestartWait.Unstated => new(RestartPendingText, StatusColors.InProgress, Detail: RestartUnstatedMessage),
             _ => null,
         };
     }

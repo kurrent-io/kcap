@@ -6,11 +6,11 @@ using Capacitor.Cli.Core.LocalIpc;
 namespace Capacitor.App.Services.Update;
 
 /// <summary>
-/// After an update, deals with a daemon still connected on an older version with no restart queued. A daemon restarts
-/// itself when its binary changes, but one that started while the update was replacing that binary can miss the change,
-/// and stays on the old version until something restarts it: that daemon is asked once to restart at its agents' next
-/// turn boundary. A daemon running a kcap this app does not ship, such as an npm install, would come back on the same
-/// version, so it is not asked; <see cref="OtherInstall"/> reports it instead.
+/// After an update, deals with a daemon still connected on an older version. A daemon restarts itself when its binary
+/// changes, but one that started while the update was replacing that binary can miss the change, and stays on the old
+/// version until something restarts it: that daemon, with no restart queued, is asked once to restart at its agents'
+/// next turn boundary. A daemon running a kcap this app does not ship, such as an npm install, would come back on the
+/// same version, so it is not asked; <see cref="OtherInstall"/> reports it instead, queued restart or not.
 /// </summary>
 public sealed class StaleDaemonNudge : IDisposable {
     /// Past the daemon's own 15 s binary poll, so one that noticed the change has queued its restart by then.
@@ -32,7 +32,7 @@ public sealed class StaleDaemonNudge : IDisposable {
     ITimer? _timer;
     // A disposed timer can still run a callback it already queued: the generation tells a stale one to do nothing.
     long _generation;
-    (AttachStatus Status, string? Version, int? Pid) _latest;
+    (AttachStatus Status, string? Version, int? Pid, bool Pending) _latest;
     bool _asked;
     bool _disposed;
 
@@ -52,13 +52,13 @@ public sealed class StaleDaemonNudge : IDisposable {
         _time = time;
         _ct = ct;
         _subscription = status.CombineLatest(daemon, restartPending, (s, d, pending) => (Status: s, d.Version, d.Pid, Pending: pending))
-            .Do(state => { lock (_lock) _latest = (state.Status, state.Version, state.Pid); })
-            .Select(state => state.Status.State == AttachState.Connected && !state.Pending && Behind(state.Version, appVersion))
+            .Do(state => { lock (_lock) _latest = state; })
+            .Select(state => (Stale: state.Status.State == AttachState.Connected && Behind(state.Version, appVersion), state.Pending))
             .DistinctUntilChanged()
             .Subscribe(Arm);
     }
 
-    /// The daemon this run found on a kcap the app does not ship, while it stays behind with no restart queued.
+    /// The daemon this run found on a kcap the app does not ship, while it stays behind.
     public IObservable<DaemonOnOtherInstall?> OtherInstall => _otherInstall.DistinctUntilChanged();
 
     internal static bool Behind(string? daemonVersion, string appVersion) =>
@@ -66,19 +66,20 @@ public sealed class StaleDaemonNudge : IDisposable {
 
     static string Core(string version) => version.Split('+', 2)[0];
 
-    void Arm(bool stale) {
+    /// A queued restart appearing or clearing re-arms too: the daemon's own poll queuing one ends the wait for a request.
+    void Arm((bool Stale, bool Pending) state) {
         lock (_lock) {
             var generation = ++_generation;
             _timer?.Dispose();
-            _timer = stale && !_disposed
+            _timer = state.Stale && !_disposed
                 ? _time.CreateTimer(_ => Fire(generation), null, Grace, Timeout.InfiniteTimeSpan)
                 : null;
-            if (!stale && !_disposed) _otherInstall.OnNext(null);
+            if (!state.Stale && !_disposed) _otherInstall.OnNext(null);
         }
     }
 
     void Fire(long generation) {
-        (AttachStatus Status, string? Version, int? Pid) latest;
+        (AttachStatus Status, string? Version, int? Pid, bool Pending) latest;
         lock (_lock) {
             if (_disposed || generation != _generation) return;
             latest = _latest;
@@ -94,7 +95,9 @@ public sealed class StaleDaemonNudge : IDisposable {
         }
 
         lock (_lock) {
-            if (_asked || _disposed || generation != _generation) return;
+            if (_disposed || generation != _generation) return;
+            _otherInstall.OnNext(null);
+            if (_asked || latest.Pending) return;
             _asked = true;
         }
         var mode = latest.Status.Capabilities?.Contains(RestartIpc.TurnBoundaryCapability) == true ? RestartIpc.TurnBoundaryMode : WhenIdleMode;

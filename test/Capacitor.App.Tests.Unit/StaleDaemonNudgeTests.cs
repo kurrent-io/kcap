@@ -81,6 +81,20 @@ public class StaleDaemonNudgeTests {
         await Assert.That(h.Modes).IsEmpty();
     }
 
+    /// A when-idle restart an earlier app queued sits behind idle agents and would bring back the same version, so it
+    /// must not hide the other install.
+    [Test]
+    public async Task A_daemon_on_another_install_is_reported_with_a_restart_already_queued() {
+        using var h = new Harness();
+        h.Pending.OnNext(true);
+        h.Executable = NpmDaemon;
+
+        h.Clock.Advance(StaleDaemonNudge.Grace);
+
+        await Assert.That(h.OtherInstalls[^1]).IsEqualTo(new DaemonOnOtherInstall("1.4.0+abc", NpmDaemon));
+        await Assert.That(h.Modes).IsEmpty();
+    }
+
     /// The other install is read again each time the daemon comes back, so its report follows the version it runs.
     [Test]
     public async Task A_daemon_back_on_its_other_install_but_still_behind_is_reported_at_its_new_version() {

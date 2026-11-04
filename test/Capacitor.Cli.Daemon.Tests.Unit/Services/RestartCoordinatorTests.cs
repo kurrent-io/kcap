@@ -344,6 +344,7 @@ public class RestartCoordinatorTests {
 
         c.RequestRestart(force: false, whenIdle: true);
         await Assert.That(spy.Calls).IsEqualTo(0);
+        await Assert.That(DaemonRestartMarker.TryRead(Daemons.Store, "laptop")!.Reason).IsEqualTo(DaemonRestartMarker.WhenIdle);
         agents = false;
         c.Tick();
         await Assert.That(spy.Calls).IsEqualTo(1);

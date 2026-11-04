@@ -60,11 +60,12 @@ public class DaemonRestartPendingWatcherTests {
         await Assert.That(h.Seen).IsEquivalentTo([true]);
     }
 
-    /// A when-idle request records no wait of its own: only a self-detected or turn-boundary restart waits for turns.
+    /// A bare request's marker cannot say what holds it, and an older daemon writes the same one for a when-idle request.
     [Test]
     [Arguments(DaemonRestartMarker.SelfDetected, DaemonRestartWait.Turns)]
     [Arguments(DaemonRestartMarker.TurnBoundary, DaemonRestartWait.Turns)]
-    [Arguments(DaemonRestartMarker.Requested, DaemonRestartWait.Agents)]
+    [Arguments(DaemonRestartMarker.WhenIdle, DaemonRestartWait.Agents)]
+    [Arguments(DaemonRestartMarker.Requested, DaemonRestartWait.Unstated)]
     public async Task Reports_what_the_queued_restart_waits_for(string reason, DaemonRestartWait expected) {
         DaemonRestartMarker.Write(Daemons.Store, Name, Marker() with { Reason = reason });
         using var h = new Harness(Daemons.Store);

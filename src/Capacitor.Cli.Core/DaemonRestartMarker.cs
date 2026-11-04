@@ -13,15 +13,22 @@ public sealed record DaemonRestartMarker(string RunningVersion, string Reason, D
     /// <summary>The daemon saw its own binary change.</summary>
     public const string SelfDetected = "self-detected";
 
-    /// <summary>A client asked for a restart: when-idle, or a bare one that has not fired yet.</summary>
+    /// <summary>A client asked for a bare restart that has not fired: one that failed to start and is retried, or a
+    /// foreground daemon's. A daemon that predates <see cref="WhenIdle"/> writes it for a when-idle request too.</summary>
     public const string Requested = "requested";
 
     /// <summary>A client asked for a restart at the next turn boundary.</summary>
     public const string TurnBoundary = "turn-boundary";
 
-    /// <summary>Whether the restart waits only for the interactive agents' turns, up to the daemon's turn wait. Any
-    /// other queued restart waits for the daemon to have no agents at all, idle ones included.</summary>
+    /// <summary>A client asked for a restart once the daemon has no agents at all, idle ones included.</summary>
+    public const string WhenIdle = "when-idle";
+
+    /// <summary>Whether the restart waits only for the interactive agents' turns, up to the daemon's turn wait.</summary>
     public bool WaitsForTurns => Reason is SelfDetected or TurnBoundary;
+
+    /// <summary>Whether the restart waits for the daemon to have no agents. False for a <see cref="Requested"/>
+    /// marker, which cannot say.</summary>
+    public bool WaitsForNoAgents => Reason is WhenIdle;
 
     public static void Write(DaemonStore store, string daemonName, DaemonRestartMarker m) {
         store.EnsureDirectory();
@@ -60,6 +67,7 @@ public sealed record DaemonRestartMarker(string RunningVersion, string Reason, D
       + Reason switch {
             SelfDetected => "newer binary detected on disk",
             TurnBoundary => "restart requested at the next turn boundary",
+            WhenIdle     => "restart requested once no agents are left",
             _            => "restart requested",
         }
       + $" (queued {QueuedAt.LocalDateTime:yyyy-MM-dd HH:mm}, {Reason})";
