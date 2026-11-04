@@ -141,7 +141,7 @@ public class HomeViewModelAccountTests {
     }
 
     static async Task<string?> Stored(AppStateStore store, string host, string vendor, string repo) =>
-        AccountMemory.Lookup((await store.LoadAsync()).AccountByRepo, host, vendor, repo);
+        AccountMemory.Lookup((await store.LoadAsync()).AccountByRepo, host, vendor, repo, remote: false);
 
     static async Task Eventually(Func<Task<bool>> condition) {
         var deadline = DateTime.UtcNow.AddSeconds(10);
