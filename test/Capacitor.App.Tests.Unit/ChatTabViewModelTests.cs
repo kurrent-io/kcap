@@ -1052,10 +1052,11 @@ public class ChatTabViewModelTests {
     }
 
     /// Pins the system-note row: a task notification the vendor injects into the transcript
-    /// renders as a system note carrying its summary and result, never as a user bubble.
+    /// renders as a system note carrying its summary and result, never as a user bubble. It starts
+    /// folded, its summary in the header, and opens to the whole result.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_task_notification_renders_as_a_system_note() {
+    public async Task A_task_notification_renders_as_a_folded_background_task_note() {
         await RunOnUiAsync(async () => {
             var h = Claude();
             var path = Tmp.CreateFile("t.jsonl", [
@@ -1064,9 +1065,34 @@ public class ChatTabViewModelTests {
             await h.PushAsync(Dto(path));
 
             await Assert.That(h.Chat.Items.Select(i => i.GetType().Name)).IsEquivalentTo(new[] { nameof(SystemNoteItem) });
-            await Assert.That(((SystemNoteItem)h.Chat.Items[0]).Text).IsEqualTo("**Agent finished**\n\nAll good.");
+            var note = (SystemNoteItem)h.Chat.Items[0];
+            await Assert.That(note.Text).IsEqualTo("**Agent finished**\n\nAll good.");
+            await Assert.That(note.Label).IsEqualTo(SystemNoteItem.TaskNotificationLabel);
+            await Assert.That(note.IsExpanded).IsFalse();
+            await Assert.That(note.HeaderLabel).IsEqualTo("Background task · Agent finished");
+            note.Toggle();
+            await Assert.That(note.IsExpanded).IsTrue();
+            await Assert.That(note.HeaderLabel).IsEqualTo(SystemNoteItem.TaskNotificationLabel);
             await h.TeardownAsync();
         });
+    }
+
+    /// A notification with only a summary has nothing behind it to fold, so it stays open.
+    [Test]
+    public async Task A_one_line_note_stays_open_and_a_longer_report_folds_under_its_first_line() {
+        var bare = new SystemNoteItem("**MCP task done.**", SystemNoteItem.TaskNotificationLabel);
+        await Assert.That(bare.IsCollapsible).IsFalse();
+        await Assert.That(bare.IsExpanded).IsTrue();
+        await Assert.That(bare.HeaderLabel).IsEqualTo(SystemNoteItem.TaskNotificationLabel);
+
+        var report = new SystemNoteItem("\n## Findings for `Auth`\n\nNone.", SystemNoteItem.AgentReportLabel);
+        await Assert.That(report.IsCollapsible).IsTrue();
+        await Assert.That(report.IsExpanded).IsFalse();
+        await Assert.That(report.HeaderLabel).IsEqualTo("Subagent report · Findings for Auth");
+
+        var other = new SystemNoteItem("Reconnected.\nResumed the session.");
+        await Assert.That(other.IsCollapsible).IsFalse();
+        await Assert.That(other.IsExpanded).IsTrue();
     }
 
     /// Claude Code stores its compaction summary as a user record; the row must not read as the user's,

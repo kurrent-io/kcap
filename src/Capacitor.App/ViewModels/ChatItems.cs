@@ -84,20 +84,34 @@ public sealed class SystemNoteItem : ChatItemViewModel {
     public const string AgentReportLabel = "Subagent report";
     public const string AgentMessageLabel = "Agent message";
     public const string CompactSummaryLabel = "Conversation compacted";
+    public const string TaskNotificationLabel = "Background task";
 
+    const int PeekLength = 80;
+
+    readonly string? _peek;
     bool _isExpanded;
 
     public SystemNoteItem(string text, string label = NoteLabel) {
         Text = text;
         Label = label;
-        // A compaction summary restates the whole conversation above it, so it starts folded.
-        IsCollapsible = label == CompactSummaryLabel;
+        // A compaction summary restates the whole conversation above it, and a subagent's report
+        // can run to pages, so both start folded. A report of one line has nothing to fold.
+        if (label is AgentReportLabel or TaskNotificationLabel) {
+            var lead = LeadLine(text);
+            IsCollapsible = lead is not null && text.AsSpan().Trim().Length > lead.Value.Length;
+            if (IsCollapsible) _peek = TextElision.End(lead!.Value.Clean, PeekLength);
+        } else {
+            IsCollapsible = label == CompactSummaryLabel;
+        }
         _isExpanded = !IsCollapsible;
         ToggleCommand = ReactiveCommand.Create(Toggle);
     }
 
     public string Text { get; }
     public string Label { get; }
+
+    /// Folded, the header carries the note's first line: a task's summary, a report's opening.
+    public string HeaderLabel => _isExpanded || string.IsNullOrEmpty(_peek) ? Label : $"{Label} · {_peek}";
     public LucideIconKind IconKind => ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
     public bool IsCollapsible { get; }
 
@@ -108,6 +122,7 @@ public sealed class SystemNoteItem : ChatItemViewModel {
             _isExpanded = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(ToggleAccessibleName));
+            this.RaisePropertyChanged(nameof(HeaderLabel));
         }
     }
 
@@ -117,6 +132,21 @@ public sealed class SystemNoteItem : ChatItemViewModel {
 
     public void Toggle() {
         if (IsCollapsible) IsExpanded = !IsExpanded;
+    }
+
+    /// The first non-blank line as written (its length decides whether anything follows it) and
+    /// with its markdown emphasis and heading marks removed.
+    static (int Length, string Clean)? LeadLine(string text) {
+        foreach (var raw in text.AsSpan().Trim().EnumerateLines()) {
+            var line = raw.Trim();
+            if (line.IsEmpty) continue;
+            var clean = line.TrimStart("#>-* ").ToString()
+                .Replace("**", "", StringComparison.Ordinal)
+                .Replace("`", "", StringComparison.Ordinal)
+                .Trim();
+            return (line.Length, clean);
+        }
+        return null;
     }
 }
 
