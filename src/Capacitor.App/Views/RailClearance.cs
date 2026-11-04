@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Controls;
-using Capacitor.App.Services;
 
 namespace Capacitor.App.Views;
 
@@ -8,31 +7,41 @@ namespace Capacitor.App.Views;
 /// the content's top-left corner; a header attached here pads its leading edge clear of it. Outside a
 /// MainWindow nothing floats there and the header keeps its own padding.
 public static class RailClearance {
-    // macOS draws its window buttons over the window's top-left corner.
-    public static readonly double ButtonLeft = OperatingSystem.IsMacOS() ? 78 : 12;
+    // macOS draws its window buttons over the window's top-left corner at a size the UI zoom does not
+    // change, so there the button keeps its 100% window position and only its own size scales.
+    static readonly bool BesideWindowButtons = OperatingSystem.IsMacOS();
+    const double WindowButtonsEnd = 78;
+    const double TitleBandMiddle = 22;
 
-    // A kcapIcon button is 30 wide; the rest is the gap before the header's first content.
-    public static double Leading => ButtonLeft + 30 + 10;
+    const double ButtonSize = 30;
+    const double Gap = 10;
 
-    public static Thickness Clear(Thickness padding) =>
-        new(Math.Max(padding.Left, Leading), padding.Top, padding.Right, padding.Bottom);
+    /// The button's top-left in the content's units, which the UI zoom scales.
+    public static Point ButtonOrigin(double scale) => BesideWindowButtons
+        ? new(WindowButtonsEnd / scale, Math.Max(0, TitleBandMiddle / scale - ButtonSize / 2))
+        : new(12, 7);
+
+    /// How far a header at the content's leading edge pads to clear the button, in content units.
+    public static double Leading(double scale) => ButtonOrigin(scale).X + ButtonSize + Gap;
 
     public static void Attach(Control view, Border header) {
-        var expanded = header.Padding;
-        PaneLayout? panes = null;
+        var own = header.Padding;
+        MainWindow? window = null;
 
-        void Apply() => header.Padding = panes?.RailCollapsed == true ? Clear(expanded) : expanded;
+        void Apply() => header.Padding = window?.RailLeading is > 0 and var leading
+            ? new Thickness(Math.Max(own.Left, leading), own.Top, own.Right, own.Bottom)
+            : own;
 
         void OnChanged(object? sender, EventArgs e) => Apply();
 
         view.AttachedToVisualTree += (_, _) => {
-            panes = (TopLevel.GetTopLevel(view) as MainWindow)?.Panes;
-            if (panes is not null) panes.Changed += OnChanged;
+            window = TopLevel.GetTopLevel(view) as MainWindow;
+            if (window is not null) window.RailLeadingChanged += OnChanged;
             Apply();
         };
         view.DetachedFromVisualTree += (_, _) => {
-            if (panes is not null) panes.Changed -= OnChanged;
-            panes = null;
+            if (window is not null) window.RailLeadingChanged -= OnChanged;
+            window = null;
             Apply();
         };
     }

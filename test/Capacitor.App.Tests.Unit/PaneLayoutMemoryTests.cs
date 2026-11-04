@@ -111,9 +111,9 @@ public class PaneLayoutMemoryTests {
             await Assert.That(window.RailExpandButton.IsEffectivelyVisible).IsTrue();
             // In the title-bar band, past the macOS window buttons.
             var button = window.RailExpandButton.Bounds;
-            await Assert.That(button.Left).IsEqualTo(RailClearance.ButtonLeft);
+            await Assert.That(button.Left).IsEqualTo(RailClearance.ButtonOrigin(1).X);
             await Assert.That(button.Bottom).IsLessThanOrEqualTo(44);
-            await Assert.That(button.Right).IsLessThanOrEqualTo(RailClearance.Leading);
+            await Assert.That(button.Right).IsLessThanOrEqualTo(RailClearance.Leading(1));
 
             window.RailExpandButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();

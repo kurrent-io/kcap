@@ -63,7 +63,20 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         SessionRail.IsVisible = !collapsed;
         RailSplitter.IsVisible = !collapsed;
         RailExpandButton.IsVisible = collapsed;
-        LauncherHeader.Margin = new Thickness(collapsed ? Math.Max(0, RailClearance.Leading - LauncherPane.Margin.Left) : 0, 0, 0, 0);
+        ApplyRailClearance();
+    }
+
+    /// How far a header at the content's leading edge pads to clear the show-sidebar button; zero
+    /// while the rail shows.
+    public double RailLeading => Panes.RailCollapsed ? RailClearance.Leading(_scale) : 0;
+
+    public event EventHandler? RailLeadingChanged;
+
+    void ApplyRailClearance() {
+        var origin = RailClearance.ButtonOrigin(_scale);
+        RailExpandButton.Margin = new Thickness(origin.X, origin.Y, 0, 0);
+        LauncherHeader.Margin = new Thickness(Math.Max(0, RailLeading - LauncherPane.Margin.Left), 0, 0, 0);
+        RailLeadingChanged?.Invoke(this, EventArgs.Empty);
     }
 
     WindowNotificationManager? _notifications;
@@ -110,6 +123,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         ScaleHost.LayoutTransform = scale == UiScale.Default ? null : new ScaleTransform(scale, scale);
         ApplyMinimumSize();
         ApplyCaptionInset();
+        ApplyRailClearance();
         if (Onboarding is not null) KeepOnboardingOnScreen();
     }
 
@@ -164,8 +178,6 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public MainWindow() {
         InitializeComponent();
-        // Level with the rail's own hide button, which sits centred in its 44px chrome row.
-        RailExpandButton.Margin = new Thickness(RailClearance.ButtonLeft, 7, 0, 0);
         SessionsSurface.SizeChanged += (_, e) => RailColumn.MaxWidth = e.NewSize.Width * PaneLayout.MaxShare;
         SessionRail.CollapseRequested += (_, _) => Panes.RailCollapsed = true;
         Panes.Changed += (_, _) => ApplyRail();

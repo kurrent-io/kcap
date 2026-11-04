@@ -102,8 +102,8 @@
                             <views:StillImage x:Name="SwitchCoverStill" />
                         </Border>
 
-                        <!-- The collapsed rail leaves no column: this floats in the title-bar band, and
-                             each header beneath it pads clear through RailClearance. -->
+                        <!-- The collapsed rail leaves no column: this floats over the content's top-left
+                             corner, and each header there pads clear of it through RailClearance. -->
                         <Button x:Name="RailExpandButton" Classes="kcapGhost kcapIcon" IsVisible="False"
                                 HorizontalAlignment="Left" VerticalAlignment="Top"
                                 ToolTip.Tip="Show sidebar" AutomationProperties.Name="Show sidebar"
