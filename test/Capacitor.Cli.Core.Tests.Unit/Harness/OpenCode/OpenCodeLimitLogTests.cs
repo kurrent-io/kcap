@@ -33,6 +33,8 @@ public class OpenCodeLimitLogTests {
     [Arguments("""level=INFO message="stream error" error.error="usage limit reached" """)]
     [Arguments("""level=ERROR message="other error" error.error="usage limit reached" """)]
     [Arguments("""level=ERROR message="stream error" """)]
+    [Arguments("""level=ERROR message="other error" error.error="x level=ERROR message=\"stream error\" error.error=\"usage limit\"" """)]
+    [Arguments("""level=ERROR detail="p error.error=quota" message="stream error" """)]
     [Arguments("usage limit reached")]
     [Arguments("")]
     public async Task Anything_else_does_not_match(string line) =>

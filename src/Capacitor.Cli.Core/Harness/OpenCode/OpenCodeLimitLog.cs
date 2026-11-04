@@ -13,53 +13,49 @@ static class OpenCodeLimitLog {
     /// <summary>The <c>error.error</c> message of an ERROR-level <c>stream error</c> line that
     /// <see cref="HeadlessFailureClassifier"/> calls <see cref="ClaudeCliFailure.SpendBudget"/>, else null.</summary>
     public static string? Match(string stderrLine) {
-        if (Value(stderrLine, "level") != "ERROR" || Value(stderrLine, "message") != "stream error") return null;
+        var fields = Fields(stderrLine);
 
-        return Value(stderrLine, "error.error") is { } message
+        if (fields.GetValueOrDefault("level") != "ERROR" || fields.GetValueOrDefault("message") != "stream error") return null;
+
+        return fields.GetValueOrDefault("error.error") is { } message
             && HeadlessFailureClassifier.Classify(HeadlessFailureClassifier.StatusFromMessage(message), message) == ClaudeCliFailure.SpendBudget
             ? message
             : null;
     }
 
-    /// <summary>The value of <c>key=value</c> or <c>key="quoted \" value"</c>, where the key starts the line or
-    /// follows a space.</summary>
-    static string? Value(string line, string key) {
-        var token = key + "=";
-        var at    = 0;
+    /// <summary>The line's <c>key=value</c> and <c>key="quoted \" value"</c> pairs, read in order so text inside a
+    /// quoted value is never taken for a key. The first occurrence of a key wins.</summary>
+    static Dictionary<string, string> Fields(string line) {
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+        var i      = 0;
 
-        while ((at = line.IndexOf(token, at, StringComparison.Ordinal)) >= 0) {
-            if (at == 0 || line[at - 1] == ' ') break;
+        while (i < line.Length) {
+            while (i < line.Length && line[i] == ' ') i++;
 
-            at += token.Length;
-        }
+            var keyStart = i;
+            while (i < line.Length && line[i] is not ('=' or ' ')) i++;
 
-        if (at < 0) return null;
+            var key = line[keyStart..i];
 
-        var start = at + token.Length;
+            if (i >= line.Length || line[i] != '=') continue;
 
-        if (start >= line.Length || line[start] != '"') {
-            var end = line.IndexOf(' ', start);
+            i++;
+            var value = new StringBuilder();
 
-            return end < 0 ? line[start..] : line[start..end];
-        }
-
-        var value = new StringBuilder();
-
-        for (var i = start + 1; i < line.Length; i++) {
-            switch (line[i]) {
-                case '\\' when i + 1 < line.Length:
-                    value.Append(line[++i]);
-
-                    break;
-                case '"':
-                    return value.ToString();
-                default:
+            if (i < line.Length && line[i] == '"') {
+                for (i++; i < line.Length && line[i] != '"'; i++) {
+                    if (line[i] == '\\' && i + 1 < line.Length) i++;
                     value.Append(line[i]);
+                }
 
-                    break;
+                i++;
+            } else {
+                while (i < line.Length && line[i] != ' ') value.Append(line[i++]);
             }
+
+            fields.TryAdd(key, value.ToString());
         }
 
-        return null;
+        return fields;
     }
 }

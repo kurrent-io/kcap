@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -24,12 +23,13 @@ public class OpenCodeCliRunnerTests {
     string UserData => Path.Combine(Tmp.Path, "user-data");
     OpenCodePaths Paths => new(new(Tmp.Path), Path.Combine(Tmp.Path, "user-config"), null, UserData);
 
-    static Dictionary<string, string?> DaemonEnvironment() {
-        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (DictionaryEntry e in Environment.GetEnvironmentVariables()) env[(string)e.Key] = (string?)e.Value;
-
-        return env;
-    }
+    /// <summary>Built from fixed values, so nothing the developer exports reaches a test.</summary>
+    Dictionary<string, string?> DaemonEnvironment() => new(StringComparer.Ordinal) {
+        ["PATH"]            = "/usr/bin:/bin",
+        ["HOME"]            = Tmp.Path,
+        ["XDG_CONFIG_HOME"] = Path.Combine(Tmp.Path, "user-config-home"),
+        ["XDG_DATA_HOME"]   = UserData,
+    };
 
     string FakeOpenCode(string body) => Tmp.CreateExecutable($"bin-{Guid.NewGuid():N}/opencode", $"#!/bin/sh\n{body}\n");
 
@@ -47,6 +47,8 @@ public class OpenCodeCliRunnerTests {
         ["type"] = "text",
         ["part"] = new JsonObject { ["type"] = "text", ["text"] = text },
     }.ToJsonString();
+
+    static readonly OpenCodeRunDirectories Dirs = new("/run/xdg-config", "/run/config", "/run/data", "/run/state");
 
     const string StepFinish =
         """{"type":"step_finish","part":{"tokens":{"input":10,"output":2,"reasoning":0,"cache":{"read":3,"write":1}},"cost":0.0005}}""";
@@ -90,13 +92,19 @@ public class OpenCodeCliRunnerTests {
             ["OPENCODE_CONFIG_DIR"]     = "/user/config",
             ["OPENCODE_CONFIG_CONTENT"] = """{"mcp":{}}""",
             ["OPENCODE_PERMISSION"]     = """{"*":"allow"}""",
+            ["XDG_CONFIG_HOME"]         = "/user/xdg-config",
             ["XDG_DATA_HOME"]           = "/user/data",
+            ["XDG_STATE_HOME"]          = "/user/state",
+            ["XDG_CACHE_HOME"]          = "/user/cache",
             ["ANTHROPIC_API_KEY"]       = "sk-kept",
-        }, "/run/config", "/run/data", config);
+        }, Dirs, config);
 
         await Assert.That(env.ContainsKey("OPENCODE_CONFIG")).IsFalse();
+        await Assert.That(env["XDG_CONFIG_HOME"]).IsEqualTo("/run/xdg-config");
         await Assert.That(env["OPENCODE_CONFIG_DIR"]).IsEqualTo("/run/config");
         await Assert.That(env["XDG_DATA_HOME"]).IsEqualTo("/run/data");
+        await Assert.That(env["XDG_STATE_HOME"]).IsEqualTo("/run/state");
+        await Assert.That(env["XDG_CACHE_HOME"]).IsEqualTo("/user/cache");
         await Assert.That(env["OPENCODE_CONFIG_CONTENT"]).IsEqualTo(config.ConfigContent);
         await Assert.That(env["OPENCODE_PERMISSION"]).IsEqualTo("""{"*":"deny"}""");
         foreach (var flag in new[] {
@@ -109,7 +117,7 @@ public class OpenCodeCliRunnerTests {
 
     [Test]
     public async Task BuildEnvironment_passes_the_users_credentials_when_there_are_some() {
-        var env = OpenCodeCliRunner.BuildEnvironment(new Dictionary<string, string?>(), "/c", "/d",
+        var env = OpenCodeCliRunner.BuildEnvironment(new Dictionary<string, string?>(), Dirs,
             new OpenCodeHeadlessConfig("{}", "{}", """{"anthropic":{}}"""));
 
         await Assert.That(env["OPENCODE_AUTH_CONTENT"]).IsEqualTo("""{"anthropic":{}}""");
@@ -257,10 +265,8 @@ public class OpenCodeCliRunnerTests {
             printf '%s\n' "$@" > '{seen}/args'
             pwd > '{seen}/cwd'
             ls -A > '{seen}/listing'
-            ls -A "$OPENCODE_CONFIG_DIR" > '{seen}/config-listing'
-            ls -A "$XDG_DATA_HOME" > '{seen}/data-listing'
-            printf '%s' "$OPENCODE_CONFIG_DIR" > '{seen}/config-dir'
-            printf '%s' "$XDG_DATA_HOME" > '{seen}/data-dir'
+            ls -A "$XDG_CONFIG_HOME" "$OPENCODE_CONFIG_DIR" "$XDG_DATA_HOME" "$XDG_STATE_HOME" > '{seen}/private-listing'
+            printf '%s\n' "$XDG_CONFIG_HOME" "$OPENCODE_CONFIG_DIR" "$XDG_DATA_HOME" "$XDG_STATE_HOME" > '{seen}/private-dirs'
             printf '%s' "$OPENCODE_PERMISSION" > '{seen}/permission'
             env | grep -c '^OPENCODE_CONFIG=' > '{seen}/config'
             env | grep -c '^OPENCODE_AUTH_CONTENT=' > '{seen}/auth'
@@ -285,8 +291,8 @@ public class OpenCodeCliRunnerTests {
         await Assert.That(await File.ReadAllBytesAsync(Path.Combine(seen, "prompt"))).IsEquivalentTo(
             new UTF8Encoding(false).GetBytes(OpenCodeCliRunner.BuildPrompt(prompt, "Be brief.", null)), TUnit.Assertions.Enums.CollectionOrdering.Matching);
         await Assert.That((await File.ReadAllTextAsync(Path.Combine(seen, "listing"))).Trim()).IsEqualTo("prompt.md");
-        await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "config-listing"))).IsEmpty();
-        await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "data-listing"))).IsEmpty();
+        await Assert.That((await File.ReadAllLinesAsync(Path.Combine(seen, "private-listing"))).Where(l => l.Length > 0 && !l.EndsWith(':')))
+            .IsEmpty();
         await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "permission"))).IsEqualTo(
             OpenCodeHeadlessConfig.Build(Paths, env).Permission);
         await Assert.That((await File.ReadAllTextAsync(Path.Combine(seen, "config"))).Trim()).IsEqualTo("0");
@@ -297,8 +303,8 @@ public class OpenCodeCliRunnerTests {
         await Assert.That(Path.GetFileName(cwd)).IsEqualTo("cwd");
         await Assert.That(Path.GetDirectoryName(run)).IsEqualTo(RunsRoot);
         await Assert.That(Path.GetFileName(run)).StartsWith("opencode-test-");
-        await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "config-dir"))).IsEqualTo(Path.Combine(run, "config"));
-        await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "data-dir"))).IsEqualTo(Path.Combine(run, "data"));
+        await Assert.That(await File.ReadAllLinesAsync(Path.Combine(seen, "private-dirs"))).IsEquivalentTo(
+            new[] { "xdg-config", "config", "data", "state" }.Select(name => Path.Combine(run, name)), TUnit.Assertions.Enums.CollectionOrdering.Matching);
         await Assert.That(Directory.Exists(run)).IsFalse();
         await RunsRootIsEmpty();
     }

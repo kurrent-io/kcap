@@ -157,14 +157,30 @@ public class OpenCodeCliRunnerLiveTests {
         await Assert.That((await File.ReadAllTextAsync(listing)).Trim()).IsEqualTo("prompt.md");
     }
 
-    /// <summary>Opening the same config outside the runner, with <c>opencode mcp list</c> (no model call), starts the
-    /// server: without that control a server that never starts anywhere would pass.</summary>
     [Test]
     public async Task An_mcp_server_in_an_inherited_config_file_never_starts() {
-        var opencode = RealOpenCode();
-        var marker   = Path.Combine(Tmp.Path, "mcp-started");
-        var server   = Tmp.CreateExecutable("mcp-server.sh", $"#!/bin/sh\ntouch '{marker}'\nexec sleep 30\n");
-        var config   = Tmp.CreateFile("operator.json", new JsonObject {
+        var env = Inherited();
+        env["OPENCODE_CONFIG"] = Tmp.CreateFile("operator.json", McpConfig(out var marker));
+
+        await AssertTheServerStartsOnlyOutsideTheRun(env, marker);
+    }
+
+    /// <summary><c>OPENCODE_CONFIG_DIR</c> alone adds a layer and leaves <c>$XDG_CONFIG_HOME/opencode</c> loading,
+    /// so this is the case that needs the run's own config home.</summary>
+    [Test]
+    public async Task An_mcp_server_in_the_users_global_config_never_starts() {
+        var env = Inherited();
+        Tmp.CreateFile(Path.Combine("user-config", "opencode", "opencode.json"), McpConfig(out var marker));
+
+        await AssertTheServerStartsOnlyOutsideTheRun(env, marker);
+    }
+
+    /// <summary>A config whose one MCP server touches <paramref name="marker"/> when it starts.</summary>
+    string McpConfig(out string marker) {
+        marker = Path.Combine(Tmp.Path, $"mcp-started-{Guid.NewGuid():N}");
+        var server = Tmp.CreateExecutable($"mcp-server-{Guid.NewGuid():N}.sh", $"#!/bin/sh\ntouch '{marker}'\nexec sleep 30\n");
+
+        return new JsonObject {
             ["mcp"] = new JsonObject {
                 ["marker"] = new JsonObject {
                     ["type"]    = "local",
@@ -172,9 +188,13 @@ public class OpenCodeCliRunnerLiveTests {
                     ["enabled"] = true,
                 },
             },
-        }.ToJsonString());
-        var env = Inherited();
-        env["OPENCODE_CONFIG"] = config;
+        }.ToJsonString();
+    }
+
+    /// <summary>The control opens the same environment outside the runner with <c>opencode mcp list</c> (no model
+    /// call), which starts the server: without it, a server that never starts anywhere would pass.</summary>
+    async Task AssertTheServerStartsOnlyOutsideTheRun(Dictionary<string, string?> env, string marker) {
+        var opencode = RealOpenCode();
 
         await RunControlAsync(opencode, ["mcp", "list"], env);
         await Assert.That(File.Exists(marker)).IsTrue();

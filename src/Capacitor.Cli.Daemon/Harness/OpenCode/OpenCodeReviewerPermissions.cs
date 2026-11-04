@@ -86,20 +86,8 @@ internal static class OpenCodeReviewerPermissions {
             ["*"] = (JsonNode?)"deny"
         };
 
-        // EXPLICIT per-tool denies on top of the wildcard, which is belt-and-braces about a merge rule
-        // this code should not have to be right about.
-        //
-        // What was measured is that OPENCODE_PERMISSION overrides an operator config saying
-        // `"*": "ask"`. What was NOT measured — a review of this change caught the gap — is whether a
-        // wildcard from the ENV beats a SPECIFIC key from a file, e.g. an operator config carrying
-        // `bash: "allow"`. OpenCode merges the two per key and then resolves patterns
-        // specific-before-wildcard, so on that reading a file's `bash: "allow"` would survive our
-        // `"*": "deny"` — and the only thing standing between that and a reviewer with a shell would be
-        // the assumption that the isolated config dir stops the operator's file loading at all.
-        //
-        // Naming each forbidden tool makes the question moot: the env now carries a specific key for
-        // each, so it wins per key on any merge order, whether or not any file config loaded. It also
-        // makes OpenCodeForbiddenTools load-bearing rather than a list only tests read.
+        // Each forbidden tool is denied by name: OpenCode resolves a specific key before the wildcard,
+        // so a file config's `bash: "allow"` would otherwise survive `"*": "deny"`.
         foreach (var tool in OpenCodeForbiddenTools.Names)
             permission[tool] = (JsonNode?)"deny";
 

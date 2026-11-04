@@ -10,6 +10,7 @@ namespace Capacitor.Cli.Core.Harness.Headless;
 /// </summary>
 static class HeadlessProcess {
     static readonly TimeSpan AfterKill = TimeSpan.FromSeconds(5);
+    static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(1);
 
     static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -86,14 +87,15 @@ static class HeadlessProcess {
 
                 try { process.StandardInput.Dispose(); } catch { /* the pipe is already broken */ }
 
+                // A broken pipe usually means the child is exiting; its own exit code is the outcome only if
+                // it ends before the kill does.
+                var exitedOnItsOwn = await ExitCodeWithinAsync(process, ExitGrace, time);
                 await KillAsync(process, stdoutTask, stderrTask, time);
                 ct.ThrowIfCancellationRequested();
 
                 if (ex is not IOException) throw;
 
-                return timeoutCts.IsCancellationRequested
-                    ? new(null, true, false, stderr.Text)
-                    : new(ExitCodeOf(process), false, false, stderr.Text);
+                return new(exitedOnItsOwn, timeoutCts.IsCancellationRequested && exitedOnItsOwn is null, false, stderr.Text);
             }
 
             var exited = process.WaitForExitAsync(linkedCts.Token);
@@ -149,10 +151,12 @@ static class HeadlessProcess {
         return sb.ToString();
     }
 
-    static int? ExitCodeOf(Process process) {
+    static async Task<int?> ExitCodeWithinAsync(Process process, TimeSpan grace, TimeProvider time) {
         try {
-            return process.HasExited ? process.ExitCode : null;
-        } catch (InvalidOperationException) {
+            await process.WaitForExitAsync().WaitAsync(grace, time);
+
+            return process.ExitCode;
+        } catch (Exception ex) when (ex is TimeoutException or InvalidOperationException) {
             return null;
         }
     }

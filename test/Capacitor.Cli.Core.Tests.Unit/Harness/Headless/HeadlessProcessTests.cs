@@ -69,8 +69,7 @@ public class HeadlessProcessTests {
         await File.WriteAllTextAsync(go, "");
         var exit = await run;
 
-        await Assert.That(exit!.TimedOut).IsFalse();
-        await Assert.That(exit.Stderr).IsEqualTo("closed");
+        await Assert.That(exit).IsEqualTo(new HeadlessProcessExit(null, false, false, "closed"));
         await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
     }
 

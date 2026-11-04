@@ -9,7 +9,7 @@ namespace Capacitor.Cli.Core.Harness.OpenCode;
 /// Headless invocation of <c>opencode run --format json</c>, returning the same records as <see cref="ClaudeCliRunner"/>.
 /// </summary>
 /// <remarks>
-/// The run gets a private, empty config directory and data store, so none of the user's MCP servers, plugins,
+/// The run gets private, empty config homes, data store and state, so none of the user's MCP servers, plugins,
 /// agents or instructions load and the session never reaches the user's <c>opencode.db</c>. OpenCode has no
 /// turn or spend cap: the timeout, and a spend limit logged on stderr, are the only bounds on the run.
 /// </remarks>
@@ -59,14 +59,16 @@ static class OpenCodeCliRunner {
             var config = OpenCodeHeadlessConfig.Build(paths, inheritedEnv);
             run = runs.Create("opencode");
 
-            using var cwd     = run.Child("cwd");
-            using var configDir = run.Child("config");
-            using var data    = run.Child("data");
+            using var cwd        = run.Child("cwd");
+            using var configHome = run.Child("xdg-config");
+            using var configDir  = run.Child("config");
+            using var data       = run.Child("data");
+            using var state      = run.Child("state");
 
             var promptFile = Path.Combine(cwd.Path, PromptFile);
             await File.WriteAllTextAsync(promptFile, BuildPrompt(prompt, systemPrompt, schema), Utf8NoBom, ct);
 
-            var env = BuildEnvironment(inheritedEnv, configDir.Path, data.Path, config);
+            var env = BuildEnvironment(inheritedEnv, new(configHome.Path, configDir.Path, data.Path, state.Path), config);
 
             return await RunCoreAsync(promptFile, env, timeout, time, log, cwd.Path, model, schema, executable, ct);
         } catch (HeadlessRunRefusedException ex) {
@@ -206,12 +208,13 @@ static class OpenCodeCliRunner {
     }
 
     /// <summary>The inherited environment with the lockdown set over it. Provider keys are kept: for OpenCode a
-    /// key usually is the sign-in. <c>OPENCODE_PERMISSION</c> is overwritten because it outranks every config's
-    /// permissions, so an inherited allow-all would reopen the tools.</summary>
+    /// key usually is the sign-in. <c>OPENCODE_CONFIG_DIR</c> adds a config layer rather than replacing
+    /// <c>$XDG_CONFIG_HOME/opencode</c>, so both are private. <c>OPENCODE_PERMISSION</c> is overwritten because
+    /// it outranks every config's permissions, so an inherited allow-all would reopen the tools. The cache stays
+    /// the user's: with models fetch off, it holds the model list.</summary>
     internal static Dictionary<string, string?> BuildEnvironment(
             IReadOnlyDictionary<string, string?> inherited,
-            string                               configDir,
-            string                               dataDir,
+            OpenCodeRunDirectories               dirs,
             OpenCodeHeadlessConfig               config
         ) {
         var env = new Dictionary<string, string?>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -221,8 +224,10 @@ static class OpenCodeCliRunner {
         }
 
         env.Remove("OPENCODE_CONFIG");
-        env["OPENCODE_CONFIG_DIR"]              = configDir;
-        env["XDG_DATA_HOME"]                    = dataDir;
+        env["XDG_CONFIG_HOME"]                  = dirs.ConfigHome;
+        env["OPENCODE_CONFIG_DIR"]              = dirs.ConfigDir;
+        env["XDG_DATA_HOME"]                    = dirs.DataHome;
+        env["XDG_STATE_HOME"]                   = dirs.StateHome;
         env["OPENCODE_CONFIG_CONTENT"]          = config.ConfigContent;
         env["OPENCODE_PERMISSION"]              = config.Permission;
         env["OPENCODE_DISABLE_PROJECT_CONFIG"]  = "1";
