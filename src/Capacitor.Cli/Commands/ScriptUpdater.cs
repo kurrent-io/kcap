@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Install;
+using Capacitor.Cli.LocalEdition;
 
 namespace Capacitor.Cli.Commands;
 
@@ -167,32 +168,41 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
     /// <paramref name="keep"/>: the new version and the one it replaced, which a daemon or agent started
     /// before the switch is likely still running. Anything else in use stays too. Returns how many went.
     ///
-    /// <para>A <c>versions</c> that is a link (a junction on Windows) is pruned not at all, and a linked entry
-    /// inside it is skipped: what a link reaches is not kcap's to empty, however version-like its names.</para>
+    /// <para>Only an installed version is deleted: one holding kcap's binary, under the install root's real
+    /// <c>versions</c>, and reached through no link. What a link reaches is not kcap's to empty, however
+    /// version-like its names, so a linked <c>versions</c> (a junction on Windows) prunes nothing.</para>
     /// </summary>
     internal int PruneVersions(ScriptInstallLayout layout, IEnumerable<string?> keep) {
-        var kept = keep.OfType<string>().ToArray();
         var pruned = 0;
 
-        IEnumerable<DirectoryInfo> candidates;
+        string[] candidates;
+        string root;
         try {
-            var versions = new DirectoryInfo(layout.Versions);
+            if (!CanonicalPath.TryResolve(layout.Root, out root)) return 0;
+
+            var versions = new DirectoryInfo(Path.Combine(root, ScriptInstallLayout.VersionsName));
             if (!versions.Exists || IsLink(versions)) return 0;
 
+            var kept = keep.OfType<string>().Select(CanonicalPath.Resolve).ToArray();
             candidates = versions.EnumerateDirectories()
-                .Where(d => !IsLink(d))
                 .Where(d => ReleaseManifest.IsValidVersion(d.Name) || d.Name.StartsWith(".replaced-", StringComparison.Ordinal))
-                .Where(d => !kept.Any(k => PathsEqual(k, d.FullName)))
+                .Select(d => d.FullName)
+                .Where(d => !kept.Any(k => PathsEqual(k, d)))
+                .Where(d => IsInstalledVersion(root, d))
                 .ToArray();
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return 0;
         }
 
         foreach (var dir in candidates) {
-            if (InUse(dir.FullName)) continue;
+            if (InUse(dir)) continue;
 
             try {
-                dir.Delete(recursive: true);
+                // Checked again at the delete: a path names no handle, so a component swapped for a link since
+                // the listing would aim the delete somewhere else.
+                if (!IsInstalledVersion(root, dir)) continue;
+
+                LocalTree.Remove(dir);
                 pruned++;
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 // Started after the probe, or not ours to delete: the next update tries again.
@@ -201,6 +211,21 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
 
         return pruned;
     }
+
+    /// <summary>Whether <paramref name="dir"/> holds kcap's binary and every component down to it, from the
+    /// resolved <paramref name="root"/>, is a real directory rather than a link.</summary>
+    static bool IsInstalledVersion(string root, string dir) {
+        var versions = new DirectoryInfo(Path.Combine(root, ScriptInstallLayout.VersionsName));
+        var version  = new DirectoryInfo(dir);
+        if (!versions.Exists || IsLink(versions) || !version.Exists || IsLink(version)) return false;
+
+        return ExecutableNames.Any(name => {
+            var exe = Path.Combine(dir, "bin", name);
+            return File.Exists(exe) && CanonicalPath.TryResolve(exe, out var real) && PathsEqual(real, exe);
+        });
+    }
+
+    static readonly string[] ExecutableNames = ["kcap", "kcap.exe"];
 
     static bool IsLink(DirectoryInfo dir) => dir.Attributes.HasFlag(FileAttributes.ReparsePoint) || dir.LinkTarget is not null;
 
