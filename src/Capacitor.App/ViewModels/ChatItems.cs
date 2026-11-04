@@ -133,22 +133,24 @@ public sealed class SystemNoteItem : ChatItemViewModel {
         if (IsCollapsible) IsExpanded = !IsExpanded;
     }
 
-    // A rule or a fence marker is not a preview: the first line with words in it is.
     static (bool HasMore, string Clean)? LeadLine(string text) {
         string? clean = null;
         foreach (var raw in text.AsSpan().EnumerateLines()) {
-            var line = raw.Trim();
-            if (line.IsEmpty) continue;
+            if (Content(raw.Trim()) is not { } words) continue;
             if (clean is not null) return (true, clean);
-            if (line.StartsWith("```")) continue;
-            var stripped = line.TrimStart("#>- ").ToString()
-                .Replace("**", "", StringComparison.Ordinal)
-                .Replace("__", "", StringComparison.Ordinal)
-                .Replace("`", "", StringComparison.Ordinal)
-                .Trim().Trim('*').Trim('_').Trim();
-            if (stripped.Length > 0) clean = stripped;
+            clean = words;
         }
         return clean is null ? null : (false, clean);
+    }
+
+    static string? Content(ReadOnlySpan<char> line) {
+        if (line.StartsWith("```") || line.StartsWith("~~~")) return null;
+        var stripped = line.TrimStart("#>- ").ToString()
+            .Replace("**", "", StringComparison.Ordinal)
+            .Replace("__", "", StringComparison.Ordinal)
+            .Replace("`", "", StringComparison.Ordinal)
+            .Trim().Trim('*').Trim('_').Trim();
+        return stripped.Length > 0 ? stripped : null;
     }
 }
 

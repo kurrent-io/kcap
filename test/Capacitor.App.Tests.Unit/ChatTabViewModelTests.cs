@@ -1097,11 +1097,12 @@ public class ChatTabViewModelTests {
             await Assert.That(new SystemNoteItem(emphasised + "\n\nBody.", SystemNoteItem.AgentReportLabel).HeaderLabel)
                 .IsEqualTo("Subagent report · Finished task");
 
-        var ruled = new SystemNoteItem("---\n```text\n\nFindings\n```", SystemNoteItem.AgentReportLabel);
-        await Assert.That(ruled.HeaderLabel).IsEqualTo("Subagent report · Findings");
+        foreach (var fenced in new[] { "---\n```text\n\nFindings\n```\n\nMore.", "~~~text\nFindings\n~~~\nMore." })
+            await Assert.That(new SystemNoteItem(fenced, SystemNoteItem.AgentReportLabel).HeaderLabel)
+                .IsEqualTo("Subagent report · Findings");
 
-        var lone = new SystemNoteItem("---\n\n**Done.**", SystemNoteItem.AgentReportLabel);
-        await Assert.That(lone.IsCollapsible).IsFalse();
+        foreach (var lone in new[] { "---\n\n**Done.**", "---\n```text\n\nFindings\n```", "Findings\n~~~\n---" })
+            await Assert.That(new SystemNoteItem(lone, SystemNoteItem.AgentReportLabel).IsCollapsible).IsFalse();
 
         var other = new SystemNoteItem("Reconnected.\nResumed the session.");
         await Assert.That(other.IsCollapsible).IsFalse();
