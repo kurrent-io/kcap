@@ -122,7 +122,7 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
             TryWriteMarker(layout, channel, stderr);
             await stdout.WriteLineAsync($"Installed kcap {version} to {layout.Root}");
 
-            var pruned = PruneVersions(layout, keep: [dest, previous]);
+            var pruned = PruneVersions(layout, keep: [dest, previous], stderr);
             if (pruned > 0) await stdout.WriteLineAsync($"Removed {pruned} unused kcap version{(pruned == 1 ? "" : "s")}.");
 
             return true;
@@ -172,7 +172,7 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
     /// <c>versions</c>, and reached through no link. What a link reaches is not kcap's to empty, however
     /// version-like its names, so a linked <c>versions</c> (a junction on Windows) prunes nothing.</para>
     /// </summary>
-    internal int PruneVersions(ScriptInstallLayout layout, IEnumerable<string?> keep) {
+    internal int PruneVersions(ScriptInstallLayout layout, IEnumerable<string?> keep, TextWriter stderr) {
         var pruned = 0;
 
         string[] candidates;
@@ -202,10 +202,10 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
                 // the listing would aim the delete somewhere else.
                 if (!IsInstalledVersion(root, dir)) continue;
 
-                LocalTree.Remove(dir);
+                RemoveVersion(dir);
                 pruned++;
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                // Started after the probe, or not ours to delete: the next update tries again.
+                stderr.WriteLine($"Could not remove the unused kcap version {dir}: {ex.Message} The next update tries again.");
             }
         }
 
@@ -223,6 +223,21 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
             var exe = Path.Combine(dir, "bin", name);
             return File.Exists(exe) && CanonicalPath.TryResolve(exe, out var real) && PathsEqual(real, exe);
         });
+    }
+
+    /// <summary>kcap's binary goes last, so a delete that fails partway leaves the version recognisable as kcap's
+    /// and the next prune finishes it. Each entry goes through <see cref="LocalTree.Remove"/>, which never follows
+    /// a link and unlinks a nested junction before descending.</summary>
+    static void RemoveVersion(string dir) {
+        var bin = Path.Combine(dir, "bin");
+
+        foreach (var entry in Directory.EnumerateFileSystemEntries(dir).ToArray())
+            if (!PathsEqual(entry, bin)) LocalTree.Remove(entry);
+
+        foreach (var entry in Directory.EnumerateFileSystemEntries(bin).ToArray())
+            if (!ExecutableNames.Contains(Path.GetFileName(entry))) LocalTree.Remove(entry);
+
+        LocalTree.Remove(dir);
     }
 
     static readonly string[] ExecutableNames = ["kcap", "kcap.exe"];

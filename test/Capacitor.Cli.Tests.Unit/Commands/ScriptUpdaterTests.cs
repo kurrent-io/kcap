@@ -1,3 +1,5 @@
+using TUnit.Core.Enums;
+using System.Runtime.Versioning;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Install;
 
@@ -231,7 +233,7 @@ public class ScriptUpdaterTests {
         DirectoryLink.Create(layout.VersionDir("0.9.0"), tmp.PathTo("elsewhere"));
         var updater = new ScriptUpdater(null!) { InUse = dir => Path.GetFileName(dir) == "1.1.0" };
 
-        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.3.0-beta.1"), layout.VersionDir("1.2.0"), null]);
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.3.0-beta.1"), layout.VersionDir("1.2.0"), null], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(2);
         await Assert.That(Directory.EnumerateDirectories(layout.Versions).Select(p => Path.GetFileName(p)!).ToArray())
@@ -249,7 +251,7 @@ public class ScriptUpdaterTests {
         DirectoryLink.Create(layout.Versions, tmp.PathTo("shared"));
         var updater = new ScriptUpdater(null!) { InUse = _ => false };
 
-        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.1.0")]);
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.1.0")], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(0);
         foreach (var file in unrelated) await Assert.That(File.Exists(file)).IsTrue();
@@ -266,7 +268,7 @@ public class ScriptUpdaterTests {
         var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
         var updater = new ScriptUpdater(null!) { InUse = _ => false };
 
-        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.1.0")]);
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.1.0")], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(1);
         await Assert.That(Directory.Exists(tmp.PathTo("elsewhere/versions/0.8.0"))).IsFalse();
@@ -293,7 +295,7 @@ public class ScriptUpdaterTests {
             },
         };
 
-        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.0.0")]);
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.0.0")], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(0);
         await Assert.That(File.Exists(foreign)).IsTrue();
@@ -310,11 +312,42 @@ public class ScriptUpdaterTests {
         var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
         var updater = new ScriptUpdater(null!) { InUse = _ => false };
 
-        var pruned = updater.PruneVersions(layout, keep: []);
+        var pruned = updater.PruneVersions(layout, keep: [], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(1);
         await Assert.That(Directory.Exists(layout.VersionDir("0.9.0"))).IsFalse();
         await Assert.That(File.Exists(outside)).IsTrue();
+    }
+
+    /// <summary>A delete that fails partway leaves kcap's binary for last, so the version is still provably
+    /// kcap's and the next update finishes it; the failure is reported, naming the version.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task A_version_that_fails_to_delete_partway_is_reported_and_removed_by_the_next_run() {
+        using var tmp = new TempDir();
+        tmp.CreateFile("root/versions/0.9.0/bin/kcap");
+        string[] locked = [tmp.PathTo("root/versions/0.9.0/lib/locked"), tmp.PathTo("root/versions/0.9.0/bin/lib/locked")];
+        foreach (var dir in locked) tmp.CreateFile(Path.GetRelativePath(tmp.Path, Path.Combine(dir, "file")));
+        var layout  = new ScriptInstallLayout(tmp.PathTo("root"));
+        var updater = new ScriptUpdater(null!) { InUse = _ => false };
+        var stderr  = new StringWriter();
+
+        int first;
+        try {
+            foreach (var dir in locked) File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            first = updater.PruneVersions(layout, keep: [], stderr);
+        } finally {
+            foreach (var dir in locked.Where(Directory.Exists)) File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        await Assert.That(first).IsEqualTo(0);
+        await Assert.That(stderr.ToString()).Contains("0.9.0").And.Contains("next update");
+        await Assert.That(File.Exists(tmp.PathTo("root/versions/0.9.0/bin/kcap"))).IsTrue();
+
+        var second = updater.PruneVersions(layout, keep: [], TextWriter.Null);
+
+        await Assert.That(second).IsEqualTo(1);
+        await Assert.That(Directory.Exists(layout.VersionDir("0.9.0"))).IsFalse();
     }
 
     /// <summary>Only the new version and the one it replaced are kept, so a rollback deletes an unused
@@ -327,7 +360,7 @@ public class ScriptUpdaterTests {
             tmp.CreateFile($"versions/{name}/bin/kcap");
         var updater = new ScriptUpdater(null!) { InUse = _ => false };
 
-        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.0.0"), layout.VersionDir("1.1.0")]);
+        var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.0.0"), layout.VersionDir("1.1.0")], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(1);
         await Assert.That(Directory.EnumerateDirectories(layout.Versions).Select(p => Path.GetFileName(p)!).ToArray())
