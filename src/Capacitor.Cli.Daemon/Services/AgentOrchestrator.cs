@@ -2594,6 +2594,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             : AccountResolution.ResolveForResume(registry, vendor, resumed.AccountId, resumed.AccountDirectory, defaultDirectory);
     }
 
+    static bool StillResolvesToItself(string path) =>
+        CanonicalPath.TryResolve(path, out var now) && string.Equals(now, path, StringComparison.Ordinal);
+
     async Task<bool> RepoAllowedAsync(string repoPath, ResumeLaunch? resume) {
         if (resume is not { Work: WorkLocation.InPlace }) return _config.IsRepoAllowed(repoPath);
 
@@ -2723,7 +2726,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // runtime cannot apply a model, and "no model reported" must be representable in the type.
         string? effectiveModel = cmd.ExplicitReviewerModel?.LaunchModel ?? model;
         var effort        = cmd.Effort;
+        // What the server sent is what it is told back and what the ledger records; every filesystem
+        // operation reads sourceRepo, the resolved directory the allow-list check was run against.
         var repoPath      = cmd.RepoPath;
+        var sourceRepo    = repoPath;
         var tools         = cmd.Tools;
         var attachmentIds = cmd.AttachmentIds;
         var isReview      = cmd.Kind == LaunchKind.Review;
@@ -2887,16 +2893,25 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // A local spawn was never held to the allowed-repo list, so neither is its resume. A scratch
             // launch names no repository to allow, find or report on. Every in-place route is authorized here the
             // way a borrowed directory is, which also admits a path below an allowed git root.
-            if (!cmd.ScratchWorkspace && resume is not { Origin: "local" } && !await RepoAllowedAsync(repoPath, resume)) {
+            var resolvedRepo = !cmd.ScratchWorkspace && !string.IsNullOrEmpty(repoPath) && CanonicalPath.TryResolve(repoPath, out var resolved)
+                ? resolved
+                : null;
+
+            if (!cmd.ScratchWorkspace && resume is not { Origin: "local" }
+             && !await RepoAllowedAsync(resume is { Work: WorkLocation.InPlace } ? repoPath : resolvedRepo ?? repoPath, resume)) {
                 await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path not allowed: {repoPath}");
 
                 return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
             }
 
-            if (!cmd.ScratchWorkspace && !Directory.Exists(repoPath)) {
-                await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path does not exist: {repoPath}");
+            if (!cmd.ScratchWorkspace) {
+                if (resolvedRepo is null || !Directory.Exists(resolvedRepo)) {
+                    await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path does not exist: {repoPath}");
 
-                return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+                    return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+                }
+
+                sourceRepo = resolvedRepo;
             }
 
             // Capture scope for an unattended launch into a named repo, ahead of every
@@ -2904,7 +2919,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // repository it may not report on. A BORROWED launch is judged further down instead,
             // on the canonical path its authorization resolves.
             if ((isReview || isReviewFlow) && !cmd.Borrowed && !cmd.ScratchWorkspace
-             && await RefuseOutOfCaptureScopeAsync(agentId, repoPath) is { } scopeRefusal) {
+             && await RefuseOutOfCaptureScopeAsync(agentId, sourceRepo) is { } scopeRefusal) {
                 return scopeRefusal;
             }
 
@@ -2918,7 +2933,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 // Final guard: re-validate that the chosen path's origin really
                 // matches the PR's repo. The match the UI saw could have moved
                 // (remote renamed, repo moved) between picker and launch.
-                var actual = await GetOriginRemoteAsync(repoPath, _time);
+                var actual = await GetOriginRemoteAsync(sourceRepo, _time);
 
                 if (actual is null) {
                     await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"No origin remote at {repoPath}");
@@ -2970,11 +2985,19 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 ? $"refs/pull/{reviewInfo.PrNumber}/head"
                 : cmd.BaseRef;
 
+            // A directory under the allowed tree can be swapped for a link after the check above, so the
+            // resolved path is re-walked right before git reads from it.
+            if (resume is null && !cmd.Borrowed && !cmd.ScratchWorkspace && !StillResolvesToItself(sourceRepo)) {
+                await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path changed after it was allowed: {repoPath}");
+
+                return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+            }
+
             if (resume is not null) {
                 worktree = resume.Worktree;
             } else if (cmd.Handoff is not null) {
                 using var handoffCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token, cancel);
-                var handoff = await PrepareHandoffAsync(cmd, repoPath, handoffCts.Token);
+                var handoff = await PrepareHandoffAsync(cmd, sourceRepo, handoffCts.Token);
                 if (handoff.Refusal is { } handoffRefused) {
                     await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, handoffRefused);
 
@@ -3020,10 +3043,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             } else if (cmd.ScratchWorkspace) {
                 worktree = await _worktreeManager.CreateScratchAsync($"scratch-{agentId}", _shutdownCts.Token);
             } else {
-                worktree = await _worktreeManager.CreateAsync(repoPath, baseRef: baseRef);
+                worktree = await _worktreeManager.CreateAsync(sourceRepo, baseRef: baseRef);
             }
 
-            if (cmd.ScratchWorkspace) repoPath = worktree.Path;
+            if (cmd.ScratchWorkspace) repoPath = sourceRepo = worktree.Path;
 
             // The checkout the agent runs in is what the session's repo policy file means — the same
             // trust boundary the local seams read. Bound once here so the whole run is judged against
@@ -3174,7 +3197,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             var runtimeCtx = new RuntimeStartContext(
                 AgentId: agentId,
                 Vendor: cmd.Vendor,
-                SourceRepoPath: repoPath,
+                SourceRepoPath: sourceRepo,
                 Worktree: worktree,
                 Prompt: prompt,
                 // Task 8: for an explicit-model reviewer launch, launch with the server-pinned

@@ -78,18 +78,18 @@ internal sealed class LaunchConsentEngineTests {
     }
 
     [Test]
-    public async Task Repo_pattern_matches_across_path_separators() {
-        // The pattern is authored with forward slashes, the repo path arrives with backslashes as
-        // .NET reports a Windows path.
+    public async Task Repo_pattern_matches_across_path_separators_on_windows_only() {
+        // On POSIX a backslash is a filename character, so the backslashed path names one directory.
+        var expected = OperatingSystem.IsWindows() ? LaunchConsentVerdict.Allow : LaunchConsentVerdict.Deny;
         var glob = Policy(LaunchConsentDefault.Deny,
             new LaunchConsentRule("allow", null, null, "C:/work/*", null));
         await Assert.That(LaunchConsentEngine.Evaluate(glob, Input(repo: "C:\\work\\proj")).Verdict)
-            .IsEqualTo(LaunchConsentVerdict.Allow);
+            .IsEqualTo(expected);
 
         var exact = Policy(LaunchConsentDefault.Deny,
             new LaunchConsentRule("allow", null, null, "C:/work/proj", null));
         await Assert.That(LaunchConsentEngine.Evaluate(exact, Input(repo: "C:\\work\\proj")).Verdict)
-            .IsEqualTo(LaunchConsentVerdict.Allow);
+            .IsEqualTo(expected);
     }
 
     [Test]

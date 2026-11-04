@@ -1,3 +1,4 @@
+using TUnit.Core.Enums;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
 
@@ -48,6 +49,39 @@ public class RepoPathPatternTests {
         await Assert.That(RepoPathPattern.Matches(glob, allowed.PathTo("escape"))).IsFalse();
         await Assert.That(RepoPathPattern.Matches(glob, allowed.PathTo("escape", "x"))).IsFalse();
         await Assert.That(RepoPathPattern.Matches(glob, outside.PathTo("into"))).IsTrue();
+    }
+
+    /// <summary>The walk itself is pinned in <c>CanonicalPathTests</c>; here a relative path is refused
+    /// whatever it resolves to, and a relative pattern admits nothing.</summary>
+    [Test]
+    [RunOn(OS.Linux | OS.MacOs)]
+    public async Task A_relative_path_through_a_symlink_and_dot_dot_is_refused() {
+        var allowed = Tmp.CreateDir("allowed");
+        var parent  = Tmp.CreateDir("outside", "parent");
+        Tmp.CreateDir("outside", "secret");
+        Directory.CreateSymbolicLink(allowed.PathTo("link"), parent);
+#pragma warning disable RS0030 // a relative path means the working directory, which is the point
+        var relativeAllowed = Path.GetRelativePath(Environment.CurrentDirectory, Tmp.GetResolvedPath("allowed"));
+#pragma warning restore RS0030
+
+        await Assert.That(Path.IsPathRooted(relativeAllowed)).IsFalse();
+        await Assert.That(RepoPathPattern.Matches(allowed + "/*", Path.Combine(relativeAllowed, "link", "..", "secret"))).IsFalse();
+        await Assert.That(RepoPathPattern.Matches(allowed + "/*", Path.Combine(relativeAllowed, "proj"))).IsFalse();
+        await Assert.That(RepoPathPattern.Matches(relativeAllowed + "/*", allowed.PathTo("proj"))).IsFalse();
+        await Assert.That(RepoPathPattern.Matches(allowed + "/*", allowed.PathTo("proj"))).IsTrue();
+    }
+
+    [Test]
+    [RunOn(OS.Linux | OS.MacOs)]
+    public async Task A_backslash_in_a_posix_name_is_not_a_separator() {
+        var allowed = Tmp.CreateDir("allowed");
+        allowed.CreateDir("secret");
+        var beside = Tmp.CreateDir("allowed\\secret");
+
+        await Assert.That(Path.GetDirectoryName(beside)).IsEqualTo(Tmp.Path);
+        await Assert.That(RepoPathPattern.Matches(allowed + "/*", beside)).IsFalse();
+        await Assert.That(RepoPathPattern.Matches(allowed.PathTo("secret"), beside)).IsFalse();
+        await Assert.That(RepoPathPattern.Matches(allowed + "/*", allowed.PathTo("secret"))).IsTrue();
     }
 
     [Test]
