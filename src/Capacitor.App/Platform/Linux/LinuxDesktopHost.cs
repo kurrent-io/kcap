@@ -30,12 +30,12 @@ public sealed class LinuxDesktopHost(
     /// A CLI the image could not copy out runs from its mount.
     public override bool CliOutlivesApp => stagingFailure is null;
 
-    /// A daemon on the copy this run could not replace is the app's own, but stays on its version until a copy succeeds.
+    /// A daemon on the copy this run could not replace is the app's own, but stays on its version until a copy succeeds,
+    /// unless its binary was replaced before the failure.
     public override DaemonOnOtherInstall? OtherInstall(string version, string binary) {
         var other = base.OtherInstall(version, binary);
-        return other is not null && stagingFailure is { } failure && CanonicalPath.IsWithin(binary, failure.Directory)
-            ? other with { CopyFailure = failure.Reason }
-            : other;
+        if (other is null || stagingFailure is not { } failure || !CanonicalPath.IsWithin(binary, failure.Directory)) return other;
+        return failure.DaemonCopied ? null : other with { CopyFailure = failure.Reason };
     }
 
     public override IDesktopNotificationSink CreateNotificationSink(Action<Action> dispatch) => new LinuxDesktopNotificationSink(dispatch);

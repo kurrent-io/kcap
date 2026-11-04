@@ -7,7 +7,8 @@ namespace Capacitor.App.Platform.Linux;
 /// runs inside does not, so nothing that must outlive the app may run from the mount: the CLI and
 /// its plugin are copied out to a fixed directory, and a relaunch starts the image, not the mount.
 public sealed record AppImageInstall(string Image) {
-    static readonly string[] CliFiles = ["kcap", "kcap-daemon", "libpty_shim.so"];
+    const string DaemonFile = "kcap-daemon";
+    static readonly string[] CliFiles = ["kcap", DaemonFile, "libpty_shim.so"];
 
     public static AppImageInstall? Detect(Func<string, string?> getEnv) =>
         getEnv("APPIMAGE") is { Length: > 0 } image ? new(image) : null;
@@ -37,16 +38,20 @@ public sealed record AppImageInstall(string Image) {
         var plugin = BundleLayout.PluginDirectory(root);
         var stamp  = Path.Combine(root, "image.stamp");
         var identity = ImageIdentity(bundleCli, build ?? CapacitorVersion.Current());
+        var daemonCopied = false;
 
         try {
             if (identity is not null && Staged(stamp, identity, bundleCli, target, bundlePlugin, plugin)) return target;
             Directory.CreateDirectory(target);
-            foreach (var name in CliFiles) Stage(Path.Combine(bundleCli, name), Path.Combine(target, name));
+            foreach (var name in CliFiles) {
+                Stage(Path.Combine(bundleCli, name), Path.Combine(target, name));
+                daemonCopied |= name == DaemonFile;
+            }
             StageTree(bundlePlugin, plugin);
             if (identity is not null) File.WriteAllText(stamp, identity);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             Console.Error.WriteLine($"kcap: could not copy the bundled CLI to {root}, running it from the AppImage: {ex.Message}");
-            failure = new CliStagingFailure(target, ex.Message);
+            failure = new CliStagingFailure(target, ex.Message, daemonCopied);
             return bundleCli;
         }
 
