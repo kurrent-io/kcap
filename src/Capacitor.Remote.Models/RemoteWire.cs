@@ -9,6 +9,7 @@ public static class HubMethods {
     public const string SendUserInput          = "SendUserInput";
     public const string DiscardQueuedInput     = "DiscardQueuedInput";
     public const string SendSpecialKey         = "SendSpecialKey";
+    public const string SendTerminalInput      = "SendTerminalInput";
     public const string SubscribeToTerminal    = "SubscribeToTerminal";
     public const string UnsubscribeFromTerminal = "UnsubscribeFromTerminal";
     public const string RequestResizeTerminal  = "RequestResizeTerminal";
