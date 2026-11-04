@@ -1,7 +1,7 @@
-using System.Diagnostics;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Daemon.Services;
+using Microsoft.Extensions.Time.Testing;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -21,6 +21,44 @@ public class AgentPathEnvironmentTests {
                 Action<StreamedLine> onLine, CancellationToken ct) => throw new NotSupportedException();
     }
 
+    sealed class PendingRunner : IProcessRunner {
+        public TaskCompletionSource<ProcessResult> Result { get; } = new();
+        public int Calls { get; private set; }
+
+        public Task<ProcessResult> RunAsync(string fileName, string[] args, RunOptions options, CancellationToken ct) {
+            Calls++;
+            return Result.Task;
+        }
+
+        public Task<StreamingResult> RunStreamingAsync(string fileName, string[] args, RunOptions options,
+                Action<StreamedLine> onLine, CancellationToken ct) => throw new NotSupportedException();
+    }
+
+    [Test]
+    public async Task Repeated_refreshes_skip_an_unfinished_probe_and_resume_after_it_drains() {
+        using var path = EnvScope.Exclusive("PATH", "/usr/bin:/bin");
+        var runner = new PendingRunner();
+        var time = new FakeTimeProvider();
+        var environment = new AgentPathEnvironment(runner, time);
+
+        try {
+            for (var i = 0; i < 3; i++) {
+                var refresh = environment.RefreshAsync(CancellationToken.None);
+                time.Advance(TimeSpan.FromSeconds(12));
+                await refresh.WaitAsync(TimeSpan.FromSeconds(3));
+            }
+            await Assert.That(runner.Calls).IsEqualTo(1);
+            await Assert.That(Environment.GetEnvironmentVariable("PATH")).IsEqualTo("/usr/bin:/bin");
+        } finally {
+            runner.Result.SetResult(new ProcessResult(0, "<<KCAP-PATH>>/fresh-path<<KCAP-PATH>>", "", false));
+        }
+
+        await Assert.That(Environment.GetEnvironmentVariable("PATH")).IsEqualTo("/usr/bin:/bin");
+        await environment.RefreshAsync(CancellationToken.None);
+        await Assert.That(runner.Calls).IsEqualTo(2);
+        await Assert.That(Environment.GetEnvironmentVariable("PATH")).IsEqualTo("/fresh-path");
+    }
+
     [Test]
     public async Task An_exited_shell_with_a_child_holding_output_cannot_block_refresh_or_apply_a_late_PATH() {
         using var path = EnvScope.Exclusive("PATH", "/usr/bin:/bin");
@@ -31,14 +69,18 @@ public class AgentPathEnvironmentTests {
         var environment = new AgentPathEnvironment(runner);
         var refresh = environment.RefreshAsync(CancellationToken.None);
 
+        int pid = 0;
+        string? identity = null;
         try {
+            using var captureDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            while (!File.Exists(pidFile) || !int.TryParse(await File.ReadAllTextAsync(pidFile), out pid))
+                await Task.Delay(20, captureDeadline.Token);
+            identity = PidIdentity.Capture(pid);
+
             await refresh.WaitAsync(TimeSpan.FromSeconds(15));
             await Assert.That(Environment.GetEnvironmentVariable("PATH")).IsEqualTo("/usr/bin:/bin");
         } finally {
-            if (File.Exists(pidFile) && int.TryParse(await File.ReadAllTextAsync(pidFile), out var pid)) {
-                using var child = Process.GetProcessById(pid);
-                child.Kill();
-            }
+            if (identity is not null) ProcessTree.Kill(pid, identity);
             await runner.Completion!.WaitAsync(TimeSpan.FromSeconds(3));
             await refresh.WaitAsync(TimeSpan.FromSeconds(3));
         }
