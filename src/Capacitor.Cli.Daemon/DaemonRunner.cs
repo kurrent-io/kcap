@@ -74,9 +74,11 @@ public static partial class DaemonRunner {
         // And the same for the home directory, which the two above fall back to.
         var userHome = UserHome.FromEnvironment();
 
-        // One probe for the daemon's lifetime; the registry built over it below shares it, so a
-        // harness binary and a configured vendor path search one PATH.
-        var binaries = Core.Setup.BinaryProbe.FromEnvironment();
+        // launchd may carry a restricted PATH captured during setup. A live probe shares the
+        // refreshed environment with child processes; other platforms keep their startup snapshot.
+        var agentEnvironment = OperatingSystem.IsMacOS() ? new AgentPathEnvironment(new ProcessRunner(time), time) : null;
+        var binaries = agentEnvironment is null ? Core.Setup.BinaryProbe.FromEnvironment()
+            : Core.Setup.BinaryProbe.Tracking(() => Environment.GetEnvironmentVariable("PATH"));
 
         // OriginalArgs is captured for self-respawn (detached restart-after-update) and to detect
         // the successor's --await-lock handoff flag. Paths is set here, in the initializer, so the
@@ -98,6 +100,9 @@ public static partial class DaemonRunner {
         // ACP child, a self-respawned successor's own inheritance from OUR ambient env) can ever
         // observe them except through the explicit re-injection paths that need them.
         CaptureBootCarriers(config, Environment.GetEnvironmentVariable, k => Environment.SetEnvironmentVariable(k, null));
+
+        // Shell startup can spawn children too, so ask only after scrubbing the boot-only carriers.
+        if (agentEnvironment is not null) await agentEnvironment.RefreshAsync(CancellationToken.None);
 
         // Below the carrier scrub: this reads every vendor's override variable, and the scrub above
         // must run before anything reads the environment.
@@ -657,6 +662,9 @@ public static partial class DaemonRunner {
         builder.Services.AddSingleton<VendorCliWatcher>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<VendorCliWatcher>());
 
+        builder.Services.AddHostedService(sp => new AgentDiscoveryRefresh(agentEnvironment,
+            sp.GetRequiredService<AgentOrchestrator>(), time, sp.GetRequiredService<ILogger<AgentDiscoveryRefresh>>()));
+
         builder.Services.AddSingleton<AccountsPublisher>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<AccountsPublisher>());
         builder.Services.AddSingleton<AccountsIpc>();
@@ -743,6 +751,8 @@ public static partial class DaemonRunner {
         var unattendedStatuses = ClassifyUnattendedVendors(runtimeFactories);
 
         config.UnattendedVendors = AdvertisedUnattendedVendors(unattendedStatuses);
+        config.StartupUnattendedClassificationPending =
+            unattendedStatuses.Any(s => s.ProbeFailed);
         // Fingerprinted BEFORE the probes: a vendor that updates between the two then reads as a
         // change to the watcher, instead of as the baseline the stale advertisement already matches.
         // Every advertised vendor is recorded, since a catalog-only vendor is watched too.
@@ -1539,22 +1549,16 @@ public static partial class DaemonRunner {
         }
     }
 
-    /// <summary>One installed vendor's unattended classification at daemon startup.</summary>
+    /// <summary>One installed vendor's unattended classification.</summary>
     /// <param name="Vendor">The vendor token.</param>
     /// <param name="Advertised">Whether it is offered as an unattended reviewer host.</param>
     /// <param name="WithheldReason">Why it is not offered, when a daemon-local gate is what refuses
     /// it. Null for an advertised vendor AND for one that never offered unattended hosting — only a
     /// refusal an operator can act on is worth a Warning.</param>
     internal readonly record struct UnattendedVendorStatus(
-        string Vendor, bool Advertised, string? WithheldReason);
+        string Vendor, bool Advertised, string? WithheldReason, bool ProbeFailed = false);
 
-    /// <summary>
-    /// Classifies every INSTALLED factory's unattended support, asking each exactly once (see
-    /// <see cref="IHostedAgentRuntimeFactory.DescribeUnattendedSupport"/> — the gated reviewers spawn
-    /// their vendor binary to answer). Pure over the factory list, same reasoning as
-    /// <see cref="ShouldWarnCursorUnavailable"/>, so both the advertisement and its diagnostic are
-    /// testable without spinning up the whole DI host <see cref="RunAsync"/> builds.
-    /// </summary>
+    /// <summary>Classifies each installed vendor once, overlapping version probes under a shared deadline.</summary>
     internal static IReadOnlyList<UnattendedVendorStatus> ClassifyUnattendedVendors(
             IEnumerable<IHostedAgentRuntimeFactory> factories) {
         var installed = factories.Where(f => f.IsAvailable()).ToArray();
@@ -1565,12 +1569,12 @@ public static partial class DaemonRunner {
         // them: each factory is still asked exactly once, on its own task, under one shared ceiling.
         var support = ProbeVendorsConcurrently(
             byVendor.Keys, vendor => byVendor[vendor].DescribeUnattendedSupport(),
-            timedOut: new UnattendedSupport(false, null));
+            timedOut: new UnattendedSupport(false, null, ProbeFailed: true));
 
         return installed
             .Select(f => support[f.Vendor] is { Supported: true } && LauncherPolicyVersion(f.Vendor, codexAppServer: false) is null
                 ? new UnattendedVendorStatus(f.Vendor, false, $"no launcher policy is defined for {f.Vendor}")
-                : new UnattendedVendorStatus(f.Vendor, support[f.Vendor].Supported, support[f.Vendor].WithheldReason))
+                : new UnattendedVendorStatus(f.Vendor, support[f.Vendor].Supported, support[f.Vendor].WithheldReason, support[f.Vendor].ProbeFailed))
             .OrderBy(s => s.Vendor, StringComparer.Ordinal)
             .ToArray();
     }

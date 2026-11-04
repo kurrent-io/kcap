@@ -1,4 +1,7 @@
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
 using Capacitor.Cli.Core.LocalEdition;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit.LocalEdition;
 
@@ -23,6 +26,28 @@ public class LocalRootTests {
         await Assert.That(root.Directory).IsEqualTo(Tmp.PathTo("stack"));
     }
 
+    /// <summary>An empty registry is what a foreign owner could plant to have a root it controls taken for an
+    /// installation, and so secured with a warning instead of refused.</summary>
+    [Test]
+    [Arguments("""{"schema":1,"active":null,"retired":[]}""", false)]
+    [Arguments("not json", true)]
+    public async Task An_empty_registry_holds_no_installation_and_an_unreadable_one_does(string registry, bool holds) {
+        var root = new LocalRoot(Tmp.CreateDir("local"));
+        Tmp.CreateFile(["local", "install.json"], registry);
+
+        await Assert.That(root.HoldsInstallation).IsEqualTo(holds);
+    }
+
+    [Test]
+    public async Task A_registry_with_an_active_installation_holds_one() {
+        var root = new LocalRoot(Tmp.CreateDir("local"));
+        await Assert.That(root.HoldsInstallation).IsFalse();
+
+        LocalStateFiles.PublishRegistry(root, new InstallRegistry(new LocalInstallation("inst-1", 51234, "http://localhost:51234", "1.4.0"), []));
+
+        await Assert.That(root.HoldsInstallation).IsTrue();
+    }
+
     [Test]
     public async Task EnsureCreated_makes_the_root_owner_only() {
         if (OperatingSystem.IsWindows()) return;
@@ -34,6 +59,72 @@ public class LocalRootTests {
 
         await Assert.That(File.GetUnixFileMode(root.Directory))
             .IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    /// <summary>The loose mode and the registry beside it would make Windows warn; Unix tightens without a word.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    [UnsupportedOSPlatform("windows")]
+    public async Task EnsureCreated_on_Unix_tightens_an_installation_without_a_warning() {
+        var root = new LocalRoot(Tmp.CreateDir("local"));
+        File.SetUnixFileMode(root.Directory, (UnixFileMode)0b111_111_111);
+        Tmp.CreateFile(["local", "install.json"], "{}");
+        var warnings = new StringWriter();
+
+        root.EnsureCreated(warnings: warnings);
+
+        await Assert.That(File.GetUnixFileMode(root.Directory))
+            .IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        await Assert.That(warnings.ToString()).IsEmpty();
+    }
+
+    /// <summary>The Users grant on the parent is what the root would otherwise inherit.</summary>
+    [Test, RunOn(OS.Windows)]
+    [SupportedOSPlatform("windows")]
+    public async Task EnsureCreated_gives_a_new_root_a_protected_dacl_for_the_user_and_SYSTEM_alone() {
+        string parent = Tmp.CreateDir("parent");
+        WindowsAcl.GrantUsersRead(parent);
+        var root = new LocalRoot(Tmp.PathTo("parent", "local"));
+        var warnings = new StringWriter();
+
+        root.EnsureCreated(warnings: warnings);
+
+        await Assert.That(WindowsAcl.IsProtected(root.Directory)).IsTrue();
+        await Assert.That(WindowsAcl.Identities(root.Directory)).IsEquivalentTo(WindowsAcl.OwnerOnly);
+
+        foreach (var rule in WindowsAcl.Rules(root.Directory)) {
+            await Assert.That(rule.AccessControlType).IsEqualTo(AccessControlType.Allow);
+            await Assert.That(rule.FileSystemRights.HasFlag(FileSystemRights.FullControl)).IsTrue();
+            await Assert.That(rule.InheritanceFlags).IsEqualTo(InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit);
+            await Assert.That(rule.IsInherited).IsFalse();
+        }
+
+        await Assert.That(warnings.ToString()).IsEmpty();
+    }
+
+    /// <summary>The database file stands for what the server already wrote: it loses the Users grant through
+    /// inheritance alone. A second start finds nothing to tighten and says nothing.</summary>
+    [Test, RunOn(OS.Windows)]
+    [SupportedOSPlatform("windows")]
+    public async Task EnsureCreated_tightens_an_installation_open_to_Users_and_warns_instead_of_failing() {
+        string dir = Tmp.CreateDir("local");
+        WindowsAcl.GrantUsersRead(dir);
+        Tmp.CreateFile(["local", "install.json"], "{}");
+        var database = Tmp.CreateFile(["local", "data", "pg", "base.dat"], "rows");
+        await Assert.That(WindowsAcl.Identities(database)).Contains(WindowsAcl.Users.Value);
+        var root = new LocalRoot(dir);
+        var warnings = new StringWriter();
+
+        root.EnsureCreated(warnings: warnings);
+
+        await Assert.That(WindowsAcl.IsProtected(dir)).IsTrue();
+        await Assert.That(WindowsAcl.Identities(dir)).IsEquivalentTo(WindowsAcl.OwnerOnly);
+        await Assert.That(WindowsAcl.Identities(database)).IsEquivalentTo(WindowsAcl.OwnerOnly);
+        await Assert.That(warnings.ToString()).Contains("now private to you");
+
+        var again = new StringWriter();
+        root.EnsureCreated(warnings: again);
+
+        await Assert.That(again.ToString()).IsEmpty();
     }
 
     [Test]

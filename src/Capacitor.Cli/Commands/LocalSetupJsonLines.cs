@@ -55,8 +55,14 @@ static class LocalSetupJsonLines {
         ex as LocalInstallFailure ?? new(LocalInstallFailureCode.StartFailed, ex.Message);
 
     /// <summary>The setup exit a failure stands for: the two codes that mean nothing was attempted are refusals.</summary>
-    public static int Exit(LocalInstallFailureCode code) =>
-        code is LocalInstallFailureCode.AnswerRequired or LocalInstallFailureCode.InvalidArguments ? SetupExit.Refused : SetupExit.Failed;
+    public static int Exit(LocalInstallFailureCode code) => Exit(code, OperatingSystem.IsWindows());
+
+    /// <summary>Elsewhere an unpublished bundle stays a plain failure, which scripts there already branch on.</summary>
+    internal static int Exit(LocalInstallFailureCode code, bool windows) => code switch {
+        LocalInstallFailureCode.AnswerRequired or LocalInstallFailureCode.InvalidArguments => SetupExit.Refused,
+        LocalInstallFailureCode.BundleNotPublished when windows                            => SetupExit.NotPublished,
+        _                                                                                  => SetupExit.Failed,
+    };
 
     public static string Render(LocalSetupLine line) => JsonSerializer.Serialize(line, LocalSetupJsonContext.Default.LocalSetupLine);
 }

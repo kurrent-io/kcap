@@ -148,6 +148,9 @@ internal partial class AgentOrchestrator {
 
         var start    = handoff.Start.ToStart()!;
         var work     = await _worktreeManager.CheckHandoffWorkAsync(repoPath, start.Sha, handoff.SessionCommits, mayHaveUnpushedWork: true, ct: ct);
+        // The checks above awaited git; the worktree pins the source as it resolves on entry.
+        if (!StillResolvesToItself(repoPath))
+            return (null, null, $"{HandoffRefusals.RepoMismatch}: {repoPath} changed after it was allowed");
         var worktree = await _worktreeManager.CreateHandoffAsync(repoPath, start, ct: ct);
 
         return (worktree, HandoffPrompt.Build(handoff.Source, handoff.Start, start, work, cmd.Prompt), null);

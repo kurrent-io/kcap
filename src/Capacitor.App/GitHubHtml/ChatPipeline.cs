@@ -16,8 +16,8 @@ public static class ChatPipeline {
     public static MarkdownPipeline Instance { get; } =
         new MarkdownPipelineBuilder().UseSupportedExtensions().Use(new Hoist()).Build();
 
-    /// What a person typed, shown as they typed it: emphasis, strikethrough, code, lists, quotes
-    /// and bare URLs render, and no other markdown rule applies. A backslash is never an escape —
+    /// What a person typed, shown as they typed it: emphasis, strikethrough, code, bullet lists,
+    /// quotes and bare URLs render, and no other markdown rule applies. A backslash is never an escape —
     /// in `C:\Users\me\.config` the `\.` is a path separator — and every newline is a line break.
     public static MarkdownPipeline Prompt { get; } = PromptPipeline();
 
@@ -50,8 +50,11 @@ public static class ChatPipeline {
     }
 
     /// Markdig's list parser opens a thematic break itself, ahead of any list item, so leaving the
-    /// thematic break parser out is not enough to keep `---` or `***` as typed.
+    /// thematic break parser out is not enough to keep `---` or `***` as typed. Numbered items stay
+    /// text: a rendered list renumbers from its first number, so `3. 2. 1.` would read as 3, 4, 5.
     sealed class RulelessListBlockParser : ListBlockParser {
+        public RulelessListBlockParser() => ItemParsers.RemoveAll(p => p is NumberedListItemParser);
+
         public override BlockState TryOpen(BlockProcessor processor) {
             var rules = ThematicBreakParser.Default;
             if (rules.HasOpeningCharacter(processor.CurrentChar) && rules.TryOpen(processor).IsBreak()) {

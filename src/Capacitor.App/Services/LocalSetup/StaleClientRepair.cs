@@ -8,7 +8,8 @@ namespace Capacitor.App.Services.LocalSetup;
 /// <summary>
 /// Brings every kcap the local installer would refuse up to <see cref="LocalClientFloor"/> before the install starts,
 /// so the user is never asked to: an npm install is updated through npm, and anything else on the terminal's
-/// <c>PATH</c> becomes a link to this app's own kcap, which always meets the floor.
+/// <c>PATH</c> becomes a link to this app's own kcap, which always meets the floor. Windows has no administrator
+/// relink, so there anything npm cannot update is left for the user.
 /// </summary>
 public sealed class StaleClientRepair(
         IProcessRunner runner, ILoginShellProbe probe, string? appCli, Func<string?, ILocalClientCopies> copies) {
@@ -30,6 +31,7 @@ public sealed class StaleClientRepair(
     public async Task<ClientRepairOutcome> RunAsync(CancellationToken ct) {
         var path = await probe.TerminalPathAsync(ct).ConfigureAwait(false) ?? Environment.GetEnvironmentVariable("PATH");
         var npmTried = new HashSet<string>(StringComparer.Ordinal);
+        var npmFailed = new Dictionary<string, string>(StringComparer.Ordinal);
         var relinked = new HashSet<string>(StringComparer.Ordinal);
         string? repaired = null;
 
@@ -42,9 +44,17 @@ public sealed class StaleClientRepair(
 
             // Found again either way: npm may have left anything at that entry, updated or not.
             if (NpmPrefix(stale.Path) is { } prefix && npmTried.Add(stale.Path)) {
-                if (await UpdateThroughNpmAsync(prefix, path, ct).ConfigureAwait(false)) repaired = stale.Path;
+                var (updated, why) = await UpdateThroughNpmAsync(prefix, path, ct).ConfigureAwait(false);
+                if (updated) repaired = stale.Path;
+                else npmFailed[stale.Path] = why;
                 continue;
             }
+
+            // An npm install npm could not update says why in npm's words; there is no other repair to fall back to.
+            if (OperatingSystem.IsWindows())
+                return npmFailed.TryGetValue(stale.Path, out var npmWhy) ? new ClientRepairOutcome.Failed(stale.Path, $"npm could not update it ({npmWhy}).")
+                    : npmTried.Contains(stale.Path) ? new ClientRepairOutcome.StillOld(stale.Path, stale.Version)
+                    : new ClientRepairOutcome.Unrepairable(stale.Path);
 
             if (await BoundIdentityAsync(path, stale.Path, ct).ConfigureAwait(false) is not { } found) continue;
 
@@ -63,7 +73,7 @@ public sealed class StaleClientRepair(
     }
 
     Task<ClientCopy?> FindStaleAsync(string? path, CancellationToken ct) =>
-        Task.Run(() => copies(path).Find().FirstOrDefault(c => !LocalClientFloor.Admits(c.Version)), ct);
+        Task.Run(() => copies(path).Find().FirstOrDefault(c => !LocalClientFloor.AdmitsOn(OperatingSystem.IsWindows(), c.Version)), ct);
 
     /// The entry's identity, read before a probe that still finds it below the floor, so the version that probe reports
     /// belongs to the entry the identity describes: the replacement checks against it.
@@ -94,28 +104,57 @@ public sealed class StaleClientRepair(
     /// The global prefix of the npm install <paramref name="entry"/> runs, read from where its package lives; null when
     /// npm does not own it.
     static string? NpmPrefix(string entry) {
+        if (OperatingSystem.IsWindows()) return WindowsNpmPrefix(entry);
+
         var package = CanonicalPath.Resolve(entry);
         var at      = package.IndexOf($"/lib/node_modules/{NpmPackage}/", StringComparison.Ordinal);
 
         return at > 0 ? package[..at] : null;
     }
 
-    /// Runs the npm of the prefix that owns the entry: another npm earlier on PATH would update a different install
-    /// and leave this one older.
-    async Task<bool> UpdateThroughNpmAsync(string prefix, string? searchPath, CancellationToken ct) {
-        var bin = Path.Combine(prefix, "bin");
-        if (BinaryProbe.Searching(bin).Resolve("npm") is not { } npm) return false;
+    /// npm on Windows writes a global package's <c>kcap.cmd</c> into the prefix itself, beside its
+    /// <c>node_modules</c>; anything else there, a <c>kcap.exe</c> included, is not one npm would replace.
+    static string? WindowsNpmPrefix(string entry) {
+        if (!string.Equals(Path.GetExtension(entry), ".cmd", StringComparison.OrdinalIgnoreCase)) return null;
+        var prefix = Path.GetDirectoryName(entry);
 
-        // npm is a node script, and its own prefix is where a node install keeps node.
-        var env = new Dictionary<string, string> { ["PATH"] = string.IsNullOrEmpty(searchPath) ? bin : $"{bin}{Path.PathSeparator}{searchPath}" };
+        return prefix is not null && File.Exists(Path.Combine(prefix, "node_modules", "@kurrent", "kcap", "package.json")) ? prefix : null;
+    }
+
+    /// Runs the npm of the prefix that owns the entry: another npm earlier on PATH would update a different install
+    /// and leave this one older. On Windows npm usually sits with node instead, so the one on PATH is told the prefix.
+    async Task<(bool Updated, string Why)> UpdateThroughNpmAsync(string prefix, string? searchPath, CancellationToken ct) {
+        var windows = OperatingSystem.IsWindows();
+        var bin     = windows ? prefix : Path.Combine(prefix, "bin");
+        var npm     = BinaryProbe.Searching(bin).Resolve("npm") ?? (windows ? BinaryProbe.Searching(searchPath).Resolve("npm") : null);
+        if (npm is null) return (false, "npm was not found");
+
+        // npm is a node script, and its own folder is where a node install keeps node.
+        var head = windows ? Path.GetDirectoryName(npm)! : bin;
+        var env  = new Dictionary<string, string> { ["PATH"] = string.IsNullOrEmpty(searchPath) ? head : $"{head}{Path.PathSeparator}{searchPath}" };
+        string[] args = windows
+            ? ["install", "--global", "--prefix", prefix, $"{NpmPackage}@latest"]
+            : ["install", "--global", $"{NpmPackage}@latest"];
         try {
-            var result = await runner.RunAsync(npm, ["install", "--global", $"{NpmPackage}@latest"], new RunOptions(env, NpmTimeout), ct)
+            var result = await runner.RunAsync(npm, args, new RunOptions(env, NpmTimeout), ct)
                 .ConfigureAwait(false);
-            return result is { ExitCode: 0, TimedOut: false };
+            return result is { ExitCode: 0, TimedOut: false } ? (true, "")
+                : (false, result.TimedOut ? "npm timed out" : NpmErrorOf(result.Stderr) ?? $"npm exited {result.ExitCode}");
         } catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException) {
-            return false;
+            return (false, ex.Message);
         }
     }
+
+    /// npm's own summary of a failed install, such as "EEXIST: file already exists": the first error line that is not
+    /// one of its key-value lines or the pointer to its debug log.
+    internal static string? NpmErrorOf(string stderr) =>
+        stderr.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.StartsWith("npm error ", StringComparison.Ordinal) || l.StartsWith("npm ERR! ", StringComparison.Ordinal))
+            .Select(l => l[(l.IndexOf(' ', 4) + 1)..].Trim())
+            .FirstOrDefault(l => l.Length > 0 && !NpmErrorKeys.Any(k => l.StartsWith(k, StringComparison.Ordinal)));
+
+    static readonly string[] NpmErrorKeys = ["code ", "path ", "syscall ", "errno ", "dest ", "A complete log"];
 
     /// Whether this app's kcap is one the installer admits: linking PATH to anything else, a missing file included,
     /// would trade one refused copy for another.

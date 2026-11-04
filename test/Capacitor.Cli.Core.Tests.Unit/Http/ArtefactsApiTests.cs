@@ -123,7 +123,7 @@ public class ArtefactsApiTests : IDisposable {
                .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.OK)
                                     .WithHeader("Content-Type", "application/json").WithBody(DetailJson));
 
-        await Assert.That(await Api().PublishVersionAsync("a b", "<p>x</p>")).IsTypeOf<ArtefactWriteResult.Written>();
+        await Assert.That(await Api().PublishVersionAsync("a b", "<p>x</p>", null)).IsTypeOf<ArtefactWriteResult.Written>();
     }
 
     [Test]

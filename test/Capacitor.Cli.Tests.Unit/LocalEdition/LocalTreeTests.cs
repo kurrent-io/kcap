@@ -14,21 +14,16 @@ public class LocalTreeTests {
         var outside = Tmp.CreateDir("outside");
         File.WriteAllText(Path.Combine(outside, "keep"), "x");
         var nested = Path.Combine(outside, "nested");
-        Link(nested, Tmp.CreateDir("far"));
+        DirectoryLink.Create(nested, Tmp.CreateDir("far"));
         Directory.CreateDirectory(Path.Combine(LocalBin.Directory(Root), "1.2.3"));
         LocalBin.Switch(Root, "1.2.3");
-        Link(Path.Combine(LocalBin.Directory(Root), "elsewhere"), outside);
+        DirectoryLink.Create(Path.Combine(LocalBin.Directory(Root), "elsewhere"), outside);
 
         await Assert.That(LocalTree.Remove(LocalBin.Directory(Root))).IsTrue();
 
         await Assert.That(Directory.Exists(LocalBin.Directory(Root))).IsFalse();
         await Assert.That(File.Exists(Path.Combine(outside, "keep"))).IsTrue();
         await Assert.That(new DirectoryInfo(nested).LinkTarget).IsNotNull();
-    }
-
-    static void Link(string path, string target) {
-        if (OperatingSystem.IsWindows()) WindowsJunction.Create(path, target);
-        else Directory.CreateSymbolicLink(path, target);
     }
 
     [Test]

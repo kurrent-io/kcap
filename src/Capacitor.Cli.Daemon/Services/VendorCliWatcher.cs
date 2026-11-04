@@ -26,6 +26,8 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
 
     int _rebuildRequested;
     IReadOnlyList<(string AccountId, string Directory)>? _actedAccounts;
+    IReadOnlyList<string>? _watchedVendors;
+    IReadOnlyList<string>? _watchedUnattendedVendors;
 
     // Seams (assigned from DI in the production ctor; overridden directly in tests).
     internal Func<string, CliBinaryStat?>   StatBinary;
@@ -170,6 +172,12 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
 
     // The refresh is raised outside the gate: it is a trigger into the orchestrator, not state of this class.
     string? TickUnlocked() {
+        if (_config is not null && (!ReferenceEquals(_watchedVendors, _config.SupportedVendors)
+                                || !ReferenceEquals(_watchedUnattendedVendors, _config.UnattendedVendors))) {
+            _watchedVendors = _config.SupportedVendors;
+            _watchedUnattendedVendors = _config.UnattendedVendors;
+            Interlocked.Exchange(ref _rebuildRequested, 1);
+        }
         if (Interlocked.Exchange(ref _rebuildRequested, 0) == 1 && _config is not null && _factories is not null) {
             Watched = WatchSet(_config, _factories, _accounts());
             PrimeBaselinesUnlocked();

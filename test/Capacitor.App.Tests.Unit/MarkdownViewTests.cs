@@ -542,7 +542,7 @@ public class MarkdownViewTests {
         });
     }
 
-    /// Pins the prompt's subset: emphasis, strikethrough, code, lists, quotes and a bare URL
+    /// Pins the prompt's subset: emphasis, strikethrough, code, bullet lists, quotes and a bare URL
     /// render, and nothing else markdown would read into typed text does — a heading, a rule, a
     /// setext underline, HTML, an entity, link syntax, an indented block or a backslash escape.
     [Test]
@@ -586,6 +586,20 @@ public class MarkdownViewTests {
             (window, root, _) = Show(typed);
             try {
                 await Assert.That(string.Join('|', Paragraphs(root).Select(Reads))).IsEqualTo("one two|three");
+            } finally { window.Close(); }
+        });
+    }
+
+    /// Pins that numbered lines stay as typed: a rendered list would renumber them from the first.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_prompt_shows_numbered_lines_as_typed() {
+        await RunOnUiAsync(async () => {
+            const string typed = "3. three\n2. two\n1) one";
+            var (window, root, _) = Show(typed, MarkdownFlavor.Prompt);
+            try {
+                await Assert.That(All<TextBlock>(root).Any(t => t.Classes.Contains("markdown-list-marker"))).IsFalse();
+                await Assert.That(Reads(Paragraphs(root).Single()).ReplaceLineEndings("\n")).IsEqualTo(typed);
             } finally { window.Close(); }
         });
     }

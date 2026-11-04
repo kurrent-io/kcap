@@ -24,7 +24,7 @@ namespace Capacitor.Cli.Daemon.Harness.Muse;
 /// session id this factory mints. When the daemon host has no kcap hooks in Muse's settings, the
 /// factory runs the hook itself.</para>
 ///
-/// <para>One refusal ladder (<see cref="ReviewerRefusal"/>) answers both advertisement and launch, so
+/// <para>One refusal ladder (<see cref="ReviewerRefusal()"/>) answers both advertisement and launch, so
 /// the daemon never offers a reviewer it would refuse to start.</para>
 /// </summary>
 internal sealed partial class MuseHostedAgentRuntimeFactory : IHostedAgentRuntimeFactory {
@@ -120,8 +120,10 @@ internal sealed partial class MuseHostedAgentRuntimeFactory : IHostedAgentRuntim
 
     public bool SupportsRestartResume(string? runtimeTransport) => true;
 
-    public UnattendedSupport DescribeUnattendedSupport() =>
-        ReviewerRefusal() is { } reason ? new(false, reason) : new(true, null);
+    public UnattendedSupport DescribeUnattendedSupport() {
+        var reason = ReviewerRefusal(out var probeFailed);
+        return new(reason is null, reason, probeFailed);
+    }
 
     /// <summary>The models Meta currently serves, from the catalog Muse caches on each run. The server's
     /// own feed keeps retired ids, which Muse rejects on every turn, so a present cache replaces it.</summary>
@@ -136,7 +138,10 @@ internal sealed partial class MuseHostedAgentRuntimeFactory : IHostedAgentRuntim
 
     /// <summary>Null when this daemon may launch a Muse reviewer, else the coded refusal. Consent and
     /// platform are decided before the binary is probed.</summary>
-    internal string? ReviewerRefusal() {
+    internal string? ReviewerRefusal() => ReviewerRefusal(out _);
+
+    string? ReviewerRefusal(out bool probeFailed) {
+        probeFailed = false;
         var beforeProbe = MuseReviewerCapability.Decide(
             _posixHost, _config.MuseUnattendedReviewerEnabled, installedVersion: null, minimumVersion: null);
 
@@ -148,6 +153,7 @@ internal sealed partial class MuseHostedAgentRuntimeFactory : IHostedAgentRuntim
                  + $"muse, or set {HarnessId.Muse.PathEnvVar} to its location.";
 
         var installed = _resolveVersion(_config.MusePath);
+        probeFailed = string.IsNullOrEmpty(installed);
         var minimum   = VersionStoreFor(_config).Affirmed;
         var decision  = MuseReviewerCapability.Decide(_posixHost, _config.MuseUnattendedReviewerEnabled, installed, minimum);
 

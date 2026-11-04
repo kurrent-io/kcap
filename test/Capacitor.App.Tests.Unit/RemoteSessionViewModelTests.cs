@@ -233,12 +233,12 @@ public class RemoteSessionViewModelTests {
         });
     }
 
-    /// An imported or ended session has no daemon to say how it ran: the pane shows the listed
-    /// branch, or the summary's when the listing has none, and leaves the transport unknown.
+    /// An imported or ended session has no daemon to report its branch: the pane shows the listed
+    /// branch, or the summary's when the listing has none.
     [Test]
     [Arguments("claude")]
     [Arguments("codex")]
-    public async Task A_server_only_session_shows_its_stored_branch_and_no_transport(string vendor) {
+    public async Task A_server_only_session_shows_its_stored_branch(string vendor) {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
             h.WorkSource.Default = WorkContextRead.Of(WorkContextReadKind.Ready) with {
@@ -250,7 +250,6 @@ public class RemoteSessionViewModelTests {
             var vm = h.Build(Harness.ServerRow() with { Vendor = vendor });
             try {
                 await WaitUntilAsync(() => vm.WorkContext.Branch == "main", what: "stored branch");
-                await Assert.That(vm.WorkContext.Transport).IsEqualTo("—");
             } finally { await vm.TeardownAsync(); }
         });
     }
@@ -264,7 +263,6 @@ public class RemoteSessionViewModelTests {
             try {
                 await WaitUntilAsync(() => vm.WorkContext.Phase == WorkContextPhase.NoWorkItem, what: "summary read");
                 await Assert.That(vm.WorkContext.Branch).IsEqualTo("—");
-                await Assert.That(vm.WorkContext.Transport).IsEqualTo("—");
             } finally { await vm.TeardownAsync(); }
         });
     }

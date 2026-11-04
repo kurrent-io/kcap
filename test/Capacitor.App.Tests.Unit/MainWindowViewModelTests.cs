@@ -2,6 +2,7 @@ using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using Avalonia.Media;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Update;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.App.Views;
@@ -340,7 +341,7 @@ public class MainWindowViewModelTests {
     public async Task Restart_pending_raises_an_alert_while_connected() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var restartPending = new BehaviorSubject<bool>(false);
+            var restartPending = new BehaviorSubject<DaemonRestartWait>(DaemonRestartWait.None);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, restartPending: restartPending);
             using var activation = vm.Activator.Activate();
 
@@ -348,12 +349,12 @@ public class MainWindowViewModelTests {
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
             await Assert.That(vm.Alert).IsNull();
 
-            restartPending.OnNext(true);
+            restartPending.OnNext(DaemonRestartWait.Turns);
 
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
             await Assert.That(vm.Alert.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
 
-            restartPending.OnNext(false);
+            restartPending.OnNext(DaemonRestartWait.None);
 
             await Assert.That(vm.Alert).IsNull();
         });
@@ -364,7 +365,7 @@ public class MainWindowViewModelTests {
     public async Task Restart_pending_is_hidden_while_not_connected() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var restartPending = new BehaviorSubject<bool>(true);
+            var restartPending = new BehaviorSubject<DaemonRestartWait>(DaemonRestartWait.Turns);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, restartPending: restartPending);
             using var activation = vm.Activator.Activate();
 
@@ -482,12 +483,62 @@ public class MainWindowViewModelTests {
     public async Task AlertFor_restart_pending_only_when_nothing_else_is_wrong() {
         var connected = new AttachStatus(AttachState.Connected, null, null);
 
-        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: true);
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: DaemonRestartWait.Turns);
         await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
         await Assert.That(pending.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
 
-        await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: true)!.Text)
+        await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: DaemonRestartWait.Turns)!.Text)
             .IsEqualTo(MainWindowViewModel.ReconnectingText);
+    }
+
+    /// A when-idle restart has no turn wait to promise: idle agents hold it for as long as they stay. A marker that does
+    /// not say what it waits for promises neither.
+    [Test]
+    [Arguments(DaemonRestartWait.Agents, MainWindowViewModel.RestartWhenNoAgentsMessage)]
+    [Arguments(DaemonRestartWait.Unstated, MainWindowViewModel.RestartUnstatedMessage)]
+    public async Task AlertFor_a_restart_not_waiting_for_turns_says_what_it_waits_for(DaemonRestartWait wait, string message) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: wait);
+
+        await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
+        await Assert.That(pending.Detail).IsEqualTo(message);
+    }
+
+    /// A restart waiting for turns follows an update to the other install, so it outranks the report; any other queued
+    /// restart brings back the same version, so the report outranks it.
+    [Test]
+    [Arguments(DaemonRestartWait.None, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Agents, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Unstated, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Turns, MainWindowViewModel.RestartPendingText)]
+    public async Task AlertFor_a_daemon_on_another_install_is_outranked_only_by_a_turn_wait(DaemonRestartWait wait, string text) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        var other = new DaemonOnOtherInstall("1.4.1-beta.2+d12e8ca", "/opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
+
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: other, restartPending: wait);
+
+        await Assert.That(alert!.Text).IsEqualTo(text);
+        if (text == MainWindowViewModel.DaemonNotUpdatedText)
+            await Assert.That(alert.Detail).Contains("kcap 1.4.1-beta.2 from /opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
+    }
+
+    /// kcap update does not touch the app's own copy of its CLI, so the alert names why the app could not replace it.
+    /// No queued restart outranks it: each one starts that same copy again.
+    [Test]
+    [Arguments(DaemonRestartWait.None)]
+    [Arguments(DaemonRestartWait.Turns)]
+    [Arguments(DaemonRestartWait.Agents)]
+    public async Task AlertFor_a_daemon_on_a_cli_copy_the_app_could_not_replace_names_the_failure(DaemonRestartWait wait) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        var copy = new DaemonOnOtherInstall("1.4.0", "/home/u/.local/share/kcap/desktop/bin/kcap-daemon", "No space left on device.");
+
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: copy, restartPending: wait);
+
+        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonNotUpdatedText);
+        await Assert.That(alert.Detail).Contains("kcap 1.4.0 from /home/u/.local/share/kcap/desktop/bin/kcap-daemon");
+        await Assert.That(alert.Detail).Contains("No space left on device. Fix that");
+        await Assert.That(alert.Detail).DoesNotContain("kcap update");
     }
 
     [Test]

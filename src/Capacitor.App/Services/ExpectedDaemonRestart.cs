@@ -23,6 +23,7 @@ public sealed class ExpectedDaemonRestart : IDisposable {
     internal static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(1);
 
     readonly Func<bool> _appJustUpdated;
+    readonly Func<bool> _appStartsDaemon;
     readonly Action<bool, TimeSpan>? _outageEnded;
     readonly Func<Task> _reattach;
     readonly Func<int?>? _livePid;
@@ -42,16 +43,20 @@ public sealed class ExpectedDaemonRestart : IDisposable {
     // When a daemon process other than the last attached one was first seen alive in this outage.
     DateTimeOffset? _startingSince;
     int? _attachedPid;
+    int _updateHolds;
     bool _disposed;
 
     /// <param name="outageEnded">Told, on reconnecting, whether the outage was expected and how long it lasted.</param>
     /// <param name="livePid">The pid the daemon's pid file names while that process is alive, else null. Null
     /// never reports a starting daemon.</param>
+    /// <param name="appStartsDaemon">The update stopped the daemon before it ran, so nothing brings it back but this
+    /// launch: the outage still reads as a restart, but <see cref="Expected"/> does not hold an ensure back for it.</param>
     public ExpectedDaemonRestart(
             IObservable<AttachStatus> status, IObservable<bool> restartPending, Func<bool> appJustUpdated,
             Func<Task> reattach, TimeProvider time, Action<bool, TimeSpan>? outageEnded = null,
-            Func<int?>? livePid = null) {
+            Func<int?>? livePid = null, Func<bool>? appStartsDaemon = null) {
         _appJustUpdated = appJustUpdated;
+        _appStartsDaemon = appStartsDaemon ?? (() => false);
         _outageEnded = outageEnded;
         _reattach = reattach;
         _livePid = livePid;
@@ -91,16 +96,23 @@ public sealed class ExpectedDaemonRestart : IDisposable {
     /// Whether an outage right now is one the daemon chose, or one it is coming back from by itself.
     public bool Expected {
         get {
-            lock (_lock) return IsExpected() || IsStarting();
+            lock (_lock) return IsExpected(toWaitOut: true) || IsStarting();
         }
+    }
+
+    /// <summary>Makes the daemon's outage an expected one, past the grace, until the handle is disposed: an update
+    /// stopped it for the updater to replace, and starting it again would run the install being replaced.</summary>
+    public IDisposable HoldForUpdate() {
+        Update(() => _updateHolds++);
+        return System.Reactive.Disposables.Disposable.Create(() => Update(() => _updateHolds--));
     }
 
     bool InDaemonOutage() =>
         _raw is { State: AttachState.Unreachable or AttachState.Connecting } && _outageReason == UnreachableReason;
 
-    bool IsExpected() =>
-        InDaemonOutage() && _outageSince is { } since && _time.GetUtcNow() - since < Grace
-        && (_marker || _appJustUpdated());
+    bool IsExpected(bool toWaitOut = false) =>
+        InDaemonOutage() && (_updateHolds > 0 || (_outageSince is { } since && _time.GetUtcNow() - since < Grace
+            && (_marker || (_appJustUpdated() && !(toWaitOut && _appStartsDaemon())))));
 
     bool IsStarting() =>
         InDaemonOutage() && _startingSince is { } since && _time.GetUtcNow() - since < Grace;

@@ -26,6 +26,14 @@ internal sealed class StubCatalogFactory(string vendor, IReadOnlyList<VendorMode
 
     public IReadOnlyList<string> CatalogFingerprintPaths { get; } = paths ?? [];
 
+    public Func<UnattendedSupport>? UnattendedProbe { get; set; }
+    public int UnattendedProbeCalls { get; private set; }
+
+    public UnattendedSupport DescribeUnattendedSupport() {
+        UnattendedProbeCalls++;
+        return UnattendedProbe?.Invoke() ?? new(false, null);
+    }
+
     public bool IsAvailable() => true;
 
     public Task<IReadOnlyList<VendorModelOption>?> ProbeModelsAsync(CancellationToken ct) {

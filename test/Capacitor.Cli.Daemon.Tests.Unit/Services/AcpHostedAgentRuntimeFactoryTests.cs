@@ -2529,13 +2529,21 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await Assert.That(support.WithheldReason).IsNull();
     }
 
-    /// <summary>
-    /// One call, one version probe.
-    ///
-    /// <para>The flag and the reason come from a single method precisely so startup does not spawn the
-    /// vendor binary once to decide and again to explain. `--version` on a cold Node start is not free, and
-    /// the resolver is bounded at 10s per attempt — a duplicated probe is a duplicated stall on every boot.</para>
-    /// </summary>
+    [Test]
+    [Arguments(true, null, true)]
+    [Arguments(false, null, false)]
+    [Arguments(true, "0.52.0", false)]
+    [Arguments(true, "0.54.0", false)]
+    public async Task Only_an_unresolved_enabled_version_probe_is_retryable(bool enabled, string? installed, bool retryable) {
+        var config = GeminiEnabledConfig(affirmed: "0.53.0");
+        config.GeminiUnattendedReviewerEnabled = enabled;
+        IHostedAgentRuntimeFactory factory = new AcpHostedAgentRuntimeFactory(
+            AcpVendorDescriptors.Gemini, config, NullLoggerFactory.Instance,
+            new CaptureServerConnection(), TimeProvider.System, resolveVendorVersion: _ => installed);
+
+        await Assert.That(factory.DescribeUnattendedSupport().ProbeFailed).IsEqualTo(retryable);
+    }
+
     [Test]
     public async Task DescribeUnattendedSupport_ProbesTheVendorBinaryExactlyOnce() {
         var probes = 0;

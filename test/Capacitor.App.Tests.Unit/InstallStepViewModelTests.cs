@@ -597,6 +597,46 @@ public class InstallStepViewModelTests {
         yield return () => (new ClientRepairOutcome.OldApp("/Users/me/Applications/kcap.app/Contents/MacOS/kcap"), "/Users/me/Applications/kcap.app");
     }
 
+    [Test]
+    public async Task An_older_app_on_a_mac_is_moved_to_the_trash() {
+        var text = InstallStepViewModel.ProblemText(new ClientRepairOutcome.OldApp("/Applications/kcap.app/Contents/MacOS/kcap"), windows: false);
+
+        await Assert.That(text).IsEqualTo("An older copy of the kcap app is at /Applications/kcap.app/Contents/MacOS/kcap. Move it to the Trash, then try again.");
+    }
+
+    /// A Windows install of the app is updated in place, so the page never tells the user to throw it away.
+    [Test]
+    public async Task An_older_app_on_windows_is_updated() {
+        const string app = @"C:\Users\me\AppData\Local\kcap\current\bin\kcap.exe";
+
+        var text = InstallStepViewModel.ProblemText(new ClientRepairOutcome.OldApp(app), windows: true);
+
+        await Assert.That(text).Contains(app);
+        await Assert.That(text).Contains("Update the kcap app");
+        await Assert.That(text).DoesNotContain("Trash");
+    }
+
+    [Test]
+    public async Task A_kcap_npm_updated_but_still_too_old_says_npm_updated_it_and_asks_for_it_removed() {
+        const string stale = @"C:\oldkcap\kcap.cmd";
+
+        var text = InstallStepViewModel.ProblemText(new ClientRepairOutcome.StillOld(stale, "1.4.0+290d19aedd978ffae84540c011f315d8b8eaf421"), windows: true);
+
+        await Assert.That(text).IsEqualTo(
+            @"npm updated the kcap at C:\oldkcap\kcap.cmd to 1.4.0, but that version can't run the local edition on Windows yet. Remove it, or take its folder off PATH, then try again.");
+    }
+
+    [Test]
+    public async Task An_older_kcap_setup_cannot_update_names_it_and_asks_for_it_to_be_updated_or_removed() {
+        const string stale = @"C:\tools\kcap.exe";
+
+        var text = InstallStepViewModel.ProblemText(new ClientRepairOutcome.Unrepairable(stale), windows: true);
+
+        await Assert.That(text).Contains(stale);
+        await Assert.That(text).Contains("Update or remove it");
+        await Assert.That(text).DoesNotContain("kcap setup");
+    }
+
     /// Back, then the page again, is how a user leaves a refused run: it must check again rather than replay the
     /// refusal, and must not ask the search question a second time.
     [Test]
@@ -645,7 +685,7 @@ public class InstallStepViewModelTests {
         await Assert.That(cli.SetupLocalCallCount).IsEqualTo(2);
     }
 
-    /// Where the app has no repair (Windows), trying again cannot clear an older kcap, so the page says what the
+    /// Where the app has no repair, trying again cannot clear an older kcap, so the page says what the
     /// installer said: which copy, and to update or remove it.
     [Test]
     [NotInParallel("AvaloniaSession")]
