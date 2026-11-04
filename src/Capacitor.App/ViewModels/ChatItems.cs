@@ -184,7 +184,6 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     [GeneratedRegex("(\\d+)")]
     private static partial Regex MaskedSpan();
 
-    // A span closes on a backtick run of the same length; an unmatched run is plain text.
     static int ClosingRun(string text, int from, int length) {
         var i = from;
         while (i < text.Length) {
