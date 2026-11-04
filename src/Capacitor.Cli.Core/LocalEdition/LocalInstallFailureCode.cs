@@ -20,7 +20,9 @@ public enum LocalInstallFailureCode {
     CommitFailed,
     RecoveryFailed,
     Cancelled,
-    ClientBelowFloor
+    ClientBelowFloor,
+    ServerMissing,
+    ServiceMissing
 }
 
 public static class LocalInstallFailureCodeExtensions {
@@ -46,6 +48,8 @@ public static class LocalInstallFailureCodeExtensions {
         LocalInstallFailureCode.RecoveryFailed      => "recovery_failed",
         LocalInstallFailureCode.Cancelled           => "cancelled",
         LocalInstallFailureCode.ClientBelowFloor    => "client_below_floor",
+        LocalInstallFailureCode.ServerMissing       => "server_missing",
+        LocalInstallFailureCode.ServiceMissing      => "service_missing",
         _                                           => throw new ArgumentOutOfRangeException(nameof(code), code, null)
     };
 }

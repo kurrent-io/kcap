@@ -61,8 +61,10 @@ Options:
                               search by meaning, downloading it if it is not in
                               place. Needs nothing else installed.
   --no-embeddings             With --local: search by keyword only, removing a
-                              model an earlier setup configured. Remembered, so a
-                              later setup without an embedding flag keeps it.
+                              model an earlier setup configured and deleting a
+                              downloaded built-in model, which it reports with the
+                              space freed. Remembered, so a later setup without an
+                              embedding flag keeps it.
   --windows-service           With --local, on Windows only: run the server under
                               the kcap-service Windows service, installing it
                               behind an administrator prompt when it is missing.
@@ -99,7 +101,8 @@ Options:
                               only the server and login steps, ending with
                               "committed" or "failed". Exits 0 on "committed", 1
                               on "failed" (2 for answer_required and
-                              invalid_arguments), and 130 when an interrupt
+                              invalid_arguments; on Windows, 4 for
+                              bundle_not_published), and 130 when an interrupt
                               (Ctrl+C or SIGTERM) was received, whichever line
                               came last. Takes only --single-user, --yes,
                               --no-update-check, --embedding-model,
@@ -303,7 +306,9 @@ changes.
 
   Exit codes: 0 done; 1 failed (setup did not finish; what it changed stays,
   and re-running carries on); 2 refused (nothing attempted: a wrong
-  argument, or an answer a run that cannot ask needs); 130 interrupted.
+  argument, or an answer a run that cannot ask needs); 4, on Windows only,
+  when no local bundle is published for this version yet (--local; nothing
+  installed); 130 interrupted.
 
   --json with --no-prompt: one JSON object per line on stdout, the narration
   on stderr. Each step (server, sign_in, visibility, harnesses, daemon,
@@ -366,13 +371,19 @@ every file and directory the run installed kcap into, including the git config
 that carries the commit hook, under "Changed on this machine".
 
 Codex runs only hooks you have trusted. After Codex hooks install, the next
-`codex` CLI launch prompts to trust them — accept once to trust them all, or
-run /hooks inside Codex to trust the kcap entries individually. The Codex
-desktop app never shows that prompt: if you only use the desktop app, trust
-the kcap hooks in Settings → Hooks there (and since setup detects Codex by
-`codex` on PATH, you may need `kcap plugin install --codex` to install the
-hooks first). Until trusted, the hooks are installed but inert and no
-sessions are captured; setup reminds you of this whenever it installs them.
+interactive `codex` launch prompts to trust them — accept once to trust them
+all, or run /hooks inside Codex to trust the kcap entries individually.
+`codex exec` never shows that prompt, so running only `codex exec` records
+nothing unless each run passes --dangerously-bypass-hook-trust; run `codex`
+once first. The Codex desktop app never shows it either:
+if you only use the desktop app, trust the kcap hooks in Settings → Hooks
+there (and since setup detects Codex by `codex` on PATH, you may need
+`kcap plugin install --codex` to install the hooks first). Codex has no
+command that trusts hooks; a script can instead pass
+--dangerously-bypass-hook-trust to each `codex exec`, which trusts nothing
+for later runs. Until trusted, the hooks are installed but inert and no
+sessions are captured; setup reminds you of this whenever it installs them,
+and `kcap status` and `kcap harness list` report it.
 
 The git hook that files commits under their agent session needs git 2.54 or
 later. Setup adds the hook entry, then checks `git --version` and warns when

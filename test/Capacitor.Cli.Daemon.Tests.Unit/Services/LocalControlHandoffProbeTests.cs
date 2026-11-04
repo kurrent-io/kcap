@@ -67,8 +67,61 @@ public class LocalControlHandoffProbeTests {
             new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
             allowedRepoPath);
 
-    static HandoffProbeRequestDto Request(Fixture f, string branch, string owner = Owner, string name = Name, IReadOnlyList<string>? commits = null) =>
-        new(f.Clone.Path, owner, name, branch, null, false, null, null, commits);
+    static HandoffProbeRequestDto Request(
+            Fixture f, string branch, string owner = Owner, string name = Name, IReadOnlyList<string>? commits = null, bool localOnly = false) =>
+        new(f.Clone.Path, owner, name, branch, null, false, null, null, commits, localOnly);
+
+    /// <summary>Points origin somewhere that does not exist, so any command that reaches it fails.</summary>
+    static void CutOrigin(Fixture f, TempDir gone) {
+        f.PointOriginAt(gone.PathTo("missing"));
+        f.Clone.Do("config", "--unset-all", $"url.{f.Upstream.Path}.insteadOf");
+    }
+
+    [Test]
+    public async Task A_local_probe_decides_from_the_fetched_refs_without_reaching_origin() {
+        using var f = new Fixture();
+        var tip = f.CommitOnOrigin("feature", "feature.txt");
+        f.Clone.Do("fetch", "-q", "origin");
+        using var gone = new TempDir("gone");
+        CutOrigin(f, gone);
+        await using var orch = Build();
+
+        var reply = await orch.ProbeHandoffAsync(Request(f, "feature", localOnly: true), CancellationToken.None);
+
+        await Assert.That(reply.FetchError).IsNull();
+        await Assert.That(reply.NeedsOrigin).IsFalse();
+        await Assert.That(reply.Start!.ToStart()).IsEqualTo(new HandoffStart(
+            HandoffSource.Branch, HandoffCheckout.CreateBranch, tip, "feature", HandoffDetachReason.None, null));
+        await Assert.That(reply.Completeness).IsEqualTo("Unconfirmed");
+    }
+
+    /// <summary>A branch the checkout never fetched may still be on origin, so it is not reported absent.</summary>
+    [Test]
+    public async Task A_local_probe_of_a_branch_not_fetched_here_needs_origin() {
+        using var f = new Fixture();
+        f.CommitOnOrigin("feature", "feature.txt");
+        using var gone = new TempDir("gone");
+        CutOrigin(f, gone);
+        await using var orch = Build();
+
+        var reply = await orch.ProbeHandoffAsync(Request(f, "feature", localOnly: true), CancellationToken.None);
+
+        await Assert.That(reply.NeedsOrigin).IsTrue();
+        await Assert.That(reply.Start).IsNull();
+        await Assert.That(reply.FetchError).IsNull();
+        await Assert.That(reply.Refusal).IsNull();
+        await Assert.That(f.HasFetched("feature")).IsFalse();
+    }
+
+    [Test]
+    public async Task A_local_probe_still_refuses_a_checkout_of_another_repository() {
+        using var f = new Fixture();
+        await using var orch = Build();
+
+        var reply = await orch.ProbeHandoffAsync(Request(f, "feature", owner: "someone", name: "else", localOnly: true), CancellationToken.None);
+
+        await Assert.That(reply.Refusal).IsEqualTo(HandoffRefusals.RepoMismatch);
+    }
 
     [Test]
     public async Task Probe_resolves_a_branch_on_origin_and_reports_unconfirmed_work() {
@@ -137,8 +190,7 @@ public class LocalControlHandoffProbeTests {
     public async Task Probe_reports_an_unreachable_origin_as_a_fetch_error() {
         using var f = new Fixture();
         using var gone = new TempDir("gone");
-        f.PointOriginAt(gone.PathTo("missing"));
-        f.Clone.Do("config", "--unset-all", $"url.{f.Upstream.Path}.insteadOf");
+        CutOrigin(f, gone);
         await using var orch = Build();
 
         var reply = await orch.ProbeHandoffAsync(Request(f, "feature"), CancellationToken.None);

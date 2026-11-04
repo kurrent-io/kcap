@@ -95,14 +95,6 @@
             <Setter Property="Padding" Value="8,1" />
             <Setter Property="MinHeight" Value="20" />
         </Style>
-        <Style Selector="Button.toolRow views|AppIcon.toolRowChevron">
-            <Setter Property="Opacity" Value="0" />
-        </Style>
-        <Style Selector="Button.toolRow:pointerover views|AppIcon.toolRowChevron,
-                         Button.toolRow:focus-visible views|AppIcon.toolRowChevron,
-                         Button.toolRow.expanded views|AppIcon.toolRowChevron">
-            <Setter Property="Opacity" Value="1" />
-        </Style>
         <Style Selector="Border.toolInspection">
             <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
             <Setter Property="BorderThickness" Value="2,0,0,0" />
@@ -202,14 +194,18 @@
                     <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
                             HorizontalAlignment="Right" MaxWidth="520" Margin="0,8,0,12" Padding="14,11" CornerRadius="10">
                         <StackPanel Spacing="6">
-                            <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
-                                <TextBlock.Text>
-                                    <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
-                                        <Binding Path="Sender.Title" />
-                                        <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
-                                    </MultiBinding>
-                                </TextBlock.Text>
-                            </TextBlock>
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
+                                            <Binding Path="Sender.Title" />
+                                            <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                                <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
+                                           IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                            </StackPanel>
                             <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
                                                 OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
                                                 RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
@@ -253,8 +249,12 @@
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantTextItem">
                     <StackPanel MaxWidth="660" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
-                        <TextBlock Classes="toolKindChip"
-                                   Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Classes="toolKindChip"
+                                       Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
+                            <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
+                                       IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        </StackPanel>
                         <views:MarkdownView Text="{Binding Text}"
                                             OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
                                             RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
@@ -318,7 +318,7 @@
                                 <Button Classes="toolSummary" IsVisible="{Binding IsCollapsible}"
                                         Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                         AutomationProperties.Name="{Binding ToggleAccessibleName}">
-                                    <views:ChatKindHeader Label="{Binding Label}" IconKind="{Binding IconKind}">
+                                    <views:ChatKindHeader Label="{Binding HeaderLabel}" IconKind="{Binding IconKind}">
                                         <views:ChatKindHeader.Status>
                                             <Panel Width="12" Height="12" VerticalAlignment="Center">
                                                 <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
@@ -343,7 +343,7 @@
                             <!-- The whole row opens what the call recorded. Its text is plain, not
                                  selectable: a selectable block takes the press before the button sees it,
                                  and the opened body below is where the text is copied from. -->
-                            <Button x:Name="ToolRowToggle" Classes="toolSummary toolRow" Classes.expanded="{Binding IsExpanded}"
+                            <Button x:Name="ToolRowToggle" Classes="toolSummary toolRow"
                                     Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                     AutomationProperties.Name="{Binding ToggleAccessibleName}">
                                 <Grid>
@@ -386,9 +386,9 @@
                                                        Foreground="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
                                     </Panel>
                                     <Panel Grid.Column="3" Width="12" Height="12" Margin="8,0,0,0" VerticalAlignment="Center">
-                                        <views:AppIcon Classes="toolRowChevron" Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
+                                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
                                                        Foreground="{StaticResource KcapMutedBrush}" />
-                                        <views:AppIcon Classes="toolRowChevron" Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
+                                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
                                                        Foreground="{StaticResource KcapMutedBrush}" />
                                     </Panel>
                                 </Grid>

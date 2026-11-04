@@ -144,4 +144,12 @@ public class UninstallConfirmationTests {
         await Assert.That(disclosure).DoesNotContain("shell profile");
     }
 
+    [Test]
+    public async Task Names_the_user_path_folder_the_windows_app_takes_off() {
+        var folder = @"C:\Users\me\AppData\Local\kcap\current\bin";
+        var disclosure = UninstallConfirmation.Build(Facts() with { PathProfiles = [], UserPathFolder = folder }).Prompt.Disclosure;
+
+        await Assert.That(disclosure).Contains($"{folder} will be taken off your user PATH.");
+        await Assert.That(disclosure).DoesNotContain("shell profile");
+    }
 }

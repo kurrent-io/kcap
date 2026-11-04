@@ -9,6 +9,10 @@ internal sealed class LaunchConsentEngineTests {
         string repo = "/Users/me/dev/proj", string vendor = "claude", string? requesterDisplay = null)
         => new(requester, owner, kind, repo, vendor, requesterDisplay);
 
+    /// <summary>A rooted path on this platform: a pattern or path that is not fully qualified matches nothing,
+    /// and on Windows that includes a path rooted only by a leading separator.</summary>
+    static string Abs(string posix) => OperatingSystem.IsWindows() ? "C:" + posix.Replace('/', '\\') : posix;
+
     static LaunchConsentPolicy Policy(
         LaunchConsentDefault def = LaunchConsentDefault.Allow, params LaunchConsentRule[] rules)
         => new(def, 45, rules);
@@ -60,45 +64,53 @@ internal sealed class LaunchConsentEngineTests {
     [Test]
     public async Task Repo_prefix_glob_matches_subpaths_exact_matches_only_itself() {
         var glob = Policy(LaunchConsentDefault.Deny,
-            new LaunchConsentRule("allow", null, null, "/Users/me/dev/*", null));
-        await Assert.That(LaunchConsentEngine.Evaluate(glob, Input(repo: "/Users/me/dev/proj")).Verdict)
+            new LaunchConsentRule("allow", null, null, Abs("/Users/me/dev/*"), null));
+        await Assert.That(LaunchConsentEngine.Evaluate(glob, Input(repo: Abs("/Users/me/dev/proj"))).Verdict)
             .IsEqualTo(LaunchConsentVerdict.Allow);
-        await Assert.That(LaunchConsentEngine.Evaluate(glob, Input(repo: "/Users/me/other")).Verdict)
+        await Assert.That(LaunchConsentEngine.Evaluate(glob, Input(repo: Abs("/Users/me/other"))).Verdict)
             .IsEqualTo(LaunchConsentVerdict.Deny);
         // Glob pattern also matches the bare directory itself
-        await Assert.That(LaunchConsentEngine.Evaluate(glob, Input(repo: "/Users/me/dev")).Verdict)
+        await Assert.That(LaunchConsentEngine.Evaluate(glob, Input(repo: Abs("/Users/me/dev"))).Verdict)
             .IsEqualTo(LaunchConsentVerdict.Allow);
 
         var exact = Policy(LaunchConsentDefault.Deny,
-            new LaunchConsentRule("allow", null, null, "/Users/me/dev/proj", null));
-        await Assert.That(LaunchConsentEngine.Evaluate(exact, Input(repo: "/Users/me/dev/proj/")).Verdict)
+            new LaunchConsentRule("allow", null, null, Abs("/Users/me/dev/proj"), null));
+        await Assert.That(LaunchConsentEngine.Evaluate(exact, Input(repo: Abs("/Users/me/dev/proj/"))).Verdict)
             .IsEqualTo(LaunchConsentVerdict.Allow);
-        await Assert.That(LaunchConsentEngine.Evaluate(exact, Input(repo: "/Users/me/dev/proj2")).Verdict)
+        await Assert.That(LaunchConsentEngine.Evaluate(exact, Input(repo: Abs("/Users/me/dev/proj2"))).Verdict)
             .IsEqualTo(LaunchConsentVerdict.Deny);
     }
 
     [Test]
-    public async Task Repo_pattern_matches_across_path_separators() {
-        // A Windows-ish pattern/path pair: the pattern is authored with forward slashes (as an
-        // operator would write it cross-platform), the incoming repo path uses backslashes (as
-        // .NET reports a canonical Windows path) — both the glob and exact arms must normalize
-        // before comparing, mirroring DaemonConfig.IsRepoAllowed.
+    public async Task Repo_pattern_matches_across_path_separators_on_windows_only() {
+        // On POSIX a backslash is a filename character, so the backslashed path names one directory.
+        var expected = OperatingSystem.IsWindows() ? LaunchConsentVerdict.Allow : LaunchConsentVerdict.Deny;
         var glob = Policy(LaunchConsentDefault.Deny,
             new LaunchConsentRule("allow", null, null, "C:/work/*", null));
         await Assert.That(LaunchConsentEngine.Evaluate(glob, Input(repo: "C:\\work\\proj")).Verdict)
-            .IsEqualTo(LaunchConsentVerdict.Allow);
+            .IsEqualTo(expected);
 
         var exact = Policy(LaunchConsentDefault.Deny,
             new LaunchConsentRule("allow", null, null, "C:/work/proj", null));
         await Assert.That(LaunchConsentEngine.Evaluate(exact, Input(repo: "C:\\work\\proj")).Verdict)
+            .IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task Repo_allow_rule_does_not_admit_traversal_out_of_its_tree() {
+        var policy = Policy(LaunchConsentDefault.Deny,
+            new LaunchConsentRule("allow", null, null, Abs("/Users/me/dev/*"), null));
+        await Assert.That(LaunchConsentEngine.Evaluate(policy, Input(repo: Abs("/Users/me/dev/../secret"))).Verdict)
+            .IsEqualTo(LaunchConsentVerdict.Deny);
+        await Assert.That(LaunchConsentEngine.Evaluate(policy, Input(repo: Abs("/Users/me/dev/proj"))).Verdict)
             .IsEqualTo(LaunchConsentVerdict.Allow);
     }
 
     [Test]
     public async Task Repo_glob_does_not_match_a_sibling_directory_with_a_shared_prefix() {
         var policy = Policy(LaunchConsentDefault.Deny,
-            new LaunchConsentRule("allow", null, null, "/src/*", null));
-        await Assert.That(LaunchConsentEngine.Evaluate(policy, Input(repo: "/src2/x")).Verdict)
+            new LaunchConsentRule("allow", null, null, Abs("/src/*"), null));
+        await Assert.That(LaunchConsentEngine.Evaluate(policy, Input(repo: Abs("/src2/x"))).Verdict)
             .IsEqualTo(LaunchConsentVerdict.Deny);
     }
 

@@ -531,6 +531,95 @@ public class LocalStackViewModelTests {
         });
     }
 
+    /// A server whose files are gone fails the same way on every retry, so the card offers the app's own setup instead.
+    [Test]
+    public async Task A_missing_server_offers_reinstall_instead_of_try_again() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness();
+            var reinstalls = 0;
+            using var vm = new LocalStackViewModel(() => "1.2.0", h.Status, h.Upgrade, _ => throw new InvalidOperationException("no start"),
+                () => Task.CompletedTask, CancellationToken.None, ImmediateScheduler.Instance) { Reinstall = () => reinstalls++ };
+
+            await h.RunAsync(1, UpgradeScript.Failed(LocalInstallFailureCode.ServerMissing.Wire(), "The local server's files are not installed.", false));
+
+            await Assert.That(vm.TryAgainVisible).IsFalse();
+            await Assert.That(vm.ReinstallVisible).IsTrue();
+            await Assert.That(h.Vm.ReinstallVisible).IsFalse().Because("there is no setup to open without the action");
+
+            await vm.ReinstallCommand.Execute().ToTask();
+            await Assert.That(reinstalls).IsEqualTo(1);
+        });
+    }
+
+    /// A service removed over intact files is what a start restores, so the card offers Start, and the update runs again
+    /// once the server is up.
+    [Test]
+    public async Task A_missing_service_offers_start_then_runs_the_update_again() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness();
+
+            await h.RunAsync(1, UpgradeScript.Planned("1.2.0", "1.3.0"),
+                UpgradeScript.Failed(LocalInstallFailureCode.ServiceMissing.Wire(), "The local server's fake unit is not installed.", false));
+
+            await Assert.That(h.Vm.TryAgainVisible).IsFalse();
+            await Assert.That(h.Vm.StartVisible).IsTrue();
+            await Assert.That(h.Vm.DismissVisible).IsTrue();
+
+            var upgrades = 0;
+            var upgraded = UpgradeScript.Prints(0, UpgradeScript.Planned("1.2.0", "1.3.0"), UpgradeScript.Upgraded("1.2.0", "1.3.0"));
+            h.Cli.LocalUpgradeBehavior = (onLine, interrupt, ct) => {
+                upgrades++;
+                return upgraded(onLine, interrupt, ct);
+            };
+            await h.Vm.StartCommand.Execute().ToTask();
+            await h.Upgrade.SettleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+            await Assert.That(h.Starts).IsEqualTo(1);
+            await Assert.That(upgrades).IsEqualTo(1);
+            await Assert.That(h.Vm.BannerVisible).IsFalse();
+        });
+    }
+
+    /// A search change that takes the installation while the server reconnects holds the retried update off; the card
+    /// waits for it instead of losing the update.
+    [Test]
+    public async Task A_missing_service_update_held_off_by_a_search_change_runs_once_it_settles() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness();
+            var release = new TaskCompletionSource();
+            h.Cli.SetupLocalBehavior = async (onLine, interrupt, ct) => {
+                await release.Task;
+                return await LocalSetupScript.Prints(0, LocalSetupScript.Committed)(onLine, interrupt, ct);
+            };
+            using var vm = new LocalStackViewModel(() => "1.2.0", h.Status, h.Upgrade,
+                _ => Task.FromResult(new ProcessResult(0, "Local server is running.\n", "", false)),
+                () => h.Search.StartAsync(LocalEmbeddingChoice.Default, CancellationToken.None),
+                CancellationToken.None, ImmediateScheduler.Instance, h.Search);
+
+            await h.RunAsync(1, UpgradeScript.Planned("1.2.0", "1.3.0"),
+                UpgradeScript.Failed(LocalInstallFailureCode.ServiceMissing.Wire(), "The local server's fake unit is not installed.", false));
+            var upgrades = 0;
+            var upgraded = UpgradeScript.Prints(0, UpgradeScript.Planned("1.2.0", "1.3.0"), UpgradeScript.Upgraded("1.2.0", "1.3.0"));
+            h.Cli.LocalUpgradeBehavior = (onLine, interrupt, ct) => {
+                upgrades++;
+                return upgraded(onLine, interrupt, ct);
+            };
+
+            await vm.StartCommand.Execute().ToTask();
+
+            await Assert.That(upgrades).IsEqualTo(0);
+            await Assert.That(vm.BannerVisible).IsTrue();
+            await Assert.That(vm.Headline).Contains("waiting");
+
+            release.SetResult();
+            await h.Search.SettleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            await h.Upgrade.SettleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+            await Assert.That(upgrades).IsEqualTo(1);
+            await Assert.That(vm.BannerVisible).IsFalse();
+        });
+    }
+
     [Test]
     public async Task Dismiss_hides_a_settled_banner() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {

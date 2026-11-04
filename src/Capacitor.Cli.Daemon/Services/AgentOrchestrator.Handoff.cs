@@ -34,7 +34,8 @@ internal partial class AgentOrchestrator {
 
     /// <summary>The allow-list and the origin identity are decided before anything is fetched, so a path
     /// or a checkout the daemon has no business reading never reaches the network. A probe that outlives
-    /// <see cref="HandoffProbeDeadline"/> is answered as a fetch error; its git processes may keep running.</summary>
+    /// <see cref="HandoffProbeDeadline"/> is answered as a fetch error; its git processes may keep running.
+    /// A LocalOnly probe runs no git command that reaches a remote.</summary>
     internal async Task<HandoffProbeReplyDto> ProbeHandoffAsync(HandoffProbeRequestDto request, CancellationToken ct) {
         var authorized = await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(request.RepoPath);
         if (!authorized.Allowed) return Refused(HandoffRefusals.RepoNotAllowed);
@@ -59,13 +60,26 @@ internal partial class AgentOrchestrator {
 
     async Task<HandoffProbeReplyDto> ReadHandoffAsync(string root, HandoffProbeRequestDto request, CancellationToken ct) {
         try {
-            var target     = new HandoffTarget(request.Branch, request.PullRequestNumber, request.HeadIsFork);
-            var resolution = await (ResolveHandoffForTest?.Invoke(root, target, ct)
-                ?? _worktreeManager.ResolveHandoffStartAsync(root, target, ct));
-            if (resolution.Start is not { } start)
-                return FetchFailed(resolution.FetchError ?? "origin could not be read");
+            var target = new HandoffTarget(request.Branch, request.PullRequestNumber, request.HeadIsFork);
+            HandoffStart start;
+            if (request.LocalOnly) {
+                if (await _worktreeManager.ResolveLocalHandoffStartAsync(root, target, ct) is not { } local)
+                    return new(null, null, null, null, null, NeedsOrigin: true);
+                start = local;
+            } else {
+                var resolution = await (ResolveHandoffForTest?.Invoke(root, target, ct)
+                    ?? _worktreeManager.ResolveHandoffStartAsync(root, target, ct));
+                if (resolution.Start is not { } fetched) {
+                    var failed = FetchFailed(resolution.FetchError ?? "origin could not be read");
+                    _logger.LogInformation("HandoffProbe: origin could not be read: {Detail}", failed.FetchError);
 
-            var work = await _worktreeManager.CheckHandoffWorkAsync(root, start.Sha, request.SessionCommits, mayHaveUnpushedWork: true, ct: ct);
+                    return failed;
+                }
+                start = fetched;
+            }
+
+            var work = await _worktreeManager.CheckHandoffWorkAsync(
+                root, start.Sha, request.SessionCommits, mayHaveUnpushedWork: true, localOnly: request.LocalOnly, ct: ct);
             var launch = new HandoffLaunchStart(
                 "", start.Sha, start.Checkout.ToString(), start.Branch, start.LocalBranchSha, start.Source.ToString(),
                 start.DetachReason.ToString(), request.PullRequestNumber, request.HeadIsFork, request.HeadOwner, request.HeadRepo);
@@ -134,6 +148,9 @@ internal partial class AgentOrchestrator {
 
         var start    = handoff.Start.ToStart()!;
         var work     = await _worktreeManager.CheckHandoffWorkAsync(repoPath, start.Sha, handoff.SessionCommits, mayHaveUnpushedWork: true, ct: ct);
+        // The checks above awaited git; the worktree pins the source as it resolves on entry.
+        if (!StillResolvesToItself(repoPath))
+            return (null, null, $"{HandoffRefusals.RepoMismatch}: {repoPath} changed after it was allowed");
         var worktree = await _worktreeManager.CreateHandoffAsync(repoPath, start, ct: ct);
 
         return (worktree, HandoffPrompt.Build(handoff.Source, handoff.Start, start, work, cmd.Prompt), null);

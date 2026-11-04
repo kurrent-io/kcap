@@ -24,6 +24,21 @@ public class AppUpdateTransitionTests {
         await Assert.That(AppUpdateTransition.Take(config, clock)).IsNull();
     }
 
+    /// <summary>The new process starts a daemon the update stopped; a record an older version wrote never says so.</summary>
+    [Test]
+    public async Task A_handover_says_whether_the_update_stopped_the_daemon() {
+        var config = new ConfigRoot(Tmp.CreateDir("config"));
+        var clock = new FakeTimeProvider();
+        var saved = AppUpdateTransition.Begin(AppUpdateTransition.InApp, "1.4.0", "1.4.1", clock, daemonStopped: true);
+        saved.Save(config);
+
+        await Assert.That(AppUpdateTransition.Take(config, clock)).IsEqualTo(saved);
+
+        File.WriteAllText(config.Path(AppUpdateTransition.FileName),
+            $$"""{"id":"older","entry":"in_app","from":"1.4.0","to":"1.4.1","started_at":"{{clock.GetUtcNow():o}}"}""");
+        await Assert.That(AppUpdateTransition.Take(config, clock)!.DaemonStopped).IsFalse();
+    }
+
     [Test]
     public async Task A_handover_no_process_picked_up_in_time_is_dropped() {
         var config = new ConfigRoot(Tmp.CreateDir("config"));

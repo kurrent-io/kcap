@@ -1,6 +1,6 @@
-using Capacitor.Cli.Core;
 
-namespace Capacitor.Cli;
+
+namespace Capacitor.Cli.Core;
 
 /// <summary>
 /// Where a watcher's per-key files live. Resolved once and handed around, so the probe, the spawn

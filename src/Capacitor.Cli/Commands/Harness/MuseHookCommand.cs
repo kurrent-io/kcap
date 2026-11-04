@@ -6,7 +6,6 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.Harness.Muse;
 using Capacitor.Cli.PrDetection;
 using Capacitor.Cli.SessionStartMemory;
 
@@ -211,12 +210,13 @@ sealed class MuseHookCommand(
 
         MuseSessionEndRequest.MarkResumed(paths, sessionId);
 
-        if (MuseSessionEndRequest.TryClaim(paths, sessionId, "rearm") is not { } handed) return;
+        var kept = new List<MuseSessionEndRequest>();
+        while (MuseSessionEndRequest.TryClaim(paths, sessionId, "rearm") is { } handed) {
+            if (MuseSessionEndRequest.ResumedSince(paths, sessionId, handed.HandedAt)) MuseSessionEndRequest.Release(handed.ClaimedPath);
+            else kept.Add(handed);
+        }
 
-        if (MuseSessionEndRequest.ResumedSince(paths, sessionId, handed.HandedAt))
-            MuseSessionEndRequest.Release(handed.ClaimedPath);
-        else
-            MuseSessionEndRequest.Unclaim(paths, sessionId, handed);
+        foreach (var handed in kept) MuseSessionEndRequest.Unclaim(handed);
     }
 
     /// <summary>An out-of-scope repository disables the session, so its later hooks stop at the
@@ -254,23 +254,33 @@ sealed class MuseHookCommand(
         };
 
         if (cwd is not null) forwarded["cwd"] = cwd;
-        if ((hosted.AgentId ?? MuseHostedSessionMarker.TryRead(home, sessionId)?.AgentId) is { } agentHostId)
-            forwarded["agent_host_id"] = agentHostId;
+
+        // A hook that cannot prove it runs under the marker's run names no run at all, and leaves the marker to the
+        // run that owns it: the marker can belong to a later run, or to another agent.
+        var marker = hosted.AgentId is null ? MuseHostedSessionMarker.TryRead(home, sessionId) : null;
+        var owned  = marker?.IsOwnedBy(ProcessHelpers.GetCodingAgentPid(Vendor, allowFallback: false)) ?? true;
+        if (hosted.AgentId is not null) SessionEndIncarnation.Stamp(forwarded, hosted);
+        else if (marker is not null && owned) SessionEndIncarnation.Stamp(forwarded, marker.AgentId, marker.DaemonEpoch);
 
         if (Paths.ResolveSessionLog(session.ToString("D"), today) is { } log && HookHttp.IsPostable(Url)) {
-            MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString());
+            MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url);
 
             // A watcher alive here takes the request on its next tick or on its last look, which it makes
             // only after retiring its pid file; one that has gone is replaced by a watcher armed for it.
             await watchers.EnsureWatcherRunning(sessionId, log,
                 agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: Vendor);
-            MuseHostedSessionMarker.Delete(home, sessionId);
+            if (owned) MuseHostedSessionMarker.Delete(home, sessionId);
 
             return;
         }
 
+        // An end that names no run is placed by its session, as the watcher places a handed one: after a resume it may
+        // be an earlier run's, and posted with no identity it would close the resumed run.
+        if (!forwarded.ContainsKey("agent_host_id") && SessionId.Parse(sessionId) is { } placed
+         && SessionEndFence.ShouldHold(new ExitedSession(placed, null))) return;
+
         await PostInOrderAsync("session-end/muse", forwarded.ToJsonString(), sessionId, budget);
-        MuseHostedSessionMarker.Delete(home, sessionId);
+        if (owned) MuseHostedSessionMarker.Delete(home, sessionId);
     }
 
     /// <summary>No child watcher starts here: the parent watcher's scan tails a child once its log

@@ -120,6 +120,14 @@ public class MuseHostedAgentRuntimeFactoryTests {
         await rig.Factory.StartAsync(ctx, CancellationToken.None).WaitAsync(HangGuard);
 
     [Test]
+    [Arguments(null, true)]
+    [Arguments("1.4.6", false)]
+    public async Task Only_an_unresolved_version_probe_is_retryable(string? installed, bool retryable) {
+        var support = NewRig(installed: installed).Factory.DescribeUnattendedSupport();
+        await Assert.That(support.ProbeFailed).IsEqualTo(retryable);
+    }
+
+    [Test]
     public async Task Interactive_resume_is_supported_and_review_flow_is_not() {
         const string resumed = "01a13695-0736-75d0-8f4e-f121585b8453";
         var rig = NewRig();
@@ -419,6 +427,21 @@ public class MuseHostedAgentRuntimeFactoryTests {
 
         foreach (var (_, server) in session["config"]!["mcpServers"]!.AsObject())
             await Assert.That((string?)server!["env"]![ConfigRoot.ConfigDirEnvVar]).IsEqualTo(expected);
+    }
+
+    /// <summary>The marker names the started process as its owner, by id and start token, so only that process's hooks
+    /// can prove they belong to this run.</summary>
+    [Test]
+    public async Task Marker_names_the_started_process_as_its_owner() {
+        var rig = NewRig(configure: host => host.Process.Pid = Environment.ProcessId);
+
+        var start = await StartAsync(rig, Ctx());
+        await using var _ = start.Runtime;
+
+        var minted = (string)Params(await rig.Host.WaitForWriteAsync("session/start"))["sessionId"]!;
+
+        var marker = MuseHostedSessionMarker.TryRead(Home, minted)!;
+        await Assert.That((marker.OwnerPid, marker.OwnerToken)).IsEqualTo(((int?)Environment.ProcessId, ProcessStartToken.ForCurrent()));
     }
 
     async Task<MuseHostedSessionMarker> MarkerOfAsync(Rig rig) {

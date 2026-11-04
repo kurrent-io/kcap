@@ -394,9 +394,7 @@ sealed class CopilotHookCommand(
             forwarded["ended_at"] = endedAt.ToString("O");
         }
 
-        if (hosted.AgentId is { } agentHostId) {
-            forwarded["agent_host_id"] = agentHostId;
-        }
+        SessionEndIncarnation.Stamp(forwarded, hosted);
 
         // AuthLapsed / Posted → clean exit (0); a real failure keeps the prior non-zero exit.
         return await PostHookAsync("session-end/copilot", forwarded.ToJsonString()) == HookPostOutcome.Failed ? 1 : 0;

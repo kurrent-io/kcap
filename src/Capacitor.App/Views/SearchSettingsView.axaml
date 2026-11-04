@@ -35,8 +35,9 @@
                     <views:SearchChoiceView x:Name="SearchChoice" DataContext="{Binding Choice}" />
                 </Panel>
                 <TextBlock Classes="kcapHint" Text="Setting up search…" TextWrapping="Wrap" IsVisible="{Binding Running}" />
-                <StackPanel Spacing="6" DataContext="{Binding Embeddings}" x:DataType="services:LocalEmbeddingProgress">
-                    <StackPanel Spacing="4" IsVisible="{Binding Pulling}">
+                <StackPanel Spacing="6">
+                    <StackPanel Spacing="4" DataContext="{Binding Embeddings}" x:DataType="services:LocalEmbeddingProgress"
+                                IsVisible="{Binding Pulling}">
                         <TextBlock x:Name="SearchPullText" Classes="kcapHint" Text="{Binding PullText}" TextWrapping="Wrap" />
                         <ProgressBar x:Name="SearchPullBar" Height="3" Minimum="0" Maximum="1"
                                      Value="{Binding PullFraction, FallbackValue=0, TargetNullValue=0}"

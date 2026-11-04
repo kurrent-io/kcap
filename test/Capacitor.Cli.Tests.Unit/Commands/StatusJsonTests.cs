@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core.Harness.Codex;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -49,6 +50,26 @@ public class StatusJsonTests {
 
         await Assert.That(doc.RootElement.GetProperty("harnesses")[0].GetProperty("last_hook_event").GetDateTimeOffset())
             .IsEqualTo(at);
+    }
+
+    [Test]
+    public async Task Renders_the_codex_hooks_trust_and_null_without_an_answer() {
+        var payload = StatusCommand.BuildPayload(
+            "default", new StatusCommand.ServerReach(Server, true, null),
+            new StatusCommand.AuthSnapshot(StatusAuthState.Valid, "george", Expiry),
+            "1.1.2", new UpdateAdvisory("1.1.2", null, Newer: false, ServerCapped: false), bundled: false,
+            [
+                new StatusHarnessJson("codex", true, false, null, null, StatusCommand.HooksTrustToken(CodexHooksTrust.Untrusted)),
+                new StatusHarnessJson("claude", true, true, null),
+            ], []);
+
+        using var doc = JsonDocument.Parse(StatusJsonRender.Render(payload));
+        var harnesses = doc.RootElement.GetProperty("harnesses");
+
+        await Assert.That(harnesses[0].GetProperty("hooks_trust").GetString()).IsEqualTo("untrusted");
+        await Assert.That(harnesses[0].GetProperty("wired").GetBoolean()).IsFalse();
+        await Assert.That(harnesses[1].GetProperty("hooks_trust").ValueKind).IsEqualTo(JsonValueKind.Null);
+        await Assert.That(StatusCommand.HooksTrustToken(CodexHooksTrust.Unknown)).IsNull();
     }
 
     // The question a caller deciding whether to run setup is actually asking.

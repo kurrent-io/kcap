@@ -39,6 +39,7 @@ static class LocalSetupJsonLines {
         LocalInstallEvent.EmbeddingBuiltinDownloading d => new() { Event = "embeddings_builtin_downloading", Bytes = d.Bytes },
         LocalInstallEvent.EmbeddingBuiltinProgress p    => new() { Event = "embeddings_builtin_progress", Received = p.Received, Bytes = p.Bytes },
         LocalInstallEvent.EmbeddingBuiltinConfigured c  => new() { Event = "embeddings_configured", Provider = "builtin", ReplacedModel = c.Replaced },
+        LocalInstallEvent.EmbeddingBuiltinRemoved r     => new() { Event = "embeddings_builtin_removed", Path = r.Directory, Bytes = r.Freed, Message = r.Message },
         LocalInstallEvent.WindowsServiceDeclined      => new() { Event = "windows_service_declined" },
         LocalInstallEvent.WindowsServiceUnavailable u => new() { Event = "windows_service_unavailable", Message = u.Message },
         LocalInstallEvent.Fetched f                   => new() { Event = "fetched", Version = f.Version, Path = f.Path },
@@ -54,8 +55,14 @@ static class LocalSetupJsonLines {
         ex as LocalInstallFailure ?? new(LocalInstallFailureCode.StartFailed, ex.Message);
 
     /// <summary>The setup exit a failure stands for: the two codes that mean nothing was attempted are refusals.</summary>
-    public static int Exit(LocalInstallFailureCode code) =>
-        code is LocalInstallFailureCode.AnswerRequired or LocalInstallFailureCode.InvalidArguments ? SetupExit.Refused : SetupExit.Failed;
+    public static int Exit(LocalInstallFailureCode code) => Exit(code, OperatingSystem.IsWindows());
+
+    /// <summary>Elsewhere an unpublished bundle stays a plain failure, which scripts there already branch on.</summary>
+    internal static int Exit(LocalInstallFailureCode code, bool windows) => code switch {
+        LocalInstallFailureCode.AnswerRequired or LocalInstallFailureCode.InvalidArguments => SetupExit.Refused,
+        LocalInstallFailureCode.BundleNotPublished when windows                            => SetupExit.NotPublished,
+        _                                                                                  => SetupExit.Failed,
+    };
 
     public static string Render(LocalSetupLine line) => JsonSerializer.Serialize(line, LocalSetupJsonContext.Default.LocalSetupLine);
 }

@@ -1298,7 +1298,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         _openShell = null;
         _marked.Clear();
         _runs.Clear();
-        _planActivity?.Clear();
+        _planActivity?.StartFeed(key);
         _senders?.Clear();
         _observedReceipts.Clear();
         _unboundReceipts.Clear();
@@ -1722,12 +1722,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                         cursor.OpenShell = null;
                         var (typed, files) = AttachmentTrailer.Split(e.Text ?? "");
                         cursor.Fresh.Add(new UserTurnItem(typed, [.. files.Select(file => UserAttachment.From(file, _origin == AgentOrigin.Local ? _root : null))],
-                            SenderOf(e, offset), undelivered: e.ToolKind == ChatDisplayKind.Undelivered));
+                            SenderOf(e, offset), TimeOf(e), undelivered: e.ToolKind == ChatDisplayKind.Undelivered));
                         break;
                     case AcpEventKind.AssistantText:
                         cursor.OpenGroup = null;
                         cursor.OpenShell = null;
-                        cursor.Fresh.Add(new AssistantTextItem(e.Text ?? ""));
+                        cursor.Fresh.Add(new AssistantTextItem(e.Text ?? "", TimeOf(e)));
                         break;
                     case AcpEventKind.AssistantThinking when !string.IsNullOrWhiteSpace(e.Text):
                         cursor.OpenGroup = null;
@@ -1749,6 +1749,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                         cursor.Fresh.Add(new SystemNoteItem(e.Text ?? "", e.ToolKind switch {
                             ChatDisplayKind.AgentReport    => SystemNoteItem.AgentReportLabel,
                             ChatDisplayKind.AgentMessage   => SystemNoteItem.AgentMessageLabel,
+                            ChatDisplayKind.TaskNotification => SystemNoteItem.TaskNotificationLabel,
                             ChatDisplayKind.CompactSummary => SystemNoteItem.CompactSummaryLabel,
                             _                              => SystemNoteItem.NoteLabel,
                         }));
@@ -1838,6 +1839,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// owner's own input and keeps the fallback.
     SenderLabel SenderOf(AcpEventEnvelope e, long offset) =>
         new(new MessageKeys(e.SourceEventId, _origin == AgentOrigin.Remote ? offset : null, e.DispatchId), Timestamp(e.TimestampIso));
+
+    ChatTimestamp? TimeOf(AcpEventEnvelope e) => ChatTimestamp.Of(Timestamp(e.TimestampIso), _time);
 
     IEnumerable<SenderLabel> SenderLabels(IEnumerable<ChatItemViewModel> items, ReceiptCandidates? candidates = null) {
         foreach (var item in items) {

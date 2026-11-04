@@ -83,6 +83,8 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         "The daemon isn't running. Agents can't start until it's back.";
     internal const string DaemonRestartingNotice =
         "The daemon is restarting to update. It reconnects on its own.";
+    internal const string DaemonStartingNotice =
+        "The daemon is starting. It connects on its own once it is ready.";
     internal const string DaemonIncompatibleNotice =
         "The app and daemon versions don't match. Update both, then reconnect.";
     internal const string ServerLostNotice     = "Not connected to the server. Sign in again to reconnect.";
@@ -747,7 +749,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         // The account choice follows the target: support from the server's listing (this machine's
         // daemon through its own row in it, never the socket), that host's snapshot, and memory.
         _accountChooser = new AccountChooser(
-            (hostId, vendor, repoPath) => AccountMemory.Lookup(_accountMemory, hostId, vendor, repoPath), RememberAccount);
+            (hostId, vendor, repoPath, remote) => AccountMemory.Lookup(_accountMemory, hostId, vendor, repoPath, remote), RememberAccount);
         _accountChooser.Changed += PublishAccountChoice;
         _retryListing = retryListing;
         if (listing is not null) {
@@ -1238,6 +1240,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             return status.Reason switch {
                 IncompatibleReason => DaemonIncompatibleNotice,
                 ExpectedDaemonRestart.Reason => DaemonRestartingNotice,
+                ExpectedDaemonRestart.StartingReason => DaemonStartingNotice,
                 _ => DaemonDownNotice,
             };
 
@@ -1283,7 +1286,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
 
     static bool BannerInFlight((string? Message, string? Detail) content) =>
         content.Detail is { } detail ? InFlight(detail)
-            : BusyNotice(content.Message) || InFlight(content.Message) || content.Message == DaemonRestartingNotice;
+            : BusyNotice(content.Message) || InFlight(content.Message) || content.Message is DaemonRestartingNotice or DaemonStartingNotice;
 
     /// A lifecycle status still waiting on something, which the banner shows with a spinner. Every
     /// in-flight status ends in an ellipsis; no failure does.
@@ -1807,7 +1810,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             if (_accountTarget is not { } last || !PathComparerFor(sel.Remote).Equals(last.RepoPath, repoPath)
              || last.Vendor != vendor || last.Machine != machine || last.Remote != sel.Remote) {
                 _accountTarget = (repoPath, vendor, machine, sel.Remote);
-                _accountChooser.EnterTarget(repoPath, vendor);
+                _accountChooser.EnterTarget(repoPath, vendor, sel.Remote);
             }
             var support = viewer.Resolved ? SupportFor(listing, machine, viewer.Id, sel.Remote) : AccountSupport.Unknown;
             var snapshot = AccountsSnapshotFor(sel.Remote, machine, remoteAccounts, localAccounts);
@@ -1855,14 +1858,14 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     }
 
     /// Written in call order: the chooser also forgets an entry from inside its recompute.
-    void RememberAccount(string hostId, string vendor, string repoPath, string? accountId) {
-        _accountMemory = AccountMemory.With(_accountMemory, hostId, vendor, repoPath, accountId);
+    void RememberAccount(string hostId, string vendor, string repoPath, bool remote, string? accountId) {
+        _accountMemory = AccountMemory.With(_accountMemory, hostId, vendor, repoPath, remote, accountId);
         _accountMemoryWrites = WriteAfterAsync(_accountMemoryWrites);
 
         async Task WriteAfterAsync(Task previous) {
             await previous.ConfigureAwait(false);
             await _state.UpdateAsync(s => s with {
-                AccountByRepo = AccountMemory.With(s.AccountByRepo, hostId, vendor, repoPath, accountId),
+                AccountByRepo = AccountMemory.With(s.AccountByRepo, hostId, vendor, repoPath, remote, accountId),
             }).ConfigureAwait(false);
         }
     }

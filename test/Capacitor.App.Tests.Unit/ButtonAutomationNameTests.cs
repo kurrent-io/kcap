@@ -161,6 +161,8 @@ public class ButtonAutomationNameTests {
             await vm.TogglePeopleCommand.Execute();
             await vm.ToggleRunsCommand.Execute();
             await vm.ToggleSessionCommand.Execute();
+            await vm.ToggleCheckoutCommand.Execute();
+            await vm.ToggleUsageCommand.Execute();
             await vm.Plan.ToggleCommand.Execute();
             await vm.TogglePartsCommand.Execute();
             Settle(window);
@@ -168,7 +170,8 @@ public class ButtonAutomationNameTests {
 
             var names = folded.Concat(opened).ToHashSet();
             string[] expected = ["Parts, 1 open", "Parts, 0 of 1", "Who's on it", "Copy Ada", "Copy Bob", "Issues", "Plan", "Agents and commands",
-                                 "Session details, More", "Session details, Less",
+                                 "Usage, expanded", "Usage, collapsed", "Checkout, collapsed", "Checkout, expanded",
+                                 "Session, collapsed", "Session, expanded",
                                  "x-design.md", pullRequestCard ? "Pull requests" : "#7: Fix",
                                  .. titledIssues ? ["WK-1: One", "WK-2: Two"] : new[] { "WK-1" }];
             await Assert.That(expected.Where(n => !names.Contains(n))).IsEmpty();

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Capacitor.App.Services;
 
 namespace Capacitor.App.ViewModels;
@@ -6,7 +7,7 @@ namespace Capacitor.App.ViewModels;
 /// Builds a card from a settled call. A page card needs the server's whole artefact object in the
 /// result; the result rides the transcript capped at 4096 characters, so a cut body builds nothing
 /// and the call stays a row.
-public static class ToolCards {
+public static partial class ToolCards {
     const int NameCap = 80;
 
     public static ToolCard? Build(ToolCardKind kind, string? inputJson, string? resultText) {
@@ -46,6 +47,15 @@ public static class ToolCards {
             return null;
         }
     }
+
+    /// The id of the page a publish result names. Read from the head of the text, so a result cut
+    /// at the transcript's cap still yields the id its first field carries, escaped or not: a cut MCP
+    /// wrapper does not parse, and its text block keeps the inner quotes escaped.
+    public static string? PublishedPageId(string? resultText) =>
+        McpText(resultText) is { } text && PageIdField().Match(text) is { Success: true } match ? match.Groups[1].Value : null;
+
+    [GeneratedRegex("\\\\?\"(?:page_id|artefact_id)\\\\?\"\\s*:\\s*\\\\?\"([0-9A-Za-z_-]{1,64})\\\\?\"")]
+    private static partial Regex PageIdField();
 
     static ToolCard? Document(string? inputJson) {
         if (Args(inputJson) is not { } args) return null;

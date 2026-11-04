@@ -62,7 +62,7 @@ public class WorktreeManagerTests {
             var head = GitRepo.At(worktree.Path).Head;
 
             await Assert.That(head).IsEqualTo(sideSha);
-            await Assert.That(worktree.Branch).IsEqualTo("capacitor/review-pr-42");
+            await Assert.That(worktree.Branch).IsEmpty();
         } finally {
             await WorktreeManager.RemoveAsync(worktree, TimeProvider.System);
         }
@@ -236,7 +236,7 @@ public class WorktreeManagerTests {
         try {
             await Assert.That(GitRepo.At(worktree.Path).Head).IsEqualTo(branchHead);
             await Assert.That(worktree.FetchedRef).IsNull();
-            await Assert.That(worktree.Branch).IsEqualTo("capacitor/local-branch");
+            await Assert.That(worktree.Branch).IsEmpty();
         } finally {
             await WorktreeManager.RemoveAsync(worktree, TimeProvider.System);
         }
@@ -371,10 +371,8 @@ public class WorktreeManagerTests {
 
             await Assert.That(removal.Kept).IsEqualTo(kept);
             await Assert.That(Directory.Exists(worktree.Path)).IsEqualTo(kept);
-            await Assert.That(source.Try("rev-parse", "--verify", $"refs/heads/{worktree.Branch}").ExitCode == 0).IsEqualTo(kept);
         } finally {
             source.Try("worktree", "remove", "--force", worktree.Path);
-            source.Try("branch", "-D", worktree.Branch);
         }
     }
 
@@ -466,10 +464,72 @@ public class WorktreeManagerTests {
 
         try {
             await Assert.That(Directory.Exists(worktree.Path)).IsTrue();
-            await Assert.That(worktree.Branch).StartsWith("capacitor/");
+            await Assert.That(Path.GetFileName(worktree.Path)).Matches("^[a-z]{3,5}-[a-z]{3,5}$");
         } finally {
             await WorktreeManager.RemoveAsync(worktree, TimeProvider.System);
         }
+    }
+
+    /// <summary>The worktree starts detached at the source's HEAD and the repository gains no branch: naming
+    /// one is the agent's call.</summary>
+    [Test]
+    public async Task CreateAsync_starts_detached_at_the_source_head_and_creates_no_branch() {
+        using var repo = GitRepo.Create("detached-start");
+        repo.CreateFile("a.txt", "a");
+        repo.CommitAll("first");
+        var branchesBefore = repo.Do("branch", "--list").Text;
+
+        var manager  = new WorktreeManager(new DaemonConfig(), NullLogger<WorktreeManager>.Instance, NoSnapshotBarrier.Instance, TimeProvider.System);
+        var worktree = await manager.CreateAsync(repo);
+
+        try {
+            var tree = GitRepo.At(worktree.Path);
+            await Assert.That(tree.Head).IsEqualTo(repo.Head);
+            await Assert.That(tree.CurrentBranch).IsEmpty();
+            await Assert.That(worktree.Branch).IsEmpty();
+            await Assert.That(worktree.OwnsBranch).IsFalse();
+            await Assert.That(repo.Do("branch", "--list").Text).IsEqualTo(branchesBefore);
+        } finally {
+            await WorktreeManager.RemoveAsync(worktree, TimeProvider.System);
+        }
+    }
+
+    /// <summary>A fetched ref <c>git pack-refs</c> moved out of its loose file still keeps its name taken.</summary>
+    [Test]
+    public async Task ListFetchedRefsAsync_finds_a_packed_ref() {
+        using var repo = GitRepo.Create("packed-ref");
+        repo.CreateFile("a.txt", "a");
+        repo.CommitAll("first");
+        repo.Do("update-ref", WorktreeManager.FetchedRefFor("brave-otter"), repo.Head);
+        repo.Do("pack-refs", "--all");
+
+        var manager = new WorktreeManager(new DaemonConfig(), NullLogger<WorktreeManager>.Instance, NoSnapshotBarrier.Instance, TimeProvider.System);
+        var refs    = await manager.ListFetchedRefsAsync(repo);
+
+        await Assert.That(refs).Contains(WorktreeManager.FetchedRefFor("brave-otter"));
+    }
+
+    /// <summary>Work the agent committed on a branch it created survives the worktree's removal on that branch,
+    /// so the removal does not keep the worktree for it.</summary>
+    [Test]
+    public async Task RemoveAsync_leaves_the_branch_the_agent_created() {
+        using var repo = GitRepo.Create("agent-branch");
+        repo.CreateFile("a.txt", "a");
+        repo.CommitAll("first");
+
+        var manager  = new WorktreeManager(new DaemonConfig(), NullLogger<WorktreeManager>.Instance, NoSnapshotBarrier.Instance, TimeProvider.System);
+        var worktree = await manager.CreateAsync(repo);
+        var tree     = GitRepo.At(worktree.Path);
+        tree.Do("checkout", "-q", "-b", "fix-login-timeout");
+        tree.CreateFile("b.txt", "b");
+        tree.CommitAll("agent work");
+        var agentCommit = tree.Head;
+
+        var removal = await WorktreeManager.RemoveAsync(worktree, TimeProvider.System);
+
+        await Assert.That(removal).IsEqualTo(WorktreeRemoval.Removed);
+        await Assert.That(Directory.Exists(worktree.Path)).IsFalse();
+        await Assert.That(repo.RevParse("refs/heads/fix-login-timeout")).IsEqualTo(agentCommit);
     }
 
     /// <summary>

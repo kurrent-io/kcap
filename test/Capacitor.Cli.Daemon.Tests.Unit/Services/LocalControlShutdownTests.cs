@@ -45,7 +45,40 @@ public class LocalControlShutdownTests {
         public HttpClient CreateClient(string name) => new();
     }
 
-    async Task RunAsync(string name, Func<bool>? hardBusy, Func<AgentOrchestrator, SpyStrategy, CountingLifetime, Func<LocalFrame, Task<LocalFrame?>>, Task> body) {
+    Task RunAsync(string name, Func<bool>? hardBusy, Func<AgentOrchestrator, SpyStrategy, CountingLifetime, Func<LocalFrame, Task<LocalFrame?>>, Task> body) =>
+        RunCoreAsync(name, restart => { if (hardBusy is not null) restart.IsHardBusy = hardBusy; }, async (orchestrator, spy, lifetime, sockPath, ct) => {
+            async Task<LocalFrame?> Send(LocalFrame frame) {
+                using var sock = await ConnectAsync(sockPath, ct);
+                await using var stream = new NetworkStream(sock, ownsSocket: false);
+                await FrameCodec.WriteAsync(stream, frame, ct);
+                return await FrameCodec.ReadAsync(stream, ct);
+            }
+
+            await body(orchestrator, spy, lifetime, Send);
+        });
+
+    /// <summary>Bind creates the socket file before Listen makes it ready to accept connections.</summary>
+    static async Task<Socket> ConnectAsync(string sockPath, CancellationToken ct) {
+        var connectDeadline = DateTime.UtcNow.AddSeconds(2);
+        while (true) {
+            var sock = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+            try {
+                await sock.ConnectAsync(new UnixDomainSocketEndPoint(sockPath), ct);
+                return sock;
+            } catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused) {
+                sock.Dispose();
+                if (DateTime.UtcNow >= connectDeadline) throw;
+                await Task.Delay(20, ct);
+            } catch {
+                sock.Dispose();
+                throw;
+            }
+        }
+    }
+
+    async Task RunCoreAsync(
+            string name, Action<RestartCoordinator> configure,
+            Func<AgentOrchestrator, SpyStrategy, CountingLifetime, string, CancellationToken, Task> body) {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var daemons = new TempDaemonStore();
 
@@ -75,7 +108,7 @@ public class LocalControlShutdownTests {
 
         var spy     = new SpyStrategy();
         var restart = RestartCoordinator.ForTest(daemons.Store, name, name, spy, TimeProvider.System);
-        if (hardBusy is not null) restart.IsHardBusy = hardBusy;
+        configure(restart);
 
         var notifier = new DaemonStatusNotifier();
         var server = new LocalControlServer(
@@ -91,25 +124,7 @@ public class LocalControlShutdownTests {
             var deadline = DateTime.UtcNow.AddSeconds(5);
             while (!File.Exists(sockPath) && DateTime.UtcNow < deadline) await Task.Delay(20, cts.Token);
 
-            async Task<LocalFrame?> Send(LocalFrame frame) {
-                // Bind creates the socket file before Listen makes it ready to accept connections.
-                var connectDeadline = DateTime.UtcNow.AddSeconds(2);
-                while (true) {
-                    using var sock = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-                    try {
-                        await sock.ConnectAsync(new UnixDomainSocketEndPoint(sockPath), cts.Token);
-                    } catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused) {
-                        if (DateTime.UtcNow >= connectDeadline) throw;
-                        await Task.Delay(20, cts.Token);
-                        continue;
-                    }
-                    await using var stream = new NetworkStream(sock, ownsSocket: false);
-                    await FrameCodec.WriteAsync(stream, frame, cts.Token);
-                    return await FrameCodec.ReadAsync(stream, cts.Token);
-                }
-            }
-
-            await body(orchestrator, spy, lifetime, Send);
+            await body(orchestrator, spy, lifetime, sockPath, cts.Token);
         } finally {
             await orchestrator.DisposeAsync();
             await server.StopAsync(CancellationToken.None);
@@ -180,6 +195,136 @@ public class LocalControlShutdownTests {
             await lifetime.WaitForStopAsync();
             await Assert.That(lifetime.StopCalls).IsEqualTo(1);
         });
+
+    static ShutdownRequestDto HeldStop => new("keep", "final", AtTurnBoundary: true);
+
+    Task RunHeldAsync(string name, TimeSpan turnWait, ManualResetEventSlim atBoundary,
+            Func<AgentOrchestrator, SpyStrategy, CountingLifetime, NetworkStream, Socket, CancellationToken, Task> body) =>
+        RunCoreAsync(name, restart => {
+            restart.TurnWait = turnWait;
+            restart.AtTurnBoundary = () => atBoundary.IsSet;
+        }, async (orchestrator, spy, lifetime, sockPath, ct) => {
+            using var sock = await ConnectAsync(sockPath, ct);
+            await using var stream = new NetworkStream(sock, ownsSocket: false);
+            await FrameCodec.WriteAsync(stream, LocalFrame.Shutdown(HeldStop), ct);
+            await body(orchestrator, spy, lifetime, stream, sock, ct);
+        });
+
+    /// <summary>The stop the Windows app sends before its updater ends the daemon: held on the gate a self-detected
+    /// update restart waits on, then released keeping agents once the turn ends.</summary>
+    [Test]
+    public async Task A_stop_at_a_turn_boundary_waits_for_the_turn_then_stops_keeping_agents() {
+        using var atBoundary = new ManualResetEventSlim();
+        await RunHeldAsync("sd-held", TimeSpan.FromMinutes(5), atBoundary, async (orch, spy, lifetime, stream, _, ct) => {
+            var queued = await FrameCodec.ReadAsync(stream, ct);
+            await Assert.That(queued!.Type).IsEqualTo(FrameType.ShutdownAck);
+            await Assert.That(queued.Text).IsEqualTo("queued:300");
+            await Task.Delay(1500, ct);
+            await Assert.That(lifetime.StopCalls).IsEqualTo(0);
+
+            atBoundary.Set();
+            var stopping = await FrameCodec.ReadAsync(stream, ct);
+
+            await Assert.That(stopping!.Type).IsEqualTo(FrameType.ShutdownAck);
+            await Assert.That(stopping.Text).IsEqualTo("stopping");
+            await lifetime.WaitForStopAsync();
+            await Assert.That(lifetime.StopCalls).IsEqualTo(1);
+            await Assert.That(orch.ShutdownIntent).IsEqualTo(ShutdownIntent.KeepAgents);
+            await Assert.That(spy.Calls).IsEqualTo(0);
+        });
+    }
+
+    /// <summary>A turn that never ends cannot hold the stop past the daemon's own turn wait.</summary>
+    [Test]
+    public async Task A_turn_that_never_ends_holds_the_stop_only_for_the_turn_wait() {
+        using var atBoundary = new ManualResetEventSlim();
+        await RunHeldAsync("sd-wait", TimeSpan.FromSeconds(2), atBoundary, async (_, _, lifetime, stream, _, ct) => {
+            var queued = await FrameCodec.ReadAsync(stream, ct);
+            await Assert.That(queued!.Text).IsEqualTo("queued:2");
+
+            var stopping = await FrameCodec.ReadAsync(stream, ct);
+
+            await Assert.That(stopping!.Text).IsEqualTo("stopping");
+            await lifetime.WaitForStopAsync();
+            await Assert.That(lifetime.StopCalls).IsEqualTo(1);
+        });
+    }
+
+    /// <summary>Closing the connection is how the app withdraws the stop when the user puts the update off. The turn
+    /// ending afterwards proves the hold is gone rather than still waiting.</summary>
+    [Test]
+    public async Task Hanging_up_while_the_stop_is_held_withdraws_it() {
+        using var atBoundary = new ManualResetEventSlim();
+        await RunHeldAsync("sd-gone", TimeSpan.FromMinutes(5), atBoundary, async (orch, _, lifetime, stream, sock, ct) => {
+            orch.ShutdownIntent = ShutdownIntent.EndAgents;
+            var queued = await FrameCodec.ReadAsync(stream, ct);
+            await Assert.That(queued!.Text).IsEqualTo("queued:300");
+
+            sock.Shutdown(SocketShutdown.Both);
+            sock.Close();
+            await Task.Delay(500, ct);
+            atBoundary.Set();
+            await Task.Delay(1500, ct);
+
+            await Assert.That(lifetime.StopCalls).IsEqualTo(0);
+            await Assert.That(orch.ShutdownIntent).IsEqualTo(ShutdownIntent.EndAgents);
+        });
+    }
+
+    [Test]
+    public async Task A_stop_at_a_turn_boundary_already_reached_stops_at_once() {
+        using var atBoundary = new ManualResetEventSlim(initialState: true);
+        await RunHeldAsync("sd-idle", TimeSpan.FromMinutes(5), atBoundary, async (_, _, lifetime, stream, _, ct) => {
+            var reply = await FrameCodec.ReadAsync(stream, ct);
+
+            await Assert.That(reply!.Text).IsEqualTo("stopping");
+            await lifetime.WaitForStopAsync();
+            await Assert.That(lifetime.StopCalls).IsEqualTo(1);
+        });
+    }
+
+    /// <summary>A stop that does not ask for the turn boundary, as every CLI stop does, is never held.</summary>
+    [Test]
+    public async Task An_ordinary_stop_mid_turn_is_not_held() {
+        using var atBoundary = new ManualResetEventSlim();
+        await RunCoreAsync("sd-plain", restart => restart.AtTurnBoundary = () => atBoundary.IsSet, async (_, _, lifetime, sockPath, ct) => {
+            using var sock = await ConnectAsync(sockPath, ct);
+            await using var stream = new NetworkStream(sock, ownsSocket: false);
+            await FrameCodec.WriteAsync(stream, LocalFrame.Shutdown(new ShutdownRequestDto("keep", "final")), ct);
+
+            var reply = await FrameCodec.ReadAsync(stream, ct);
+
+            await Assert.That(reply!.Text).IsEqualTo("stopping");
+            await lifetime.WaitForStopAsync();
+            await Assert.That(lifetime.StopCalls).IsEqualTo(1);
+        });
+    }
+
+    /// <summary>The restart frame's turn-boundary mode queues behind an agent mid-turn, where a bare restart
+    /// would fire.</summary>
+    [Test]
+    public async Task A_turn_boundary_restart_is_queued_until_the_turn_ends() {
+        using var atBoundary = new ManualResetEventSlim();
+        RestartCoordinator? coordinator = null;
+        await RunCoreAsync("rs-turn", restart => {
+            coordinator = restart;
+            restart.AtTurnBoundary = () => atBoundary.IsSet;
+        }, async (_, spy, _, sockPath, ct) => {
+            using var sock = await ConnectAsync(sockPath, ct);
+            await using var stream = new NetworkStream(sock, ownsSocket: false);
+            await FrameCodec.WriteAsync(stream, LocalFrame.Restart(RestartIpc.TurnBoundaryMode), ct);
+
+            var reply = await FrameCodec.ReadAsync(stream, ct);
+
+            await Assert.That(reply!.Type).IsEqualTo(FrameType.RestartAck);
+            await Assert.That(reply.Text).IsEqualTo("queued");
+            await Assert.That(spy.Calls).IsEqualTo(0);
+
+            atBoundary.Set();
+            coordinator!.Tick();
+            await Assert.That(spy.Calls).IsEqualTo(1);
+        });
+    }
 
     [Test]
     public async Task Malformed_shutdown_answers_an_error() =>

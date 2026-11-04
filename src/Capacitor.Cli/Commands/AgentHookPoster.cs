@@ -5,6 +5,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Harness.Muse;
 
 using Capacitor.Cli.Core.Http;
 
@@ -268,6 +269,7 @@ internal sealed class AgentHookPoster(
         transcript.DeleteExpired();
         SessionCommits.DeleteExpired(config, time);
         SpoolEnds(AgentSessions.OnThisMachine(config).ReapExited(Url), Url, lifecycle, time);
+        MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, DaemonStore.FromEnvironment(), time);
 
         // Distinct from the POST guards' diagnostic: a reader must be able to tell which guard fired,
         // and a test must be able to prove THIS one did.
@@ -321,21 +323,16 @@ internal sealed class AgentHookPoster(
             if (hold(session)) continue;
 
             // The fields every vendor's session-end binding requires, as the watcher's own end sends them.
-            var body = new JsonObject {
+            var end = new JsonObject {
                 ["session_id"]      = session.Session.Value,
                 ["transcript_path"] = origin.TranscriptPath ?? "",
                 ["cwd"]             = origin.Cwd ?? "",
                 ["hook_event_name"] = "SessionEnd",
                 ["reason"]          = "parent_exited",
                 ["ended_at"]        = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture),
-            }.ToJsonString();
-            // An earlier end of a session since resumed left a marker that would discard this one.
-            // What is spooled behind it are that run's stragglers, dropped as the drain would drop them.
-            if (spool.IsMarkedEnded(session.Session.Value)) {
-                spool.DiscardRemainder(session.Session.Value);
-                spool.ClearEnded(session.Session.Value);
-            }
-            if (spool.Append(session.Session.Value, $"session-end/{vendor}", body)) spooled++;
+            };
+            SessionEndIncarnation.Stamp(end, origin.AgentId, origin.DaemonEpoch);
+            if (spool.Append(session.Session.Value, $"session-end/{vendor}", end.ToJsonString())) spooled++;
         }
 
         return spooled;
@@ -400,11 +397,13 @@ internal sealed class AgentHookPoster(
             }
 
             using var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var startSnapshot = route.StartsWith("session-start", StringComparison.Ordinal) ? spool.RunStartSnapshot(sessionId) : null;
 
             try {
                 using var resp = await client.PostWithRetryAsync($"{Url}/hooks/{endpoint}", content, time, timeout: budget?.Remaining);
 
                 if (resp.IsSuccessStatusCode) {
+                    spool.NoteRunStarted(sessionId, startSnapshot);
                     return HookPostOutcome.Posted;
                 }
 

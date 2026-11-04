@@ -182,6 +182,7 @@ sealed class CaptureServerConnection : ServerConnection {
     /// the server sees carries the model the process actually runs (the pinned explicit-reviewer
     /// LaunchModel, not the dispatched cmd.Model).</summary>
     public List<(string AgentId, string? Model)> AgentRegisteredCalls { get; } = [];
+    public List<(string AgentId, string? RepoPath)> AgentRegisteredRepoPaths { get; } = [];
 
     /// <summary>The applied Codex posture echoed on each registration, in call order — proves the
     /// initial registration and every reconnect re-registration report the same pair.</summary>
@@ -201,6 +202,9 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>The agent each registration says it continues, in call order.</summary>
     public List<(string AgentId, string? ContinuesAgentId)> AgentRegisteredContinues { get; } = [];
 
+    /// <summary>The resumed session and first-announce flag each registration carries, in call order.</summary>
+    public List<(string AgentId, string? ResumedSessionId, bool FirstAnnounce)> AgentRegisteredResumes { get; } = [];
+
     /// <summary>The server's answer per agent id; accepted when unset or null.</summary>
     public Func<string, AgentRegisteredResponse?>? RegistrationResponse { get; set; }
 
@@ -208,9 +212,12 @@ sealed class CaptureServerConnection : ServerConnection {
         string  agentId,              string? prompt, string? model, string? effort, string? repoPath,
         string? sandboxPolicy = null, string? approvalPolicy = null, string? permissionPreset = null,
         string? runtimeTransport = null, string? vendor = null, AgentStartTitle? title = null, string? continuesAgentId = null,
-        string? accountDirectory = null, string? accountId = null, string? accountLabel = null) {
+        string? accountDirectory = null, string? accountId = null, string? accountLabel = null,
+        string? resumedSessionId = null, bool resumeFirstAnnounce = false) {
         AgentRegisteredCallCount++;
+        lock (AgentRegisteredRepoPaths) AgentRegisteredRepoPaths.Add((agentId, repoPath));
         lock (AgentRegisteredContinues) AgentRegisteredContinues.Add((agentId, continuesAgentId));
+        lock (AgentRegisteredResumes) AgentRegisteredResumes.Add((agentId, resumedSessionId, resumeFirstAnnounce));
         lock (AgentRegisteredTitles) AgentRegisteredTitles.Add((agentId, title));
         lock (AcpCallOrder) AcpCallOrder.Add($"register:{agentId}");
         lock (AgentRegisteredCalls) AgentRegisteredCalls.Add((agentId, model));

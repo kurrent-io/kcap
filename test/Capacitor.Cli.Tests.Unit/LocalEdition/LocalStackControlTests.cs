@@ -133,7 +133,7 @@ public class LocalStackControlTests {
 
         var failure = await Assert.ThrowsAsync<LocalInstallFailure>(() => Start(new FakeTimeProvider()));
 
-        await Assert.That(failure!.Message).Contains("Port 9473 is taken by nginx (pid 1)");
+        await Assert.That(failure!.Message).Contains("Port 9473 is taken by nginx (pid 1)").And.Contains(LocalServerConditions.PortTakenAdvice);
     }
 
     /// <summary>The OS names no holder here, as it cannot for another user's process; the 404 alone is enough,
@@ -145,7 +145,8 @@ public class LocalStackControlTests {
 
         var failure = await Assert.ThrowsAsync<LocalInstallFailure>(() => Start(new FakeTimeProvider()));
 
-        await Assert.That(failure!.Message).Contains("Port 9473 answers as a web server that answers HTTP 404, not as the kcap server");
+        await Assert.That(failure!.Message).Contains("Port 9473 answers as a web server that answers HTTP 404, not as the kcap server")
+            .And.Contains(LocalServerConditions.PortTakenAdvice);
         await Assert.That(_log).DoesNotContain("stop");
     }
 

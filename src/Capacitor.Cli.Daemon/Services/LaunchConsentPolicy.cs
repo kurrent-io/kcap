@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Daemon.Services;
 internal enum LaunchConsentDefault { Allow, Deny, Prompt }
 
 /// Null field = wildcard. Action is "allow" or "deny" (validated at the store boundary).
-/// Repo uses DaemonConfig.IsRepoAllowed semantics: exact path or "/prefix/*" glob.
+/// Repo is a <see cref="RepoPathPattern"/>.
 internal sealed record LaunchConsentRule(
     string Action,
     string? Requester,

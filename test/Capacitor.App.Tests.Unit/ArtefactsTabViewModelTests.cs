@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using System.Reactive.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -52,9 +53,10 @@ public class ArtefactsTabViewModelTests {
             new AcpEventEnvelope(Kind: AcpEventKind.ToolResult, ToolCallId: callId),
         ], [], [])]);
 
-        public void PublishPage(string callId = "p1") => Activity.Apply([new ChatProjectionResult([
+        public void PublishPage(string callId = "p1", string? pageId = null) => Activity.Apply([new ChatProjectionResult([
             new AcpEventEnvelope(Kind: AcpEventKind.ToolCall, ToolCallId: callId, ToolName: "mcp__plugin_kcap_kcap-pages__publish_page"),
-            new AcpEventEnvelope(Kind: AcpEventKind.ToolResult, ToolCallId: callId),
+            new AcpEventEnvelope(Kind: AcpEventKind.ToolResult, ToolCallId: callId,
+                ToolResult: pageId is null ? null : $$$"""{"page":{"page_id":"{{{pageId}}}","title":"P","url":"https://kcap.test/pages/{{{pageId}}}"}}"""),
         ], [], [])]);
     }
 
@@ -615,7 +617,6 @@ public class ArtefactsTabViewModelTests {
             await Assert.That(h.Vm.Documents.Count).IsEqualTo(1);
             await Assert.That(h.Vm.Pages.Select(p => p.Title)).IsEquivalentTo(new[] { "Findings", "Draft" }, CollectionOrdering.Matching);
             await Assert.That(h.Vm.Pages[0].UpdatedLabel).IsEqualTo("Updated 3h ago");
-            await Assert.That(h.Vm.HasPagesNote).IsFalse();
 
             await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[1]);
             await Assert.That(h.Opener.Opened).IsEquivalentTo(new[] { "https://elsewhere.test/pages/old" });
@@ -647,59 +648,146 @@ public class ArtefactsTabViewModelTests {
         public void Open(string pageId, string url) => Opened.Add((pageId, url));
     }
 
-    /// The tab shows for a session whose only artefact is a page, and the reader says where pages open.
+    /// Pages are listed in the work context pane, so a session with only pages has no tab until one
+    /// is opened in it.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_session_with_only_pages_has_artefacts() {
+    public async Task A_session_with_only_pages_has_a_tab_only_while_one_is_open() {
         await RunOnUiAsync(async () => {
-            var h = new Harness();
+            var h = new Harness(webView: true);
             h.Source.EnqueuePages(Pages(Page("p", "Report", h.Time.GetUtcNow())));
             await h.SwitchAsync(SessionA);
 
-            await Assert.That(h.Vm.HasDocuments).IsFalse();
-            await Assert.That(h.Vm.HasAny).IsTrue();
-            await Assert.That(h.Vm.EmptyReaderNote).IsEqualTo("Pages open in your browser.");
+            await Assert.That(h.Vm.HasPages).IsTrue();
+            await Assert.That(h.Vm.HasAny).IsFalse();
             await Assert.That(h.Vm.OpenDocument("docs/missing.md")).IsFalse();
+
+            await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[0]);
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.HasAny).IsTrue();
             await h.Vm.TeardownAsync();
         });
     }
 
+    /// The pane shows a few pages and folds the rest behind its header; a list that shrinks back
+    /// under the cap unfolds, so the header never offers a toggle with nothing behind it.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Pages_are_loading_until_their_read_settles() {
+    public async Task A_long_page_list_folds_behind_its_header() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            var gate = h.Source.GatePages();
-            h.Vm.SwitchSession(SessionA, "/repo");
+            var now = h.Time.GetUtcNow();
+            var many = Enumerable.Range(0, ArtefactsTabViewModel.VisiblePagesCap + 1).Select(i => Page($"p{i}", $"Page {i}", now)).ToArray();
+            h.Source.EnqueuePages(Pages(many), Pages(many[0]));
+            await h.SwitchAsync(SessionA);
 
-            await Assert.That(h.Vm.ShowsPagesSection).IsTrue();
-            await Assert.That(h.Vm.IsLoadingPages).IsTrue();
-            await Assert.That(h.Vm.PagesNote).IsEqualTo("Loading pages…");
+            await Assert.That(h.Vm.PagesOverflow).IsTrue();
+            await Assert.That(h.Vm.VisiblePages.Count()).IsEqualTo(ArtefactsTabViewModel.VisiblePagesCap);
+            await Assert.That(h.Vm.PagesMeta).IsEqualTo(many.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
-            gate.SetResult(Pages());
+            await h.Vm.TogglePagesCommand.Execute();
+            await Assert.That(h.Vm.VisiblePages.Count()).IsEqualTo(many.Length);
+
+            h.Vm.Refresh();
+            await h.SettledAsync();
+            await Assert.That(h.Vm.PagesExpanded).IsFalse();
+            await Assert.That(h.Vm.VisiblePages.Select(p => p.Id)).IsEquivalentTo(new[] { "p0" });
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// A page this transcript published that the server does not list for the session is cited on
+    /// it, once, and the list is read again; a page already listed is never cited.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_published_page_the_session_does_not_list_is_cited_once_and_read_again() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            var now = h.Time.GetUtcNow();
+            h.Activity.StartFeed("/t/a.jsonl");
+            h.Vm.TranscriptKey = "/t/a.jsonl";
+            h.PublishPage("c1", pageId: "listed");
+            h.PublishPage("c2", pageId: "older");
+            h.Source.EnqueuePages(Pages(Page("listed", "Listed", now)), Pages(Page("listed", "Listed", now), Page("older", "Older", now)));
+            await h.SwitchAsync(SessionA);
+            await h.Vm.PendingCitationsForTesting!;
+            await WaitUntilAsync(() => h.Source.RequestedPages.Count == 2, what: "the read after the citation");
             await h.SettledAsync();
 
-            await Assert.That(h.Vm.IsLoadingPages).IsFalse();
-            await Assert.That(h.Vm.PagesNote).IsEqualTo("No pages published from this session.");
+            await Assert.That(h.Source.Cited).IsEquivalentTo(new[] { ("older", SessionA) });
+            await Assert.That(h.Vm.Pages.Select(p => p.Id)).IsEquivalentTo(new[] { "listed", "older" });
+
+            h.Source.EnqueuePages(Pages(Page("listed", "Listed", now)));
+            h.Vm.Refresh();
+            await h.SettledAsync();
+            await Assert.That(h.Source.Cited.Count).IsEqualTo(1);
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// Pages read from another transcript are never cited on this session: the activity can still
+    /// hold the last session's publishes while the page list has already moved on.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Pages_published_in_another_transcript_are_not_cited_on_this_session() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            h.Activity.StartFeed("/t/a.jsonl");
+            h.PublishPage("c1", pageId: "from-a");
+            h.Vm.TranscriptKey = "/t/b.jsonl";
+            await h.SwitchAsync(SessionB);
+            await Assert.That(h.Source.Cited).IsEmpty();
+
+            h.Vm.TranscriptKey = "/t/a.jsonl";
+            h.Vm.Refresh();
+            await h.SettledAsync();
+            await h.Vm.PendingCitationsForTesting!;
+            await Assert.That(h.Source.Cited).IsEquivalentTo(new[] { ("from-a", SessionB) });
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// A refused citation (a page this viewer does not own, a server without the route) is asked once;
+    /// one that failed in a way that may pass is asked again on later reads, a bounded number of times.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(false, 1)]
+    [Arguments(null, ArtefactsTabViewModel.MaxCitationAttempts)]
+    public async Task A_citation_is_asked_again_only_after_a_failure_that_may_pass(bool? answer, int asks) {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            h.Source.CiteAnswer = answer;
+            h.Activity.StartFeed("/t/a.jsonl");
+            h.Vm.TranscriptKey = "/t/a.jsonl";
+            h.PublishPage("c1", pageId: "theirs");
+            await h.SwitchAsync(SessionA);
+
+            for (var read = 0; read < ArtefactsTabViewModel.MaxCitationAttempts + 1; read++) {
+                await (h.Vm.PendingCitationsForTesting ?? Task.CompletedTask);
+                Dispatcher.UIThread.RunJobs();
+                h.Vm.Refresh();
+                await h.SettledAsync();
+            }
+
+            await Assert.That(h.Source.Cited.Count).IsEqualTo(asks);
             await h.Vm.TeardownAsync();
         });
     }
 
     /// A refused read (a session this viewer may not see, or a server without the route) and a
-    /// signed-out one each say so, never "no pages", and list nothing.
+    /// signed-out one list nothing; only an unreachable one is worth the poll's retry.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    [Arguments(SessionPlansReadKind.Unavailable, "Pages aren't available for this session.")]
-    [Arguments(SessionPlansReadKind.SignedOut, "Sign in to see this session's pages.")]
-    [Arguments(SessionPlansReadKind.Unreachable, "Couldn't reach the server to list pages.")]
-    public async Task A_read_that_is_not_ready_is_told_apart_from_an_empty_list(SessionPlansReadKind kind, string note) {
+    [Arguments(SessionPlansReadKind.Unavailable)]
+    [Arguments(SessionPlansReadKind.SignedOut)]
+    [Arguments(SessionPlansReadKind.Unreachable)]
+    public async Task A_read_that_is_not_ready_lists_nothing_and_only_an_unreachable_one_is_retried(SessionPlansReadKind kind) {
         await RunOnUiAsync(async () => {
             var h = new Harness();
             h.Source.EnqueuePages(SessionPagesRead.Of(kind));
             await h.SwitchAsync(SessionA);
 
             await Assert.That(h.Vm.Pages).IsEmpty();
-            await Assert.That(h.Vm.PagesNote).IsEqualTo(note);
             await Assert.That(h.Vm.LastReadFailed).IsEqualTo(kind == SessionPlansReadKind.Unreachable);
             await h.Vm.TeardownAsync();
         });
@@ -720,8 +808,7 @@ public class ArtefactsTabViewModelTests {
             await h.SettledAsync();
 
             await Assert.That(h.Vm.Pages).IsEmpty();
-            await Assert.That(h.Vm.HasAny).IsFalse();
-            await Assert.That(h.Vm.PagesNote).IsEqualTo("Pages aren't available for this session.");
+            await Assert.That(h.Vm.HasPages).IsFalse();
             await h.Vm.TeardownAsync();
         });
     }
@@ -789,7 +876,7 @@ public class ArtefactsTabViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_stale_pages_read_never_applies_after_a_session_switch_and_a_null_session_hides_the_section() {
+    public async Task A_stale_pages_read_never_applies_after_a_session_switch() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
             var gate = h.Source.GatePages(ignoreCancellation: true);
@@ -801,11 +888,9 @@ public class ArtefactsTabViewModelTests {
             await stale;
 
             await Assert.That(h.Vm.Pages).IsEmpty();
-            await Assert.That(h.Vm.PagesNote).IsEqualTo("No pages published from this session.");
 
             await h.SwitchAsync(null);
-            await Assert.That(h.Vm.ShowsPagesSection).IsFalse();
-            await Assert.That(h.Vm.HasPagesNote).IsFalse();
+            await Assert.That(h.Vm.Pages).IsEmpty();
             await Assert.That(h.Source.RequestedPages).IsEquivalentTo(new[] { SessionA, SessionB }, CollectionOrdering.Matching);
             await h.Vm.TeardownAsync();
         });
@@ -846,7 +931,6 @@ public class ArtefactsTabViewModelTests {
             await Assert.That(h.Vm.Reader).IsNull();
             await Assert.That(h.Vm.Selected).IsNull();
             await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo(row.Id);
-            await Assert.That(row.IsSelected).IsTrue();
             await Assert.That(h.Vm.Documents[0].IsSelected).IsFalse();
             await Assert.That(h.Vm.ShowsReaderNote).IsFalse();
             await Assert.That(h.Content.ContentRequested).IsEquivalentTo(new[] { (row.Id, (int?)null) });
@@ -857,7 +941,6 @@ public class ArtefactsTabViewModelTests {
 
             await Assert.That(h.Vm.PageViewer).IsNull();
             await Assert.That(viewer.IsClosed).IsTrue();
-            await Assert.That(row.IsSelected).IsFalse();
             await Assert.That(h.Vm.Reader).IsNotNull();
             await h.Vm.TeardownAsync();
         });
@@ -880,7 +963,6 @@ public class ArtefactsTabViewModelTests {
 
             await Assert.That(first.IsClosed).IsTrue();
             await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("b");
-            await Assert.That(h.Vm.Pages.Select(p => p.IsSelected)).IsEquivalentTo(new[] { false, true }, CollectionOrdering.Matching);
             await h.Vm.TeardownAsync();
         });
     }
@@ -910,7 +992,6 @@ public class ArtefactsTabViewModelTests {
             await Assert.That(h.Content.ContentRequested.Count).IsEqualTo(2);
             await Assert.That(h.Vm.PageViewer).IsSameReferenceAs(viewer);
             await Assert.That(viewer.Version).IsEqualTo(2);
-            await Assert.That(h.Vm.Pages[0].IsSelected).IsTrue();
 
             h.Vm.Refresh();
             await h.SettledAsync();
@@ -996,7 +1077,6 @@ public class ArtefactsTabViewModelTests {
 
             await Assert.That(h.Opener.Opened).IsEquivalentTo(new[] { row.Url, "https://kcap.test/pages/x" });
             await Assert.That(h.Vm.PageViewer).IsNull();
-            await Assert.That(h.Vm.PagesOpenInApp).IsFalse();
             await Assert.That(h.Content.ContentRequested).IsEmpty();
             await h.Vm.TeardownAsync();
         });
@@ -1016,7 +1096,7 @@ public class ArtefactsTabViewModelTests {
                 pageContent: content, pageLinks: new PageLinkRouter(() => "https://kcap.test"),
                 webView: new FixedWebViewAvailability(true));
             vm.SwitchSession(SessionA, "/repo");
-            await (vm.PendingPagesForTesting ?? Task.CompletedTask);
+            await Task.WhenAll(vm.PendingReadForTesting ?? Task.CompletedTask, vm.PendingPagesForTesting ?? Task.CompletedTask);
             var row = vm.Pages[0];
 
             await vm.OpenPageCommand.Execute(row);
@@ -1024,8 +1104,6 @@ public class ArtefactsTabViewModelTests {
 
             await Assert.That(opener.Opened).IsEquivalentTo(new[] { row.Url, "https://kcap.test/pages/x" });
             await Assert.That(vm.PageViewer).IsNull();
-            await Assert.That(vm.PagesOpenInApp).IsFalse();
-            await Assert.That(vm.EmptyReaderNote).IsEqualTo("Pages open in your browser.");
             await Assert.That(content.ContentRequested).IsEmpty();
             await vm.TeardownAsync();
         });
@@ -1044,15 +1122,12 @@ public class ArtefactsTabViewModelTests {
             await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[0]);
             await h.PageLoadedAsync();
             var viewer = h.Vm.PageViewer!;
-            await Assert.That(h.Vm.PagesOpenInApp).IsTrue();
 
             h.InAppPages = false;
             await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[1]);
 
             await Assert.That(viewer.IsClosed).IsTrue();
             await Assert.That(h.Vm.PageViewer).IsNull();
-            await Assert.That(h.Vm.PagesOpenInApp).IsFalse();
-            await Assert.That(h.Vm.Pages.Select(p => p.IsSelected)).IsEquivalentTo(new[] { false, false }, CollectionOrdering.Matching);
             await Assert.That(h.Opener.Opened).IsEquivalentTo(new[] { h.Vm.Pages[1].Url });
 
             h.InAppPages = true;
@@ -1078,31 +1153,10 @@ public class ArtefactsTabViewModelTests {
             vm.OpenLink("https://kcap.test/pages/x");
             vm.SwitchSession(SessionB, "/repo");
 
-            await Assert.That(vm.PagesOpenInApp).IsFalse();
             await Assert.That(vm.PageViewer).IsNull();
             await Assert.That(opener.Opened).IsEquivalentTo(new[] { "https://kcap.test/pages/x" });
             await Assert.That(content.ContentRequested).IsEmpty();
             await vm.TeardownAsync();
-        });
-    }
-
-    /// The in-app viewer names pages in the reader prompt; the browser one says where they open.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task With_a_webview_the_reader_prompt_offers_pages() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness(webView: true);
-            h.Source.EnqueuePages(Pages(Page("p", "Report", h.Time.GetUtcNow())));
-            await h.SwitchAsync(SessionA);
-            await Assert.That(h.Vm.PagesOpenInApp).IsTrue();
-            await Assert.That(h.Vm.EmptyReaderNote).IsEqualTo("Select a page to open it.");
-
-            h.Source.Enqueue(Ready(Doc("1", "plan", "docs/p.md")));
-            h.Source.EnqueuePages(Pages(Page("p", "Report", h.Time.GetUtcNow())));
-            h.Vm.Refresh();
-            await h.SettledAsync();
-            await Assert.That(h.Vm.EmptyReaderNote).IsEqualTo("Select a document or page.");
-            await h.Vm.TeardownAsync();
         });
     }
 

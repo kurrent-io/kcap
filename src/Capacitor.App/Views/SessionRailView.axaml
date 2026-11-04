@@ -20,6 +20,10 @@
             <Setter Property="CornerRadius" Value="7" />
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="Cursor" Value="Hand" />
+            <!-- A negative BetweenShowDelay makes every row wait the full ShowDelay; Avalonia's
+                 default opens the next row's tip instantly while the pointer sweeps the rail. -->
+            <Setter Property="ToolTip.ShowDelay" Value="1500" />
+            <Setter Property="ToolTip.BetweenShowDelay" Value="-1" />
         </Style>
         <Style Selector="Border.railSession">
             <Setter Property="Background" Value="Transparent" />
@@ -133,11 +137,21 @@
                      extends the client area into the title bar). Empty space here drags the
                      window — wired in code-behind. -->
                 <Grid Height="44" Background="Transparent" PointerPressed="OnChromePointerPressed">
-                    <Button x:Name="CollapseButton" Classes="kcapGhost kcapIcon" HorizontalAlignment="Right"
-                            VerticalAlignment="Center" Margin="0,0,10,0" Click="OnCollapseClick"
-                            ToolTip.Tip="Hide sidebar" AutomationProperties.Name="Hide sidebar">
-                        <views:AppIcon Kind="PanelLeftClose" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
-                    </Button>
+                    <StackPanel Orientation="Horizontal" Spacing="2" HorizontalAlignment="Right"
+                                VerticalAlignment="Center" Margin="0,0,10,0">
+                        <Button x:Name="BackButton" Classes="kcapGhost kcapIcon" Command="{Binding GoBackCommand}"
+                                ToolTip.Tip="{x:Static views:ShortcutLabels.BackTip}" AutomationProperties.Name="Back">
+                            <views:AppIcon Kind="ArrowLeft" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                        </Button>
+                        <Button x:Name="ForwardButton" Classes="kcapGhost kcapIcon" Command="{Binding GoForwardCommand}"
+                                ToolTip.Tip="{x:Static views:ShortcutLabels.ForwardTip}" AutomationProperties.Name="Forward">
+                            <views:AppIcon Kind="ArrowRight" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                        </Button>
+                        <Button x:Name="CollapseButton" Classes="kcapGhost kcapIcon" Click="OnCollapseClick"
+                                ToolTip.Tip="Hide sidebar" AutomationProperties.Name="Hide sidebar">
+                            <views:AppIcon Kind="PanelLeftClose" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                        </Button>
+                    </StackPanel>
                 </Grid>
 
                 <!-- Deselects the workspace (the pane's empty state IS the launcher), or nudges the launcher already showing. -->

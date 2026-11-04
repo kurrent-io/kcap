@@ -434,13 +434,16 @@ public class UpdateCoordinatorTests {
         await Assert.That(UpdateCoordinator.TryApplyPendingAtStartup(updater, updateRelaunch: false)).IsFalse();
     }
 
-    /// Velopack kills the daemon when it applies an update on Windows, so the prompt there warns
-    /// that agents stop mid-turn; elsewhere the daemon waits for a turn boundary. Neither promises
-    /// that agents keep running or that the daemon waits for idle.
+    /// On Windows kcap stops the daemon at a turn boundary before Velopack ends it, and only a daemon
+    /// that does not answer is cut off mid-turn; elsewhere the daemon restarts at a turn boundary by
+    /// itself. Neither promises that agents keep running or that the daemon waits for idle.
     [Test]
     public async Task Ready_disclosure_says_how_agents_are_stopped_and_resumed() {
-        await Assert.That(UpdateCoordinator.ReadyDisclosure(windows: true)).Contains("Running agents are interrupted mid-turn");
+        await Assert.That(UpdateCoordinator.ReadyDisclosure(windows: true)).Contains("The daemon waits for active turns, then stops");
+        await Assert.That(UpdateCoordinator.ReadyDisclosure(windows: true)).Contains("A daemon that does not answer stops with kcap, mid-turn");
+        await Assert.That(UpdateCoordinator.ReadyDisclosure(windows: true)).DoesNotContain("Running agents are interrupted mid-turn");
         await Assert.That(UpdateCoordinator.ReadyDisclosure(windows: false)).Contains("It restarts when the configured wait ends. Long turns may be interrupted");
+        await Assert.That(UpdateCoordinator.ReadyDisclosure(windows: false)).DoesNotContain("then stops");
         foreach (var windows in new[] { true, false }) {
             await Assert.That(UpdateCoordinator.ReadyDisclosure(windows)).Contains("Eligible agents resume if auto-resume is on");
             await Assert.That(UpdateCoordinator.ReadyDisclosure(windows)).DoesNotContain("keep running");

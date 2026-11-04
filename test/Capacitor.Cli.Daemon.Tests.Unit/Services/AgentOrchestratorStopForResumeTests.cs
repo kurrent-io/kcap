@@ -217,6 +217,24 @@ public class AgentOrchestratorStopForResumeTests {
         await orch.DisposeAsync();
     }
 
+    /// The successor shows and registers the entry's title until it reads the server's, so the entry
+    /// carries the title the session has by the stop, never the launch-time cut of the goal.
+    [Test]
+    public async Task A_stop_for_resume_records_the_title_the_session_shows() {
+        var orch     = Build(new CaptureServerConnection());
+        var titled   = Seed(orch, "titled-1");
+        var untitled = Seed(orch, "untitled-1");
+        var launched = Ledger().TryRead("untitled-1")!.Launch.Title;
+        orch.SetResolvedTitle(titled, "PONG reply test");
+
+        await orch.PrepareForResumeAsync(titled, CancellationToken.None);
+        await orch.PrepareForResumeAsync(untitled, CancellationToken.None);
+
+        await Assert.That(Ledger().TryRead("titled-1")!.Launch.Title).IsEqualTo("PONG reply test");
+        await Assert.That(Ledger().TryRead("untitled-1")!.Launch.Title).IsEqualTo(launched);
+        await orch.DisposeAsync();
+    }
+
     [Test]
     public async Task A_launch_records_the_daemon_epoch_it_runs_under() {
         var orch = Build(new CaptureServerConnection());

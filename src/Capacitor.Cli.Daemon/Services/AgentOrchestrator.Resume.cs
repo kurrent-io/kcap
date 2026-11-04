@@ -307,7 +307,8 @@ internal partial class AgentOrchestrator {
                         AwaitingInput         = agent.ActivityClock.AwaitingInput,
                         SessionId             = agent.SessionId ?? entry.SessionId,
                         VendorSession         = vendorSession,
-                        Participant           = entry.Participant is { } p ? p with { ActivitySeq = clock.ActivitySeq, AgeMs = clock.AgeMs } : null
+                        Participant           = entry.Participant is { } p ? p with { ActivitySeq = clock.ActivitySeq, AgeMs = clock.AgeMs } : null,
+                        Launch                = WithShownTitle(entry.Launch, agent)
                     };
                 }, EntryLockWait);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -321,6 +322,11 @@ internal partial class AgentOrchestrator {
             return true;
         }
     }
+
+    /// <summary>The successor registers and shows the entry's title until it reads the server's: a launch-time
+    /// title, a cut of the goal, would stand over the title the session has been given since.</summary>
+    static ResumeLaunchDescriptor WithShownTitle(ResumeLaunchDescriptor launch, AgentInstance agent) =>
+        agent.ResolvedTitle is { Length: > 0 } shown ? launch with { Title = shown } : launch;
 
     /// <summary>An end committed for the session the agent now runs. One committed for an earlier session
     /// of the same process — a Claude <c>/clear</c> ends one session and starts the next — does not count;
@@ -368,7 +374,7 @@ internal partial class AgentOrchestrator {
             ApprovalPolicy:   agent.ApprovalPolicy,
             PermissionPreset: agent.PermissionPreset,
             McpConfigPath:    agent.McpConfigPath,
-            Title:            agent.Title,
+            Title:            agent.ResolvedTitle ?? agent.Title,
             TitleDerived:     agent.StartTitle?.Derived ?? true,
             IsPrivate:        agent.IsPrivate,
             Origin:           origin,
@@ -624,6 +630,9 @@ internal partial class AgentOrchestrator {
     const string StoppedDuringResume       = "stopped";
     const string TranscriptRefusedReason   = "acp_binding_unavailable";
     const string RegistrationRefusedReason = "registration_refused";
+
+    /// <summary>The server's refusal of a registration whose own run it already saw end.</summary>
+    const string RunEndedRefusal = "run_ended";
 
     static bool TranscriptRefused(AgentInstance agent) => agent.ReopenedTranscript == ReopenedTranscript.Refused;
 
@@ -1265,10 +1274,11 @@ internal partial class AgentOrchestrator {
         }
 
         // A continuation resolves the same recorded account, so it would be refused too; a session without its lease may
-        // be being handed off, and a continuation would take it over a second time.
+        // be being handed off, and a continuation would take it over a second time; and a run the server saw end must not
+        // be revived under a new agent id.
         if (!reason.StartsWith(AccountResolution.Unavailable, StringComparison.Ordinal)
          && reason is not (SourceReservedReason or SourceLeaseUnreachableReason or SourceLeaseLostReason or RuntimeUnstoppedReason
-                        or ResumeInPlaceRefusals.DirectoryNotAllowed or ResumeInPlaceRefusals.StoreChanged)
+                        or ResumeInPlaceRefusals.DirectoryNotAllowed or ResumeInPlaceRefusals.StoreChanged or RunEndedRefusal)
          && !reason.StartsWith(SourceLeaseRefusedReason, StringComparison.Ordinal)) {
             var outcome = await ContinueEntry(entry, reason, ct);
             if (outcome != ResumeOutcome.Interrupted) return outcome;
@@ -1277,7 +1287,7 @@ internal partial class AgentOrchestrator {
 
         InterruptEntry(entry.AgentId, LastErrorOf(reason, exitCode));
         // A refused id's status would overwrite the failure the server recorded, and an unstopped runtime is not ended.
-        if (!entry.Launch.IsPrivate && reason is not (RegistrationRefusedReason or RuntimeUnstoppedReason))
+        if (!entry.Launch.IsPrivate && reason is not (RegistrationRefusedReason or RunEndedRefusal or RuntimeUnstoppedReason))
             await ReportResumeFailedAsync(entry, reason, exitCode, ct);
 
         return ResumeOutcome.Interrupted;
@@ -1353,7 +1363,7 @@ internal partial class AgentOrchestrator {
 
         // The server holds no live entry under this id, so the resume goes on under a new one, unless a stop
         // came first: it gave up the worktree, and the teardown has removed it.
-        if (resume.RefusedRegistration is not null) {
+        if (resume.RefusedRegistration is { } registrationRefusal) {
             if (resume.Agent?.StopRequested == true) return (StoppedDuringResume, null);
 
             // The server holds no live agent on the source, so only the lease fences a runtime that will not die, and a
@@ -1365,7 +1375,7 @@ internal partial class AgentOrchestrator {
                 return (RuntimeUnstoppedReason, null);
             }
 
-            return (RegistrationRefusedReason, null);
+            return registrationRefusal == RunEndedRefusal ? (RunEndedRefusal, null) : (RegistrationRefusedReason, null);
         }
 
         if (outcome.Kind == CommandOutcomeKind.LaunchRejected)
@@ -1684,6 +1694,11 @@ internal partial class AgentOrchestrator {
             AccountId:           launch.AccountId,
             ScratchWorkspace:    launch.ScratchWorkspace == true);
     }
+
+    /// <summary>The session a launch reopens as the daemon's resume of its own agent: the vendor process restarts
+    /// on the entry's vendor session. A continuation, a participant and a launch the server asked for reopen none.</summary>
+    internal static string? ResumedSessionOf(ResumeLedgerEntry? resumed, string? resumeSessionId) =>
+        resumed is { Participant: null, VendorSession: { } vendorSession } && resumeSessionId == vendorSession ? resumed.SessionId : null;
 
     /// <summary>The ledger's worktree as the launch path names it.</summary>
     static WorktreeInfo ResumedWorktree(ResumeLedgerEntry entry) {

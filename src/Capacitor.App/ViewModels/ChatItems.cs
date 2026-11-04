@@ -1,6 +1,7 @@
 using Lucide.Avalonia;
 using System.ComponentModel;
 using System.Reactive;
+using System.Text.RegularExpressions;
 using Avalonia.Collections;
 using Capacitor.App.Views;
 using ReactiveUI.Reactive;
@@ -10,7 +11,8 @@ namespace Capacitor.App.ViewModels;
 /// One row of the Chat tab. Matched by DataTemplates on the concrete type.
 public abstract class ChatItemViewModel : ReactiveObject { }
 
-public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? attachments = null, SenderLabel? sender = null, bool undelivered = false) : ChatItemViewModel {
+public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? attachments = null, SenderLabel? sender = null,
+    ChatTimestamp? time = null, bool undelivered = false) : ChatItemViewModel {
     public const string UndeliveredNote = "Not delivered: the agent never received this message";
 
     public string Text { get; } = text;
@@ -20,10 +22,12 @@ public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? att
     public bool HasText => !string.IsNullOrWhiteSpace(Text);
     public IReadOnlyList<UserAttachment> Attachments { get; } = attachments ?? [];
     public bool HasAttachments => Attachments.Count > 0;
+    public ChatTimestamp? Time { get; } = time;
 }
 
-public sealed class AssistantTextItem(string text) : ChatItemViewModel {
+public sealed class AssistantTextItem(string text, ChatTimestamp? time = null) : ChatItemViewModel {
     public string Text { get; } = text;
+    public ChatTimestamp? Time { get; } = time;
 }
 
 /// The model's reasoning, rendered as collapsible muted Markdown in the assistant column.
@@ -76,25 +80,38 @@ public sealed class AssistantThinkingItem : ChatItemViewModel {
 
 /// System-attributed text — a finished background task, a reconnect note, another agent's message
 /// — never the user's speech.
-public sealed class SystemNoteItem : ChatItemViewModel {
+public sealed partial class SystemNoteItem : ChatItemViewModel {
     public const string NoteLabel = "Note";
     public const string AgentReportLabel = "Subagent report";
     public const string AgentMessageLabel = "Agent message";
     public const string CompactSummaryLabel = "Conversation compacted";
+    public const string TaskNotificationLabel = "Background task";
 
+    const int PeekLength = 80;
+
+    readonly string? _peek;
     bool _isExpanded;
 
     public SystemNoteItem(string text, string label = NoteLabel) {
         Text = text;
         Label = label;
-        // A compaction summary restates the whole conversation above it, so it starts folded.
-        IsCollapsible = label == CompactSummaryLabel;
+        // A compaction summary restates the whole conversation above it, and a subagent's report
+        // can run to pages, so both start folded. A report of one line has nothing to fold.
+        if (label is AgentReportLabel or TaskNotificationLabel) {
+            var lead = LeadLine(text);
+            IsCollapsible = lead is { HasMore: true };
+            if (IsCollapsible) _peek = TextElision.End(lead!.Value.Clean, PeekLength);
+        } else {
+            IsCollapsible = label == CompactSummaryLabel;
+        }
         _isExpanded = !IsCollapsible;
         ToggleCommand = ReactiveCommand.Create(Toggle);
     }
 
     public string Text { get; }
     public string Label { get; }
+
+    public string HeaderLabel => _isExpanded || string.IsNullOrEmpty(_peek) ? Label : $"{Label} · {_peek}";
     public LucideIconKind IconKind => ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
     public bool IsCollapsible { get; }
 
@@ -105,16 +122,96 @@ public sealed class SystemNoteItem : ChatItemViewModel {
             _isExpanded = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(ToggleAccessibleName));
+            this.RaisePropertyChanged(nameof(HeaderLabel));
         }
     }
 
-    public string ToggleAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {Label}";
+    public string ToggleAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {HeaderLabel}";
 
     public ReactiveCommand<Unit, Unit> ToggleCommand { get; }
 
     public void Toggle() {
         if (IsCollapsible) IsExpanded = !IsExpanded;
     }
+
+    static (bool HasMore, string Clean)? LeadLine(string text) {
+        string? clean = null;
+        foreach (var raw in text.AsSpan().EnumerateLines()) {
+            if (Content(raw.Trim()) is not { } words) continue;
+            if (clean is not null) return (true, clean);
+            clean = words;
+        }
+        return clean is null ? null : (false, clean);
+    }
+
+    static string? Content(ReadOnlySpan<char> line) {
+        if (line.StartsWith("```") || line.StartsWith("~~~")) return null;
+        var unquoted = QuoteMarker().Replace(line.ToString(), "");
+        if (Rule().IsMatch(unquoted)) return null;
+        var stripped = WithoutEmphasis(LeadMarker().Replace(unquoted, "")).Trim();
+        return stripped.Length > 0 ? stripped : null;
+    }
+
+    // Only a paired marker is emphasis; a lone "**" is the note's own text. Code spans are masked
+    // first so a pair can wrap one ("**Run `__init__`**") without reaching inside it.
+    static string WithoutEmphasis(string text) {
+        // A code span stands in as mark-index-mark, with a mark the text does not contain, so a
+        // span's contents never meet the emphasis patterns and nothing in the text reads as one.
+        var mark = '\uE000';
+        while (text.Contains(mark)) mark++;
+        var spans = new List<string>();
+        var masked = new System.Text.StringBuilder();
+        var i = 0;
+        while (i < text.Length) {
+            if (text[i] != '`') { masked.Append(text[i++]); continue; }
+            var run = 1;
+            while (i + run < text.Length && text[i + run] == '`') run++;
+            var close = ClosingRun(text, i + run, run);
+            if (close < 0) { masked.Append('`', run); i += run; continue; }
+            masked.Append(mark).Append(spans.Count).Append(mark);
+            spans.Add(text[(i + run)..close]);
+            i = close + run;
+        }
+        var parts = WholeLineEmphasis().Replace(StripStrong(masked.ToString()), "$2").Split(mark);
+        for (var p = 1; p < parts.Length; p += 2)
+            parts[p] = spans[int.Parse(parts[p], System.Globalization.CultureInfo.InvariantCulture)];
+        return string.Concat(parts);
+    }
+
+    static string StripStrong(string text) => PairedUnderscores().Replace(PairedStars().Replace(text, "$1"), "$1");
+
+    [GeneratedRegex(@"\*\*(?=\S)(.+?)(?<=\S)\*\*")]
+    private static partial Regex PairedStars();
+
+    // Underscores never embolden inside a word, so "user__id__" stays an identifier.
+    [GeneratedRegex(@"(?<![\p{L}\p{N}])__(?=\S)(.+?)(?<=\S)__(?![\p{L}\p{N}])")]
+    private static partial Regex PairedUnderscores();
+
+    [GeneratedRegex(@"^([*_])(?=\S)(.+?)(?<=\S)\1$")]
+    private static partial Regex WholeLineEmphasis();
+
+    static int ClosingRun(string text, int from, int length) {
+        var i = from;
+        while (i < text.Length) {
+            if (text[i] != '`') { i++; continue; }
+            var run = 1;
+            while (i + run < text.Length && text[i + run] == '`') run++;
+            if (run == length) return i;
+            i += run;
+        }
+        return -1;
+    }
+
+    [GeneratedRegex(@"^([-*_])(\s*\1){2,}\s*$")]
+    private static partial Regex Rule();
+
+    [GeneratedRegex(@"^(\s*>)*\s*")]
+    private static partial Regex QuoteMarker();
+
+    // A heading or list marker counts only when whitespace follows: "-10%" and "#123" are the note's own words.
+    // A rule is checked before this strips, or "- - -" would read as two bullets and a dash.
+    [GeneratedRegex(@"^(#{1,6}\s+|[-*+]\s+)*")]
+    private static partial Regex LeadMarker();
 }
 
 /// A bang command the user ran, and the output record that follows it. The output arrives later,

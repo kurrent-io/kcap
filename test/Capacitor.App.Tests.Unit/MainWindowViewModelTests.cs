@@ -2,6 +2,7 @@ using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using Avalonia.Media;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Update;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.App.Views;
@@ -340,7 +341,7 @@ public class MainWindowViewModelTests {
     public async Task Restart_pending_raises_an_alert_while_connected() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var restartPending = new BehaviorSubject<bool>(false);
+            var restartPending = new BehaviorSubject<DaemonRestartWait>(DaemonRestartWait.None);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, restartPending: restartPending);
             using var activation = vm.Activator.Activate();
 
@@ -348,12 +349,12 @@ public class MainWindowViewModelTests {
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
             await Assert.That(vm.Alert).IsNull();
 
-            restartPending.OnNext(true);
+            restartPending.OnNext(DaemonRestartWait.Turns);
 
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
             await Assert.That(vm.Alert.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
 
-            restartPending.OnNext(false);
+            restartPending.OnNext(DaemonRestartWait.None);
 
             await Assert.That(vm.Alert).IsNull();
         });
@@ -364,7 +365,7 @@ public class MainWindowViewModelTests {
     public async Task Restart_pending_is_hidden_while_not_connected() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var restartPending = new BehaviorSubject<bool>(true);
+            var restartPending = new BehaviorSubject<DaemonRestartWait>(DaemonRestartWait.Turns);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, restartPending: restartPending);
             using var activation = vm.Activator.Activate();
 
@@ -395,6 +396,7 @@ public class MainWindowViewModelTests {
     [Arguments(AttachState.Unreachable, "daemon_unreachable", "connected", MainWindowViewModel.DaemonStoppedText, RailRecovery.StartDaemon)]
     [Arguments(AttachState.Unreachable, "daemon_incompatible", "connected", MainWindowViewModel.DaemonMismatchText, RailRecovery.Reconnect)]
     [Arguments(AttachState.Unreachable, ExpectedDaemonRestart.Reason, "connected", MainWindowViewModel.DaemonRestartingText, RailRecovery.None)]
+    [Arguments(AttachState.Unreachable, ExpectedDaemonRestart.StartingReason, "connected", MainWindowViewModel.DaemonStartingText, RailRecovery.None)]
     [Arguments(AttachState.Unreachable, "socket_refused", "connected", MainWindowViewModel.DaemonUnreachableText, RailRecovery.Reconnect)]
     [Arguments(AttachState.Connected, null, "connecting", MainWindowViewModel.ServerConnectingText, RailRecovery.None)]
     [Arguments(AttachState.Connected, null, "reconnecting", MainWindowViewModel.ReconnectingText, RailRecovery.None)]
@@ -476,21 +478,67 @@ public class MainWindowViewModelTests {
         await Assert.That(alert.Detail).IsEqualTo(condition.Explanation);
     }
 
-    /// The lowest rungs: a queued daemon restart, then the lane's diagnostic, each with its long copy on hover.
+    /// The lowest rung: a queued daemon restart, with its long copy on hover.
     [Test]
-    public async Task AlertFor_restart_pending_and_lane_diagnostic_only_when_nothing_else_is_wrong() {
+    public async Task AlertFor_restart_pending_only_when_nothing_else_is_wrong() {
         var connected = new AttachStatus(AttachState.Connected, null, null);
 
-        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: true, laneDiagnostic: "marker");
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: DaemonRestartWait.Turns);
         await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
         await Assert.That(pending.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
 
-        var diagnostic = MainWindowViewModel.AlertFor(connected, "connected", laneDiagnostic: "marker");
-        await Assert.That(diagnostic!.Text).IsEqualTo(MainWindowViewModel.LiveUpdatesText);
-        await Assert.That(diagnostic.Detail).IsEqualTo("marker");
-
-        await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: true)!.Text)
+        await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: DaemonRestartWait.Turns)!.Text)
             .IsEqualTo(MainWindowViewModel.ReconnectingText);
+    }
+
+    /// A when-idle restart has no turn wait to promise: idle agents hold it for as long as they stay. A marker that does
+    /// not say what it waits for promises neither.
+    [Test]
+    [Arguments(DaemonRestartWait.Agents, MainWindowViewModel.RestartWhenNoAgentsMessage)]
+    [Arguments(DaemonRestartWait.Unstated, MainWindowViewModel.RestartUnstatedMessage)]
+    public async Task AlertFor_a_restart_not_waiting_for_turns_says_what_it_waits_for(DaemonRestartWait wait, string message) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: wait);
+
+        await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
+        await Assert.That(pending.Detail).IsEqualTo(message);
+    }
+
+    /// A restart waiting for turns follows an update to the other install, so it outranks the report; any other queued
+    /// restart brings back the same version, so the report outranks it.
+    [Test]
+    [Arguments(DaemonRestartWait.None, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Agents, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Unstated, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Turns, MainWindowViewModel.RestartPendingText)]
+    public async Task AlertFor_a_daemon_on_another_install_is_outranked_only_by_a_turn_wait(DaemonRestartWait wait, string text) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        var other = new DaemonOnOtherInstall("1.4.1-beta.2+d12e8ca", "/opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
+
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: other, restartPending: wait);
+
+        await Assert.That(alert!.Text).IsEqualTo(text);
+        if (text == MainWindowViewModel.DaemonNotUpdatedText)
+            await Assert.That(alert.Detail).Contains("kcap 1.4.1-beta.2 from /opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
+    }
+
+    /// kcap update does not touch the app's own copy of its CLI, so the alert names why the app could not replace it.
+    /// No queued restart outranks it: each one starts that same copy again.
+    [Test]
+    [Arguments(DaemonRestartWait.None)]
+    [Arguments(DaemonRestartWait.Turns)]
+    [Arguments(DaemonRestartWait.Agents)]
+    public async Task AlertFor_a_daemon_on_a_cli_copy_the_app_could_not_replace_names_the_failure(DaemonRestartWait wait) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        var copy = new DaemonOnOtherInstall("1.4.0", "/home/u/.local/share/kcap/desktop/bin/kcap-daemon", "No space left on device.");
+
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: copy, restartPending: wait);
+
+        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonNotUpdatedText);
+        await Assert.That(alert.Detail).Contains("kcap 1.4.0 from /home/u/.local/share/kcap/desktop/bin/kcap-daemon");
+        await Assert.That(alert.Detail).Contains("No space left on device. Fix that");
+        await Assert.That(alert.Detail).DoesNotContain("kcap update");
     }
 
     [Test]
@@ -618,29 +666,6 @@ public class MainWindowViewModelTests {
 
             lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
             await Assert.That(with.SignInVisible).IsFalse();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_lane_diagnostic_is_an_alert_with_its_text_on_hover() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var service = new FakeDaemonClientService();
-            var lane = new FakeServerLane();
-            var vm = new MainWindowViewModel(
-                service, CancellationToken.None, TestActivity.New(), TimeProvider.System, laneStatus: lane.Status);
-            using var activation = vm.Activator.Activate();
-            service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
-            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
-
-            await Assert.That(vm.Alert).IsNull();
-
-            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Diagnostic: "diagnostic-marker"));
-            await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.LiveUpdatesText);
-            await Assert.That(vm.Alert.Detail).IsEqualTo("diagnostic-marker");
-
-            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
-            await Assert.That(vm.Alert).IsNull();
         });
     }
 
@@ -823,6 +848,26 @@ public class MainWindowViewModelTests {
             gate.SetResult();
             await execute;
             await Assert.That(startCanExecute).IsTrue(); // status unchanged, attempt finished
+        });
+    }
+
+    /// A daemon whose process is up but not yet serving is coming back by itself: neither a Start
+    /// (which would race it) nor a Reconnect (which the attach already retries) is the next step.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_starting_daemon_offers_neither_start_nor_reconnect() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            var startCanExecute = true;
+            var retryCanExecute = true;
+            using var subStart = vm.StartDaemonCommand.CanExecute.Subscribe(v => startCanExecute = v);
+            using var subRetry = vm.RetryCommand.CanExecute.Subscribe(v => retryCanExecute = v);
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, ExpectedDaemonRestart.StartingReason, null));
+
+            await Assert.That(startCanExecute).IsFalse();
+            await Assert.That(retryCanExecute).IsFalse();
         });
     }
 
@@ -2444,6 +2489,168 @@ public class MainWindowViewModelTests {
             listed = true;
             vm.RestoreParkedWorkspace();
             await Assert.That(vm.CurrentWorkspace).IsNull();
+        });
+    }
+
+    /// Back and forward walk the launcher and the sessions the user opened, each on the tab it showed.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_and_forward_return_to_each_place_on_its_tab() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown());
+            await Assert.That(vm.History.CanGoBack).IsFalse();
+
+            vm.OpenSession("a1");
+            await ((WorkspaceViewModel)vm.CurrentWorkspace!).ShowTerminalCommand.Execute().ToTask();
+            vm.OpenSession("a2");
+
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            await Assert.That(((WorkspaceViewModel)vm.CurrentWorkspace!).IsTerminalActive).IsTrue();
+
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace).IsNull();
+            await Assert.That(vm.History.CanGoBack).IsFalse();
+
+            await vm.GoForwardCommand.Execute().ToTask();
+            await vm.GoForwardCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a2");
+            await Assert.That(vm.History.CanGoForward).IsFalse();
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// A new navigation after stepping back starts a new branch, as a browser does.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Opening_a_session_after_going_back_drops_forward() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown());
+            vm.OpenSession("a1");
+            vm.OpenSession("a2");
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.History.CanGoForward).IsTrue();
+
+            vm.OpenSession("a3");
+
+            await Assert.That(vm.History.CanGoForward).IsFalse();
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// New session records the session it left, so back returns to it from the launcher.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_from_new_session_returns_to_the_session_it_left() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown());
+            vm.OpenSession("a1");
+
+            await vm.NewSessionCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace).IsNull();
+
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// A session no lane lists any longer is skipped on the way back, not opened as a dead terminal.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_skips_a_session_that_is_gone() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var gone = new HashSet<string>();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id),
+                originOf: id => gone.Contains(id) ? null : AgentOrigin.Local, trackWorkspaceTeardown: teardown => _ = teardown());
+            vm.OpenSession("a1");
+            vm.OpenSession("a2");
+            vm.OpenSession("a3");
+            gone.Add("a2");
+
+            await vm.GoBackCommand.Execute().ToTask();
+
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            await vm.GoForwardCommand.Execute().ToTask();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a3");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// An agent that has moved on to another session is not where the entry left: back does not
+    /// open the agent's new session in the old one's place.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_does_not_open_an_agent_that_moved_on_to_another_session() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            var repo = new RepoIdentity("path:/repos/kcap-cli", "kcap-cli");
+            void Hosts(string agentId, string sessionId) => directory.Rows.AddOrUpdate(AgentRow.FromLocal(
+                WorkspaceFixtures.Agent(agentId, "claude", true, "/repos/kcap-cli", sessionId: sessionId), repo));
+            Hosts("a0", "s0");
+            Hosts("a1", "s1");
+            Hosts("a2", "s2");
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id),
+                trackWorkspaceTeardown: teardown => _ = teardown(), directory: directory);
+            vm.OpenSession("a0");
+            vm.OpenSession("a1");
+            vm.OpenSession("a2");
+            Hosts("a1", "s9");
+
+            await vm.GoBackCommand.Execute().ToTask();
+
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a0");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// Only the lane back opens on decides: the same agent id hosting another session on another
+    /// lane does not turn the entry away.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_opens_the_agent_when_only_another_lane_hosts_a_different_session() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            var repo = new RepoIdentity("path:/repos/kcap-cli", "kcap-cli");
+            directory.Rows.AddOrUpdate(AgentRow.FromLocal(
+                WorkspaceFixtures.Agent("a1", "claude", true, "/repos/kcap-cli", sessionId: "s1"), repo));
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id),
+                trackWorkspaceTeardown: teardown => _ = teardown(), directory: directory);
+            vm.OpenSession("a1");
+            vm.OpenSession("a2");
+            directory.Rows.AddOrUpdate(AgentRow.FromRemote(new AgentInstanceDto {
+                AgentId = "a1", SessionId = "s9", Status = "Running", DaemonName = "work-mac",
+            }));
+
+            await vm.GoBackCommand.Execute().ToTask();
+
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// A swap the app makes on its own replaces where the user is; it adds nothing to go back to.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_close_the_app_makes_records_no_history() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown());
+            vm.OpenSession("a1");
+            vm.CloseWorkspace();
+
+            await vm.GoBackCommand.Execute().ToTask();
+
+            await Assert.That(vm.CurrentWorkspace).IsNull();
+            await Assert.That(vm.History.CanGoBack).IsFalse();
         });
     }
 }

@@ -687,6 +687,11 @@
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
+        <Style Selector="TextBlock.chatTime">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
         <Style Selector="ScrollBar">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="ContextFlyout" Value="{x:Null}" />

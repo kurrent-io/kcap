@@ -10,5 +10,9 @@ public static class ShortcutLabels {
 
     public static string Search { get; } = For("K", UsesCommandKey);
 
+    public static string BackTip { get; } = UsesCommandKey ? "Back (⌘[)" : "Back (Alt+Left)";
+
+    public static string ForwardTip { get; } = UsesCommandKey ? "Forward (⌘])" : "Forward (Alt+Right)";
+
     public static string For(string key, bool isMacOs) => isMacOs ? $"⌘{key}" : $"Ctrl+{key}";
 }

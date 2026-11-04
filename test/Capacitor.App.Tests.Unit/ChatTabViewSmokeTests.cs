@@ -1056,7 +1056,7 @@ public class ChatTabViewSmokeTests {
             var toggle = row.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolRowToggle");
             var body = row.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "ToolInspection");
             await Assert.That(body.IsEffectivelyVisible).IsFalse();
-            await Assert.That(AutomationProperties.GetName(toggle)).IsEqualTo("Show details: Searched files ls -la");
+            await Assert.That(AutomationProperties.GetName(toggle)).IsEqualTo("Show details: Ran command ls -la");
 
             Click(host, toggle);
 
@@ -1064,7 +1064,7 @@ public class ChatTabViewSmokeTests {
             await Assert.That(body.IsEffectivelyVisible).IsTrue();
             var texts = body.GetVisualDescendants().OfType<SelectableTextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text ?? "").ToList();
             await Assert.That(texts).IsEquivalentTo(new[] { "Failed", "ls -la", "boom" }, CollectionOrdering.Matching);
-            await Assert.That(AutomationProperties.GetName(toggle)).IsEqualTo("Hide details: Searched files ls -la");
+            await Assert.That(AutomationProperties.GetName(toggle)).IsEqualTo("Hide details: Ran command ls -la");
 
             Click(host, toggle);
             await Assert.That(body.IsEffectivelyVisible).IsFalse();
@@ -1472,8 +1472,8 @@ public class ChatTabViewSmokeTests {
         await RunOnUiAsync(async () => {
             var host = new Host();
             await host.LoadAsync(Tmp.CreateFile("chips.jsonl", [
-                """{"type":"user","message":{"role":"user","content":"hello"}}""",
-                """{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}""",
+                """{"type":"user","timestamp":"2026-11-02T09:04:00Z","message":{"role":"user","content":"hello"}}""",
+                """{"type":"assistant","timestamp":"2026-11-02T09:05:00Z","message":{"content":[{"type":"text","text":"hi"}]}}""",
                 """{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<summary>Agent finished</summary>\n<result>\nAll good.\n</result>\n</task-notification>"}}""",
             ]));
             host.Settle();
@@ -1483,10 +1483,20 @@ public class ChatTabViewSmokeTests {
                 .ToList();
             await Assert.That(chips).Contains("You");
             await Assert.That(chips).Contains(host.Chat.AssistantTitle);
-            await Assert.That(chips).Contains("Note");
-            var you = host.View.GetVisualDescendants().OfType<TextBlock>()
+            await Assert.That(chips).Contains("Background task · Agent finished");
+            var you =host.View.GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Classes.Contains("toolKindChip") && t.Text == "You");
             await Assert.That(you.HorizontalAlignment).IsEqualTo(Avalonia.Layout.HorizontalAlignment.Left);
+            var times = host.View.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.Classes.Contains("chatTime") && t.IsEffectivelyVisible)
+                .Select(t => (t.Text ?? "", ToolTip.GetTip(t) as string ?? ""))
+                .ToList();
+            var userTime = host.Chat.Items.OfType<UserTurnItem>().Single().Time!;
+            var assistantTime = host.Chat.Items.OfType<AssistantTextItem>().Single().Time!;
+            await Assert.That(times).IsEquivalentTo([
+                (userTime.Label, userTime.Tip),
+                (assistantTime.Label, assistantTime.Tip),
+            ], CollectionOrdering.Matching);
 
             host.Chat.Items.OfType<UserTurnItem>().Single().Sender.Title = "Tony";
             host.Settle();
@@ -1507,9 +1517,9 @@ public class ChatTabViewSmokeTests {
             await Assert.That(host.Chat.Items).Count().IsEqualTo(1);
             var summary = Summary(host.View);
             await Assert.That(summary.IsVisible).IsTrue();
-            await Assert.That(OnlyGroup(host).Summary).IsEqualTo("Searched files, read a file");
+            await Assert.That(OnlyGroup(host).Summary).IsEqualTo("Ran a command, read a file");
             await Assert.That(summary.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text))
-                .Contains("Searched files, read a file");
+                .Contains("Ran a command, read a file");
             await Assert.That(ToolRows(host.View)).Count().IsEqualTo(1);
             await Assert.That(((ToolCallItem)ToolRows(host.View)[0].DataContext!).Outcome).IsEqualTo(ToolOutcome.Running);
             var card = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("toolGroup"));
@@ -1518,14 +1528,14 @@ public class ChatTabViewSmokeTests {
 
             Click(host, summary);
             await Assert.That(OnlyGroup(host).IsExpanded).IsTrue();
-            await Assert.That(OnlyGroup(host).Summary).IsEqualTo("Searched files, read a file");
+            await Assert.That(OnlyGroup(host).Summary).IsEqualTo("Ran a command, read a file");
             await Assert.That(ToolRows(host.View)).Count().IsEqualTo(3);
             await Assert.That(card.Classes.Contains("folded")).IsFalse();
             await Assert.That(card.Margin.Bottom).IsEqualTo(22);
 
             Click(host, summary);
             await Assert.That(OnlyGroup(host).IsExpanded).IsFalse();
-            await Assert.That(OnlyGroup(host).Summary).IsEqualTo("Searched files, read a file");
+            await Assert.That(OnlyGroup(host).Summary).IsEqualTo("Ran a command, read a file");
             await Assert.That(ToolRows(host.View)).Count().IsEqualTo(1);
             await host.CloseAsync();
         });
@@ -1540,16 +1550,16 @@ public class ChatTabViewSmokeTests {
             await host.LoadAsync(Tmp.CreateFile("one.jsonl", [ToolCallLine, ToolResultLine]));
             await Assert.That(OnlyGroup(host).ShowsSummaryHeader).IsFalse();
             await Assert.That(OnlyGroup(host).ShowsKindChip).IsTrue();
-            await Assert.That(OnlyGroup(host).KindChip).IsEqualTo("Search");
+            await Assert.That(OnlyGroup(host).KindChip).IsEqualTo("Command");
             await Assert.That(SummaryOrNull(host.View)?.IsVisible ?? false).IsFalse();
             host.Settle();
             var header = host.View.GetVisualDescendants().OfType<ChatKindHeader>()
                 .Single(h => h.IsEffectivelyVisible);
-            await Assert.That(header.Label).IsEqualTo("Search");
+            await Assert.That(header.Label).IsEqualTo("Command");
             await Assert.That(header.IconKind).IsNotNull();
             var chip = host.View.GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Classes.Contains("toolKindChip") && t.IsEffectivelyVisible);
-            await Assert.That(chip.Text).IsEqualTo("Search");
+            await Assert.That(chip.Text).IsEqualTo("Command");
             await Assert.That(ToolRows(host.View)).Count().IsEqualTo(1);
             await Assert.That(((ToolCallItem)ToolRows(host.View)[0].DataContext!).Outcome).IsEqualTo(ToolOutcome.Done);
             await host.CloseAsync();
@@ -1685,7 +1695,7 @@ public class ChatTabViewSmokeTests {
                 .Single(t => t.Name == "ToolRowLabel" && t.IsEffectivelyVisible);
             var detail = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.IsEffectivelyVisible && t.Text == "ls -la");
-            await Assert.That(rowLabel.Text).IsEqualTo("Searched files");
+            await Assert.That(rowLabel.Text).IsEqualTo("Ran command");
             await Assert.That(rowLabel.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapTextBrush"));
             await Assert.That(detail.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapMutedBrush"));
             await host.CloseAsync();
@@ -1896,7 +1906,8 @@ public class ChatTabViewSmokeTests {
     }
 
     /// Pins the system note's surface: a muted card carrying the note as markdown, distinct from
-    /// the user bubble and the assistant prose around it.
+    /// the user bubble and the assistant prose around it. A task notification starts folded, so
+    /// its markdown renders only once opened.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_system_note_renders_as_a_muted_markdown_card() {
@@ -1907,8 +1918,13 @@ public class ChatTabViewSmokeTests {
             ]));
 
             var card = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("systemNote"));
-            var text = card.GetVisualDescendants().OfType<TextBlock>().Where(t => t.Classes.Contains("markdown-paragraph")).ToList();
-            await Assert.That(text.Select(t => t.Inlines?.Text ?? t.Text ?? "")).IsEquivalentTo(new[] { "Agent finished", "All good." }, CollectionOrdering.Matching);
+            List<TextBlock> Paragraphs() => card.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.Classes.Contains("markdown-paragraph") && t.IsEffectivelyVisible).ToList();
+            await Assert.That(Paragraphs()).IsEmpty();
+
+            Click(host, card.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("toolSummary")));
+            host.Settle();
+            await Assert.That(Paragraphs().Select(t => t.Inlines?.Text ?? t.Text ?? "")).IsEquivalentTo(new[] { "Agent finished", "All good." }, CollectionOrdering.Matching);
             await host.CloseAsync();
         });
     }

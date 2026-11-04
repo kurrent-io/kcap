@@ -88,6 +88,22 @@ internal record AgentInstance(
     /// The agent this one continues, announced on every registration so the server can follow its wake-ups here.
     public string?              ContinuesAgentId  { get; init; }
 
+    /// The session a native resume of this agent reopened.
+    public string?              ResumedSessionId  { get; init; }
+
+    /// What every registration announces as the resumed session: only while it is still the agent's session,
+    /// since the server reads it as proof the session is running again.
+    public string?              AnnouncedResumedSessionId =>
+        ResumedSessionId is { } resumed && SessionIds.Canonical(SessionId) == SessionIds.Canonical(resumed) ? resumed : null;
+
+    volatile bool _resumeAnswered;
+
+    /// Whether any registration of the resumed agent has had an answer from a server that reads it. Until then every registration is
+    /// flagged as the first announcement: the server reopens the session only on a flagged one and records the
+    /// incarnation on whichever arrives first, so a reconnect's re-announcement landing ahead of the launch
+    /// registration must carry the flag too.
+    public bool                 ResumeAnswered    { get => _resumeAnswered; set => _resumeAnswered = value; }
+
     /// Set once any stop has been asked of this agent; a resume still being judged then ends as stopped.
     public bool                 StopRequested     { get; set; }
 
@@ -159,6 +175,11 @@ internal record AgentInstance(
     /// <summary>The title this agent's session starts with, reported on registration. Null for an
     /// agent started with neither a title nor a prompt to derive one from.</summary>
     public AgentStartTitle? StartTitle { get; init; }
+
+    /// <summary>The ledger launch this agent took up after a restart, by resuming or continuing it; null for any
+    /// other launch. Its title is the one the work already had, and its prompt the one titles derive from: the
+    /// agent's own <c>Prompt</c> is the resume nudge or the continuation's.</summary>
+    public ResumeLaunchDescriptor? ResumedFrom { get; init; }
 
     bool _titleComputed;
     string? _title;
@@ -698,6 +719,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     readonly SingleFlightRefresh _capabilityRefresh = new();
     int                          _republishRequested;
     int                          _catalogProbeRequested;
+    int                          _rediscoveryRequested;
+    bool                         _discoveryPublicationPending;
+    bool                         _unattendedClassificationPending;
 
     // Hosted-agent PTYs are spawned at a fixed size and never resized. The daemon
     // reports these dims to the server right after the agent registers (and on
@@ -880,6 +904,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _spoolDrain        = new(TimeSpan.FromSeconds(60), time);
         _titleResolve      = new(TimeSpan.FromSeconds(60), time);
         _config            = config;
+        _unattendedClassificationPending = config.StartupUnattendedClassificationPending;
         _configRoot        = configRoot;
         _tokens            = tokens;
         _harnesses         = harnesses;
@@ -1676,27 +1701,63 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return (true, "", false);
     }
 
-    /// <summary>
-    /// Re-resolves the Codex switch, re-probes the vendors advertised at startup and re-registers when
-    /// the advertisement changed or the server has not yet seen the committed Codex resolution — the one
-    /// path through which a running daemon updates what the server knows about its CLI versions, vendor
-    /// model catalogs and Codex transport. Returns at once; the work is single-flighted off the caller's
-    /// stack so a burst of requests coalesces and the last publication is always the newest probe.
-    /// </summary>
+    /// <summary>Periodic discovery retries failed probes and publications even
+    /// when the installed vendor list is unchanged.</summary>
+    internal void RefreshAgentDiscovery() {
+        var installed = _runtimeFactories.Values.Where(f => f.IsAvailable())
+            .Select(f => f.Vendor).OrderBy(v => v, StringComparer.Ordinal);
+        if (Volatile.Read(ref _discoveryPublicationPending) || Volatile.Read(ref _unattendedClassificationPending)
+         || !installed.SequenceEqual(_config.SupportedVendors ?? []))
+            RefreshAdvertisedCapabilities("agent discovery", probeCatalogs: false, rediscoverVendors: true);
+    }
+
+    /// <summary>Refreshes installed vendors, reviewer capabilities and catalogs through one coalescing lane.</summary>
     /// <param name="republishUnchanged">Re-register even when the local advertisement already
     /// reads the same, for a caller that knows the server's copy differs.</param>
     /// <param name="probeCatalogs">False for a caller with no reason to think a model catalog changed,
     /// which then spawns no catalog probe.</param>
-    internal void RefreshAdvertisedCapabilities(string reason, bool republishUnchanged = false, bool probeCatalogs = true) {
+    /// <param name="rediscoverVendors">Re-evaluate launchable vendors after an environment or installation change.</param>
+    internal void RefreshAdvertisedCapabilities(string reason, bool republishUnchanged = false, bool probeCatalogs = true, bool rediscoverVendors = false) {
         // Sticky rather than captured by the delegate: a request folded into a running pass reruns
         // THAT pass's delegate, which would otherwise carry the earlier caller's answer.
         if (republishUnchanged) Interlocked.Exchange(ref _republishRequested, 1);
         else if (probeCatalogs) Interlocked.Exchange(ref _catalogProbeRequested, 1);
+        if (rediscoverVendors) Interlocked.Exchange(ref _rediscoveryRequested, 1);
 
         _capabilityRefresh.Trigger(
             async () => {
                 var republish    = Interlocked.Exchange(ref _republishRequested, 0) == 1;
                 var probeCatalog = Interlocked.Exchange(ref _catalogProbeRequested, 0) == 1;
+                var rediscover   = Interlocked.Exchange(ref _rediscoveryRequested, 0) == 1;
+
+                var vendorsChanged = false;
+                if (rediscover) {
+                    if (Volatile.Read(ref _discoveryPublicationPending)) {
+                        republish = true;
+                        probeCatalog = true;
+                    }
+                    var installed = _runtimeFactories.Values.Where(f => f.IsAvailable())
+                        .Select(f => f.Vendor).OrderBy(v => v, StringComparer.Ordinal).ToArray();
+                    vendorsChanged = !installed.SequenceEqual(_config.SupportedVendors ?? []);
+                    if (vendorsChanged) {
+                        Volatile.Write(ref _discoveryPublicationPending, true);
+                        _config.SupportedVendors = installed;
+                        _config.AcpPresetVendors = installed.Where(Acp.AcpPermissionPresets.RoutedVendors.Contains).ToArray();
+                        _config.PermissionModeVendors = Harness.Claude.ClaudePermissionModePolicy.AdvertisedVendors(installed);
+                        _config.PrReviewVendors = DaemonRunner.AdvertisedPrReviewVendors(_runtimeFactories.Values);
+                        probeCatalog = true;
+                    }
+                    if (vendorsChanged || Volatile.Read(ref _unattendedClassificationPending)) {
+                        DaemonRunner.SeedReviewerFloors(_config.Store.StateDirectory(_config.Name), _config);
+                        var classifications = DaemonRunner.ClassifyUnattendedVendors(_runtimeFactories.Values);
+                        var unattended = DaemonRunner.AdvertisedUnattendedVendors(classifications);
+                        if (!unattended.SequenceEqual(_config.UnattendedVendors ?? []))
+                            Volatile.Write(ref _discoveryPublicationPending, true);
+                        _config.UnattendedVendors = unattended;
+                        Volatile.Write(ref _unattendedClassificationPending,
+                            classifications.Any(s => s.ProbeFailed));
+                    }
+                }
 
                 var codex = CommitCodexResolution();
 
@@ -1739,7 +1800,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                                    || !VendorModelCatalogs.Equal(previousByAccount, mergedByAccount);
                 var unacknowledged = _config.AcknowledgedCodexResolution.Generation != codex.Generation;
 
-                if (!republish && !catalogChanged && !unacknowledged && current is not null && current.SequenceEqual(fresh)) return;
+                if (!vendorsChanged && !republish && !catalogChanged && !unacknowledged && current is not null && current.SequenceEqual(fresh)) return;
 
                 _config.Advertise(fresh, codex);
                 // One reference swap: status serializers on other threads may be enumerating the old one.
@@ -1752,6 +1813,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 LogReAdvertising(_logger, reason,
                     string.Join(", ", fresh.Select(c => $"{c.Vendor} {c.CliVersion ?? DaemonRunner.UnknownCliVersion}")));
                 await _server.ReRegisterAsync();
+                if (rediscover) Volatile.Write(ref _discoveryPublicationPending, false);
             },
             ex => _logger.LogDebug(ex,
                 "Capability refresh ({Reason}) failed; the next registration or launch re-evaluates it.", reason));
@@ -2573,6 +2635,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             : AccountResolution.ResolveForResume(registry, vendor, resumed.AccountId, resumed.AccountDirectory, defaultDirectory);
     }
 
+    static bool StillResolvesToItself(string path) =>
+        CanonicalPath.TryResolve(path, out var now) && string.Equals(now, path, StringComparison.Ordinal);
+
     async Task<bool> RepoAllowedAsync(string repoPath, ResumeLaunch? resume) {
         if (resume is not { Work: WorkLocation.InPlace }) return _config.IsRepoAllowed(repoPath);
 
@@ -2702,7 +2767,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // runtime cannot apply a model, and "no model reported" must be representable in the type.
         string? effectiveModel = cmd.ExplicitReviewerModel?.LaunchModel ?? model;
         var effort        = cmd.Effort;
+        // What the server sent is what it is told back and what the ledger records; every filesystem
+        // operation reads sourceRepo, the resolved directory the allow-list check was run against.
         var repoPath      = cmd.RepoPath;
+        var sourceRepo    = repoPath;
         var tools         = cmd.Tools;
         var attachmentIds = cmd.AttachmentIds;
         var isReview      = cmd.Kind == LaunchKind.Review;
@@ -2866,16 +2934,28 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // A local spawn was never held to the allowed-repo list, so neither is its resume. A scratch
             // launch names no repository to allow, find or report on. Every in-place route is authorized here the
             // way a borrowed directory is, which also admits a path below an allowed git root.
-            if (!cmd.ScratchWorkspace && resume is not { Origin: "local" } && !await RepoAllowedAsync(repoPath, resume)) {
+            // A relative path would resolve against the daemon's own working directory; it stays unresolved,
+            // so the allow-list matches nothing and the launch is refused.
+            var resolvedRepo = !cmd.ScratchWorkspace && !string.IsNullOrEmpty(repoPath) && Path.IsPathFullyQualified(repoPath)
+                            && CanonicalPath.TryResolve(repoPath, out var resolved)
+                ? resolved
+                : null;
+
+            if (!cmd.ScratchWorkspace && resume is not { Origin: "local" }
+             && !await RepoAllowedAsync(resume is { Work: WorkLocation.InPlace } ? repoPath : resolvedRepo ?? repoPath, resume)) {
                 await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path not allowed: {repoPath}");
 
                 return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
             }
 
-            if (!cmd.ScratchWorkspace && !Directory.Exists(repoPath)) {
-                await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path does not exist: {repoPath}");
+            if (!cmd.ScratchWorkspace) {
+                if (resolvedRepo is null || !Directory.Exists(resolvedRepo)) {
+                    await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path does not exist: {repoPath}");
 
-                return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+                    return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+                }
+
+                sourceRepo = resolvedRepo;
             }
 
             // Capture scope for an unattended launch into a named repo, ahead of every
@@ -2883,7 +2963,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // repository it may not report on. A BORROWED launch is judged further down instead,
             // on the canonical path its authorization resolves.
             if ((isReview || isReviewFlow) && !cmd.Borrowed && !cmd.ScratchWorkspace
-             && await RefuseOutOfCaptureScopeAsync(agentId, repoPath) is { } scopeRefusal) {
+             && await RefuseOutOfCaptureScopeAsync(agentId, sourceRepo) is { } scopeRefusal) {
                 return scopeRefusal;
             }
 
@@ -2897,7 +2977,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 // Final guard: re-validate that the chosen path's origin really
                 // matches the PR's repo. The match the UI saw could have moved
                 // (remote renamed, repo moved) between picker and launch.
-                var actual = await GetOriginRemoteAsync(repoPath, _time);
+                var actual = await GetOriginRemoteAsync(sourceRepo, _time);
 
                 if (actual is null) {
                     await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"No origin remote at {repoPath}");
@@ -2949,11 +3029,19 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 ? $"refs/pull/{reviewInfo.PrNumber}/head"
                 : cmd.BaseRef;
 
+            // A directory under the allowed tree can be swapped for a link after the check above. Re-walked
+            // with no await before worktree creation, which pins the source as it resolves on entry.
+            if (resume is null && !cmd.Borrowed && !cmd.ScratchWorkspace && !StillResolvesToItself(sourceRepo)) {
+                await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path changed after it was allowed: {repoPath}");
+
+                return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
+            }
+
             if (resume is not null) {
                 worktree = resume.Worktree;
             } else if (cmd.Handoff is not null) {
                 using var handoffCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token, cancel);
-                var handoff = await PrepareHandoffAsync(cmd, repoPath, handoffCts.Token);
+                var handoff = await PrepareHandoffAsync(cmd, sourceRepo, handoffCts.Token);
                 if (handoff.Refusal is { } handoffRefused) {
                     await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, handoffRefused);
 
@@ -2999,10 +3087,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             } else if (cmd.ScratchWorkspace) {
                 worktree = await _worktreeManager.CreateScratchAsync($"scratch-{agentId}", _shutdownCts.Token);
             } else {
-                worktree = await _worktreeManager.CreateAsync(repoPath, baseRef: baseRef);
+                worktree = await _worktreeManager.CreateAsync(sourceRepo, baseRef: baseRef);
             }
 
-            if (cmd.ScratchWorkspace) repoPath = worktree.Path;
+            if (cmd.ScratchWorkspace) repoPath = sourceRepo = worktree.Path;
 
             // The checkout the agent runs in is what the session's repo policy file means — the same
             // trust boundary the local seams read. Bound once here so the whole run is judged against
@@ -3153,7 +3241,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             var runtimeCtx = new RuntimeStartContext(
                 AgentId: agentId,
                 Vendor: cmd.Vendor,
-                SourceRepoPath: repoPath,
+                SourceRepoPath: sourceRepo,
                 Worktree: worktree,
                 Prompt: prompt,
                 // Task 8: for an explicit-model reviewer launch, launch with the server-pinned
@@ -3352,8 +3440,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 RequesterDisplay    = cmd.RequesterDisplay,
                 InactivityBoundSeconds = cmd.InactivityBoundSeconds,
                 StartTitle          = startTitle,
+                ResumedFrom         = resume?.Entry.Launch,
                 IsPrivate           = isPrivate,
                 ContinuesAgentId    = resume?.Entry.InheritedAgentIds is [.., var predecessor] ? predecessor : null,
+                ResumedSessionId    = ResumedSessionOf(resume?.Entry, cmd.ResumeSessionId),
                 HandoffSource       = cmd.Handoff?.Source ?? resume?.Entry.Launch.HandoffSource,
                 // Keeps the worktree and the entry through any failure until the resume is judged.
                 ResumePending       = resume is { KeepsNothing: false }
@@ -5518,8 +5608,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     async Task<AgentRegisteredResponse> RegisterAgentAsync(AgentInstance agent) {
         if (agent.IsPrivate) return AgentRegisteredResponse.Accepted;
 
+        var resumed      = agent.AnnouncedResumedSessionId;
         var registration = await _server.AgentRegisteredAsync(agent.Id, agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.SandboxPolicy, agent.ApprovalPolicy, agent.PermissionPreset, agent.RuntimeTransport, agent.Vendor, agent.StartTitle, agent.ContinuesAgentId,
-            agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label));
+            agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label),
+            resumed, resumeFirstAnnounce: resumed is not null && !agent.ResumeAnswered);
+        // A server that cannot answer may be upgraded before the next registration, which must then still be the first.
+        if (registration.Answered) agent.ResumeAnswered = true;
 
         if (!registration.Registered) {
             agent.RegistrationRefused = true;
@@ -6018,7 +6112,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             for (var attempt = 1; ; attempt++) {
                 try {
                     var registration = await _server.AgentRegisteredAsync(agent.Id, agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.SandboxPolicy, agent.ApprovalPolicy, agent.PermissionPreset, agent.RuntimeTransport, agent.Vendor, agent.StartTitle, agent.ContinuesAgentId,
-                        agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label));
+                        agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label),
+                        agent.AnnouncedResumedSessionId, resumeFirstAnnounce: agent.AnnouncedResumedSessionId is not null && !agent.ResumeAnswered);
+                    if (registration.Answered) agent.ResumeAnswered = true;
 
                     // A refusal is the server's answer, not a transient failure: it is not retried, and the agent is
                     // left out of later re-registrations too. A status sent for the refused id could clear the
@@ -6437,11 +6533,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     /// A private agent's contract is "no per-agent server calls", so its view carries no session
     /// id: the resolver then never polls or pushes for it and only the local lanes apply.
-    IReadOnlyList<TitleAgentView> SnapshotAgentsForTitles() =>
+    internal IReadOnlyList<TitleAgentView> SnapshotAgentsForTitles() =>
         [.. _agents.Values.Select(a => new TitleAgentView(
-            a.Id, a.Vendor, a.Prompt,
+            a.Id, a.Vendor, a.ResumedFrom is { } launch ? launch.Prompt : a.Prompt,
             a.IsServerSilent ? null : a.SessionId ?? (a.Runtime as IAcpTranscriptSource)?.AcpSessionId,
-            a.TranscriptPath, a.CreatedAt, a.StartTitle))];
+            a.TranscriptPath, a.CreatedAt, a.StartTitle, Resumed: a.ResumedFrom is not null))];
 
     internal static HarnessTitlePost? NativeTitleFor(TitleAgentView agent) =>
         agent is { Vendor: "claude", TranscriptPath: { } path } && ClaudeNativeTitle.TryExtractWithKind(path) is { } title

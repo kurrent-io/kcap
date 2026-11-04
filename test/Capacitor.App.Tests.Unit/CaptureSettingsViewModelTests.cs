@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
@@ -42,6 +43,80 @@ public class CaptureSettingsViewModelTests {
         await Assert.That(saved.DisableMemoryIndex).IsTrue();
         await Assert.That(saved.Daemon!.MaxAgents).IsEqualTo(9);
         await Assert.That(new SettingsProfileStore(Config.Root, "other", "https://other.example").LoadProfile().DefaultVisibility).IsEqualTo("org_public");
+    });
+
+    /// Save writes normalised lines, so reformatting a list without changing its entries is not an edit.
+    [Test]
+    public Task Save_is_enabled_only_while_the_page_differs_from_the_profile() => AvaloniaSession.RunOnUiAsync(async () => {
+        var store = Seed();
+        await store.SaveCaptureAsync(new Profile { DefaultVisibility = "private", AllowedRepos = ["team/repo"] }, CancellationToken.None);
+        using var vm = new CaptureSettingsViewModel(store);
+        await Assert.That(await vm.SaveCommand.CanExecute.FirstAsync()).IsFalse();
+
+        vm.AllowedRepos = " team/repo \n\nteam/repo\r\n";
+        await Assert.That(vm.HasChanges).IsFalse();
+        vm.Visibility = "public";
+        await Assert.That(vm.HasChanges).IsTrue();
+        vm.Visibility = "private";
+        await Assert.That(vm.HasChanges).IsFalse();
+        vm.ExcludedPaths = "~/private";
+        await Assert.That(await vm.SaveCommand.CanExecute.FirstAsync()).IsTrue();
+
+        await vm.SaveAsync();
+
+        await Assert.That(vm.Saved).IsTrue();
+        await Assert.That(await vm.SaveCommand.CanExecute.FirstAsync()).IsFalse();
+    });
+
+    /// An edit that normalises to what was saved still clears the confirmation, though it leaves nothing to save.
+    [Test]
+    [Arguments("team/repo\nteam/second", true)]
+    [Arguments(" team/repo \n\n", false)]
+    public Task An_edit_after_a_save_clears_its_confirmation(string edited, bool changes) => AvaloniaSession.RunOnUiAsync(async () => {
+        using var vm = new CaptureSettingsViewModel(Seed()) { AllowedRepos = "team/repo" };
+        await vm.SaveAsync();
+        await Assert.That(vm.Saved).IsTrue();
+
+        vm.AllowedRepos = edited;
+
+        await Assert.That(vm.Saved).IsFalse();
+        await Assert.That(vm.Message).IsNull();
+        await Assert.That(vm.HasChanges).IsEqualTo(changes);
+    });
+
+    /// Replacing the options clears the view's two-way selection for a moment before the page selects the saved
+    /// answer again; that is no edit, while a later one by the user still clears the confirmation.
+    [Test]
+    public Task Refreshing_the_options_after_a_save_keeps_its_confirmation() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var vm = new CaptureSettingsViewModel(Seed(), visibilityOptions: Offering("private", "project", "public"));
+        vm.PropertyChanged += (_, e) => {
+            if (e.PropertyName == nameof(CaptureSettingsViewModel.VisibilityOptions)) vm.Visibility = null;
+        };
+        vm.AllowedRepos = "team/repo";
+        await vm.SaveAsync();
+
+        await vm.RefreshVisibilityOptionsAsync();
+
+        await Assert.That(vm.Visibility).IsEqualTo("private");
+        await Assert.That(vm.Saved).IsTrue();
+        await Assert.That(vm.HasChanges).IsFalse();
+
+        vm.AllowedRepos = "team/repo\n";
+
+        await Assert.That(vm.Saved).IsFalse();
+    });
+
+    /// With the options unreadable a save keeps the stored audience, so only the lists can differ.
+    [Test]
+    public Task With_the_options_unreadable_only_list_edits_enable_save() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var vm = new CaptureSettingsViewModel(Seed(),
+            visibilityOptions: _ => Task.FromResult<VisibilityOptionsRead?>(VisibilityOptionsRead.Failed("HTTP 500")));
+        await vm.RefreshVisibilityOptionsAsync();
+
+        vm.Visibility = "public";
+        await Assert.That(vm.HasChanges).IsFalse();
+        vm.AllowedRepos = "team/repo";
+        await Assert.That(vm.HasChanges).IsTrue();
     });
 
     [Test]

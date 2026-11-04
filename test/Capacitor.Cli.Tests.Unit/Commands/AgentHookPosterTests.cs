@@ -152,6 +152,24 @@ public class AgentHookPosterTests : IDisposable {
         await Assert.That(spool.HasBacklog("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).IsTrue();
     }
 
+    /// <summary>A start posted live for a session whose spooled end was delivered leaves a note in the spool, so
+    /// the run's later spooled hooks are not taken for the ended run's stragglers.</summary>
+    [Test]
+    public async Task PostOrSpool_notes_a_start_posted_for_an_ended_session() {
+        _server.Given(Request.Create().WithPath("/hooks/session-start/kiro").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        using var tmp = new TempDir();
+        var spool = new HookSpool(tmp.Path, time: TimeProvider.System);
+        const string sid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        spool.MarkEnded(sid);
+
+        var outcome = await Poster.PostOrSpoolAsync(Factory(AuthStatus.Ok), "session-start/kiro", """{"session_id":"x"}""",
+            "kiro-hook", spool, sessionId: sid, route: "session-start/kiro");
+
+        await Assert.That(outcome).IsEqualTo(HookPostOutcome.Posted);
+        await Assert.That(spool.HasBacklog(sid)).IsTrue();
+    }
+
     /// <summary>The no-spool path is bounded the same way: past the cap it reports the lapse outcome
     /// its callers already exit cleanly on, instead of holding the hook until its host kills it.</summary>
     [Test]
@@ -267,6 +285,23 @@ public class AgentHookPosterTests : IDisposable {
             });
 
         await Assert.That(entered).IsFalse();
+    }
+
+    /// <summary>Every hook's drain moves a handed Muse end no watcher took into the spool, so the session still ends
+    /// when the daemon is not running and no hook for that session runs again.</summary>
+    [Test]
+    public async Task A_drain_spools_an_unattended_handed_Muse_end() {
+        const string session = "01a13694b0ad7ae28bf52af6357a0847";
+        const string payload = """{"hook_event_name":"SessionEnd","reason":"exit"}""";
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var lifecycle = new HookSpool(Config.Root, TimeProvider.System, server: null);
+        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, session, payload);
+        File.SetLastWriteTimeUtc(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.PathFor(paths, session, payload), DateTime.UtcNow.AddMinutes(-10));
+
+        await Poster.DrainSpoolsCoreAsync(lifecycle, new TranscriptSpool(Config.Root, TimeProvider.System, server: null), null,
+            _ => Task.FromResult(new AuthAttempt(new HttpClient(), AuthStatus.Expired)));
+
+        await Assert.That(lifecycle.HasBacklog(session)).IsTrue();
     }
 
     /// <summary>The counterpart that keeps the test above honest: a spooled entry still gets a client.</summary>

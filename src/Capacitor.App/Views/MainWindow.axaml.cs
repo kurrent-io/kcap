@@ -202,6 +202,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         };
         BindRefreshShortcuts();
         BindSearchShortcuts();
+        BindHistoryShortcuts();
         BindSettingsShortcut();
         KeepContentClearOfCaptionButtons();
         BindFullScreenShortcut();
@@ -285,6 +286,45 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         }
         Apply();
         DataContextChanged += (_, _) => Apply();
+    }
+
+    // ⌘[ and ⌘] on macOS; Alt+Left and Alt+Right elsewhere, which yield to a focused terminal
+    // because a shell reads them as word moves. The mouse's back and forward buttons work anywhere.
+    void BindHistoryShortcuts() {
+        if (ShortcutLabels.UsesCommandKey) {
+            var back = new KeyBinding { Gesture = new KeyGesture(Key.OemOpenBrackets, KeyModifiers.Meta) };
+            var forward = new KeyBinding { Gesture = new KeyGesture(Key.OemCloseBrackets, KeyModifiers.Meta) };
+            KeyBindings.Add(back);
+            KeyBindings.Add(forward);
+            void Apply() {
+                if (DataContext is not MainWindowViewModel vm) return;
+                back.Command = vm.GoBackCommand;
+                forward.Command = vm.GoForwardCommand;
+            }
+            Apply();
+            DataContextChanged += (_, _) => Apply();
+        } else {
+            KeyBindings.Add(new KeyBinding {
+                Gesture = new KeyGesture(Key.Left, KeyModifiers.Alt),
+                Command = new UnlessTerminalFocused(this, vm => vm.GoBackCommand),
+            });
+            KeyBindings.Add(new KeyBinding {
+                Gesture = new KeyGesture(Key.Right, KeyModifiers.Alt),
+                Command = new UnlessTerminalFocused(this, vm => vm.GoForwardCommand),
+            });
+        }
+
+        AddHandler(PointerPressedEvent, (_, e) => {
+            if (DataContext is not MainWindowViewModel vm) return;
+            var command = e.GetCurrentPoint(this).Properties.PointerUpdateKind switch {
+                PointerUpdateKind.XButton1Pressed => vm.GoBackCommand,
+                PointerUpdateKind.XButton2Pressed => vm.GoForwardCommand,
+                _ => null,
+            };
+            if (command is not System.Windows.Input.ICommand ui || !ui.CanExecute(null)) return;
+            e.Handled = true;
+            ui.Execute(null);
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
     }
 
     // Windows draws its caption buttons over the top-right of the extended client area, so the

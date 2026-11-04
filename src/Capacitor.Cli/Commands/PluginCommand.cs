@@ -534,9 +534,10 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         await env.Stdout.WriteLineAsync($"Codex hooks installed ({scope}: {hooksPath})");
 
         await env.Stdout.WriteLineAsync(
-            "Next: Codex will prompt to trust the kcap hooks on its next launch — " +
+            "Next: Codex will prompt to trust the kcap hooks on its next interactive launch — " +
             "accept once to trust them all (or run /hooks inside Codex to trust them individually). " +
-            "The Codex desktop app never prompts: trust the kcap hooks in Settings → Hooks there."
+            "`codex exec` and the Codex desktop app never prompt: run `codex` once, or trust the kcap hooks in the app's Settings → Hooks. " +
+            "Until then Codex records nothing, except a run passed `--dangerously-bypass-hook-trust`."
         );
 
         // Skills are user-scoped only. Written to ~/.agents/skills/ so they

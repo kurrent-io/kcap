@@ -19,6 +19,10 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     public const string AnswerRequiredText  = "This installer needs answers this version of kcap doesn't give. Update kcap, then try again.";
     public const string NotStartedText = "kcap didn't finish starting. Try again to finish the install.";
     public const string GaveUpText     = "kcap didn't finish starting, even after 10 tries. Email the logs to support and we'll help you get it running.";
+    public const string NotPublishedTitle = "The local edition isn't available yet";
+    public const string NotPublishedText  =
+        "No local edition is published for this version of kcap yet. You can create a cloud workspace or sign in to one instead.";
+    public const string OtherEditionLabel = "Choose another way to set up";
 
     /// A start failure is retried this many times before the page shows it.
     public const int AutoRetries = 10;
@@ -50,6 +54,8 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     readonly TimeProvider           _time;
     readonly Func<IReadOnlyList<string>, FeedbackMailOutcome>? _mailSupport;
     readonly Func<CancellationToken, Task<WindowsServiceOffer>> _windowsServiceOffer;
+    readonly Func<bool>?            _bundleUnpublished;
+    bool                            _titleNotPublished;
     readonly List<string>           _startFailures = [];
     bool                            _serviceOffered;
     bool                            _runAsService;
@@ -71,6 +77,8 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     /// <param name="mailSupport">Opens a support email from what each failed start said; null offers none.</param>
     /// <param name="resuming">True while an earlier setup is unfinished: the page finishes it without asking again.</param>
     /// <param name="windowsServiceOffer">How the choice offers the Windows service, asked beside the built-in model; null never offers it.</param>
+    /// <param name="bundleUnpublished">True once no bundle is known to be published for this version: the page says so in
+    /// place of installing. Null leaves an unpublished bundle to the installer's own message.</param>
     public InstallStepViewModel(
             LocalInstallController controller, Func<string?> appProfile, Func<string?> configActiveProfile,
             Func<bool> onLocalPath, Func<CancellationToken, Task<LocalEmbeddingModelManifest?>> builtinOffer,
@@ -80,7 +88,8 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
             Func<IReadOnlyList<string>, FeedbackMailOutcome>? mailSupport = null,
             Func<bool>? resuming = null,
             Func<CancellationToken, Task<WindowsServiceOffer>>? windowsServiceOffer = null,
-            SearchChoiceViewModel? search = null) {
+            SearchChoiceViewModel? search = null,
+            Func<bool>? bundleUnpublished = null) {
         _controller          = controller;
         _appProfile          = appProfile;
         _configActiveProfile = configActiveProfile;
@@ -93,9 +102,13 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         _repairClients       = repairClients ?? (_ => Task.FromResult<ClientRepairOutcome>(new ClientRepairOutcome.Clear()));
         _canRepair           = repairClients is not null;
         _windowsServiceOffer = windowsServiceOffer ?? (_ => Task.FromResult(WindowsServiceOffer.Hidden));
+        _bundleUnpublished   = bundleUnpublished;
 
         Search          = search ?? new SearchChoiceViewModel();
         TryAgainCommand = ReactiveCommand.CreateFromTask(TryAgainAsync);
+        ChooseOtherEditionCommand = ReactiveCommand.Create(() => {
+            if (OtherEditionVisible) OtherEditionRequested?.Invoke();
+        });
         RepairAgainCommand = ReactiveCommand.CreateFromTask(() =>
             !ClientProblemVisible ? Task.CompletedTask : _installPressed ? StartChosenAsync(_lifetime) : PrepareAsync(_lifetime));
         CancelCommand   = ReactiveCommand.Create(Cancel);
@@ -114,7 +127,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     public WizardStepId Id                => WizardStepId.Install;
     /// Nothing installs while the search choice is up, so the headline says the page is still asking.
-    public string       Title             => ChoiceVisible ? "One more step before installing" : $"Installing kcap on {ThisDevice.Name}";
+    public string       Title             => ChoiceVisible ? "One more step before installing"
+                                           : NotPublished ? NotPublishedTitle
+                                           : $"Installing kcap on {ThisDevice.Name}";
     public string       Eyebrow           => "Install";
     public bool         Applicable        => true;
     public bool         Satisfied         => _controller.Outcome is LocalInstallOutcome.Installed;
@@ -188,8 +203,16 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     /// Every automatic retry of a start failure has failed too.
     bool GaveUp => Failure is { Code: { } code } && StartFailureCodes.Contains(code) && _startFailures.Count > AutoRetries;
 
+    /// No bundle is published for this version, so another install would fail the same way; the page offers the
+    /// other editions instead.
+    public bool NotPublished =>
+        _bundleUnpublished is not null && Failure is { Code: var code } && code == LocalInstallFailureCode.BundleNotPublished.Wire();
+
+    public bool OtherEditionVisible => NotPublished && !Running;
+
     public string? FailureMessage => Failure switch {
         null                                         => null,
+        _ when NotPublished                          => NotPublishedText,
         _ when GaveUp                                => GaveUpText,
         { Affordance: LocalInstallAffordance.Busy }  => BusyText,
         // Trying again cannot help where the app has no repair: the installer's own words say what to update.
@@ -229,7 +252,7 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     public bool CancelVisible   => Running || AutoRetrying;
     public bool BackVisible     => !Running && !AutoRetrying && !Repairing && Failure is not { LockedToLocal: true };
 
-    public bool ProgressVisible => RefusalMessage is null && !ChoiceVisible && !Repairing && !ClientProblemVisible;
+    public bool ProgressVisible => RefusalMessage is null && !ChoiceVisible && !Repairing && !ClientProblemVisible && !NotPublished;
 
     /// Another kcap is being brought up to date; nothing has been asked or installed yet.
     public bool Repairing {
@@ -270,8 +293,12 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     public ReactiveCommand<Unit, Unit> CancelCommand   { get; }
     public ReactiveCommand<Unit, Unit> RepairAgainCommand { get; }
     public ReactiveCommand<Unit, Unit> EmailSupportCommand { get; }
+    public ReactiveCommand<Unit, Unit> ChooseOtherEditionCommand { get; }
 
     public event Action? AdvanceRequested;
+
+    /// The user asked for the edition choice again, after no bundle was found for this version.
+    public event Action? OtherEditionRequested;
 
     public async Task OnEnterAsync(CancellationToken ct) {
         _lifetime = ct;
@@ -297,9 +324,19 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         }
 
         RefusalMessage = null;
-        if (ChoiceVisible || Repairing) return;
+        if (Repairing || SettleUnpublished() || ChoiceVisible) return;
 
         await PrepareAsync(ct);
+    }
+
+    /// Settles the run without spawning it once no bundle is known to be published for this version. An unfinished
+    /// setup may need no download, so it still runs.
+    bool SettleUnpublished() {
+        if (_resuming() || _bundleUnpublished?.Invoke() != true) return false;
+
+        ChoiceVisible = false;
+        _controller.Refuse(LocalInstallFailureCode.BundleNotPublished.Wire(), NotPublishedText);
+        return true;
     }
 
     static bool RefusedClient(LocalInstallOutcome? outcome) =>
@@ -337,7 +374,8 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         }
         Search.OfferBuiltin(offered);
         var offer = await service;
-        if (ct.IsCancellationRequested) return;
+        // The fetch may have found the bundle missing while the model was looked up.
+        if (ct.IsCancellationRequested || SettleUnpublished()) return;
         WindowsServiceOffered = offer != WindowsServiceOffer.Hidden;
         RunAsWindowsService   = offer == WindowsServiceOffer.On;
         ChoiceVisible = true;
@@ -367,16 +405,23 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         } finally {
             Repairing = false;
         }
-        if (!repair.Ready) ClientProblem = ProblemText(repair);
+        if (!repair.Ready) ClientProblem = ProblemText(repair, OperatingSystem.IsWindows());
 
         return repair.Ready;
     }
 
-    static string ProblemText(ClientRepairOutcome outcome) => outcome switch {
+    internal static string ProblemText(ClientRepairOutcome outcome, bool windows) => outcome switch {
         ClientRepairOutcome.Cancelled c =>
             $"An older kcap at {c.Path} has to be updated before kcap can install, and macOS needs your password to do it. Try again to update it.",
+        // A Windows install of the app is updated in place, never moved aside.
+        ClientRepairOutcome.OldApp a when windows =>
+            $"The kcap app installed at {a.Path} is an older version. Update the kcap app, then try again.",
         ClientRepairOutcome.OldApp a =>
             $"An older copy of the kcap app is at {a.Path}. Move it to the Trash, then try again.",
+        ClientRepairOutcome.Unrepairable u =>
+            $"An older kcap at {u.Path} comes first on PATH, and setup can't update it. Update or remove it, then try again.",
+        ClientRepairOutcome.StillOld s =>
+            $"npm updated the kcap at {s.Path}{(s.Version is { } v ? $" to {v.Split('+')[0]}" : "")}, but that version can't run the local edition on Windows yet. Remove it, or take its folder off PATH, then try again.",
         ClientRepairOutcome.Failed f =>
             $"kcap couldn't update the older kcap at {f.Path}: {f.Reason} Try again to update it.",
         _ => OldClientText,
@@ -427,7 +472,7 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     };
 
     Task InstallAsync() {
-        if (!ChoiceVisible || !CanContinue) return Task.CompletedTask;
+        if (!ChoiceVisible || !CanContinue || SettleUnpublished()) return Task.CompletedTask;
 
         ChoiceVisible = false;
         return StartChosenAsync(_lifetime);
@@ -525,6 +570,14 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         this.RaisePropertyChanged(nameof(EmailSupportVisible));
         this.RaisePropertyChanged(nameof(CancelVisible));
         this.RaisePropertyChanged(nameof(BackVisible));
+        this.RaisePropertyChanged(nameof(NotPublished));
+        this.RaisePropertyChanged(nameof(OtherEditionVisible));
+        this.RaisePropertyChanged(nameof(ProgressVisible));
+        // The headline is announced when it changes; a refresh that leaves it as it was must not repeat it.
+        if (NotPublished != _titleNotPublished) {
+            _titleNotPublished = NotPublished;
+            this.RaisePropertyChanged(nameof(Title));
+        }
     }
 
     void Rewire(LocalSetupProgress next) {

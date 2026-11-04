@@ -1,6 +1,30 @@
+using Capacitor.Cli.Core;
+
 namespace Capacitor.Cli.Tests.Unit;
 
 public class WatcherSpawnArgsTests {
+    [TempConfigRoot] public required TempConfigRoot Config { get; init; }
+
+    /// <summary>A watcher spawned to follow another run carries that run's identity in place of the one it would
+    /// inherit, an unknown run as empty values the watcher reads as unset; one spawned without leaves the inherited
+    /// values alone.</summary>
+    [Test]
+    [Arguments("agent-2", "epoch-2")]
+    [Arguments(null, null)]
+    public async Task A_watcher_following_another_run_carries_its_identity(string? agentId, string? epoch) {
+        var starter = FakeProcessStarter.Refusing();
+        var spawner = new ProcessWatcherSpawner(
+            Config.Root, Resolutions.At("http://localhost", Config.Root), WatcherPaths.FromEnvironment(Config.Root), starter, TimeProvider.System);
+
+        await spawner.SpawnAsync(new WatcherSpawnRequest("abc", "/tmp/t.jsonl", null, Vendor: "muse") { RunsAs = new WatcherRun(agentId, epoch), Stderr = TextWriter.Null });
+        await Assert.That(starter.Seen!.Environment[HostedAgent.AgentIdVar]).IsEqualTo(agentId ?? "");
+        await Assert.That(starter.Seen!.Environment[HostedAgent.DaemonEpochVar]).IsEqualTo(epoch ?? "");
+
+        await spawner.SpawnAsync(new WatcherSpawnRequest("abc", "/tmp/t.jsonl", null, Vendor: "muse") { Stderr = TextWriter.Null });
+        await Assert.That(starter.Seen!.Environment.TryGetValue(HostedAgent.AgentIdVar, out var inherited) ? inherited : null)
+            .IsEqualTo(Environment.GetEnvironmentVariable(HostedAgent.AgentIdVar));
+    }
+
     /// <summary>Every spawn names its vendor, including the one `kcap watch` would have defaulted
     /// to: a reader of the command line never has to know what that default is.</summary>
     [Test]

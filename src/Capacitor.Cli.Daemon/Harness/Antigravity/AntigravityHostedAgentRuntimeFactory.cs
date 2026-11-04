@@ -49,7 +49,7 @@ internal interface IAgyTurnDiagnostics {
 /// id, because the orchestrator reads <c>transcript.AcpSessionId</c> synchronously the moment a
 /// launch returns and would otherwise bind the transcript to <c>""</c> forever.</para>
 ///
-/// <para><b>One gate ladder, parameterised by launch shape</b> (<see cref="LaunchRefusal"/>). Platform,
+/// <para><b>One gate ladder, parameterised by launch shape</b> (<see cref="LaunchRefusal(bool)"/>). Platform,
 /// binary presence and the recorded build minimum gate BOTH shapes — they protect the isolated
 /// <c>HOME</c> above, which is not reviewer-specific. Operator CONSENT
 /// (<c>KCAP_ANTIGRAVITY_UNATTENDED_REVIEWER</c>) gates only a review, because only a review is
@@ -137,9 +137,9 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// claimed it, which is not this one. The reason names the switch an operator can act on.</para>
     /// </summary>
     public UnattendedSupport DescribeUnattendedSupport() {
-        var withheld = LaunchRefusal(reviewFlow: true);
+        var withheld = LaunchRefusal(reviewFlow: true, out var probeFailed);
 
-        return new(withheld is null, withheld);
+        return new(withheld is null, withheld, probeFailed);
     }
 
     /// <summary>Why this daemon refuses to launch <c>agy</c> for a launch of the given shape, or null
@@ -176,7 +176,10 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// <para><b>Every OTHER arm applies to both shapes</b> — platform, binary presence and the
     /// recorded build minimum all exist to protect the per-launch isolated <c>HOME</c>, which a hosted
     /// launch depends on exactly as a review does.</para></param>
-    internal string? LaunchRefusal(bool reviewFlow) {
+    internal string? LaunchRefusal(bool reviewFlow) => LaunchRefusal(reviewFlow, out _);
+
+    string? LaunchRefusal(bool reviewFlow, out bool probeFailed) {
+        probeFailed = false;
         // The one parameterised arm. `true` for a hosted launch means "consent is not a question
         // here", so Decide's consent arm cannot fire and the ladder continues at platform.
         var consented = !reviewFlow || config.AntigravityUnattendedReviewerEnabled;
@@ -203,6 +206,7 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         // ONCE: the verdict and its explanation both need the version, and resolving it per consumer
         // spawns the vendor binary twice to produce one refusal.
         var installed = _resolveVersion(config.AntigravityPath);
+        probeFailed = string.IsNullOrEmpty(installed);
         var minimum   = VersionStoreFor(config).Affirmed;
 
         var decision = AntigravityReviewerCapability.Decide(!_windowsHost, consented, installed, minimum);

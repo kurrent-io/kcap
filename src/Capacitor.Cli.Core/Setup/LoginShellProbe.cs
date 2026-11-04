@@ -32,7 +32,8 @@ public interface ILoginShellProbe {
         Task.FromResult<IReadOnlySet<string>?>(null);
 }
 
-public sealed partial class LoginShellProbe(IProcessRunner runner, Func<string, string?> getEnv) : ILoginShellProbe {
+public sealed partial class LoginShellProbe(IProcessRunner runner, Func<string, string?> getEnv,
+        IReadOnlyDictionary<string, string>? environment = null) : ILoginShellProbe {
     internal const string Sentinel = "<<KCAP-PATH>>";
     static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(5);
 
@@ -155,8 +156,8 @@ public sealed partial class LoginShellProbe(IProcessRunner runner, Func<string, 
         try {
             var setsid = BinaryProbe.Searching(getEnv("PATH")).Resolve("setsid");
             var result = await (setsid is null
-                ? runner.RunAsync(shell, [flag, script], new RunOptions(Timeout: ProbeTimeout), CancellationToken.None)
-                : runner.RunAsync(setsid, ["-w", shell, flag, script], new RunOptions(Timeout: ProbeTimeout), CancellationToken.None))
+                ? runner.RunAsync(shell, [flag, script], new RunOptions(EnvOverlay: environment, Timeout: ProbeTimeout), CancellationToken.None)
+                : runner.RunAsync(setsid, ["-w", shell, flag, script], new RunOptions(EnvOverlay: environment, Timeout: ProbeTimeout), CancellationToken.None))
                 .ConfigureAwait(false);
             return (true, result);
         } catch (Exception) {

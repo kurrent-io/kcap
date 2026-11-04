@@ -51,11 +51,13 @@ public sealed class StatusCommand(
         await Console.Out.WriteAsync("  Hooks:   ");
 
         var codexRefused = CodexRefusedHooks(harnesses);
-        var line         = BuildHooksStatusLine(harnesses.Select(h => (h.Id, HooksRun(h.Id, h.Signals.IsWired, codexRefused))));
+        var codexTrust   = await CodexTrustAsync(codexRefused);
+        var line         = BuildHooksStatusLine(harnesses.Select(h => (h.Id, HooksRun(h.Id, h.Signals.IsWired, codexRefused, codexTrust))));
 
         await Line(WrapHooksLine(StatusGlyphs.ForConsole(line), TerminalWidth()));
 
         if (codexRefused is not null) await Line($"           {CodexHooksDetailLine(codexRefused)}");
+        else if (codexTrust == CodexHooksTrust.Untrusted) await Line($"           {CodexUntrustedLine()}");
 
         var accountLines = BuildAccountLines(
             accounts.TryLoad()?.Accounts.Select(a => (a, AccountWiring.State(a, home))) ?? [],
@@ -73,8 +75,8 @@ public sealed class StatusCommand(
 
         var activity = new HookActivity(config, time);
 
-        foreach (var h in harnesses.Where(h => HooksRun(h.Id, h.Signals.IsWired, codexRefused)))
-            await Line($"           {RecordingLine(h.Id, h.Label, activity.LastEvent(h.VendorId), time.GetUtcNow())}");
+        foreach (var h in harnesses.Where(h => HooksRun(h.Id, h.Signals.IsWired, codexRefused, codexTrust)))
+            await Line($"           {RecordingLine(h.Id, h.Label, activity.LastEvent(h.VendorId), time.GetUtcNow(), codexTrust)}");
 
         if (harnesses.FirstOrDefault(h => h.Id == HarnessId.Muse) is { } muse
             && MuseHooksDetailLine(harnesses.Of<MuseHarness>().Paths.SettingsJson,
@@ -110,16 +112,21 @@ public sealed class StatusCommand(
 
         var activity     = new HookActivity(config, time);
         var codexRefused = CodexRefusedHooks(harnesses);
+        var codexTrust   = await CodexTrustAsync(codexRefused);
 
         var payload = BuildPayload(
             profiles.Name, server, auth, current, advisory, bundled,
             [.. harnesses.Select(h => {
                 var installed = harnesses.Detected(h.Id);
-                var wired     = HooksRun(h.Id, h.Signals.IsWired, codexRefused);
+                var wired     = HooksRun(h.Id, h.Signals.IsWired, codexRefused, codexTrust);
+                var trust     = h.Id == HarnessId.Codex ? HooksTrustToken(codexTrust) : null;
 
+                // Reinstalling cannot trust a hook, so an untrusted one names no install command.
                 return new StatusHarnessJson(
-                    h.VendorId, installed, wired, installed && !wired ? InstallCommandFor(h.Id) : null,
-                    wired ? activity.LastEvent(h.VendorId) : null);
+                    h.VendorId, installed, wired,
+                    installed && !wired && trust != HookTrustStates.Untrusted ? InstallCommandFor(h.Id) : null,
+                    wired ? activity.LastEvent(h.VendorId) : null,
+                    trust);
             })],
             ReadDaemonEntries(store));
 
@@ -549,11 +556,12 @@ public sealed class StatusCommand(
     /// Whether a wired agent has run a kcap hook on this machine: proof the hooks loaded (and, for
     /// Codex, were trusted), not that a session reached the server. Hooks load only in a new session.
     /// </summary>
-    internal static string RecordingLine(HarnessId id, string label, DateTimeOffset? lastEvent, DateTimeOffset now) =>
+    internal static string RecordingLine(
+            HarnessId id, string label, DateTimeOffset? lastEvent, DateTimeOffset now, CodexHooksTrust codexTrust = CodexHooksTrust.Unknown) =>
         lastEvent is { } at
             ? $"{label}: hooks running, last hook event {Ago(now - at)}"
-            : id is HarnessId.Codex
-                ? $"{label}: no hook event yet. Start a new {label} session and accept its prompt to trust the kcap hooks"
+            : id is HarnessId.Codex && codexTrust != CodexHooksTrust.Trusted
+                ? $"{label}: no hook event yet. Start a new session with `codex` and accept its prompt to trust the kcap hooks (`codex exec` never asks)"
                 : $"{label}: no hook event yet. Start a new {label} session";
 
     /// <summary>Muse has one hook group per lifecycle event, so a hand-edited settings.json can leave
@@ -575,13 +583,30 @@ public sealed class StatusCommand(
             ? codex.Paths.UserHooksJson
             : null;
 
-    /// <summary>Whether a harness's hooks actually run: a Codex file Codex refuses is wired to kcap
-    /// yet runs nothing, so it reads as unwired.</summary>
-    internal static bool HooksRun(HarnessId id, bool wired, string? codexRefused) =>
-        wired && !(id == HarnessId.Codex && codexRefused is not null);
+    /// <summary>Whether a harness's hooks actually run: a Codex file Codex refuses, or hooks Codex has not
+    /// trusted, are wired to kcap yet run nothing, so they read as unwired. Unknown trust is not a refusal.</summary>
+    internal static bool HooksRun(HarnessId id, bool wired, string? codexRefused, CodexHooksTrust codexTrust = CodexHooksTrust.Unknown) =>
+        wired && !(id == HarnessId.Codex && (codexRefused is not null || codexTrust == CodexHooksTrust.Untrusted));
 
     internal static string CodexHooksDetailLine(string hooksPath) =>
         $"{HarnessRegistry.LabelOf(HarnessId.Codex)}: {hooksPath} starts with a UTF-8 byte-order mark, so Codex ignores every hook in it. Run `kcap plugin install --codex` to rewrite it without one";
+
+    internal static string CodexUntrustedLine() =>
+        $"{HarnessRegistry.LabelOf(HarnessId.Codex)}: kcap's hooks are installed, not trusted — Codex records nothing until you trust them. "
+      + "`codex exec` never asks: run `codex` once and accept the prompt (or trust them in /hooks), or use Settings → Hooks in the Codex app";
+
+    /// <summary>The <c>hooks_trust</c> value of <c>kcap status --json</c>: null when there is no answer.</summary>
+    internal static string? HooksTrustToken(CodexHooksTrust trust) => trust switch {
+        CodexHooksTrust.Trusted   => HookTrustStates.Trusted,
+        CodexHooksTrust.Untrusted => HookTrustStates.Untrusted,
+        _                         => null,
+    };
+
+    /// <summary>Asked once per run, and only for hooks Codex would otherwise run: a refused file has nothing to trust.</summary>
+    Task<CodexHooksTrust> CodexTrustAsync(string? codexRefused) =>
+        codexRefused is null && harnesses.ById(HarnessId.Codex) is CodexHarness { Signals.IsWired: true } codex
+            ? CodexHooksTrustCheck.ReadAsync(accounts.TryLoad(), codex.Paths, new CodexHookTrustProbe(harnesses, home, time), CancellationToken.None)
+            : Task.FromResult(CodexHooksTrust.Unknown);
 
     /// <summary>A settings.json that does not parse is reported as such: reading it as "no hooks" would
     /// claim every event is missing, and re-running the install cannot fix it. It is reported for an
