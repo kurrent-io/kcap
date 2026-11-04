@@ -880,7 +880,7 @@ public class MainWindowSmokeTests {
                 var prLabel = pr.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "PR #142");
                 double Baseline(TextBlock text) => text.TranslatePoint(new Point(0, text.TextLayout.Baseline), card)!.Value.Y;
                 await Assert.That(Math.Abs(Baseline(age) - Baseline(prLabel))).IsLessThan(2);
-                await Assert.That(age.Text).IsEqualTo("1h 30m");
+                await Assert.That(age.Text).IsEqualTo("1h 30m ago");
                 await Assert.That(age.Bounds.Width).IsGreaterThanOrEqualTo(NaturalWidth(age) - 1);
                 var ageRight = age.TranslatePoint(new Point(age.Bounds.Width, 0), card)!.Value.X;
                 var prLeft = pr.TranslatePoint(default, card)!.Value.X;
