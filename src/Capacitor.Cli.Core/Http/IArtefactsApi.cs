@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Core.Http;
 public interface IArtefactsApi {
     Task<ArtefactWriteResult> PublishAsync(PublishArtefactBody body, CancellationToken ct = default);
 
-    Task<ArtefactWriteResult> PublishVersionAsync(string artefactId, string html, CancellationToken ct = default);
+    Task<ArtefactWriteResult> PublishVersionAsync(string artefactId, string html, List<string>? sources, CancellationToken ct = default);
 
     /// <summary>Replaces the whole audience. A grant left out of <paramref name="grants"/> is one
     /// being taken away.</summary>

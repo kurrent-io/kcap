@@ -10,8 +10,9 @@ internal sealed class ArtefactsApi(ICapacitorHttpClient http, CapacitorServer se
         return await WriteAsync((c, token) => c.PostWithRetryAsync($"{server.Url}/api/artefacts", content, time, ct: token), ct);
     }
 
-    public async Task<ArtefactWriteResult> PublishVersionAsync(string artefactId, string html, CancellationToken ct = default) {
-        using var content = JsonContent.Create(new PublishArtefactVersionBody(html),
+    public async Task<ArtefactWriteResult> PublishVersionAsync(string artefactId, string html, List<string>? sources,
+                                                               CancellationToken ct = default) {
+        using var content = JsonContent.Create(new PublishArtefactVersionBody(html, sources),
                                                CapacitorJsonContext.Default.PublishArtefactVersionBody);
 
         return await WriteAsync(

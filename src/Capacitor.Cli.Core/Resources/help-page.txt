@@ -29,9 +29,10 @@ Options for publish:
                                    its own session without ceremony.
   --update <pageId>                Publish a new version of an existing
                                    page. The URL does not change, so a link
-                                   you already shared stays good. Content only —
-                                   change the audience with `share`; a title
-                                   cannot be changed after publishing.
+                                   you already shared stays good. Content and
+                                   --session only — change the audience with
+                                   `share`; a title cannot be changed after
+                                   publishing.
 
 Options for share:
   --visibility none|org|scoped     Required.
