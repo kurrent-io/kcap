@@ -9,6 +9,12 @@ public sealed class PaneLayout {
     // Of the space the pane shares, so its splitter stays on screen and can be dragged back.
     public const double MaxShare = 0.9;
 
+    // What the rail leaves the content beside it: the launcher's 680 composer and its margins.
+    public const double ContentMinWidth = 720;
+
+    public static double RailMaxWidth(double surfaceWidth) =>
+        Math.Max(RailMinWidth, Math.Min(surfaceWidth * MaxShare, surfaceWidth - ContentMinWidth));
+
     // How a pane dragged below its minimum looks until it is released and hides.
     public const double HidingOpacity = 0.4;
 

@@ -178,7 +178,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public MainWindow() {
         InitializeComponent();
-        SessionsSurface.SizeChanged += (_, e) => RailColumn.MaxWidth = e.NewSize.Width * PaneLayout.MaxShare;
+        SessionsSurface.SizeChanged += (_, e) => RailColumn.MaxWidth = PaneLayout.RailMaxWidth(e.NewSize.Width);
         SessionRail.CollapseRequested += (_, _) => Panes.RailCollapsed = true;
         Panes.Changed += (_, _) => ApplyRail();
         ApplyRail();

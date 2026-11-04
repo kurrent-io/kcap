@@ -48,16 +48,16 @@ public class PaneLayoutMemoryTests {
         await Assert.That(restored.ContextCollapsed).IsTrue();
     }
 
-    /// A width saved on a larger screen must not push the splitter off a smaller window.
+    /// A width saved on a larger screen, or a long drag, must leave the content beside it usable.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_rail_never_lays_out_wider_than_its_share_of_the_window() {
+    public async Task The_rail_never_lays_out_wider_than_the_content_beside_it_can_spare() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var window = new MainWindow { Width = 1400, Height = 800 };
             window.Panes.RailWidth = 5000;
             window.Show();
             window.UpdateLayout();
-            await Assert.That(window.SessionRail.Bounds.Width).IsEqualTo(1400 * PaneLayout.MaxShare);
+            await Assert.That(window.SessionRail.Bounds.Width).IsEqualTo(1400 - PaneLayout.ContentMinWidth);
             window.Close();
         });
     }
