@@ -333,6 +333,10 @@ public class VendorCliWatcherTests {
                """{"auth_mode":"chatgpt","tokens":{"access_token":"b","account_id":"y"}}""", true)]
     [Arguments("""{"anthropic":{"type":"oauth","access":"a","refresh":"r","expires":1}}""",
                """{"anthropic":{"type":"oauth","access":"b","refresh":"s","expires":2}}""", false)]
+    [Arguments("""{"models":[{"slug":"gpt-5","priority":1}],"client_version":"1"}""",
+               """{"client_version":"1","models":[{"priority":1,"slug":"gpt-5"}]}""", false)]
+    [Arguments("""{"models":[{"slug":"gpt-5"},{"slug":"gpt-6"}]}""",
+               """{"models":[{"slug":"gpt-6"},{"slug":"gpt-5"}]}""", true)]
     [Arguments("not json", "not json", false)]
     [Arguments("not json", "not json either", true)]
     public async Task A_rewritten_catalog_file_re_probes_only_when_its_catalog_content_changed(

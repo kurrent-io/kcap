@@ -6,20 +6,26 @@ namespace Capacitor.Cli.Daemon.Services;
 /// vendor rewrites its catalog and auth files with fresh timestamps and tokens and nothing else.
 public readonly record struct CatalogPathStat(string Path, bool Exists, long Length, long LastWriteTicks, string? Digest = null) {
     /// <paramref name="previous"/>, when its size and write time still match, is returned as is,
-    /// so an untouched file is never read.
+    /// so an untouched file is never read. It is also what a file that exists but cannot be read
+    /// right now reads as: a vendor holding it mid-rewrite is a transient, never a change.
     internal static CatalogPathStat Of(string path, CatalogPathStat? previous = null) {
+        long length, ticks;
         try {
             var info = new FileInfo(path);
             if (!info.Exists) return new(path, false, 0, 0);
-
-            var length = info.Length;
-            var ticks  = info.LastWriteTimeUtc.Ticks;
-            if (previous is { Exists: true, Digest: not null } p && p.Path == path && p.Length == length && p.LastWriteTicks == ticks)
-                return p;
-
-            return new(path, true, length, ticks, CatalogContentDigest.Of(File.ReadAllBytes(path)));
+            length = info.Length;
+            ticks  = info.LastWriteTimeUtc.Ticks;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return new(path, false, 0, 0);
+        }
+
+        var prior = previous is { Exists: true, Digest: not null } p && p.Path == path ? p : (CatalogPathStat?) null;
+        if (prior is { } same && same.Length == length && same.LastWriteTicks == ticks) return same;
+
+        try {
+            return new(path, true, length, ticks, CatalogContentDigest.Of(File.ReadAllBytes(path)));
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return prior ?? new(path, true, length, ticks);
         }
     }
 

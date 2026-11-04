@@ -41,7 +41,8 @@ internal static class CatalogContentDigest {
         switch (element.ValueKind) {
             case JsonValueKind.Object:
                 writer.WriteStartObject();
-                foreach (var property in element.EnumerateObject()) {
+                // Ordered by name: a vendor serializing a map may emit its keys in any order.
+                foreach (var property in element.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal)) {
                     if (Volatile.Contains(property.Name)) continue;
                     writer.WritePropertyName(property.Name);
                     if (!property.NameEquals(IdToken)) Write(writer, property.Value);

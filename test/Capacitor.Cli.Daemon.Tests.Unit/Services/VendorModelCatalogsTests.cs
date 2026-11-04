@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
@@ -159,5 +160,22 @@ public class VendorModelCatalogsTests {
 
         await Assert.That(CatalogPathStat.Of(path, previous).Digest).IsEqualTo("untouched");
         await Assert.That(CatalogPathStat.Of(path, previous with { Length = first.Length + 1 }).Digest).IsEqualTo(first.Digest);
+    }
+
+    /// A file that exists but cannot be read is one a vendor holds mid-rewrite: it keeps the previous
+    /// fingerprint rather than reading as deleted, which would re-probe twice for one rewrite.
+    [Test]
+    [UnsupportedOSPlatform("windows")]
+    public async Task CatalogPathStat_keeps_the_previous_fingerprint_for_an_unreadable_file() {
+        Skip.Unless(!OperatingSystem.IsWindows(), "Unreadability comes from a POSIX file mode.");
+        var path     = Tmp.CreateFile("auth.json", "{}");
+        var previous = CatalogPathStat.Of(path);
+        File.WriteAllText(path, """{"account_id":"y"}""");
+        File.SetUnixFileMode(path, UnixFileMode.None);
+        try {
+            await Assert.That(CatalogPathStat.Of(path, previous)).IsEqualTo(previous);
+        } finally {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
     }
 }
