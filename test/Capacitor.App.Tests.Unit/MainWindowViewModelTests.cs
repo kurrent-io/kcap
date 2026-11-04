@@ -333,6 +333,7 @@ public class MainWindowViewModelTests {
             await Assert.That(vm.DaemonName).IsEqualTo("daemon-a");
             await Assert.That(vm.ServerUrl).IsEqualTo("http://localhost:9999");
             await Assert.That(vm.Alert).IsNull();
+            await Assert.That(vm.ShowsConnected).IsTrue();
         });
     }
 
@@ -406,6 +407,22 @@ public class MainWindowViewModelTests {
         var alert = MainWindowViewModel.AlertFor(new AttachStatus(state, reason, null), daemonConnection);
         await Assert.That(alert?.Text).IsEqualTo(text);
         await Assert.That(alert?.Recovery ?? RailRecovery.None).IsEqualTo(recovery);
+    }
+
+    /// Connected needs the attach and the daemon's hub both up, and gives way to any alert, so it
+    /// cannot sit beside a word that says otherwise.
+    [Test]
+    [Arguments(AttachState.Connected, "connected", false, true)]
+    [Arguments(AttachState.Connected, "connected", true, false)]
+    [Arguments(AttachState.Connected, "", false, false)]
+    [Arguments(AttachState.Connected, "reconnecting", false, false)]
+    [Arguments(AttachState.Connecting, "connected", false, false)]
+    [Arguments(AttachState.Unreachable, "connected", false, false)]
+    public async Task ShowsConnectedFor_only_when_attached_connected_and_alert_free(
+            AttachState state, string daemonConnection, bool alerting, bool expected) {
+        var alert = alerting ? new RailAlert(MainWindowViewModel.RestartPendingText, StatusColors.InProgress) : null;
+        await Assert.That(MainWindowViewModel.ShowsConnectedFor(new AttachStatus(state, null, null), daemonConnection, alert))
+            .IsEqualTo(expected);
     }
 
     /// Waiting on the daemon hub will not restore an expired sign-in, so it wins whatever the attach

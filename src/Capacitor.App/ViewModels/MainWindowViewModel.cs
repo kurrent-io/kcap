@@ -66,8 +66,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public string ServerUrl => _serverUrl?.Value ?? "";
 
     ObservableAsPropertyHelper<RailAlert?>? _alert;
-    /// The footer's one status line, null while everything works: component health and versions
-    /// live in Settings › About, so a healthy rail shows none.
+    /// The footer's status line when something needs the user; null while everything works, when
+    /// the footer says Connected instead.
     public RailAlert? Alert => _alert?.Value;
 
     ObservableAsPropertyHelper<IBrush>? _statusBrush;
@@ -77,6 +77,11 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     ObservableAsPropertyHelper<System.Windows.Input.ICommand?>? _alertActionCommand;
     /// The command behind the alert's recovery action; null when the alert offers none.
     public System.Windows.Input.ICommand? AlertActionCommand => _alertActionCommand?.Value;
+
+    ObservableAsPropertyHelper<bool>? _showsConnected;
+    /// A healthy stack still says so: without it, a working footer looks the same as one whose
+    /// status has not arrived yet.
+    public bool ShowsConnected => _showsConnected?.Value ?? false;
 
     ObservableAsPropertyHelper<bool>? _showsUpdateContext;
     public bool ShowsUpdateContext => _showsUpdateContext?.Value ?? false;
@@ -639,6 +644,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .DisposeWith(disposables);
             _alertActionCommand = alert.Select(a => CommandFor(a?.Recovery ?? RailRecovery.None))
                 .ToProperty(this, x => x.AlertActionCommand, (System.Windows.Input.ICommand?)null)
+                .DisposeWith(disposables);
+            _showsConnected = status.CombineLatest(daemonConnection, alert, ShowsConnectedFor)
+                .DistinctUntilChanged()
+                .ToProperty(this, x => x.ShowsConnected, false)
                 .DisposeWith(disposables);
 
             var backgroundSource = (backgroundPriority ?? Observable.Return(false)).ObserveOn(RxSchedulers.MainThreadScheduler);
@@ -1313,6 +1322,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             ? ""
             : profileName;
 
+    public const string ConnectedText           = "Connected";
     internal const string SignInRequiredText    = "Sign in required";
     internal const string DaemonConnectingText  = "Connecting to the daemon…";
     internal const string DaemonRestartingText  = "Daemon restarting…";
@@ -1388,6 +1398,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             _ => null,
         };
     }
+
+    /// Connected only on the daemon's own word, and never beside an alert, so the two cannot disagree.
+    internal static bool ShowsConnectedFor(AttachStatus status, string daemonConnection, RailAlert? alert) =>
+        alert is null && status.State == AttachState.Connected && daemonConnection == "connected";
 
     /// The local server's alert: null when it runs, or when there is no local server at all.
     /// <param name="canStart">The launcher's Start is offered: an installation that exists and nothing else owns.</param>

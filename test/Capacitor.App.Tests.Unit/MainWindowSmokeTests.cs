@@ -1757,11 +1757,11 @@ public class MainWindowSmokeTests {
         }
     });
 
-    /// A healthy footer carries no status. A stopped daemon shows the alert with its long copy on
-    /// hover, and its Start runs the same start as the launcher's.
+    /// A healthy footer says Connected beside the org and no alert. A stopped daemon swaps Connected
+    /// for the alert with its long copy on hover, and its Start runs the same start as the launcher's.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Rail_footer_shows_an_alert_and_its_action_only_when_something_needs_the_user() {
+    public async Task Rail_footer_says_connected_when_healthy_and_alerts_when_something_needs_the_user() {
         var shown = await AvaloniaSession.DispatchAsync(() => {
             var service = new FakeDaemonClientService();
             service.SnapshotsSubject.OnNext(Snap(daemon: "daemon-a", connection: "connected", active: 1, max: 5));
@@ -1776,6 +1776,8 @@ public class MainWindowSmokeTests {
             var row = rail.FindControl<StackPanel>("RailAlertRow")!;
             var footer = rail.FindControl<StackPanel>("RailFooterPanel")!;
             var healthyRow = row.IsEffectivelyVisible;
+            var connected = rail.FindControl<TextBlock>("RailConnectedText")!;
+            var healthyConnected = connected.IsEffectivelyVisible;
             var healthyTexts = footer.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToArray();
 
@@ -1786,6 +1788,8 @@ public class MainWindowSmokeTests {
             var action = rail.FindControl<Button>("RailAlertActionButton")!;
             var result = (
                 HealthyRow: healthyRow,
+                HealthyConnected: healthyConnected,
+                AlertConnected: connected.IsEffectivelyVisible,
                 HealthyTexts: healthyTexts,
                 Text: row.IsEffectivelyVisible ? text.Text : null,
                 Tip: ToolTip.GetTip(text) as string,
@@ -1801,6 +1805,9 @@ public class MainWindowSmokeTests {
         });
 
         await Assert.That(shown.HealthyRow).IsFalse();
+        await Assert.That(shown.HealthyConnected).IsTrue();
+        await Assert.That(shown.AlertConnected).IsFalse();
+        await Assert.That(shown.HealthyTexts).Contains(MainWindowViewModel.ConnectedText);
         await Assert.That(shown.HealthyTexts).Contains("kurrent");
         await Assert.That(shown.HealthyTexts).DoesNotContain("daemon-a");
         await Assert.That(shown.Text).IsEqualTo(MainWindowViewModel.DaemonStoppedText);

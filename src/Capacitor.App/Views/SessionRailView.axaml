@@ -284,8 +284,8 @@
                            Margin="16,0,16,8" IsVisible="{Binding LoadingSessions}" />
             </StackPanel>
 
-            <!-- Health speaks only when something needs the user; Settings › About holds each
-                 component's status and version. The org stays, with its server URL on hover. -->
+            <!-- The footer always states the connection: Connected while healthy, the alert otherwise.
+                 Settings › About holds each component's status and version. -->
             <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{StaticResource KcapBorderBrush}">
                 <StackPanel x:Name="RailFooterPanel" Margin="16,10,16,10" Spacing="2">
                     <!-- A daemon launchd holds in the background band throttles every hosted agent; the
@@ -323,17 +323,28 @@
                                 IsVisible="{Binding AlertActionCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
                                 Padding="10,3" FontSize="12" CornerRadius="6" />
                     </StackPanel>
-                    <TextBlock x:Name="RailTenantText" Text="{Binding TenantName}" Classes="footerValue"
-                               Foreground="{StaticResource KcapFaintBrush}" TextTrimming="CharacterEllipsis"
-                               IsVisible="{Binding TenantName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                        <ToolTip.Tip>
-                            <StackPanel Spacing="2">
-                                <TextBlock Text="{Binding ServerUrl}" />
-                                <TextBlock Text="{x:Static vm:MainWindowViewModel.ServerUrlTip}"
-                                           Classes="kcapTipCaption" />
-                            </StackPanel>
-                        </ToolTip.Tip>
-                    </TextBlock>
+                    <StackPanel x:Name="RailConnectionStatus" Orientation="Horizontal" Spacing="7">
+                        <StackPanel.IsVisible>
+                            <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                                <Binding Path="ShowsConnected" />
+                                <Binding Path="TenantName" Converter="{x:Static StringConverters.IsNotNullOrEmpty}" />
+                            </MultiBinding>
+                        </StackPanel.IsVisible>
+                        <TextBlock x:Name="RailConnectedText" Text="{x:Static vm:MainWindowViewModel.ConnectedText}"
+                                   Classes="footerValue" Foreground="{StaticResource KcapSuccessBrush}"
+                                   IsVisible="{Binding ShowsConnected}" />
+                        <TextBlock x:Name="RailTenantText" Text="{Binding TenantName}" Classes="footerValue"
+                                   Foreground="{StaticResource KcapFaintBrush}" TextTrimming="CharacterEllipsis"
+                                   IsVisible="{Binding TenantName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                            <ToolTip.Tip>
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{Binding ServerUrl}" />
+                                    <TextBlock Text="{x:Static vm:MainWindowViewModel.ServerUrlTip}"
+                                               Classes="kcapTipCaption" />
+                                </StackPanel>
+                            </ToolTip.Tip>
+                        </TextBlock>
+                    </StackPanel>
                     </StackPanel>
                     <StackPanel x:Name="RailUpdateContext" Grid.Column="0" VerticalAlignment="Center" Spacing="4"
                                 IsVisible="{Binding ShowsUpdateContext}">
