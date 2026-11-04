@@ -9,6 +9,7 @@ public sealed class RunRow : ReactiveObject {
     bool _isBackground;
     string? _agentId;
     bool _outcomeUnknown;
+    bool _waits;
     bool _openable = true;
     RunState _state = RunState.Running;
     string _stateText = "";
@@ -103,12 +104,24 @@ public sealed class RunRow : ReactiveObject {
 
     /// An end with an outcome is final. One without reads as done until one with an outcome
     /// arrives, and the earlier of the two dates the row: the server stamps a stop when it heard
-    /// it, which an import or a spooled hook puts long after the run ended.
+    /// it, which an import or a spooled hook puts long after the run ended. Once the run has
+    /// waited on work of its own, an end without an outcome is a pause's stop and ends nothing.
     internal void End(RunState? outcome, DateTimeOffset at) {
+        if (outcome is null && _waits) return;
         if (IsEnded && (!_outcomeUnknown || outcome is null)) return;
         EndedAt = EndedAt is { } bare && bare < at ? bare : at;
         Outcome = outcome ?? RunState.Done;
         _outcomeUnknown = outcome is null;
+    }
+
+    /// A run waiting on background work of its own has not ended, so the wait takes back an end
+    /// without an outcome: the pause's own stop, recorded ahead of the notification.
+    internal void Wait() {
+        if (IsEnded && !_outcomeUnknown) return;
+        _waits = true;
+        Outcome = RunState.Running;
+        EndedAt = null;
+        _outcomeUnknown = false;
     }
 
     internal void Present(bool sessionOver, DateTimeOffset now) {

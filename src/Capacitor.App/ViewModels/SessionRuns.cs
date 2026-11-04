@@ -84,6 +84,13 @@ public sealed class SessionRuns(TimeProvider time) {
                     (detachedHere ??= new(StringComparer.Ordinal)).Add(detached.CallId);
                     Detach(detached);
                     break;
+                case RunSignal.Resumed resumed:
+                    (detachedHere ??= new(StringComparer.Ordinal)).Add(resumed.CallId);
+                    Resume(resumed);
+                    break;
+                case RunSignal.Waiting waiting:
+                    RowFor(waiting.CallId, waiting.AgentId, waiting.At)?.Wait();
+                    break;
                 case RunSignal.Finished finished:
                     Finish(finished);
                     DropHeldIfACandidateEnded();
@@ -95,8 +102,8 @@ public sealed class SessionRuns(TimeProvider time) {
         }
         foreach (var envelope in projection.Envelopes) {
             if (envelope.Kind != AcpEventKind.ToolResult || envelope.ToolCallId is not { } callId) continue;
-            // The launch acknowledgement arrives beside its Detached and must not end the row; a
-            // later result for the same call, an error included, does.
+            // The launch acknowledgement arrives beside its Detached or Resumed and must not end the
+            // row; a later result for the same call, an error included, does.
             if (detachedHere?.Contains(callId) == true) continue;
             _pending.Remove(callId);
             if (_byCall.TryGetValue(callId, out var row))
@@ -150,6 +157,18 @@ public sealed class SessionRuns(TimeProvider time) {
         PairUnpaired();
     }
 
+    /// A second run of a stopped subagent takes the first run's name and the agent id. A message to a
+    /// run still going is that run's input, so it adds no row.
+    void Resume(RunSignal.Resumed resumed) {
+        if (_byCall.ContainsKey(resumed.CallId)
+            || !_byAgent.TryGetValue(resumed.AgentId, out var previous) || !previous.IsEnded) return;
+        var row = new RunRow(resumed.CallId, previous.Name, previous.Description, resumed.At, previous.Kind) { Openable = _opensSubagents };
+        _byCall[resumed.CallId] = row;
+        _rows.Add(row);
+        row.MarkBackground();
+        Name(row, resumed.AgentId);
+    }
+
     /// Names the subagent a call started, from a source that reads it outside the projected lines.
     public void Identify(string callId, string agentId) => Identify(new RunSignal.Identified(callId, agentId));
 
@@ -201,8 +220,6 @@ public sealed class SessionRuns(TimeProvider time) {
         _earlyUnpaired.Remove(agentId);
     }
 
-    /// A known call id decides alone and never falls through to the agent id: a repeated
-    /// notification for a first execution must not end a second one holding the same id.
     void Finish(RunSignal.Finished finished) {
         var outcome = finished.Outcome switch {
             null                    => (RunState?)null,
@@ -210,14 +227,15 @@ public sealed class SessionRuns(TimeProvider time) {
             RunOutcome.Stopped => RunState.Stopped,
             _                       => RunState.Done,
         };
-        if (finished.CallId is { } callId && _byCall.TryGetValue(callId, out var byCall)) {
-            byCall.End(outcome, finished.At);
-            return;
-        }
-        // A completion dated before the row started belongs to an earlier execution.
-        if (finished.AgentId is { } agentId && _byAgent.TryGetValue(agentId, out var byAgent)
-            && finished.At >= byAgent.StartedAt)
-            byAgent.End(outcome, finished.At);
+        RowFor(finished.CallId, finished.AgentId, finished.At)?.End(outcome, finished.At);
+    }
+
+    /// A known call id decides alone and never falls through to the agent id: a repeated
+    /// notification for a first execution must not reach a second one holding the same id. By
+    /// agent id, a signal dated before the row started belongs to an earlier execution.
+    RunRow? RowFor(string? callId, string? agentId, DateTimeOffset at) {
+        if (callId is not null && _byCall.TryGetValue(callId, out var byCall)) return byCall;
+        return agentId is not null && _byAgent.TryGetValue(agentId, out var byAgent) && at >= byAgent.StartedAt ? byAgent : null;
     }
 
     DateTimeOffset Stamp(string? iso) =>

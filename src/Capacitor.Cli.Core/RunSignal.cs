@@ -16,6 +16,14 @@ public abstract record RunSignal {
     /// subagent still unnamed: the source knows the agent but not the call that started it.
     public sealed record Identified(string? CallId, string AgentId) : RunSignal;
 
+    /// A message started a stopped subagent again under its id: a second run, whose handle is the
+    /// message's call from then on.
+    public sealed record Resumed(string CallId, string AgentId, DateTimeOffset At) : RunSignal;
+
+    /// The run stopped with background work of its own still going and resumes when that reports,
+    /// so it has not ended. At least one key is set.
+    public sealed record Waiting(string? CallId, string? AgentId, DateTimeOffset At) : RunSignal;
+
     /// The run ended outside its tool result. At least one key is set. A null outcome means the
     /// source knows only that it ended.
     public sealed record Finished(string? CallId, string? AgentId, RunOutcome? Outcome, DateTimeOffset At) : RunSignal;
