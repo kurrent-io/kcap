@@ -1212,7 +1212,7 @@ partial class WatchCommand(
             // A PR is usually opened in the session's last turn, after the previous 60s probe.
             await LinkCreatedPullRequestsAsync(state, sessionId,
                 FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, lastChance: true, TouchHeartbeat);
-            ObserveSubagentCheckouts(state, time);
+            ObserveSubagentCheckouts(state, time, final: true);
             await LinkSecondaryPullRequestsAsync(state, sessionId,
                 FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, TouchHeartbeat);
         }
@@ -1876,11 +1876,11 @@ partial class WatchCommand(
 
     static readonly TimeSpan SubagentCheckoutScanGap = TimeSpan.FromSeconds(10);
 
-    internal static void ObserveSubagentCheckouts(WatchState state, TimeProvider time) {
+    internal static void ObserveSubagentCheckouts(WatchState state, TimeProvider time, bool final = false) {
         if (state is not { SubagentCheckouts: { } subagentCheckouts, SecondaryRoots: { } secondaryRoots }) return;
 
         var knownRoots = secondaryRoots.Roots.Count;
-        subagentCheckouts.FeedInto(secondaryRoots);
+        subagentCheckouts.FeedInto(secondaryRoots, final);
         if (secondaryRoots.Roots.Count > knownRoots) Log(time, $"Probing secondary checkouts for a PR: {string.Join(", ", secondaryRoots.Roots)}");
     }
 
@@ -5298,17 +5298,7 @@ partial class WatchCommand(
 
     /// <summary>True if <paramref name="line"/> (a single, newline-less transcript line) parses as a
     /// complete JSON document. Used to gate consuming an unterminated final line at shutdown.</summary>
-    static bool IsCompleteJsonRecord(string line) {
-        var trimmed = line.Trim();
-        if (trimmed.Length == 0) return false;
-
-        try {
-            using var _ = JsonDocument.Parse(trimmed);
-            return true;
-        } catch (JsonException) {
-            return false;
-        }
-    }
+    static bool IsCompleteJsonRecord(string line) => JsonRecord.IsComplete(line);
 
     /// <summary>Read-only view of <c>inner</c> that reports EOF after <c>limit</c> bytes, so a
     /// StreamReader over it can't read past a length sampled before a concurrent append.</summary>

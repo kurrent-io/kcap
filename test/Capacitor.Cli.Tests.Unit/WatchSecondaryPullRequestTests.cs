@@ -323,11 +323,11 @@ public class WatchSecondaryPullRequestTests {
         return (new WatchState { SecondaryRoots = new SecondaryRepoRoots(FakeFindRoot, "/h/dev/server"), SubagentCheckouts = new ClaudeSubagentCheckouts(parent) }, subagents);
     }
 
-    static async Task<(List<string> Probed, List<RepositoryPayload> Posted)> ObserveAndLink(WatchState state) {
+    static async Task<(List<string> Probed, List<RepositoryPayload> Posted)> ObserveAndLink(WatchState state, bool final = false) {
         var probed = new List<string>();
         var posted = new List<RepositoryPayload>();
 
-        WatchCommand.ObserveSubagentCheckouts(state, TimeProvider.System);
+        WatchCommand.ObserveSubagentCheckouts(state, TimeProvider.System, final);
         await Link(state,
             (root, _) => { probed.Add(root); return Task.FromResult<RepositoryPayload?>(CliPr()); },
             (pr, _) => { posted.Add(pr); return Task.FromResult(true); });
@@ -387,6 +387,37 @@ public class WatchSecondaryPullRequestTests {
         await ObserveAndLink(state);
 
         await File.AppendAllLinesAsync(transcript, [ToolUse("Edit", $"{CliRoot}/src/x.cs")]);
+        var (probed, posted) = await ObserveAndLink(state);
+
+        await Assert.That(probed).IsEquivalentTo([CliRoot]);
+        await Assert.That(posted).Count().IsEqualTo(1);
+    }
+
+    /// A live pass holds a last line without its newline, as it may still be written; the shutdown pass takes it once it parses.
+    [Test]
+    public async Task A_last_change_without_a_newline_is_linked_by_the_shutdown_pass() {
+        using var dir = new TempDir();
+        var (state, subagents) = SessionWatcherWithSubagents(dir.Path);
+        await File.WriteAllTextAsync(Path.Combine(subagents, "agent-a1.jsonl"), ToolUse("Edit", $"{CliRoot}/src/x.cs"));
+
+        var (liveProbed, _)  = await ObserveAndLink(state);
+        var (probed, posted) = await ObserveAndLink(state, final: true);
+
+        await Assert.That(liveProbed).IsEmpty();
+        await Assert.That(probed).IsEquivalentTo([CliRoot]);
+        await Assert.That(posted).Count().IsEqualTo(1);
+    }
+
+    /// A replacement at least as long as what was read must not resume at the old offset, past the change it holds.
+    [Test]
+    public async Task A_replaced_transcript_is_read_again_from_its_start() {
+        using var dir = new TempDir();
+        var (state, subagents) = SessionWatcherWithSubagents(dir.Path);
+        var transcript = Path.Combine(subagents, "agent-a1.jsonl");
+        await File.WriteAllLinesAsync(transcript, [ToolUse("Read", $"{CliRoot}/src/x.cs")]);
+        await ObserveAndLink(state);
+
+        await File.WriteAllLinesAsync(transcript, [ToolUse("Edit", $"{CliRoot}/src/x.cs"), ToolUse("Read", $"{CliRoot}/src/a-much-longer-path-than-before.cs")]);
         var (probed, posted) = await ObserveAndLink(state);
 
         await Assert.That(probed).IsEquivalentTo([CliRoot]);
