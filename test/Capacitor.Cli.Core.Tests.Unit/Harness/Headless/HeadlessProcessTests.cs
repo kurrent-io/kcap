@@ -112,6 +112,27 @@ public class HeadlessProcessTests {
         await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
     }
 
+    /// <summary>The background child inherits the output pipes and outlives the script, which waits long enough
+    /// for it to be listed; the drain then reaches the deadline, and the child must not outlive the run.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_descendant_holding_the_output_open_past_the_exit_is_a_timeout_and_is_killed() {
+        var grandchild = Path.Combine(Tmp.Path, "grandchild.pid");
+        var run = Run(Script($"sleep 30 &\necho $! > '{grandchild}'\nsleep 1.5\nexit 0"), timeout: TimeSpan.FromSeconds(4));
+
+        var start = Environment.TickCount64;
+        while (!File.Exists(grandchild) || (await File.ReadAllTextAsync(grandchild)).Trim().Length == 0) {
+            if (Environment.TickCount64 - start > 10_000) throw new TimeoutException($"the script never wrote {grandchild}");
+            await Task.Delay(20);
+        }
+        var pid      = int.Parse((await File.ReadAllTextAsync(grandchild)).Trim(), System.Globalization.CultureInfo.InvariantCulture);
+        var identity = PidIdentity.Capture(pid);
+        var exit     = await run;
+
+        await Assert.That(exit!.TimedOut).IsTrue();
+        await Assert.That(exit.ExitCode).IsNull();
+        await PidIdentity.WaitUntilGoneAsync(pid, identity, TimeSpan.FromSeconds(10));
+    }
+
     [Test, ExcludeOn(OS.Windows)]
     public async Task Cancellation_kills_the_child_before_propagating() {
         using var cts = new CancellationTokenSource();

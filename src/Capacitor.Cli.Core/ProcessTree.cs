@@ -111,6 +111,28 @@ public static partial class ProcessTree {
     /// <summary>Bounds the walk; a daemon's whole tree is far smaller.</summary>
     const int MaxWalk = 4096;
 
+    /// <summary>Every descendant of <paramref name="pid"/> now, each with its start identity, listed only while
+    /// <paramref name="pid"/> still carries <paramref name="identity"/>. Kept by a caller that must still reach
+    /// them after the root exits and they are reparented. Empty on Windows, which this does not walk.</summary>
+    public static IReadOnlyList<(int Pid, string Identity)> Descendants(int pid, string identity) {
+        if (OperatingSystem.IsWindows() || !Matches(pid, identity)) return [];
+
+        var found    = new List<(int, string)>();
+        var seen     = new HashSet<int> { pid };
+        var frontier = new Queue<int>([pid]);
+
+        while (frontier.Count > 0 && seen.Count < MaxWalk) {
+            foreach (var child in Children(frontier.Dequeue())) {
+                if (child <= 0 || !seen.Add(child) || ProcessStartToken.ForPid(child) is not { } childIdentity) continue;
+
+                found.Add((child, childIdentity));
+                frontier.Enqueue(child);
+            }
+        }
+
+        return Matches(pid, identity) ? found : [];
+    }
+
     /// <summary>
     /// Whether <paramref name="pid"/> runs under <paramref name="ancestor"/> now. A process reparented away
     /// from it, by a double fork or its parent's exit, no longer counts. Always false on Windows, which

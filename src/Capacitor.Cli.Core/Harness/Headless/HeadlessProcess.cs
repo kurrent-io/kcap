@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 
@@ -9,8 +10,9 @@ namespace Capacitor.Cli.Core.Harness.Headless;
 /// remove the run's directory once this returns or throws.
 /// </summary>
 static class HeadlessProcess {
-    static readonly TimeSpan AfterKill = TimeSpan.FromSeconds(5);
-    static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(1);
+    static readonly TimeSpan AfterKill   = TimeSpan.FromSeconds(5);
+    static readonly TimeSpan ExitGrace   = TimeSpan.FromSeconds(1);
+    static readonly TimeSpan TrackPeriod = TimeSpan.FromMilliseconds(500);
 
     static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -74,6 +76,7 @@ static class HeadlessProcess {
 
         using var timeoutCts = new CancellationTokenSource(timeout, time);
         using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+        using var survivors  = new Survivors(process, time);
 
         try {
             try {
@@ -107,6 +110,7 @@ static class HeadlessProcess {
             }
 
             await exited;
+            survivors.Stop();
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             await KillAsync(process, stdoutTask, stderrTask, time);
 
@@ -121,16 +125,75 @@ static class HeadlessProcess {
         try {
             await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(linkedCts.Token);
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+            survivors.Kill();
             CloseOutput(process);
 
             throw;
         } catch (OperationCanceledException) {
-            // A descendant that outlived the process holds the pipe; the process itself has written all it will.
-            log($"{name} exited but its output stayed open to the deadline; using what was read");
+            // A descendant that outlived the process holds the pipe, and may still be writing into the run directory.
+            log($"{name} exited but a descendant kept its output open to the deadline, killing it");
+            survivors.Kill();
             CloseOutput(process);
+
+            return new(null, true, false, stderr.Text);
         }
 
         return new(process.ExitCode, false, false, stderr.Text);
+    }
+
+    /// <summary>The process's descendants, listed every <see cref="TrackPeriod"/> while it runs, so the ones that
+    /// outlive it can be killed after they are reparented out of its tree. A descendant forked and orphaned
+    /// between two listings is missed. On Windows, where nothing is listed, the runtime's tree kill finds them
+    /// through the exited process's id.</summary>
+    sealed class Survivors : IDisposable {
+        readonly Process                           _process;
+        readonly ConcurrentDictionary<int, string> _seen = new();
+        readonly CancellationTokenSource           _stop = new();
+
+        public Survivors(Process process, TimeProvider time) {
+            _process = process;
+
+            if (!OperatingSystem.IsWindows() && ProcessStartToken.ForPid(process.Id) is { } identity)
+                _ = TrackAsync(process.Id, identity, time, _stop.Token);
+        }
+
+        /// <summary>Ends the listing once the process has exited; what was seen stays to be killed.</summary>
+        public void Stop() => _stop.Cancel();
+
+        public void Dispose() {
+            _stop.Cancel();
+            _stop.Dispose();
+        }
+
+        async Task TrackAsync(int pid, string identity, TimeProvider time, CancellationToken stop) {
+            try {
+                while (!stop.IsCancellationRequested) {
+                    foreach (var (child, childIdentity) in ProcessTree.Descendants(pid, identity)) _seen.TryAdd(child, childIdentity);
+
+                    await Task.Delay(TrackPeriod, time, stop);
+                }
+            } catch (Exception) {
+                // Stopped, or a listing failed: what was seen so far is still killed.
+            }
+        }
+
+        public void Kill() {
+            if (OperatingSystem.IsWindows()) {
+                try {
+#pragma warning disable RS0030 // Windows has no process groups to hang up; ProcessTree.Kill skips an exited root
+                    _process.Kill(entireProcessTree: true);
+#pragma warning restore RS0030
+                } catch (Exception) {
+                    // Nothing reachable is left.
+                }
+
+                return;
+            }
+
+            foreach (var (pid, identity) in _seen) {
+                try { ProcessTree.Kill(pid, identity); } catch (Exception) { /* already gone */ }
+            }
+        }
     }
 
     /// <summary>Folds a multi-line value onto one log line.</summary>
