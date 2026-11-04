@@ -32,15 +32,23 @@ public sealed class LocalRoot(string directory, UserHome? home = null) {
             ? new(Path.Combine(home.Path, ".config", "kcap", "local"), home)
             : new(Path.TrimEndingDirectorySeparator(Path.GetFullPath(configured)), home);
 
+    /// <summary>Whether the root holds a registry or a journal: an installation, or one being set up or torn down.</summary>
+    public bool HoldsInstallation => File.Exists(RegistryPath) || File.Exists(JournalPath);
+
     /// <summary>Creates the root owner-only, or makes an existing one so, and syncs every level of its
     /// path below the home (the filesystem root when there is none). A symlinked root is refused:
-    /// the lock and the registry would live wherever the link points.</summary>
-    public void EnsureCreated(UserHome? home = null) {
+    /// the lock and the registry would live wherever the link points. On Windows see
+    /// <see cref="LocalRootAccess"/>; its warnings go to <paramref name="warnings"/>, standard error by default.</summary>
+    public void EnsureCreated(UserHome? home = null, TextWriter? warnings = null) {
         if (new DirectoryInfo(Directory).LinkTarget is not null)
             throw new LocalLifecycleException($"{Directory} is a symlink; the local installation's root must be a real directory.");
 
-        DurableDirectory.Ensure(Directory, DurableDirectory.AnchorFor(Directory, home ?? Home), OwnerOnly);
+        if (OperatingSystem.IsWindows()) {
+            LocalRootAccess.Secure(this, warnings ?? Console.Error);
+            return;
+        }
 
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(Directory, OwnerOnly);
+        DurableDirectory.Ensure(Directory, DurableDirectory.AnchorFor(Directory, home ?? Home), OwnerOnly);
+        File.SetUnixFileMode(Directory, OwnerOnly);
     }
 }
