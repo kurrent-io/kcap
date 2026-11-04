@@ -219,21 +219,23 @@ public class WorkContextViewModelTests {
         });
     }
 
-    /// The dash stands in for an unknown worktree or branch; it is never offered for copying.
+    /// The dash stands in for an unknown repository, worktree or branch; it is never offered for copying.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Only_a_known_worktree_and_branch_can_be_copied() {
+    public async Task Only_a_known_repository_worktree_and_branch_can_be_copied() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            await h.PushAsync(Dto(sessionId: null, branch: null) with { WorktreePath = null });
+            await h.PushAsync(Dto(sessionId: null, branch: null) with { WorktreePath = null, RepoPath = null });
 
             await Assert.That(h.Vm.Worktree).IsEqualTo("—");
             await Assert.That(h.Vm.Branch).IsEqualTo("—");
+            await Assert.That(h.Vm.CanCopyRepository).IsFalse();
             await Assert.That(h.Vm.CanCopyWorktree).IsFalse();
             await Assert.That(h.Vm.CanCopyBranch).IsFalse();
 
             await h.PushAsync(Dto(sessionId: null, branch: "capacitor/agent-1"));
 
+            await Assert.That(h.Vm.CanCopyRepository).IsTrue();
             await Assert.That(h.Vm.CanCopyWorktree).IsTrue();
             await Assert.That(h.Vm.CanCopyBranch).IsTrue();
             await h.Vm.TeardownAsync();

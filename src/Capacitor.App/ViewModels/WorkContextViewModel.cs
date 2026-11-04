@@ -78,7 +78,14 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     string _repository = "—";
     public string Repository { get => _repository; private set => this.RaiseAndSetIfChanged(ref _repository, value); }
     string? _repositoryPath;
-    public string? RepositoryPath { get => _repositoryPath; private set => this.RaiseAndSetIfChanged(ref _repositoryPath, value); }
+    public string? RepositoryPath {
+        get => _repositoryPath;
+        private set {
+            this.RaiseAndSetIfChanged(ref _repositoryPath, value);
+            this.RaisePropertyChanged(nameof(CanCopyRepository));
+        }
+    }
+    public bool CanCopyRepository => !string.IsNullOrEmpty(_repositoryPath);
     string _worktree = "—";
     public string Worktree { get => _worktree; private set => this.RaiseAndSetIfChanged(ref _worktree, value); }
     string? _worktreePath;

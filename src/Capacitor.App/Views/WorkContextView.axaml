@@ -892,7 +892,16 @@
                         <Border Classes="sectionBody" IsVisible="{Binding CheckoutExpanded}">
                             <Grid x:Name="CheckoutFacts" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="REPOSITORY" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Repository}" Classes="factValue" ToolTip.Tip="{Binding RepositoryPath}" />
+                                <Panel Grid.Row="0" Grid.Column="1">
+                                    <Button x:Name="RepositoryButton" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding RepositoryPath}"
+                                            IsVisible="{Binding CanCopyRepository}"
+                                            AutomationProperties.Name="Copy repository path"
+                                            ToolTip.Tip="{Binding RepositoryPath}">
+                                        <TextBlock Text="{Binding Repository}" Classes="factValue" TextWrapping="Wrap" />
+                                    </Button>
+                                    <SelectableTextBlock Text="{Binding Repository}" Classes="factValue"
+                                                         IsVisible="{Binding !CanCopyRepository}" />
+                                </Panel>
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="WORKTREE" Classes="factLabel" />
                                 <!-- The label is the worktree's leaf name; a click copies its full path. -->
                                 <Panel Grid.Row="1" Grid.Column="1">

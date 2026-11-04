@@ -1006,10 +1006,10 @@ public class WorkContextViewSmokeTests {
         });
     }
 
-    /// The worktree row shows only the leaf name, so its click has to copy the full path.
+    /// The repository and worktree rows show only their names, so a click has to copy the full path.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Clicking_the_worktree_and_branch_copies_the_full_path_and_the_branch() {
+    public async Task Clicking_a_checkout_fact_copies_its_full_path_or_branch() {
         const string worktree = "/repo/myproj/.capacitor/worktrees/agent-1";
         await RunOnUiAsync(async () => {
             await using var host = new Host();
@@ -1034,6 +1034,7 @@ public class WorkContextViewSmokeTests {
             }
 
             await Assert.That(host.Vm.Worktree).IsEqualTo("agent-1");
+            await Assert.That(await ClickAndRead("RepositoryButton")).IsEqualTo("/repo/myproj");
             await Assert.That(await ClickAndRead("WorktreeButton")).IsEqualTo(worktree);
             await Assert.That(await ClickAndRead("BranchButton")).IsEqualTo("capacitor/agent-1");
         });
