@@ -524,12 +524,16 @@ public class MainWindowViewModelTests {
     }
 
     /// kcap update does not touch the app's own copy of its CLI, so the alert names why the app could not replace it.
+    /// No queued restart outranks it: each one starts that same copy again.
     [Test]
-    public async Task AlertFor_a_daemon_on_a_cli_copy_the_app_could_not_replace_names_the_failure() {
+    [Arguments(DaemonRestartWait.None)]
+    [Arguments(DaemonRestartWait.Turns)]
+    [Arguments(DaemonRestartWait.Agents)]
+    public async Task AlertFor_a_daemon_on_a_cli_copy_the_app_could_not_replace_names_the_failure(DaemonRestartWait wait) {
         var connected = new AttachStatus(AttachState.Connected, null, null);
         var copy = new DaemonOnOtherInstall("1.4.0", "/home/u/.local/share/kcap/desktop/bin/kcap-daemon", "No space left on device.");
 
-        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: copy);
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: copy, restartPending: wait);
 
         await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonNotUpdatedText);
         await Assert.That(alert.Detail).Contains("kcap 1.4.0 from /home/u/.local/share/kcap/desktop/bin/kcap-daemon");

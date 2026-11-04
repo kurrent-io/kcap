@@ -80,12 +80,15 @@ public class UpdateFinishViewModelTests {
         await Assert.That(step.Hint).IsEqualTo(other.Executable);
     }
 
-    /// The app's own copy of its CLI is not another install to update: what moves it on is the copy succeeding.
+    /// The app's own copy of its CLI is not another install to update: what moves it on is the copy succeeding, so no
+    /// queued restart, which starts that same copy again, outranks the note.
     [Test]
-    public async Task A_daemon_on_a_cli_copy_the_app_could_not_replace_settles_on_a_note_with_the_failure() {
+    [Arguments(DaemonRestartWait.None)]
+    [Arguments(DaemonRestartWait.Turns)]
+    public async Task A_daemon_on_a_cli_copy_the_app_could_not_replace_settles_on_a_note_with_the_failure(DaemonRestartWait wait) {
         var copy = new DaemonOnOtherInstall("1.4.0+abc", "/home/u/.local/share/kcap/desktop/bin/kcap-daemon", "No space left on device");
 
-        var step = UpdateFinishViewModel.DaemonStep(Connected, "1.4.0+abc", "connected", DaemonRestartWait.None, "1.4.1", otherInstall: copy);
+        var step = UpdateFinishViewModel.DaemonStep(Connected, "1.4.0+abc", "connected", wait, "1.4.1", otherInstall: copy);
 
         await Assert.That(step.State).IsEqualTo(UpdateStepState.Note);
         await Assert.That(step.Detail).IsEqualTo("Runs 1.4.0 from this app's copy of its CLI, which it could not replace. Fix that and reopen the app");

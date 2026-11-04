@@ -1355,7 +1355,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// <param name="moving">The daemon is moving to the Windows service, which brings it back itself.</param>
     /// <param name="local">The local server's own alert, from <see cref="LocalServerAlertFor"/>.</param>
     /// <param name="otherInstall">An app update left the daemon behind on a binary it did not replace. Only a restart waiting
-    /// for turns outranks it, since that follows an update to that binary; any other brings back the same version.</param>
+    /// for turns outranks it, since that follows an update to that binary; any other brings back the same version. Nothing
+    /// outranks the app's own copy it could not replace: every restart starts that copy again.</param>
     internal static RailAlert? AlertFor(
             AttachStatus status, string daemonConnection, bool signedOut = false, bool failed = false,
             bool canSignIn = false, bool moving = false, RailAlert? local = null, DaemonOnOtherInstall? otherInstall = null,
@@ -1379,6 +1380,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             "connecting"   => new(ServerConnectingText, StatusColors.Pending),
             "reconnecting" => new(ReconnectingText, StatusColors.Pending),
             "disconnected" => new(ServerLostText, StatusColors.InProgress),
+            _ when otherInstall is { CopyFailure: not null } copy => new(DaemonNotUpdatedText, StatusColors.InProgress, Detail: OtherInstallMessage(copy)),
             _ when restartPending == DaemonRestartWait.Turns => new(RestartPendingText, StatusColors.InProgress, Detail: RestartPendingMessage),
             _ when otherInstall is { } other => new(DaemonNotUpdatedText, StatusColors.InProgress, Detail: OtherInstallMessage(other)),
             _ when restartPending == DaemonRestartWait.Agents => new(RestartPendingText, StatusColors.InProgress, Detail: RestartWhenNoAgentsMessage),
