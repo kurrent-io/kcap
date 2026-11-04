@@ -10,6 +10,19 @@ namespace Capacitor.Cli.Core.Harness.Headless;
 internal static class StructuredReply {
     static readonly JsonWriterOptions WriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
+    /// Why a reply could not be checked against <paramref name="schema"/>, or null when it can. A runner
+    /// refuses the run on a reason rather than leave a constraint unchecked.
+    public static string? Refusal(string schema) {
+        try {
+            using var doc = JsonDocument.Parse(schema);
+            return JsonSchemaCheck.UnsupportedKeyword(doc.RootElement) is { } keyword
+                ? $"The JSON schema uses '{keyword}', which a reply cannot be checked against."
+                : null;
+        } catch (JsonException) {
+            return "The JSON schema is not valid JSON.";
+        }
+    }
+
     public static string SchemaInstruction(string schema) =>
         "Reply with exactly one JSON value that matches the JSON Schema below. " +
         "Output only that JSON value, with no commentary and no Markdown code fence.\n\n" +

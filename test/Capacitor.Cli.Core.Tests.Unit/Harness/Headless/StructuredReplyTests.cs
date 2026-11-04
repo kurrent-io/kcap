@@ -37,4 +37,15 @@ public class StructuredReplyTests {
         await Assert.That(instruction.Contains(TitleSchema, StringComparison.Ordinal)).IsTrue();
         await Assert.That(instruction.Contains("JSON", StringComparison.Ordinal)).IsTrue();
     }
+
+    [Test]
+    [Arguments("""{"type":"object","patternProperties":{"^x":{}}}""", "'patternProperties'")]
+    [Arguments("""{"$ref":"https://example.com/s.json"}""", "'$ref'")]
+    [Arguments("not json", "not valid JSON")]
+    public async Task A_schema_that_cannot_be_checked_has_a_refusal_naming_why(string schema, string named) =>
+        await Assert.That(StructuredReply.Refusal(schema)!).Contains(named);
+
+    [Test]
+    public async Task A_fully_supported_schema_has_no_refusal() =>
+        await Assert.That(StructuredReply.Refusal(TitleSchema)).IsNull();
 }
