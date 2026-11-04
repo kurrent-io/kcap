@@ -60,6 +60,24 @@ public class DaemonRestartPendingWatcherTests {
         await Assert.That(h.Seen).IsEquivalentTo([true]);
     }
 
+    /// A when-idle request records no wait of its own: only a self-detected or turn-boundary restart waits for turns.
+    [Test]
+    [Arguments(DaemonRestartMarker.SelfDetected, DaemonRestartWait.Turns)]
+    [Arguments(DaemonRestartMarker.TurnBoundary, DaemonRestartWait.Turns)]
+    [Arguments(DaemonRestartMarker.Requested, DaemonRestartWait.Agents)]
+    public async Task Reports_what_the_queued_restart_waits_for(string reason, DaemonRestartWait expected) {
+        DaemonRestartMarker.Write(Daemons.Store, Name, Marker() with { Reason = reason });
+        using var h = new Harness(Daemons.Store);
+        var waits = new List<DaemonRestartWait>();
+        h.Start();
+        using var _ = h.Watcher.Wait.Subscribe(waits.Add);
+
+        DaemonRestartMarker.Delete(Daemons.Store, Name);
+        h.Status.OnNext(new AttachStatus(AttachState.Connected, null, []));
+
+        await Assert.That(waits).IsEquivalentTo([expected, DaemonRestartWait.None]);
+    }
+
     [Test]
     public async Task Sees_a_marker_written_later_on_the_next_poll() {
         using var h = new Harness(Daemons.Store);

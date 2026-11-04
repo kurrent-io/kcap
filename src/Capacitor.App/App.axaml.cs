@@ -563,8 +563,9 @@ public partial class App : Application {
     }
 
     void ShowUpdateFinishWindow(AppUpdateTransition transition, IObservable<AttachStatus> status,
-            IObservable<(string? Version, string? Connection)> daemon, IObservable<bool> restartPending, IObservable<LocalStepInput?> local) {
-        var vm = new UpdateFinishViewModel(transition, status, daemon, restartPending, local, _time);
+            IObservable<(string? Version, string? Connection)> daemon, IObservable<DaemonRestartWait> restartPending, IObservable<LocalStepInput?> local,
+            IObservable<DaemonOnOtherInstall?> otherInstall) {
+        var vm = new UpdateFinishViewModel(transition, status, daemon, restartPending, local, _time, otherInstall);
         var window = new UpdateFinishWindow { DataContext = vm };
         _home?.AttachUpdateProgress(vm.Progress);
         var opened = false;
@@ -967,6 +968,8 @@ public partial class App : Application {
             _daemonStore, service.DaemonName, service.Status, _time, _shutdown.Token);
         restartPending.Start();
         _restartPending = restartPending;
+        // The window is built before the nudge that fills this, which exists only in a run finishing an update.
+        var daemonOnOtherInstall = new BehaviorSubject<DaemonOnOtherInstall?>(null);
         // The surfaces show this status; the lifecycle controller keeps acting on the service's own.
         var expectedRestart = new ExpectedDaemonRestart(service.Status, restartPending.Pending, AppJustUpdated, service.RestartLoopAsync, _time,
             (expected, lasted) => LifecycleLog.Write("daemon_outage_ended", ("expected", expected ? "true" : "false"),
@@ -1335,7 +1338,8 @@ public partial class App : Application {
                 lifecycleAttention: lifecycleAttention, identityReport: lifecycle.IdentityReport,
                 pullRequestSummaries: pullRequestTones.Summaries, railShown: railShown,
                 directory: directory, remoteAgents: remoteAgents, lane: serverLane, localAccounts: accounts.Snapshot, readings: readings,
-                viewerId: viewerId, localMachineId: machineId, restartPending: restartPending.Pending,
+                viewerId: viewerId, localMachineId: machineId, restartPending: restartPending.Wait,
+                daemonOnOtherInstall: daemonOnOtherInstall,
                 // A row present on both lanes is the local one: the local socket is the richer
                 // workspace, and the directory only keeps both rows when the twin is unproven.
                 originOf: id => directory.Rows.Lookup($"local:{id}").HasValue || directory.Rows.Lookup($"pending:{id}").HasValue ? AgentOrigin.Local
@@ -1387,19 +1391,26 @@ public partial class App : Application {
         var localSkipped = new BehaviorSubject<bool>(false);
         if (!_shutdownStarted) _ = SettleComponentsAsync(localUpgrade, isLocalServer, () => localSkipped.OnNext(true));
         if (_holdingMainWindow && _postUpdate is { } finishing) {
-            _staleDaemonNudge = new StaleDaemonNudge(finishing.To, service.Status, service.Snapshots.Select(snap => (string?)snap.Daemon.Version),
-                restartPending.Pending, ct => ops.RequestRestartAsync(StaleDaemonNudge.Mode, ct),
-                result => LifecycleLog.Write("daemon_restart_requested", ("mode", StaleDaemonNudge.Mode), ("result", result)), _time, _shutdown.Token);
+            _staleDaemonNudge = new StaleDaemonNudge(finishing.To, service.Status,
+                service.Snapshots.Select(snap => ((string?)snap.Daemon.Version, snap.Daemon.Pid)), restartPending.Pending,
+                ProcessExecutable.Of, binary => CanonicalPath.IsWithin(binary, Program.Host.CliDirectory),
+                ops.RequestRestartAsync,
+                (mode, result) => LifecycleLog.Write("daemon_restart_requested", ("mode", mode), ("result", result)), _time, _shutdown.Token);
+            _staleDaemonNudge.OtherInstall.Subscribe(other => {
+                if (other is not null) LifecycleLog.Write("daemon_on_other_install", ("version", other.Version), ("executable", other.Executable));
+                daemonOnOtherInstall.OnNext(other);
+            });
             ShowUpdateFinishWindow(finishing, expectedRestart.Status,
                 service.Snapshots.Select(snap => ((string?)snap.Daemon.Version, (string?)snap.Daemon.Connection)),
-                restartPending.Pending,
+                restartPending.Wait,
                 localUpgrade is null || localStack is null || !isLocalServer || !componentsOwed
                     ? Observable.Return<LocalStepInput?>(null)
                     : localStack.WhenAnyValue(x => x.Upgrading, x => x.Headline, x => x.Detail, (upgrading, headline, detail) => (upgrading, headline, detail))
                         .CombineLatest(localUpgrade.WhenAnyValue(x => x.Outcome), localSkipped,
                             Observable.Switch(localUpgrade.WhenAnyValue(x => x.Progress).Select(p => p.Changed.Select(_ => p).StartWith(p))),
                             (banner, outcome, skipped, p) => (LocalStepInput?)new LocalStepInput(banner.upgrading, outcome, banner.headline,
-                                banner.detail, skipped, p.Phase, p.From, p.To, p.DownloadFraction)));
+                                banner.detail, skipped, p.Phase, p.From, p.To, p.DownloadFraction)),
+                daemonOnOtherInstall);
         }
 
         if (!_shutdownStarted) {
@@ -2211,7 +2222,8 @@ public partial class App : Application {
             IAgentDirectory? directory = null, IRemoteAgentsService? remoteAgents = null,
             IServerLane? lane = null, IObservable<AccountsSnapshotDto?>? localAccounts = null,
             Func<CancellationToken, Task<string?>>? viewerId = null,
-            string? localMachineId = null, IObservable<bool>? restartPending = null,
+            string? localMachineId = null, IObservable<DaemonRestartWait>? restartPending = null,
+            IObservable<DaemonOnOtherInstall?>? daemonOnOtherInstall = null,
             Func<string, AgentOrigin?>? originOf = null,
             Func<string, RemoteSessionViewModel?>? remoteWorkspaceFactory = null,
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? modelCatalog = null,
@@ -2312,7 +2324,7 @@ public partial class App : Application {
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,
             navigation: navigation, trackWorkspaceTeardown: trackWorkspaceTeardown, workspaceFactory: workspaceFactory,
             rail: rail, tenantName: tenantName, lifecycleAttention: lifecycleAttention, identityReport: identityReport,
-            laneStatus: lane?.Status, restartPending: restartPending,
+            laneStatus: lane?.Status, restartPending: restartPending, daemonOnOtherInstall: daemonOnOtherInstall,
             originOf: originOf, remoteWorkspaceFactory: remoteWorkspaceFactory, directory: resolvedDirectory,
             serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
             searchFactory: searchFactory,

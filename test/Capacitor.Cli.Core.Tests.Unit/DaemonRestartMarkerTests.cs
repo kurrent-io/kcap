@@ -21,7 +21,17 @@ public class DaemonRestartMarkerTests {
 
         await Assert.That(new DaemonRestartMarker("v1", "self-detected", when).Describe()).Contains("newer binary detected on disk");
         await Assert.That(new DaemonRestartMarker("v1", "requested", when).Describe()).DoesNotContain("newer binary");
+        await Assert.That(new DaemonRestartMarker("v1", "turn-boundary", when).Describe()).Contains("at the next turn boundary");
     }
+
+    /// <summary>An unknown reason reads as the when-idle wait, the longer of the two.</summary>
+    [Test]
+    [Arguments("self-detected", true)]
+    [Arguments("turn-boundary", true)]
+    [Arguments("requested", false)]
+    [Arguments("from-a-newer-daemon", false)]
+    public async Task Only_a_self_detected_or_turn_boundary_restart_waits_for_turns(string reason, bool turns) =>
+        await Assert.That(new DaemonRestartMarker("v1", reason, DateTimeOffset.UnixEpoch).WaitsForTurns).IsEqualTo(turns);
 
     [Test]
     public async Task TryRead_returns_null_when_absent() {

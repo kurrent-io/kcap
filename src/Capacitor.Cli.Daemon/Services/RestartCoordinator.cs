@@ -22,8 +22,8 @@ internal enum RestartRequestResult {
 /// Polls the running binary; a size/mtime change queues a restart-after-update that
 /// fires the chosen <see cref="IRestartStrategy"/> the moment the daemon is idle
 /// (no in-flight eval, launch in admission or mid-turn flow participant, and interactive agents at a turn
-/// boundary). Also handles explicit requests from the control socket; a when-idle request waits for no
-/// agents at all. A vendor CLI installed after startup queues a when-idle restart too: what the daemon can
+/// boundary). Also handles explicit requests from the control socket; a turn-boundary request waits the same way,
+/// a when-idle request waits for no agents at all. A vendor CLI installed after startup queues a when-idle restart too: what the daemon can
 /// host is decided once at boot, so only a restart can advertise it. On Windows self-detection covers
 /// script and npm installs only; the explicit request path works anywhere.
 /// </summary>
@@ -40,7 +40,7 @@ internal sealed partial class RestartCoordinator : BackgroundService {
     // booting lands before the poll begins, so a baseline taken then would already be the new binary.
     internal BinaryStat? LaunchBinary;
     internal Func<bool>        IsBusy     = static () => false;
-    // Busy for a forced restart, or a self-detected one past TurnWait: evals and launches in
+    // Busy for a forced restart, or a turn-boundary one past TurnWait: evals and launches in
     // admission, not flow participants.
     internal Func<bool>        IsHardBusy = static () => false;
     internal Func<bool>        HasAgents  = static () => false;
@@ -58,7 +58,8 @@ internal sealed partial class RestartCoordinator : BackgroundService {
     bool          _force;
     bool          _whenIdle;
     bool          _fired;
-    bool          _selfDetected;
+    // A self-detected update or a turn-boundary request: fires at a turn boundary, or once TurnWait runs out.
+    bool          _waitsForTurn;
     bool          _harnessOnly;
     // A foreground daemon cannot restart itself; the harness check stops there rather than holding the
     // coordinator fired, which would swallow every later update and request.
@@ -160,25 +161,30 @@ internal sealed partial class RestartCoordinator : BackgroundService {
 
     /// <summary>
     /// Explicit restart request from the control socket. <paramref name="force"/> bypasses
-    /// the idle gate; <paramref name="whenIdle"/> also waits for every agent to be gone. Evaluates immediately (rather than waiting for the next poll tick) so
+    /// the idle gate; <paramref name="atTurnBoundary"/> waits the way a self-detected update does;
+    /// <paramref name="whenIdle"/> also waits for every agent to be gone. Evaluates immediately (rather than waiting for the next poll tick) so
     /// a manual restart of an already-idle daemon is prompt, and returns the result so the
     /// caller can ack honestly.
     /// </summary>
-    internal RestartRequestResult RequestRestart(bool force, bool whenIdle = false) {
+    internal RestartRequestResult RequestRestart(bool force, bool atTurnBoundary = false, bool whenIdle = false) {
         lock (_gate) {
-            // A pending update already restarts at a turn boundary; waiting for every agent would only delay it.
-            var keepUpdate = whenIdle && !force && _pending && _selfDetected;
+            // A restart already waiting for a turn boundary keeps its wait: one for every agent would only delay it,
+            // and a second turn-boundary request would only restart the clock.
+            var keepPending = (whenIdle || atTurnBoundary) && !force && _pending && _waitsForTurn;
 
-            if (!keepUpdate) {
+            if (!keepPending) {
+                var waitsForTurn = atTurnBoundary && !force;
                 _pending      = true;
-                _selfDetected = false;
+                _waitsForTurn = waitsForTurn;
                 _harnessOnly  = false;
                 _whenIdle     = whenIdle;
+                if (waitsForTurn) _pendingSince = _time.GetUtcNow();
                 if (force) _force = true;
 
                 if (!force) {
-                    DaemonRestartMarker.Write(_store, _name, new DaemonRestartMarker(_version, "requested", _time.GetUtcNow()));
-                    LogQueued(_logger, "requested");
+                    var reason = waitsForTurn ? DaemonRestartMarker.TurnBoundary : DaemonRestartMarker.Requested;
+                    DaemonRestartMarker.Write(_store, _name, new DaemonRestartMarker(_version, reason, _time.GetUtcNow()));
+                    LogQueued(_logger, reason);
                 }
             }
         }
@@ -191,7 +197,7 @@ internal sealed partial class RestartCoordinator : BackgroundService {
 
     static readonly TimeSpan TurnBoundaryPoll = TimeSpan.FromSeconds(1);
 
-    /// <summary>The gate a self-detected update restart waits on before its <see cref="TurnWait"/> runs out.</summary>
+    /// <summary>The gate a turn-boundary restart waits on before its <see cref="TurnWait"/> runs out.</summary>
     internal bool AtTurnBoundaryNow => !IsBusy() && AtTurnBoundary();
 
     /// <summary>Waits on that same gate, for at most <see cref="TurnWait"/>; false when the wait ran out first.</summary>
@@ -225,13 +231,13 @@ internal sealed partial class RestartCoordinator : BackgroundService {
                 var current = StatBinary();
                 if (RestartDecision.BinaryChanged(_baseline, current)) {
                     _pending      = true;
-                    _selfDetected = true;
+                    _waitsForTurn = true;
                     _harnessOnly  = false;
                     _whenIdle     = false;
                     _pendingSince = _time.GetUtcNow();
                     _baseline     = current;
-                    DaemonRestartMarker.Write(_store, _name, new DaemonRestartMarker(_version, "self-detected", _time.GetUtcNow()));
-                    LogQueued(_logger, "self-detected");
+                    DaemonRestartMarker.Write(_store, _name, new DaemonRestartMarker(_version, DaemonRestartMarker.SelfDetected, _time.GetUtcNow()));
+                    LogQueued(_logger, DaemonRestartMarker.SelfDetected);
                 }
             }
 
@@ -242,11 +248,11 @@ internal sealed partial class RestartCoordinator : BackgroundService {
                 LogHarnessInstalled(_logger);
             }
 
-            var waitExpired = _selfDetected && _time.GetUtcNow() - _pendingSince >= TurnWait;
+            var waitExpired = _waitsForTurn && _time.GetUtcNow() - _pendingSince >= TurnWait;
             // Past the wait bound a mid-round flow participant no longer holds the restart; the
             // shutdown ends or parks it.
             var busy = _force || waitExpired ? IsHardBusy() : _whenIdle ? IsHardBusy() || HasAgents() : IsBusy();
-            fire = RestartDecision.ShouldFire(_pending, busy, _force, _selfDetected, AtTurnBoundary(), waitExpired);
+            fire = RestartDecision.ShouldFire(_pending, busy, _force, _waitsForTurn, AtTurnBoundary(), waitExpired);
             if (fire) _fired = true; // claim before releasing the lock (single-fire)
             harnessFire = _harnessOnly;
         }

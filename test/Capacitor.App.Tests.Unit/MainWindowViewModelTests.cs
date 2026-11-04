@@ -2,6 +2,7 @@ using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using Avalonia.Media;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Update;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.App.Views;
@@ -340,7 +341,7 @@ public class MainWindowViewModelTests {
     public async Task Restart_pending_raises_an_alert_while_connected() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var restartPending = new BehaviorSubject<bool>(false);
+            var restartPending = new BehaviorSubject<DaemonRestartWait>(DaemonRestartWait.None);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, restartPending: restartPending);
             using var activation = vm.Activator.Activate();
 
@@ -348,12 +349,12 @@ public class MainWindowViewModelTests {
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
             await Assert.That(vm.Alert).IsNull();
 
-            restartPending.OnNext(true);
+            restartPending.OnNext(DaemonRestartWait.Turns);
 
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
             await Assert.That(vm.Alert.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
 
-            restartPending.OnNext(false);
+            restartPending.OnNext(DaemonRestartWait.None);
 
             await Assert.That(vm.Alert).IsNull();
         });
@@ -364,7 +365,7 @@ public class MainWindowViewModelTests {
     public async Task Restart_pending_is_hidden_while_not_connected() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var restartPending = new BehaviorSubject<bool>(true);
+            var restartPending = new BehaviorSubject<DaemonRestartWait>(DaemonRestartWait.Turns);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, restartPending: restartPending);
             using var activation = vm.Activator.Activate();
 
@@ -482,12 +483,37 @@ public class MainWindowViewModelTests {
     public async Task AlertFor_restart_pending_only_when_nothing_else_is_wrong() {
         var connected = new AttachStatus(AttachState.Connected, null, null);
 
-        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: true);
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: DaemonRestartWait.Turns);
         await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
         await Assert.That(pending.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
 
-        await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: true)!.Text)
+        await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: DaemonRestartWait.Turns)!.Text)
             .IsEqualTo(MainWindowViewModel.ReconnectingText);
+    }
+
+    /// A when-idle restart has no turn wait to promise: idle agents hold it for as long as they stay.
+    [Test]
+    public async Task AlertFor_a_restart_waiting_for_no_agents_says_so() {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: DaemonRestartWait.Agents);
+
+        await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
+        await Assert.That(pending.Detail).IsEqualTo(MainWindowViewModel.RestartWhenNoAgentsMessage);
+    }
+
+    /// A restart queued once the other install is updated is what moves the daemon on, so it outranks the report.
+    [Test]
+    public async Task AlertFor_a_daemon_on_another_install_names_it_until_a_restart_is_queued() {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        var other = new DaemonOnOtherInstall("1.4.1-beta.2+d12e8ca", "/opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
+
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: other);
+
+        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonNotUpdatedText);
+        await Assert.That(alert.Detail).Contains("kcap 1.4.1-beta.2 from /opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
+        await Assert.That(MainWindowViewModel.AlertFor(connected, "connected", otherInstall: other, restartPending: DaemonRestartWait.Turns)!.Text)
+            .IsEqualTo(MainWindowViewModel.RestartPendingText);
     }
 
     [Test]
