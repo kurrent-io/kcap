@@ -101,21 +101,20 @@
                         <Border x:Name="SwitchCover" Background="{StaticResource KcapCanvasBrush}" IsVisible="False">
                             <views:StillImage x:Name="SwitchCoverStill" />
                         </Border>
-
-                        <!-- The collapsed rail leaves no column: this floats over the content's top-left
-                             corner, and each header there pads clear of it through RailClearance. -->
-                        <Button x:Name="RailExpandButton" Classes="kcapGhost kcapIcon" IsVisible="False"
-                                HorizontalAlignment="Left" VerticalAlignment="Top"
-                                ToolTip.Tip="Show sidebar" AutomationProperties.Name="Show sidebar"
-                                Click="OnRailExpandClick">
-                            <views:AppIcon Kind="PanelLeftOpen" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
-                        </Button>
                     </Panel>
                     <!-- Last child so it hit-tests above the content pane it overhangs. -->
                     <GridSplitter x:Name="RailSplitter" Grid.Column="0" HorizontalAlignment="Right" Width="6"
                                   Margin="0,0,-3,0" Background="Transparent" ResizeDirection="Columns"
                                   DragDelta="OnRailSplitterDragDelta" DragCompleted="OnRailSplitterDragCompleted" />
                 </Grid>
+
+                <!-- One toggle that never moves: over the rail's chrome row while it shows, over the
+                     content's top-left corner once it collapses to nothing, where each header pads
+                     clear of it through RailClearance. -->
+                <Button x:Name="RailToggleButton" Classes="kcapGhost kcapIcon"
+                        HorizontalAlignment="Left" VerticalAlignment="Top" Click="OnRailToggleClick">
+                    <views:AppIcon x:Name="RailToggleIcon" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                </Button>
             </Panel>
         </LayoutTransformControl>
 

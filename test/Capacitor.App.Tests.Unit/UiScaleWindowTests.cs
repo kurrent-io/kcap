@@ -101,7 +101,7 @@ public class UiScaleWindowTests {
             window.Panes.RailCollapsed = true;
             window.UpdateLayout();
             var title = view.FindControl<SessionTitleEditor>("WorkspaceTitle")!;
-            var button = window.RailExpandButton;
+            var button = window.RailToggleButton;
             Point Centre() => button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
             var atDefault = Centre();
 

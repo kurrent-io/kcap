@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Capacitor.App.Services;
@@ -86,39 +87,72 @@ public class PaneLayoutMemoryTests {
             await Assert.That(window.Panes.RailCollapsed).IsTrue();
             await Assert.That(window.SessionRail.Opacity).IsEqualTo(1);
 
-            window.RailExpandButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.RailToggleButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
             await Assert.That(window.SessionRail.Bounds.Width).IsEqualTo(PaneLayout.RailMinWidth);
             window.Close();
         });
     }
 
+    /// One toggle hides and shows the rail from the same window position, so a second click undoes the first.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Collapsing_the_rail_gives_its_whole_width_to_the_content_and_its_button_brings_it_back() {
+    public async Task Collapsing_the_rail_gives_its_whole_width_to_the_content_and_the_unmoved_toggle_brings_it_back() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var window = new MainWindow { Width = 1400, Height = 800 };
             window.Panes.RailWidth = 400;
             window.Show();
+            window.UpdateLayout();
+            var toggle = window.RailToggleButton;
+            Point Place() => toggle.TranslatePoint(default, window)!.Value;
+            var expanded = Place();
 
-            window.SessionRail.FindControl<Button>("CollapseButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
             await Assert.That(window.Panes.RailCollapsed).IsTrue();
             await Assert.That(window.SessionRail.IsVisible).IsFalse();
             await Assert.That(window.RailSplitter.IsVisible).IsFalse();
             await Assert.That(window.ContentPane.Bounds.X).IsEqualTo(0);
             await Assert.That(window.ContentPane.Bounds.Width).IsEqualTo(1400);
-            await Assert.That(window.RailExpandButton.IsEffectivelyVisible).IsTrue();
-            // In the title-bar band, past the macOS window buttons.
-            var button = window.RailExpandButton.Bounds;
-            await Assert.That(button.Left).IsEqualTo(RailClearance.ButtonOrigin(1).X);
-            await Assert.That(button.Bottom).IsLessThanOrEqualTo(44);
-            await Assert.That(button.Right).IsLessThanOrEqualTo(RailClearance.Leading(1));
+            await Assert.That(toggle.IsEffectivelyVisible).IsTrue();
+            await Assert.That(Place()).IsEqualTo(expanded);
+            await Assert.That(toggle.Bounds.Bottom).IsLessThanOrEqualTo(44);
+            await Assert.That(toggle.Bounds.Right).IsLessThanOrEqualTo(RailClearance.Leading(1));
 
-            window.RailExpandButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
             await Assert.That(window.SessionRail.Bounds.Width).IsEqualTo(400);
-            await Assert.That(window.RailExpandButton.IsVisible).IsFalse();
+            await Assert.That(Place()).IsEqualTo(expanded);
+            window.Close();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_sidebar_shortcut_toggles_the_rail() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var window = new MainWindow { Width = 1400, Height = 800 };
+            var modifier = ShortcutLabels.UsesCommandKey ? RawInputModifiers.Meta : RawInputModifiers.Control;
+            window.Show();
+            window.KeyPressQwerty(PhysicalKey.B, modifier);
+            await Assert.That(window.Panes.RailCollapsed).IsTrue();
+            window.KeyPressQwerty(PhysicalKey.B, modifier);
+            await Assert.That(window.Panes.RailCollapsed).IsFalse();
+            window.Close();
+        });
+    }
+
+    /// Back and forward sit on the toggle's line, so the rail's top row reads as one row of controls.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_rails_history_buttons_share_the_toggles_line() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var window = new MainWindow { Width = 1400, Height = 800 };
+            window.Show();
+            window.UpdateLayout();
+            double Middle(Control c) => c.TranslatePoint(new Point(0, c.Bounds.Height / 2), window)!.Value.Y;
+            var back = window.SessionRail.FindControl<Button>("BackButton")!;
+            await Assert.That(Middle(back)).IsEqualTo(Middle(window.RailToggleButton)).Within(0.5);
             window.Close();
         });
     }
@@ -140,7 +174,7 @@ public class PaneLayoutMemoryTests {
 
             window.Panes.RailCollapsed = true;
             window.UpdateLayout();
-            var button = window.RailExpandButton;
+            var button = window.RailToggleButton;
             await Assert.That(TitleLeft()).IsGreaterThanOrEqualTo(button.Bounds.Right);
 
             window.Panes.RailCollapsed = false;
