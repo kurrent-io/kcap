@@ -487,7 +487,7 @@ public partial class App : Application {
     }
 
     Action<UpdateCandidate> HandOver(string entry) => candidate =>
-        AppUpdateTransition.Begin(entry, _updater.InstalledVersion, candidate.Version, _time).Save(_config);
+        AppUpdateTransition.Begin(entry, _updater.InstalledVersion, candidate.Version, _time, _updates?.DaemonLeftStopped == true).Save(_config);
 
     /// Reads what an update left for this launch. A record for another version is an update that did not apply:
     /// Velopack relaunches the old version after a failed apply, so it is reported rather than finished.
@@ -622,7 +622,7 @@ public partial class App : Application {
     /// From the moment an update is accepted until this process exits, which quiescing can stretch.
     void ShowUpdateClosingWindow() {
         if (_updates?.ReadyVersion is not { } to) return;
-        var window = new UpdateFinishWindow { DataContext = UpdateFinishViewModel.Closing(to, _time) };
+        var window = new UpdateFinishWindow { DataContext = UpdateFinishViewModel.Closing(to, _time, _updates?.DaemonHandoff ?? DaemonHandoff.None) };
         foreach (var other in (ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Windows.ToArray() ?? []) other.Hide();
         window.Show();
         window.Activate();
@@ -954,7 +954,7 @@ public partial class App : Application {
         var expectedRestart = new ExpectedDaemonRestart(service.Status, restartPending.Pending, AppJustUpdated, service.RestartLoopAsync, _time,
             (expected, lasted) => LifecycleLog.Write("daemon_outage_ended", ("expected", expected ? "true" : "false"),
                 ("seconds", lasted.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)), ("after_update", _postUpdate is null ? null : "true")),
-            livePid: () => DaemonPidLiveness.LivePid(_daemonStore, service.DaemonName));
+            livePid: () => DaemonPidLiveness.LivePid(_daemonStore, service.DaemonName), appStartsDaemon: () => _postUpdate?.DaemonStopped == true);
         _expectedRestart = expectedRestart;
         var shownService = new StatusOverlayDaemonClientService(service, expectedRestart.Status);
 
@@ -993,7 +993,8 @@ public partial class App : Application {
                 ShowUpdateClosingWindow();
                 desktop.TryShutdown();
             }), _shutdown.Token,
-            handingOver: HandOver(AppUpdateTransition.InApp), log: LifecycleLog);
+            handingOver: HandOver(AppUpdateTransition.InApp), log: LifecycleLog,
+            daemonStop: UpdateDaemonStop.ForPlatform(OperatingSystem.IsWindows(), lane, _daemonStore, service.DaemonName, expectedRestart, _time));
         _updateCheckSubscription = _updates.CheckProgress.Subscribe(progress =>
             Dispatcher.UIThread.Post(() => ShowUpdateCheckProgress(progress)));
         _updates.Start();

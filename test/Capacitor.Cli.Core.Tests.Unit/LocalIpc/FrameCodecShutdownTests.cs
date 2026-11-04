@@ -62,6 +62,34 @@ public class FrameCodecShutdownTests {
         await Assert.That(ShutdownIpc.Parse("""{"agents":"keep","exit":"final"}""")!.WhenIdle).IsFalse();
     }
 
+    /// <summary>A client that predates <c>at_turn_boundary</c>, every CLI stop among them, is never held.</summary>
+    [Test]
+    public async Task At_turn_boundary_round_trips_and_reads_as_false_when_absent() {
+        var dto = new ShutdownRequestDto("keep", "final", AtTurnBoundary: true);
+
+        await Assert.That(ShutdownIpc.Serialize(dto)).Contains("\"at_turn_boundary\":true");
+        await Assert.That(ShutdownIpc.Parse(ShutdownIpc.Serialize(dto))).IsEqualTo(dto);
+        await Assert.That(ShutdownIpc.Parse("""{"agents":"keep","exit":"final"}""")!.AtTurnBoundary).IsFalse();
+    }
+
+    [Test]
+    public async Task A_held_stop_names_its_wait_in_whole_seconds() {
+        await Assert.That(ShutdownIpc.QueuedFor(TimeSpan.FromMinutes(5))).IsEqualTo("queued:300");
+        await Assert.That(ShutdownIpc.QueuedFor(TimeSpan.FromSeconds(1.2))).IsEqualTo("queued:2");
+        await Assert.That(ShutdownIpc.TryParseQueued("queued:300", out var wait)).IsTrue();
+        await Assert.That(wait).IsEqualTo(TimeSpan.FromMinutes(5));
+    }
+
+    /// <summary>A relaunch's plain "queued" carries no wait, so it never reads as a held stop.</summary>
+    [Test]
+    [Arguments("queued")]
+    [Arguments("stopping")]
+    [Arguments("queued:")]
+    [Arguments("queued:-5")]
+    [Arguments("queued:5s")]
+    public async Task Only_a_queued_ack_with_seconds_reads_as_a_held_stop(string text) =>
+        await Assert.That(ShutdownIpc.TryParseQueued(text, out _)).IsFalse();
+
     [Test]
     public async Task Numeric_values_are_pinned() {
 #pragma warning disable TUnitAssertions0005
