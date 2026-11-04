@@ -346,8 +346,12 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
     /// first. A version carries content and its own response schema only, so an audience passed
     /// alongside is refused rather than dropped.</para>
     /// </summary>
-    internal static (string Url, JsonObject Body) BuildPublishRequest(string baseUrl, JsonObject? args, string html) {
-        if (args?["update_id"] is null) return ($"{baseUrl}/api/artefacts", BuildPublishBody(args, html));
+    internal static (string Url, JsonObject Body) BuildPublishRequest(string baseUrl, JsonObject? args, string html)
+        => BuildPublishRequest(baseUrl, args, html, Environment.GetEnvironmentVariable);
+
+    internal static (string Url, JsonObject Body) BuildPublishRequest(string baseUrl, JsonObject? args, string html,
+                                                                       Func<string, string?> getEnv) {
+        if (args?["update_id"] is null) return ($"{baseUrl}/api/artefacts", BuildPublishBody(args, html, getEnv));
 
         var url = ArtefactUrl(baseUrl, args, "versions", idKey: "update_id");
 
@@ -357,6 +361,7 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
 
         var body = new JsonObject { ["html"] = html };
 
+        if (CitedSessions(args, getEnv) is { } sources) body["sources"] = sources;
         if (ReadResponseSchema(args) is { } schema) body["response_schema"] = schema;
 
         return (url, body);
@@ -412,15 +417,18 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
 
         if (ReadResponseSchema(args) is { } schema) body["response_schema"] = schema;
 
-        // The session is cited without being asked for: a page published mid-session belongs
-        // with the session that produced it, and an agent that has to remember to say so mostly
-        // won't. An explicit session_ids wins when the caller means a different set.
-        if (ReadSessions(args) is { } sessions) body["sources"] = sessions;
-        else if (McpSessionId.TryResolveWithin(null, HarnessRequesterContext.Resolve(getEnv, Directory.Exists).SessionId) is { Length: > 0 } ambient)
-            body["sources"] = new JsonArray((JsonNode?)JsonValue.Create(ambient));
+        if (CitedSessions(args, getEnv) is { } sources) body["sources"] = sources;
 
         return body;
     }
+
+    /// <summary>The session is cited without being asked for, on a new page and on a new version: a
+    /// page belongs with every session that produced it, and an agent that has to remember to say so
+    /// mostly won't. An explicit session_ids wins when the caller means a different set.</summary>
+    static JsonArray? CitedSessions(JsonObject? args, Func<string, string?> getEnv) =>
+        ReadSessions(args) ?? (McpSessionId.TryResolveWithin(null, HarnessRequesterContext.Resolve(getEnv, Directory.Exists).SessionId) is { Length: > 0 } ambient
+            ? new JsonArray((JsonNode?)JsonValue.Create(ambient))
+            : null);
 
     /// <summary>Forwarded whole rather than reshaped: the server owns every rule about what a schema
     /// may declare, and a second interpretation here would be a second place for them to drift.</summary>
@@ -627,7 +635,7 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
                 ["visibility"]  = new("string", "Who may open it: 'none' (only you, the default), 'org' (anyone in the organization), or 'scoped' (only the grants below)."),
                 ["grants"]      = new("array", "Under 'scoped', who may open it.",
                                       new("object", "One audience member: grant_type ('user', 'team' or 'project'), grantee_id, and an optional grantee_name.")),
-                ["session_ids"] = new("array", "Sessions this page came out of. Defaults to the current kcap-hooked session when omitted.",
+                ["session_ids"] = new("array", "Sessions this page came out of; with update_id, added to those it already cites. Defaults to the current kcap-hooked session when omitted.",
                                       new("string", "A session id.")),
                 ["update_id"]   = new("string", "Publish a new version of this existing page instead of creating one. The URL does not change."),
                 ["response_schema"] = new("object",

@@ -1,3 +1,4 @@
+using Capacitor.App.Platform.Mac;
 using Capacitor.App.Services;
 using TUnit.Core.Enums;
 
@@ -87,4 +88,28 @@ public class UninstallFactsSourceTests {
         await Assert.That(UninstallConfirmation.Build(facts).Prompt.Disclosure).Contains("shell profile");
     }
 
+    /// The Windows app reads a `;`-separated terminal PATH with its own finder, and names its user PATH folder.
+    [Test]
+    public async Task A_windows_source_finds_other_installs_and_the_user_path_folder_its_own_way() {
+        var source = Source(terminalPath: _ => Task.FromResult<string?>(@"C:\npm;C:\tools")) with {
+            UserPathFolder    = () => @"C:\kcap\current\bin",
+            FindOtherInstalls = path => [new OtherKcapInstall($"{path}|found", null)],
+        };
+
+        var facts = await source.GatherAsync(CancellationToken.None);
+
+        await Assert.That(facts.UserPathFolder).IsEqualTo(@"C:\kcap\current\bin");
+        await Assert.That(facts.OtherInstalls!.Single().Path).IsEqualTo(@"C:\npm;C:\tools|found");
+    }
+
+    [Test]
+    public async Task An_unreadable_user_path_is_logged_and_left_out() {
+        var log = new StringWriter();
+        var source = Source(log: log) with { UserPathFolder = () => throw new IOException("registry unreadable") };
+
+        var facts = await source.GatherAsync(CancellationToken.None);
+
+        await Assert.That(facts.UserPathFolder).IsNull();
+        await Assert.That(log.ToString()).Contains("registry unreadable");
+    }
 }

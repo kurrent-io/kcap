@@ -158,6 +158,24 @@ static class LocalEmbeddingStep {
         progress.Report(new LocalInstallEvent.EmbeddingsConfigured(model, previous?.Model is { } old && old != model ? old : null));
     }
 
+    /// <summary>The setting chooses keyword search or Ollama outright and its unit is written, so a model set on disk
+    /// serves nothing. No setting, a pending one, or a provider this release does not know proves nothing about what the
+    /// unit serves.</summary>
+    public static bool ModelsUnused(LocalEmbeddingSetting? setting) =>
+        setting is { Pending: false, Provider: LocalEmbeddingProvider.None or LocalEmbeddingProvider.Ollama };
+
+    /// <summary>Deletes every model set and reports the space that came back. Call it under the lifecycle lease, once
+    /// this installation's own server answers from a unit written without the built-in model.</summary>
+    public static void RemoveUnusedModels(LocalRoot root, IProgress<LocalInstallEvent> progress) {
+        var before = LocalModelSets.Size(root);
+        if (before == 0) return;
+
+        LocalModelSets.RemoveAllBut(root);
+
+        var left = LocalModelSets.Size(root);
+        progress.Report(new LocalInstallEvent.EmbeddingBuiltinRemoved(LocalModelSets.Directory(root), before - left, left));
+    }
+
     /// <summary>Puts back what <see cref="LocalEmbeddingFile.Read"/> returned before a change, absence included.</summary>
     public static void Restore(LocalRoot root, LocalEmbeddingSetting? previous) {
         if (previous is null) LocalEmbeddingFile.Delete(root);

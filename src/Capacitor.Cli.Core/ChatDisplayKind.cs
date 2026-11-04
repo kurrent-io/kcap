@@ -11,6 +11,9 @@ public static class ChatDisplayKind {
     /// Any other message one agent sent another inside the same session.
     public const string AgentMessage = "agent_message";
 
+    /// The harness's record that a background subagent or command finished.
+    public const string TaskNotification = "task_notification";
+
     /// The summary the harness carries into a compacted conversation.
     public const string CompactSummary = "compact_summary";
 

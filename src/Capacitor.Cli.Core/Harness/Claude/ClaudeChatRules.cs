@@ -278,7 +278,7 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         if (summary.Length > 0) parts.Add($"**{summary}**");
         if (body.Length > 0) parts.Add(body);
         var text = parts.Count > 0 ? string.Join("\n\n", parts) : TaskWrapper().Replace(raw, "").Trim();
-        return text.Length == 0 ? null : envelope with { Kind = AcpEventKind.SystemNote, Text = text };
+        return text.Length == 0 ? null : envelope with { Kind = AcpEventKind.SystemNote, Text = text, ToolKind = ChatDisplayKind.TaskNotification };
     }
 
     /// Removes the blocks Claude Code injects around a user turn: reminders and slash-command

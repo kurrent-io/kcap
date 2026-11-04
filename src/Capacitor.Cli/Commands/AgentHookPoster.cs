@@ -332,14 +332,7 @@ internal sealed class AgentHookPoster(
                 ["ended_at"]        = time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture),
             };
             SessionEndIncarnation.Stamp(end, origin.AgentId, origin.DaemonEpoch);
-            var body = end.ToJsonString();
-            // An earlier end of a session since resumed left a marker that would discard this one.
-            // What is spooled behind it are that run's stragglers, dropped as the drain would drop them.
-            if (spool.IsMarkedEnded(session.Session.Value)) {
-                spool.DiscardRemainder(session.Session.Value);
-                spool.ClearEnded(session.Session.Value);
-            }
-            if (spool.Append(session.Session.Value, $"session-end/{vendor}", body)) spooled++;
+            if (spool.Append(session.Session.Value, $"session-end/{vendor}", end.ToJsonString())) spooled++;
         }
 
         return spooled;
@@ -404,11 +397,13 @@ internal sealed class AgentHookPoster(
             }
 
             using var content = new StringContent(body, Encoding.UTF8, "application/json");
+            var startSnapshot = route.StartsWith("session-start", StringComparison.Ordinal) ? spool.RunStartSnapshot(sessionId) : null;
 
             try {
                 using var resp = await client.PostWithRetryAsync($"{Url}/hooks/{endpoint}", content, time, timeout: budget?.Remaining);
 
                 if (resp.IsSuccessStatusCode) {
+                    spool.NoteRunStarted(sessionId, startSnapshot);
                     return HookPostOutcome.Posted;
                 }
 

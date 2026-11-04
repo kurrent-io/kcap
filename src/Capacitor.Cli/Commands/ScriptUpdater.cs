@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Install;
+using Capacitor.Cli.LocalEdition;
 
 namespace Capacitor.Cli.Commands;
 
@@ -121,7 +122,7 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
             TryWriteMarker(layout, channel, stderr);
             await stdout.WriteLineAsync($"Installed kcap {version} to {layout.Root}");
 
-            var pruned = PruneVersions(layout, keep: [dest, previous]);
+            var pruned = PruneVersions(layout, keep: [dest, previous], stderr);
             if (pruned > 0) await stdout.WriteLineAsync($"Removed {pruned} unused kcap version{(pruned == 1 ? "" : "s")}.");
 
             return true;
@@ -166,35 +167,106 @@ public sealed partial class ScriptUpdater(KcapReleaseClient releases) {
     /// Deletes the version directories and moved-aside copies an update leaves behind, keeping
     /// <paramref name="keep"/>: the new version and the one it replaced, which a daemon or agent started
     /// before the switch is likely still running. Anything else in use stays too. Returns how many went.
+    ///
+    /// <para>Only an installed version is deleted: one holding kcap's binary, under the install root's real
+    /// <c>versions</c>, and reached through no link. What a link reaches is not kcap's to empty, however
+    /// version-like its names, so a linked <c>versions</c> (a junction on Windows) prunes nothing.</para>
+    ///
+    /// <para>A version is renamed to a <c>.pruning-</c> name before it is deleted, so one whose delete fails
+    /// partway still reads as kcap's once its binary is gone: only kcap makes that name, and the next prune
+    /// finishes it.</para>
     /// </summary>
-    internal int PruneVersions(ScriptInstallLayout layout, IEnumerable<string?> keep) {
-        var kept = keep.OfType<string>().ToArray();
+    internal int PruneVersions(ScriptInstallLayout layout, IEnumerable<string?> keep, TextWriter stderr) {
         var pruned = 0;
 
-        IEnumerable<DirectoryInfo> candidates;
+        string[] candidates;
+        string root;
         try {
-            candidates = new DirectoryInfo(layout.Versions).EnumerateDirectories()
-                .Where(d => d.LinkTarget is null)
-                .Where(d => ReleaseManifest.IsValidVersion(d.Name) || d.Name.StartsWith(".replaced-", StringComparison.Ordinal))
-                .Where(d => !kept.Any(k => PathsEqual(k, d.FullName)))
+            if (!CanonicalPath.TryResolve(layout.Root, out root)) return 0;
+
+            var versions = new DirectoryInfo(Path.Combine(root, ScriptInstallLayout.VersionsName));
+            if (!versions.Exists || IsLink(versions)) return 0;
+
+            var kept = keep.OfType<string>().Select(CanonicalPath.Resolve).ToArray();
+            candidates = versions.EnumerateDirectories()
+                .Where(d => IsPruning(d.Name) || (IsVersionName(d.Name) && !kept.Any(k => PathsEqual(k, d.FullName))))
+                .Select(d => d.FullName)
+                .Where(d => IsDeletable(root, d))
                 .ToArray();
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return 0;
         }
 
         foreach (var dir in candidates) {
-            if (InUse(dir.FullName)) continue;
+            if (InUse(dir)) continue;
 
+            var name = Path.GetFileName(dir);
             try {
-                dir.Delete(recursive: true);
+                // Checked again here: a path names no handle, so a component swapped for a link since the listing
+                // would aim the rename or the delete somewhere else.
+                if (!IsDeletable(root, dir)) continue;
+
+                var pruning = dir;
+                if (!IsPruning(name)) {
+                    pruning = Path.Combine(Path.GetDirectoryName(dir)!, PruningName(name, Guid.NewGuid()));
+                    Directory.Move(dir, pruning);
+                }
+
+                LocalTree.Remove(pruning);
                 pruned++;
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                // Started after the probe, or not ours to delete: the next update tries again.
+                stderr.WriteLine($"Could not remove the unused kcap version {name}: {ex.Message} The next update tries again.");
             }
         }
 
         return pruned;
     }
+
+    static bool IsVersionName(string name) =>
+        ReleaseManifest.IsValidVersion(name) || name.StartsWith(".replaced-", StringComparison.Ordinal);
+
+    const string PruningPrefix = ".pruning-";
+
+    /// <summary>The name a version is renamed to while it is deleted. <see cref="IsPruning"/> accepts exactly this
+    /// form and nothing else, because the name alone is what marks such a directory as kcap's.</summary>
+    static string PruningName(string version, Guid id) => $"{PruningPrefix}{version}-{id:N}";
+
+    static bool IsPruning(string name) {
+        const int idLength = 32;
+        if (!name.StartsWith(PruningPrefix, StringComparison.Ordinal) || name.Length < PruningPrefix.Length + 1 + idLength + 1)
+            return false;
+
+        var version = name[PruningPrefix.Length..^(idLength + 1)];
+        var id      = name[^idLength..];
+
+        return name[^(idLength + 1)] == '-' && IsVersionName(version) && Guid.TryParseExact(id, "N", out var parsed)
+            && PruningName(version, parsed) == name;
+    }
+
+    static bool IsDeletable(string root, string dir) =>
+        IsPruning(Path.GetFileName(dir)) ? IsUnlinkedVersionsEntry(root, dir) : IsInstalledVersion(root, dir);
+
+    /// <summary>Whether <paramref name="dir"/> holds kcap's binary and every component down to it, from the
+    /// resolved <paramref name="root"/>, is a real directory rather than a link.</summary>
+    static bool IsInstalledVersion(string root, string dir) =>
+        IsUnlinkedVersionsEntry(root, dir) && ExecutableNames.Any(name => {
+            var exe = Path.Combine(dir, "bin", name);
+            return File.Exists(exe) && CanonicalPath.TryResolve(exe, out var real) && PathsEqual(real, exe);
+        });
+
+    /// <summary>Whether <paramref name="dir"/> is a directory in the resolved <paramref name="root"/>'s
+    /// <c>versions</c>, reached through no link.</summary>
+    static bool IsUnlinkedVersionsEntry(string root, string dir) {
+        var versions = new DirectoryInfo(Path.Combine(root, ScriptInstallLayout.VersionsName));
+        var entry    = new DirectoryInfo(dir);
+        if (!versions.Exists || IsLink(versions) || !entry.Exists || IsLink(entry)) return false;
+
+        return CanonicalPath.TryResolve(dir, out var real) && PathsEqual(real, dir);
+    }
+
+    static readonly string[] ExecutableNames = ["kcap", "kcap.exe"];
+
+    static bool IsLink(DirectoryInfo dir) => dir.Attributes.HasFlag(FileAttributes.ReparsePoint) || dir.LinkTarget is not null;
 
     /// <summary>
     /// True when a file in <paramref name="dir"/> cannot be opened exclusively for writing. A running

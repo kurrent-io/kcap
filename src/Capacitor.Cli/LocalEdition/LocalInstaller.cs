@@ -209,6 +209,8 @@ sealed class LocalInstaller(
         LocalInstallFailure NotOurs() => new(LocalInstallFailureCode.NotOurServer,
             $"The {service.Describe} {service.Name(unit)} ({service.UnitFile(unit)}) is not provably this installation's, so it was left alone and the profile was not changed.");
 
+        var removeModels = false;
+
         try {
             if (!File.Exists(unit.ServerBinary)) {
                 // Decided before bin/ is touched: a refusal must leave the installation as it found it.
@@ -219,7 +221,7 @@ sealed class LocalInstaller(
                 await RestageAsync(details, ct);
             }
 
-            unit = await ReuseEmbeddingsAsync(unit, answers, NotOurs, ct);
+            (unit, removeModels) = await ReuseEmbeddingsAsync(unit, answers, NotOurs, ct);
         } finally {
             unitLock.Dispose();
         }
@@ -232,6 +234,8 @@ sealed class LocalInstaller(
         if (await LocalServerProbe.AuthConfigAsync(local, unit.BaseUrl, ct) != AuthConfigAnswer.Lifted)
             throw new LocalInstallFailure(LocalInstallFailureCode.NotOurServer,
                 $"Something other than this installation's local server answers on {unit.BaseUrl}, so the profile was not changed.");
+
+        if (removeModels) LocalEmbeddingStep.RemoveUnusedModels(root, _progress);
 
         ct.ThrowIfCancellationRequested();
 
@@ -251,8 +255,10 @@ sealed class LocalInstaller(
 
     /// <summary>A pending setting forces the next setup to rewrite the unit. A refused rewrite preserves the old
     /// choice, but built-in changes stay pending because the server loads its model only once.</summary>
-    /// <returns>The unit as installed.</returns>
-    async Task<LocalServerUnit> ReuseEmbeddingsAsync(LocalServerUnit unit, LocalInstallAnswers answers, Func<LocalInstallFailure> notOurs,
+    /// <returns>The unit as installed, and whether it is known to serve an explicit choice that leaves the built-in
+    /// model unused: written this run, or settled by an earlier one. A missing record cannot say what an existing unit
+    /// serves, so then the unit is rewritten first.</returns>
+    async Task<(LocalServerUnit Unit, bool RemoveModels)> ReuseEmbeddingsAsync(LocalServerUnit unit, LocalInstallAnswers answers, Func<LocalInstallFailure> notOurs,
         CancellationToken ct) {
         // Check ownership before pulling a model.
         var owner = service.Owner(unit);
@@ -275,8 +281,13 @@ sealed class LocalInstaller(
 
         if (rewrite) unit = unit with { Embedding = target };
 
+        var settled   = !rewrite && LocalEmbeddingStep.ModelsUnused(previous);
+        var clearing  = !settled && LocalEmbeddingStep.ModelsUnused(target ?? previous) && LocalModelSets.Size(root) > 0;
+        var installed = false;
+        if (clearing && !rewrite) unit = unit with { Embedding = target ?? previous };
+
         try {
-            LocalOwnUnit.Ensure(root, unit, service, notOurs, startPresent: true, replace: rewrite);
+            installed = LocalOwnUnit.Ensure(root, unit, service, notOurs, startPresent: true, replace: rewrite || clearing);
         } catch (LocalInstallFailure refused) when (rewrite) {
             try {
                 LocalEmbeddingStep.Restore(root,
@@ -290,13 +301,15 @@ sealed class LocalInstaller(
             throw;
         }
 
-        if (target is null) return unit;
+        var removeModels = (installed || settled) && LocalEmbeddingStep.ModelsUnused(unit.Embedding);
+
+        if (target is null) return (unit, removeModels);
 
         if (rewrite && (!repairing || previous?.ModelSetId != target.ModelSetId)) LocalEmbeddingStep.Applied(previous, target, _progress);
 
         LocalEmbeddingStep.Record(root, target, _progress);
 
-        return unit;
+        return (unit, removeModels);
     }
 
     /// <returns>The embedding setting to record, or null when the recorded one stands.</returns>

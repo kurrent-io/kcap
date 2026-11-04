@@ -82,9 +82,23 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     string _worktree = "—";
     public string Worktree { get => _worktree; private set => this.RaiseAndSetIfChanged(ref _worktree, value); }
     string? _worktreePath;
-    public string? WorktreePath { get => _worktreePath; private set => this.RaiseAndSetIfChanged(ref _worktreePath, value); }
+    public string? WorktreePath {
+        get => _worktreePath;
+        private set {
+            this.RaiseAndSetIfChanged(ref _worktreePath, value);
+            this.RaisePropertyChanged(nameof(CanCopyWorktree));
+        }
+    }
+    public bool CanCopyWorktree => !string.IsNullOrEmpty(_worktreePath);
     string _branch = "—";
-    public string Branch { get => _branch; private set => this.RaiseAndSetIfChanged(ref _branch, value); }
+    public string Branch {
+        get => _branch;
+        private set {
+            this.RaiseAndSetIfChanged(ref _branch, value);
+            this.RaisePropertyChanged(nameof(CanCopyBranch));
+        }
+    }
+    public bool CanCopyBranch => _branch != "—";
     string _harness = "—";
     public string Harness { get => _harness; private set => this.RaiseAndSetIfChanged(ref _harness, value); }
     string _tokens = SessionFactText.Unknown;
@@ -371,6 +385,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     void OnDto(AgentStatusDto? dto) {
         if (_tornDown || dto is null) return;
         _dto = dto;
+        // The chat reads a local agent's transcript by its path and a remote one by its session id.
+        if (Artefacts is not null) Artefacts.TranscriptKey = _isRemote ? dto.SessionId : dto.TranscriptPath;
         UpdateFacts(dto);
         HasAgent = true;
         this.RaisePropertyChanged(nameof(ShowsPeople));
@@ -435,6 +451,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         if (_dto is not null) ResolveBranch(refresh: true);
         Plan.Refresh();
         if (Artefacts is { IsShown: true } or { LastReadFailed: true }) Artefacts.Refresh();
+        else Artefacts?.RefreshPages();
         _reader.StartIfIdle();
     }
 

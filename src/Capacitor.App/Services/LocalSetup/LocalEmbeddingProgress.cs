@@ -11,7 +11,7 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
     long _bytes;
     double? _pullFraction;
     bool _pulling, _builtin;
-    string? _model, _configuredModel, _replacedModel, _skipCode, _skipMessage;
+    string? _model, _configuredModel, _replacedModel, _skipCode, _skipMessage, _removed;
 
     const string BuiltinName = "the built-in model";
     const string KeywordAsChosen = "Search by keyword, as chosen.";
@@ -65,8 +65,11 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
 
     public bool Skipped => SkipCode is not null;
 
-    /// How search works once the step ended; null while it runs or when it never reported.
-    public string? Summary => ConfiguredModel is { } model
+    /// How search works once the step ended, then what became of a built-in model it left unused; null while it runs
+    /// or when it never reported.
+    public string? Summary => _removed is null ? Outcome : Outcome is { } outcome ? $"{outcome} {_removed}" : _removed;
+
+    string? Outcome => ConfiguredModel is { } model
         ? $"Search by meaning with {model}."
         : SkipCode switch {
             null                                 => null,
@@ -157,6 +160,9 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
                 SkipMessage = root.Str("message");
                 SkipCode    = root.Str("code") ?? "unknown";
                 End(RowState.Skipped);
+                break;
+            case "embeddings_builtin_removed":
+                _removed = TerminalAdvice.Strip(root.Str("message"));
                 break;
             default:
                 return false;

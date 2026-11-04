@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Reactive.Linq;
+using System.Runtime.InteropServices;
 using Capacitor.App.Platform.Linux;
+using Capacitor.App.Platform.Windows;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core;
@@ -71,6 +73,41 @@ public class UninstallModeTests {
 
         await Assert.That(run).IsNotNull();
         await Assert.That(handed!.Image).IsEqualTo(image);
+    }
+
+    /// <summary>Only a Velopack install whose updater is still on disk may reach the removal, which hands it to that updater.</summary>
+    [Test]
+    public async Task A_windows_run_needs_the_velopack_updater() {
+        var cli     = new FakeKcapCli();
+        var removal = new Removal();
+        var install = new VelopackInstall(Tmp.CreateDir("kcap").Path, Tmp.PathTo("kcap", VelopackRoot.UpdateExe), Tmp.PathTo("kcap", "current", "bin", "kcap.exe"));
+        VelopackInstall? handed = null;
+
+        await Assert.That(new UninstallMode(false).BuildVelopackRun(null, _ => removal, cli, () => { })).IsNull();
+        await Assert.That(new UninstallMode(false).BuildVelopackRun(install, _ => removal, cli, () => { })).IsNull();
+
+        Tmp.CreateFile(Path.Combine("kcap", VelopackRoot.UpdateExe));
+        var run = new UninstallMode(true).BuildVelopackRun(install, i => { handed = i; return removal; }, cli, () => { });
+
+        await Assert.That(run).IsNotNull();
+        await Assert.That(handed).IsEqualTo(install);
+    }
+
+    /// <summary>The app offers its uninstall from the install its platform has, and reads no other: a macOS bundle,
+    /// an AppImage, or a Velopack install on Windows.</summary>
+    [Test]
+    public async Task Each_platform_offers_the_uninstall_from_its_own_install_only() {
+        static string? Root(OSPlatform os, string? found) => Capacitor.App.App.UninstallRoot(os,
+            () => os == OSPlatform.OSX ? found : throw new InvalidOperationException("mac bundle read"),
+            () => os == OSPlatform.Linux ? found : throw new InvalidOperationException("appimage read"),
+            () => os == OSPlatform.Windows ? found : throw new InvalidOperationException("velopack read"));
+
+        await Assert.That(Root(OSPlatform.OSX, "/Applications/kcap.app")).IsEqualTo("/Applications/kcap.app");
+        await Assert.That(Root(OSPlatform.OSX, null)).IsNull();
+        await Assert.That(Root(OSPlatform.Linux, "/home/me/.local/share/kcap/appimage")).IsEqualTo("/home/me/.local/share/kcap/appimage");
+        await Assert.That(Root(OSPlatform.Windows, @"C:\Users\me\AppData\Local\kcap")).IsEqualTo(@"C:\Users\me\AppData\Local\kcap");
+        await Assert.That(Root(OSPlatform.Windows, null)).IsNull();
+        await Assert.That(Root(OSPlatform.FreeBSD, "/anywhere")).IsNull();
     }
 
     [Test]

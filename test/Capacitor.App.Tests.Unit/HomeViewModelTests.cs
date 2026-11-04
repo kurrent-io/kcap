@@ -1738,6 +1738,23 @@ public class HomeViewModelTests {
         });
     }
 
+    /// A daemon whose process is up but not yet serving is starting, shown in progress, never as down.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_starting_daemon_is_explained_not_reported_as_down() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            var daemon = new FakeDaemonClientService();
+            using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
+
+            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, ExpectedDaemonRestart.StartingReason, null));
+
+            await Assert.That(vm.ConnectionNotice).IsEqualTo(HomeViewModel.DaemonStartingNotice);
+            await Assert.That(vm.BannerMessage).IsEqualTo(HomeViewModel.DaemonStartingNotice);
+            await Assert.That(vm.BannerBusy).IsTrue();
+        });
+    }
+
     /// A remote selection's notices/tooltip/Start-enabled must follow the SELECTED machine's own
     /// availability (RemoteAvailabilityFor), never the local daemon's — a local daemon left down
     /// or disconnected must never leak its own notice into a remote pick, and a lane loss under a

@@ -100,10 +100,14 @@ public class McpArtefactsServerTests {
         });
     }
 
+    /// <summary>A new version cites the session too, so a page revised from a later session is listed there.</summary>
     [Test]
-    public async Task Publish_body_cites_claude_code_session_id_in_mcp_stdio_env() {
-        var body = McpArtefactsServer.BuildPublishBody(
-            Args("""{"title":"Plan"}"""),
+    [Arguments("""{"title":"Plan"}""")]
+    [Arguments("""{"title":"Plan","update_id":"a1"}""")]
+    public async Task A_publish_or_a_revision_cites_claude_code_session_id_in_mcp_stdio_env(string args) {
+        var (_, body) = McpArtefactsServer.BuildPublishRequest(
+            "https://kcap.test",
+            Args(args),
             "<p>x</p>",
             name => name == ClaudeSessionIdEnvVar ? "69849952-6dcc-484c-81cc-ccf504b1a807" : null);
 

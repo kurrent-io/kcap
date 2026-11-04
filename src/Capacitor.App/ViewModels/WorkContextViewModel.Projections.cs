@@ -256,7 +256,6 @@ public sealed partial class WorkContextViewModel {
         _layout.PropertyChanged += OnLayoutChanged;
         _disposables.Add(System.Reactive.Disposables.Disposable.Create(() => _layout.PropertyChanged -= OnLayoutChanged));
         ToggleRunsCommand = Toggle(() => RunsExpanded = !RunsExpanded);
-        WatchOwnWorktree();
     }
 
     ReactiveCommand<Unit, Unit> Toggle(Action flip) {

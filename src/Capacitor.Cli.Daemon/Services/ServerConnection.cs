@@ -1067,11 +1067,13 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             string agentId, string? prompt, string? model, string? effort, string? repoPath,
             string? sandboxPolicy = null, string? approvalPolicy = null, string? permissionPreset = null,
             string? runtimeTransport = null, string? vendor = null, AgentStartTitle? title = null, string? continuesAgentId = null,
-            string? accountDirectory = null, string? accountId = null, string? accountLabel = null) {
+            string? accountDirectory = null, string? accountId = null, string? accountLabel = null,
+            string? resumedSessionId = null, bool resumeFirstAnnounce = false) {
         var activeCount = GetActiveCount?.Invoke();
         var registration = new AgentRegistered(
             agentId, prompt, model, effort, repoPath, sandboxPolicy, approvalPolicy, permissionPreset, runtimeTransport,
-            title?.Text, title?.Derived ?? false, activeCount?.Count, activeCount?.Version, vendor, continuesAgentId, accountDirectory, accountId, accountLabel);
+            title?.Text, title?.Derived ?? false, activeCount?.Count, activeCount?.Version, vendor, continuesAgentId, accountDirectory, accountId, accountLabel,
+            resumedSessionId, resumeFirstAnnounce);
         var connection = CurrentConnectionId ?? "";
 
         if (!string.Equals(Volatile.Read(ref _registrationAckMissingOn), connection, StringComparison.Ordinal)) {
@@ -1085,7 +1087,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
         await InvokeAgentRegisteredRawAsync(registration);
 
-        return AgentRegisteredResponse.Accepted;
+        return AgentRegisteredResponse.Unanswered;
     }
 
     /// <summary>The connection id on which the server answered <c>AgentRegisteredAcked</c> as an unknown method.</summary>

@@ -201,6 +201,19 @@ public class LocalSetupProgressTests {
         await Assert.That(p.Embeddings.Summary).IsEqualTo("Search by keyword, as chosen.");
     }
 
+    [Test]
+    public async Task A_removed_builtin_model_is_told_after_how_search_works_without_its_command() {
+        const string Declined = "{\"v\":1,\"event\":\"embeddings_skipped\",\"code\":\"declined\",\"message\":\"Search by meaning is off; search works by keyword.\"}";
+
+        var removed = Run(Declined,
+            "{\"v\":1,\"event\":\"embeddings_builtin_removed\",\"path\":\"/r/models\",\"bytes\":2097152,\"message\":\"Removed the built-in search model from /r/models, freeing 2 MB.\"}");
+        var kept = Run(Declined,
+            "{\"v\":1,\"event\":\"embeddings_builtin_removed\",\"path\":\"/r/models\",\"bytes\":0,\"message\":\"The built-in search model in /r/models (3 MB) could not be removed; kcap setup --local removes it once nothing holds it open.\"}");
+
+        await Assert.That(removed.Embeddings.Summary).IsEqualTo("Search by keyword, as chosen. Removed the built-in search model from /r/models, freeing 2 MB.");
+        await Assert.That(kept.Embeddings.Summary).IsEqualTo("Search by keyword, as chosen. The built-in search model in /r/models (3 MB) could not be removed.");
+    }
+
     /// Keyword search left as the recommendation passes no flag, so setup still probes Ollama and reports it missing.
     [Test]
     public async Task A_skip_after_keyword_search_was_asked_for_reads_as_that_choice() {

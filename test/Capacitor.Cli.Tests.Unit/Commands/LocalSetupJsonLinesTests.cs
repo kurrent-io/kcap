@@ -72,6 +72,12 @@ internal sealed class LocalSetupJsonLinesTests {
             """{"v":1,"event":"embeddings_configured","provider":"builtin"}""");
         yield return () => (new LocalInstallEvent.EmbeddingBuiltinConfigured("mxbai-embed-large"),
             """{"v":1,"event":"embeddings_configured","provider":"builtin","replaced_model":"mxbai-embed-large"}""");
+        yield return () => (new LocalInstallEvent.EmbeddingBuiltinRemoved("/r/models", 2_097_152, 0),
+            """{"v":1,"event":"embeddings_builtin_removed","bytes":2097152,"path":"/r/models","message":"Removed the built-in search model from /r/models, freeing 2 MB."}""");
+        yield return () => (new LocalInstallEvent.EmbeddingBuiltinRemoved("/r/models", 1_048_576, 2_097_152),
+            """{"v":1,"event":"embeddings_builtin_removed","bytes":1048576,"path":"/r/models","message":"The built-in search model in /r/models was only partly removed, freeing 1 MB and leaving 2 MB; kcap setup --local removes the rest once nothing holds it open."}""");
+        yield return () => (new LocalInstallEvent.EmbeddingBuiltinRemoved("/r/models", 0, 3_145_728),
+            """{"v":1,"event":"embeddings_builtin_removed","bytes":0,"path":"/r/models","message":"The built-in search model in /r/models (3 MB) could not be removed; kcap setup --local removes it once nothing holds it open."}""");
         yield return () => (new LocalInstallEvent.EmbeddingsSkipped(LocalEmbeddingSkipCode.BuiltinUnavailable, "No model."),
             """{"v":1,"event":"embeddings_skipped","code":"builtin_unavailable","message":"No model."}""");
         yield return () => (new LocalInstallEvent.EmbeddingsSkipped(LocalEmbeddingSkipCode.ModelDownloadFailed, "Failed."),
@@ -109,4 +115,18 @@ internal sealed class LocalSetupJsonLinesTests {
     [MethodDataSource(nameof(Failures))]
     public async Task An_escaping_exception_maps_to_its_code(Exception error, LocalInstallFailureCode code) =>
         await Assert.That(LocalSetupJsonLines.Classify(error).Code).IsEqualTo(code);
+
+    /// <summary>A script on Windows tells an unpublished bundle from a failed install by setup's exit, as it can by
+    /// fetch's; elsewhere setup keeps the plain failure.</summary>
+    [Test]
+    [Arguments(true, SetupExit.NotPublished)]
+    [Arguments(false, SetupExit.Failed)]
+    public async Task An_unpublished_bundle_has_its_own_exit_only_on_windows(bool windows, int exit) =>
+        await Assert.That(LocalSetupJsonLines.Exit(LocalInstallFailureCode.BundleNotPublished, windows)).IsEqualTo(exit);
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_download_failure_stays_a_plain_failure_on_every_platform(bool windows) =>
+        await Assert.That(LocalSetupJsonLines.Exit(LocalInstallFailureCode.DownloadFailed, windows)).IsEqualTo(SetupExit.Failed);
 }

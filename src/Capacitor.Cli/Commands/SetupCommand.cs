@@ -3296,12 +3296,15 @@ sealed class SetupCommand(
     }
 
     /// <summary>
-    /// Codex runs only hooks the user has trusted, so installed hooks record nothing until then. Null when
-    /// this run installed no Codex hooks.
+    /// Codex runs only hooks the user has trusted, so installed hooks record nothing until then. Codex offers
+    /// no command that trusts them: only its interactive prompt, <c>/hooks</c>, or the desktop app's settings,
+    /// and a per-run bypass flag. Null when this run installed no Codex hooks.
     /// </summary>
     internal static string? CodexTrustReminder(CodingAgentsStep.Result result) => result.CodexHooksInstalled
-        ? "  [yellow]![/] Codex records nothing until you trust the kcap hooks: accept the prompt on the next "
-        + "[cyan]codex[/] launch, or in the Codex desktop app use Settings → Hooks."
+        ? "  [yellow]![/] Codex records nothing until you trust the kcap hooks, and [cyan]codex exec[/] never shows "
+        + "the trust prompt. Run [cyan]codex[/] once and accept it (or trust them in /hooks), or in the Codex desktop app "
+        + "use Settings → Hooks. A script that only runs [cyan]codex exec[/] can pass "
+        + "[cyan]--dangerously-bypass-hook-trust[/] to each run instead."
         : null;
 
     /// <summary>

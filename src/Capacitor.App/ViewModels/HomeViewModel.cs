@@ -83,6 +83,8 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         "The daemon isn't running. Agents can't start until it's back.";
     internal const string DaemonRestartingNotice =
         "The daemon is restarting to update. It reconnects on its own.";
+    internal const string DaemonStartingNotice =
+        "The daemon is starting. It connects on its own once it is ready.";
     internal const string DaemonIncompatibleNotice =
         "The app and daemon versions don't match. Update both, then reconnect.";
     internal const string ServerLostNotice     = "Not connected to the server. Sign in again to reconnect.";
@@ -1238,6 +1240,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             return status.Reason switch {
                 IncompatibleReason => DaemonIncompatibleNotice,
                 ExpectedDaemonRestart.Reason => DaemonRestartingNotice,
+                ExpectedDaemonRestart.StartingReason => DaemonStartingNotice,
                 _ => DaemonDownNotice,
             };
 
@@ -1283,7 +1286,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
 
     static bool BannerInFlight((string? Message, string? Detail) content) =>
         content.Detail is { } detail ? InFlight(detail)
-            : BusyNotice(content.Message) || InFlight(content.Message) || content.Message == DaemonRestartingNotice;
+            : BusyNotice(content.Message) || InFlight(content.Message) || content.Message is DaemonRestartingNotice or DaemonStartingNotice;
 
     /// A lifecycle status still waiting on something, which the banner shows with a spinner. Every
     /// in-flight status ends in an ellipsis; no failure does.

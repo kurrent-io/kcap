@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -70,6 +71,26 @@ public static class LocalModelSets {
             // models/ could not be listed; nothing was removed.
         }
     }
+
+    /// <summary>The bytes held by what <see cref="RemoveAllBut"/> would consider, following no link; 0 when <c>models/</c>
+    /// is absent or cannot be listed.</summary>
+    public static long Size(LocalRoot root) {
+        try {
+            var models = new DirectoryInfo(Directory(root));
+            if (!models.Exists || models.LinkTarget is not null) return 0;
+
+            var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true };
+
+            return models.EnumerateDirectories()
+                .Where(set => set.LinkTarget is null && (ReleaseManifest.IsValidSha256(set.Name) || IsLeftover(set.Name)))
+                .SelectMany(set => set.EnumerateFiles("*", options))
+                .Sum(file => file.Length);
+        } catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+            return 0;
+        }
+    }
+
+    public static string Megabytes(long bytes) => (bytes / (1024.0 * 1024.0)).ToString("0", CultureInfo.InvariantCulture);
 
     static bool IsLeftover(string name) =>
         name.StartsWith(PartialPrefix, StringComparison.Ordinal) || name.StartsWith(StalePrefix, StringComparison.Ordinal);

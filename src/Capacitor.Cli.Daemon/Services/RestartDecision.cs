@@ -16,9 +16,9 @@ public static class RestartDecision {
         baseline is { } b && current is { } c && b != c;
 
     /// <summary>
-    /// Fires when a restart is queued and the daemon is not busy. A self-detected restart also waits
-    /// for a turn boundary, up to the wait bound; an explicit or forced one never waits.
+    /// Fires when a restart is queued and the daemon is not busy. A self-detected or turn-boundary restart also
+    /// waits for a turn boundary, up to the wait bound; any other explicit or forced one never waits.
     /// </summary>
-    public static bool ShouldFire(bool pending, bool busy, bool force, bool selfDetected, bool atTurnBoundary, bool waitExpired) =>
-        pending && !busy && (force || !selfDetected || atTurnBoundary || waitExpired);
+    public static bool ShouldFire(bool pending, bool busy, bool force, bool waitsForTurn, bool atTurnBoundary, bool waitExpired) =>
+        pending && !busy && (force || !waitsForTurn || atTurnBoundary || waitExpired);
 }

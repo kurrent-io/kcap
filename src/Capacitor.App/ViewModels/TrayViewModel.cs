@@ -251,11 +251,11 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
     /// Pure mapping, precedence top-down.
     internal static (TrayState State, int Count) Project(AttachStatus status, DaemonStatusDto? snap) {
         if (status.State == AttachState.Unreachable) {
-            // daemon_unreachable → Stopped; an expected restart reads as connecting. daemon_incompatible
-            // and any other reason collapse to Attention — the header distinguishes them (HeaderText).
+            // daemon_unreachable → Stopped; an expected restart or a starting daemon reads as connecting.
+            // daemon_incompatible and any other reason collapse to Attention — the header distinguishes them (HeaderText).
             return status.Reason switch {
                 UnreachableReason => (TrayState.Stopped, 0),
-                ExpectedDaemonRestart.Reason => (TrayState.Connecting, 0),
+                ExpectedDaemonRestart.Reason or ExpectedDaemonRestart.StartingReason => (TrayState.Connecting, 0),
                 _ => (TrayState.Attention, 0),
             };
         }
@@ -338,7 +338,11 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             ? PendingBody(pendingSummary, pendingConsent, remoteSessionsNeedingAttention, usageLimits, terminalDialogs)
             : state switch {
                 TrayState.Stopped    => "not running",
-                TrayState.Connecting => status.Reason == ExpectedDaemonRestart.Reason ? "restarting…" : "connecting…",
+                TrayState.Connecting => status.Reason switch {
+                    ExpectedDaemonRestart.Reason => "restarting…",
+                    ExpectedDaemonRestart.StartingReason => "starting…",
+                    _ => "connecting…",
+                },
                 TrayState.Idle       => "connected — no agents",
                 TrayState.Running    => status.State == AttachState.Unreachable
                     ? $"not running — {count} agent(s) on other machines"

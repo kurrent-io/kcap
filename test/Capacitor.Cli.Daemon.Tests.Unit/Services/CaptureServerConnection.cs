@@ -201,6 +201,9 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>The agent each registration says it continues, in call order.</summary>
     public List<(string AgentId, string? ContinuesAgentId)> AgentRegisteredContinues { get; } = [];
 
+    /// <summary>The resumed session and first-announce flag each registration carries, in call order.</summary>
+    public List<(string AgentId, string? ResumedSessionId, bool FirstAnnounce)> AgentRegisteredResumes { get; } = [];
+
     /// <summary>The server's answer per agent id; accepted when unset or null.</summary>
     public Func<string, AgentRegisteredResponse?>? RegistrationResponse { get; set; }
 
@@ -208,9 +211,11 @@ sealed class CaptureServerConnection : ServerConnection {
         string  agentId,              string? prompt, string? model, string? effort, string? repoPath,
         string? sandboxPolicy = null, string? approvalPolicy = null, string? permissionPreset = null,
         string? runtimeTransport = null, string? vendor = null, AgentStartTitle? title = null, string? continuesAgentId = null,
-        string? accountDirectory = null, string? accountId = null, string? accountLabel = null) {
+        string? accountDirectory = null, string? accountId = null, string? accountLabel = null,
+        string? resumedSessionId = null, bool resumeFirstAnnounce = false) {
         AgentRegisteredCallCount++;
         lock (AgentRegisteredContinues) AgentRegisteredContinues.Add((agentId, continuesAgentId));
+        lock (AgentRegisteredResumes) AgentRegisteredResumes.Add((agentId, resumedSessionId, resumeFirstAnnounce));
         lock (AgentRegisteredTitles) AgentRegisteredTitles.Add((agentId, title));
         lock (AcpCallOrder) AcpCallOrder.Add($"register:{agentId}");
         lock (AgentRegisteredCalls) AgentRegisteredCalls.Add((agentId, model));

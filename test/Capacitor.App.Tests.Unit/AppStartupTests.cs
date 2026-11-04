@@ -156,8 +156,8 @@ public class AppStartupTests {
     /// BuildAndShowMainWindow's directory/remoteAgents/lane parameters must actually reach
     /// Home/Rail/the footer, not just compile — a fallback that silently rebuilt its own
     /// local-only AgentDirectory would leave the window looking identical for every LOCAL
-    /// assertion, so this pins two REMOTE-only signals: the lane's own diagnostic (the footer alert's
-    /// hover) and a remote-only row (never producible by the NoRemoteAgents/NoServerLane fallback)
+    /// assertion, so this pins two REMOTE-only signals: the lane's own sign-in state (the footer
+    /// alert) and a remote-only row (never producible by the NoRemoteAgents/NoServerLane fallback)
     /// reaching the rail.
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -170,7 +170,7 @@ public class AppStartupTests {
             var remoteAgents = new FakeRemoteAgents();
             remoteAgents.Cache.AddOrUpdate(new AgentInstanceDto { AgentId = "r1", Status = "Running" });
             var lane = new FakeServerLane();
-            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Diagnostic: "diagnostic-marker"));
+            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut));
             var directory = new AgentDirectory(
                 service, remoteAgents, lane, new RepoIdentityResolver(_ => null), p => p,
                 localMachineId: null, appServerUrl: null, TimeProvider.System);
@@ -181,14 +181,14 @@ public class AppStartupTests {
             Dispatcher.UIThread.RunJobs(); // ReactiveWindow<T>'s Loaded->Activator.Activate() wiring
 
             var vm = (MainWindowViewModel)window.DataContext!;
-            var result = (vm.Alert?.Detail, vm.Rail?.Groups.Sum(r => r.Sessions.Count));
+            var result = (vm.Alert?.Text, vm.Rail?.Groups.Sum(r => r.Sessions.Count));
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
             return result;
         });
 
-        await Assert.That(tip).IsEqualTo("diagnostic-marker");
+        await Assert.That(tip).IsEqualTo(MainWindowViewModel.SignInRequiredText);
         await Assert.That(railRows).IsEqualTo(1);
     }
 

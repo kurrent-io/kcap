@@ -2,6 +2,7 @@ using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using Avalonia.Media;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Update;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.App.Views;
@@ -340,7 +341,7 @@ public class MainWindowViewModelTests {
     public async Task Restart_pending_raises_an_alert_while_connected() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var restartPending = new BehaviorSubject<bool>(false);
+            var restartPending = new BehaviorSubject<DaemonRestartWait>(DaemonRestartWait.None);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, restartPending: restartPending);
             using var activation = vm.Activator.Activate();
 
@@ -348,12 +349,12 @@ public class MainWindowViewModelTests {
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
             await Assert.That(vm.Alert).IsNull();
 
-            restartPending.OnNext(true);
+            restartPending.OnNext(DaemonRestartWait.Turns);
 
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
             await Assert.That(vm.Alert.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
 
-            restartPending.OnNext(false);
+            restartPending.OnNext(DaemonRestartWait.None);
 
             await Assert.That(vm.Alert).IsNull();
         });
@@ -364,7 +365,7 @@ public class MainWindowViewModelTests {
     public async Task Restart_pending_is_hidden_while_not_connected() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var restartPending = new BehaviorSubject<bool>(true);
+            var restartPending = new BehaviorSubject<DaemonRestartWait>(DaemonRestartWait.Turns);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, restartPending: restartPending);
             using var activation = vm.Activator.Activate();
 
@@ -395,6 +396,7 @@ public class MainWindowViewModelTests {
     [Arguments(AttachState.Unreachable, "daemon_unreachable", "connected", MainWindowViewModel.DaemonStoppedText, RailRecovery.StartDaemon)]
     [Arguments(AttachState.Unreachable, "daemon_incompatible", "connected", MainWindowViewModel.DaemonMismatchText, RailRecovery.Reconnect)]
     [Arguments(AttachState.Unreachable, ExpectedDaemonRestart.Reason, "connected", MainWindowViewModel.DaemonRestartingText, RailRecovery.None)]
+    [Arguments(AttachState.Unreachable, ExpectedDaemonRestart.StartingReason, "connected", MainWindowViewModel.DaemonStartingText, RailRecovery.None)]
     [Arguments(AttachState.Unreachable, "socket_refused", "connected", MainWindowViewModel.DaemonUnreachableText, RailRecovery.Reconnect)]
     [Arguments(AttachState.Connected, null, "connecting", MainWindowViewModel.ServerConnectingText, RailRecovery.None)]
     [Arguments(AttachState.Connected, null, "reconnecting", MainWindowViewModel.ReconnectingText, RailRecovery.None)]
@@ -476,21 +478,49 @@ public class MainWindowViewModelTests {
         await Assert.That(alert.Detail).IsEqualTo(condition.Explanation);
     }
 
-    /// The lowest rungs: a queued daemon restart, then the lane's diagnostic, each with its long copy on hover.
+    /// The lowest rung: a queued daemon restart, with its long copy on hover.
     [Test]
-    public async Task AlertFor_restart_pending_and_lane_diagnostic_only_when_nothing_else_is_wrong() {
+    public async Task AlertFor_restart_pending_only_when_nothing_else_is_wrong() {
         var connected = new AttachStatus(AttachState.Connected, null, null);
 
-        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: true, laneDiagnostic: "marker");
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: DaemonRestartWait.Turns);
         await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
         await Assert.That(pending.Detail).IsEqualTo(MainWindowViewModel.RestartPendingMessage);
 
-        var diagnostic = MainWindowViewModel.AlertFor(connected, "connected", laneDiagnostic: "marker");
-        await Assert.That(diagnostic!.Text).IsEqualTo(MainWindowViewModel.LiveUpdatesText);
-        await Assert.That(diagnostic.Detail).IsEqualTo("marker");
-
-        await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: true)!.Text)
+        await Assert.That(MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: DaemonRestartWait.Turns)!.Text)
             .IsEqualTo(MainWindowViewModel.ReconnectingText);
+    }
+
+    /// A when-idle restart has no turn wait to promise: idle agents hold it for as long as they stay. A marker that does
+    /// not say what it waits for promises neither.
+    [Test]
+    [Arguments(DaemonRestartWait.Agents, MainWindowViewModel.RestartWhenNoAgentsMessage)]
+    [Arguments(DaemonRestartWait.Unstated, MainWindowViewModel.RestartUnstatedMessage)]
+    public async Task AlertFor_a_restart_not_waiting_for_turns_says_what_it_waits_for(DaemonRestartWait wait, string message) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+
+        var pending = MainWindowViewModel.AlertFor(connected, "connected", restartPending: wait);
+
+        await Assert.That(pending!.Text).IsEqualTo(MainWindowViewModel.RestartPendingText);
+        await Assert.That(pending.Detail).IsEqualTo(message);
+    }
+
+    /// A restart waiting for turns follows an update to the other install, so it outranks the report; any other queued
+    /// restart brings back the same version, so the report outranks it.
+    [Test]
+    [Arguments(DaemonRestartWait.None, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Agents, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Unstated, MainWindowViewModel.DaemonNotUpdatedText)]
+    [Arguments(DaemonRestartWait.Turns, MainWindowViewModel.RestartPendingText)]
+    public async Task AlertFor_a_daemon_on_another_install_is_outranked_only_by_a_turn_wait(DaemonRestartWait wait, string text) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        var other = new DaemonOnOtherInstall("1.4.1-beta.2+d12e8ca", "/opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
+
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", otherInstall: other, restartPending: wait);
+
+        await Assert.That(alert!.Text).IsEqualTo(text);
+        if (text == MainWindowViewModel.DaemonNotUpdatedText)
+            await Assert.That(alert.Detail).Contains("kcap 1.4.1-beta.2 from /opt/homebrew/lib/node_modules/@kurrent/kcap/bin/kcap-daemon");
     }
 
     [Test]
@@ -618,29 +648,6 @@ public class MainWindowViewModelTests {
 
             lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
             await Assert.That(with.SignInVisible).IsFalse();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_lane_diagnostic_is_an_alert_with_its_text_on_hover() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var service = new FakeDaemonClientService();
-            var lane = new FakeServerLane();
-            var vm = new MainWindowViewModel(
-                service, CancellationToken.None, TestActivity.New(), TimeProvider.System, laneStatus: lane.Status);
-            using var activation = vm.Activator.Activate();
-            service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
-            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
-
-            await Assert.That(vm.Alert).IsNull();
-
-            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Diagnostic: "diagnostic-marker"));
-            await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.LiveUpdatesText);
-            await Assert.That(vm.Alert.Detail).IsEqualTo("diagnostic-marker");
-
-            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
-            await Assert.That(vm.Alert).IsNull();
         });
     }
 
@@ -823,6 +830,26 @@ public class MainWindowViewModelTests {
             gate.SetResult();
             await execute;
             await Assert.That(startCanExecute).IsTrue(); // status unchanged, attempt finished
+        });
+    }
+
+    /// A daemon whose process is up but not yet serving is coming back by itself: neither a Start
+    /// (which would race it) nor a Reconnect (which the attach already retries) is the next step.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_starting_daemon_offers_neither_start_nor_reconnect() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            var startCanExecute = true;
+            var retryCanExecute = true;
+            using var subStart = vm.StartDaemonCommand.CanExecute.Subscribe(v => startCanExecute = v);
+            using var subRetry = vm.RetryCommand.CanExecute.Subscribe(v => retryCanExecute = v);
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, ExpectedDaemonRestart.StartingReason, null));
+
+            await Assert.That(startCanExecute).IsFalse();
+            await Assert.That(retryCanExecute).IsFalse();
         });
     }
 

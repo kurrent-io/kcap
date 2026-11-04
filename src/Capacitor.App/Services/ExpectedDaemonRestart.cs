@@ -8,21 +8,28 @@ namespace Capacitor.App.Services;
 /// an update leaves its restart-pending marker on disk until its successor starts, and an app that has
 /// just been updated expects its daemon to follow; while either holds, an unreachable daemon is
 /// reported with <see cref="Reason"/> instead of <c>daemon_unreachable</c>, and the attach is retried
-/// every <see cref="RetryInterval"/> rather than on the connect backoff. Past <see cref="Grace"/> the
-/// outage reads as an ordinary one again, so a restart that never comes back still gets its Start button.
+/// every <see cref="RetryInterval"/> rather than on the connect backoff. A daemon whose pid file names
+/// a live process is still starting, as <c>kcap daemon status</c> reads it, and is reported with
+/// <see cref="StartingReason"/> — unless that process is the one the app was last attached to, which is
+/// stopping. Past <see cref="Grace"/> either reads as an ordinary outage again, so a daemon that never
+/// comes back still gets its Start button.
 /// </summary>
 public sealed class ExpectedDaemonRestart : IDisposable {
     public const string Reason = "daemon_restarting";
+    public const string StartingReason = "daemon_starting";
     const string UnreachableReason = "daemon_unreachable";
 
     internal static readonly TimeSpan Grace = TimeSpan.FromSeconds(90);
     internal static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(1);
 
     readonly Func<bool> _appJustUpdated;
+    readonly Func<bool> _appStartsDaemon;
     readonly Action<bool, TimeSpan>? _outageEnded;
     readonly Func<Task> _reattach;
+    readonly Func<int?>? _livePid;
     readonly TimeProvider _time;
     readonly ReplaySubject<AttachStatus> _status = new(1);
+    readonly BehaviorSubject<bool> _starting = new(false);
     readonly Lock _lock = new();
     readonly IDisposable _subscription;
     readonly ITimer _timer;
@@ -33,47 +40,96 @@ public sealed class ExpectedDaemonRestart : IDisposable {
     DateTimeOffset? _outageSince;
     string? _outageReason;
     bool _outageExpected;
+    // When a daemon process other than the last attached one was first seen alive in this outage.
+    DateTimeOffset? _startingSince;
+    int? _attachedPid;
+    int _updateHolds;
     bool _disposed;
 
     /// <param name="outageEnded">Told, on reconnecting, whether the outage was expected and how long it lasted.</param>
+    /// <param name="livePid">The pid the daemon's pid file names while that process is alive, else null. Null
+    /// never reports a starting daemon.</param>
+    /// <param name="appStartsDaemon">The update stopped the daemon before it ran, so nothing brings it back but this
+    /// launch: the outage still reads as a restart, but <see cref="Expected"/> does not hold an ensure back for it.</param>
     public ExpectedDaemonRestart(
             IObservable<AttachStatus> status, IObservable<bool> restartPending, Func<bool> appJustUpdated,
-            Func<Task> reattach, TimeProvider time, Action<bool, TimeSpan>? outageEnded = null) {
+            Func<Task> reattach, TimeProvider time, Action<bool, TimeSpan>? outageEnded = null,
+            Func<int?>? livePid = null, Func<bool>? appStartsDaemon = null) {
         _appJustUpdated = appJustUpdated;
+        _appStartsDaemon = appStartsDaemon ?? (() => false);
         _outageEnded = outageEnded;
         _reattach = reattach;
+        _livePid = livePid;
         _time = time;
         _timer = time.CreateTimer(_ => Tick(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _subscription = new System.Reactive.Disposables.CompositeDisposable(
             restartPending.Subscribe(pending => Update(() => _marker = pending)),
-            status.Subscribe(next => Update(() => {
-                if (next.State == AttachState.Connected) {
-                    if (_outageSince is { } since) _outageEnded?.Invoke(_outageExpected, _time.GetUtcNow() - since);
-                    _outageSince = null;
-                    _outageReason = null;
-                    _outageExpected = false;
-                } else if (next.State == AttachState.Unreachable) {
-                    _outageSince ??= _time.GetUtcNow();
-                    _outageReason = next.Reason;
-                }
-                _raw = next;
-            })));
+            status.Subscribe(next => {
+                // Read before taking the lock: it opens the pid file and the process it names.
+                var probed = next is { State: AttachState.Unreachable, Reason: UnreachableReason };
+                var pid = probed ? ProbeLivePid() : null;
+                Update(() => {
+                    if (next.State == AttachState.Connected) {
+                        if (_outageSince is { } since) _outageEnded?.Invoke(_outageExpected, _time.GetUtcNow() - since);
+                        _outageSince = null;
+                        _outageReason = null;
+                        _outageExpected = false;
+                        _attachedPid = next.Identity?.Pid;
+                    } else if (next.State == AttachState.Unreachable) {
+                        _outageSince ??= _time.GetUtcNow();
+                        _outageReason = next.Reason;
+                    }
+                    _raw = next;
+                    if (probed) NoteLivePid(pid);
+                });
+            }));
     }
 
-    /// The attach status the app shows: the service's own, relabelled while a restart is expected.
+    /// The attach status the app shows: the service's own, relabelled while a restart is expected or the
+    /// daemon is starting.
     public IObservable<AttachStatus> Status => _status.DistinctUntilChanged();
 
-    /// Whether an outage right now would be one the daemon chose.
+    /// Whether the daemon process is up but not yet serving its socket; replays on subscribe. True during an
+    /// expected restart too, once the successor's process is up.
+    public IObservable<bool> Starting => _starting.DistinctUntilChanged();
+
+    /// Whether an outage right now is one the daemon chose, or one it is coming back from by itself.
     public bool Expected {
         get {
-            lock (_lock) return IsExpected();
+            lock (_lock) return IsExpected(toWaitOut: true) || IsStarting();
         }
     }
 
-    bool IsExpected() =>
-        _raw is { State: AttachState.Unreachable or AttachState.Connecting } && _outageReason == UnreachableReason
-        && _outageSince is { } since && _time.GetUtcNow() - since < Grace
-        && (_marker || _appJustUpdated());
+    /// <summary>Makes the daemon's outage an expected one, past the grace, until the handle is disposed: an update
+    /// stopped it for the updater to replace, and starting it again would run the install being replaced.</summary>
+    public IDisposable HoldForUpdate() {
+        Update(() => _updateHolds++);
+        return System.Reactive.Disposables.Disposable.Create(() => Update(() => _updateHolds--));
+    }
+
+    bool InDaemonOutage() =>
+        _raw is { State: AttachState.Unreachable or AttachState.Connecting } && _outageReason == UnreachableReason;
+
+    bool IsExpected(bool toWaitOut = false) =>
+        InDaemonOutage() && (_updateHolds > 0 || (_outageSince is { } since && _time.GetUtcNow() - since < Grace
+            && (_marker || (_appJustUpdated() && !(toWaitOut && _appStartsDaemon())))));
+
+    bool IsStarting() =>
+        InDaemonOutage() && _startingSince is { } since && _time.GetUtcNow() - since < Grace;
+
+    // The daemon the app was attached to can still be alive while it stops; only another process is starting.
+    void NoteLivePid(int? pid) =>
+        _startingSince = pid is { } live && live != _attachedPid ? _startingSince ?? _time.GetUtcNow() : null;
+
+    int? ProbeLivePid() {
+        if (_livePid is not { } probe) return null;
+        try {
+            return probe();
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: reading the daemon's pid file failed: {ex.Message}");
+            return null;
+        }
+    }
 
     // Published under the lock, so two sources updating at once cannot reach subscribers in the reverse order.
     void Update(Action change) {
@@ -81,23 +137,37 @@ public sealed class ExpectedDaemonRestart : IDisposable {
             if (_disposed) return;
             change();
             if (_raw is null) return;
+            if (!InDaemonOutage()) _startingSince = null;
             var expected = IsExpected();
+            var starting = IsStarting();
             _outageExpected |= expected;
-            _timer.Change(expected ? RetryInterval : Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-            _status.OnNext(expected ? new AttachStatus(AttachState.Unreachable, Reason, null, _raw.DaemonVersion) : _raw);
+            // A daemon outage is polled while a probe exists, so a process that comes up is seen without waiting
+            // on the connect backoff.
+            var polling = expected || (InDaemonOutage() && _livePid is not null);
+            _timer.Change(polling ? RetryInterval : Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _status.OnNext(
+                expected ? new AttachStatus(AttachState.Unreachable, Reason, null, _raw.DaemonVersion)
+                : starting ? new AttachStatus(AttachState.Unreachable, StartingReason, null, _raw.DaemonVersion)
+                : _raw);
+            _starting.OnNext(starting);
         }
     }
 
-    // Only from Unreachable: a retry cancels the attach in flight, and a daemon that is still handshaking must be
-    // left to finish. The retry's own Unreachable re-arms the timer.
+    // Probes and retries only from Unreachable: a retry cancels the attach in flight, and a daemon that is still
+    // handshaking must be left to finish. The retry's own Unreachable re-arms the timer.
     void Tick() {
-        bool retry;
+        bool probe;
         lock (_lock) {
             if (_disposed) return;
-            retry = IsExpected() && _raw?.State == AttachState.Unreachable;
+            probe = InDaemonOutage() && _raw?.State == AttachState.Unreachable;
         }
+        var pid = probe ? ProbeLivePid() : null;
+        var retry = false;
+        Update(() => {
+            if (probe) NoteLivePid(pid);
+            retry = (IsExpected() || IsStarting()) && _raw?.State == AttachState.Unreachable;
+        });
         if (retry) _ = ReattachAsync();
-        Update(() => { });
     }
 
     async Task ReattachAsync() {
@@ -117,5 +187,7 @@ public sealed class ExpectedDaemonRestart : IDisposable {
         _timer.Dispose();
         _status.OnCompleted();
         _status.Dispose();
+        _starting.OnCompleted();
+        _starting.Dispose();
     }
 }
