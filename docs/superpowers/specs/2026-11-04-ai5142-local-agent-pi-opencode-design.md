@@ -12,7 +12,7 @@ Pi and OpenCode become choices with **the same capabilities Claude Code and Code
 
 - Pi and OpenCode are offered wherever Claude Code and Codex are: the desktop setup step, `kcap setup --local`, `kcap local intelligence`, and the admin AI settings' harness choice
 - Each is offered only when the daemon resolves its CLI on this host, by the same rule as the others
-- Every local-agent consumer works unchanged on either
+- Every local-agent consumer works unchanged on either, long eval prompts included, on every platform the daemon runs on
 - **Model:** the default is the harness's own default model, as the user already set it. A user can set any model the harness accepts
 
 ## Non-goals
@@ -20,11 +20,14 @@ Pi and OpenCode become choices with **the same capabilities Claude Code and Code
 - New features for the local agent. What is off for every local agent stays off: the policy judge, work-item and extended evals, and the tool-loop eval judge
 - A turn or spend cap the harness does not have. Codex has neither; Pi and OpenCode are bounded by the deadline the same way
 - Changing how Claude Code or Codex run
+- Checking at setup that a sign-in or key works. Claude Code and Codex are offered on their CLI resolving, and so are these two; a run without credentials answers `not_signed_in`, which the local-agent status already surfaces
 
 ## Anti-goals
 
-- A background prompt that becomes a recorded session, or that loads the user's tools, MCP servers, extensions, skills or project instructions
+- A background prompt that becomes a recorded session, at the time or later through `kcap import`, or that appears in the harness's own session list
+- A background prompt that loads the user's tools, MCP servers, extensions, skills, agents, or global or project instructions
 - A run that fails while reporting success. Pi exits 0 on failure; OpenCode retries a rate limit silently. Either one misread is a silent outage
+- A schema-bound caller receiving valid JSON of the wrong shape as a successful answer
 
 ## The contract each runner meets
 
@@ -33,24 +36,41 @@ The daemon's `IHeadlessHarness` returns a `ClaudeCliOutcome` that `HeadlessPromp
 | Part | Pi | OpenCode |
 |---|---|---|
 | Invocation | `pi -p --mode json` | `opencode run --format json --pure` |
-| System prompt | `--system-prompt`, which replaces Pi's own | A delimited preamble of the prompt, as Codex's: OpenCode has no replacement flag |
-| JSON schema | Appended to the prompt as an instruction; the reply must parse as a JSON object or array, re-serialised as the result; anything else is `OutputUnparseable`. Same check as Codex | Same |
+| System prompt | Always `--system-prompt <text>` and `--append-system-prompt ""`. With no system prompt in the request, a fixed neutral one ("Answer the request directly.") | A delimited preamble of the prompt, as Codex's: OpenCode has no replacement flag. Global instructions cannot reach it (see Lockdown) |
+| JSON schema | Appended to the prompt as an instruction, then the reply validated against the schema (below) | Same |
 | Model | `--model <value>` when not blank | `-m <value>` when not blank |
-| Prompt delivery | Stdin, which `pi -p` reads when no prompt argument is given (measured) | Stdin when `opencode run` accepts it there, else argv; the builder confirms which against the binary. Argv is capped near 32K on Windows, so a long eval prompt on argv fails there |
-| Working directory | A fresh empty temporary directory, removed afterwards | Same |
+| Prompt delivery | Stdin, which `pi -p` reads when no prompt argument is given (measured) | A file in the run's directory, attached with `--file`, and a short fixed message on argv pointing at it. Never the prompt itself on argv, which is capped near 32K on Windows |
+| Working directory | A fresh empty temporary directory, removed afterwards | Same, holding only the prompt file |
 | Usage | The final `agent_end` event's assistant messages: tokens and cost | The `step_finish` events: tokens and cost, summed |
 | Outcome | `stopReason` and `errorMessage` of the final assistant message, never the exit code | Its `error` event, its exit code, and its log on stderr |
-| Deadline | Killed at it, the directory removed, usage reported so far kept | Same |
+| Deadline | Killed at it, every directory removed, usage reported so far kept | Same |
 
 ### Lockdown
 
-- **Pi:** `--no-tools --no-extensions --no-skills --no-prompt-templates --no-context-files --no-session --offline`
-- **OpenCode:** `--pure` (no external plugins, which is where kcap's own recording plugin lives); environment `OPENCODE_DISABLE_PROJECT_CONFIG`, `OPENCODE_DISABLE_CLAUDE_CODE`, `OPENCODE_DISABLE_EXTERNAL_SKILLS` and `OPENCODE_DISABLE_AUTOUPDATE` set; `OPENCODE_CONFIG_CONTENT` carrying every tool off, every permission denied, and **every MCP server in the user's OpenCode config set to `enabled: false` by name**
-- **Both:** `KCAP_SKIP=1`, so no kcap hook or watcher records the run
+**Pi:** `--no-tools --no-extensions --no-skills --no-prompt-templates --no-context-files --no-session --offline`, plus the two system-prompt flags above. A repository probe (`docs/probes/2026-09-21-pi-reviewer/findings.md` §5) measured that the operator's `SYSTEM.md` and `APPEND_SYSTEM.md` survive `--no-context-files`: only an explicit `--system-prompt` displaces the first and an empty `--append-system-prompt` the second, which is why both are always passed, the same pair `PiRpcHostedAgentRuntimeFactory` passes its reviewer
 
-**Measured:** with the user's config holding 10 kcap MCP servers, a plain `opencode run --pure` started all 10; with each named `enabled: false` in `OPENCODE_CONFIG_CONTENT`, it started none. OpenCode merges its configs, so there is no "no MCP servers" switch; the runner must read the names. It reads them from the config files OpenCode loads (`opencode.json`, `opencode.jsonc` and `config.json` in its config directory, resolved through `OpenCodePaths`, plus the file `OPENCODE_CONFIG` names), parsing JSONC (comments, trailing commas). A file that cannot be read or parsed contributes no names and is logged; the run still goes ahead, since OpenCode would refuse that same file itself
+**OpenCode** runs with a private configuration and a private data store, built per run and removed afterwards. This is the shape of the existing unattended OpenCode reviewer (`OpenCodeReviewerConfigDir`), extended to data:
 
-**Measured:** without the lockdown, OpenCode ran `cat` and read a file in its working directory. With it, no tool ran. Whether the whole lockdown still answers a plain prompt is confirmed against a paid model at build time: the free OpenCode models hit their usage limit mid-check, which is how the next point was found
+- `OPENCODE_CONFIG_DIR` set to a fresh empty directory, verified empty, as the reviewer's is. This removes the global config, its MCP servers, plugins, agents, `AGENTS.md` and `instructions` as one source, with no list of names to get wrong. `OPENCODE_CONFIG` removed from the environment, since it names an additional merged file
+- `OPENCODE_CONFIG_CONTENT` carrying the whole configuration the run gets: every tool off, every permission denied, and two keys copied from the user's global config so the default stays theirs: `model`, and `provider` (custom providers and their options). Nothing else is copied
+- `OPENCODE_PERMISSION` set to the same deny-all, overwriting an inherited value: it overrides config permissions (measured, `docs/probes/2026-08-07-opencode-acp/findings.md` §6), so an operator's `{"*":"allow"}` would otherwise reopen the tools. Its shape follows `OpenCodeReviewerPermissions`: `*` denied plus each forbidden tool named
+- `XDG_DATA_HOME` set to a fresh empty directory, so the run's session database is written there and never to the user's `opencode.db`, where `kcap import --opencode` and OpenCode's own session list would find it (measured: with a private `XDG_DATA_HOME` the run's database appears only there). Credentials live in the data directory, so the user's `auth.json` is passed in `OPENCODE_AUTH_CONTENT` (measured: a key supplied that way reaches the provider) rather than copied to disk
+- `OPENCODE_DISABLE_PROJECT_CONFIG`, `OPENCODE_DISABLE_CLAUDE_CODE`, `OPENCODE_DISABLE_EXTERNAL_SKILLS`, `OPENCODE_DISABLE_AUTOUPDATE` and `OPENCODE_DISABLE_MODELS_FETCH` set
+- `--pure`, so no external plugin loads even if one were configured
+
+Reading the user's `model` and `provider` fails closed: if the global config exists but cannot be read or parsed, the run does not start and answers `process_failure` naming the file, since OpenCode itself would refuse that file. No global config means nothing to copy and OpenCode's own default model
+
+**Both:** `KCAP_SKIP=1`, so no kcap hook or watcher records the run. Provider keys in the daemon's environment are kept, unlike Codex, which strips `OPENAI_API_KEY` because it would override a ChatGPT login: for Pi and OpenCode a provider key usually is the sign-in
+
+**Measured:** without any lockdown, OpenCode ran `cat` and read a file in its working directory. With a plain `opencode run --pure` it started every MCP server in the user's global config (10 kcap servers on the test machine). Whether the full lockdown still answers a plain prompt is confirmed against a paid model at build time. If turning every tool off stops OpenCode answering, the tools stay on and the deny-all permissions are the boundary, as they are for the reviewer; the permissions are never loosened
+
+**Residual, accepted:** an administrator-managed or remote organisation OpenCode config is not under `OPENCODE_CONFIG_DIR` and still applies. It is imposed on the user's own OpenCode as well, and the deny-all permissions and the private data store still hold over it
+
+**Windows:** the reviewer's config dir refuses Windows because it cannot be made owner-only there. These directories are created under the daemon's own state directory in the user profile, which is private to the user by default ACL, and verified empty; that is enough for a directory that holds no secrets. `OPENCODE_AUTH_CONTENT` keeps credentials off disk on every platform
+
+### Structured output
+
+Neither harness constrains its output to a schema, so the runner checks the reply itself. The schema is appended to the prompt with an instruction to answer with one JSON value matching it; the reply (with a surrounding Markdown code fence stripped) must parse, and must validate against the schema. Validation covers the subset the server sends: `type`, `properties`, `required`, `items`, `enum`, `additionalProperties: false`, nested. A keyword outside that subset is not checked. A reply that fails parsing or validation is `OutputUnparseable`; a valid one is returned re-serialised, as Codex's is. The validator lives in `Capacitor.Cli.Core` and is AOT-safe (no reflection), since no JSON-schema library is in the CLI's dependencies
 
 ### Failure classification
 
@@ -58,11 +78,11 @@ The daemon's `IHeadlessHarness` returns a `ClaudeCliOutcome` that `HeadlessPromp
 
 | Kind | Pi | OpenCode |
 |---|---|---|
-| `NotSignedIn` | HTTP 401 or 403 in `errorMessage`, or no model/provider available | `statusCode` 401 or 403 in the error event |
+| `NotSignedIn` | HTTP 401 or 403 in `errorMessage`, or no model or provider available | `statusCode` 401 or 403 in the error event |
 | `SpendBudget` | 429, "credit balance", "quota", "usage limit" | The same in the error event, **or a `stream error` log line carrying them** |
 | `Timeout` | The deadline | The deadline with no limit error logged |
-| `OutputUnparseable` | `stopReason: stop` with an empty reply, or a schema reply that is not JSON | Same |
-| `ProcessFailure` | Anything else | Anything else |
+| `OutputUnparseable` | `stopReason: stop` with an empty reply, or a reply that fails the schema check | Same |
+| `ProcessFailure` | Anything else, including an unreadable global config | Same |
 
 **Measured:** when the provider reports a usage limit, OpenCode logs a `stream error` and retries without emitting any JSON event until it is killed. Reading only stdout would report that run as a deadline. The runner passes `--print-logs --log-level ERROR` and watches stderr; on a limit error it kills the run at once and answers `SpendBudget`, rather than waiting out the deadline
 
@@ -80,7 +100,7 @@ The admin AI settings' help for the local-agent model says: for Pi and OpenCode,
 - `HeadlessHarnessProbe` lists both, resolved through `HarnessRegistry.LaunchCommand` like the others
 - `IntelligenceAnswer.Harnesses` lists both
 - The labels in `IntelligenceOption` and `IntelligenceQuestions` read "Pi" and "OpenCode"; the setup card for these two says "Runs on this machine through <name>'s own sign-in or key", since they usually run on a provider key the user configured in them
-- `PiHeadlessHarness` and `OpenCodeHeadlessHarness` in the daemon, resolving the CLI from `DaemonConfig.PiPath` and `DaemonConfig.OpenCodePath`, registered beside the Claude and Codex ones, so `HeadlessVendors` advertises them
+- `PiHeadlessHarness` and `OpenCodeHeadlessHarness` in the daemon, resolving the CLI from `DaemonConfig.PiPath` and `DaemonConfig.OpenCodePath`, registered beside the Claude and Codex ones, so `HeadlessVendors` advertises them. The OpenCode one creates and removes its per-run directories under the daemon's state directory, and the daemon's start sweeps any a crash left, as it does the reviewer's
 
 ## Order and compatibility
 
@@ -88,12 +108,15 @@ The two halves are independent. A server that accepts `pi` before any daemon adv
 
 ## Testing
 
-- **Unit:** argument building, prompt building, event parsing (usage, cost, outcome) and failure classification, from captured real output of each binary
-- **Real binaries,** behind the same gate as the Codex runner's invocation tests: a plain answer, a schema answer, a refused non-JSON schema reply, a deadline kill with the directory gone, and no tool run. For OpenCode, also that no configured MCP server starts. Spend is kept to a handful of runs on the cheapest model
+- **Unit:** argument and environment building, prompt building, event parsing (usage, cost, outcome), failure classification and the schema validator, from captured real output of each binary
+- **Real binaries,** behind the same gate as the Codex runner's invocation tests, on the cheapest model and a handful of runs:
+  - Both: a plain answer; a schema answer; a valid-JSON reply of the wrong shape refused; a deadline kill with every directory gone; no tool run, with a file planted in the working directory that must not appear in the reply
+  - Pi: a planted `SYSTEM.md` and `APPEND_SYSTEM.md` reach no request; no session file is written to Pi's session directory
+  - OpenCode: an inherited `OPENCODE_PERMISSION` of `{"*":"allow"}` and an inherited `OPENCODE_CONFIG` naming an MCP server change nothing; no configured MCP server starts; the run is absent from the user's `opencode.db` and from `kcap import --opencode` discovery; a long prompt (over 32K characters) is answered; the user's `model` setting is honoured; a malformed global config refuses to start
 - **Server:** `LocalAgentModels.Route` for both harnesses, and the settings registry accepting the new values
 
 ## Left to the builder
 
-- Whether Pi reads its prompt from stdin, confirmed against the binary
 - How OpenCode's tokens split into input, output and cache in `step_finish`, mapped onto `ClaudeCliUsage`
-- Any shared helper between the two new runners and `CodexCliRunner`, if one reads better than three copies; the first two may share an event-stream reader
+- The wording of the schema instruction and of the OpenCode pointer message
+- Any shared helper between the two new runners and `CodexCliRunner`, and whether the OpenCode per-run directories share code with `OpenCodeReviewerConfigDir`
