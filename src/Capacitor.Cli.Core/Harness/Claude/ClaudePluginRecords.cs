@@ -2,9 +2,8 @@ using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Harness.Claude;
 
-/// <summary>Claude Code's own plugin records under <c>&lt;claude home&gt;/plugins/</c>. Claude writes them
-/// when it first loads a plugin and does not follow a later change to <c>settings.json</c> on its own, so
-/// a moved plugin folder stays recorded at the old path until these are repointed.</summary>
+/// <summary>Claude Code's own plugin records under <c>&lt;claude home&gt;/plugins/</c>. kcap repoints the
+/// ones it owns so they never name a plugin folder that has moved.</summary>
 public static class ClaudePluginRecords {
     static readonly string[] MarketplaceKeys = ["kcap", "kurrent", "kapacitor"];
     static readonly string[] PluginKeys      = ["kcap@kcap", "kcap@kurrent", "kapacitor@kapacitor", "kapacitor@kurrent"];
