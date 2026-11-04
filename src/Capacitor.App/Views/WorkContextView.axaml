@@ -912,10 +912,8 @@
                         </Button>
                         <Border Classes="sectionBody" IsVisible="{Binding SessionExpanded}">
                             <Grid x:Name="SessionFacts" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="HARNESS" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Harness}" Classes="factValue" />
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="ID" Classes="factLabel" />
-                                <Panel Grid.Row="1" Grid.Column="1">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="ID" Classes="factLabel" />
+                                <Panel Grid.Row="0" Grid.Column="1">
                                     <Button x:Name="SessionIdButton" Classes="copyValue" Click="OnSessionIdClick"
                                             IsVisible="{Binding CanCopySessionId}"
                                             AutomationProperties.Name="Copy session ID"
@@ -925,6 +923,8 @@
                                     <SelectableTextBlock Text="{Binding SessionIdText}" Classes="factValue"
                                                          IsVisible="{Binding !CanCopySessionId}" />
                                 </Panel>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="HARNESS" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Harness}" Classes="factValue" />
                                 <TextBlock Grid.Row="2" Grid.Column="0" Text="SESSION SHARING" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SessionSharing}" Classes="factValue" />
                                 <TextBlock Grid.Row="3" Grid.Column="0" Text="AGENT SHARING" Classes="factLabel" />
