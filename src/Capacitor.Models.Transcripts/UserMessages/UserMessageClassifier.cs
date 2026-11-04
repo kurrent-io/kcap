@@ -66,10 +66,6 @@ public static class UserMessageClassifier {
                 return Continue(null);
         }
 
-        // Codex marks which parts of a message are its own context; the person wrote only `user.` parts.
-        var codexKinds = Applies(vendor, Codex) ? origin?.ContentItemKinds is { Count: > 0 } kinds ? kinds : null : null;
-        if (codexKinds is not null && CodexPrelude.HasHarnessPart(codexKinds)) return Continue(SessionContext);
-
         if (IsTrigger(clean, out var trigger)) return new(UserMessageKind.Trigger, trigger);
 
         byText = true;
@@ -95,8 +91,9 @@ public static class UserMessageClassifier {
         if (clean.Length == 0) return text.Length == 0 ? Person : Continue(null);
 
         // A person may type words a harness also sends, so where Claude's origin or Codex's content kinds
-        // record who wrote a line, text alone decides only for what no person types.
-        var human = origin?.Kind == "human" || codexKinds is not null;
+        // record who wrote a line, text alone decides only for what no person types. Kinds that include
+        // Codex's own context vouch for nothing: the text says whether the person's words follow it.
+        var human = origin?.Kind == "human" || (Applies(vendor, Codex) && origin?.ContentItemKinds is { Count: > 0 } kinds && !CodexPrelude.HasHarnessPart(kinds));
 
         // Ahead of the prelude: an aborted-turn block is both, and it is the interrupt a reader needs.
         foreach (var (prefix, label, typeable, owner) in ContinuationPrefixes)
@@ -137,7 +134,6 @@ public static class UserMessageClassifier {
     static readonly (string Prefix, string? Label, bool Typeable, string? Vendor)[] ContinuationPrefixes = [
         ("[Image: source:", null, false, null),
         ("[Image: original ", null, false, null),
-        ("[Request interrupted by user", Interrupted, false, null),
         ("Stop hook feedback:", "Stop hook", false, null),
         ("A session-scoped Stop hook is now active", "Goal set", false, null),
         ("Continue from where you left off.", null, true, null),

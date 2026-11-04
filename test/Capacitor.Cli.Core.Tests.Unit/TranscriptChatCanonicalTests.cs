@@ -40,15 +40,15 @@ public class TranscriptChatCanonicalTests {
         await Assert.That(result.SubmittedInputs).IsEmpty();
     }
 
-    /// The classifier gives a slash command to the person whatever the harness flagged it; the meta flag
-    /// still keeps it from acknowledging a send.
+    /// The classifier gives a slash command to the person whatever the harness flagged it, so it shows
+    /// and acknowledges its send like any other command.
     [Test]
-    public async Task A_meta_slash_command_still_shows_and_acknowledges_no_input() {
+    public async Task A_meta_slash_command_shows_and_acknowledges_its_send() {
         var meta = new UserMessageReceived { Content = "<command-name>/clear</command-name>" };
         meta.Extensions[ClaudeCodeExtension.Slug] = Struct.Parser.ParseJson($$"""{"{{ClaudeCodeExtension.IsMeta}}":true}""");
         var result = TranscriptChat.Project(Event(CanonicalEventTypes.UserMessageReceived, meta), ClaudeChatRules.Instance);
         await Assert.That(result.Envelopes.Single().Text).IsEqualTo("/clear");
-        await Assert.That(result.SubmittedInputs).IsEmpty();
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "/clear" });
     }
 
     /// The server writes it for a queued message the agent never picked up, so it is no receipt of any send.

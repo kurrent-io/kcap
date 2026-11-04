@@ -46,14 +46,13 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         if (raw.Kind != AcpEventKind.UserMessage) return null;
         var slug = SchemaExtensions.Slug(evt.Payload, ClaudeCodeExtension.Slug);
         if (SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsSidechain)
-            || SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsMeta)
             || SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsCompactSummary)
             || SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) is not (null or "human")
             || PeerMessage(slug, raw.Text) is not null) return null;
 
         if (SchemaExtensions.Text(slug, ClaudeCodeExtension.LocalCommand) is { } localCommand) return localCommand;
-        // A command the person ran is acknowledged by its command line, even where its echo shows no row;
-        // anything else is a receipt only when Filter showed it as the person's.
+        // A command the person ran is acknowledged by its command line, even where its echo shows no row
+        // or the harness flagged it meta; anything else is a receipt only when Filter showed it as theirs.
         var text = raw.Text ?? "";
         if (UserMessageClassifier.Classify(text, Origin(evt), Vendor, scheduled).Kind == UserMessageKind.Person) {
             if (BashCommand(text) is { } command) return "!" + command;
@@ -63,6 +62,7 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                 return args.Length == 0 ? name : $"{name} {args}";
             }
         }
+        if (SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsMeta)) return null;
         return displayed is { Kind: AcpEventKind.UserMessage } user ? user.Text : null;
     }
 

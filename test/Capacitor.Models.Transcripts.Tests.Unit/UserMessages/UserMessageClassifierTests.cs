@@ -226,17 +226,24 @@ public class UserMessageClassifierTests {
         await Assert.That(UserMessageClassifier.Classify("<user_action>\n  <action>review</action>\n</user_action>", null, "codex").IsCommand).IsTrue();
     }
 
-    /// Codex's content kinds say which parts the person wrote, so they decide before the text does.
+    /// Codex's user-only content kinds vouch for the person; kinds that include its own context leave the
+    /// text to say whether the person's words follow it, as it does where no kinds were recorded.
     [Test]
-    public async Task Codex_content_kinds_decide_before_the_text() {
+    public async Task Codex_content_kinds_vouch_only_for_the_person() {
         var person = new UserMessageOrigin { ContentItemKinds = ["user.text"] };
-        var prelude = new UserMessageOrigin { ContentItemKinds = ["agents_md.instructions", "user.text"] };
+        var mixed = new UserMessageOrigin { ContentItemKinds = ["environments.environment_context", "user.text"] };
 
         await Assert.That(KindOf("<environment_context> is what I mean by context", person, vendor: "codex")).IsEqualTo(UserMessageKind.Person);
-        await Assert.That(UserMessageClassifier.Classify("# AGENTS.md instructions for /repo\n\nNow fix it.", prelude, "codex"))
+        await Assert.That(UserMessageClassifier.Classify("# AGENTS.md instructions for /repo\n\nNow fix it.", mixed, "codex"))
             .IsEqualTo(new UserMessageClass(UserMessageKind.Continuation, UserMessageClassifier.SessionContext));
-        await Assert.That(KindOf("Fix it.", prelude, vendor: "claude")).IsEqualTo(UserMessageKind.Person);
+        await Assert.That(KindOf("<environment_context>\n  <cwd>/w</cwd>\n</environment_context>\nFix it.", mixed, vendor: "codex")).IsEqualTo(UserMessageKind.Person);
+        await Assert.That(KindOf("Fix it.", mixed, vendor: "claude")).IsEqualTo(UserMessageKind.Person);
     }
+
+    /// Only the whole marker is the harness's; words after it are the person's.
+    [Test]
+    public async Task Words_after_an_interrupt_marker_are_the_persons() =>
+        await Assert.That(KindOf("[Request interrupted by user] keep going but skip the tests")).IsEqualTo(UserMessageKind.Person);
 
     [Test]
     public async Task An_interrupt_and_a_compaction_carry_their_marks() {
