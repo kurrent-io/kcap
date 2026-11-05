@@ -56,11 +56,15 @@ public static class CopilotHooksParser {
          && cmd.IndexOf($" {HookArguments}", StringComparison.Ordinal) is > 0 and var at
          && KcapBinaryCommand.IsKcap(Unquote(cmd[..at]));
 
-        // The executable as HookCommandLine writes it; either quoting's escape only changes characters in the path.
+        // The executable as HookCommandLine writes it, or double-quoted in a hand-edited file; escapes only change the path.
         static string Unquote(string executable) {
             var bare = executable.StartsWith("& ", StringComparison.Ordinal) ? executable[2..] : executable;
 
-            return bare is ['\'', .., '\''] ? bare[1..^1].Replace(@"'\''", "'").Replace("''", "'") : bare;
+            return bare switch {
+                ['\'', .., '\''] => bare[1..^1].Replace(@"'\''", "'").Replace("''", "'"),
+                ['"', .., '"']   => bare[1..^1],
+                _                => bare,
+            };
         }
     }
 
