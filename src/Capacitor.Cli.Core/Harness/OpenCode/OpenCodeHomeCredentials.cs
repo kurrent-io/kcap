@@ -21,7 +21,8 @@ internal static class OpenCodeHomeCredentials {
                 var link = Path.Combine(privateHome, relative);
                 Directory.CreateDirectory(Path.GetDirectoryName(link)!);
 
-                if (OperatingSystem.IsWindows()) WindowsJunction.Create(link, source);
+                // A junction cannot point at a network share, where a symlink is the only link there is.
+                if (OperatingSystem.IsWindows() && !source.StartsWith(@"\\", StringComparison.Ordinal)) WindowsJunction.Create(link, source);
                 else Directory.CreateSymbolicLink(link, source);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 log($"OpenCode's {relative} sign-in could not be linked: {ex.Message}");

@@ -132,6 +132,12 @@ public class OpenCodeCliRunnerTests {
         await Assert.That((await File.ReadAllTextAsync(Path.Combine(seen, "listing"))).Trim()).IsEmpty();
     }
 
+    [Test]
+    public async Task The_credential_home_prefers_HOME_as_the_aws_sdk_does() {
+        await Assert.That(OpenCodeCliRunner.CredentialHome(new Dictionary<string, string?> { ["HOME"] = "/h", ["USERPROFILE"] = "/u" }, "/fallback")).IsEqualTo("/h");
+        await Assert.That(OpenCodeCliRunner.CredentialHome(new Dictionary<string, string?>(), "/fallback")).IsEqualTo("/fallback");
+    }
+
     /// <summary>The whole directory, so an SSO token cache is there too, and removing the run leaves it alone.</summary>
     [Test]
     public async Task The_aws_directory_reaches_the_private_home_and_survives_its_removal() {
