@@ -5,6 +5,8 @@ namespace Capacitor.App.Services;
 /// <summary>Persists the handoff so interrupted or failed integration repair retries on the next launch.</summary>
 internal sealed class ApplicationIntegrationRefresh(ConfigRoot config, IProcessRunner runner) {
     internal const string FileName = "app-integration-refresh-pending";
+    static readonly TimeSpan RefreshTimeout = TimeSpan.FromMinutes(3);
+    static readonly TimeSpan LockWait = RefreshTimeout + TimeSpan.FromSeconds(30);
 
     public void Schedule(string bundleRoot) {
         Directory.CreateDirectory(config.Directory);
@@ -42,14 +44,16 @@ internal sealed class ApplicationIntegrationRefresh(ConfigRoot config, IProcessR
     // marker that is gone or names another bundle means someone else consumed it: null, nothing run.
     async Task<ProcessResult?> RunLockedAsync(string cli, bool requireMarker, CancellationToken ct) {
         Directory.CreateDirectory(config.Directory);
-        var bundle = Path.GetFullPath(Path.Combine(cli, "..", "..", ".."));
-        using var guard = config.AcquireLock(FileName);
+        var bundle = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(cli, "..", "..", "..")));
+        // Off the calling (UI) thread: a second caller waits out the first refresh, then finds the marker gone.
+        using var guard = await Task.Run(() => config.AcquireLock(FileName, LockWait), ct);
         var pending = config.Path(FileName);
-        var names = File.Exists(pending) && File.ReadAllText(pending) == bundle;
+        var names = File.Exists(pending)
+            && Path.TrimEndingDirectorySeparator(Path.GetFullPath(File.ReadAllText(pending))) == bundle;
         if (requireMarker && !names) return null;
         var result = await runner.RunAsync(cli, ["refresh", "--app-migration"],
             new RunOptions(EnvOverlay: new Dictionary<string, string> { [ConfigRoot.ConfigDirEnvVar] = config.Directory },
-                Timeout: TimeSpan.FromMinutes(3), CancelMode: CancelMode.KillTree), ct);
+                Timeout: RefreshTimeout, CancelMode: CancelMode.KillTree), ct);
         ct.ThrowIfCancellationRequested();
         if (!result.TimedOut && result.ExitCode == 0 && names) File.Delete(pending);
         return result;
