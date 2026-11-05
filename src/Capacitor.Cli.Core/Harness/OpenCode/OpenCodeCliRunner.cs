@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Headless;
 
@@ -14,12 +13,7 @@ namespace Capacitor.Cli.Core.Harness.OpenCode;
 /// turn or spend cap: the timeout, and a spend limit logged on stderr, are the only bounds on the run.
 /// </remarks>
 static class OpenCodeCliRunner {
-    /// <summary>The only text on the command line: the prompt itself would hit Windows' argv cap.</summary>
-    public const string Message = "Answer the request in the attached file.";
-
-    const string PromptFile = "prompt.md";
-
-    static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+    const string RecentModelsFile = "model.json";
 
     /// <summary>
     /// Runs the prompt once inside a fresh private directory under <paramref name="runs"/>, removed afterwards.
@@ -66,12 +60,11 @@ static class OpenCodeCliRunner {
             using var data       = run.Child("data");
             using var state      = run.Child("state");
 
-            var promptFile = Path.Combine(cwd.Path, PromptFile);
-            await File.WriteAllTextAsync(promptFile, BuildPrompt(prompt, systemPrompt, schema), Utf8NoBom, ct);
+            CopyRecentModels(inheritedEnv, paths.Home, state.Path, log);
 
             var env = BuildEnvironment(inheritedEnv, new(home.Path, configHome.Path, configDir.Path, data.Path, state.Path), config, paths.Home);
 
-            return await RunCoreAsync(promptFile, env, timeout, time, log, cwd.Path, model, schema, executable, ct);
+            return await RunCoreAsync(BuildPrompt(prompt, systemPrompt, schema), env, timeout, time, log, cwd.Path, model, schema, executable, ct);
         } catch (HeadlessRunRefusedException ex) {
             log(ex.Message);
 
@@ -82,7 +75,7 @@ static class OpenCodeCliRunner {
     }
 
     static async Task<ClaudeCliOutcome> RunCoreAsync(
-            string                      promptFile,
+            string                      prompt,
             Dictionary<string, string?> env,
             TimeSpan                    timeout,
             TimeProvider                time,
@@ -98,12 +91,12 @@ static class OpenCodeCliRunner {
         psi.Environment.Clear();
         foreach (var (key, value) in env) psi.Environment[key] = value;
 
-        foreach (var arg in BuildArgs(promptFile, model)) psi.ArgumentList.Add(arg);
+        foreach (var arg in BuildArgs(model)) psi.ArgumentList.Add(arg);
 
         var     events = new OpenCodeJsonEvents();
         string? limit  = null;
 
-        var exit = await HeadlessProcess.RunAsync(psi, (string?)null, events.Accept, line => {
+        var exit = await HeadlessProcess.RunAsync(psi, prompt, events.Accept, line => {
             if (limit is not null || OpenCodeLimitLog.Match(line) is not { } message) return false;
 
             limit = message;
@@ -185,25 +178,23 @@ static class OpenCodeCliRunner {
         );
     }
 
-    /// <summary>The ordered <c>opencode</c> argument list. The prompt is attached as a file, never put on the
-    /// command line. <c>--print-logs</c> is what surfaces a spend limit, which OpenCode otherwise retries
-    /// silently.</summary>
-    internal static List<string> BuildArgs(string promptFile, string? model) {
+    /// <summary>The ordered <c>opencode</c> argument list. The prompt goes on stdin and never on the command line, where
+    /// Windows caps it, or in an attached file: a model treats a file's content as untrusted, and in a measured run it
+    /// refused such a request as a prompt injection or ignored its JSON schema. <c>--print-logs</c> is what surfaces a
+    /// spend limit, which OpenCode otherwise retries silently.</summary>
+    internal static List<string> BuildArgs(string? model) {
         List<string> args = [
             "run",
             "--format", "json",
             "--pure",
             "--print-logs",
             "--log-level", "ERROR",
-            "--file", promptFile,
         ];
 
         if (!string.IsNullOrWhiteSpace(model)) {
             args.Add("-m");
             args.Add(model);
         }
-
-        args.Add(Message);
 
         return args;
     }
@@ -259,13 +250,31 @@ static class OpenCodeCliRunner {
         return env;
     }
 
+    /// <summary>The model the user last chose is where OpenCode finds its default when no config names one, so without
+    /// this file a run lands on whichever provider the environment happens to sign in to. Nothing else in the user's
+    /// state comes across. A file that cannot be read only costs that default, so it does not stop the run.</summary>
+    internal static void CopyRecentModels(IReadOnlyDictionary<string, string?> inherited, string userHome, string privateState, Action<string> log) {
+        var state  = inherited.GetValueOrDefault("XDG_STATE_HOME") is { Length: > 0 } set ? set : Path.Combine(HomeOf(inherited, userHome), ".local", "state");
+        var source = Path.Combine(state, "opencode", RecentModelsFile);
+
+        if (!File.Exists(source)) return;
+
+        try {
+            var target = Directory.CreateDirectory(Path.Combine(privateState, "opencode")).FullName;
+            File.Copy(source, Path.Combine(target, RecentModelsFile));
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            log($"OpenCode's recent models could not be read: {ex.Message}");
+        }
+    }
+
     /// <summary>Where OpenCode would put its cache under <paramref name="env"/>: <c>XDG_CACHE_HOME</c>, else
     /// <c>.cache</c> under the OS home (<c>USERPROFILE</c> on Windows, <c>HOME</c> elsewhere).</summary>
     static string UserCacheHome(IReadOnlyDictionary<string, string?> env, string userHome) {
         if (env.GetValueOrDefault("XDG_CACHE_HOME") is { Length: > 0 } cache) return cache;
 
-        var home = env.GetValueOrDefault(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME");
-
-        return Path.Combine(string.IsNullOrEmpty(home) ? userHome : home, ".cache");
+        return Path.Combine(HomeOf(env, userHome), ".cache");
     }
+
+    static string HomeOf(IReadOnlyDictionary<string, string?> env, string userHome) =>
+        env.GetValueOrDefault(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME") is { Length: > 0 } home ? home : userHome;
 }

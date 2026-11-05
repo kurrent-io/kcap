@@ -18,6 +18,8 @@ public class HeadlessFailureClassifierTests {
     [Arguments(null, "Rate Limit hit", nameof(ClaudeCliFailure.SpendBudget))]
     [Arguments(null, "No models available", nameof(ClaudeCliFailure.NotSignedIn))]
     [Arguments(null, "No API key for provider", nameof(ClaudeCliFailure.NotSignedIn))]
+    [Arguments(null, "OAuth refresh failed for anthropic: token refresh request failed", nameof(ClaudeCliFailure.NotSignedIn))]
+    [Arguments(400, "{\"error\": \"invalid_grant\"}", nameof(ClaudeCliFailure.NotSignedIn))]
     [Arguments(500, "overloaded", nameof(ClaudeCliFailure.ProcessFailure))]
     [Arguments(null, null, nameof(ClaudeCliFailure.ProcessFailure))]
     public async Task A_failure_is_classified_from_status_and_message(int? status, string? message, string expected) =>
@@ -28,6 +30,7 @@ public class HeadlessFailureClassifierTests {
     [Arguments(PiCredit, 400)]
     [Arguments("429", 429)]
     [Arguments("429 slow down", 429)]
+    [Arguments("401: {\"message\":\"Invalid or missing API key.\"}", 401)]
     [Arguments("  503 x", null)]
     [Arguments("4011 x", null)]
     [Arguments("99 x", null)]

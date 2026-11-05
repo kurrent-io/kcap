@@ -66,9 +66,9 @@ public class PiCliRunnerLiveTests {
     static string UsingAgentDir(string agentDir) => $"export PI_CODING_AGENT_DIR='{agentDir}'";
 
     Task<ClaudeCliOutcome> Run(string executable, string prompt, TimeSpan? timeout = null, string? jsonSchema = null,
-        CancellationToken ct = default) =>
+        string? model = Model, CancellationToken ct = default) =>
         PiCliRunner.RunDetailedAsync(prompt, timeout ?? Deadline, TimeProvider.System, Console.WriteLine,
-            new HeadlessRunRoot(StateDir, "live"), Model, jsonSchema, null, executable, ct);
+            new HeadlessRunRoot(StateDir, "live"), model, jsonSchema, null, executable, ct);
 
     async Task RunsRootIsEmpty() =>
         await Assert.That(Directory.Exists(RunsRoot) ? Directory.EnumerateFileSystemEntries(RunsRoot) : []).IsEmpty();
@@ -85,6 +85,18 @@ public class PiCliRunnerLiveTests {
         await Assert.That(outcome.Result.OutputTokens).IsGreaterThan(0);
         await Assert.That(outcome.Result.CostUsd!.Value).IsGreaterThan(0);
         await RunsRootIsEmpty();
+    }
+
+    /// <summary>A request names no model unless the user chose one, so this is the path every default run takes.</summary>
+    [Test]
+    public async Task A_run_with_no_model_answers_on_the_users_default() {
+        var agentDir = Tmp.CreateDir("default-agent").Path;
+        Tmp.CreateFile(Path.Combine("default-agent", "settings.json"), $$"""{"defaultProvider":"anthropic","defaultModel":"{{Model}}"}""");
+
+        var outcome = await Run(Wrapper(UsingAgentDir(agentDir)), "Reply with the single word: ok", model: null);
+
+        await Assert.That(outcome.Failure).IsNull();
+        await Assert.That(outcome.Result!.Result.Trim('.', ' ', '\n').ToLowerInvariant()).IsEqualTo("ok");
     }
 
     [Test]

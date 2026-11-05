@@ -57,16 +57,16 @@ public class OpenCodeCliRunnerTests {
         await Assert.That(Directory.Exists(RunsRoot) ? Directory.EnumerateFileSystemEntries(RunsRoot) : []).IsEmpty();
 
     [Test]
-    public async Task BuildArgs_runs_pure_json_with_error_logs_and_the_fixed_message_last() {
-        await Assert.That(OpenCodeCliRunner.BuildArgs("/r/cwd/prompt.md", null)).IsEquivalentTo(
-            ["run", "--format", "json", "--pure", "--print-logs", "--log-level", "ERROR", "--file", "/r/cwd/prompt.md", OpenCodeCliRunner.Message],
+    public async Task BuildArgs_runs_pure_json_with_error_logs_and_never_names_a_prompt() {
+        await Assert.That(OpenCodeCliRunner.BuildArgs(null)).IsEquivalentTo(
+            ["run", "--format", "json", "--pure", "--print-logs", "--log-level", "ERROR"],
             TUnit.Assertions.Enums.CollectionOrdering.Matching);
     }
 
     [Test]
-    public async Task BuildArgs_puts_a_model_before_the_message() {
-        await Assert.That(OpenCodeCliRunner.BuildArgs("/p", "anthropic/claude-haiku-4-5")).IsEquivalentTo(
-            ["run", "--format", "json", "--pure", "--print-logs", "--log-level", "ERROR", "--file", "/p", "-m", "anthropic/claude-haiku-4-5", OpenCodeCliRunner.Message],
+    public async Task BuildArgs_adds_a_model_last() {
+        await Assert.That(OpenCodeCliRunner.BuildArgs("anthropic/claude-haiku-4-5")).IsEquivalentTo(
+            ["run", "--format", "json", "--pure", "--print-logs", "--log-level", "ERROR", "-m", "anthropic/claude-haiku-4-5"],
             TUnit.Assertions.Enums.CollectionOrdering.Matching);
     }
 
@@ -74,7 +74,30 @@ public class OpenCodeCliRunnerTests {
     [Arguments("")]
     [Arguments("  ")]
     public async Task BuildArgs_leaves_a_blank_model_to_opencode(string model) =>
-        await Assert.That(OpenCodeCliRunner.BuildArgs("/p", model)).DoesNotContain("-m");
+        await Assert.That(OpenCodeCliRunner.BuildArgs(model)).DoesNotContain("-m");
+
+    /// <summary>Where OpenCode finds the user's default when no config names one, and the only state a run takes.</summary>
+    [Test]
+    public async Task The_users_recent_models_and_nothing_else_reach_the_private_state() {
+        var user = Tmp.CreateDir("user-state").Path;
+        Tmp.CreateFile(Path.Combine("user-state", "opencode", "model.json"), "recent");
+        Tmp.CreateFile(Path.Combine("user-state", "opencode", "kv.json"), "other");
+        var run = Tmp.CreateDir("run-state").Path;
+
+        OpenCodeCliRunner.CopyRecentModels(new Dictionary<string, string?> { ["XDG_STATE_HOME"] = user }, "/nowhere", run, _ => { });
+
+        await Assert.That(Directory.GetFiles(Path.Combine(run, "opencode")).Select(f => Path.GetFileName(f))).IsEquivalentTo(["model.json"]);
+        await Assert.That(File.ReadAllText(Path.Combine(run, "opencode", "model.json"))).IsEqualTo("recent");
+    }
+
+    [Test]
+    public async Task No_recent_models_leaves_the_private_state_empty() {
+        var run = Tmp.CreateDir("run-state").Path;
+
+        OpenCodeCliRunner.CopyRecentModels(new Dictionary<string, string?> { ["HOME"] = Tmp.CreateDir("empty-home").Path }, "/nowhere", run, _ => { });
+
+        await Assert.That(Directory.EnumerateFileSystemEntries(run)).IsEmpty();
+    }
 
     [Test]
     public async Task BuildPrompt_puts_the_system_prompt_first_and_the_schema_instruction_last() {
@@ -289,7 +312,7 @@ public class OpenCodeCliRunnerTests {
     /// removal afterwards. The inherited environment carries an operator's allow-all permission, an extra config
     /// file and no <c>auth.json</c> on the user's side.</summary>
     [Test, ExcludeOn(OS.Windows)]
-    public async Task OpenCode_gets_the_prompt_in_a_utf8_file_in_an_otherwise_empty_private_run() {
+    public async Task OpenCode_gets_the_prompt_on_utf8_stdin_in_an_empty_private_run() {
         var seen = Tmp.CreateDir("seen").Path;
         var opencode = FakeOpenCode($"""
             printf '%s\n' "$@" > '{seen}/args'
@@ -301,7 +324,7 @@ public class OpenCodeCliRunnerTests {
             env | grep -c '^OPENCODE_CONFIG=' > '{seen}/config'
             env | grep -c '^OPENCODE_AUTH_CONTENT=' > '{seen}/auth'
             printf '%s' "$KCAP_SKIP" > '{seen}/skip'
-            cp prompt.md '{seen}/prompt'
+            cat > '{seen}/prompt'
             echo '{Reply("ok")}'
             echo '{StepFinish}'
             """);
@@ -314,14 +337,12 @@ public class OpenCodeCliRunnerTests {
 
         await Assert.That(outcome.Result!.Result).IsEqualTo("ok");
         var args       = await File.ReadAllLinesAsync(Path.Combine(seen, "args"));
-        var promptFile = args[Array.IndexOf(args, "--file") + 1];
-        var cwd        = Path.GetDirectoryName(promptFile)!;
-        await Assert.That(args).IsEquivalentTo(OpenCodeCliRunner.BuildArgs(promptFile, null), TUnit.Assertions.Enums.CollectionOrdering.Matching);
-        await Assert.That(Path.GetFileName(promptFile)).IsEqualTo("prompt.md");
+        var cwd        = Path.Combine(Path.GetDirectoryName((await File.ReadAllLinesAsync(Path.Combine(seen, "private-dirs")))[0])!, "cwd");
+        await Assert.That(args).IsEquivalentTo(OpenCodeCliRunner.BuildArgs(null), TUnit.Assertions.Enums.CollectionOrdering.Matching);
         await Assert.That(Path.GetFileName((await File.ReadAllTextAsync(Path.Combine(seen, "cwd"))).Trim())).IsEqualTo("cwd");
         await Assert.That(await File.ReadAllBytesAsync(Path.Combine(seen, "prompt"))).IsEquivalentTo(
             new UTF8Encoding(false).GetBytes(OpenCodeCliRunner.BuildPrompt(prompt, "Be brief.", null)), TUnit.Assertions.Enums.CollectionOrdering.Matching);
-        await Assert.That((await File.ReadAllTextAsync(Path.Combine(seen, "listing"))).Trim()).IsEqualTo("prompt.md");
+        await Assert.That((await File.ReadAllTextAsync(Path.Combine(seen, "listing"))).Trim()).IsEmpty();
         await Assert.That((await File.ReadAllLinesAsync(Path.Combine(seen, "private-listing"))).Where(l => l.Length > 0 && !l.EndsWith(':')))
             .IsEmpty();
         await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "permission"))).IsEqualTo(
