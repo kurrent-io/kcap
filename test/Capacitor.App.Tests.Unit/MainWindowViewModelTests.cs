@@ -569,6 +569,23 @@ public class MainWindowViewModelTests {
         await Assert.That(MainWindowViewModel.ProfileLabelForRail(profile)).IsEqualTo(expected);
     }
 
+    /// A daemon attached to another server must not lend its host to the app's org.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Footer_identity_names_the_app_profiles_server_not_the_daemons() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                tenantName: "kurrent", appServerUrl: "https://kurrent.kcap.ai");
+            using var activation = vm.Activator.Activate();
+
+            service.SnapshotsSubject.OnNext(Snap(serverUrl: "https://other.kcap.ai", connection: "connected"));
+
+            await Assert.That(vm.FooterIdentity).IsEqualTo("kurrent · kurrent.kcap.ai");
+            await Assert.That(vm.FooterServerUrl).IsEqualTo("https://kurrent.kcap.ai");
+        });
+    }
+
     /// The footer names the host, port included, never the scheme; either half stands alone when
     /// the other is missing.
     [Test]

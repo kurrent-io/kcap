@@ -331,7 +331,7 @@
                                IsVisible="{Binding FooterIdentity, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                         <ToolTip.Tip>
                             <StackPanel Spacing="2">
-                                <TextBlock Text="{Binding ServerUrl}" />
+                                <TextBlock Text="{Binding FooterServerUrl}" />
                                 <TextBlock Text="{x:Static vm:MainWindowViewModel.ServerUrlTip}"
                                            Classes="kcapTipCaption" />
                             </StackPanel>

@@ -65,9 +65,15 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     ObservableAsPropertyHelper<string>? _serverUrl;
     public string ServerUrl => _serverUrl?.Value ?? "";
 
+    readonly string _appServerUrl;
+    ObservableAsPropertyHelper<string>? _footerServerUrl;
+    /// The org's server: the app profile's, not the daemon's, which can be attached to another
+    /// server. The daemon's stands in only when the app has no profile server.
+    public string FooterServerUrl => _footerServerUrl?.Value ?? _appServerUrl;
+
     ObservableAsPropertyHelper<string>? _footerIdentity;
-    /// The org and the server host on one line under the status; the full URL stays on hover.
-    public string FooterIdentity => _footerIdentity?.Value ?? TenantName;
+    /// The org and its server host on one line under the status; the full URL stays on hover.
+    public string FooterIdentity => _footerIdentity?.Value ?? IdentityLine(TenantName, _appServerUrl);
 
     ObservableAsPropertyHelper<RailAlert?>? _alert;
     /// The footer's status line when something needs the user; null while everything works, when
@@ -421,8 +427,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             IObservable<bool>? movingToWindowsService = null,
             Func<string, RemoteSessionViewModel?>? serverWorkspaceFactory = null,
             Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory = null,
-            IServerSessionsService? sessions = null) {
+            IServerSessionsService? sessions = null, string? appServerUrl = null) {
         _service = service;
+        _appServerUrl = appServerUrl ?? "";
         _serverFactory = serverWorkspaceFactory;
         Time = time;
         Activity = activity;
@@ -547,9 +554,14 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .ToProperty(this, x => x.ServerUrl, "")
                 .DisposeWith(disposables);
 
-            _footerIdentity = snapshots.Select(s => IdentityLine(TenantName, s.Daemon.ServerUrl))
-                .DistinctUntilChanged()
-                .ToProperty(this, x => x.FooterIdentity, TenantName)
+            var footerServerUrl = _appServerUrl.Length > 0
+                ? Observable.Return(_appServerUrl)
+                : snapshots.Select(s => s.Daemon.ServerUrl).DistinctUntilChanged();
+            _footerServerUrl = footerServerUrl
+                .ToProperty(this, x => x.FooterServerUrl, _appServerUrl)
+                .DisposeWith(disposables);
+            _footerIdentity = footerServerUrl.Select(url => IdentityLine(TenantName, url))
+                .ToProperty(this, x => x.FooterIdentity, IdentityLine(TenantName, _appServerUrl))
                 .DisposeWith(disposables);
 
             // Seeded with "" so this fires before the first snapshot arrives. AlertFor reads the word
