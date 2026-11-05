@@ -233,6 +233,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// the empty chat's note points there, unless the terminal-menu card already does.
     public bool ShowsTerminalOffer => ShowTerminal is not null && PhaseNote.Length > 0 && !_ended && !ShowsTerminalMenu;
 
+    /// The empty-chat offer sits over the messages, so a chat with history has this one beside the
+    /// activity row's warning instead.
+    public bool ShowsActivityTerminalOffer => ShowTerminal is not null && LaunchPromptUnsent && !ShowsTerminalMenu;
+
+    bool LaunchPromptUnsent => _launchPromptUnconfirmed && !_ended && _items.Count > 0;
+
     void RaisePhaseNote() {
         this.RaisePropertyChanged(nameof(PhaseNote));
         this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
@@ -370,6 +376,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         private set {
             this.RaiseAndSetIfChanged(ref _showsTerminalMenu, value);
             this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
+            this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
         }
     }
 
@@ -575,7 +582,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             _workingSince = null;
         }
         // History hides the empty-chat note, so a launch prompt that has not gone says so here.
-        var unsent = _launchPromptUnconfirmed && !_ended && _items.Count > 0;
+        var unsent = LaunchPromptUnsent;
         ActivityNote = _failureNote is { } failure && Phase != ChatTabPhase.Failed
             ? FailureNote(failure)
             : unsent
@@ -586,6 +593,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                         ? WorkingNote(_worked + _time.GetElapsedTime(since)) : "";
         ShowsActivityNote = (unsent || (_failureNote is not null && Phase != ChatTabPhase.Failed)) && ActivityNote.Length > 0;
         ShowsLiveNote = !ShowsActivityNote && ActivityNote.Length > 0;
+        this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
         RefreshAgentStatus();
         RefreshQueuedSend();
     }

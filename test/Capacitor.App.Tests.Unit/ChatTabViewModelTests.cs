@@ -3670,11 +3670,17 @@ public class ChatTabViewModelTests {
                 await Assert.That(h.Chat.PhaseNote).IsEmpty();
                 await Assert.That(h.Chat.ShowsActivityNote).IsTrue();
                 await Assert.That(h.Chat.ActivityNote).IsEqualTo(ChatTabViewModel.LaunchPromptUnconfirmedNote);
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsFalse();
+
+                h.Chat.ShowTerminal = () => { };
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsTrue();
+                await Assert.That(h.Chat.ShowsTerminalOffer).IsFalse();
 
                 await h.PushAsync(dto with { Status = "Running", LaunchPromptUnconfirmed = false });
 
                 await Assert.That(h.Chat.ShowsActivityNote).IsFalse();
                 await Assert.That(h.Chat.ActivityNote).IsEmpty();
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsFalse();
             } finally { await h.TeardownAsync(); }
         });
     }
