@@ -119,16 +119,18 @@ public static class ClaudePluginInstaller {
             ReadSettings(Path.Combine(projectDir, ".claude", "settings.json"))
         ];
 
-        if (Nearest([.. project, ReadSettings(settingsPath)], scope => scope["disableAllHooks"]) == true) return false;
+        JsonObject?[] user = [ReadSettings(settingsPath)];
 
-        var userKey = EnabledKcapPluginKey(settingsPath);
+        if (Nearest([.. project, .. user], scope => scope["disableAllHooks"]) == true) return false;
 
         foreach (var key in KcapPluginKeys) {
-            var inProject = Nearest(project, scope => (scope["enabledPlugins"] as JsonObject)?[key]);
+            JsonNode? Enabled(JsonObject scope) => (scope["enabledPlugins"] as JsonObject)?[key];
+
+            var inProject = Nearest(project, Enabled);
             if (inProject == true) return true;
 
-            if (inProject is null && key == userKey
-             && (IsEffectivelyInstalled(settingsPath) || AwaitsFirstInstall(settingsPath, key)))
+            if (inProject is null && Nearest(user, Enabled) == true
+             && (EffectiveMcpJsonPath(settingsPath, key) is not null || AwaitsFirstInstall(settingsPath, key)))
                 return true;
         }
 
@@ -166,10 +168,10 @@ public static class ClaudePluginInstaller {
 
     /// <summary>The <c>.mcp.json</c> Claude actually loads for the enabled kcap plugin, or null when
     /// the plugin is not effective (see <see cref="IsEffectivelyInstalled"/>).</summary>
-    public static string? EffectiveMcpJsonPath(string settingsPath) {
-        var enabledKey = EnabledKcapPluginKey(settingsPath);
-        if (enabledKey is null) return null;
+    public static string? EffectiveMcpJsonPath(string settingsPath) =>
+        EnabledKcapPluginKey(settingsPath) is { } enabledKey ? EffectiveMcpJsonPath(settingsPath, enabledKey) : null;
 
+    static string? EffectiveMcpJsonPath(string settingsPath, string enabledKey) {
         var claudeHome = Path.GetDirectoryName(settingsPath);
         if (string.IsNullOrEmpty(claudeHome)) return null;
         var pluginsDir = Path.Combine(claudeHome, "plugins");

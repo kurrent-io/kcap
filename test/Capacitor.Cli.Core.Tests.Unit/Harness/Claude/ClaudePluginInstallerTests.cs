@@ -110,6 +110,23 @@ public class ClaudePluginInstallerTests {
         await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
     }
 
+    /// A second enabled id still loads when the project switches off the first, and it is that id's
+    /// own payload that has to be checked.
+    [Test]
+    public async Task RunsHooks_true_when_a_second_user_plugin_id_survives_the_project() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", """{ "enabledPlugins": { "kcap@kcap": true, "kapacitor@kurrent": true } }""");
+        string cache     = tmp.CreateDir("cache");
+        tmp.CreateFile("cache/.mcp.json", "{}");
+        tmp.CreateFile("plugins/installed_plugins.json", $$"""
+            { "version": 2, "plugins": { "kapacitor@kurrent": [
+                { "scope": "user", "installPath": {{JsonValue.Create(cache).ToJsonString()}}, "version": "1.0.0" } ] } }
+            """);
+        tmp.CreateFile("project/.claude/settings.json", """{ "enabledPlugins": { "kcap@kcap": false } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
     /// No hook of any plugin fires under this setting, so nothing could ever release a hold, and a
     /// resumed agent has no transcript to fall back on.
     [Test]
