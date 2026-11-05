@@ -16,8 +16,10 @@ public class PrivilegedSwapTests {
     /// <summary>Stands in for the elevated osascript, as the current user: runs the script it was handed with
     /// <c>/bin/bash</c>, or answers <paramref name="answer"/> without running anything. With
     /// <paramref name="throughAppleScript"/> it runs osascript itself on the AppleScript stripped of its privileges,
-    /// with <c>PWNED</c> naming a file only an evaluated path would create.</summary>
-    sealed class Elevated(ProcessResult? answer = null, bool throughAppleScript = false, string? pwned = null) : IProcessRunner {
+    /// with <c>PWNED</c> naming a file only an evaluated path would create. <paramref name="script"/> stands in for the
+    /// script it was handed.</summary>
+    sealed class Elevated(ProcessResult? answer = null, bool throughAppleScript = false, string? pwned = null, string? script = null)
+        : IProcessRunner {
         public List<(string File, string[] Args, RunOptions Options)> Ran { get; } = [];
 
         public Task<ProcessResult> RunAsync(string fileName, string[] args, RunOptions options, CancellationToken ct) {
@@ -33,7 +35,7 @@ public class PrivilegedSwapTests {
             }
 
             var rest = args[(Array.IndexOf(args, "--") + 1)..];
-            return runner.RunAsync("/bin/bash", ["-c", rest[1], "kcap-privileged", .. rest[2..]], options, ct);
+            return runner.RunAsync("/bin/bash", ["-c", script ?? rest[1], "kcap-privileged", .. rest[2..]], options, ct);
         }
 
         public Task<StreamingResult> RunStreamingAsync(string fileName, string[] args, RunOptions options, Action<StreamedLine> onLine,
@@ -63,7 +65,7 @@ public class PrivilegedSwapTests {
         await Assert.That(duringVerify.GoSent).IsFalse();
         await Assert.That(linksDuringVerify).IsEquivalentTo(install.Links.Select(l => (string?)l.Replacement));
         await Assert.That(store.Load().Privileged).IsEqualTo(duringVerify with { GoSent = true });
-        foreach (var entry in spec.Entries) await Assert.That(Path.Exists(entry.Original)).IsFalse();
+        foreach (var (entry, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Original)).IsFalse();
         await Assert.That(Path.Exists(spec.ControlFifo)).IsFalse();
         await Assert.That(Path.Exists(spec.StatusFile)).IsFalse();
     }
@@ -105,12 +107,41 @@ public class PrivilegedSwapTests {
         await Assert.That(args[0]).IsEqualTo("-e");
         await Assert.That(args[1]).Contains(Privileges);
         await Assert.That(args[2]).IsEqualTo("--");
-        await Assert.That(args[3..]).IsEquivalentTo([Prompt, PrivilegedSwapScript.Render(spec), .. PrivilegedSwapScript.Arguments(spec)]);
-        foreach (var path in spec.Links.Select(l => l.Path).Concat(spec.Entries.Select(e => e.Original)).Append(spec.StatusFile)) {
+        await Assert.That(args[3..]).IsEquivalentTo([Prompt, PrivilegedSwapScript.Render(spec), .. PrivilegedSwapScript.Arguments(spec, PrivilegedSwap.CurrentUid())]);
+        foreach (var path in spec.Links.Select(l => l.Path).Concat(spec.Entries.Select(e => e.Entry.Original)).Append(spec.StatusFile)) {
             await Assert.That(args[1]).DoesNotContain(path);
             await Assert.That(PrivilegedSwapScript.Render(spec)).DoesNotContain(path);
         }
         await Assert.That(options.CancelMode).IsEqualTo(CancelMode.KillTree);
+    }
+
+    [Test]
+    public async Task An_osascript_failure_before_the_helper_reported_its_pid_is_cancelled() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        var store   = Store();
+        var runner  = new Elevated(new ProcessResult(1, "", "execution error: The administrator user name or password was incorrect. (-60007)", false));
+
+        var result = await new PrivilegedSwap(runner, store).RunAsync(
+            install.Packages[0], spec, Prompt, _ => Task.FromResult(true), CancellationToken.None);
+
+        await Assert.That(result).IsEqualTo(PrivilegedResult.Cancelled);
+        await Assert.That(store.Load().Privileged).IsNull();
+        await install.AssertUntouchedAsync(spec);
+    }
+
+    [Test]
+    public async Task A_helper_that_ran_without_reporting_an_outcome_is_cut_short() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        var store   = Store();
+        var runner  = new Elevated(script: "echo $$ > \"$1\"; exit 9");
+
+        var result = await new PrivilegedSwap(runner, store).RunAsync(
+            install.Packages[0], spec, Prompt, _ => Task.FromResult(true), CancellationToken.None);
+
+        await Assert.That(result).IsEqualTo(PrivilegedResult.CutShort);
+        await Assert.That(store.Load().Privileged!.GoSent).IsFalse();
     }
 
     [Test]
@@ -124,7 +155,7 @@ public class PrivilegedSwapTests {
             install.Packages[0], spec, Prompt, _ => Task.FromResult(true), CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(PrivilegedResult.Deleted);
-        foreach (var entry in spec.Entries) await Assert.That(Path.Exists(entry.Original)).IsFalse();
+        foreach (var (entry, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Original)).IsFalse();
         foreach (var link in install.Links) await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Replacement);
         await Assert.That(File.Exists(pwned)).IsFalse();
     }
@@ -144,7 +175,7 @@ public class PrivilegedSwapTests {
             await Assert.That(result).IsEqualTo(PrivilegedResult.CutShort);
             await Assert.That(store.Load().Privileged!.GoSent).IsTrue();
         } finally {
-            foreach (var dir in new[] { locked.FullName, Path.Combine(spec.Entries[^1].Aside, "locked") }.Where(Directory.Exists))
+            foreach (var dir in new[] { locked.FullName, Path.Combine(spec.Entries[^1].Entry.Aside, "locked") }.Where(Directory.Exists))
                 File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
     }

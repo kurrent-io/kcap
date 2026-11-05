@@ -38,16 +38,19 @@ internal sealed record PrivilegedNpmInstall(string Scope, string Sibling, IReadO
         return dir;
     }
 
+    /// <summary>Each package must still hold its own name and the recorded version.</summary>
     public PrivilegedSpec Spec(TempDir tmp, TimeSpan? goWait = null, string helper = "helper") {
         var retirement = new AsideRetirement(new ConfigRoot(tmp.CreateDir("config")), "cli-adoption-retire");
         return new PrivilegedSpec(
-            Links, [.. Packages.Select(retirement.Plan)], "package.json", ["\"@kurrent/kcap", $"\"{Version}\""],
+            Links,
+            [.. Packages.Select(p => new PrivilegedEntry(
+                retirement.Plan(p), "package.json", [$"\"@kurrent/{Path.GetFileName(p)}\"", $"\"{Version}\""]))],
             tmp.PathTo(helper, "control"), tmp.PathTo(helper, "status"), goWait ?? TimeSpan.FromSeconds(30));
     }
 
     public async Task AssertUntouchedAsync(PrivilegedSpec spec) {
         foreach (var link in Links) await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Original);
-        foreach (var entry in spec.Entries) {
+        foreach (var (entry, _, _) in spec.Entries) {
             await Assert.That(File.Exists(Path.Combine(entry.Original, "package.json"))).IsTrue();
             await Assert.That(Path.Exists(entry.Aside)).IsFalse();
         }

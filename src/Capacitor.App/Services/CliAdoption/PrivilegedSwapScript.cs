@@ -5,11 +5,12 @@ namespace Capacitor.App.Services.CliAdoption;
 /// <summary>
 /// The bash script one administrator prompt runs as root. It writes its pid to the status file, replaces each link
 /// still holding its original target, reports <see cref="Swapped"/> and waits for one word on the control pipe. On
-/// <see cref="Go"/> it sets every entry aside and checks each before deleting any, so a failed check puts the whole
-/// install back. Any other word, end of file or no word in time puts the links back. After go it finishes even if the
-/// app is gone.
-/// <para>Every path reaches it as a positional argument, never as script text. It creates the status file itself and
-/// writes only through that descriptor: root must not write through a path in a folder the user controls.</para>
+/// <see cref="Go"/> it sets every entry aside and checks each against its own marker, or only its kind, before deleting
+/// any, so a failed check puts the whole install back. Any other word, end of file or no word in time puts the links
+/// back. After go it finishes even if the app is gone.
+/// <para>Every path reaches it as a positional argument, never as script text. It creates the status file itself, only
+/// inside a real 0700 folder the app's user owns, and writes only through that descriptor: root must not write through
+/// a path someone else controls.</para>
 /// </summary>
 internal static class PrivilegedSwapScript {
     internal const string Swapped  = "swapped";
@@ -27,19 +28,26 @@ internal static class PrivilegedSwapScript {
             trap '' HUP PIPE
             umask 022
 
-            status=$1 control=$2 marker=$3
+            status=$1 control=$2 owner=$3
             shift 3
-            nneed=$1; shift; k=0
-            while [ $k -lt $nneed ]; do need[$k]=$1; shift; k=$((k + 1)); done
             nlinks=$1; shift; k=0
             while [ $k -lt $nlinks ]; do links[$k]=$1; olds[$k]=$2; news[$k]=$3; shift 3; k=$((k + 1)); done
-            nentries=$1; shift; k=0
-            while [ $k -lt $nentries ]; do entries[$k]=$1; asides[$k]=$2; shift 2; k=$((k + 1)); done
+            nentries=$1; shift; k=0; m=0
+            while [ $k -lt $nentries ]; do
+                entries[$k]=$1; asides[$k]=$2; markers[$k]=$3; first[$k]=$m; c=$4; shift 4
+                while [ $c -gt 0 ]; do needs[$m]=$1; shift; m=$((m + 1)); c=$((c - 1)); done
+                last[$k]=$m
+                k=$((k + 1))
+            done
 
             exists() { [ -e "$1" ] || [ -L "$1" ]; }
             kind() { if [ -L "$1" ]; then echo l; elif [ -d "$1" ]; then echo d; elif [ -e "$1" ]; then echo f; else echo -; fi; }
 
             if exists "$status"; then echo "kcap: $status is in the way" >&2; exit 2; fi
+            # The folder can still change before the open below; the file is only ever created, with fixed content.
+            dir=${status%/*}
+            [ -d "$dir" ] && ! [ -L "$dir" ] && [ "$(/usr/bin/stat -f '%u %Lp' -- "$dir")" = "$owner 700" ] \
+                || { echo "kcap: $dir is not a private folder of user $owner" >&2; exit 2; }
             set -C
             exec 5>"$status" || exit 2
             set +C
@@ -101,12 +109,12 @@ internal static class PrivilegedSwapScript {
             }
 
             ours() {
-                [ "$(kind "$1")" = "$2" ] || return 1
-                [ "$2" = d ] || return 0
-                [ -f "$1/$marker" ] && ! [ -L "$1/$marker" ] || return 1
-                local j=0
-                while [ $j -lt $nneed ]; do
-                    /usr/bin/grep -qF -e "${need[$j]}" -- "$1/$marker" || return 1
+                [ "$(kind "$1")" = "${kinds[$2]}" ] || return 1
+                [ -n "${markers[$2]}" ] || return 0
+                [ "${kinds[$2]}" = d ] && [ -f "$1/${markers[$2]}" ] && ! [ -L "$1/${markers[$2]}" ] || return 1
+                local j=${first[$2]}
+                while [ $j -lt ${last[$2]} ]; do
+                    /usr/bin/grep -qF -e "${needs[$j]}" -- "$1/${markers[$2]}" || return 1
                     j=$((j + 1))
                 done
             }
@@ -119,7 +127,7 @@ internal static class PrivilegedSwapScript {
                         move_back && say {{Restored}}; exit 5
                     fi
                     moved[$i]=1
-                    if ! ours "${asides[$i]}" "${kinds[$i]}"; then
+                    if ! ours "${asides[$i]}" $i; then
                         echo "kcap: ${entries[$i]} is no longer the install that was recorded" >&2
                         move_back && say {{Restored}}; exit 5
                     fi
@@ -142,21 +150,23 @@ internal static class PrivilegedSwapScript {
             """;
     }
 
-    /// <summary>The script's positional arguments: the status file, the control pipe and the marker, then each list as
-    /// its count followed by its items: the marker substrings, the links as (path, original, replacement), the entries
-    /// as (original, aside).</summary>
-    internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec) {
+    /// <summary>The script's positional arguments: the status file, the control pipe, the uid that must own the status
+    /// file's folder, then the links as a count and (path, original, replacement) triples, and the entries as a count
+    /// and (original, aside, marker, substring count, substrings…) groups, an empty marker meaning a kind check
+    /// only.</summary>
+    internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec, uint owner) {
         Validate(spec);
-        var args = new List<string> { spec.StatusFile, spec.ControlFifo, spec.Marker, Count(spec.MarkerContains.Count) };
-        args.AddRange(spec.MarkerContains);
-        args.Add(Count(spec.Links.Count));
+        var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), Number(spec.Links.Count) };
         foreach (var link in spec.Links) args.AddRange([link.Path, link.Original, link.Replacement]);
-        args.Add(Count(spec.Entries.Count));
-        foreach (var entry in spec.Entries) args.AddRange([entry.Original, entry.Aside]);
+        args.Add(Number(spec.Entries.Count));
+        foreach (var entry in spec.Entries) {
+            args.AddRange([entry.Entry.Original, entry.Entry.Aside, entry.Marker ?? "", Number(entry.MarkerContains.Count)]);
+            args.AddRange(entry.MarkerContains);
+        }
         return args;
     }
 
-    static string Count(int n) => n.ToString(CultureInfo.InvariantCulture);
+    static string Number(long n) => n.ToString(CultureInfo.InvariantCulture);
 
     // A line break would let `$(readlink)` match a target it trimmed and split a marker substring into two patterns.
     static void Validate(PrivilegedSpec spec) {
@@ -164,16 +174,20 @@ internal static class PrivilegedSwapScript {
 
         Require(spec.ControlFifo, Path.IsPathFullyQualified, "control pipe");
         Require(spec.StatusFile, Path.IsPathFullyQualified, "status file");
-        Require(spec.Marker, m => !Path.IsPathRooted(m) && !m.Split('/').Contains(".."), "marker");
-        foreach (var needed in spec.MarkerContains) Require(needed, _ => true, "marker substring");
         foreach (var link in spec.Links) {
             Require(link.Path, Path.IsPathFullyQualified, "link");
             Require(link.Original, _ => true, "link target");
             Require(link.Replacement, Path.IsPathFullyQualified, "link replacement");
         }
-        foreach (var entry in spec.Entries) {
+        foreach (var (entry, marker, contains) in spec.Entries) {
             Require(entry.Original, o => Path.IsPathFullyQualified(o) && Path.GetFullPath(o) == o, "entry");
             Require(entry.Aside, a => AsideRetirement.IsOwnAside(entry.Original, a, linkAllowed: true), "aside");
+            if (string.IsNullOrEmpty(marker)) {
+                if (contains.Count > 0) throw new ArgumentException($"Marker substrings for {entry.Original} need a marker.");
+            } else {
+                Require(marker, m => !Path.IsPathRooted(m) && !m.Split('/').Contains(".."), "marker");
+            }
+            foreach (var needed in contains) Require(needed, _ => true, "marker substring");
         }
     }
 
