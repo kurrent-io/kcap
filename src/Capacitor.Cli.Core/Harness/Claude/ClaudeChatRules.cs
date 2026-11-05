@@ -44,27 +44,9 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         // Try the exact text first: a user can be documenting the paste wrapper itself. Unwrap
         // once, without stripping reminders/commands that may be part of that literal paste.
         // Claude Code puts newlines outside the wrapper; left on, ↑ recall resends them and each
-        // round trip grows the paste. Only newlines touching a wrapper are its; the rest are typed.
-        var normalized = text.Replace("\r\n", "\n");
-        var pasted = UnwrapPastes(normalized);
-        if (!ReferenceEquals(pasted, normalized)) pasted = UnwrapPastes(WithoutWrapperNewlines(normalized));
+        // round trip grows the paste.
+        var pasted = UnwrapPastes(text.Replace("\r\n", "\n"), dropEdgeNewlines: true);
         return pasted == text ? [text] : [text, pasted];
-    }
-
-    static string WithoutWrapperNewlines(string text) {
-        var start = 0;
-        while (start < text.Length && text[start] == '\n') start++;
-        if (!text.AsSpan(start).StartsWith(PasteOpen, StringComparison.Ordinal)) start = 0;
-        var end = text.Length;
-        while (end > start && text[end - 1] == '\n') end--;
-        if (!EndsWithPasteClose(text.AsSpan(start, end - start))) end = text.Length;
-        return text[start..end];
-    }
-
-    static bool EndsWithPasteClose(ReadOnlySpan<char> text) {
-        if (!text.EndsWith("\">", StringComparison.Ordinal)) return false;
-        var idStart = text.LastIndexOf(PasteClose, StringComparison.Ordinal) + PasteClose.Length;
-        return idStart >= PasteClose.Length && idStart <= text.Length - 2 && !text[idStart..^2].Contains('"');
     }
 
     public string? SubmittedInput(CanonicalEvent evt, AcpEventEnvelope raw, AcpEventEnvelope? displayed, ScheduledPrompts? scheduled = null) {
@@ -353,12 +335,12 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
     internal static string StripWrappers(string text) => Wrappers().Replace(UnwrapPastes(text), "").Trim();
 
     const string PasteOpen = "<pasted_content id=\"";
-    const string PasteClose = "</pasted_content id=\"";
 
     /// A paste is a block whose close repeats the id, with a newline right after the open tag and
     /// right before the close. Only those newlines come off: a one-line pair is prose, and spaces
-    /// inside the block stay so the queue still matches.
-    static string UnwrapPastes(string text) {
+    /// inside the block stay so the queue still matches. <paramref name="dropEdgeNewlines"/> also
+    /// drops a run of newlines that stands alone between the message's edge and an unwrapped paste.
+    static string UnwrapPastes(string text, bool dropEdgeNewlines = false) {
         var cursor = 0;
         var scan = 0;
         StringBuilder? built = null;
@@ -383,16 +365,19 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                 scan = afterOpen;
                 continue;
             }
+            var leadingEdge = built is null && dropEdgeNewlines && OnlyNewlines(text.AsSpan(0, open));
             built ??= new StringBuilder(text.Length);
-            built.Append(text, cursor, open - cursor);
+            if (!leadingEdge) built.Append(text, cursor, open - cursor);
             built.Append(text, contentStart, closeAt - contentStart);
             cursor = closeAt + close.Length;
             scan = cursor;
         }
         if (built is null) return text;
-        built.Append(text, cursor, text.Length - cursor);
+        if (!(dropEdgeNewlines && OnlyNewlines(text.AsSpan(cursor)))) built.Append(text, cursor, text.Length - cursor);
         return built.ToString();
     }
+
+    static bool OnlyNewlines(ReadOnlySpan<char> text) => !text.ContainsAnyExcept('\n');
 
     /// The command when the whole message is a bash-input tag, reminders beside it aside; null when the
     /// tag is quoted inside other text or the command is blank.

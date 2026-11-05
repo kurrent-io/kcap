@@ -58,20 +58,18 @@ public class ChatLiteralInputTests {
         await Assert.That(literal.Envelopes.Single().Text).IsEqualTo(body);
     }
 
-    /// Newlines at a message boundary held by typed text, not a wrapper, are the user's.
+    /// Only newlines against a wrapper that actually unwraps are Claude Code's; a newline beside
+    /// typed text is the user's, even when that text looks like a wrapper tag.
     [Test]
-    public async Task Newlines_beside_typed_text_survive_a_restored_paste() {
-        const string raw = "\nintro\n<pasted_content id=\"7ce1\">\nbody\n</pasted_content id=\"7ce1\">\noutro\n\n";
-        const string expected = "\nintro\nbody\noutro\n\n";
-        var literal = Claude(raw).RestoreSubmittedInputs(text => text.Trim() == expected.Trim());
-        await Assert.That(literal.SubmittedInputs).IsEquivalentTo(new[] { expected });
-    }
-
-    /// A close tag whose id quote is the final quote leaves no id between them to read.
-    [Test]
-    public async Task A_message_ending_in_a_bare_close_tag_keeps_its_trailing_newline() {
-        const string raw = "\n\n<pasted_content id=\"a\">\nbody\n</pasted_content id=\"a\">\n</pasted_content id=\">\n";
-        const string expected = "body\n</pasted_content id=\">\n";
+    [Arguments("\nintro\n<pasted_content id=\"a\">\nbody\n</pasted_content id=\"a\">\noutro\n\n",
+        "\nintro\nbody\noutro\n\n")]
+    [Arguments("\n\n<pasted_content id=\"a\">\nbody\n</pasted_content id=\"a\">\n</pasted_content id=\">\n",
+        "body\n</pasted_content id=\">\n")]
+    [Arguments("\n\n<pasted_content id=\"x\"> prose\n<pasted_content id=\"a\">\nbody\n</pasted_content id=\"a\">",
+        "\n\n<pasted_content id=\"x\"> prose\nbody")]
+    [Arguments("<pasted_content id=\"a\">\nbody\n</pasted_content id=\"a\">\ntyped </pasted_content id=\"example\">\n",
+        "body\ntyped </pasted_content id=\"example\">\n")]
+    public async Task Newlines_beside_typed_text_survive_a_restored_paste(string raw, string expected) {
         var literal = Claude(raw).RestoreSubmittedInputs(text => text.Trim() == expected.Trim());
         await Assert.That(literal.SubmittedInputs).IsEquivalentTo(new[] { expected });
     }
