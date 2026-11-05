@@ -440,7 +440,8 @@ sealed class AdoptionWorld {
         }
     }
 
-    /// <summary>The bundle's <c>kcap refresh --app-migration</c>, which succeeds unless told otherwise.</summary>
+    /// <summary>The bundle's <c>kcap refresh --app-migration</c>, which succeeds unless told otherwise and rewrites
+    /// what <see cref="Rewrites"/> does.</summary>
     internal sealed class RefreshRunner : IProcessRunner {
         int _calls;
 
@@ -448,8 +449,11 @@ sealed class AdoptionWorld {
 
         public int ExitCode { get; set; }
 
+        public Action? Rewrites { get; set; }
+
         public Task<ProcessResult> RunAsync(string fileName, string[] args, RunOptions options, CancellationToken ct) {
             Interlocked.Increment(ref _calls);
+            if (ExitCode == 0) Rewrites?.Invoke();
             return Task.FromResult(new ProcessResult(ExitCode, "", ExitCode == 0 ? "" : "refresh failed", false));
         }
 

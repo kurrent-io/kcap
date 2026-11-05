@@ -41,7 +41,7 @@ public class AdoptionIntegrationsTests {
         var runner = new Runner(() => { time.Advance(TimeSpan.FromSeconds(30)); return Ok; });
         var (integrations, store, _, _) = Build(runner, time);
 
-        await Assert.That(await integrations.RepointAsync(false, CancellationToken.None)).IsTrue();
+        await Assert.That(await integrations.RepointAsync(null, CancellationToken.None)).IsTrue();
 
         await Assert.That(runner.File).IsEqualTo(Cli);
         await Assert.That(store.Load().CutoverUtc).IsEqualTo(new DateTime(2026, 11, 4, 10, 0, 30, DateTimeKind.Utc));
@@ -54,23 +54,33 @@ public class AdoptionIntegrationsTests {
         var cutover = new DateTime(2026, 11, 4, 9, 0, 0, DateTimeKind.Utc);
         store.Update(r => r with { CutoverUtc = cutover });
 
-        await Assert.That(await integrations.RepointAsync(false, CancellationToken.None)).IsTrue();
+        await Assert.That(await integrations.RepointAsync(null, CancellationToken.None)).IsTrue();
 
         await Assert.That(runner.Calls).IsEqualTo(0);
         await Assert.That(store.Load().CutoverUtc).IsEqualTo(cutover);
     }
 
+    /// <summary>A rerun for a site naming the old install moves the cutover only when, asked after the refresh, the
+    /// caller finds it repointed.</summary>
     [Test]
-    public async Task A_site_still_naming_the_old_install_reruns_the_refresh_and_moves_the_cutover() {
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_rerun_moves_the_cutover_only_once_it_repointed_a_naming_site(bool repointed) {
         var runner = new Runner(() => Ok);
         var (integrations, store, time, _) = Build(runner);
-        store.Update(r => r with { CutoverUtc = new DateTime(2026, 11, 4, 9, 0, 0, DateTimeKind.Utc) });
+        var cutover = new DateTime(2026, 11, 4, 9, 0, 0, DateTimeKind.Utc);
+        store.Update(r => r with { CutoverUtc = cutover });
         time.Advance(TimeSpan.FromMinutes(5));
+        var askedAfter = -1;
 
-        await Assert.That(await integrations.RepointAsync(true, CancellationToken.None)).IsTrue();
+        await Assert.That(await integrations.RepointAsync(_ => {
+            askedAfter = runner.Calls;
+            return Task.FromResult(repointed);
+        }, CancellationToken.None)).IsTrue();
 
         await Assert.That(runner.Calls).IsEqualTo(1);
-        await Assert.That(store.Load().CutoverUtc).IsEqualTo(new DateTime(2026, 11, 4, 10, 5, 0, DateTimeKind.Utc));
+        await Assert.That(askedAfter).IsEqualTo(1);
+        await Assert.That(store.Load().CutoverUtc).IsEqualTo(repointed ? new DateTime(2026, 11, 4, 10, 5, 0, DateTimeKind.Utc) : cutover);
     }
 
     [Test]
@@ -80,7 +90,7 @@ public class AdoptionIntegrationsTests {
         var runner = new Runner(() => new ProcessResult(timedOut ? 0 : 1, "", "boom", timedOut));
         var (integrations, store, _, _) = Build(runner);
 
-        await Assert.That(await integrations.RepointAsync(false, CancellationToken.None)).IsFalse();
+        await Assert.That(await integrations.RepointAsync(null, CancellationToken.None)).IsFalse();
 
         await Assert.That(store.Load().CutoverUtc).IsNull();
     }
@@ -91,7 +101,7 @@ public class AdoptionIntegrationsTests {
         var (integrations, _, _, refresh) = Build(runner);
         refresh.Schedule(Bundle);
 
-        await Assert.That(await integrations.RepointAsync(false, CancellationToken.None)).IsTrue();
+        await Assert.That(await integrations.RepointAsync(null, CancellationToken.None)).IsTrue();
         await Assert.That(File.Exists(Config.Path(ApplicationIntegrationRefresh.FileName))).IsFalse();
 
         await refresh.RunPendingAsync(Bundle, CancellationToken.None);

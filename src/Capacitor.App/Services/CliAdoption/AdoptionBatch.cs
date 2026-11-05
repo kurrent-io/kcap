@@ -23,6 +23,7 @@ internal sealed class AdoptionBatch(
     readonly AdoptionServiceMove _services = new(machine, bundle, log);
     readonly AdoptionDeletion    _deletion = new(machine, store, retirement, harnesses, bundle.Root, log);
     readonly HashSet<string> _rootOwned = new(PathComparison.Comparer);
+    readonly HashSet<string> _unrepointed = new(StringComparer.Ordinal);
     AdoptionPrivilegedStep? _privileged;
     volatile bool _awaitingDaemon;
     volatile bool _awaitingIdle;
@@ -134,8 +135,8 @@ internal sealed class AdoptionBatch(
         var unfinished = FinishInterrupted();
         var processes  = machine.ReadProcesses();
         var sites      = await machine.ReadSitesAsync(ct).ConfigureAwait(false);
-        if (record.CutoverUtc is { } cutover && Named(due, cutover, sites)) {
-            var done = await integrations.RepointAsync(foundNamed: true, ct).ConfigureAwait(false);
+        if (record.CutoverUtc is { } cutover && Naming(due, cutover, sites) is { Count: > 0 } named) {
+            var done = await integrations.RepointAsync(c => RepointedAsync(due, cutover, named, c), ct).ConfigureAwait(false);
             log("adoption_integrations", [("result", done ? "ok" : "failed"), ("reason", "named")]);
         }
         await _deletion.SettleAsync(due, processes, sites, unfinished, ct).ConfigureAwait(false);
@@ -245,17 +246,27 @@ internal sealed class AdoptionBatch(
     }
 
     async Task<bool> IntegrateAsync(IReadOnlyList<OtherCliInstall> pending, DateTime? cutover, CancellationToken ct) {
-        var named = cutover is { } at && Named(pending, at, await machine.ReadSitesAsync(ct).ConfigureAwait(false));
-        var done  = await integrations.RepointAsync(named, ct).ConfigureAwait(false);
-        log("adoption_integrations", [("result", done ? "ok" : "failed"), ("reason", named ? "named" : null)]);
+        var named = cutover is { } at ? Naming(pending, at, await machine.ReadSitesAsync(ct).ConfigureAwait(false)) : [];
+        var done  = await integrations.RepointAsync(
+            named.Count == 0 ? null : c => RepointedAsync(pending, cutover!.Value, named, c), ct).ConfigureAwait(false);
+        log("adoption_integrations", [("result", done ? "ok" : "failed"), ("reason", named.Count > 0 ? "named" : null)]);
         return done;
     }
 
-    // Whether an integration names an install again. Its services name it until the daemon moves, which the refresh
-    // does not do, so they never rerun the refresh or move the cutover.
-    bool Named(IReadOnlyList<OtherCliInstall> installs, DateTime cutover, IReadOnlyList<ReferenceSite> sites) {
-        var integrationSites = sites.Where(s => !AdoptionReferenceSites.IsService(s)).ToList();
-        return installs.Any(i => AdoptionConsumers.Holder(i, cutover, [], integrationSites, harnesses, bundle.Root) is not null);
+    // The sites that name an install again and that a refresh could repoint. A service names it until its daemon moves,
+    // which no refresh does; a site that cannot be read may name nothing; one a refresh this app run left naming it is
+    // beyond the refresh. Each of them still holds the deletion.
+    List<string> Naming(IReadOnlyList<OtherCliInstall> installs, DateTime cutover, IReadOnlyList<ReferenceSite> sites) =>
+        [.. sites.Where(s => s.Readable && !AdoptionReferenceSites.IsService(s) && !_unrepointed.Contains(s.Name)
+                && installs.Any(i => AdoptionConsumers.Holder(i, cutover, [], [s], harnesses, bundle.Root) is not null))
+            .Select(s => s.Name)];
+
+    // Read again once the refresh has run: whether it repointed any of the sites that named an install.
+    async Task<bool> RepointedAsync(IReadOnlyList<OtherCliInstall> installs, DateTime cutover, List<string> named, CancellationToken ct) {
+        var still = Naming(installs, cutover, await machine.ReadSitesAsync(ct).ConfigureAwait(false));
+        var kept  = named.Intersect(still, StringComparer.Ordinal).ToList();
+        _unrepointed.UnionWith(kept);
+        return kept.Count < named.Count;
     }
 
     void Report(IReadOnlyList<OtherCliInstall> reported, AdoptionRecord record) {
