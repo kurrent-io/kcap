@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Copilot;
+using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.SessionStartMemory;
 using Capacitor.Cli.Core.Harness;
 
@@ -94,8 +95,8 @@ sealed class CopilotHookCommand(
     /// the shared resolver fall back to the hook PROCESS's cwd and inject an unrelated repository's
     /// memories.</para>
     ///
-    /// <para><b>Eligibility:</b> callers reach this only for a real UUID <c>sessionStart</c> (the
-    /// dispatcher drops tool-call-id subagent firings) and only for a non-excluded, enabled session.
+    /// <para><b>Eligibility:</b> callers reach this only for a real <c>sessionStart</c> (the
+    /// dispatcher drops subagent firings) and only for a non-excluded, enabled session.
     /// Copilot DOES report a lifecycle <c>source</c> (<c>startup</c>/<c>new</c>/<c>resume</c>), so the
     /// reason is mapped from it rather than assumed; re-injection across a resume of the same session
     /// id is prevented by the shared lease keyed on (harness, session id).</para>
@@ -172,14 +173,12 @@ sealed class CopilotHookCommand(
 
         if (string.IsNullOrEmpty(dashedSessionId)) return 0;
 
-        // Copilot session ids are UUIDs (the session-state dir name) — but
-        // subagent-scoped hook firings reuse the spawning toolCallId as
-        // sessionId (captured v1.0.61 agentStop: sessionId:"toolu_01…",
-        // transcriptPath:""). Those are not sessions: routing them onward
-        // would spawn idle watchers (pid files + SignalR registrations) keyed
-        // on tool-call ids. Subagent activity is already inlined in the
-        // parent session's transcript, so dropping these loses nothing.
-        if (!Guid.TryParse(dashedSessionId, out _)) return 0;
+        // A subagent's firing carries its spawning tool-call id or its own agent id as sessionId. Its
+        // activity is inlined in the parent's transcript, so dropping the firing loses nothing.
+        if (!Guid.TryParse(dashedSessionId, out var session)) return 0;
+
+        if (CopilotSubagentFiring.Is(eventName, session, TryGetString(node, "parentAgentId"), TryGetString(node, "transcriptPath"),
+                harnesses.Of<CopilotHarness>().Paths)) return 0;
 
         var sessionId = dashedSessionId.Replace("-", "");
 

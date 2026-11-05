@@ -6,33 +6,23 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Harness.OpenCode;
 
 /// <summary>
-/// The per-launch isolated <c>OPENCODE_CONFIG_DIR</c> for an unattended OpenCode reviewer — the
-/// direct analogue of <see cref="KiroReviewerHome"/>, and empty for the same reason.
+/// The per-launch directories that keep an unattended OpenCode reviewer away from the operator's global
+/// configuration, the analogue of <see cref="KiroReviewerHome"/>.
 ///
-/// <para><b>Why an isolated config dir.</b> OpenCode reads the operator's global configuration,
-/// <c>mcp</c> servers included, into every session. One of them is the flows server, which would let a
-/// reviewer start nested review flows. Pointing <c>OPENCODE_CONFIG_DIR</c> at an empty directory
-/// removes that whole source while the result channel injected through
-/// <c>session/new.mcpServers</c> still starts.</para>
+/// <para><b>Why they exist.</b> OpenCode reads the operator's global <c>mcp</c> servers and instructions into every
+/// session. One server is the flows server, which would let a reviewer start nested review flows. OpenCode loads
+/// global config from <c>$XDG_CONFIG_HOME/opencode</c>, <c>.opencode</c> under its home and
+/// <c>OPENCODE_CONFIG_DIR</c>, and any one of them left at the operator's value brings the servers back.</para>
 ///
-/// <para><b>Credentials are NOT under it</b> — measured
-/// (<c>docs/probes/2026-08-07-opencode-acp/</c> §5): an empty config dir still completes
-/// <c>initialize</c> and <c>session/new</c> with the account's full model list. That is the fact this
-/// approach depends on, and it is why the Kiro-shaped answer transfers to OpenCode at all; without it,
-/// isolating configuration would have disabled the reviewer.</para>
+/// <para><b>Credentials are not under them.</b> They live in the data directory, which stays the user's.</para>
 ///
-/// <para><b>Why not one shared empty directory.</b> It would be simpler, and OpenCode is not currently
-/// observed to write here (a default <c>config.json</c> is auto-created only when NONE of
-/// <c>OPENCODE_CONFIG</c>/<c>OPENCODE_CONFIG_DIR</c>/<c>OPENCODE_CONFIG_CONTENT</c> is set). Two
-/// reasons not to rely on that: a future release that does write here would silently carry one
-/// reviewer's state into the next, and a shared root reintroduces the peer-daemon problem
-/// <see cref="KiroReviewerHome"/> documents — "delete every directory whose epoch is not mine" selects
-/// a peer daemon's LIVE directory. Per-daemon, per-launch removes both questions instead of
-/// adjudicating them.</para>
+/// <para><b>Why not one shared set.</b> A future release that writes here would carry one reviewer's state into the
+/// next, and a shared root reintroduces the peer-daemon problem <see cref="KiroReviewerHome"/> documents: "delete every
+/// directory whose epoch is not mine" selects a peer daemon's live directory.</para>
 ///
-/// <para><b>Emptiness is the mechanism, so it is verified rather than assumed.</b> Delete is
-/// best-effort (an undeletable directory must not fail a round), so a partial failure could leave
-/// content behind and <c>CreateDirectory</c> would happily accept the survivor.</para>
+/// <para><b>Emptiness is the mechanism, so it is verified.</b> Delete is best-effort (an undeletable directory must not
+/// fail a round), so a partial failure could leave content behind and <c>CreateDirectory</c> would accept the
+/// survivor.</para>
 /// </summary>
 internal static class OpenCodeReviewerConfigDir {
     const string Prefix = "kcap-opencode-reviewer-";
@@ -45,26 +35,32 @@ internal static class OpenCodeReviewerConfigDir {
     internal static string NameFor(string daemonEpoch, string launchId) =>
         $"{Prefix}{Sanitize(daemonEpoch)}-{Sanitize(launchId)}";
 
-    /// <summary>Creates an empty, owner-only config dir. Empty is what suppresses the operator's
-    /// global MCP servers, so nothing may ever be seeded into it.</summary>
-    internal static string Create(string stateDir, string daemonEpoch, string launchId, ILogger? log = null) {
+    /// <summary>Creates the launch's empty, owner-only directories. Empty is what suppresses the operator's global
+    /// configuration, so nothing may ever be seeded into them.</summary>
+    internal static OpenCodeReviewerDirs Create(string stateDir, string daemonEpoch, string launchId, ILogger? log = null) {
         var root = RootFor(stateDir);
         CreateOwnerOnly(root);
 
         var dir = Path.Combine(root, NameFor(daemonEpoch, launchId));
 
-        // A repeated launch under the same epoch+agent id must not inherit whatever the previous one
-        // left: CreateDirectory silently succeeds on an existing directory, so "empty" would be a hope
-        // rather than a property. Remove first, then create.
+        // CreateDirectory succeeds on an existing directory, so a repeated launch under the same epoch and agent id
+        // would inherit what the previous one left.
         if (Path.Exists(dir)) Delete(dir, stateDir, log ?? NullLogger.Instance);
 
+        CreateOwnerOnly(dir);
+
+        return new(Empty(dir, "config"), Empty(dir, "home"), Empty(dir, "xdg-config"));
+    }
+
+    static string Empty(string parent, string name) {
+        var dir = Path.Combine(parent, name);
         CreateOwnerOnly(dir);
 
         if (Directory.EnumerateFileSystemEntries(dir).Any())
             throw new InvalidOperationException(
                 $"opencode_reviewer_config_dir_not_empty: '{dir}' still holds content from a previous "
               + "launch that could not be removed. Refusing rather than handing a reviewer the global "
-              + "MCP servers an empty config dir exists to suppress.");
+              + "MCP servers an empty directory exists to suppress.");
 
         return dir;
     }
