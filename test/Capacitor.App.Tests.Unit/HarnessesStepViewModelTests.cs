@@ -526,8 +526,27 @@ public class HarnessesStepViewModelTests {
         await Assert.That(calls).IsEqualTo(0);
     }
 
+    /// <summary>Copilot's hooks name kcap by its full path, so a failing terminal install must not hold them up.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Copilot_alone_turns_on_without_the_terminal_command() {
+        Skip.When(OperatingSystem.IsWindows(), "macOS lstat semantics");
+        var (message, hazard, calls) = await AvaloniaSession.DispatchAsync(async () => {
+            var (h, _) = await HarnessWithPathFix(failing: true, new Dictionary<HarnessId, DetectedAgent> { [HarnessId.Copilot] = new(false, true) });
+            foreach (var row in h.Vm.Rows) row.Record = row.Tools = true;
+
+            await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None);
+
+            return (h.Vm.Message, h.Vm.PathHazard, h.Cli.PluginInstallCallCount);
+        });
+
+        await Assert.That(message ?? "").DoesNotContain("terminal command");
+        await Assert.That(hazard).IsFalse();
+        await Assert.That(calls).IsEqualTo(1);
+    }
+
     // A failing install meets someone else's kcap where it would link.
-    async Task<(Harness, PathFixViewModel)> HarnessWithPathFix(bool failing) {
+    async Task<(Harness, PathFixViewModel)> HarnessWithPathFix(bool failing, IReadOnlyDictionary<HarnessId, DetectedAgent>? detected = null) {
         var dir = Path.GetDirectoryName(ConfigPath)!;
         var link = Path.Combine(dir, ".local", "bin", "kcap");
         if (failing) {
@@ -541,7 +560,7 @@ public class HarnessesStepViewModelTests {
         var fix = new PathFixViewModel(
             new PathShimInstaller(probe, new UserHome(dir)),
             new WizardFixtures.NoopAppStateStore(), Path.Combine(dir, "bundled-kcap"));
-        var h = new Harness(Config.Root, pathFix: fix);
+        var h = new Harness(Config.Root, detected, pathFix: fix);
         await h.Vm.OnEnterAsync(CancellationToken.None);
         h.Vm.Visibility = "private";
         return (h, fix);

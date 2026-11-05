@@ -1768,7 +1768,8 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         // Write hooks unless a refresh finds them already at the current version. Even when the
         // hooks write is skipped, still (re)register MCP + install instructions below: they live in
         // separate files and must be healed if a prior write failed (warning-only) or was deleted.
-        var hooksCurrent = refreshOnly && CopilotHooksInstaller.ReadMarker(hooksPath) == CapacitorVersion.Current();
+        var hooksCurrent = refreshOnly && CopilotHooksInstaller.ReadMarker(hooksPath) == CapacitorVersion.Current()
+                                       && CopilotHooksRunThisBinary(hooksPath, env.ResolveMcpBinaryPath);
         if (!toolsOnly && !hooksCurrent) {
             if (InstallCopilotHooks(hooksPath, env.ResolveMcpBinaryPath)) {
                 await env.Stdout.WriteLineAsync(
@@ -1939,11 +1940,31 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
     }
 
     /// <summary>
-    /// The full path, so a hook runs in an app whose PATH predates the install. A refresh rewrites it, as the
-    /// version marker changes with every update. Anything but kcap running this code gets the bare command.
+    /// The full path, so a hook runs in an app whose PATH predates the install. A refresh rewrites it when it names
+    /// another binary, since an install can move at the same version. Anything but an installed kcap gets the bare
+    /// command: a build output is removed by the next clean, which would silently stop capture.
     /// </summary>
     static string CopilotHookBinary(Func<string?>? resolveBinaryPath) =>
-        KcapBinaryCommand.Resolve(resolveBinaryPath) is var command && KcapBinaryCommand.IsKcap(command) ? command : KcapMcpServers.Command;
+        KcapBinaryCommand.Resolve(resolveBinaryPath) is var command && KcapBinaryCommand.IsKcap(command) && !IsBuildOutput(command)
+            ? command
+            : KcapMcpServers.Command;
+
+    static bool IsBuildOutput(string path) {
+        var parts = path.Split('/', '\\');
+
+        return parts.Zip(parts.Skip(1)).Any(p => p is ("bin", "Debug" or "Release"));
+    }
+
+    static bool CopilotHooksRunThisBinary(string hooksPath, Func<string?>? resolveBinaryPath) {
+        const string evt = "sessionStart";
+
+        try {
+            return JsonNode.Parse(File.ReadAllText(hooksPath))?["hooks"]?[evt]?[0]?["command"]?.GetValue<string>()
+                == CopilotHooksParser.HookCommandLine(evt, CopilotHookBinary(resolveBinaryPath), OperatingSystem.IsWindows());
+        } catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException) {
+            return false;
+        }
+    }
 
     public static bool CopilotHooksNeedPath(Func<string?>? resolveBinaryPath = null) =>
         CopilotHookBinary(resolveBinaryPath) == KcapMcpServers.Command;

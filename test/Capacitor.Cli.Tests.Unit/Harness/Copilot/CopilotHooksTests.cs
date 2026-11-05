@@ -126,6 +126,8 @@ public class CopilotHooksTests {
     [Arguments(@"C:\Users\a\AppData\Local\kcap\current\bin\kcap.exe", false)]
     [Arguments("/usr/local/share/dotnet/dotnet", true)]
     [Arguments(null, true)]
+    [Arguments("/repo/src/Capacitor.Cli/bin/Debug/net10.0/kcap", true)]
+    [Arguments(@"C:\repo\src\Capacitor.Cli\bin\Release\net10.0\kcap.exe", true)]
     public async Task Only_a_process_that_is_kcap_lifts_the_PATH_requirement(string? processPath, bool needsPath) =>
         await Assert.That(PluginCommand.CopilotHooksNeedPath(() => processPath)).IsEqualTo(needsPath);
 

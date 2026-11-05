@@ -220,16 +220,18 @@ public class PluginCommandCopilotTests {
     // Deterministic native-binary path: registration writes the resolved binary as the command
     // (default: the running process), so tests inject their own value and assert that,
     // never blessing whatever executable happens to run the suite.
-    /// <summary>A hook written by an older kcap names the bare command, which is all an update has to replace.</summary>
+    /// <summary>A hook can name another binary at any version: an update, or an install moved between roots at the same one.</summary>
     [Test]
-    public async Task An_update_rewrites_a_stale_hook_command_to_the_running_binary() {
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_refresh_rewrites_a_stale_hook_command_to_the_running_binary(bool sameVersion) {
         using var home = new TempHome();
         var env   = TestEnv(home.Path);
         var hooks = env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson;
 
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(hooks)!);
         await File.WriteAllTextAsync(hooks, """{"version":1,"hooks":{"sessionStart":[{"type":"command","command":"'/old/kcap' hook --copilot --event sessionStart"}]}}""");
-        await File.WriteAllTextAsync(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(hooks)!, CopilotHooksInstaller.MarkerFileName), "0.0.1");
+        await File.WriteAllTextAsync(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(hooks)!, CopilotHooksInstaller.MarkerFileName), sameVersion ? CapacitorVersion.Current() : "0.0.1");
 
         var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--copilot", "--if-installed"]);
 
