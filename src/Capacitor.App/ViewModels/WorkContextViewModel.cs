@@ -209,8 +209,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public bool ShowsRetry  => Phase == WorkContextPhase.Unreachable;
 
     void OnPullRequestChanged(object? sender, PropertyChangedEventArgs e) {
-        if (e.PropertyName is nameof(PullRequestContextViewModel.SelectedIsMerged)
-            or nameof(PullRequestContextViewModel.NumberLabel)) RaisePlanProgress();
+        if (e.PropertyName is nameof(PullRequestContextViewModel.MergedPullRequests)) RaisePlanProgress();
         if (e.PropertyName is nameof(PullRequestContextViewModel.HasChoice)
             or nameof(PullRequestContextViewModel.HasNotice)
             or nameof(PullRequestContextViewModel.HasReaderNote)

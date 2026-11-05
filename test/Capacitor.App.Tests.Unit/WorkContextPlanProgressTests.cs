@@ -31,11 +31,15 @@ public class WorkContextPlanProgressTests {
             Prs.SetForeground(true);
         }
 
-        public async Task ShowAsync(string session = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
+        public async Task ShowAsync(string session = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", int? select = 2) {
             _presence.OnNext(Agent("a1", "claude", false, sessionId: session));
             await (Vm.Plan.PendingReadForTesting ?? Task.CompletedTask);
             await SettlePrAsync();
-            Prs.Selected = Prs.Choices.First(choice => choice.Subject.Number == 2);
+            if (select is { } number) await SelectAsync(number);
+        }
+
+        public async Task SelectAsync(int number) {
+            Prs.Selected = Prs.Choices.First(choice => choice.Subject.Number == number);
             await SettlePrAsync();
         }
 
@@ -64,30 +68,50 @@ public class WorkContextPlanProgressTests {
         }).ToList(),
     }]);
 
+    /// The default selection moves off a PR its overview reads as merged, so a note tied to the
+    /// selected PR would never show here; the session's merged PR must still be named.
     [Test]
-    public Task Merged_session_PR_explains_outstanding_tasks_without_completing_them_and_follows_selection() => RunOnUiAsync(async () => {
+    public Task A_merged_session_PR_is_named_while_another_is_selected_and_selection_does_not_move_the_note() => RunOnUiAsync(async () => {
         await using var h = new Harness();
         h.Plans.Enqueue(Read("pending", "in_progress", "completed", "skipped"));
         var changes = new List<string?>();
         h.Vm.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
-        await h.ShowAsync();
+        await h.ShowAsync(select: null);
 
-        await Assert.That(h.Vm.ShowsPlanMergeNote).IsTrue();
+        await Assert.That(h.Prs.Selected!.Subject.Number).IsEqualTo(1);
         await Assert.That(h.Vm.PlanMergeNote).IsEqualTo("PR #2 merged with 2 tasks still open. Merges don’t update the plan.");
+        await Assert.That(changes).Contains(nameof(WorkContextViewModel.ShowsPlanMergeNote));
         await Assert.That(h.Vm.Plan.DoneCount).IsEqualTo(2);
         await Assert.That(h.Vm.Plan.Tasks[0].State).IsEqualTo(PlanTaskState.Pending);
         await h.Vm.Plan.ToggleCommand.Execute();
         await Assert.That(h.Vm.ShowsPlanMergeNote).IsTrue();
 
-        h.Prs.Selected = h.Prs.Choices.First(choice => choice.Subject.Number == 1);
-        await h.SettlePrAsync();
-        await Assert.That(h.Vm.ShowsPlanMergeNote).IsFalse();
-        await Assert.That(h.Vm.PlanMergeNote).IsEmpty();
-        await Assert.That(changes).Contains(nameof(WorkContextViewModel.ShowsPlanMergeNote));
+        await h.SelectAsync(2);
+        await Assert.That(h.Vm.PlanMergeNote).StartsWith("PR #2 merged");
+        await h.SelectAsync(1);
+        await Assert.That(h.Vm.PlanMergeNote).StartsWith("PR #2 merged");
+    });
 
-        h.Prs.Selected = h.Prs.Choices.First(choice => choice.Subject.Number == 2);
-        await h.SettlePrAsync();
-        await Assert.That(h.Vm.ShowsPlanMergeNote).IsTrue();
+    /// The listing row's state ranks the merged PR out of the default, so its overview is never read
+    /// and only the list can name it.
+    [Test]
+    public Task A_PR_the_list_marks_merged_is_named_without_reading_its_overview() => RunOnUiAsync(async () => {
+        await using var h = new Harness();
+        h.PrSource.Links = [h.PrSource.Links[0], h.PrSource.Links[1] with { Lifecycle = "merged" }];
+        h.Plans.Enqueue(Read("pending"));
+        await h.ShowAsync(select: null);
+        await Assert.That(h.Prs.Selected!.Subject.Number).IsEqualTo(1);
+        await Assert.That(h.Vm.PlanMergeNote).StartsWith("PR #2 merged with 1 task still open");
+    });
+
+    [Test]
+    public Task Several_merged_PRs_are_all_named_newest_first() => RunOnUiAsync(async () => {
+        await using var h = new Harness();
+        h.PrSource.Lifecycles[1] = "merged";
+        h.Plans.Enqueue(Read("pending"));
+        await h.ShowAsync(select: 1);
+        await h.SelectAsync(2);
+        await Assert.That(h.Vm.PlanMergeNote).StartsWith("PRs #2 and #1 merged with 1 task still open");
     });
 
     [Test]

@@ -70,7 +70,25 @@ public sealed partial class PullRequestContextViewModel {
     }
 
     public PullRequestStatus LifecycleStatus => CanDisplay ? PullRequestTones.LifecycleStatus(_overview) : new("");
-    public bool SelectedIsMerged => CanDisplay && _overview?.Lifecycle == "merged";
+    /// The session's merged PRs, newest first, as "PR #91" or "PRs #91 and #87"; empty when none is known
+    /// merged or the card cannot show PR content. A PR whose list row carries no lifecycle and whose
+    /// overview was never read is not known merged.
+    public string MergedPullRequests {
+        get {
+            if (!CanDisplay) return "";
+            var numbers = _choices.DistinctBy(choice => choice.Subject)
+                .Where(choice => LifecycleOf(choice) == "merged")
+                .Select(choice => choice.Link.Number)
+                .OrderDescending()
+                .Select(number => "#" + number.ToString(CultureInfo.InvariantCulture))
+                .ToList();
+            return numbers.Count switch {
+                0 => "",
+                1 => "PR " + numbers[0],
+                _ => $"PRs {string.Join(", ", numbers[..^1])} and {numbers[^1]}",
+            };
+        }
+    }
     public PullRequestStatus ReviewStatus => CanDisplay
         ? _overview?.ReviewDecision switch {
             "approved" => new("Approved", "success", "All required reviews are approved."),
@@ -180,7 +198,7 @@ public sealed partial class PullRequestContextViewModel {
         NotifyValue(SelectedTabIndex);
         NotifyValue(SelectedReviewTabIndex);
         NotifyValue(LifecycleStatus);
-        NotifyValue(SelectedIsMerged);
+        NotifyValue(MergedPullRequests);
         NotifyValue(ReviewStatus);
         NotifyValue(ChecksStatus);
         NotifyValue(ThreadsStatus);
