@@ -16,13 +16,14 @@ internal sealed class AdoptionServiceMove(IAdoptionMachine machine, AdoptionBund
     internal static bool Deferred(MutationOutcome outcome) =>
         outcome is MutationOutcome.Refused { Reason: AdoptionRepoint.Busy or AdoptionRepoint.InstallChanged or DaemonBusy };
 
-    /// <summary>The installs whose services all moved, an install with none included, and those whose move waits for
-    /// the daemon to reach a safe point. The daemon client is asked to attach again once, after the last repoint.</summary>
-    public async Task<(IReadOnlyList<OtherCliInstall> Moved, IReadOnlyList<OtherCliInstall> Deferred)> MoveAsync(
+    /// <summary>The installs whose services all moved, an install with none included, and the refusal each deferred
+    /// one met. The daemon client is asked to attach again once, after the last repoint that reached the lane's CLI:
+    /// a new attach reports the daemon idle, which must not be read as the safe point a deferral waits for.</summary>
+    public async Task<(IReadOnlyList<OtherCliInstall> Moved, IReadOnlyList<(OtherCliInstall Install, string Reason)> Deferred)> MoveAsync(
             IReadOnlyList<OtherCliInstall> installs, AdoptionEvidence evidence, CancellationToken ct) {
         var moved    = new List<OtherCliInstall>();
-        var deferred = new List<OtherCliInstall>();
-        var asked    = false;
+        var deferred = new List<(OtherCliInstall, string)>();
+        var ran      = false;
         foreach (var install in installs) {
             var units = evidence.Units.Where(u => Inside(install, u.Program) || Inside(install, u.LoadedProgram)).ToList();
             if (units.Count == 0) {
@@ -30,13 +31,13 @@ internal sealed class AdoptionServiceMove(IAdoptionMachine machine, AdoptionBund
                 continue;
             }
 
-            asked = true;
             var outcome = await machine.RepointAsync(install, c => StillSameAsync(install, units, c), ct).ConfigureAwait(false);
+            ran |= outcome is not MutationOutcome.Refused;
             if (Deferred(outcome)) {
                 var reason = ((MutationOutcome.Refused)outcome).Reason;
                 log("adoption_repoint", AdoptionEvent.For(install, "deferred", reason));
                 log("adoption_held", AdoptionEvent.For(install, reason: reason));
-                deferred.Add(install);
+                deferred.Add((install, reason));
                 continue;
             }
             if (await FailureAsync(outcome, units, ct).ConfigureAwait(false) is { } failure) {
@@ -47,7 +48,7 @@ internal sealed class AdoptionServiceMove(IAdoptionMachine machine, AdoptionBund
             moved.Add(install);
         }
 
-        if (asked) await machine.ReattachAsync().ConfigureAwait(false);
+        if (ran) await machine.ReattachAsync().ConfigureAwait(false);
         return (moved, deferred);
     }
 

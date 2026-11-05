@@ -4,8 +4,8 @@ namespace Capacitor.App.Services.CliAdoption;
 
 /// <summary>Runs the takeover of an npm or script kcap install: once per launch, off the UI thread, then every
 /// <see cref="RecheckInterval"/> while the record is pending. A recheck is the deletion check alone, unless a daemon
-/// move is waiting for a safe point: then the whole batch runs again from fresh evidence, on the tick and as soon as
-/// the daemon reports it is idle. One run at a time. The shim offer waits on <see cref="FirstLook"/>, which completes
+/// move is waiting for a safe point: then the whole batch runs again from fresh evidence on the tick, and also as soon
+/// as the daemon reports it is idle when the app was what saw it busy. One run at a time. The shim offer waits on <see cref="FirstLook"/>, which completes
 /// however the first run ends, so it never confirms a link the switch is about to make.</summary>
 internal sealed class CliAdoptionCoordinator : IDisposable {
     internal const string CliOverride = "KCAP_APP_CLI_PATH";
@@ -57,7 +57,8 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
         lock (_lock) _settled = first;
     }
 
-    /// <summary>Runs a batch whose daemon move waits for a safe point again each time the daemon turns idle.</summary>
+    /// <summary>Runs a batch whose daemon move waits on the app's view of its daemon again each time that daemon
+    /// turns idle.</summary>
     public void FollowDaemon(IObservable<DaemonActivity?> activity) {
         var following = activity.Select(a => a is { Busy: false }).DistinctUntilChanged().Where(idle => idle).Subscribe(_ => Retry());
         lock (_lock) {
@@ -102,18 +103,27 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
 
     // An idle report that arrives during a run is kept for when it ends: that run may be the one that deferred.
     void Retry() {
-        if (_lifetime.IsCancellationRequested || _batch is not { } batch) return;
+        if (_lifetime.IsCancellationRequested || _batch is not { } batch || Disposed) return;
         Interlocked.Exchange(ref _again, 1);
         if (!_running.Wait(0)) return;
         Interlocked.Exchange(ref _again, 0);
-        if (batch.AwaitingDaemon) Launch(batch.RunOnceAsync);
+        if (batch.AwaitingIdle) Launch(batch.RunOnceAsync);
         else _running.Release();
+    }
+
+    bool Disposed {
+        get { lock (_lock) return _disposed; }
     }
 
     // Entered holding _running.
     void Launch(Func<CancellationToken, Task<bool>> run) {
-        var task = Task.Run(() => RunAsync(run));
-        lock (_lock) _settled = task;
+        lock (_lock) {
+            if (!_disposed) {
+                _settled = Task.Run(() => RunAsync(run));
+                return;
+            }
+        }
+        _running.Release();
     }
 
     // Entered holding _running.

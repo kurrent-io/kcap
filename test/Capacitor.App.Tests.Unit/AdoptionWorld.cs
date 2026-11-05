@@ -175,10 +175,14 @@ sealed class AdoptionWorld {
         await SettledAsync(launch);
     }
 
-    // A run can start another as it ends, so the last one is waited for until none follows.
+    // A run can start another as it ends, so the last one is waited for until none follows. Runs that keep starting
+    // each other are a loop, and fail here instead of hanging the test.
     public async Task SettledAsync(CliAdoptionCoordinator launch) {
+        const int MaxRuns = 10;
         Task settled;
+        var runs = 0;
         do {
+            if (++runs > MaxRuns) throw new TimeoutException($"More than {MaxRuns} runs followed each other.");
             settled = launch.Settled;
             await settled.WaitAsync(Bounded);
         } while (!ReferenceEquals(settled, launch.Settled));
@@ -254,8 +258,11 @@ sealed class AdoptionWorld {
             return new MutationOutcome.Succeeded();
         }
 
+        /// <summary>A new attach cycle: no report while connecting, then the daemon idle in its first snapshot.</summary>
         public Task ReattachAsync() {
             Reattaches++;
+            world.Activity.OnNext(null);
+            world.Activity.OnNext(new DaemonActivity(0, Busy: false));
             return Task.CompletedTask;
         }
 

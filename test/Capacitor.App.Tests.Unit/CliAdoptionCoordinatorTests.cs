@@ -119,8 +119,71 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Record.MachineSwitched).IsTrue();
     }
 
+    /// <summary>A refusal the daemon gives, one of its units being busy, is not the app's view of it: the idle report a
+    /// new attach brings, or any other, must not rerun the batch, or it would rerun, defer and reattach for hours. It
+    /// waits for the tick.</summary>
+    [Test]
+    public async Task A_daemon_busy_deferral_waits_for_the_tick_however_the_daemon_reattaches() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Repoint = _ => new MutationOutcome.Refused("daemon_busy", RecoverySurface.None);
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+        await world.IdleAsync(launch);
+
+        await Assert.That(world.Machine.EvidenceReads).IsEqualTo(1);
+        await Assert.That(world.Machine.Repoints).IsEqualTo(1);
+
+        await world.RecheckAsync(launch);
+
+        await Assert.That(world.Machine.EvidenceReads).IsEqualTo(2);
+        await Assert.That(world.Machine.Repoints).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task An_all_deferred_move_requests_no_reattach() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Repoint = _ => new MutationOutcome.Refused(AdoptionRepoint.Busy, RecoverySurface.None);
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Machine.Reattaches).IsEqualTo(0);
+        await Assert.That(world.Machine.EvidenceReads).IsEqualTo(1);
+    }
+
+    /// <summary>An idle report that lands during a run is replayed when the run ends, but not on a coordinator the app
+    /// has disposed in the meantime.</summary>
+    [Test]
+    public async Task A_retry_after_dispose_runs_nothing() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Repoint = _ => new MutationOutcome.Refused(AdoptionRepoint.Busy, RecoverySurface.None);
+        var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        var entered = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        world.Machine.Evidence = async _ => {
+            entered.TrySetResult();
+            await release.Task;
+            return world.Found();
+        };
+        world.Activity.OnNext(new DaemonActivity(0, Busy: false));
+        await entered.Task.WaitAsync(AdoptionWorld.Bounded);
+        var held = launch.Settled;
+
+        world.Activity.OnNext(null);
+        world.Activity.OnNext(new DaemonActivity(0, Busy: false));
+        launch.Dispose();
+        release.SetResult();
+        await held.WaitAsync(AdoptionWorld.Bounded);
+
+        await Assert.That(ReferenceEquals(launch.Settled, held)).IsTrue();
+        await Assert.That(world.Machine.EvidenceReads).IsEqualTo(2);
+    }
+
     /// <summary>The first install's repoint restarts the app's daemon, so the second meets it unattached and defers;
-    /// once it reports idle again the batch finishes the second.</summary>
+    /// the attach that follows reports it idle, and that one report reruns the batch, which finishes the second.</summary>
     [Test]
     public async Task A_second_install_refused_while_the_daemon_restarted_is_retried_once_it_reports_idle() {
         var world = new AdoptionWorld(Tmp);
@@ -132,12 +195,9 @@ public class CliAdoptionCoordinatorTests {
         using var launch = world.Launch();
         await world.FirstLookAsync(launch);
 
+        await Assert.That(world.Machine.EvidenceReads).IsEqualTo(2);
+        await Assert.That(world.Machine.Repoints).IsEqualTo(3);
         await Assert.That(Directory.Exists(world.Root)).IsFalse();
-        await Assert.That(Directory.Exists(second.Root)).IsTrue();
-        await Assert.That(world.Record.Pending).IsTrue();
-
-        await world.IdleAsync(launch);
-
         await Assert.That(Directory.Exists(second.Root)).IsFalse();
         await Assert.That(Directory.Exists(second.Platform)).IsFalse();
         await Assert.That(world.Record.Installs.All(i => i.State == InstallState.Switched)).IsTrue();

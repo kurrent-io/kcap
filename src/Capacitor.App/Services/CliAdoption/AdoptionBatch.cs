@@ -18,13 +18,19 @@ internal sealed class AdoptionBatch(
     readonly AdoptionServiceMove _services = new(machine, bundle, log);
     readonly AdoptionDeletion    _deletion = new(machine, store, retirement, harnesses, bundle.Root, log);
     volatile bool _awaitingDaemon;
+    volatile bool _awaitingIdle;
 
     /// <summary>Whether the last launch run left a daemon move waiting for a safe point: running it again from fresh
     /// evidence is what moves it.</summary>
     public bool AwaitingDaemon => _awaitingDaemon;
 
+    /// <summary>Whether one of those moves waits because the app saw its daemon busy or had no report from it, which
+    /// the daemon turning idle settles. A refusal the daemon or the install gave waits for a recheck instead.</summary>
+    public bool AwaitingIdle => _awaitingIdle;
+
     public async Task<bool> RunOnceAsync(CancellationToken ct) {
         _awaitingDaemon = false;
+        _awaitingIdle   = false;
         var unfinished = FinishInterrupted();
 
         AdoptionEvidence evidence;
@@ -61,6 +67,7 @@ internal sealed class AdoptionBatch(
 
         var (moved, deferred) = await _services.MoveAsync(pending, evidence, ct).ConfigureAwait(false);
         _awaitingDaemon = deferred.Count > 0;
+        _awaitingIdle   = deferred.Any(d => d.Reason == AdoptionRepoint.Busy);
         if (moved.Count > 0) {
             var processes = machine.ReadProcesses();
             var sites     = await machine.ReadSitesAsync(ct).ConfigureAwait(false);
