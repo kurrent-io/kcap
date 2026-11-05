@@ -62,7 +62,9 @@ sealed class AdoptionWorld {
     public string Home { get; }
     public IReadOnlyList<string> Stable { get; }
     public ConfigRoot Config { get; }
-    public AdoptionBundle Bundle { get; }
+    /// <summary>Set before a <see cref="Launch"/>, as when the app has moved between /Applications and
+    /// ~/Applications.</summary>
+    public AdoptionBundle Bundle { get; set; }
     public NpmInstall First { get; }
     public IReadOnlyList<NpmInstall> Installs => _installs;
 
@@ -207,19 +209,27 @@ sealed class AdoptionWorld {
     /// <summary>What a quit leaves while the helper deletes the first install after go: the record names the helper,
     /// the link and the service are on the bundle, and both package folders are set aside. Returns the asides.</summary>
     public IReadOnlyList<AsideEntry> InterruptedHelper(string? startToken) {
+        SwitchedAllButTheFiles();
         new AdoptionRecordStore(Config).Update(r => r with {
-            CutoverUtc = Time.GetUtcNow().UtcDateTime.AddMinutes(-5),
-            Installs   = [new RecordedInstall(Install, InstallState.Pending, null, null, null, null)],
             Privileged = new PrivilegedOperation(Root, Administrator.HelperPid, startToken, GoSent: true),
         });
-        KcapLinkSwap.Replace(Link, NpmLinkTarget, Bundle.Cli);
-        WritePlist(Bundle.Daemon);
-        Machine.Jobs[DaemonName] = new LaunchdJob(true, NewDaemonPid, Bundle.Daemon);
 
         var retirement = new AsideRetirement(Config, "cli-adoption-retire");
         var asides = Install.OwnedEntries.Select(retirement.Plan).ToList();
         foreach (var aside in asides) Directory.Move(aside.Original, aside.Aside);
         return asides;
+    }
+
+    /// <summary>The first install pending in the record with its link and its service on the bundle and its files in
+    /// place, so nothing the evidence reads names it.</summary>
+    public void SwitchedAllButTheFiles() {
+        new AdoptionRecordStore(Config).Update(r => r with {
+            CutoverUtc = Time.GetUtcNow().UtcDateTime.AddMinutes(-5),
+            Installs   = [new RecordedInstall(Install, InstallState.Pending, null, null, null, null)],
+        });
+        KcapLinkSwap.Replace(Link, NpmLinkTarget, Bundle.Cli);
+        WritePlist(Bundle.Daemon);
+        Machine.Jobs[DaemonName] = new LaunchdJob(true, NewDaemonPid, Bundle.Daemon);
     }
 
     public const string NpmLinkTarget = "../lib/node_modules/@kurrent/kcap/bin/kcap.js";
@@ -242,7 +252,7 @@ sealed class AdoptionWorld {
 
     public string? PlistProgram() => ProgramOf(First);
 
-    static string? ProgramOf(NpmInstall install) => LaunchdPrint.Binary(File.ReadAllText(install.Plist));
+    public static string? ProgramOf(NpmInstall install) => LaunchdPrint.Binary(File.ReadAllText(install.Plist));
 
     public void WritePlist(string program) => WritePlist(First, program);
 
@@ -366,12 +376,26 @@ sealed class AdoptionWorld {
     /// <summary>macOS's administrator prompt and the root helper behind it, run as this user: the helper records its
     /// pid, swaps each link still holding its original target, and asks verify; only a true answer records go, sets
     /// every entry aside and deletes it. Each spec must be one the real helper would take. <see cref="Answer"/>
-    /// <see cref="PrivilegedResult.Cancelled"/> dismisses the prompt; <see cref="PrivilegedResult.CutShort"/> stops
-    /// after go with every entry aside and only root able to remove it.</summary>
+    /// <see cref="PrivilegedResult.Cancelled"/> dismisses the prompt; <see cref="Cut"/> has the helper end without
+    /// reporting its outcome.</summary>
     internal sealed class Administrator(AdoptionWorld world) : IPrivilegedSwap {
         public const int HelperPid = 4700;
 
+        public enum CutShortAt {
+            Never,
+
+            /// With the links swapped, before go.
+            BeforeGo,
+
+            /// After go, with every entry set aside and only root able to remove it.
+            WithAsidesLeft,
+
+            /// After go, once everything is deleted.
+            AfterDeleting,
+        }
+
         public PrivilegedResult? Answer { get; set; }
+        public CutShortAt Cut { get; set; }
         public List<string> Prompts { get; } = [];
         public List<PrivilegedSpec> Specs { get; } = [];
 
@@ -400,13 +424,14 @@ sealed class AdoptionWorld {
                 swapped.Add(link);
             }
             WhileSwapped?.Invoke();
+            if (Cut == CutShortAt.BeforeGo) return PrivilegedResult.CutShort;
             if (!await verify(ct)) return PutBack(swapped);
 
             store.Update(r => r with { Privileged = helper with { GoSent = true } });
             foreach (var (entry, _, _, _) in spec.Entries) {
                 if (Path.Exists(entry.Original)) Directory.Move(entry.Original, entry.Aside);
             }
-            if (Answer == PrivilegedResult.CutShort) {
+            if (Cut == CutShortAt.WithAsidesLeft) {
                 foreach (var (entry, _, _, _) in spec.Entries) RootOnly(entry.Aside);
                 return PrivilegedResult.CutShort;
             }
@@ -414,7 +439,7 @@ sealed class AdoptionWorld {
                 SetFolderModes(entry.Aside, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 Directory.Delete(entry.Aside, recursive: true);
             }
-            return PrivilegedResult.Deleted;
+            return Cut == CutShortAt.AfterDeleting ? PrivilegedResult.CutShort : PrivilegedResult.Deleted;
         }
 
         static PrivilegedResult PutBack(List<LinkChange> swapped) {

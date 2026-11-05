@@ -129,7 +129,7 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
     // A tick never queues behind a run still going: the next one comes soon enough.
     void Tick() {
         if (_lifetime.IsCancellationRequested || _batch is not { } batch || !_running.Wait(0)) return;
-        Launch(batch.AwaitingDaemon ? batch.RunOnceAsync : batch.RecheckAsync);
+        Launch(batch.AwaitingDaemon ? batch.RetryAsync : batch.RecheckAsync);
     }
 
     // An idle report that arrives during a run is kept for when it ends: that run may be the one that deferred.
@@ -138,7 +138,7 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
         Interlocked.Exchange(ref _again, 1);
         if (!_running.Wait(0)) return;
         Interlocked.Exchange(ref _again, 0);
-        if (batch.AwaitingIdle) Launch(batch.RunOnceAsync);
+        if (batch.AwaitingIdle) Launch(batch.RetryAsync);
         else _running.Release();
     }
 

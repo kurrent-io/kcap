@@ -53,20 +53,19 @@ internal sealed class AdoptionMachine(
 
     public bool StillRuns(int pid, string startToken) => ProcessStartToken.Matches(pid, startToken) == true;
 
-    public async Task WaitForExitAsync(int pid, string? startToken, TimeSpan bound, CancellationToken ct) {
+    public Task WaitForExitAsync(int pid, string? startToken, TimeSpan bound, CancellationToken ct) =>
+        WaitForExitAsync(pid, startToken, bound, time, ct);
+
+    internal static async Task WaitForExitAsync(int pid, string? startToken, TimeSpan bound, TimeProvider time, CancellationToken ct) {
         var started = time.GetTimestamp();
         while (time.GetElapsedTime(started) < bound) {
-            if (startToken is not null && !StillThatProcess(pid, startToken)) return;
+            if (!Exists(pid) || startToken is not null && !StillThatProcess(pid, startToken)) return;
             await Task.Delay(ExitPoll, time, ct).ConfigureAwait(false);
         }
     }
 
-    // A start identity that cannot be read, as a root process's may not be, is no proof the process is gone.
-    static bool StillThatProcess(int pid, string startToken) => ProcessStartToken.Matches(pid, startToken) switch {
-        true  => true,
-        false => false,
-        null  => Exists(pid),
-    };
+    // A start identity that cannot be read, as a root process's may not be, says nothing either way.
+    static bool StillThatProcess(int pid, string startToken) => ProcessStartToken.Matches(pid, startToken) != false;
 
     static bool Exists(int pid) {
         try {

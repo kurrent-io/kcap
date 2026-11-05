@@ -864,7 +864,7 @@ public class CliAdoptionCoordinatorTests {
     public async Task A_deletion_the_helper_cut_short_is_left_DeletionCutShort() {
         var world = new AdoptionWorld(Tmp);
         world.RootOwned();
-        world.Admin.Answer = PrivilegedResult.CutShort;
+        world.Admin.Cut = AdoptionWorld.Administrator.CutShortAt.WithAsidesLeft;
         try {
             using var launch = world.Launch();
             await world.FirstLookAsync(launch);
@@ -878,6 +878,171 @@ public class CliAdoptionCoordinatorTests {
         } finally {
             world.ReleaseRootOnly();
         }
+    }
+
+    /// <summary>A helper that ends before go has set nothing aside: with every file in place the install is pending, a
+    /// working state with its link on the bundle, and the next launch's prompt finishes it with no link left to swap.</summary>
+    [Test]
+    public async Task A_helper_cut_short_before_go_with_everything_in_place_stays_pending() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Admin.Cut = AdoptionWorld.Administrator.CutShortAt.BeforeGo;
+
+        using (var launch = world.Launch()) {
+            await world.FirstLookAsync(launch);
+
+            var settled = world.Logged("adoption_privileged").Single(e => e["result"] == "settled");
+            await Assert.That((settled["reason"], settled["go_sent"])).IsEqualTo(("in_place", "false"));
+            await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Pending);
+            await Assert.That(world.Record.Privileged).IsNull();
+            await Assert.That(Target(world.Link)).IsEqualTo(world.Bundle.Cli);
+            await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+            await Assert.That(world.Notifier.Notified).IsEmpty();
+            await Assert.That(AdoptionWorld.Offered(launch)).IsFalse();
+        }
+
+        world.Admin.Cut = AdoptionWorld.Administrator.CutShortAt.Never;
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        await Assert.That(world.Admin.Specs[1].Links).IsEmpty();
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(Directory.Exists(world.Platform)).IsFalse();
+    }
+
+    /// <summary>A helper that deleted everything but never reported it, after go, left nothing to finish.</summary>
+    [Test]
+    public async Task A_helper_cut_short_after_deleting_everything_is_switched() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Admin.Cut = AdoptionWorld.Administrator.CutShortAt.AfterDeleting;
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        var settled = world.Logged("adoption_privileged").Single(e => e["result"] == "settled");
+        await Assert.That((settled["reason"], settled["go_sent"])).IsEqualTo(("deleted", "true"));
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(world.Record.Privileged).IsNull();
+        await Assert.That(AdoptionWorld.Offered(launch)).IsFalse();
+        await Assert.That(world.Notifier.Notified.Single()).Contains("was removed");
+    }
+
+    /// <summary>A root-owned install whose daemon move waited is not prompted for when the move goes through on the
+    /// daemon's idle report, nor on a recheck: the prompt waits for the next launch.</summary>
+    [Test]
+    public async Task A_root_owned_install_whose_daemon_move_waited_is_prompted_for_on_the_next_launch_only() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        var refused = 0;
+        world.Machine.Repoint = _ => refused++ == 0 ? new MutationOutcome.Refused(AdoptionRepoint.Busy, RecoverySurface.None) : null;
+
+        using (var launch = world.Launch()) {
+            await world.FirstLookAsync(launch);
+            await world.IdleAsync(launch);
+
+            await Assert.That(world.Machine.Repoints).IsEqualTo(2);
+            await Assert.That(world.PlistProgram()).IsEqualTo(world.Bundle.Daemon);
+
+            await world.RecheckAsync(launch);
+
+            await Assert.That(world.Admin.Prompts).IsEmpty();
+            await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Pending);
+            await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+        }
+
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+    }
+
+    /// <summary>An install left because the app ran from ~/Applications is not offered there; once the app runs from
+    /// /Applications it is, without a prompt of its own, and Finish switching then takes it behind one.</summary>
+    [Test]
+    public async Task A_shared_install_left_for_a_private_app_is_offered_once_the_app_is_in_Applications() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Bundle = world.Bundle with { InSystemApplications = false };
+
+        using (var launch = world.Launch()) {
+            await world.FirstLookAsync(launch);
+
+            await Assert.That(world.Record.Installs.Single().Reason).IsEqualTo(LeftReason.SharedInstallPrivateApp);
+            await Assert.That(AdoptionWorld.Offered(launch)).IsFalse();
+            await Assert.That(world.Notifier.Notified.Single()).Contains($"move kcap to /Applications, open it and choose {FinishSwitching}");
+        }
+
+        world.Bundle = world.Bundle with { InSystemApplications = true };
+        using var moved = world.Launch();
+        await world.FirstLookAsync(moved);
+
+        await Assert.That(AdoptionWorld.Offered(moved)).IsTrue();
+        await Assert.That(world.Admin.Prompts).IsEmpty();
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Left);
+
+        await moved.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await world.SettledAsync(moved);
+
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(Directory.Exists(world.Platform)).IsFalse();
+        await Assert.That(AdoptionWorld.Offered(moved)).IsFalse();
+    }
+
+    /// <summary>A pending install the evidence no longer finds is not planned, so the privileged step itself keeps a
+    /// machine-wide install from being switched for an app installed for one user.</summary>
+    [Test]
+    public async Task A_pending_install_the_evidence_no_longer_finds_is_left_while_the_app_is_in_user_Applications() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Bundle = world.Bundle with { InSystemApplications = false };
+        world.SwitchedAllButTheFiles();
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Logged("adoption_found")).IsEmpty();
+        var left = world.Record.Installs.Single();
+        await Assert.That(left.State).IsEqualTo(InstallState.Left);
+        await Assert.That(left.Reason).IsEqualTo(LeftReason.SharedInstallPrivateApp);
+        await Assert.That(world.Admin.Prompts).IsEmpty();
+        await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+    }
+
+    /// <summary>Finish switching never clears the machine's switch: an install that appeared after it is only reported,
+    /// and stays untouched and unprompted for on later launches, even while the reopened install stays held.</summary>
+    [Test]
+    public async Task Finish_switching_keeps_a_switched_machine_switched_and_a_reported_install_untouched() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Admin.Answer = PrivilegedResult.Cancelled;
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+        await Assert.That(world.Record.MachineSwitched).IsTrue();
+
+        var later = world.AddInstall("nvm", "flow", 5100);
+        world.Machine.Processes = [world.OldSession(4300)];
+        world.Machine.Alive.Add(4300);
+        world.Admin.Answer = null;
+        using (var finishing = world.Launch()) {
+            await world.FirstLookAsync(finishing);
+            await finishing.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+            await world.SettledAsync(finishing);
+
+            var reopened = world.Record.Installs.Single(i => i.Install.Root == world.Root);
+            await Assert.That(reopened.State).IsEqualTo(InstallState.Pending);
+            await Assert.That(reopened.HeldBy).IsEqualTo("pid:4300");
+            await Assert.That(world.Record.MachineSwitched).IsTrue();
+        }
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
+        await Assert.That(world.Record.MachineSwitched).IsTrue();
+        await Assert.That(world.Record.Installs.Select(i => i.Install.Root)).IsEquivalentTo([world.Root]);
+        await Assert.That(Directory.Exists(later.Platform)).IsTrue();
+        await Assert.That(Target(later.Link)).IsEqualTo(AdoptionWorld.NpmLinkTarget);
+        await Assert.That(AdoptionWorld.ProgramOf(later)).IsEqualTo(later.Install.DaemonBinary);
+        await Assert.That(world.Machine.Repoints).IsEqualTo(1);
+        await Assert.That(world.Notifier.Notified.Count(n => n.Contains(later.Root))).IsEqualTo(1);
     }
 
     /// <summary>The checks run again once the helper has swapped the link: a daemon started from the install while
