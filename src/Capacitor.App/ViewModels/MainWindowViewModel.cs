@@ -656,8 +656,14 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .DistinctUntilChanged();
             var moving = (movingToWindowsService ?? Observable.Return(false)).ObserveOn(RxSchedulers.MainThreadScheduler);
 
+            // A daemon on another server is past the app's Sign in, so its own sign-out yields to
+            // the mismatch; the app's expired sign-in still comes first, as in the launcher.
+            var alertSignedOut = signInExpired
+                .CombineLatest(daemonSignIn, otherServerWhileConnected,
+                    (app, daemon, otherServer) => app || (daemon.SignedOut && otherServer is null))
+                .DistinctUntilChanged();
             var alert = status
-                .CombineLatest(daemonConnection, signedOut, failed, signInVisible, moving,
+                .CombineLatest(daemonConnection, alertSignedOut, failed, signInVisible, moving,
                     (st, connection, expired, broken, canSignIn, isMoving) => (st, connection, expired, broken, canSignIn, isMoving))
                 .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected, otherServerWhileConnected,
                     (d, local, other, pending, otherServer) => AlertFor(d.st, d.connection, d.expired, d.broken, d.canSignIn, d.isMoving,

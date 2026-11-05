@@ -522,6 +522,24 @@ public class MainWindowViewModelTests {
         await Assert.That(pending.Detail).IsEqualTo(message);
     }
 
+    /// A signed-out daemon on another server cannot be repaired by the app's Sign in, so the
+    /// mismatch speaks instead of its sign-out.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_signed_out_daemon_on_another_server_alerts_the_mismatch() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                tenantName: "kurrent", appServerUrl: "https://kurrent.kcap.ai");
+            using var activation = vm.Activator.Activate();
+
+            service.SnapshotsSubject.OnNext(Snap(serverUrl: "https://other.kcap.ai", connection: "disconnected", credential: "env"));
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+
+            await Assert.That(vm.Alert?.Text).IsEqualTo(MainWindowViewModel.DaemonOtherServerText);
+        });
+    }
+
     /// A daemon on another server outranks the reports that assume it serves this app, and gives way
     /// to a local server that needs the user.
     [Test]
