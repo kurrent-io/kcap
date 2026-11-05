@@ -116,6 +116,24 @@ public class AdoptionRepointTests {
         await Assert.That(expected.Expected).IsFalse();
     }
 
+    /// <summary>A folder that is not one of the install's own could hold other installs' units.</summary>
+    [Test]
+    public async Task An_install_none_of_whose_folders_holds_its_daemon_is_refused_without_sending_anything() {
+        var stray = Npm with { DaemonBinary = "/usr/local/libexec/kcap-daemon" };
+        using var expected = Expected();
+        var checks = 0;
+        var built = Build(() => Idle, expected, classify: false);
+        await using var _ = built.Lane;
+
+        var outcome = await built.Repoint.RunAsync(stray, Same(() => { checks++; return true; }), Request, CancellationToken.None)
+            .WaitAsync(Bounded);
+
+        await Assert.That(outcome).IsEqualTo(new MutationOutcome.Refused(AdoptionRepoint.FolderUnknown, RecoverySurface.None));
+        await Assert.That(checks).IsEqualTo(0);
+        await Assert.That(built.Cli.VersionCallCount).IsEqualTo(0);
+        await Assert.That(built.Cli.RepointFromCalls).IsEmpty();
+    }
+
     /// <summary>npm can install the platform package beside the launcher rather than inside it; the folder handed to
     /// the CLI must hold the daemon a service runs, or nothing would be repointed.</summary>
     [Test]

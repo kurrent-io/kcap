@@ -276,6 +276,48 @@ public class AdoptionPathStepTests {
         await Assert.That(built.Store.Load().Links).IsEmpty();
     }
 
+    /// <summary>The record also holds an earlier attempt's links, which may belong to an install already switched and
+    /// deleted: a failed attempt puts back only the links it made itself.</summary>
+    [Test]
+    public async Task A_failed_attempt_leaves_a_link_an_earlier_attempt_made() {
+        var bundle                 = Bundle();
+        var (_, earlierKcap)       = Script("earlier");
+        var (install, kcap)        = Script();
+        var done                   = Link("earlier/.local/bin", bundle);
+        var login                  = Link("home/.local/bin", kcap);
+        var earlier                = new LinkChange(done, earlierKcap, bundle);
+        var built                  = Build(() => null, [Folder(done), Folder(login)]);
+        built.Store.Update(r => r with { Links = [earlier] });
+
+        var applied = await built.Step.ApplyAsync(Plan(install, false, new LinkChange(login, kcap, bundle)), Evidence(install, login), bundle,
+            CancellationToken.None);
+
+        await Assert.That(applied).IsFalse();
+        await Assert.That(Target(login)).IsEqualTo(kcap);
+        await Assert.That(Target(done)).IsEqualTo(bundle);
+        await Assert.That(built.Store.Load().Links).IsEquivalentTo([earlier]);
+    }
+
+    /// <summary>Putting a link back to a deleted install would leave a dangling <c>kcap</c> on PATH. A relative old
+    /// target is read from the link's own folder.</summary>
+    [Test]
+    public async Task Put_back_skips_a_link_whose_old_target_is_gone_and_reads_a_relative_one_from_its_folder() {
+        var bundle    = Bundle();
+        var (_, kcap) = Script();
+        var gone      = Link("gone/bin", bundle);
+        var relative  = Link("home/bin", bundle);
+        var original  = Path.GetRelativePath(Folder(relative), kcap);
+        var missing   = new LinkChange(gone, Tmp.PathTo("deleted/.kcap/current/bin/kcap"), bundle);
+        var built     = Build(() => null, [Folder(gone), Folder(relative)]);
+        built.Store.Update(r => r with { Links = [missing, new LinkChange(relative, original, bundle)] });
+
+        await built.Step.PutBackAsync(CancellationToken.None);
+
+        await Assert.That(Target(gone)).IsEqualTo(bundle);
+        await Assert.That(Target(relative)).IsEqualTo(original);
+        await Assert.That(built.Store.Load().Links).IsEquivalentTo([missing]);
+    }
+
     /// <summary>A link that no longer points at the bundle it was given, such as one a bundle move carried along, is
     /// not the switch's to restore.</summary>
     [Test]

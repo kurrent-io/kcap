@@ -5,8 +5,8 @@ namespace Capacitor.App.Services.CliAdoption;
 
 /// <summary>Replaces each <c>PATH</c> location the plan found inside an install with a link to the bundle's
 /// <c>kcap</c>, at its own path. Every <c>PATH</c> whose location it replaced, and the login shell's when that found no
-/// <c>kcap</c>, must then resolve <c>kcap</c> to the bundle, or every recorded link is put back. Each link is recorded,
-/// and one outside the stable folders added to the inventory, before it is made.</summary>
+/// <c>kcap</c>, must then resolve <c>kcap</c> to the bundle, or the links this attempt made are put back. Each link is
+/// recorded, and one outside the stable folders added to the inventory, before it is made.</summary>
 internal sealed class AdoptionPathStep(
         ILoginShellProbe probe, AdoptedLinkInventory inventory, AdoptionRecordStore store, ICliPathInstaller shim,
         IReadOnlyList<string> stableFolders) {
@@ -17,9 +17,13 @@ internal sealed class AdoptionPathStep(
         if (plan.HoldReason is not null) return false;
 
         var changes = plan.Installs.Where(p => p.Left is null && !p.NeedsAdministrator).SelectMany(p => p.Links).ToList();
+        var made    = new List<LinkChange>();
         var applied = false;
         try {
-            foreach (var change in changes) Swap(change);
+            foreach (var change in changes) {
+                made.Add(change);
+                Swap(change);
+            }
 
             if (plan.NeedsStableLink && await shim.InstallAsync(bundleCli, ct).ConfigureAwait(false) is { Outcome: ShimOutcome.Failed } failed) {
                 Console.Error.WriteLine($"kcap: could not make the stable kcap link: {failed.Detail}");
@@ -32,17 +36,28 @@ internal sealed class AdoptionPathStep(
             Console.Error.WriteLine($"kcap: could not replace the kcap PATH links: {ex.Message}");
             return false;
         } finally {
-            if (!applied) await PutBackAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!applied) PutBack(made, CancellationToken.None);
         }
     }
 
-    /// Restores each recorded link that still points at the bundle it was given. One changed since, such as a link a
-    /// bundle move carried along, is left as it is and stays recorded. Safe to run again, and after a crash.
+    /// Restores every recorded link, for a rollback or a crash: an earlier attempt's links included. Safe to run again.
     public Task PutBackAsync(CancellationToken ct) {
-        foreach (var change in store.Load().Links) {
+        PutBack(store.Load().Links, ct);
+        return Task.CompletedTask;
+    }
+
+    /// Only a link that still points at the bundle it was given goes back, and only to an old target that still
+    /// exists: one changed since, such as a link a bundle move carried along, or one whose install is gone, is left as
+    /// it is and stays recorded.
+    void PutBack(IReadOnlyList<LinkChange> changes, CancellationToken ct) {
+        foreach (var change in changes) {
             ct.ThrowIfCancellationRequested();
             try {
                 if (new FileInfo(change.Path).LinkTarget != change.Replacement) continue;
+                if (!File.Exists(Path.Combine(Path.GetDirectoryName(change.Path)!, change.Original))) {
+                    Console.Error.WriteLine($"kcap: left {change.Path} on the app's kcap: {change.Original} is gone");
+                    continue;
+                }
                 KcapLinkSwap.Replace(change.Path, change.Replacement, change.Original);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 Console.Error.WriteLine($"kcap: could not put {change.Path} back: {ex.Message}");
@@ -52,8 +67,6 @@ internal sealed class AdoptionPathStep(
             store.Update(r => r with { Links = [.. r.Links.Where(l => l != change)] });
             if (!InStableFolder(change.Path)) inventory.Remove(change.Path);
         }
-
-        return Task.CompletedTask;
     }
 
     void Swap(LinkChange change) {
