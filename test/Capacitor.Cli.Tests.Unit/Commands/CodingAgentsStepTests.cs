@@ -1843,7 +1843,7 @@ public class CodingAgentsStepTests {
 
     [Test]
     [Arguments("VS Code", "Copilot detected in VS Code")]
-    [Arguments(null, "Copilot CLI detected")]
+    [Arguments(null, "Copilot detected")]
     public async Task Setup_names_where_it_found_copilot(string? hostApp, string line) {
         var sink     = new Sink();
         var calls    = new InstallerCalls();

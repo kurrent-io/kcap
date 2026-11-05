@@ -568,7 +568,7 @@ internal static class CodingAgentsStep {
 
         writeLine(detected.CopilotHostApp is { } host
             ? $"  [green]✓[/] Copilot detected in {Markup.Escape(host)}"
-            : "  [green]✓[/] Copilot CLI detected");
+            : "  [green]✓[/] Copilot detected");
 
         if (options.SkipCopilot && (options.SkipCopilotMcp || !options.ToolsIndependentOfCapture)) {
             writeLine("  [dim]· Copilot CLI hooks skipped by flag[/]");
