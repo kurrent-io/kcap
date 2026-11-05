@@ -287,12 +287,8 @@
                         <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource SubagentMark}" VerticalAlignment="Center" />
                     </Panel>
                     <StackPanel Grid.Column="1" Spacing="2">
-                        <Grid ColumnDefinitions="Auto,*">
-                            <views:AppIcon x:Name="ShellGlyph" Kind="Terminal" Size="12" Margin="0,0,5,0"
-                                           Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding IsShell}" />
-                            <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="13" LineHeight="16" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}"
-                                       TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" ToolTip.ShowOnDisabled="True" />
-                        </Grid>
+                        <TextBlock Text="{Binding Name}" FontSize="13" LineHeight="16" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}"
+                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" ToolTip.ShowOnDisabled="True" />
                         <TextBlock Text="{Binding Description}" FontSize="12" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
                                    TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Description}" ToolTip.ShowOnDisabled="True"
                                    IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -684,7 +680,7 @@
                     </Border>
                 </StackPanel>
 
-                <!-- Plan: read from the server, so unlike AGENTS & COMMANDS it shows nothing while signed out. -->
+                <!-- Plan: read from the server, so unlike AGENTS it shows nothing while signed out. -->
                 <StackPanel x:Name="PlanSection" IsVisible="{Binding Plan.ShowsPlan}" Margin="0,18,0,0">
                     <TextBlock Text="Loading plan…" FontSize="13" Foreground="{StaticResource KcapMutedBrush}"
                                Margin="0,4,0,0" IsVisible="{Binding Plan.IsLoading}" />
@@ -784,17 +780,17 @@
                     </Border>
                 </StackPanel>
 
-                <!-- Agents and commands: read from the transcript, so it renders in every pane phase. -->
-                <StackPanel x:Name="SubagentsSection" IsVisible="{Binding HasRuns}" Margin="0,18,0,0">
-                    <Button x:Name="SubagentsToggle" Command="{Binding ToggleRunsCommand}" Classes="sectionHeader expandable"
-                            AutomationProperties.Name="Agents and commands">
+                <!-- Subagents: read from the transcript, so it renders in every pane phase. -->
+                <StackPanel x:Name="SubagentsSection" IsVisible="{Binding HasSubagents}" Margin="0,18,0,0">
+                    <Button x:Name="SubagentsToggle" Command="{Binding ToggleSubagentsCommand}" Classes="sectionHeader expandable"
+                            AutomationProperties.Name="Agents">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBlock Text="AGENTS &amp; COMMANDS" Classes="eyebrow" />
+                            <TextBlock Text="AGENTS" Classes="eyebrow" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <TextBlock x:Name="SubagentsHeaderText" Text="{Binding RunsHeader}" Classes="sectionMeta"
-                                           IsVisible="{Binding RunsExpanded}" />
-                                <ItemsControl x:Name="SubagentsSummary" ItemsSource="{Binding RunCounts}" VerticalAlignment="Center"
-                                              IsVisible="{Binding !RunsExpanded}">
+                                <TextBlock x:Name="SubagentsHeaderText" Text="{Binding SubagentsHeader}" Classes="sectionMeta"
+                                           IsVisible="{Binding SubagentsExpanded}" />
+                                <ItemsControl x:Name="SubagentsSummary" ItemsSource="{Binding SubagentCounts}" VerticalAlignment="Center"
+                                              IsVisible="{Binding !SubagentsExpanded}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <StackPanel Orientation="Horizontal" Spacing="10" />
@@ -811,14 +807,14 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                                 <Panel Width="12" Height="12">
-                                    <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding RunsExpanded}" />
-                                    <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !RunsExpanded}" />
+                                    <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding SubagentsExpanded}" />
+                                    <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !SubagentsExpanded}" />
                                 </Panel>
                             </StackPanel>
                         </Grid>
                     </Button>
-                    <Border Classes="sectionBody" IsVisible="{Binding RunsExpanded}">
-                        <ItemsControl x:Name="SubagentList" ItemsSource="{Binding Runs}" ItemTemplate="{StaticResource RunItem}">
+                    <Border Classes="sectionBody" IsVisible="{Binding SubagentsExpanded}">
+                        <ItemsControl x:Name="SubagentList" ItemsSource="{Binding Subagents}" ItemTemplate="{StaticResource RunItem}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <StackPanel Spacing="10" />
@@ -829,11 +825,11 @@
                     <Border x:Name="RunningSubagentsBody" Classes="sectionBody">
                         <Border.IsVisible>
                             <MultiBinding Converter="{x:Static BoolConverters.And}">
-                                <Binding Path="!RunsExpanded" />
-                                <Binding Path="HasRunningRuns" />
+                                <Binding Path="!SubagentsExpanded" />
+                                <Binding Path="HasRunningSubagents" />
                             </MultiBinding>
                         </Border.IsVisible>
-                        <ItemsControl x:Name="RunningSubagentList" ItemsSource="{Binding RunningRuns}" ItemTemplate="{StaticResource RunItem}">
+                        <ItemsControl x:Name="RunningSubagentList" ItemsSource="{Binding RunningSubagents}" ItemTemplate="{StaticResource RunItem}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <StackPanel Spacing="10" />

@@ -910,16 +910,16 @@ public class WorkspaceViewModelTests {
         await RunOnUiAsync(async () => {
             var daemon = new FakeDaemonClientService();
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), new FakeTimeProvider());
-            var path = Tmp.CreateFile("t.jsonl", [AgentCallLine]);
+            var path = Tmp.CreateFile("t.jsonl", [AgentCallLine, AgentLaunchLine]);
 
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path });
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
             await (vm.Chat!.PendingReadForTesting ?? Task.CompletedTask);
 
-            await Assert.That(vm.Chat.HasRunningRuns).IsTrue();
-            await Assert.That(vm.WorkContext.HasRuns).IsTrue();
-            await Assert.That(vm.WorkContext.RunsHeader).IsEqualTo("1 running");
-            await Assert.That(vm.WorkContext.Runs.Single().Name).IsEqualTo("Explore");
+            await Assert.That(vm.WorkContext.HasSubagents).IsTrue();
+            await Assert.That(vm.WorkContext.SubagentsHeader).IsEqualTo("1 running");
+            await Assert.That(vm.WorkContext.Subagents.Single().Name).IsEqualTo("Explore");
+            await Assert.That(vm.Chat.Tasks.Rows.Single()).IsSameReferenceAs(vm.WorkContext.Subagents.Single());
             await vm.TeardownAsync();
         });
     }
@@ -941,7 +941,7 @@ public class WorkspaceViewModelTests {
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path });
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
             await (vm.Chat!.PendingReadForTesting ?? Task.CompletedTask);
-            var row = vm.WorkContext.Runs.Single();
+            var row = vm.WorkContext.Subagents.Single();
             await Assert.That(row.AgentId).IsEqualTo("s1");
 
             vm.WorkContext.OpenRunCommand.Execute(row).Subscribe();
@@ -953,6 +953,37 @@ public class WorkspaceViewModelTests {
             await Assert.That(vm.ShowsChat).IsFalse();
             await Assert.That(pane.Chat.Items.OfType<AssistantTextItem>().Single().Text).IsEqualTo("Found the chat surfaces");
             await Assert.That(vm.Chat.Items.OfType<AssistantTextItem>()).IsEmpty();
+            await vm.TeardownAsync();
+        });
+    }
+
+    const string AgentLaunchLine = """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_A","content":[{"type":"text","text":"Async agent launched successfully."}]}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"s1"}}""";
+
+    /// The background-tasks band opens a subagent's transcript the way the sidebar does.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_background_subagent_opens_its_own_transcript_from_the_composer_band() {
+        await RunOnUiAsync(async () => {
+            var daemon = new FakeDaemonClientService();
+            var time = new FakeTimeProvider();
+            var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), time);
+            var path = Tmp.CreateFile("t.jsonl", [AgentCallLine, AgentLaunchLine]);
+            Tmp.CreateFile(["t", "subagents", "agent-s1.jsonl"],
+                """{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"Found the chat surfaces"}]}}""" + "\n");
+
+            daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path });
+            await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+            await (vm.Chat!.PendingReadForTesting ?? Task.CompletedTask);
+            var row = vm.Chat.Tasks.Rows.Single();
+            await Assert.That(row.CanOpen).IsTrue();
+
+            vm.Chat.Tasks.OpenRunCommand.Execute(row).Subscribe();
+            var pane = vm.Subagent!;
+            time.Advance(ChatTabViewModel.PollInterval);
+            await (pane.Chat.PendingReadForTesting ?? Task.CompletedTask);
+
+            await Assert.That(vm.ShowsSubagent).IsTrue();
+            await Assert.That(pane.Chat.Items.OfType<AssistantTextItem>().Single().Text).IsEqualTo("Found the chat surfaces");
             await vm.TeardownAsync();
         });
     }
