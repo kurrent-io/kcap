@@ -117,23 +117,18 @@ public sealed class ResumeLedgerStore(string resumeDirectory, TimeProvider? time
         return results;
     }
 
+    static readonly TimeSpan MarkLockWait = TimeSpan.FromSeconds(5);
+
     public int MarkInterrupted(string reason, Func<ResumeLedgerEntry, bool>? where = null) {
         var changed = 0;
 
-        // Under each entry's lock and from a fresh read, so a snapshot from before a locked update cannot replace it. A
-        // holder that keeps the lock past the wait does not stop the stop path.
+        // Under each entry's lock and from a fresh read, so a snapshot cannot replace a locked update. A holder that keeps
+        // the lock past the wait leaves its entry unmarked: writing without the lock could lose what it commits.
         foreach (var listed in ReadAll()) {
             // Only an entry this call means to mark is worth waiting on another agent's lock for.
             if (Interrupted(listed) is null) continue;
 
-            var result = TryUpdateUnderLock(listed.AgentId, Interrupted, DeleteLockWait);
-
-            if (result == LockedUpdate.LockTimeout && TryRead(listed.AgentId) is { } current && Interrupted(current) is { } marked) {
-                Write(marked);
-                result = LockedUpdate.Written;
-            }
-
-            if (result == LockedUpdate.Written) changed++;
+            if (TryUpdateUnderLock(listed.AgentId, Interrupted, MarkLockWait) == LockedUpdate.Written) changed++;
         }
 
         return changed;

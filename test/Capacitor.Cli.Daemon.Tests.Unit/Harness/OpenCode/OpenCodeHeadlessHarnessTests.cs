@@ -76,7 +76,7 @@ public class OpenCodeHeadlessHarnessTests {
 
     /// <summary>The runner's own timeout, which keeps the usage reported so far, must fire before the daemon's outer
     /// deadline: the fake clock reaches the runner's timeout only if it is the margin short of the deadline, never the
-    /// longer timeout the daemon offered, and the log names the length it armed.</summary>
+    /// longer timeout the daemon offered.</summary>
     [Test]
     [Arguments(10, 8)]
     [Arguments(1, 0)]
@@ -96,11 +96,7 @@ public class OpenCodeHeadlessHarnessTests {
         if (runnerSeconds > 0) {
             var waited = Environment.TickCount64;
             while (!File.Exists(started) && Environment.TickCount64 - waited < 10_000) await Task.Delay(20);
-            // Again until the run ends: the process starts before the runner arms its timer, so one advance can land first.
-            while (!run.IsCompleted && Environment.TickCount64 - waited < 20_000) {
-                clock.Advance(TimeSpan.FromSeconds(runnerSeconds));
-                await Task.Delay(50);
-            }
+            clock.Advance(TimeSpan.FromSeconds(runnerSeconds));
         }
 
         var outcome = await run.WaitAsync(TimeSpan.FromSeconds(10));
