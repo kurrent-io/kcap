@@ -724,11 +724,21 @@ partial class WatchCommand(
         }
 
         // Every later read of transcriptPath, the final drain and the session end included, sees the new path. A
-        // moved file keeps its lines, so the drain carries on from the line it had reached. Before the first line
-        // is read, a missing file is one Claude has not written yet.
+        // moved file keeps its lines, so the drain carries on from the line it had reached. A missing file this
+        // watcher has never seen, at line 0, is one Claude has not written yet. The cursor alone cannot tell:
+        // it stays at 0 while lines are buffered below the threshold.
+        var transcriptSeen = false;
+
         void FollowMovedTranscript() {
-            if (vendor != "claude" || state.LinesProcessed == 0 || File.Exists(transcriptPath)
-             || ClaudeTranscriptMove.Find(transcriptPath) is not { } moved) return;
+            if (vendor != "claude") return;
+
+            if (File.Exists(transcriptPath)) {
+                transcriptSeen = true;
+
+                return;
+            }
+
+            if ((!transcriptSeen && state.LinesProcessed == 0) || ClaudeTranscriptMove.Find(transcriptPath) is not { } moved) return;
 
             Log(time, $"Transcript moved to {moved}; following it");
             transcriptPath = moved;
@@ -851,6 +861,9 @@ partial class WatchCommand(
         PublishAckedLines(sessionId, agentId, vendor, state);
         Log(time, $"Connected via SignalR, resuming from line {state.LinesProcessed}");
         TouchHeartbeat();
+
+        // A resumed session can be told a path its transcript has already left; the seed and replay read it next.
+        FollowMovedTranscript();
 
         // Crew keeps one kiro-cli process for a whole chat and its in-process sub-agents, so the
         // parent-pid watchdog alone would leave a finished sub-agent or a replaced chat session open.
@@ -1188,6 +1201,7 @@ partial class WatchCommand(
             // If the final line was held back at consume time, flag the session needs-import so
             // `kcap import` can recover the tail rather than dropping a truncated line.
             await WaitForFinalLineCompletionAsync(transcriptPath, time);
+            FollowMovedTranscript();
 
             // gated for the same reason as the main loop's
             // drain call above (a reconnect right at shutdown is unlikely but not impossible).
@@ -1210,6 +1224,7 @@ partial class WatchCommand(
             // no-op when nothing is undelivered (position already == EOF). Spool the tail into the
             // dedicated TranscriptSpool so the global drain (task 3) replays it after recovery,
             // instead of silently dropping it.
+            FollowMovedTranscript();
             await SpoolUndeliveredTranscriptTailAsync(
                 transcriptSpool, transcriptPath, sessionId, agentId, vendor, state.LinesProcessed, state.Commits, CancellationToken.None,
                 ShutdownTailRedactionDeadline - time.GetElapsedTime(shutdownStarted), state.LineOffsets);
