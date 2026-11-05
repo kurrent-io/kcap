@@ -28,11 +28,10 @@ namespace Capacitor.Cli.Commands.Harness;
 ///                  --resume — the server's deterministic lifecycle event ids
 ///                  make the re-POST idempotent and the watcher resumes from
 ///                  the server watermark.
-///   sessionEnd   → spawn the detached copilot-finalize drainer FIRST (it
-///                  must be created before — and outlive — the rest of the
-///                  hook to capture the session.shutdown tail Copilot writes
-///                  after the hook returns), then kill watcher + capped inline
-///                  drain (mirrors Claude's pre-drain cap), then POST
+///   sessionEnd   → spawn the detached copilot-finalize process FIRST (it must
+///                  outlive this hook, which Copilot can kill within seconds, to
+///                  deliver the session.shutdown tail and the session end), then
+///                  kill watcher + capped inline drain, then POST the same end to
 ///                  /hooks/session-end/copilot.
 ///   agentStop    → no server POST. Fires at every turn end; used only to
 ///                  re-enliven a crashed watcher (mirrors Codex's Stop).
@@ -345,19 +344,28 @@ sealed class CopilotHookCommand(
         ) {
         var transcriptPath = TranscriptPathFor(dashedSessionId);
 
-        // Copilot appends `session.shutdown` (per-model input/cache token
-        // aggregates) — and sometimes the final assistant turn — to events.jsonl
-        // only AFTER this hook returns, by which point the live watcher is dead
-        // (KillWatcher below) and the server's session-end StopAndDrain has run,
-        // so nothing else is reading the file. Spawn the detached finalizer FIRST,
-        // before the capped pre-drain and the retrying session-end POST: if a
-        // slow/unreachable server makes the POST burn the whole hook timeout,
-        // Copilot SIGKILLs the hook — and we must have already created the drainer
-        // by then. It is detached (setsid + closed std streams), so it survives
-        // the hook being killed and still delivers the post-hook tail via one
-        // idempotent inline-drain once `session.shutdown` lands (or it times out).
-        // Its poll budget outlasts the worst-case hook lifetime for this reason.
-        watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath);
+        var forwarded = new JsonObject {
+            ["hook_event_name"] = "sessionEnd",
+            ["session_id"]      = sessionId,
+            ["reason"]          = TryGetString(node, "reason") ?? "complete",
+            ["home_dir"]        = home.Path
+        };
+
+        if (cwd is not null) forwarded["cwd"] = cwd;
+
+        if (TryGetUnixMillis(node, "timestamp") is { } endedAt) {
+            forwarded["ended_at"] = endedAt.ToString("O");
+        }
+
+        SessionEndIncarnation.Stamp(forwarded, hosted);
+
+        var end = forwarded.ToJsonString();
+
+        // Copilot writes session.shutdown only after this hook, and on quit stops within seconds of
+        // starting it, killing the hook. The detached finalizer survives that, so it starts first and
+        // carries the end: the server derives its event id from the reason and ended_at, so the two
+        // POSTs of this one body record one SessionEnded.
+        watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath, end);
 
         // Kill watcher + inline-drain BEFORE the POST so the server computes
         // stats over the full transcript — capped so a slow drain can't starve
@@ -381,23 +389,8 @@ sealed class CopilotHookCommand(
             Console.Error.WriteLine($"[kcap] copilot session-end pre-hook failed: {ex.Message}");
         }
 
-        var forwarded = new JsonObject {
-            ["hook_event_name"] = "sessionEnd",
-            ["session_id"]      = sessionId,
-            ["reason"]          = TryGetString(node, "reason") ?? "complete",
-            ["home_dir"]        = home.Path
-        };
-
-        if (cwd is not null) forwarded["cwd"] = cwd;
-
-        if (TryGetUnixMillis(node, "timestamp") is { } endedAt) {
-            forwarded["ended_at"] = endedAt.ToString("O");
-        }
-
-        SessionEndIncarnation.Stamp(forwarded, hosted);
-
         // AuthLapsed / Posted → clean exit (0); a real failure keeps the prior non-zero exit.
-        return await PostHookAsync("session-end/copilot", forwarded.ToJsonString()) == HookPostOutcome.Failed ? 1 : 0;
+        return await PostHookAsync("session-end/copilot", end) == HookPostOutcome.Failed ? 1 : 0;
     }
 
     async Task<int> HandleAgentStop(JsonNode node, string dashedSessionId, string sessionId, string? cwd) {
