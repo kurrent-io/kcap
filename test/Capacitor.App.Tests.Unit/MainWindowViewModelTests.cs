@@ -522,6 +522,23 @@ public class MainWindowViewModelTests {
         await Assert.That(pending.Detail).IsEqualTo(message);
     }
 
+    /// A daemon on another server outranks the reports that assume it serves this app, and gives way
+    /// to a local server that needs the user.
+    [Test]
+    public async Task AlertFor_a_daemon_on_another_server_outranks_its_hub_word_and_queued_restarts() {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        const string notice = "This machine's daemon uses another server.";
+
+        var alert = MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: DaemonRestartWait.Turns,
+            otherServerNotice: notice);
+        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonOtherServerText);
+        await Assert.That(alert.Detail).IsEqualTo(notice);
+
+        var local = MainWindowViewModel.LocalServerAlertFor(updateFailed: false, starting: false, stopped: true, canStart: true);
+        await Assert.That(MainWindowViewModel.AlertFor(connected, "connected", local: local, otherServerNotice: notice))
+            .IsEqualTo(local);
+    }
+
     /// A restart waiting for turns follows an update to the other install, so it outranks the report; any other queued
     /// restart brings back the same version, so the report outranks it.
     [Test]
@@ -569,10 +586,11 @@ public class MainWindowViewModelTests {
         await Assert.That(MainWindowViewModel.ProfileLabelForRail(profile)).IsEqualTo(expected);
     }
 
-    /// A daemon attached to another server must not lend its host to the app's org.
+    /// A daemon attached to another server must not lend its host to the app's org, and its hub
+    /// being up says nothing about this app's server: the footer alerts instead of saying Connected.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Footer_identity_names_the_app_profiles_server_not_the_daemons() {
+    public async Task A_daemon_on_another_server_alerts_and_keeps_the_app_profiles_identity() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
@@ -580,9 +598,18 @@ public class MainWindowViewModelTests {
             using var activation = vm.Activator.Activate();
 
             service.SnapshotsSubject.OnNext(Snap(serverUrl: "https://other.kcap.ai", connection: "connected"));
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
 
             await Assert.That(vm.FooterIdentity).IsEqualTo("kurrent · kurrent.kcap.ai");
             await Assert.That(vm.FooterServerUrl).IsEqualTo("https://kurrent.kcap.ai");
+            await Assert.That(vm.Alert?.Text).IsEqualTo(MainWindowViewModel.DaemonOtherServerText);
+            await Assert.That(vm.Alert?.Detail).Contains("another server");
+            await Assert.That(vm.ShowsConnected).IsFalse();
+
+            service.SnapshotsSubject.OnNext(Snap(serverUrl: "https://kurrent.kcap.ai", connection: "connected"));
+
+            await Assert.That(vm.Alert).IsNull();
+            await Assert.That(vm.ShowsConnected).IsTrue();
         });
     }
 

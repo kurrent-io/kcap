@@ -638,6 +638,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                     (st, other) => st.State == AttachState.Connected ? other : null)
                 .DistinctUntilChanged();
 
+            var otherServerWhileConnected = status
+                .CombineLatest(snapshots.Select(s => HomeViewModel.ForeignDaemonServer(s.Daemon.ServerUrl, _appServerUrl)).StartWith((string?)null),
+                    (st, foreign) => st.State == AttachState.Connected && foreign is not null
+                        ? HomeViewModel.DaemonOnOtherServerNotice(foreign, _appServerUrl) : null)
+                .DistinctUntilChanged();
+
             var localServer = Home?.LocalServer is { } recovery
                 ? recovery.WhenAnyValue(x => x.ServerDown, x => x.IsStarting, x => x.StartOffered, x => x.Condition,
                     (down, starting, offered, condition) => (Down: down, Starting: starting, Offered: offered, Condition: condition))
@@ -653,9 +659,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             var alert = status
                 .CombineLatest(daemonConnection, signedOut, failed, signInVisible, moving,
                     (st, connection, expired, broken, canSignIn, isMoving) => (st, connection, expired, broken, canSignIn, isMoving))
-                .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected,
-                    (d, local, other, pending) => AlertFor(d.st, d.connection, d.expired, d.broken, d.canSignIn, d.isMoving,
-                        local, other, pending))
+                .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected, otherServerWhileConnected,
+                    (d, local, other, pending, otherServer) => AlertFor(d.st, d.connection, d.expired, d.broken, d.canSignIn, d.isMoving,
+                        local, other, pending, otherServer))
                 .DistinctUntilChanged();
             _alert = alert
                 .ToProperty(this, x => x.Alert, (RailAlert?)null)
@@ -1356,6 +1362,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     internal const string ServerLostText        = "Server disconnected";
     internal const string RestartPendingText    = "Daemon restart pending";
     internal const string DaemonNotUpdatedText  = "Daemon not updated";
+    internal const string DaemonOtherServerText = "Daemon on another server";
     internal const string LocalStoppedText      = "Local server stopped";
     internal const string LocalChangingText     = "Local server changing…";
     internal const string LocalRestartingText   = "Local server restarting…";
@@ -1391,7 +1398,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     internal static RailAlert? AlertFor(
             AttachStatus status, string daemonConnection, bool signedOut = false, bool failed = false,
             bool canSignIn = false, bool moving = false, RailAlert? local = null, DaemonOnOtherInstall? otherInstall = null,
-            DaemonRestartWait restartPending = DaemonRestartWait.None) {
+            DaemonRestartWait restartPending = DaemonRestartWait.None, string? otherServerNotice = null) {
         var needsUser = failed ? StatusColors.Disrupted : StatusColors.InProgress;
         if (signedOut) return new(SignInRequiredText, needsUser, canSignIn ? RailRecovery.SignIn : RailRecovery.None);
         if (status.State == AttachState.Connecting) return new(DaemonConnectingText, StatusColors.Pending);
@@ -1406,6 +1413,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 _ => new(DaemonUnreachableText, needsUser, RailRecovery.Reconnect),
             };
         if (local is not null) return local;
+        // Its hub word describes the other server, so nothing below it speaks for this app.
+        if (otherServerNotice is not null) return new(DaemonOtherServerText, StatusColors.InProgress, Detail: otherServerNotice);
 
         return daemonConnection switch {
             "connecting"   => new(ServerConnectingText, StatusColors.Pending),
