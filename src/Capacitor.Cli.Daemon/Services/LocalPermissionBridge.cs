@@ -52,6 +52,7 @@ internal sealed partial class LocalPermissionBridge(
     const int    MaxBindAttempts = 15;
     const string PathSuffix        = "/permission-request";
     const string InputWaitSuffix   = "/input-wait";
+    const string SessionStartSuffix = "/session-start";
     const string ToolSettledSuffix = "/tool-settled";
     const string SubagentSuffix    = "/subagent";
 
@@ -93,6 +94,10 @@ internal sealed partial class LocalPermissionBridge(
     /// agent id and whether a PTY vendor's hook just reported its turn ended (true) or a new one
     /// began (false). Null = relays are acknowledged and dropped.
     internal Action<string, bool>? InputWaitHandler { get; set; }
+
+    /// Assigned by the orchestrator like <see cref="AttributeHandler"/>: receives the attributed
+    /// agent id when its hook reports the session started. Null = relays are acknowledged and dropped.
+    internal Action<string>? SessionStartHandler { get; set; }
 
     /// Assigned by the orchestrator like <see cref="AttributeHandler"/>: receives the attributed
     /// agent id and what its hook reports as settled. Null = notices are acknowledged and dropped.
@@ -518,6 +523,13 @@ internal sealed partial class LocalPermissionBridge(
             if (context.Request.HttpMethod == "POST" && path is not null
              && path.EndsWith(InputWaitSuffix, StringComparison.Ordinal)) {
                 await HandleInputWaitAsync(context, path);
+
+                return;
+            }
+
+            if (context.Request.HttpMethod == "POST" && path is not null
+             && path.EndsWith(SessionStartSuffix, StringComparison.Ordinal)) {
+                await HandleSessionStartAsync(context, path);
 
                 return;
             }
@@ -1041,6 +1053,19 @@ internal sealed partial class LocalPermissionBridge(
 
         var attributed = AttributeHandler?.Invoke(new PermissionAttribution(Str(node, "agent_id"), sessionId, Str(node, "cwd")));
         if (attributed is { } agent) InputWaitHandler?.Invoke(agent.AgentId, waiting.Value);
+
+        Close(context, 204);
+    }
+
+    /// A Claude hook reporting its session started: <c>/{token}/{vendor}/session-start</c> with
+    /// <c>session_id</c> and the <c>agent_id</c>/<c>cwd</c> the attribution ladder reads. Shared token
+    /// only, which is what a Claude reviewer holds too. Answers 204 whether or not the ladder placed
+    /// the agent.
+    async Task HandleSessionStartAsync(HttpListenerContext context, string path) {
+        if (await ReadRelayAsync(context, path, SessionStartSuffix, reviewerAllowed: false) is not (var node, var sessionId, _)) return;
+
+        var attributed = AttributeHandler?.Invoke(new PermissionAttribution(Str(node, "agent_id"), sessionId, Str(node, "cwd")));
+        if (attributed is { } agent) SessionStartHandler?.Invoke(agent.AgentId);
 
         Close(context, 204);
     }

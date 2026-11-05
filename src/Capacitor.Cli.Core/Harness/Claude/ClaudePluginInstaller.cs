@@ -105,6 +105,13 @@ public static class ClaudePluginInstaller {
     /// </summary>
     public static bool IsEffectivelyInstalled(string settingsPath) => EffectiveMcpJsonPath(settingsPath) is not null;
 
+    /// <summary>True when Claude will run the plugin's hooks: enabled, and either loadable or not
+    /// recorded yet, since Claude installs an enabled plugin on its first start. A record whose
+    /// payload is gone does not count.</summary>
+    public static bool RunsHooks(string settingsPath) =>
+        EnabledKcapPluginKey(settingsPath) is not null
+     && (IsEffectivelyInstalled(settingsPath) || !HasInstallRecord(settingsPath));
+
     /// <summary>The <c>.mcp.json</c> Claude actually loads for the enabled kcap plugin, or null when
     /// the plugin is not effective (see <see cref="IsEffectivelyInstalled"/>).</summary>
     public static string? EffectiveMcpJsonPath(string settingsPath) {

@@ -24,6 +24,47 @@ public class ClaudePluginInstallerTests {
                 { "scope": "user", "installPath": {{JsonValue.Create(installPath).ToJsonString()}}, "version": "1.0.0" } ] } }
             """);
 
+    // ── RunsHooks — whether a launch can count on the plugin's hooks firing ──
+
+    [Test]
+    public async Task RunsHooks_true_when_the_installed_cache_ships_the_payload() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        var cache        = tmp.CreateDir("cache");
+        tmp.CreateFile("cache/.mcp.json", "{}");
+        WriteInstallRecord(tmp.Path, cache);
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath)).IsTrue();
+    }
+
+    /// Claude installs an enabled plugin on its first start, so the machine that has never run it
+    /// has no record yet and its hooks still fire. Calling this unwired would leave exactly that
+    /// first start on the output checks a first-run screen passes.
+    [Test]
+    public async Task RunsHooks_true_before_claude_has_first_installed_the_enabled_plugin() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath)).IsTrue();
+    }
+
+    [Test]
+    public async Task RunsHooks_false_when_the_install_record_has_lost_its_payload() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        WriteInstallRecord(tmp.Path, tmp.PathTo("gone"));
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath)).IsFalse();
+    }
+
+    [Test]
+    public async Task RunsHooks_false_when_the_plugin_is_not_enabled() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath)).IsFalse();
+    }
+
     [Test]
     public async Task IsEffectivelyInstalled_true_when_the_installed_cache_ships_the_payload() {
         using var tmp = new TempDir();

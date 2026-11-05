@@ -109,6 +109,13 @@ internal sealed partial class ClaudeLauncher(
 
     public bool SupportsReviewerResume => true;
 
+    /// <summary>The plugin carries Claude's hooks, so an account without it reports nothing.</summary>
+    public bool HooksWired(LauncherContext ctx) => ClaudePluginInstaller.RunsHooks(PathsFor(ctx.Account).UserSettings);
+
+    /// <summary>SessionStart fires once the REPL is up, behind onboarding, trust and whatever other
+    /// startup screen a release adds.</summary>
+    public bool SessionStartMeansComposerUp => true;
+
     public LaunchArgs BuildArgs(LauncherContext ctx) {
         var args = new List<string>();
         string? mcpConfigPath = null;

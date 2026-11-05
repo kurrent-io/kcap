@@ -308,6 +308,8 @@ public sealed class ClaudeHookCommand(
                 clock.Time.GetUtcNow().ToUnixTimeMilliseconds(), budget);
         else if (command switch { "stop" => true, "user-prompt-submit" or "pre-tool-use" => false, _ => (bool?) null } is { } waiting)
             await DaemonBridgeRelay.NotifyInputWaitAsync(hosted, "claude", sessionId, cwd, waiting, budget);
+        else if (command == "session-start")
+            await DaemonBridgeRelay.NotifySessionStartedAsync(hosted, "claude", sessionId, cwd, budget);
         HookTiming.Mark("daemon-relay");
 
         // The tool events have no server route and no other work, so they end here — after both

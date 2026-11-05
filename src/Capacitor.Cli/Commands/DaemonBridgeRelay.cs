@@ -23,6 +23,14 @@ internal static class DaemonBridgeRelay {
         PostAsync(hosted, vendor, "input-wait", new JsonObject { ["session_id"] = sessionId, ["cwd"] = cwd, ["waiting"] = waiting }, budget);
 
     /// <summary>
+    /// The agent's SessionStart hook ran, so its composer is up and a launch prompt held behind a
+    /// startup screen can go.
+    /// </summary>
+    public static Task NotifySessionStartedAsync(
+            HostedAgent hosted, string vendor, string? sessionId, string? cwd, HookBudget budget) =>
+        PostAsync(hosted, vendor, "session-start", new JsonObject { ["session_id"] = sessionId, ["cwd"] = cwd }, budget);
+
+    /// <summary>
     /// A subagent's own hook ran, so the daemon can count it live or, on its stop, drop it.
     /// <paramref name="sentAtMs"/> is the hook's own UTC clock in Unix milliseconds: hooks are
     /// asynchronous and the daemon runs their reports independently, so it orders a subagent's

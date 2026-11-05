@@ -975,6 +975,213 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    /// <summary>Starts a launch held for SessionStart, on a first-run screen that drew once and went
+    /// quiet: to the output checks that is a settled composer.</summary>
+    static async Task<(PtyHostedAgentRuntime Runtime, RecordingScriptedPtyProcess Pty)> HeldLaunchAsync(FakeTimeProvider time) {
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false, awaitsSessionStart: true, confirmsLaunchPrompt: true);
+
+        runtime.DeliverLaunchPrompt("build it");
+        _ = PumpAsync(runtime);
+        pty.Emit("first-run screen");
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow * 2);
+
+        return (runtime, pty);
+    }
+
+    /// <summary>The first screen would take the paste and its Enter, so neither the quiet window nor
+    /// the cap that ends it may let the prompt through.</summary>
+    [Test]
+    public async Task A_held_launch_prompt_is_not_pasted_into_a_quiet_screen() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await HeldLaunchAsync(time);
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptMaxWait * 2);
+
+        await Assert.That(pty.Writes).IsEmpty();
+        await Assert.That(runtime.LaunchPromptDelivery!.IsCompleted).IsFalse();
+        pty.Exit();
+    }
+
+    [Test]
+    public async Task A_held_launch_prompt_is_pasted_once_session_start_is_seen() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await HeldLaunchAsync(time);
+
+        runtime.NoteSessionStarted();
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => pty.Writes.Count >= 2);
+
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted);
+        pty.Exit();
+    }
+
+    /// <summary>The hook fires as the TUI mounts, so a screen quiet since well before it says nothing
+    /// about the composer: without this the paste would go the moment the notice lands.</summary>
+    [Test]
+    public async Task The_quiet_window_runs_from_session_start() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await HeldLaunchAsync(time);
+
+        runtime.NoteSessionStarted();
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow / 2);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow, () => pty.Writes.Count >= 1);
+
+        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        pty.Exit();
+    }
+
+    /// <summary>The retry Enter must never answer a screen ahead of the REPL, so its wait starts from
+    /// the paste, not from the launch.</summary>
+    [Test]
+    public async Task No_second_enter_is_sent_before_session_start() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await HeldLaunchAsync(time);
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait * 2);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        runtime.NoteSessionStarted();
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => pty.Writes.Count >= 2);
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait - TimeSpan.FromSeconds(4));
+
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted);
+        pty.Exit();
+    }
+
+    /// <summary>The hold has no time limit, so nothing but this report tells the viewer the agent may
+    /// be waiting for them in its terminal, and it must clear once the agent moves on.</summary>
+    [Test]
+    public async Task A_launch_prompt_held_too_long_reads_unconfirmed_until_session_start() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await HeldLaunchAsync(time);
+
+        await Assert.That(runtime.LaunchPromptUnconfirmed).IsFalse();
+
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait, () => runtime.LaunchPromptOverdue!.IsCompleted);
+
+        await Assert.That(runtime.LaunchPromptUnconfirmed).IsTrue();
+        await Assert.That(pty.Writes).IsEmpty();
+
+        runtime.NoteSessionStarted();
+
+        await Assert.That(runtime.LaunchPromptUnconfirmed).IsFalse();
+        pty.Exit();
+    }
+
+    /// <summary>Only a REPL starts a turn, so a turn the user began from the terminal proves it is up
+    /// even when the SessionStart notice never arrived.</summary>
+    [Test]
+    public async Task A_relayed_turn_releases_a_held_launch_prompt() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await HeldLaunchAsync(time);
+
+        runtime.NoteTurnRelayed();
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => pty.Writes.Count >= 2);
+
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted);
+        pty.Exit();
+    }
+
+    /// <summary>An ordinary start reports SessionStart within seconds, so a message sent during it
+    /// still lands behind the prompt.</summary>
+    [Test]
+    public async Task A_follow_up_lands_after_a_held_launch_prompt_released_in_time() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await HeldLaunchAsync(time);
+
+        var followUp = runtime.SendUserInputAsync("and test it");
+        runtime.NoteSessionStarted();
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => pty.Writes.Count >= 2);
+        runtime.NoteTurnRelayed();
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => followUp.IsCompleted);
+
+        await followUp.WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted + "|\x1b[200~and test it\x1b[201~|\r");
+        pty.Exit();
+    }
+
+    /// <summary>A server dispatch awaits this write on the daemon's one sequential SignalR dispatch,
+    /// so a follow-up parked behind a hold with no time limit would stall every other agent's stop
+    /// and launch.</summary>
+    [Test]
+    public async Task A_follow_up_to_a_launch_prompt_held_too_long_is_refused_naming_the_terminal() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await HeldLaunchAsync(time);
+
+        var followUp = runtime.SendUserInputAsync("and test it");
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait, () => followUp.IsCompleted);
+
+        var refusal = await Assert.That(async () => await followUp.WaitAsync(TimeSpan.FromSeconds(5))).Throws<IOException>();
+        await Assert.That(refusal!.Message).Contains("terminal");
+        await Assert.That(pty.Writes).IsEmpty();
+        pty.Exit();
+    }
+
+    /// <summary>Raw keys are how a person gets past a first-run screen the daemon cannot see.</summary>
+    [Test]
+    public async Task Raw_input_reaches_the_terminal_while_a_launch_prompt_is_held() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await HeldLaunchAsync(time);
+
+        await runtime.SendRawInputAsync([0x0d]).WaitAsync(TimeSpan.FromSeconds(2));
+
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\r");
+        pty.Exit();
+    }
+
+    [Test]
+    public async Task A_held_launch_prompt_is_withdrawn_by_a_graceful_stop() {
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System, approvalsDisabled: false, awaitsSessionStart: true);
+
+        runtime.DeliverLaunchPrompt("build it");
+        await runtime.RequestGracefulStopAsync();
+        var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.StopRequested);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("/exit|\r");
+        pty.Exit();
+    }
+
+    [Test]
+    public async Task A_held_launch_prompt_ends_with_the_agent() {
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System, approvalsDisabled: false, awaitsSessionStart: true);
+
+        runtime.DeliverLaunchPrompt("build it");
+        pty.Exit();
+        var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.AgentExited);
+        await Assert.That(pty.Writes).IsEmpty();
+    }
+
+    /// <summary>Codex's shape, and any launch without the hold: a notice must not move its quiet
+    /// window, since discovering its rollout reports one.</summary>
+    [Test]
+    public async Task A_session_start_notice_moves_nothing_on_a_launch_that_is_not_held() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("codex", pty, time, approvalsDisabled: false, confirmsLaunchPrompt: true);
+
+        var pump = new CountingPump(runtime);
+        runtime.DeliverLaunchPrompt("build it");
+        await pump.EmitAsync(pty, "banner");
+        time.Advance(PtyHostedAgentRuntime.LaunchPromptQuietWindow / 2);
+        await Task.Delay(50);
+
+        runtime.NoteSessionStarted();
+        time.Advance(PtyHostedAgentRuntime.LaunchPromptQuietWindow * 0.6);
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+        while (pty.Writes.Count == 0 && DateTime.UtcNow < deadline) await Task.Delay(10);
+
+        await Assert.That(string.Join("|", pty.Writes)).StartsWith("\x1b[200~build it\x1b[201~");
+        pty.Exit();
+    }
+
     /// <summary>A graceful stop during the startup wait withdraws the prompt: pasting it after the
     /// stop's "/exit" would start a turn the stop just asked to end.</summary>
     [Test]
