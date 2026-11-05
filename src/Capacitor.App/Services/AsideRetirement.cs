@@ -31,6 +31,10 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
         return new AsideEntry(added.Original, added.Aside);
     }
 
+    /// <summary>The aside name recorded for <paramref name="entry"/>, recording none.</summary>
+    public AsideEntry? Find(string entry) =>
+        Recorded(Path.GetFullPath(entry)) is { } planned ? new AsideEntry(planned.Original, planned.Aside) : null;
+
     /// <summary>Renames, re-verifies with <paramref name="stillOurs"/> and deletes the entry; a tree that fails the
     /// check is moved back and false is returned. An entry already gone counts as retired.</summary>
     public bool Retire(string entry, Func<string, bool> stillOurs) {

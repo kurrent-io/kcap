@@ -1,12 +1,14 @@
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 
 namespace Capacitor.App.Services.CliAdoption;
 
 /// <summary>Runs the takeover of an npm or script kcap install: once per launch, off the UI thread, then every
 /// <see cref="RecheckInterval"/> while the record is pending. A recheck is the deletion check alone, unless a daemon
 /// move is waiting for a safe point: then the whole batch runs again from fresh evidence on the tick, and also as soon
-/// as the daemon reports it is idle when the app was what saw it busy. One run at a time. The shim offer waits on <see cref="FirstLook"/>, which completes
-/// however the first run ends, so it never confirms a link the switch is about to make.</summary>
+/// as the daemon reports it is idle when the app was what saw it busy. One run at a time, Finish switching's included.
+/// The shim offer waits on <see cref="FirstLook"/>, which completes however the first run ends, so it never confirms a
+/// link the switch is about to make.</summary>
 internal sealed class CliAdoptionCoordinator : IDisposable {
     internal const string CliOverride = "KCAP_APP_CLI_PATH";
     internal static readonly TimeSpan RecheckInterval = TimeSpan.FromMinutes(15);
@@ -18,6 +20,7 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
     readonly TaskCompletionSource _firstLook = new(TaskCreationOptions.RunContinuationsAsynchronously);
     readonly SemaphoreSlim _running = new(1, 1);
     readonly CancellationTokenRegistration _stopped;
+    readonly BehaviorSubject<bool> _finishOffered = new(false);
     readonly Lock _lock = new();
     ITimer? _recheck;
     IDisposable? _following;
@@ -41,6 +44,30 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
 
     /// <inheritdoc cref="AdoptionBatch.FoundInstall"/>
     public bool FoundInstall => _batch?.FoundInstall == true;
+
+    /// <summary>Whether Finish switching has an install to take further, as of the last run.</summary>
+    public IObservable<bool> FinishOffered => _finishOffered.DistinctUntilChanged();
+
+    /// <summary>Runs <see cref="AdoptionBatch.FinishAsync"/> once any run in progress has ended: the one way an install
+    /// a cancelled prompt or a cut-short deletion left is retried.</summary>
+    public async Task FinishSwitchingAsync() {
+        if (_batch is not { } batch || _lifetime.IsCancellationRequested) return;
+        try {
+            await _running.WaitAsync(_lifetime).ConfigureAwait(false);
+        } catch (OperationCanceledException) {
+            return;
+        }
+
+        Task run;
+        lock (_lock) {
+            if (_disposed) {
+                _running.Release();
+                return;
+            }
+            _settled = run = Task.Run(() => RunAsync(batch.FinishAsync));
+        }
+        await run.ConfigureAwait(false);
+    }
 
     /// <summary>The run started last, the first one or a recheck.</summary>
     internal Task Settled {
@@ -84,6 +111,7 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
         }
         _stopped.Dispose();
         _firstLook.TrySetResult();
+        _finishOffered.OnCompleted();
         _batch?.Dispose();
     }
 
@@ -138,8 +166,22 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
             Console.Error.WriteLine($"kcap: switching to the app's kcap failed unexpectedly: {ex}");
             _log("adoption_held", [("reason", "unexpected_error"), ("result", $"{ex.GetType().Name}: {ex.Message}")]);
         } finally {
+            PublishFinishOffered();
             _running.Release();
             if (Interlocked.Exchange(ref _again, 0) == 1) Retry();
+        }
+    }
+
+    void PublishFinishOffered() {
+        if (_batch is not { } batch) return;
+        bool offered;
+        try {
+            offered = batch.FinishOffered;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TimeoutException) {
+            return;
+        }
+        lock (_lock) {
+            if (!_disposed) _finishOffered.OnNext(offered);
         }
     }
 

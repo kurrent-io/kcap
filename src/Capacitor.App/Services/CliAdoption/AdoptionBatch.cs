@@ -1,22 +1,33 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 
 namespace Capacitor.App.Services.CliAdoption;
 
-/// <summary>One takeover batch, in order: preflight, intent, integrations, PATH, the daemon services, then the deletion
-/// check and the deletion. Every launch starts from fresh evidence; an install the record holds pending stays pending
-/// however little of it the evidence still sees, since a finished switch leaves nothing that names it. Each run says
-/// whether a recheck should follow; a launch that changed nothing because it was held asks for none, since its record
-/// still carries the holders an earlier launch found.</summary>
+/// <summary>One takeover batch, in order: preflight, intent, integrations, PATH, the daemon services, the deletion check
+/// and the deletion, then each root-owned install behind its administrator prompt. Every launch starts from fresh
+/// evidence; an install the record holds pending stays pending however little of it the evidence still sees, since a
+/// finished switch leaves nothing that names it. Each run says whether a recheck should follow; a launch that changed
+/// nothing because it was held asks for none, since its record still carries the holders an earlier launch found. A
+/// launch raises the prompt for an install once at most, and an install the prompt or its deletion left waits for
+/// <see cref="FinishAsync"/>.</summary>
 internal sealed class AdoptionBatch(
         IAdoptionMachine machine, AdoptionRecordStore store, AsideRetirement retirement, AdoptionIntegrations integrations,
         AdoptionPathStep path, AdoptionNotices notices, HarnessRegistry harnesses, AdoptionBundle bundle,
-        IReadOnlyList<string> stableFolders, Func<string, bool> userCanWrite, Action<string, (string Key, string? Value)[]> log)
+        IReadOnlyList<string> stableFolders, Func<string, bool> userCanWrite, IPrivilegedSwap administrator, string helperFolder,
+        Action<string, (string Key, string? Value)[]> log)
     : IDisposable {
     internal const string EvidenceUnavailable = "evidence_unavailable";
     internal const string MachineSwitched     = "machine_switched";
+    internal const string RemovedByHand       = "removed_by_hand";
 
     readonly AdoptionServiceMove _services = new(machine, bundle, log);
     readonly AdoptionDeletion    _deletion = new(machine, store, retirement, harnesses, bundle.Root, log);
+    readonly HashSet<string> _rootOwned = new(PathComparison.Comparer);
+
+    // Root-owned installs this launch has taken to the privileged step, prompted or held: a later run of the same
+    // launch leaves them, so a prompt never appears mid-session unasked.
+    readonly HashSet<string> _attempted = new(PathComparison.Comparer);
+    AdoptionPrivilegedStep? _privileged;
     volatile bool _awaitingDaemon;
     volatile bool _foundInstall;
     volatile bool _awaitingIdle;
@@ -33,9 +44,25 @@ internal sealed class AdoptionBatch(
     /// the daemon turning idle settles. A refusal the daemon or the install gave waits for a recheck instead.</summary>
     public bool AwaitingIdle => _awaitingIdle;
 
-    public async Task<bool> RunOnceAsync(CancellationToken ct) {
+    /// <summary>Whether an install was left behind a cancelled administrator prompt or a deletion cut short, which
+    /// only <see cref="FinishAsync"/> takes further.</summary>
+    public bool FinishOffered =>
+        store.Load().Installs.Any(i => i is { State: InstallState.Left, Reason: LeftReason.PromptCancelled or LeftReason.DeletionCutShort });
+
+    AdoptionPrivilegedStep Privileged =>
+        _privileged ??= new(machine, store, retirement, _deletion, path, administrator, bundle, helperFolder, log);
+
+    public Task<bool> RunOnceAsync(CancellationToken ct) => RunAsync(finishing: false, ct);
+
+    /// <summary>The batch again, with every install left behind a cancelled prompt, a deletion cut short or an app
+    /// installed for one user taken back in, and the prompt raised again where one is needed: nothing else retries
+    /// them. On a machine already recorded as switched it touches only those installs.</summary>
+    public Task<bool> FinishAsync(CancellationToken ct) => RunAsync(finishing: true, ct);
+
+    async Task<bool> RunAsync(bool finishing, CancellationToken ct) {
         _awaitingDaemon = false;
         _awaitingIdle   = false;
+        await Privileged.SettleAsync(ct).ConfigureAwait(false);
         var unfinished = FinishInterrupted();
 
         AdoptionEvidence evidence;
@@ -47,13 +74,21 @@ internal sealed class AdoptionBatch(
         }
         foreach (var found in evidence.Installs) log("adoption_found", AdoptionEvent.For(found));
 
-        var record = store.Load();
-        var plan = AdoptionPreflight.Plan(evidence, record, bundle.Version, bundle.Cli, bundle.InSystemApplications, userCanWrite, stableFolders);
+        var record   = store.Load();
+        var reopened = finishing ? record.Installs.Where(Finishable).Select(i => i.Install).ToList() : [];
+        if (reopened.Count > 0 && record.MachineSwitched)
+            evidence = evidence with { Installs = [.. evidence.Installs.Where(i => reopened.Any(r => AdoptionPreflight.SameRoot(r, i)))] };
+
+        var plan = AdoptionPreflight.Plan(evidence, reopened.Count > 0 ? Reopen(record) : record, bundle.Version, bundle.Cli,
+            bundle.InSystemApplications, userCanWrite, stableFolders);
         if (plan.Installs.Count > 0) _foundInstall = true;
         if (plan.HoldReason is { } hold) {
             log("adoption_held", [("reason", hold)]);
             return false;
         }
+
+        record = CompleteByHand(evidence, record);
+        if (reopened.Count > 0) record = store.Update(Reopen);
         if (record.MachineSwitched) {
             Report(plan.Reported, record);
             return Finish([]);
@@ -63,6 +98,7 @@ internal sealed class AdoptionBatch(
 
         var pending = record.Installs.Where(i => i.State == InstallState.Pending).Select(i => i.Install).ToList();
         if (pending.Count == 0) return Finish([]);
+        foreach (var install in pending.Where(i => NeedsAdministrator(i, plan))) _rootOwned.Add(Key(install));
 
         if (!await IntegrateAsync(pending, record.CutoverUtc, ct).ConfigureAwait(false)) return Finish([]);
 
@@ -73,13 +109,20 @@ internal sealed class AdoptionBatch(
         var (moved, deferred) = await _services.MoveAsync(pending, evidence, ct).ConfigureAwait(false);
         _awaitingDaemon = deferred.Count > 0;
         _awaitingIdle   = deferred.Any(d => d.Reason == AdoptionRepoint.Busy);
-        if (moved.Count > 0) {
+        var userOwned = moved.Where(i => !_rootOwned.Contains(Key(i))).ToList();
+        if (userOwned.Count > 0) {
             var processes = machine.ReadProcesses();
             var sites     = await machine.ReadSitesAsync(ct).ConfigureAwait(false);
-            await _deletion.SettleAsync(moved, processes, sites, unfinished, ct).ConfigureAwait(false);
+            await _deletion.SettleAsync(userOwned, processes, sites, unfinished, ct).ConfigureAwait(false);
         }
 
-        return Finish(moved);
+        foreach (var install in moved.Where(i => _rootOwned.Contains(Key(i)))) {
+            if (!_attempted.Add(Key(install)) && !finishing) continue;
+            var planned = plan.Installs.FirstOrDefault(p => AdoptionPreflight.SameRoot(p.Install, install));
+            await Privileged.RunAsync(install, planned, evidence, unfinished, ct).ConfigureAwait(false);
+        }
+
+        return Finish(userOwned);
     }
 
     /// <summary>The deletion check alone, for installs a launch run has already moved. One whose recorded holder is
@@ -90,7 +133,7 @@ internal sealed class AdoptionBatch(
         if (!record.Pending) return false;
 
         var due = record.Installs
-            .Where(i => i.State == InstallState.Pending && i.HeldBy is not null && !StillHeld(i))
+            .Where(i => i.State == InstallState.Pending && i.HeldBy is not null && !StillHeld(i) && !RootOwned(i.Install))
             .Select(i => i.Install).ToList();
         if (due.Count == 0) return true;
 
@@ -107,6 +150,61 @@ internal sealed class AdoptionBatch(
     }
 
     public void Dispose() => notices.Dispose();
+
+    static bool Finishable(RecordedInstall install) => install is {
+        State: InstallState.Left, Reason: LeftReason.PromptCancelled or LeftReason.DeletionCutShort or LeftReason.SharedInstallPrivateApp,
+    };
+
+    static AdoptionRecord Reopen(AdoptionRecord record) => record with {
+        Installs = [.. record.Installs.Select(i => Finishable(i)
+            ? i with { State = InstallState.Pending, Reason = null, HeldBy = null, HolderPid = null, HolderStartToken = null }
+            : i)],
+        MachineSwitched = false,
+    };
+
+    static string Key(OtherCliInstall install) => CanonicalPath.Resolve(install.Root);
+
+    // As preflight found it, or, for an install this launch's evidence no longer finds, as its own folders are now.
+    bool NeedsAdministrator(OtherCliInstall install, AdoptionPlan plan) =>
+        plan.Installs.FirstOrDefault(p => AdoptionPreflight.SameRoot(p.Install, install)) is { } planned
+            ? planned.NeedsAdministrator
+            : OwnFoldersNeedAdministrator(install);
+
+    // A recheck never deletes what only the administrator prompt can, and never raises it.
+    bool RootOwned(OtherCliInstall install) => _rootOwned.Contains(Key(install)) || OwnFoldersNeedAdministrator(install);
+
+    bool OwnFoldersNeedAdministrator(OtherCliInstall install) =>
+        install.OwnedEntries.Any(e => !userCanWrite(Path.GetDirectoryName(e)!));
+
+    // A left install that is gone, while every PATH preflight reads finds the bundle's kcap, was finished by hand. Its
+    // notice is recorded as shown, so none is posted.
+    AdoptionRecord CompleteByHand(AdoptionEvidence evidence, AdoptionRecord record) {
+        var gone = record.Installs.Where(i => i.State == InstallState.Left && Gone(i.Install)).Select(i => i.Install).ToList();
+        if (gone.Count == 0 || !FindsBundle(evidence)) return record;
+
+        bool Done(RecordedInstall i) => i.State == InstallState.Left && gone.Exists(g => AdoptionPreflight.SameRoot(g, i.Install));
+        record = store.Update(r => r with {
+            Installs = [.. r.Installs.Select(i => Done(i)
+                ? i with { State = InstallState.Switched, Reason = null, HeldBy = null, HolderPid = null, HolderStartToken = null }
+                : i)],
+            NoticesShown = [.. r.NoticesShown.Union(gone.Select(AdoptionNotices.SwitchedKey))],
+        });
+        foreach (var install in gone) log("adoption_switched", AdoptionEvent.For(install, reason: RemovedByHand));
+        return record;
+    }
+
+    bool Gone(OtherCliInstall install) =>
+        !install.OwnedEntries.Any(e => Exists(e) || retirement.Find(e) is { } aside && Exists(aside.Aside));
+
+    // The same PATHs preflight plans from: the login shell's, and each service's that finds a kcap at all.
+    bool FindsBundle(AdoptionEvidence evidence) {
+        var cli = CanonicalPath.Resolve(bundle.Cli);
+        bool Bundle(string? kcap) => kcap is not null && PathComparison.Equal(CanonicalPath.Resolve(kcap), cli);
+
+        return Bundle(evidence.KcapOnLoginPath) && evidence.Units.All(u => u.KcapOnStoredPath is null || Bundle(u.KcapOnStoredPath));
+    }
+
+    static bool Exists(string path) => new FileInfo(path).LinkTarget is not null || Path.Exists(path);
 
     // Asides a crash left behind are finished before anything else is retired. Null when the retirement record could
     // not be read, which holds every deletion this run.

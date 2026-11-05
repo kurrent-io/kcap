@@ -13,7 +13,7 @@ namespace Capacitor.App.Services.CliAdoption;
 /// go is written, so a later launch can settle a run this one did not see finish. The caller clears the record once it
 /// has acted on the result.
 /// </summary>
-internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionRecordStore store, TimeProvider? time = null) {
+internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionRecordStore store, TimeProvider? time = null) : IPrivilegedSwap {
     internal const string OsascriptPath = "/usr/bin/osascript";
 
     /// The prompt and the script arrive as argv items, and <c>quoted form</c> keeps each argument one word for sh.

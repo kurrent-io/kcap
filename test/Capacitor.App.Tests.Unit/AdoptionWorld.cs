@@ -1,4 +1,5 @@
 using System.Reactive.Subjects;
+using System.Runtime.Versioning;
 using Capacitor.App.Services;
 using Capacitor.App.Services.CliAdoption;
 using Capacitor.App.Services.Mutation;
@@ -9,10 +10,11 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.App.Tests.Unit;
 
-/// <summary>A Mac with user-owned npm installs of kcap in a temporary tree, each with a daemon service running it, and
-/// the takeover over them. The record, the PATH links, the integrations refresh, the deletion and the notices are the
-/// real ones; launchd, the daemon, the process list and the reference sites are scripted on <see cref="Machine"/>, and
-/// the evidence is read from the service files and launchd's jobs as they are at that moment. Each
+/// <summary>A Mac with npm installs of kcap in a temporary tree, each with a daemon service running it, and the takeover
+/// over them. The record, the PATH links, the integrations refresh, the deletion and the notices are the real ones;
+/// launchd, the daemon, the process list and the reference sites are scripted on <see cref="Machine"/>, the
+/// administrator prompt on <see cref="Admin"/>, and the evidence is read from the service files and launchd's jobs as
+/// they are at that moment. <see cref="RootOwned"/> makes the first install one only an administrator can change. Each
 /// <see cref="Launch"/> is a new app run over the same files.</summary>
 sealed class AdoptionWorld {
     public const string DaemonName = "mac";
@@ -51,6 +53,7 @@ sealed class AdoptionWorld {
         Shim      = new StableShim(Path.Combine(Stable[0], "kcap"));
         Harnesses = TestHarnesses.Under(new UserHome(Home));
         Machine   = new ScriptedMachine(this);
+        Admin     = new Administrator(this);
         Window    = new BehaviorSubject<IAppNotifier?>(Notifier);
 
         First = AddInstall("brew", DaemonName, OldDaemonPid);
@@ -81,6 +84,7 @@ sealed class AdoptionWorld {
     public BehaviorSubject<IAppNotifier?> Window { get; }
     public BehaviorSubject<DaemonActivity?> Activity { get; } = new(null);
     public Func<string, bool> UserCanWrite { get; set; } = _ => true;
+    public Administrator Admin { get; }
     public AdoptionNotices? Notices { get; private set; }
 
     public AdoptionRecord Record => new AdoptionRecordStore(Config).Load();
@@ -148,7 +152,7 @@ sealed class AdoptionWorld {
         var batch = new AdoptionBatch(Machine, store, new AsideRetirement(Config, "cli-adoption-retire"),
             new AdoptionIntegrations(new ApplicationIntegrationRefresh(Config, Refresh), Bundle.Cli, store, Time),
             new AdoptionPathStep(Probe, new AdoptedLinkInventory(Config), store, Shim, Stable), Notices, Harnesses, Bundle, Stable,
-            folder => UserCanWrite(folder), Write);
+            folder => UserCanWrite(folder), Admin, Config.Directory, Write);
         var launch = new CliAdoptionCoordinator(batch, Time, Write, lifetime);
         launch.FollowDaemon(Activity);
         return launch;
@@ -186,6 +190,54 @@ sealed class AdoptionWorld {
             await settled.WaitAsync(Bounded);
         } while (!ReferenceEquals(settled, launch.Settled));
         if (Notices is { } notices) await notices.Settled.WaitAsync(Bounded);
+    }
+
+    /// <summary>Every folder at or under <see cref="Prefix"/>, the first install's links included, is root's.</summary>
+    public void RootOwned() {
+        string[] root = [Prefix, CanonicalPath.Resolve(Prefix)];
+        UserCanWrite = folder => !root.Any(r => folder == r || folder.StartsWith(r + "/", StringComparison.Ordinal));
+    }
+
+    /// <summary>The finish-switching offer as the coordinator last published it.</summary>
+    public static bool Offered(CliAdoptionCoordinator launch) {
+        var offered = false;
+        using (launch.FinishOffered.Subscribe(o => offered = o)) return offered;
+    }
+
+    /// <summary>What a quit leaves while the helper deletes the first install after go: the record names the helper,
+    /// the link and the service are on the bundle, and both package folders are set aside. Returns the asides.</summary>
+    public IReadOnlyList<AsideEntry> InterruptedHelper(string? startToken) {
+        new AdoptionRecordStore(Config).Update(r => r with {
+            CutoverUtc = Time.GetUtcNow().UtcDateTime.AddMinutes(-5),
+            Installs   = [new RecordedInstall(Install, InstallState.Pending, null, null, null, null)],
+            Privileged = new PrivilegedOperation(Root, Administrator.HelperPid, startToken, GoSent: true),
+        });
+        KcapLinkSwap.Replace(Link, NpmLinkTarget, Bundle.Cli);
+        WritePlist(Bundle.Daemon);
+        Machine.Jobs[DaemonName] = new LaunchdJob(true, NewDaemonPid, Bundle.Daemon);
+
+        var retirement = new AsideRetirement(Config, "cli-adoption-retire");
+        var asides = Install.OwnedEntries.Select(retirement.Plan).ToList();
+        foreach (var aside in asides) Directory.Move(aside.Original, aside.Aside);
+        return asides;
+    }
+
+    public const string NpmLinkTarget = "../lib/node_modules/@kurrent/kcap/bin/kcap.js";
+
+    /// <summary>Makes every folder in <paramref name="tree"/> one this user cannot change, as a root-owned tree is.</summary>
+    [UnsupportedOSPlatform("windows")]
+    public static void RootOnly(string tree) => SetFolderModes(tree, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+    /// <summary>Undoes <see cref="RootOnly"/> everywhere in this world, so its folder can be deleted.</summary>
+    [UnsupportedOSPlatform("windows")]
+    public void ReleaseRootOnly() => SetFolderModes(_tmp.Path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+    [UnsupportedOSPlatform("windows")]
+    static void SetFolderModes(string tree, UnixFileMode mode) {
+        if (!Directory.Exists(tree) || new DirectoryInfo(tree).LinkTarget is not null) return;
+        File.SetUnixFileMode(tree, mode | UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        foreach (var folder in Directory.EnumerateDirectories(tree)) SetFolderModes(folder, mode);
+        File.SetUnixFileMode(tree, mode);
     }
 
     public string? PlistProgram() => ProgramOf(First);
@@ -297,6 +349,78 @@ sealed class AdoptionWorld {
         public string? StartToken(int pid) => $"tok-{pid}";
 
         public bool StillRuns(int pid, string startToken) => Alive.Contains(pid) && startToken == $"tok-{pid}";
+
+        public List<(int Pid, string? StartToken, TimeSpan Bound)> Waits { get; } = [];
+
+        /// <summary>Runs while a launch waits for a helper an earlier one left; the helper has exited once it returns.</summary>
+        public Action? WhileWaiting { get; set; }
+
+        public Task WaitForExitAsync(int pid, string? startToken, TimeSpan bound, CancellationToken ct) {
+            Waits.Add((pid, startToken, bound));
+            WhileWaiting?.Invoke();
+            Alive.Remove(pid);
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>macOS's administrator prompt and the root helper behind it, run as this user: the helper records its
+    /// pid, swaps each link still holding its original target, and asks verify; only a true answer records go, sets
+    /// every entry aside and deletes it. Each spec must be one the real helper would take. <see cref="Answer"/>
+    /// <see cref="PrivilegedResult.Cancelled"/> dismisses the prompt; <see cref="PrivilegedResult.CutShort"/> stops
+    /// after go with every entry aside and only root able to remove it.</summary>
+    internal sealed class Administrator(AdoptionWorld world) : IPrivilegedSwap {
+        public const int HelperPid = 4700;
+
+        public PrivilegedResult? Answer { get; set; }
+        public List<string> Prompts { get; } = [];
+        public List<PrivilegedSpec> Specs { get; } = [];
+
+        /// <summary>Runs as the prompt opens.</summary>
+        public Action? WhenPrompted { get; set; }
+
+        /// <summary>Runs once the links are swapped, while the helper waits for go.</summary>
+        public Action? WhileSwapped { get; set; }
+
+        [UnsupportedOSPlatform("windows")]
+        public async Task<PrivilegedResult> RunAsync(
+                string installRoot, PrivilegedSpec spec, string prompt, Func<CancellationToken, Task<bool>> verify, CancellationToken ct) {
+            _ = PrivilegedSwapScript.Arguments(spec, 501);
+            Prompts.Add(prompt);
+            Specs.Add(spec);
+            WhenPrompted?.Invoke();
+            if (Answer == PrivilegedResult.Cancelled) return PrivilegedResult.Cancelled;
+
+            var store  = new AdoptionRecordStore(world.Config);
+            var helper = new PrivilegedOperation(installRoot, HelperPid, $"tok-{HelperPid}", GoSent: false);
+            store.Update(r => r with { Privileged = helper });
+            var swapped = new List<LinkChange>();
+            foreach (var link in spec.Links) {
+                if (new FileInfo(link.Path).LinkTarget != link.Original) return PutBack(swapped);
+                KcapLinkSwap.Replace(link.Path, link.Original, link.Replacement);
+                swapped.Add(link);
+            }
+            WhileSwapped?.Invoke();
+            if (!await verify(ct)) return PutBack(swapped);
+
+            store.Update(r => r with { Privileged = helper with { GoSent = true } });
+            foreach (var (entry, _, _, _) in spec.Entries) {
+                if (Path.Exists(entry.Original)) Directory.Move(entry.Original, entry.Aside);
+            }
+            if (Answer == PrivilegedResult.CutShort) {
+                foreach (var (entry, _, _, _) in spec.Entries) RootOnly(entry.Aside);
+                return PrivilegedResult.CutShort;
+            }
+            foreach (var (entry, _, _, _) in spec.Entries.Where(e => Directory.Exists(e.Entry.Aside))) {
+                SetFolderModes(entry.Aside, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                Directory.Delete(entry.Aside, recursive: true);
+            }
+            return PrivilegedResult.Deleted;
+        }
+
+        static PrivilegedResult PutBack(List<LinkChange> swapped) {
+            foreach (var link in Enumerable.Reverse(swapped)) KcapLinkSwap.Replace(link.Path, link.Replacement, link.Original);
+            return PrivilegedResult.PutBack;
+        }
     }
 
     /// <summary>The bundle's <c>kcap refresh --app-migration</c>, which succeeds unless told otherwise.</summary>
@@ -327,4 +451,5 @@ sealed class AdoptionWorld {
             return Task.FromResult(new ShimResult(ShimOutcome.Installed, null));
         }
     }
+
 }
