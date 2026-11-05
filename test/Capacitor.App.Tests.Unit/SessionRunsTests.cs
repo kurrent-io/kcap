@@ -563,6 +563,23 @@ public class SessionRunsTests {
         await Assert.That(s.Rows[1].EndedAt).IsNull();
     }
 
+    /// A run can survive one restart and die in the next, so a wait must pass the latest of them,
+    /// whichever order they were heard in: a spooled resume can land behind a newer one.
+    [Test]
+    [Arguments(30, 50)]
+    [Arguments(50, 30)]
+    public async Task A_wait_must_pass_the_latest_restart(int first, int second) {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(first)), new RunSignal.Restarted(T0.AddMinutes(second))));
+
+        s.Apply(Signals(Waiting(null, "a1", T0.AddMinutes(40))));
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Stopped);
+
+        s.Apply(Signals(Waiting(null, "a1", T0.AddMinutes(60))));
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
+    }
+
     /// Only the restart's presumption can be taken back: an end that says how is still final.
     [Test]
     public async Task A_wait_after_a_reported_end_brings_nothing_back_past_a_restart() {
