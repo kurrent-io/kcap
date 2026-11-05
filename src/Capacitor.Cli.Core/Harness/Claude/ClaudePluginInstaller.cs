@@ -109,7 +109,8 @@ public static class ClaudePluginInstaller {
 
     /// <summary>True when Claude will run the plugin's hooks in <paramref name="projectDir"/>. No hook
     /// runs under <c>disableAllHooks</c>. The project's settings outrank the user's, id by id, because
-    /// Claude treats each plugin id on its own, and <c>kcap plugin install --project</c> writes there.
+    /// Claude treats each plugin id on its own, and <c>kcap plugin install --project</c> writes there;
+    /// the repository's local file outranks one in <paramref name="projectDir"/>.
     /// At user scope an id counts when it is loadable or not recorded yet, since Claude installs an
     /// enabled plugin on its first start; a record that is unreadable or has lost its payload does
     /// not count. What kcap cannot see counts as wired, such as managed policy or whether a project
@@ -117,6 +118,7 @@ public static class ClaudePluginInstaller {
     /// view, while a wrong no can lose it to a first-run screen with no sign at all.</summary>
     public static bool RunsHooks(string settingsPath, string projectDir) {
         JsonObject?[] project = [
+            ReadSettings(RepositoryLocalSettings(projectDir)),
             ReadSettings(Path.Combine(projectDir, ".claude", "settings.local.json")),
             ReadSettings(Path.Combine(projectDir, ".claude", "settings.json"))
         ];
@@ -139,7 +141,14 @@ public static class ClaudePluginInstaller {
         return false;
     }
 
-    static JsonObject? ReadSettings(string path) {
+    /// <summary>Claude keeps a repository's local settings at its root, the main checkout's for a
+    /// worktree, wherever a session starts. Windows keeps them in the starting directory.</summary>
+    static string? RepositoryLocalSettings(string projectDir) =>
+        !OperatingSystem.IsWindows() && GitRepository.FindRoot(projectDir) is { } root
+            ? Path.Combine(GitRepository.ResolveMainRepoRoot(root), ".claude", "settings.local.json")
+            : null;
+
+    static JsonObject? ReadSettings(string? path) {
         try {
             return File.Exists(path) ? JsonNode.Parse(File.ReadAllTextShared(path)) as JsonObject : null;
         } catch {

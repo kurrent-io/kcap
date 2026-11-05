@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Harness.Claude;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Claude;
 
@@ -171,6 +172,77 @@ public class ClaudePluginInstallerTests {
         tmp.CreateFile("project/.claude/settings.json", """{ "disableAllHooks": false }""");
 
         await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    /// Claude reads a repository's local settings at its root wherever a session starts, so a launch
+    /// from a subdirectory runs what a `--project` install enabled there. Missing it leaves that launch
+    /// on the output checks a first-run screen passes.
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task RunsHooks_true_when_only_the_repository_roots_local_settings_enable_the_plugin() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateDir("repo", ".git");
+        tmp.CreateFile("repo/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.CreateDir("repo", "sub"))).IsTrue();
+    }
+
+    /// A linked worktree uses the main checkout's file, and a launch that borrows the worktree has
+    /// no copy of it.
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task RunsHooks_true_when_only_the_main_checkouts_local_settings_enable_the_plugin() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateDir("main", ".git", "worktrees", "linked");
+        tmp.CreateFile("main/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+        tmp.CreateFile("linked/.git", $"gitdir: {tmp.PathTo("main/.git/worktrees/linked")}");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("linked"))).IsTrue();
+    }
+
+    /// Claude still reads a local file an older build left in the starting directory, beneath the root's.
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task RunsHooks_false_when_the_repository_root_turns_off_what_the_launch_directory_enabled() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateDir("repo", ".git");
+        tmp.CreateFile("repo/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": false } }""");
+        tmp.CreateFile("repo/sub/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("repo/sub"))).IsFalse();
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task RunsHooks_false_when_the_repository_root_disables_all_hooks() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        tmp.CreateDir("repo", ".git");
+        tmp.CreateFile("repo/.claude/settings.local.json", """{ "disableAllHooks": true }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.CreateDir("repo", "sub"))).IsFalse();
+    }
+
+    /// Only the local file moves to the root: Claude reads the shared one from the session's own
+    /// directory, so a hold here would wait for a hook that never fires.
+    [Test]
+    public async Task RunsHooks_false_for_a_plugin_only_the_repository_roots_shared_settings_enable() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateDir("repo", ".git");
+        tmp.CreateFile("repo/.claude/settings.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.CreateDir("repo", "sub"))).IsFalse();
+    }
+
+    /// Windows keeps the local file in the starting directory, so the root's loads nothing there.
+    [Test, RunOn(OS.Windows)]
+    public async Task RunsHooks_false_on_windows_for_the_repository_roots_local_settings() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateDir("repo", ".git");
+        tmp.CreateFile("repo/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.CreateDir("repo", "sub"))).IsFalse();
     }
 
     [Test]
