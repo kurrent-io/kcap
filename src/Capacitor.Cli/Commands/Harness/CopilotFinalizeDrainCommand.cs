@@ -26,6 +26,9 @@ sealed class CopilotFinalizeDrainCommand(
     static readonly TimeSpan DefaultPollBudget   = TimeSpan.FromSeconds(45);
     static readonly TimeSpan DefaultPollInterval = TimeSpan.FromMilliseconds(300);
 
+    // Past KillWatcher's 5s force-kill bound, so a watcher the hook is stopping has gone by then.
+    static readonly TimeSpan DefaultWatcherStopGrace = TimeSpan.FromSeconds(8);
+
     /// <summary>
     /// Process entry point: <c>kcap copilot-finalize &lt;sessionId&gt; &lt;transcriptPath&gt; [endBody]</c>.
     /// </summary>
@@ -47,7 +50,7 @@ sealed class CopilotFinalizeDrainCommand(
         // after the session ends does not deliver SIGHUP before the tail lands.
         ProcessHelpers.DetachFromControllingTerminal();
 
-        await RunAsync(sessionId, transcriptPath, endBody, DefaultPollBudget, DefaultPollInterval);
+        await RunAsync(sessionId, transcriptPath, endBody, DefaultPollBudget, DefaultPollInterval, DefaultWatcherStopGrace);
 
         return 0;
     }
@@ -62,7 +65,8 @@ sealed class CopilotFinalizeDrainCommand(
             string   transcriptPath,
             string?  endBody,
             TimeSpan pollBudget,
-            TimeSpan pollInterval
+            TimeSpan pollInterval,
+            TimeSpan watcherStopGrace
         ) {
         var deadline    = time.GetUtcNow() + pollBudget;
         var sawShutdown = false;
@@ -93,16 +97,23 @@ sealed class CopilotFinalizeDrainCommand(
         // dedupe anything the hook's inline-drain already delivered.
         await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: "copilot");
 
-        if (endBody is not null) await EndSessionAsync(sessionId, endBody);
+        if (endBody is not null) await EndSessionAsync(sessionId, endBody, pollInterval, watcherStopGrace);
     }
 
-    async Task EndSessionAsync(string sessionId, string endBody) {
-        // The hook stops the watcher before this runs, so a live one is either a resumed run this end would
-        // close, or one the hook died before stopping, whose parent-exit path sends the end itself.
-        if (watchers.IsWatcherAlive(sessionId)) {
-            Log($"session end not sent for {sessionId}: a watcher is running");
+    async Task EndSessionAsync(string sessionId, string endBody, TimeSpan pollInterval, TimeSpan watcherStopGrace) {
+        // The hook stops the watcher when it starts this process, and a watcher stopped that way sends no end,
+        // so it gets time to go. One still running after that is a resumed run this end would close, or one
+        // the hook died before stopping, whose parent-exit path sends the end itself.
+        var deadline = time.GetUtcNow() + watcherStopGrace;
 
-            return;
+        while (watchers.IsWatcherAlive(sessionId)) {
+            if (time.GetUtcNow() >= deadline) {
+                Log($"session end not sent for {sessionId}: a watcher is running");
+
+                return;
+            }
+
+            await Task.Delay(pollInterval, time);
         }
 
         const string route = "session-end/copilot";

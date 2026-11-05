@@ -147,7 +147,8 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         await Finalizer().RunAsync(
             sessionId, path, endBody: null,
             pollBudget: TimeSpan.FromSeconds(5),
-            pollInterval: TimeSpan.FromMilliseconds(100)
+            pollInterval: TimeSpan.FromMilliseconds(100),
+            watcherStopGrace: TimeSpan.Zero
         );
 
         await Assert.That(TranscriptPostCount()).IsEqualTo(1);
@@ -167,7 +168,8 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         var runTask = Finalizer().RunAsync(
             sessionId, path, endBody: null,
             pollBudget: TimeSpan.FromSeconds(5),
-            pollInterval: TimeSpan.FromMilliseconds(100)
+            pollInterval: TimeSpan.FromMilliseconds(100),
+            watcherStopGrace: TimeSpan.Zero
         );
 
         await Task.Delay(600);
@@ -193,7 +195,8 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         await Finalizer().RunAsync(
             sessionId, path, endBody: null,
             pollBudget: TimeSpan.FromMilliseconds(700),
-            pollInterval: TimeSpan.FromMilliseconds(200)
+            pollInterval: TimeSpan.FromMilliseconds(200),
+            watcherStopGrace: TimeSpan.Zero
         );
 
         await Assert.That(TranscriptPostCount()).IsEqualTo(1);
@@ -222,7 +225,7 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
     }
 
     Task RunQuickly(string sessionId, string path, string? endBody = EndBody) =>
-        Finalizer().RunAsync(sessionId, path, endBody, pollBudget: TimeSpan.FromMilliseconds(300), pollInterval: TimeSpan.FromMilliseconds(100));
+        Finalizer().RunAsync(sessionId, path, endBody, pollBudget: TimeSpan.FromMilliseconds(300), pollInterval: TimeSpan.FromMilliseconds(100), watcherStopGrace: TimeSpan.FromMilliseconds(300));
 
     [Test]
     public async Task EndsTheSession_WithTheHooksBody_AfterTheTail() {
@@ -279,6 +282,25 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         await RunQuickly(sessionId, NewTranscript(tmp, lines));
 
         await Assert.That(SessionEndBodies()).IsEmpty();
+    }
+
+    // A watcher the hook is stopping sends no end of its own.
+    [Test]
+    public async Task EndsTheSession_OnceAWatcherBeingStoppedHasGone() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-stopping";
+        StubServer(sessionId);
+        StubSessionEnd();
+        await MarkWatcherAlive(sessionId);
+
+        var run = Finalizer().RunAsync(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), EndBody,
+            pollBudget: TimeSpan.FromMilliseconds(300), pollInterval: TimeSpan.FromMilliseconds(50), watcherStopGrace: TimeSpan.FromSeconds(30));
+
+        await Assert.That(SessionEndBodies()).IsEmpty();
+        File.Delete(WatcherPaths.FromEnvironment(Config.Root).PidFile(sessionId));
+        await run;
+
+        await Assert.That(SessionEndBodies()).IsEquivalentTo([EndBody]);
     }
 
     [Test]
