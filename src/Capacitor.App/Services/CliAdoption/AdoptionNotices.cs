@@ -66,6 +66,9 @@ internal sealed class AdoptionNotices : IDisposable {
         }
     }
 
+    /// <summary>The menu bar item that runs the switch again for an install a prompt or a deletion left.</summary>
+    internal const string FinishSwitching = "Finish switching to the app's kcap…";
+
     internal static string SwitchedKey(OtherCliInstall install) => "switched:" + install.Root;
 
     internal static string LeftKey(OtherCliInstall install, LeftReason reason) => $"left:{install.Root}:{reason}";
@@ -82,10 +85,11 @@ internal sealed class AdoptionNotices : IDisposable {
     internal static string Reported(OtherCliInstall install) =>
         $"kcap found the {Name(install)} at {install.Root} and left it in place. A terminal may run it instead of the app's command-line tool.";
 
-    static string Name(OtherCliInstall install) =>
+    internal static string Name(OtherCliInstall install) =>
         $"{(install.Kind == OtherCliInstallKind.Npm ? "npm" : "script")} install of kcap {install.Version}";
 
-    // Each reason a user can clear says how; the app then finishes the switch on its next launch.
+    // Each reason says what finishes the switch: a change the user makes before kcap next opens, or the menu bar item
+    // that runs it again. Never an uninstall on its own, which would leave no kcap on that PATH.
     static string Why(LeftReason reason, string? cause) => reason switch {
         LeftReason.OwnFolderOnPath =>
             $"your PATH lists {cause ?? "a folder inside it"}, so removing the install would leave no kcap there. "
@@ -93,8 +97,10 @@ internal sealed class AdoptionNotices : IDisposable {
         LeftReason.UnsupervisedDaemon =>
             $"the kcap daemon {(cause is null ? "" : $"'{cause}' ")}runs from it, and its service did not start it. "
           + $"Stop it with kcap daemon stop{(cause is null ? "" : $" --name {cause}")} --keep-agents, then open kcap again to finish switching.",
-        LeftReason.PromptCancelled         => "the administrator prompt was cancelled.",
-        LeftReason.DeletionCutShort        => "removing it was cut short.",
+        LeftReason.PromptCancelled =>
+            $"the administrator prompt was cancelled. To finish, choose {FinishSwitching} in the menu bar.",
+        LeftReason.DeletionCutShort =>
+            $"removing it was cut short, and only an administrator can remove the rest. To finish, choose {FinishSwitching} in the menu bar.",
         LeftReason.SharedInstallPrivateApp => "it serves every account on this Mac, and this app is installed for you alone.",
         _                                  => "it could not be switched.",
     };

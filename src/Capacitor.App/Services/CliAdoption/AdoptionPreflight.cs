@@ -4,9 +4,8 @@ namespace Capacitor.App.Services.CliAdoption;
 
 /// <summary>Decides from fresh evidence what the takeover batch will do. Reads the filesystem, never writes.</summary>
 public static class AdoptionPreflight {
-    public const string NewerInstall                = "newer_install";
-    public const string PathUnknown                 = "path_unknown";
-    public const string AdministratorSupportPending = "administrator_support_pending";
+    public const string NewerInstall = "newer_install";
+    public const string PathUnknown  = "path_unknown";
 
     public static AdoptionPlan Plan(
             AdoptionEvidence evidence, AdoptionRecord record, string appVersion, string bundleCli, bool appInSystemApplications,
@@ -23,7 +22,6 @@ public static class AdoptionPreflight {
 
         var hold = evidence.Installs.Any(i => PrereleaseSemver.IsNewer(i.Version, appVersion)) ? NewerInstall
             : evidence.LoginPath is null                                                       ? PathUnknown
-            : installs.Any(p => p.Left is null && p.NeedsAdministrator)                        ? AdministratorSupportPending
                                                                                                : null;
 
         var eligible = installs.Where(p => p.Left is null).ToList();

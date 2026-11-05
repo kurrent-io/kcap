@@ -201,14 +201,17 @@ public class AdoptionPreflightTests {
     }
 
     [Test]
-    public async Task Until_PR_C_a_batch_needing_administrator_holds() {
+    public async Task A_root_owned_install_is_planned_with_its_links_and_holds_nothing() {
         var s    = Script("a");
         var plan = Plan(Evidence([s.Install], s.Link), canWrite: f => f != s.LinkFolder, stable: s.LinkFolder);
-        await Assert.That(plan.HoldReason).IsEqualTo("administrator_support_pending");
+        await Assert.That(plan.HoldReason).IsNull();
+        await Assert.That(plan.Installs.Single().NeedsAdministrator).IsTrue();
+        await Assert.That(plan.Installs[0].Left).IsNull();
+        await Assert.That(plan.Installs[0].Links.Single().Path).IsEqualTo(s.Link);
     }
 
     [Test]
-    public async Task Precedence_is_newer_then_path_unknown_then_administrator() {
+    public async Task Precedence_is_newer_then_path_unknown() {
         var s    = Script("a", "3.0.0");
         var plan = Plan(Evidence([s.Install], s.Link, loginPath: null), canWrite: _ => false);
         await Assert.That(plan.HoldReason).IsEqualTo("newer_install");

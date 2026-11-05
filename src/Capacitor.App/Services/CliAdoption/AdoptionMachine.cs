@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Capacitor.App.Services.Mutation;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
@@ -10,8 +11,10 @@ namespace Capacitor.App.Services.CliAdoption;
 /// its processes are judged by one list.</param>
 internal sealed class AdoptionMachine(
         AdoptionEvidenceReader evidence, IProcessRunner runner, DaemonMutationLane lane, Func<AdoptionDaemon?> daemon,
-        UserHome home, HarnessRegistry harnesses, AccountStore accounts) : IAdoptionMachine {
+        UserHome home, HarnessRegistry harnesses, AccountStore accounts, TimeProvider time) : IAdoptionMachine {
     const string LabelPrefix = "io.kurrent.kcap.daemon.";
+
+    static readonly TimeSpan ExitPoll = TimeSpan.FromMilliseconds(250);
 
     readonly EntryIdentity _identity = new(runner);
     readonly Launchctl     _launchctl = new(runner);
@@ -47,4 +50,28 @@ internal sealed class AdoptionMachine(
     public string? StartToken(int pid) => ProcessStartToken.ForPid(pid);
 
     public bool StillRuns(int pid, string startToken) => ProcessStartToken.Matches(pid, startToken) == true;
+
+    public async Task WaitForExitAsync(int pid, string? startToken, TimeSpan bound, CancellationToken ct) {
+        var started = time.GetTimestamp();
+        while (time.GetElapsedTime(started) < bound) {
+            if (startToken is not null && !StillThatProcess(pid, startToken)) return;
+            await Task.Delay(ExitPoll, time, ct).ConfigureAwait(false);
+        }
+    }
+
+    // A start identity that cannot be read, as a root process's may not be, is no proof the process is gone.
+    static bool StillThatProcess(int pid, string startToken) => ProcessStartToken.Matches(pid, startToken) switch {
+        true  => true,
+        false => false,
+        null  => Exists(pid),
+    };
+
+    static bool Exists(int pid) {
+        try {
+            using var process = Process.GetProcessById(pid);
+            return true;
+        } catch (ArgumentException) {
+            return false;
+        }
+    }
 }

@@ -1492,7 +1492,9 @@ public partial class App : Application {
                     .StartWith((IReadOnlyList<PendingPermissionRequest>)[]),
                 PendingAttention.TraySessions)),
             updateMenu: _updates.MenuItem, updateAction: RunUpdateMenuActionAsync,
-            restartPending: restartPending.Pending, openSettings: openSettings, openLaunchApprovals: launchApprovals.Show);
+            restartPending: restartPending.Pending, openSettings: openSettings,
+            finishSwitchOffered: _adoption?.FinishOffered, finishSwitch: _adoption is { } adoption ? adoption.FinishSwitchingAsync : null,
+            openLaunchApprovals: launchApprovals.Show);
         _tray = new TrayIconManager(this, _trayVm);
         LifecycleLog.Write("tray_created", ("executable", Environment.ProcessPath));
     }
@@ -2455,11 +2457,12 @@ public partial class App : Application {
         var harnesses = HarnessRegistry.FromEnvironment(_userHome);
         var folders   = KcapLinkFolders.For(_userHome);
         var machine   = new AdoptionMachine(new AdoptionEvidenceReader(runner, probe, _daemonStore, _userHome, root), runner, lane,
-            () => _adoptionDaemon, _userHome, harnesses, AccountStore.Beside(_daemonStore));
+            () => _adoptionDaemon, _userHome, harnesses, AccountStore.Beside(_daemonStore), _time);
         var batch     = new AdoptionBatch(machine, store, new AsideRetirement(_config, "cli-adoption-retire"),
             new AdoptionIntegrations(new ApplicationIntegrationRefresh(_config, runner), bundle.Cli, store, _time),
             new AdoptionPathStep(probe, new AdoptedLinkInventory(_config), store, shim, folders),
-            new AdoptionNotices(_noticeWindow, store), _appState, harnesses, bundle, folders, WritableFolder.Check, LifecycleLog.Write);
+            new AdoptionNotices(_noticeWindow, store), _appState, harnesses, bundle, folders, WritableFolder.Check,
+            new PrivilegedSwap(runner, store, _time), _config.Directory, LifecycleLog.Write);
         return new CliAdoptionCoordinator(batch, _time, LifecycleLog.Write, _shutdown.Token);
     }
 
