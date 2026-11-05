@@ -20,6 +20,9 @@ public class HeadlessFailureClassifierTests {
     [Arguments(null, "No API key for provider", nameof(ClaudeCliFailure.NotSignedIn))]
     [Arguments(null, "OAuth refresh failed for anthropic: token refresh request failed", nameof(ClaudeCliFailure.NotSignedIn))]
     [Arguments(400, "{\"error\": \"invalid_grant\"}", nameof(ClaudeCliFailure.NotSignedIn))]
+    [Arguments(null, "AWS credential provider failed: Could not load credentials from any providers.", nameof(ClaudeCliFailure.NotSignedIn))]
+    [Arguments(null, "Could not load the default credentials. Browse to https://cloud.google.com/docs", nameof(ClaudeCliFailure.NotSignedIn))]
+    [Arguments(null, "The security token included in the request is invalid.", nameof(ClaudeCliFailure.NotSignedIn))]
     [Arguments(500, "overloaded", nameof(ClaudeCliFailure.ProcessFailure))]
     [Arguments(null, null, nameof(ClaudeCliFailure.ProcessFailure))]
     public async Task A_failure_is_classified_from_status_and_message(int? status, string? message, string expected) =>
