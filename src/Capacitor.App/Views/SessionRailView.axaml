@@ -323,17 +323,19 @@
                                 IsVisible="{Binding AlertActionCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
                                 Padding="10,3" FontSize="12" CornerRadius="6" />
                     </StackPanel>
-                    <StackPanel x:Name="RailConnectionStatus" Orientation="Horizontal" Spacing="7">
-                        <StackPanel.IsVisible>
+                    <!-- A Grid, not a horizontal StackPanel: the org needs a bounded width to trim. -->
+                    <Grid x:Name="RailConnectionStatus" ColumnDefinitions="Auto,*">
+                        <Grid.IsVisible>
                             <MultiBinding Converter="{x:Static BoolConverters.Or}">
                                 <Binding Path="ShowsConnected" />
                                 <Binding Path="TenantName" Converter="{x:Static StringConverters.IsNotNullOrEmpty}" />
                             </MultiBinding>
-                        </StackPanel.IsVisible>
-                        <TextBlock x:Name="RailConnectedText" Text="{x:Static vm:MainWindowViewModel.ConnectedText}"
+                        </Grid.IsVisible>
+                        <TextBlock x:Name="RailConnectedText" Grid.Column="0" Margin="0,0,7,0"
+                                   Text="{x:Static vm:MainWindowViewModel.ConnectedText}"
                                    Classes="footerValue" Foreground="{StaticResource KcapSuccessBrush}"
                                    IsVisible="{Binding ShowsConnected}" />
-                        <TextBlock x:Name="RailTenantText" Text="{Binding TenantName}" Classes="footerValue"
+                        <TextBlock x:Name="RailTenantText" Grid.Column="1" Text="{Binding TenantName}" Classes="footerValue"
                                    Foreground="{StaticResource KcapFaintBrush}" TextTrimming="CharacterEllipsis"
                                    IsVisible="{Binding TenantName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                             <ToolTip.Tip>
@@ -344,7 +346,7 @@
                                 </StackPanel>
                             </ToolTip.Tip>
                         </TextBlock>
-                    </StackPanel>
+                    </Grid>
                     </StackPanel>
                     <StackPanel x:Name="RailUpdateContext" Grid.Column="0" VerticalAlignment="Center" Spacing="4"
                                 IsVisible="{Binding ShowsUpdateContext}">

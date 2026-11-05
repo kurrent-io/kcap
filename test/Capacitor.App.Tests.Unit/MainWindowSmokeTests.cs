@@ -120,11 +120,11 @@ public class MainWindowSmokeTests {
         return lines;
     }
 
-    /// A healthy stack renders no status, daemon name, agent count or version in the window: only
-    /// the org stays, and Settings › About holds the rest.
+    /// A healthy stack renders Connected and the org, but no daemon name, agent count or version:
+    /// Settings › About holds the rest.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task MainWindow_renders_no_health_line_while_everything_works() {
+    public async Task MainWindow_renders_only_connected_and_the_org_while_everything_works() {
         // Rendered text, so no immediate scheduler: an OAPH delivered immediately notifies
         // before its value is readable, and a binding that reads on the notification keeps the
         // stale one. The dispatcher scheduler sets the value first, as it does in the app.
@@ -160,7 +160,7 @@ public class MainWindowSmokeTests {
         });
 
         await Assert.That(rendered).Contains("kurrent");
-        await Assert.That(rendered).DoesNotContain("Connected");
+        await Assert.That(rendered).Contains(MainWindowViewModel.ConnectedText);
         await Assert.That(rendered).DoesNotContain("of 5 agents");
         await Assert.That(rendered).DoesNotContain("daemon-a");
         await Assert.That(rendered).DoesNotContain("1.2.3");
