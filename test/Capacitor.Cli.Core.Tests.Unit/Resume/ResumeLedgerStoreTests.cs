@@ -344,23 +344,64 @@ public class ResumeLedgerStoreTests {
         await Assert.That(store.TryUpdateUnderLock("agent-1", _ => null, TimeSpan.FromSeconds(1))).IsEqualTo(LockedUpdate.Unchanged);
     }
 
-    /// <summary>A reader on the entry at the moment of the replace must not cost the write.</summary>
+    /// <summary>A reader that keeps opening the entry is on it at the moment of some of these replaces, and none may
+    /// cost its write.</summary>
     [Test]
-    public async Task A_write_lands_though_a_reader_has_the_entry_open() {
+    public async Task Every_write_lands_though_a_reader_keeps_opening_the_entry() {
         using var tmp   = new TempDaemonStore();
         var       store = ResumeLedgerStore.For(tmp.Store, "d1");
         store.Write(Entry("a1"));
 
-        var replacement = Entry("a1") with { UpdatedAt = DateTimeOffset.UnixEpoch.AddDays(1) };
+        using var stop = new CancellationTokenSource();
+        var reader = Task.Run(() => {
+            while (!stop.IsCancellationRequested) store.TryRead("a1");
+        });
 
-        Task write;
-        await using (new FileStream(store.EntryPath("a1"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
-            write = Task.Run(() => store.Write(replacement));
+        try {
+            for (var i = 1; i <= 100; i++) {
+                var replacement = Entry("a1") with { UpdatedAt = DateTimeOffset.UnixEpoch.AddDays(i) };
+                store.Write(replacement);
+                await Assert.That(store.TryRead("a1")!.UpdatedAt).IsEqualTo(replacement.UpdatedAt);
+            }
+        } finally {
+            await stop.CancelAsync();
+            await reader;
+        }
+    }
+
+    /// <summary>The mark waits for a holder and reads afresh, so a snapshot from before the holder's update cannot
+    /// replace it.</summary>
+    [Test]
+    public async Task MarkInterrupted_keeps_an_update_a_lock_holder_was_writing() {
+        using var tmp   = new TempDaemonStore();
+        var       store = ResumeLedgerStore.For(tmp.Store, "d1");
+        store.Write(Entry("a1"));
+        var committed = DateTimeOffset.UnixEpoch.AddDays(1);
+
+        Task<int> mark;
+        using (ResumeEntryLock.TryAcquire(store.EntryPath("a1"), TimeSpan.FromSeconds(1))) {
+            mark = Task.Run(() => store.MarkInterrupted("stopped"));
             await Task.Delay(100);
+            store.Write(Entry("a1") with { EndCommittedAt = committed });
         }
 
-        await write;
+        await Assert.That(await mark).IsEqualTo(1);
+        var entry = store.TryRead("a1")!;
+        await Assert.That(entry.State).IsEqualTo(ResumeState.Interrupted);
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(committed);
+    }
 
-        await Assert.That(store.TryRead("a1")!.UpdatedAt).IsEqualTo(replacement.UpdatedAt);
+    /// <summary>A lock held past the wait does not stop the mark, and the mark still takes the entry as it is now.</summary>
+    [Test]
+    public async Task MarkInterrupted_marks_an_entry_whose_lock_stays_held() {
+        using var tmp   = new TempDaemonStore();
+        var       store = ResumeLedgerStore.For(tmp.Store, "d1");
+        store.Write(Entry("a1"));
+
+        using (ResumeEntryLock.TryAcquire(store.EntryPath("a1"), TimeSpan.FromSeconds(1))) {
+            await Assert.That(store.MarkInterrupted("stopped")).IsEqualTo(1);
+        }
+
+        await Assert.That(store.TryRead("a1")!.State).IsEqualTo(ResumeState.Interrupted);
     }
 }

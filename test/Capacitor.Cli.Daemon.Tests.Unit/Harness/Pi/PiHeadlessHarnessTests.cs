@@ -70,7 +70,7 @@ public class PiHeadlessHarnessTests {
 
     /// <summary>The runner's own timeout, which keeps the usage reported so far, must fire before the daemon's outer
     /// deadline: the fake clock reaches the runner's timeout only if it is the margin short of the deadline, never the
-    /// longer timeout the daemon offered.</summary>
+    /// longer timeout the daemon offered, and the log names the length it armed.</summary>
     [Test]
     [Arguments(10, 8)]
     [Arguments(1, 0)]
@@ -90,7 +90,11 @@ public class PiHeadlessHarnessTests {
         if (runnerSeconds > 0) {
             var waited = Environment.TickCount64;
             while (!File.Exists(started) && Environment.TickCount64 - waited < 10_000) await Task.Delay(20);
-            clock.Advance(TimeSpan.FromSeconds(runnerSeconds));
+            // Again until the run ends: the process starts before the runner arms its timer, so one advance can land first.
+            while (!run.IsCompleted && Environment.TickCount64 - waited < 20_000) {
+                clock.Advance(TimeSpan.FromSeconds(runnerSeconds));
+                await Task.Delay(50);
+            }
         }
 
         var outcome = await run.WaitAsync(TimeSpan.FromSeconds(10));

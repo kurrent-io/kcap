@@ -120,16 +120,28 @@ public sealed class ResumeLedgerStore(string resumeDirectory, TimeProvider? time
     public int MarkInterrupted(string reason, Func<ResumeLedgerEntry, bool>? where = null) {
         var changed = 0;
 
-        foreach (var entry in ReadAll()) {
-            // A newer-schema entry rewritten by this version would lose the fields this version does not know.
-            if (entry.State == ResumeState.Interrupted || entry.SchemaVersion > ResumeLedgerEntry.CurrentSchemaVersion) continue;
-            if (where is not null && !where(entry)) continue;
+        // Under each entry's lock and from a fresh read, so a snapshot from before a locked update cannot replace it. A
+        // holder that keeps the lock past the wait does not stop the stop path.
+        foreach (var listed in ReadAll()) {
+            var result = TryUpdateUnderLock(listed.AgentId, Interrupted, DeleteLockWait);
 
-            Write(entry with { State = ResumeState.Interrupted, LastError = reason, UpdatedAt = (time ?? TimeProvider.System).GetUtcNow() });
-            changed++;
+            if (result == LockedUpdate.LockTimeout && TryRead(listed.AgentId) is { } current && Interrupted(current) is { } marked) {
+                Write(marked);
+                result = LockedUpdate.Written;
+            }
+
+            if (result == LockedUpdate.Written) changed++;
         }
 
         return changed;
+
+        ResumeLedgerEntry? Interrupted(ResumeLedgerEntry entry) {
+            // A newer-schema entry rewritten by this version would lose the fields this version does not know.
+            if (entry.State == ResumeState.Interrupted || entry.SchemaVersion > ResumeLedgerEntry.CurrentSchemaVersion) return null;
+            if (where is not null && !where(entry)) return null;
+
+            return entry with { State = ResumeState.Interrupted, LastError = reason, UpdatedAt = (time ?? TimeProvider.System).GetUtcNow() };
+        }
     }
 
     public static ResumeLedgerEntry? FindByAgentId(DaemonStore store, string agentId) =>
