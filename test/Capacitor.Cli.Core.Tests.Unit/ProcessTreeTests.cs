@@ -32,26 +32,40 @@ public class ProcessTreeTests {
         using var root = OperatingSystem.IsWindows()
             ? Process.Start(new ProcessStartInfo("cmd.exe", "/c ping -n 300 127.0.0.1 >NUL") { UseShellExecute = false, CreateNoWindow = true })!
             : StartTree("sh -c 'sleep 300 & wait' & wait");
-        // Windows can also list the conhost that serves cmd's console, so ping is only the least it lists.
         var expected = OperatingSystem.IsWindows() ? 1 : 2;
 
         try {
             var identity = PidIdentity.Capture(root.Id);
             var start    = Environment.TickCount64;
-            var listed   = ProcessTree.Descendants(root.Id, identity);
+            var listed   = Listed();
 
             while (listed.Count < expected && Environment.TickCount64 - start < 10_000) {
                 await Task.Delay(50);
-                listed = ProcessTree.Descendants(root.Id, identity);
+                listed = Listed();
             }
 
-            if (OperatingSystem.IsWindows()) await Assert.That(listed.Count).IsGreaterThanOrEqualTo(expected);
-            else await Assert.That(listed.Count).IsEqualTo(expected);
-
+            await Assert.That(listed.Count).IsEqualTo(expected);
             foreach (var (pid, childIdentity) in listed) await Assert.That(PidIdentity.Capture(pid)).IsEqualTo(childIdentity);
             await Assert.That(ProcessTree.Descendants(root.Id, identity + "0")).IsEmpty();
         } finally {
             ProcessTree.Kill(root);
+        }
+
+        // Windows can also list the short-lived conhost serving cmd's console, so only ping is counted there.
+        IReadOnlyList<(int Pid, string Identity)> Listed() {
+            var all = ProcessTree.Descendants(root.Id, PidIdentity.Capture(root.Id));
+
+            return OperatingSystem.IsWindows() ? [.. all.Where(d => IsPing(d.Pid))] : all;
+        }
+    }
+
+    static bool IsPing(int pid) {
+        try {
+            using var process = Process.GetProcessById(pid);
+
+            return process.ProcessName.Equals("ping", StringComparison.OrdinalIgnoreCase);
+        } catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) {
+            return false;
         }
     }
 
