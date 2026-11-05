@@ -47,4 +47,21 @@ public class CopilotSessionEndHookTests : IDisposable {
         await Assert.That(starter.Seen!.ArgumentList.Last()).IsEqualTo(posted);
         await Assert.That(posted).Contains("user_exit");
     }
+
+    [Test]
+    public async Task an_end_with_no_timestamp_still_names_when_it_ended() {
+        _server.Given(Request.Create().WithPath("/hooks/session-end/copilot").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var client   = new FixedCapacitorHttpClient();
+        var watchers = new WatcherManager(Config.Root, profiles, client, FakeProcessStarter.Running(_ => null), WatcherPaths.FromEnvironment(Config.Root), new FakeWatcherSpawner(), TimeProvider.System);
+
+        await new CopilotHookCommand(Config.Root, profiles, new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home),
+                HostedAgent.Terminal, client, watchers, new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory))
+            .Handle(new StringReader(new JsonObject { ["sessionId"] = Session, ["reason"] = "user_exit" }.ToJsonString()), ["--event", "sessionEnd"]);
+
+        var posted = JsonNode.Parse(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/copilot").UsingPost()).Single().RequestMessage.Body!)!;
+        await Assert.That(posted["ended_at"]?.GetValue<string>()).IsNotNull();
+    }
 }

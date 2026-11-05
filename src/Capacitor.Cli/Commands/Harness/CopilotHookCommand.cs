@@ -352,9 +352,8 @@ sealed class CopilotHookCommand(
 
         if (cwd is not null) forwarded["cwd"] = cwd;
 
-        if (TryGetUnixMillis(node, "timestamp") is { } endedAt) {
-            forwarded["ended_at"] = endedAt.ToString("O");
-        }
+        // Stamped whatever the payload carries: the server keys a run's end on it.
+        forwarded["ended_at"] = (TryGetUnixMillis(node, "timestamp") ?? clock.Time.GetUtcNow()).ToString("O");
 
         SessionEndIncarnation.Stamp(forwarded, hosted);
 
