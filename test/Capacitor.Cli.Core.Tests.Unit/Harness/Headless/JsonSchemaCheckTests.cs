@@ -15,8 +15,8 @@ public class JsonSchemaCheckTests {
         return JsonSchemaCheck.UnsupportedKeyword(s.RootElement);
     }
 
-    /// <summary>The gate refuses each shape before a run, and the validator never reads it as unconstrained, whatever
-    /// the instance is: the two are checked apart, so neither can lean on the other.</summary>
+    /// <summary>The gate refuses each shape before a run, also when nested, and no reply matches it, whatever the
+    /// instance is.</summary>
     [Test]
     [Arguments("""{"properties":[]}""", "properties")]
     [Arguments("""{"properties":"a"}""", "properties")]
@@ -31,6 +31,27 @@ public class JsonSchemaCheckTests {
     [Arguments("""{"anyOf":1}""", "anyOf")]
     [Arguments("""{"oneOf":{}}""", "oneOf")]
     [Arguments("""{"oneOf":null}""", "oneOf")]
+    [Arguments("""{"allOf":[]}""", "allOf")]
+    [Arguments("""{"anyOf":[]}""", "anyOf")]
+    [Arguments("""{"oneOf":[]}""", "oneOf")]
+    [Arguments("""{"anyOf":[true,42]}""", "anyOf")]
+    [Arguments("""{"properties":{"a":42}}""", "properties")]
+    [Arguments("""{"items":42}""", "items")]
+    [Arguments("""{"additionalProperties":"a"}""", "additionalProperties")]
+    [Arguments("""{"$defs":1}""", "$defs")]
+    [Arguments("""{"definitions":{"a":42}}""", "definitions")]
+    [Arguments("""{"$ref":"#/$defs/none"}""", "$ref")]
+    [Arguments("""{"type":"wat"}""", "type")]
+    [Arguments("""{"type":[]}""", "type")]
+    [Arguments("""{"type":["string",1]}""", "type")]
+    [Arguments("""{"enum":1}""", "enum")]
+    [Arguments("""{"enum":[]}""", "enum")]
+    [Arguments("""{"minimum":"a"}""", "minimum")]
+    [Arguments("""{"exclusiveMaximum":null}""", "exclusiveMaximum")]
+    [Arguments("""{"minLength":"2"}""", "minLength")]
+    [Arguments("""{"maxItems":1.5}""", "maxItems")]
+    [Arguments("""{"pattern":1}""", "pattern")]
+    [Arguments("""{"pattern":"("}""", "pattern")]
     public async Task A_malformed_shape_is_refused_by_the_gate_and_fails_validation(string schema, string keyword) {
         await Assert.That(Unsupported(schema)).IsEqualTo(keyword);
         await Assert.That(Unsupported("""{"properties":{"a":""" + schema + "}}")).IsEqualTo(keyword);
@@ -41,9 +62,19 @@ public class JsonSchemaCheckTests {
     }
 
     [Test]
+    [Arguments("42")]
+    [Arguments("\"a\"")]
+    [Arguments("null")]
+    [Arguments("[]")]
+    public async Task A_schema_that_is_neither_an_object_nor_a_boolean_is_refused(string schema) {
+        await Assert.That(Unsupported(schema)).IsEqualTo("schema");
+        await Assert.That(Check(schema, "{}")).IsFalse();
+    }
+
+    [Test]
     [Arguments("""{"properties":{}}""")]
     [Arguments("""{"required":[]}""")]
-    [Arguments("""{"allOf":[]}""")]
+    [Arguments("""{"allOf":[{}]}""")]
     [Arguments("""{"anyOf":[{}]}""")]
     [Arguments("""{"oneOf":[{}]}""")]
     public async Task The_same_keywords_well_formed_and_empty_stay_supported(string schema) {
@@ -184,6 +215,7 @@ public class JsonSchemaCheckTests {
     [Arguments("""{"type":"object","properties":{"a":{"type":"string","minLength":1,"description":"d","format":"x"}},"required":["a"],"$schema":"s","$id":"i","$comment":"c","title":"t","default":{},"examples":[1],"readOnly":true,"writeOnly":false,"deprecated":false}""")]
     [Arguments("""{"$ref":"#/$defs/a","$defs":{"a":{"enum":["x"]}},"definitions":{"b":{"const":1}}}""")]
     [Arguments("""{"properties":{"title":{"type":"string"},"if":{"type":"string"}},"required":["if"],"enum":["if"]}""")]
+    [Arguments("""{"properties":{"a":true},"items":false,"additionalProperties":false,"anyOf":[true]}""")]
     public async Task Vocabulary_and_annotations_are_supported(string schema) =>
         await Assert.That(Unsupported(schema) is null).IsTrue();
 }

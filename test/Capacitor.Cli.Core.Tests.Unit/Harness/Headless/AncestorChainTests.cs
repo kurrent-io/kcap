@@ -310,7 +310,8 @@ public class AncestorChainTests {
         else await Assert.That(violation).IsNull();
     }
 
-    [Test]
+    [Test, ExcludeOn(OS.Windows)]
+    [UnsupportedOSPlatform("windows")]
     public async Task The_write_rule_asks_about_the_acl_of_every_ancestor_and_stops_at_a_violation() {
         var leaf  = Tmp.CreateDir("a", "leaf").Path;
         var asked = new List<string>();

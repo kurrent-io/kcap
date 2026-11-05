@@ -27,60 +27,87 @@ internal static class JsonSchemaCheck {
         "readOnly", "writeOnly", "deprecated",
     ];
 
-    /// The first keyword outside the supported vocabulary, or one whose value has a shape that cannot be checked ("$ref" for a non-local reference); null when the schema is fully supported.
-    public static string? UnsupportedKeyword(JsonElement schema) => Unsupported(schema, 0);
+    static readonly HashSet<string> TypeNames = ["string", "number", "integer", "boolean", "object", "array", "null"];
 
-    public static bool Matches(JsonElement schema, JsonElement instance) => Validate(schema, schema, instance, 0);
+    /// The first keyword outside the supported vocabulary, or one whose value is not what the keyword takes; "schema" when
+    /// the value itself is neither an object nor a boolean, or is nested too deep to check. Null when fully supported.
+    public static string? UnsupportedKeyword(JsonElement schema) =>
+        IsSchema(schema) ? Unsupported(schema, schema, 0) : "schema";
 
-    static string? Unsupported(JsonElement schema, int depth) {
+    /// A schema the gate refuses matches nothing, so a shape it refuses never reads as unconstrained.
+    public static bool Matches(JsonElement schema, JsonElement instance) =>
+        UnsupportedKeyword(schema) is null && Validate(schema, schema, instance, 0);
+
+    static bool IsSchema(JsonElement value) => value.ValueKind is JsonValueKind.Object or JsonValueKind.True or JsonValueKind.False;
+
+    static string? Unsupported(JsonElement root, JsonElement schema, int depth) {
         if (schema.ValueKind is not JsonValueKind.Object) return null;
-        if (depth > MaxDepth) return null;
+        if (depth > MaxDepth) return "schema";
 
         foreach (var p in schema.EnumerateObject()) {
             var name = p.Name;
             if (Annotations.Contains(name)) continue;
-
-            if (Containers.Contains(name)) {
-                if (p.Value.ValueKind is not JsonValueKind.Object) continue;
-                foreach (var def in p.Value.EnumerateObject())
-                    if (Unsupported(def.Value, depth + 1) is { } inner) return inner;
-                continue;
-            }
-
-            if (!Validated.Contains(name)) return name;
-
-            switch (name) {
-                case "$ref":
-                    if (p.Value.ValueKind is not JsonValueKind.String || !IsLocalRef(p.Value.GetString()!))
-                        return name;
-                    break;
-                case "properties":
-                    if (p.Value.ValueKind is not JsonValueKind.Object) return name;
-                    foreach (var prop in p.Value.EnumerateObject())
-                        if (Unsupported(prop.Value, depth + 1) is { } inner) return inner;
-                    break;
-                case "required":
-                    if (!IsRequiredList(p.Value)) return name;
-                    break;
-                case "items":
-                    if (p.Value.ValueKind is JsonValueKind.Array) return name;
-                    if (Unsupported(p.Value, depth + 1) is { } itemsInner) return itemsInner;
-                    break;
-                case "additionalProperties":
-                    if (Unsupported(p.Value, depth + 1) is { } addInner) return addInner;
-                    break;
-                case "anyOf" or "oneOf" or "allOf":
-                    if (p.Value.ValueKind is not JsonValueKind.Array) return name;
-                    foreach (var sub in p.Value.EnumerateArray())
-                        if (Unsupported(sub, depth + 1) is { } subInner) return subInner;
-                    break;
-            }
+            if (!Containers.Contains(name) && !Validated.Contains(name)) return name;
+            if (UnsupportedValue(root, name, p.Value, depth) is { } found) return found;
         }
 
         return null;
     }
 
-    static bool IsLocalRef(string reference) => TryParseRef(reference, out _, out _);
+    static string? UnsupportedValue(JsonElement root, string name, JsonElement value, int depth) {
+        switch (name) {
+            case "$ref":
+                return value.ValueKind is JsonValueKind.String
+                    && TryParseRef(value.GetString()!, out var container, out var target)
+                    && Lookup(root, container, target) is not null
+                        ? null
+                        : name;
+            case "properties" or "$defs" or "definitions":
+                if (value.ValueKind is not JsonValueKind.Object) return name;
+                foreach (var member in value.EnumerateObject())
+                    if (UnsupportedSubschema(root, name, member.Value, depth) is { } inner) return inner;
+                return null;
+            case "items" or "additionalProperties":
+                return UnsupportedSubschema(root, name, value, depth);
+            case "anyOf" or "oneOf" or "allOf":
+                if (value.ValueKind is not JsonValueKind.Array || value.GetArrayLength() == 0) return name;
+                foreach (var sub in value.EnumerateArray())
+                    if (UnsupportedSubschema(root, name, sub, depth) is { } inner) return inner;
+                return null;
+            case "required":
+                return IsRequiredList(value) ? null : name;
+            case "type":
+                return IsTypeName(value) || IsTypeList(value) ? null : name;
+            case "enum":
+                return value.ValueKind is JsonValueKind.Array && value.GetArrayLength() > 0 ? null : name;
+            case "minimum" or "maximum" or "exclusiveMinimum" or "exclusiveMaximum":
+                return value.ValueKind is JsonValueKind.Number ? null : name;
+            case "minLength" or "maxLength" or "minItems" or "maxItems":
+                return TryBound(value, out _) ? null : name;
+            case "pattern":
+                return IsPattern(value) ? null : name;
+            default:
+                return null;
+        }
+    }
+
+    static string? UnsupportedSubschema(JsonElement root, string keyword, JsonElement value, int depth) =>
+        IsSchema(value) ? Unsupported(root, value, depth + 1) : keyword;
+
+    static bool IsTypeName(JsonElement value) => value.ValueKind is JsonValueKind.String && TypeNames.Contains(value.GetString()!);
+
+    static bool IsTypeList(JsonElement value) =>
+        value.ValueKind is JsonValueKind.Array && value.GetArrayLength() > 0 && value.EnumerateArray().All(IsTypeName);
+
+    static bool IsPattern(JsonElement value) {
+        if (value.ValueKind is not JsonValueKind.String) return false;
+        try {
+            _ = new Regex(value.GetString()!, RegexOptions.None, PatternTimeout);
+            return true;
+        } catch (ArgumentException) {
+            return false;
+        }
+    }
 
     // A local reference is "#" or "#/$defs/<name>" / "#/definitions/<name>" with JSON-pointer escapes.
     static bool TryParseRef(string reference, out string? container, out string? name) {
