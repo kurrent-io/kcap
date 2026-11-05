@@ -44,10 +44,11 @@ public static class AdoptionPreflight {
             OtherCliInstall install, AdoptionEvidence evidence, List<string> locations, string bundleCli,
             bool appInSystemApplications, Func<string, bool> userCanWrite) {
         var links = new List<LinkChange>();
-        string? ownFolderOnPath = null;
+        string? ownFolderOnPath = null, serviceOnOwnFolder = null;
         foreach (var location in locations.Where(l => Inside(install, l))) {
             if (new FileInfo(location).LinkTarget is { } target) links.Add(new LinkChange(location, target, bundleCli));
-            else ownFolderOnPath ??= Path.GetDirectoryName(location);
+            else if (SameLocation(evidence.KcapOnLoginPath, location)) ownFolderOnPath ??= Path.GetDirectoryName(location);
+            else serviceOnOwnFolder ??= evidence.Units.FirstOrDefault(u => SameLocation(u.KcapOnStoredPath, location))?.Name;
         }
 
         var needsAdministrator = install.OwnedEntries.Select(e => Path.GetDirectoryName(e)!).Concat(links.Select(l => Path.GetDirectoryName(l.Path)!))
@@ -55,16 +56,21 @@ public static class AdoptionPreflight {
 
         var unsupervised = UnsupervisedDaemon(install, evidence);
         LeftReason? left = ownFolderOnPath is not null                  ? LeftReason.OwnFolderOnPath
+            : serviceOnOwnFolder is not null                            ? LeftReason.OwnFolderOnServicePath
             : unsupervised is not null                                  ? LeftReason.UnsupervisedDaemon
             : needsAdministrator && !appInSystemApplications            ? LeftReason.SharedInstallPrivateApp
                                                                           : null;
 
-        return new InstallPlan(install, left, needsAdministrator, links, ownFolderOnPath ?? unsupervised?.Name);
+        return new InstallPlan(install, left, needsAdministrator, links, ownFolderOnPath ?? serviceOnOwnFolder ?? unsupervised?.Name);
     }
+
+    static bool SameLocation(string? kcap, string location) =>
+        kcap is not null && PathComparison.Equal(LinkKey(kcap), LinkKey(location));
 
     /// <summary>A reason fresh evidence finds again on every launch, and that goes away once the user removes its
     /// cause: an install left for it is planned afresh each time, so the switch finishes once the cause is gone.</summary>
-    internal static bool Rederived(LeftReason reason) => reason is LeftReason.OwnFolderOnPath or LeftReason.UnsupervisedDaemon;
+    internal static bool Rederived(LeftReason reason) =>
+        reason is LeftReason.OwnFolderOnPath or LeftReason.OwnFolderOnServicePath or LeftReason.UnsupervisedDaemon;
 
     /// One physical link however the folder holding it is spelled.
     internal static string LinkKey(string location) =>

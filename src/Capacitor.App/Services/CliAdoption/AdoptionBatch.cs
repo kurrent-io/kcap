@@ -216,7 +216,7 @@ internal sealed class AdoptionBatch(
         install is { HolderPid: { } pid, HolderStartToken: { } token } && machine.StillRuns(pid, token);
 
     // Holders are cleared for the deletion check to record afresh: a recheck acts only on installs this launch carried
-    // that far.
+    // that far. A left install found left for another reason is another outcome, with a notice of its own.
     AdoptionRecord RecordIntent(IReadOnlyList<InstallPlan> plans) {
         var left = new List<InstallPlan>();
         var record = store.Update(r => {
@@ -227,7 +227,8 @@ internal sealed class AdoptionBatch(
             foreach (var plan in plans) {
                 var at = installs.FindIndex(i => AdoptionPreflight.SameRoot(i.Install, plan.Install));
                 if (plan.Left is { } reason) {
-                    if (at >= 0 && installs[at] is { State: InstallState.Left } kept && kept.Install.Identity == plan.Install.Identity) continue;
+                    if (at >= 0 && installs[at] is { State: InstallState.Left } kept && kept.Install.Identity == plan.Install.Identity
+                     && kept.Reason == reason) continue;
                     left.Add(plan);
                 }
                 var next = plan.Left is null

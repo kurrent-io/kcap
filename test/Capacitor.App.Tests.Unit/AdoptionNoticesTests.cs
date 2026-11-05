@@ -88,4 +88,24 @@ public class AdoptionNoticesTests {
             await Assert.That(AdoptionNotices.Left(install, reason, "x")).DoesNotContain("npm uninstall");
         await Assert.That(AdoptionNotices.LeftKey(install, LeftReason.UnsupervisedDaemon)).IsEqualTo("left:/Users/u/.kcap:UnsupervisedDaemon");
     }
+
+    /// <summary>A shell profile does not reach the PATH a daemon service saved when it was installed: that notice names
+    /// the service and the command that gives it a fresh PATH, under a key of its own, so it is told even after the
+    /// login PATH's notice was.</summary>
+    [Test]
+    public async Task A_folder_on_a_service_PATH_is_told_how_to_refresh_that_service() {
+        var install = new OtherCliInstall(OtherCliInstallKind.Script, "/Users/u/.kcap", "1.0.0", "/Users/u/.kcap/current/bin/kcap",
+            "/Users/u/.kcap/current/bin/kcap-daemon", "id", ["/Users/u/.kcap/versions", "/Users/u/.kcap/current", "/Users/u/.kcap/install.json"]);
+
+        var login   = AdoptionNotices.Left(install, LeftReason.OwnFolderOnPath, "/Users/u/.kcap/current/bin");
+        var service = AdoptionNotices.Left(install, LeftReason.OwnFolderOnServicePath, "mac");
+
+        await Assert.That(login).Contains("shell profile");
+        await Assert.That(service).Contains("daemon service 'mac'");
+        await Assert.That(service).Contains("kcap daemon service install --replace --name mac");
+        await Assert.That(service).Contains("open kcap again to finish switching");
+        await Assert.That(service).DoesNotContain("shell profile");
+        await Assert.That(AdoptionNotices.LeftKey(install, LeftReason.OwnFolderOnServicePath))
+            .IsNotEqualTo(AdoptionNotices.LeftKey(install, LeftReason.OwnFolderOnPath));
+    }
 }

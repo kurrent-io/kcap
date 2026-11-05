@@ -94,6 +94,11 @@ internal sealed class AdoptionNotices : IDisposable {
         LeftReason.OwnFolderOnPath =>
             $"your PATH lists {cause ?? "a folder inside it"}, so removing the install would leave no kcap there. "
           + "Remove that folder from PATH in your shell profile, then open kcap again to finish switching.",
+        LeftReason.OwnFolderOnServicePath =>
+            $"the PATH saved in the kcap daemon service {(cause is null ? "" : $"'{cause}' ")}lists a folder inside it, so removing the "
+          + "install would leave that service no kcap. To give the service a fresh PATH, run "
+          + $"kcap daemon service install --replace{(cause is null ? "" : $" --name {cause}")} from a terminal whose PATH lists no "
+          + "folder inside the install, then open kcap again to finish switching.",
         LeftReason.UnsupervisedDaemon =>
             $"the kcap daemon {(cause is null ? "" : $"'{cause}' ")}runs from it, and its service did not start it. "
           + $"Stop it with kcap daemon stop{(cause is null ? "" : $" --name {cause}")} --keep-agents, then open kcap again to finish switching.",
