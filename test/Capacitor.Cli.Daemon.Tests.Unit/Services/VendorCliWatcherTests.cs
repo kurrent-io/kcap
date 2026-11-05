@@ -374,6 +374,9 @@ public class VendorCliWatcherTests {
         watcher.PrimeBaselines();
 
         File.WriteAllText(file, Auth(after) + " ");
+        // The rewrite can match the original's size and land on its timestamp, and the watcher reads content only when
+        // one of those moved.
+        File.SetLastWriteTimeUtc(file, File.GetLastWriteTimeUtc(file).AddMinutes(1));
         watcher.Tick();
 
         await Assert.That(refreshed.Count).IsEqualTo(refreshes ? 1 : 0);
