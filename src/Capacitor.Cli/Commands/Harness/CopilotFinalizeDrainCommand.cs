@@ -1,51 +1,38 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.Commands.Harness;
 
 /// <summary>
-/// Detached post-<c>sessionEnd</c> "finalize drain" for GitHub Copilot CLI
-/// sessions.
+/// Detached post-<c>sessionEnd</c> finalizer for GitHub Copilot sessions: delivers the transcript tail,
+/// then the session end.
 /// </summary>
 /// <remarks>
-/// Copilot appends <c>session.shutdown</c> — the per-model input/cache token
-/// aggregate the server consumes as <c>CopilotUsageBackfilled</c> — and
-/// occasionally the final assistant turn, to <c>events.jsonl</c> only AFTER the
-/// <c>sessionEnd</c> hook returns (verbatim live tail: <c>hook.start</c>,
-/// <c>hook.end</c>, <c>session.shutdown</c>). The hook's pre-drain (watcher kill
-/// + inline-drain) runs before that line exists, so nothing is left to deliver
-/// it — input/cache totals stay 0 for live sessions. (Batch
-/// <c>kcap import --copilot</c> is unaffected; it reads the complete file.)
-///
-/// The <c>sessionEnd</c> hook launches this command (via
-/// <see cref="WatcherManager.SpawnCopilotFinalizeDrain"/>) detached as its FIRST
-/// action — before the capped pre-drain and the retrying session-end POST — so
-/// the drainer is guaranteed to exist even if a slow/unreachable server makes
-/// the POST burn the hook timeout and Copilot SIGKILLs the hook; being detached
-/// it survives that kill. It polls until <c>session.shutdown</c> is the terminal
-/// transcript line (or its budget elapses), then performs one inline-drain.
-/// Fully decoupled from the hook's return and the server's StopAndDrain, so it
-/// cannot deadlock or stall them; the server watermark + deterministic-id dedup
-/// make the late delivery idempotent. The timeout fallback also rescues a
-/// dropped final assistant turn when <c>session.shutdown</c> never lands
-/// (e.g. Copilot crash).
+/// Copilot appends <c>session.shutdown</c>, the per-model input/cache token aggregate, and occasionally
+/// the final assistant turn, to <c>events.jsonl</c> only after the <c>sessionEnd</c> hook starts. On quit
+/// its runtime stops about 2 seconds after that, killing the hook, so the hook's own session-end POST
+/// (which follows a capped drain) can never be relied on. This process survives that kill. The server
+/// watermark and deterministic ids make its drain idempotent, and its end is the hook's own body, which
+/// the server records once whichever arrives first.
 /// </remarks>
-sealed class CopilotFinalizeDrainCommand(ConfigRoot config, WatcherManager watchers, TimeProvider time) {
+sealed class CopilotFinalizeDrainCommand(
+        ConfigRoot config, ProfileContext profiles, ICapacitorHttpClient http, WatcherManager watchers, TimeProvider time) {
 
-    // The hook spawns this FIRST — before its capped pre-drain and the retrying
-    // session-end POST — so the budget must outlast the worst-case hook lifetime
-    // (PreHookDrainCap + Copilot's hook timeout, ~30s by default) and still be
-    // polling when Copilot flushes session.shutdown after the hook returns or is
-    // SIGKILLed. The process is idle while polling and exits the instant it sees
-    // shutdown (the common case resolves in ~1-2s), so this cap only bites in the
-    // crash fallback where session.shutdown never lands.
+    // Outlasts the worst-case hook lifetime (PreHookDrainCap + Copilot's ~30s hook timeout), so it is still
+    // polling when session.shutdown lands. Idle while polling and gone the instant it sees shutdown, so
+    // the cap only bites when shutdown never comes: a crash, or a Copilot build that does not write it.
     static readonly TimeSpan DefaultPollBudget   = TimeSpan.FromSeconds(45);
     static readonly TimeSpan DefaultPollInterval = TimeSpan.FromMilliseconds(300);
 
+    // Past KillWatcher's 5s force-kill bound, so a watcher the hook is stopping has gone by then.
+    static readonly TimeSpan DefaultWatcherStopGrace = TimeSpan.FromSeconds(8);
+
     /// <summary>
-    /// Process entry point: <c>kcap copilot-finalize &lt;sessionId&gt; &lt;transcriptPath&gt;</c>.
+    /// Process entry point: <c>kcap copilot-finalize &lt;sessionId&gt; &lt;transcriptPath&gt; [endBody]</c>.
     /// </summary>
-    public async Task<int> Run(string sessionId, string transcriptPath) {
+    public async Task<int> Run(string sessionId, string transcriptPath, string? endBody) {
         // The spawning hook closes our redirected std streams the instant it
         // starts us; writing to the dead pipe would fault. Redirect to a
         // per-session log file, mirroring WatchCommand.
@@ -63,21 +50,23 @@ sealed class CopilotFinalizeDrainCommand(ConfigRoot config, WatcherManager watch
         // after the session ends does not deliver SIGHUP before the tail lands.
         ProcessHelpers.DetachFromControllingTerminal();
 
-        await RunAsync(sessionId, transcriptPath, DefaultPollBudget, DefaultPollInterval);
+        await RunAsync(sessionId, transcriptPath, endBody, DefaultPollBudget, DefaultPollInterval, DefaultWatcherStopGrace);
 
         return 0;
     }
 
     /// <summary>
     /// Testable core: wait for the terminal <c>session.shutdown</c> line (or
-    /// <paramref name="pollBudget"/>), then deliver the tail exactly once. No
+    /// <paramref name="pollBudget"/>), deliver the tail, then end the session. No
     /// process detachment or log redirection, so tests drive it directly.
     /// </summary>
     internal async Task RunAsync(
             string   sessionId,
             string   transcriptPath,
+            string?  endBody,
             TimeSpan pollBudget,
-            TimeSpan pollInterval
+            TimeSpan pollInterval,
+            TimeSpan watcherStopGrace
         ) {
         var deadline    = time.GetUtcNow() + pollBudget;
         var sawShutdown = false;
@@ -107,6 +96,37 @@ sealed class CopilotFinalizeDrainCommand(ConfigRoot config, WatcherManager watch
         // Idempotent: resumes from the server watermark; deterministic event ids
         // dedupe anything the hook's inline-drain already delivered.
         await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: "copilot");
+
+        if (endBody is not null) await EndSessionAsync(sessionId, endBody, pollInterval, watcherStopGrace);
+    }
+
+    async Task EndSessionAsync(string sessionId, string endBody, TimeSpan pollInterval, TimeSpan watcherStopGrace) {
+        // The hook stops the watcher when it starts this process, and a watcher stopped that way sends no end,
+        // so it gets time to go. One still running after that is a resumed run this end would close, or one
+        // the hook died before stopping, whose parent-exit path sends the end itself.
+        var deadline = time.GetUtcNow() + watcherStopGrace;
+
+        while (watchers.IsWatcherAlive(sessionId)) {
+            if (time.GetUtcNow() >= deadline) {
+                Log($"session end not sent for {sessionId}: a watcher is running");
+
+                return;
+            }
+
+            await Task.Delay(pollInterval, time);
+        }
+
+        const string route = "session-end/copilot";
+
+        var spool = new HookSpool(config, time, profiles.Resolution.ServerUrl);
+
+        // A spooled start must reach the server before its end does.
+        var outcome = spool.HasBacklog(sessionId)
+            ? spool.Append(sessionId, route, endBody) ? HookPostOutcome.Spooled : HookPostOutcome.Skipped
+            : await new AgentHookPoster(config, profiles, http, watchers, time)
+                .PostOrSpoolAsync(route, endBody, "copilot-finalize", spool, sessionId, route);
+
+        Log($"session end for {sessionId}: {outcome}");
     }
 
     /// <summary>
