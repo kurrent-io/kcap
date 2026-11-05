@@ -1424,7 +1424,9 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             if (!Untouched()) return;
             bool OnMachine() => RemoteMachineSelected && string.Equals(SelectedMachine, machine, StringComparison.Ordinal);
             if (!OnMachine()) await SelectMachineAsync(machine, isLocal: false);
-            if (OnMachine()) await SelectRepositoryAsync(path);
+            // A session started inside an agent worktree records that worktree; launching from it
+            // would nest the new worktree where removing the outer one deletes it.
+            if (OnMachine()) await SelectRepositoryAsync(GitRepository.AgentWorktreeOf(path)?.Owner ?? path);
             return;
         }
 

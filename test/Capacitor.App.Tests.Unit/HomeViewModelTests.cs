@@ -3415,6 +3415,25 @@ public class HomeViewModelTests {
         });
     }
 
+    [Test]
+    [Arguments("/srv/repo/.capacitor/worktrees/agent-1")]
+    [Arguments("/srv/repo/.claude/worktrees/agent-1")]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_remote_session_in_an_agent_worktree_selects_the_repository_that_owns_it(string worktree) {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var daemon = new FakeDaemonClientService();
+            Connect(daemon);
+            var remote = new FakeRemoteAgents();
+            remote.DaemonsSubject.OnNext([Box("u1")]);
+            using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("app-state.json")), new RecordingLaunchClient(),
+                Known(), TimeProvider.System, daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
+
+            await vm.SelectRepositoryOfAsync(LocalRow(worktree) with { Origin = AgentOrigin.Remote, MachineBadge = "box", OwnerUserId = "u1" });
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo("/srv/repo");
+        });
+    }
+
     sealed class GatedAppStateStore : IAppStateStore {
         public AppState State = new();
         public TaskCompletionSource<AppState>? Hold;
