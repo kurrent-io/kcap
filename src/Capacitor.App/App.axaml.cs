@@ -16,6 +16,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.Services.CliAdoption;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.App.Services.Mutation;
 using Capacitor.App.Services.Notifications;
@@ -181,6 +182,12 @@ public partial class App : Application {
     ShimOfferCoordinator? _shimOffer;
     // The wizard's PATH link, which can outlive the wizard; the shim offer waits on it.
     Task<string?> _wizardPathLink = Task.FromResult<string?>(null);
+    // Built before the graph, whose shim offer waits for its first look.
+    CliAdoptionCoordinator? _adoption;
+    // The daemon the takeover moves onto the bundle, once the graph has one.
+    AdoptionDaemon? _adoptionDaemon;
+    // The main window's notifier while that window is on screen; the takeover's notices wait for it.
+    readonly BehaviorSubject<IAppNotifier?> _noticeWindow = new(null);
     // No disposal needed — its Status subscription dies with _service's own subject disposal below.
     ConsentFlipCoordinator? _consentFlip;
     // Inert outside a packed bundle (CreateUpdater degrades a construction failure the same way);
@@ -396,6 +403,7 @@ public partial class App : Application {
                 _ => new OneShotObservation(_daemonStore, _time, OneShotProbeTimeout),
                 _time);
             _lane = lane;
+            _adoption = BuildCliAdoption(lane, laneRunner, laneProbe);
 
             var (gate, profiles) = await ResolveAndEvaluateGateAsync(_config, _foreignHttp.GetRequiredService<TokenStore>(), _serverEnv, _localRoot, _time, _shutdown.Token);
             await RunWizardThenBuildGraphAsync(
@@ -403,9 +411,11 @@ public partial class App : Application {
                 (current, currentProfiles) => RunWizardModeAsync(desktop, lane, channel, laneRunner, laneProbe, currentProfiles,
                     alreadyAuthenticated: current is GateResult.Complete),
                 () => ResolveAndEvaluateGateAsync(_config, _foreignHttp.GetRequiredService<TokenStore>(), _serverEnv, _localRoot, _time, _shutdown.Token),
-                (current, currentProfiles, laneQuiesced) => BuildDaemonGraph(desktop, lane, channel, current, currentProfiles, laneQuiesced),
+                (current, currentProfiles, laneQuiesced) => BuildDaemonGraph(desktop, lane, channel, laneProbe, current, currentProfiles, laneQuiesced),
                 () => LocalSetupState.Pending(_localRoot), _shutdown.Token, () => LocalSetupCannotRetry(_localInstall));
 
+            // After the wizard, so a service it installs is already the app's; off the UI thread.
+            _adoption?.Start(_wizardPathLink);
             // Integration repair must not delay the main window or prevent access to the app.
             if (OperatingSystem.IsMacOS() && !_shutdown.IsCancellationRequested) {
                 // Let Loaded attach the notification overlay before an immediate repair failure.
@@ -443,7 +453,8 @@ public partial class App : Application {
                 desktop, ex, _service, _shutdown,
                 [_tray, _trayVm, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
                     _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
-                    _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart],
+                    _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart,
+                    _adoption],
                 _lifecycle, _lane, _localUpgrade, _localSearch, _menuBar, _coordinator);
             await DisposeServerClientsAsync(); // after _home above
             // all already disposed above — never let a later OnShutdownRequested (e.g. Cmd+Q
@@ -454,6 +465,7 @@ public partial class App : Application {
             _localUpgrade = null;
             _localSearch = null;
             _shimOffer = null; // no disposal of its own (see field comment) — just drop the reference
+            _adoption = null;
             _consentFlip = null; // same — no disposal of its own
             _tray = null;
             _trayVm = null;
@@ -950,7 +962,7 @@ public partial class App : Application {
 
     // The steady-state graph, over the resolution the gate was evaluated on (never a second resolve).
     void BuildDaemonGraph(
-            IClassicDesktopStyleApplicationLifetime desktop, DaemonMutationLane lane, OutcomeChannel channel,
+            IClassicDesktopStyleApplicationLifetime desktop, DaemonMutationLane lane, OutcomeChannel channel, ILoginShellProbe probe,
             GateResult gate, ProfileContext? profiles, bool laneQuiesced) {
         var service = DaemonClientService.CreateResolved(_daemonStore, profiles?.Resolution, _time, lane.RunAsync);
 
@@ -994,10 +1006,13 @@ public partial class App : Application {
                 lock (lifecycleStatus) if (ReferenceEquals(lifecycleStatus.Value, message)) lifecycleStatus.OnNext(null);
                 lock (lifecycleAttention) if (ReferenceEquals(lifecycleAttention.Value, message)) lifecycleAttention.OnNext(null);
             },
-            lane.RunAsync, profiles?.Resolution, () => lane.IsRetired(service.DaemonName), lane.CliVersionAsync);
+            lane.RunAsync, profiles?.Resolution, () => lane.IsRetired(service.DaemonName), lane.CliVersionAsync, probe);
         lifecycle.RestartExpected = () => expectedRestart.Expected;
         lifecycle.Start();
         _lifecycle = lifecycle;
+        _ = MutationRequestFactory.TryBuild(MutationVerb.Repoint, ValidProfileName(profiles?.Resolution), profiles?.Resolution.ServerUrl,
+            service.DaemonName, out var repoint);
+        _adoptionDaemon = new AdoptionDaemon(repoint, () => lifecycle.LatestActivity, expectedRestart, service.RestartLoopAsync);
         // Subscribe-before-run doesn't matter here (Offerable replays); always started so manual install keeps working in Incomplete mode — autoOfferSuppressed skips only the dialog.
         shimOffer.Start();
         _shimOffer = shimOffer;
@@ -1327,7 +1342,7 @@ public partial class App : Application {
                 : null;
 
         _coordinator = new MainWindowCoordinator(
-            () => TrackViewedAgent(BuildAndShowMainWindow(
+            () => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
                 _shutdown.Token, activity, launch, _time, lifecycle.StartActionAsync,
                 lifecycleStatus, _navigation, _workspaceTeardown.Track, BuildWorkspace,
@@ -1361,7 +1376,7 @@ public partial class App : Application {
                 localServer: localServer, localStack: localStack, uiScale: _uiScale, usageNotice: _usageNotice,
                 web: webWorkspace, openLaunchApprovals: launchApprovals.Show,
                 search: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : ServerSearchHttp.Search(sessionHttp, profiles),
-                harnessesSettingsAction: _openHarnessesSettings)),
+                harnessesSettingsAction: _openHarnessesSettings))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
             restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace());
@@ -2384,19 +2399,18 @@ public partial class App : Application {
         return window;
     }
 
-    // Wires the CLI facade and PATH probe (a broken override is "no CLI"); also builds the shim/consent-flip coordinators, sharing rather than re-resolving them.
+    // Wires the CLI facade over the lane's PATH probe (a broken override is "no CLI"); also builds the shim/consent-flip coordinators, sharing rather than re-resolving them.
     (DaemonLifecycleController Lifecycle, ShimOfferCoordinator ShimOffer, ConsentFlipCoordinator ConsentFlip,
             ILifecycleSurface Surface, ILoginShellProbe Probe, IKcapCli Cli) BuildLifecycleController(
             DaemonClientService service, ILocalControlOps ops, bool autoActionsPermanentlyClosed,
             Action<string> setLifecycleStatus, Action<string> setLifecycleAttention, Action<string> withdrawLifecycleAttention,
             Func<MutationRequest, CancellationToken, Task<MutationOutcome>> runMutation,
             ResolvedProfile? profile, Func<bool> requiresAppRestart,
-            Func<MutationRequest, CancellationToken, Task<string?>> replacementCliVersion) {
+            Func<MutationRequest, CancellationToken, Task<string?>> replacementCliVersion, ILoginShellProbe probe) {
         var cliPath = CliResolver.ResolvePath(Environment.GetEnvironmentVariable, File.Exists, Program.Host.CliDirectory);
         var runner  = new ProcessRunner(_time);
-        var probe   = TerminalPathProbe.Create(runner, Environment.GetEnvironmentVariable);
         var canonicalServer = ServerIdentity.Canonicalize(profile?.ServerUrl);
-        // Shared with the probe above (not re-resolved) — the PATH overlay on `install`
+        // Shared with the lane's probe (not re-resolved) — the PATH overlay on `install`
         // must reflect the SAME probe outcome that the controller's preconditions/PathDegraded see.
         var cli     = new KcapCli(runner, cliPath, service.DaemonName, profile?.ProfileName ?? "default", probe.TerminalPathAsync,
             canonicalServer: canonicalServer);
@@ -2413,7 +2427,7 @@ public partial class App : Application {
         var shimTarget = ShimTargetFor(cliPath, Program.Host.CliOutlivesApp);
         // autoOfferSuppressed: Start() always runs — Offerable/manual install must keep working in Incomplete mode; only the once-ever auto-offer dialog is skipped.
         var shimOffer = new ShimOfferCoordinator(
-            Task.WhenAll(lifecycle.PhaseClosed, _updateHandedOver.Task), probe, CliPathInstallers.Create(probe, _userHome), _appState, surface, shimTarget,
+            Task.WhenAll(lifecycle.PhaseClosed, _updateHandedOver.Task, _adoption?.FirstLook ?? Task.CompletedTask), probe, CliPathInstallers.Create(probe, _userHome), _appState, surface, shimTarget,
             _shutdown.Token, autoActionsPermanentlyClosed, _wizardPathLink);
 
         // The delegate below and the claims store must share one root: TryConsume takes the config
@@ -2423,6 +2437,41 @@ public partial class App : Application {
             () => ResolveConsentFlipIdentity(_config, _localRoot), surface, _appState, _shutdown.Token);
 
         return (lifecycle, shimOffer, consentFlip, surface, probe, cli);
+    }
+
+    // Only an installed bundle on macOS takes over another install; anywhere else the coordinator just releases the
+    // shim offer's wait.
+    CliAdoptionCoordinator BuildCliAdoption(DaemonMutationLane lane, IProcessRunner runner, ILoginShellProbe probe) {
+        var root = InstallLocation.BundleRoot(Environment.ProcessPath);
+        var kind = InstallLocation.Classify(root, _userHome.Path);
+        if (!OperatingSystem.IsMacOS() || root is null || kind is not (InstallLocationKind.Applications or InstallLocationKind.UserApplications)
+         || CliPathInstallers.Create(probe, _userHome) is not { } shim)
+            return new CliAdoptionCoordinator(null, _time, LifecycleLog.Write, _shutdown.Token);
+
+        var bundle    = new AdoptionBundle(root, Path.Combine(Program.Host.CliDirectory, CliResolver.BundledCliFileName),
+            CapacitorVersion.CurrentDisplay(), kind == InstallLocationKind.Applications);
+        var store     = new AdoptionRecordStore(_config);
+        var harnesses = HarnessRegistry.FromEnvironment(_userHome);
+        var folders   = KcapLinkFolders.For(_userHome);
+        var machine   = new AdoptionMachine(new AdoptionEvidenceReader(runner, probe, _daemonStore, _userHome, root), runner, lane,
+            () => _adoptionDaemon, _userHome, harnesses, AccountStore.Beside(_daemonStore));
+        var batch     = new AdoptionBatch(machine, store, new AsideRetirement(_config, "cli-adoption-retire"),
+            new AdoptionIntegrations(new ApplicationIntegrationRefresh(_config, runner), bundle.Cli, store, _time),
+            new AdoptionPathStep(probe, new AdoptedLinkInventory(_config), store, shim, folders),
+            new AdoptionNotices(_noticeWindow, store), _appState, harnesses, bundle, folders, WritableFolder.Check, LifecycleLog.Write);
+        return new CliAdoptionCoordinator(batch, _time, LifecycleLog.Write, _shutdown.Token);
+    }
+
+    // A hidden window shows no toast, and its toast overlay exists only once it has loaded.
+    MainWindow TrackNoticeWindow(IAppNotifier notifier, MainWindow window) {
+        void Publish() => _noticeWindow.OnNext(window.IsVisible && window.IsLoaded ? notifier : null);
+        var visible = window.GetObservable(Visual.IsVisibleProperty).Subscribe(_ => Publish());
+        window.Loaded += (_, _) => Publish();
+        window.Closed += (_, _) => {
+            visible.Dispose();
+            _noticeWindow.OnNext(null);
+        };
+        return window;
     }
 
     /// A link needs an absolute path that is still there once the app exits.
@@ -3047,6 +3096,7 @@ public partial class App : Application {
                     _tray, _trayVm, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
                     _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
                     _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart,
+                    _adoption,
                 ];
                 if (shutdown) {
                     await DisposeUiThenConfirmShutdownAsync(ui,
