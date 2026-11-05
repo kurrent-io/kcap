@@ -1384,6 +1384,38 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// The rail looks a session running in a terminal up by its server key, so its work is published
+    /// under that key, and stays there once the workspace closes.
+    [Test]
+    public async Task A_terminal_sessions_subagent_stays_on_its_server_key_after_navigation_until_it_ends() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
+            using var subscription = commands.Running.Subscribe(running => latest = running);
+            var vm = h.Build(Harness.ServerRow("s1", "active"), commands: commands);
+            await h.UntilAsync(vm, () => latest.GetValueOrDefault("server:s1").Subagents == 1, "running subagent");
+
+            await vm.TeardownAsync();
+            await WaitUntilAsync(() => {
+                h.Time.Advance(ChatTabViewModel.PollInterval);
+                return h.Lane.Tails.Count == 2;
+            }, what: "background monitor tail");
+            await Assert.That(latest.GetValueOrDefault("server:s1").Subagents).IsEqualTo(1);
+
+            h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, AgentNotification));
+            await WaitUntilAsync(() => {
+                h.Time.Advance(ChatTabViewModel.PollInterval);
+                return !latest.ContainsKey("server:s1");
+            }, what: "the subagent's end");
+        });
+    }
+
     /// A refused or missing seed stops the remote feed for good, so the count the workspace handed
     /// over must not outlive it.
     [Test]

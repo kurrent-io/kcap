@@ -41,7 +41,7 @@ internal sealed class SessionRunMonitor : IDisposable {
         _access = access;
         _readDetail = readDetail;
         _lane = lane;
-        _remote = rowKey.StartsWith("remote:", StringComparison.Ordinal);
+        _remote = !rowKey.StartsWith("local:", StringComparison.Ordinal);
         _agentId = rowKey[(rowKey.IndexOf(':') + 1)..];
         _runs = new SessionRuns(time);
         _timer = time.CreateTimer(_ => Dispatcher.UIThread.Post(Read), null,

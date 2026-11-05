@@ -322,7 +322,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
                 if (!show && IsArtefactsActive) ActiveTab = RemoteTab.Chat;
             }).DisposeWith(_disposables);
         var runs = _runs = new SessionRuns(time) { OpensSubagents = readSubagent is not null };
-        commands?.Track($"remote:{row.Id}", runs).DisposeWith(_disposables);
+        commands?.Track(row.Key, runs).DisposeWith(_disposables);
         WorkContext = new WorkContextViewModel(_presence, workContext, time, opener, runs,
             requestSignIn, signInCompleted, actions.OpenWorkItemInWeb, plans, planActivity,
             artefacts: Artefacts, isRemote: true, serverLane: lane.Status,
