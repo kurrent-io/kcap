@@ -1290,7 +1290,8 @@ public class CliAdoptionCoordinatorTests {
     }
 
     /// <summary>Once the switch moved everything, the install is invisible to the evidence; it stays pending from the
-    /// record, and a reference rewritten to it between launches both reruns the refresh and keeps its files.</summary>
+    /// record, and a reference rewritten to it between launches both reruns the refresh and keeps its files. The refresh
+    /// leaves it naming the install, so the cutover stays where it was.</summary>
     [Test]
     public async Task A_reference_recreated_between_launches_holds_the_deletion() {
         var world = new AdoptionWorld(Tmp);
@@ -1298,6 +1299,7 @@ public class CliAdoptionCoordinatorTests {
         world.Machine.Alive.Add(4300);
         using (var launch = world.Launch()) await world.FirstLookAsync(launch);
         await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo("pid:4300");
+        var cutover = world.Record.CutoverUtc;
 
         var hooks = Path.Combine(world.Home, ".codex", "hooks.json");
         world.Machine.Processes = [];
@@ -1313,7 +1315,87 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Root)).IsTrue();
         await Assert.That(Directory.Exists(world.Platform)).IsTrue();
         await Assert.That(world.Refresh.Calls).IsEqualTo(2);
-        await Assert.That(world.Record.CutoverUtc).IsEqualTo(world.Time.GetUtcNow().UtcDateTime);
+        await Assert.That(world.Record.CutoverUtc).IsEqualTo(cutover);
         await Assert.That(world.Notifier.Notified.Count).IsEqualTo(1);
+    }
+
+    /// <summary>A site that cannot be read may name nothing, so it never reruns the refresh; it still holds the deletion.</summary>
+    [Test]
+    public async Task An_unreadable_site_reruns_no_refresh_and_holds_the_deletion() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Processes = [world.OldSession(4300)];
+        world.Machine.Alive.Add(4300);
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        var hooks = Path.Combine(world.Home, ".codex", "hooks.json");
+        world.Machine.Processes = [];
+        world.Machine.Alive.Clear();
+        world.Machine.Sites = [new ReferenceSite(hooks, null, false)];
+        using var next = world.Launch();
+        await world.FirstLookAsync(next);
+        await world.RecheckAsync(next);
+
+        await Assert.That(world.Refresh.Calls).IsEqualTo(1);
+        await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo($"site:{hooks}");
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+    }
+
+    /// <summary>A reference the refresh cannot repoint reruns it once per launch, never on a recheck, and never moves
+    /// the cutover: once the user removes it, an agent the app's daemon resumed after the first cutover does not hold
+    /// the deletion.</summary>
+    [Test]
+    public async Task A_site_the_refresh_cannot_repoint_reruns_it_once_per_launch_and_keeps_the_cutover() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Processes = [world.OldSession(4300)];
+        world.Machine.Alive.Add(4300);
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+        var cutover = world.Record.CutoverUtc!.Value;
+
+        var hooks = Path.Combine(world.Home, ".codex", "hooks.json");
+        world.Machine.Alive.Clear();
+        world.Machine.Processes = [new ProcessFact(4400, "/opt/homebrew/bin/codex", null, cutover.AddMinutes(30))];
+        world.Machine.Sites = [new ReferenceSite(hooks, $$"""{"command":"{{world.Install.CliBinary}} hook"}""", true)];
+        world.Time.Advance(TimeSpan.FromHours(1));
+        using (var next = world.Launch()) {
+            await world.FirstLookAsync(next);
+            await world.RecheckAsync(next);
+            await world.RecheckAsync(next);
+        }
+
+        await Assert.That(world.Refresh.Calls).IsEqualTo(2);
+        await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo($"site:{hooks}");
+
+        using var last = world.Launch();
+        await world.FirstLookAsync(last);
+
+        await Assert.That(world.Refresh.Calls).IsEqualTo(3);
+        await Assert.That(world.Record.CutoverUtc).IsEqualTo(cutover);
+
+        world.Machine.Sites = [];
+        await world.RecheckAsync(last);
+
+        await Assert.That(world.Refresh.Calls).IsEqualTo(3);
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+    }
+
+    /// <summary>A reference the refresh does repoint moves the cutover to that refresh's finish.</summary>
+    [Test]
+    public async Task A_site_the_refresh_repoints_moves_the_cutover() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Processes = [world.OldSession(4300)];
+        world.Machine.Alive.Add(4300);
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        world.Machine.Alive.Clear();
+        world.Machine.Processes = [];
+        world.Machine.Sites = [new ReferenceSite(Path.Combine(world.Home, ".codex", "hooks.json"), world.Install.CliBinary, true)];
+        world.Refresh.Rewrites = () => world.Machine.Sites = [];
+        world.Time.Advance(TimeSpan.FromHours(1));
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        await Assert.That(world.Refresh.Calls).IsEqualTo(2);
+        await Assert.That(world.Record.CutoverUtc).IsEqualTo(world.Time.GetUtcNow().UtcDateTime);
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
     }
 }
