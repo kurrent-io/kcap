@@ -32,6 +32,8 @@ public sealed class SessionRuns(TimeProvider time) {
     /// Rows per presented state, indexed by the state's value.
     readonly int[] _counts = new int[Enum.GetValues<RunState>().Length];
     int _runningBackground;
+    /// The latest restart heard, for a line that lands behind it.
+    DateTimeOffset? _restartedAt;
     bool _sessionOver;
     bool _opensSubagents = true;
 
@@ -97,7 +99,7 @@ public sealed class SessionRuns(TimeProvider time) {
                     Resume(resumed);
                     break;
                 case RunSignal.Waiting waiting:
-                    Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.RetractStop(waiting.At);
+                    Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.Waited(waiting.At);
                     break;
                 case RunSignal.Stopped stopped:
                     if (!_reported.Contains(stopped.AgentId)) SoleRun(stopped)?.Stop(stopped.At);
@@ -108,6 +110,7 @@ public sealed class SessionRuns(TimeProvider time) {
                     DropHeldIfACandidateEnded();
                     break;
                 case RunSignal.Restarted restarted:
+                    if (!(_restartedAt > restarted.At)) _restartedAt = restarted.At;
                     // The server hears a resume from a hook, which can land after the new process's own lines.
                     foreach (var row in _rows.Where(r => r.StartedAt < restarted.At)) row.CutOff(restarted.At);
                     DropHeldIfACandidateEnded();
@@ -138,6 +141,7 @@ public sealed class SessionRuns(TimeProvider time) {
         _pending.Clear();
         _earlyByCall.Clear();
         _earlyUnpaired.Clear();
+        _restartedAt = null;
         Refresh();
     }
 
@@ -155,8 +159,7 @@ public sealed class SessionRuns(TimeProvider time) {
 
     RunRow Add(RunSignal.Started started) {
         var row = new RunRow(started.CallId, started.Name, started.Description, started.At, started.Kind) { Openable = _opensSubagents };
-        _byCall[started.CallId] = row;
-        _rows.Add(row);
+        Place(row);
         if (row.Kind == RunKind.Agent) {
             if (_earlyByCall.Remove(started.CallId, out var agentId)) Name(row, agentId);
             else PairUnpaired();
@@ -164,12 +167,19 @@ public sealed class SessionRuns(TimeProvider time) {
         return row;
     }
 
+    /// A pre-restart line can land behind the restart on the server's stream, and reads as if it had not.
+    void Place(RunRow row) {
+        _byCall[row.CallId] = row;
+        _rows.Add(row);
+        if (row.StartedAt < _restartedAt) row.CutOff(_restartedAt.Value);
+    }
+
     void Detach(RunSignal.Detached detached) {
         if (!_byCall.TryGetValue(detached.CallId, out var row)) {
             if (!_pending.Remove(detached.CallId, out var pending)) return;
             row = Add(pending);
         }
-        if (row.IsEnded) return;
+        if (row.IsEnded && !row.IsCutOff) return;
         row.MarkBackground();
         Name(row, detached.AgentId);
         PairUnpaired();
@@ -182,8 +192,7 @@ public sealed class SessionRuns(TimeProvider time) {
         if (_byCall.ContainsKey(resumed.CallId) || !_byAgent.TryGetValue(resumed.AgentId, out var previous)) return;
         previous.End(null, resumed.At);
         var row = new RunRow(resumed.CallId, previous.Name, previous.Description, resumed.At, previous.Kind) { Openable = _opensSubagents };
-        _byCall[resumed.CallId] = row;
-        _rows.Add(row);
+        Place(row);
         row.MarkBackground();
         Name(row, resumed.AgentId);
     }

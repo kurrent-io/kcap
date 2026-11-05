@@ -563,20 +563,72 @@ public class SessionRunsTests {
         await Assert.That(s.Rows[1].EndedAt).IsNull();
     }
 
-    /// A run can survive one restart and die in the next, so a wait must pass the latest of them,
-    /// whichever order they were heard in: a spooled resume can land behind a newer one.
+    /// Spooled resumes and late notifications land in any order, so with no report of its own a run
+    /// reads by its latest wait against the latest restart alone, however the two were heard.
     [Test]
-    [Arguments(30, 50)]
-    [Arguments(50, 30)]
-    public async Task A_wait_must_pass_the_latest_restart(int first, int second) {
-        var s = new SessionRuns(Clock());
-        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
-        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(first)), new RunSignal.Restarted(T0.AddMinutes(second))));
+    [Arguments(20, false, false)]
+    [Arguments(40, false, false)]
+    [Arguments(60, false, true)]
+    [Arguments(20, true, false)]
+    [Arguments(40, true, false)]
+    [Arguments(60, true, true)]
+    public async Task A_run_reads_by_its_latest_wait_and_the_latest_restart_in_any_order(int waitedAt, bool stoppedFirst, bool running) {
+        RunSignal[] signals = [new RunSignal.Restarted(T0.AddMinutes(30)), new RunSignal.Restarted(T0.AddMinutes(50)), Waiting(null, "a1", T0.AddMinutes(waitedAt))];
+        int[][] orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
 
-        s.Apply(Signals(Waiting(null, "a1", T0.AddMinutes(40))));
+        foreach (var order in orders) {
+            var s = new SessionRuns(Clock());
+            s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+            if (stoppedFirst) s.Apply(Signals(Stop("a1", T0.AddMinutes(10))));
+            foreach (var index in order) s.Apply(Signals(signals[index]));
+
+            await Assert.That(Only(s).IsRunning).IsEqualTo(running).Because(string.Join(",", order));
+        }
+    }
+
+    /// The server's stream can carry a pre-restart line behind the restart, and it reads as if it had
+    /// landed first: the run is cut off, and can still be named and heard from.
+    [Test]
+    public async Task A_launch_landing_behind_a_restart_is_cut_off_and_can_still_report() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(30))));
+
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
         await Assert.That(Only(s).State).IsEqualTo(RunState.Stopped);
 
-        s.Apply(Signals(Waiting(null, "a1", T0.AddMinutes(60))));
+        s.Apply(Signals(Waiting(null, "a1", T0.AddMinutes(40))));
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
+    }
+
+    [Test]
+    public async Task A_late_wait_cannot_lower_the_proof_a_newer_one_gave() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+        s.Apply(Signals(Waiting(null, "a1", T0.AddMinutes(60)), Waiting(null, "a1", T0.AddMinutes(10))));
+
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(50))));
+
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
+    }
+
+    [Test]
+    public async Task A_line_landing_behind_two_restarts_reads_the_latest_whichever_came_first() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(50)), new RunSignal.Restarted(T0.AddMinutes(30))));
+
+        s.Apply(Signals(Started("c1", T0.AddMinutes(40))));
+
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Stopped);
+    }
+
+    [Test]
+    public async Task Clear_forgets_the_restart_with_the_rows_it_read() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(30))));
+
+        s.Clear();
+        s.Apply(Signals(Started("c1")));
+
         await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
     }
 

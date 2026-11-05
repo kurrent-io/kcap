@@ -10,7 +10,10 @@ public sealed class RunRow : ReactiveObject {
     string? _agentId;
     bool _outcomeUnknown;
     bool _endedByStop;
-    DateTimeOffset? _cutOffAt;
+    /// With no report of its own, a run that began before the latest restart is running only if it
+    /// waited after that restart. Each is the latest heard, so the order they land in cannot matter.
+    DateTimeOffset? _restartedAt;
+    DateTimeOffset? _waitedAt;
     bool _openable = true;
     RunState _state = RunState.Running;
     string _stateText = "";
@@ -119,20 +122,23 @@ public sealed class RunRow : ReactiveObject {
         Outcome = outcome ?? (IsEnded ? Outcome : RunState.Done);
         _outcomeUnknown = outcome is null;
         _endedByStop = false;
-        _cutOffAt = null;
+        IsCutOff = false;
     }
 
+    /// Ended by a restart rather than by anything the run said.
+    internal bool IsCutOff { get; private set; }
+
     /// The process holding the run is gone, so it reads as stopped, but that is only a presumption: a
-    /// report that still lands says how it really ended, and a wait dated past this shows it never did.
+    /// report that still lands says how it really ended.
     internal void CutOff(DateTimeOffset at) {
-        if (IsEnded && !_endedByStop && _cutOffAt is null) return;
-        var latest = _cutOffAt is { } earlier && earlier > at ? earlier : at;
-        if (!IsEnded) {
-            End(RunState.Stopped, at);
-            _outcomeUnknown = true;
-        }
-        _cutOffAt = latest;
+        _restartedAt = Later(_restartedAt, at);
+        if (IsEnded || _waitedAt > _restartedAt) return;
+        End(RunState.Stopped, at);
+        _outcomeUnknown = true;
+        IsCutOff = true;
     }
+
+    static DateTimeOffset Later(DateTimeOffset? known, DateTimeOffset at) => known > at ? known.Value : at;
 
     /// A stop record ends the row without an outcome, and alone among ends it can be taken back:
     /// a Claude agent also stops when it pauses on work of its own.
@@ -142,16 +148,17 @@ public sealed class RunRow : ReactiveObject {
         _endedByStop = true;
     }
 
-    /// A wait shows the run had not ended, so it takes back an end that only a stop record made: the
-    /// pause's own stop, heard ahead of the notification. Past a restart only a wait dated after it
-    /// can, since a notification can be written well after the time it carries.
-    internal void RetractStop(DateTimeOffset at) {
-        if (_cutOffAt is { } cutOff ? at <= cutOff : !_endedByStop) return;
+    /// A wait shows the run had not ended, so it takes back an end that only a stop record or a restart
+    /// made: the pause's own stop, heard ahead of the notification. Past a restart only a wait dated
+    /// after it can, since a notification can be written well after the time it carries.
+    internal void Waited(DateTimeOffset at) {
+        _waitedAt = Later(_waitedAt, at);
+        if (!_endedByStop && !IsCutOff || _waitedAt <= _restartedAt) return;
         Outcome = RunState.Running;
         EndedAt = null;
         _outcomeUnknown = false;
         _endedByStop = false;
-        _cutOffAt = null;
+        IsCutOff = false;
     }
 
     internal void Present(bool sessionOver, DateTimeOffset now) {
