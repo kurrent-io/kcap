@@ -25,6 +25,22 @@ public class WatcherSpawnArgsTests {
             .IsEqualTo(Environment.GetEnvironmentVariable(HostedAgent.AgentIdVar));
     }
 
+    /// <summary>VS Code's Local harness runs hooks with no agent process above them, so the fallback could
+    /// only resolve a process whose exit says nothing about the session, a transient shell included.</summary>
+    [Test]
+    [Arguments("copilot", "/data/GitHub.copilot-chat/transcripts/abc.jsonl", false)]
+    [Arguments("copilot", "/home/.copilot/session-state/abc/events.jsonl", true)]
+    [Arguments("claude", "/home/.claude/projects/abc.jsonl", true)]
+    public async Task A_watcher_follows_a_parent_unless_it_tails_a_Local_transcript(string vendor, string transcript, bool followsParent) {
+        var starter = FakeProcessStarter.Refusing();
+        var spawner = new ProcessWatcherSpawner(
+            Config.Root, Resolutions.At("http://localhost", Config.Root), WatcherPaths.FromEnvironment(Config.Root), starter, TimeProvider.System);
+
+        await spawner.SpawnAsync(new WatcherSpawnRequest("abc", transcript, null, Vendor: vendor) { Stderr = TextWriter.Null });
+
+        await Assert.That(starter.Seen!.Arguments.Contains("--parent-pid")).IsEqualTo(followsParent);
+    }
+
     /// <summary>Every spawn names its vendor, including the one `kcap watch` would have defaulted
     /// to: a reader of the command line never has to know what that default is.</summary>
     [Test]

@@ -1101,7 +1101,8 @@ partial class WatchCommand(
                             "claude"      => state.PendingClaudeToolCalls.Count > 0,
                             _             => state.PendingCodexToolCalls.Count > 0,
                         },
-                        disconnectedSinceActivity: state.AccumulatedDisconnected)) {
+                        disconnectedSinceActivity: state.AccumulatedDisconnected,
+                        vsCodeLocal: vendor == "copilot" && Capacitor.Cli.Core.Harness.Copilot.CopilotPaths.IsVsCodeLocalTranscript(transcriptPath))) {
                     Log(time, $"{vendor} transcript idle for >{idleTimeout.TotalMinutes:F0}m; ending session (idle_timeout)");
                     idleExit = true;
                     cts.Cancel();
@@ -2007,6 +2008,7 @@ partial class WatchCommand(
         vendor switch {
             "antigravity"                     => ResolveCodexIdleTimeout(env("KCAP_ANTIGRAVITY_IDLE_MINUTES")),
             "cursor"                          => ResolveCursorIdleCeiling(env("KCAP_CURSOR_IDLE_CEILING_MINUTES")),
+            "copilot"                         => ResolveCodexIdleTimeout(env("KCAP_COPILOT_IDLE_MINUTES")),
             "claude" when !isSessionWatcher   => ResolveClaudeSubagentIdleCeiling(env("KCAP_CLAUDE_SUBAGENT_IDLE_MINUTES")),
             "codex" when !isSessionWatcher    => ResolveCodexSubagentReapCeiling(env("KCAP_CODEX_SUBAGENT_REAP_MINUTES")),
             _                                 => ResolveCodexIdleTimeout(env("KCAP_CODEX_IDLE_MINUTES")),
@@ -2041,7 +2043,8 @@ partial class WatchCommand(
             DateTimeOffset now,
             TimeSpan       idleTimeout,
             bool           toolInFlight              = false,
-            TimeSpan       disconnectedSinceActivity = default
+            TimeSpan       disconnectedSinceActivity = default,
+            bool           vsCodeLocal               = false
         ) {
         // Which vendors may idle-exit, and in which role:
         //   codex             — both. Session: the idle window is the fallback session-end signal
@@ -2057,10 +2060,14 @@ partial class WatchCommand(
         //                       leaks it for the life of the parent). Its SESSION watcher has a
         //                       working watchdog AND a sessionEnd hook, so a ceiling there could
         //                       end a live session out from under a thinking user.
+        //   copilot           — a VS Code Local SESSION only: it has neither a session-end hook nor a
+        //                       parent to watch. Copilot CLI has both, so the same ceiling-end risk
+        //                       as Claude's session watcher applies there.
         var eligible = vendor switch {
             "codex" or "cursor" => true,
             "antigravity"       => isSessionWatcher,
             "claude"            => !isSessionWatcher,
+            "copilot"           => isSessionWatcher && vsCodeLocal,
             _                   => false,
         };
 
@@ -2068,8 +2075,9 @@ partial class WatchCommand(
 
         // A child watcher never buffers, so requiring ThresholdReached would make it permanently
         // ineligible. A session watcher keeps the gate: a session nobody has taken a turn in has not
-        // gone idle, and its end comes from the parent's exit instead.
-        if (isSessionWatcher && !thresholdReached) return false;
+        // gone idle, and its end comes from the parent's exit instead. A Local session has no parent
+        // to end it, so idling is its end with or without a turn.
+        if (isSessionWatcher && !thresholdReached && !vsCodeLocal) return false;
 
         return now - lastActivityAt - disconnectedSinceActivity > idleTimeout && !toolInFlight;
     }

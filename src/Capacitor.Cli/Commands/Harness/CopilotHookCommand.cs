@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
@@ -39,6 +40,8 @@ namespace Capacitor.Cli.Commands.Harness;
 ///   notification → best-effort forward to the Claude-shaped /hooks/notification
 ///                  (Copilot's payload already carries message / title /
 ///                  notification_type in the compatible shape).
+/// VS Code's Local harness runs these same hooks with snake_case fields and a transcript under
+/// <c>GitHub.copilot-chat/transcripts</c>. It fires no sessionEnd: its watcher ends it after going idle.
 /// Copilot treats hook stdout as optional. This dispatcher emits nothing for every event except
 /// sessionStart, which writes a single {"additionalContext":"…"} document when — and only when —
 /// a team-memory fragment is available to inject.
@@ -164,12 +167,13 @@ sealed class CopilotHookCommand(
 
         if (node is null) return 0;
 
-        // Copilot payloads carry the dashed session uuid under camelCase
-        // `sessionId`. Keep the dashed form for filesystem lookups (the
-        // session-state dir name is dashed) and the dashless form for the
-        // server (AgentSession-{dashless} stream convention shared by every
-        // vendor dispatcher).
-        var dashedSessionId = TryGetString(node, "sessionId");
+        // Copilot payloads carry the dashed session uuid, as `sessionId` from Copilot CLI and VS Code's
+        // Copilot harness and as `session_id` from VS Code's Local harness. Keep the dashed form for
+        // filesystem lookups (the session-state dir name is dashed) and the dashless form for the
+        // server (AgentSession-{dashless} stream convention shared by every vendor dispatcher).
+        var dashedSessionId = TryGetString(node, "sessionId") is { Length: > 0 } camelId
+            ? camelId
+            : TryGetString(node, "session_id");
 
         if (string.IsNullOrEmpty(dashedSessionId)) return 0;
 
@@ -248,7 +252,7 @@ sealed class CopilotHookCommand(
         // Copilot stamps hook payloads with a unix-ms timestamp; forward it as
         // started_at so canonical SessionStarted carries the real start time
         // (the server falls back to UtcNow when absent — precedent).
-        if (TryGetUnixMillis(node, "timestamp") is { } startedAt) {
+        if (TryGetTimestamp(node, "timestamp") is { } startedAt) {
             forwarded["started_at"] = startedAt.ToString("O");
         }
 
@@ -343,7 +347,7 @@ sealed class CopilotHookCommand(
             string   sessionId,
             string?  cwd
         ) {
-        var transcriptPath = TranscriptPathFor(dashedSessionId);
+        var transcriptPath = GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId);
 
         // Copilot appends `session.shutdown` (per-model input/cache token
         // aggregates) — and sometimes the final assistant turn — to events.jsonl
@@ -357,7 +361,10 @@ sealed class CopilotHookCommand(
         // the hook being killed and still delivers the post-hook tail via one
         // idempotent inline-drain once `session.shutdown` lands (or it times out).
         // Its poll budget outlasts the worst-case hook lifetime for this reason.
-        watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath);
+        // VS Code's Local harness writes no shutdown line, so nothing would end that wait.
+        if (!CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)) {
+            watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath);
+        }
 
         // Kill watcher + inline-drain BEFORE the POST so the server computes
         // stats over the full transcript — capped so a slow drain can't starve
@@ -390,7 +397,7 @@ sealed class CopilotHookCommand(
 
         if (cwd is not null) forwarded["cwd"] = cwd;
 
-        if (TryGetUnixMillis(node, "timestamp") is { } endedAt) {
+        if (TryGetTimestamp(node, "timestamp") is { } endedAt) {
             forwarded["ended_at"] = endedAt.ToString("O");
         }
 
@@ -454,19 +461,22 @@ sealed class CopilotHookCommand(
     }
 
     async Task EnsureWatcherAsync(string dashedSessionId, string sessionId, JsonNode node, string? cwd) {
-        // agentStop payloads carry transcriptPath; sessionStart's don't —
-        // derive it from the session-state layout in that case. Copilot also
-        // ships transcriptPath as an EMPTY STRING on some firings, so treat
-        // empty as absent rather than spawning a watcher on "".
-        var transcriptPath = TryGetString(node, "transcriptPath") is { Length: > 0 } tp
-            ? tp
-            : TranscriptPathFor(dashedSessionId);
+        // Copilot CLI's sessionStart payload names no transcript, so derive it from the session-state
+        // layout in that case.
+        var transcriptPath = GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId);
 
         await watchers.EnsureWatcherRunning(sessionId, transcriptPath,
             agentId: null, sessionIdOverride: null, cwd: cwd,
             skipTitle: false, vendor: "copilot"
         );
     }
+
+    /// <summary>The transcript a payload names, in either form. Copilot ships an EMPTY STRING on some
+    /// firings, which counts as naming none rather than spawning a watcher on "".</summary>
+    static string? GivenTranscriptPath(JsonNode node) =>
+        TryGetString(node, "transcriptPath") is { Length: > 0 } camel ? camel
+      : TryGetString(node, "transcript_path") is { Length: > 0 } snake ? snake
+      : null;
 
     /// <summary>
     /// events.jsonl path for a session. Prefers the current
@@ -499,13 +509,17 @@ sealed class CopilotHookCommand(
         return idx >= 0 && idx + 1 < args.Length ? args[idx + 1] : null;
     }
 
-    static DateTimeOffset? TryGetUnixMillis(JsonNode? node, string fieldName) {
+    /// <summary>Unix milliseconds from Copilot CLI and the Copilot harness, ISO-8601 text from VS Code's Local harness.</summary>
+    static DateTimeOffset? TryGetTimestamp(JsonNode? node, string fieldName) {
         if (node?[fieldName] is not JsonValue v) return null;
 
         if (v.TryGetValue<long>(out var ms) && ms > 0) return DateTimeOffset.FromUnixTimeMilliseconds(ms);
         if (v.TryGetValue<double>(out var dms) && dms > 0) return DateTimeOffset.FromUnixTimeMilliseconds((long)dms);
 
-        return null;
+        return v.TryGetValue<string>(out var text)
+         && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed)
+            ? parsed
+            : null;
     }
 
     static string? TryGetString(JsonNode? node, string fieldName) {
