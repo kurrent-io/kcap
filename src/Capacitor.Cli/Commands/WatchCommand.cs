@@ -853,11 +853,11 @@ partial class WatchCommand(
         Log(time, $"Connected via SignalR, resuming from line {state.LinesProcessed}");
         TouchHeartbeat();
 
-        // Crew keeps one kiro-cli process for a whole chat and its in-process sub-agents, so the
-        // parent-pid watchdog alone would leave a finished sub-agent or a replaced chat session open.
-        // Armed only once connected: a cancel before then skips the final drain and end POST.
+        // Armed only once connected: a cancel before then skips the final drain and end POST. The same holds below.
         if (armDeadParentOnConnect) ArmParentMonitor(parentPid!.Value);
 
+        // Crew keeps one kiro-cli process for a whole chat and its in-process sub-agents, so the
+        // parent-pid watchdog alone would leave a finished sub-agent or a replaced chat session open.
         if (WatchesCrewEnd(vendor, agentId, harnesses.Of<KiroHarness>().Crew.IsPresent())) {
             var crewEnd = new KiroCrewSessionEndWatch(harnesses.Of<KiroHarness>().Crew, harnesses.Of<KiroHarness>().Paths.SessionsDir, sessionId, time);
 
