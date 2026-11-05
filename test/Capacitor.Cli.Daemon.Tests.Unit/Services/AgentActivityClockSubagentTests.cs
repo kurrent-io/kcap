@@ -191,6 +191,43 @@ public class AgentActivityClockSubagentTests {
         await Assert.That(clock.TakeSubagentExpiries()).IsEqualTo(new SubagentExpiry(false, null));
     }
 
+    /// <summary>Hooks are a child's only sign of life, so one inside a long tool call ages out while it runs. The
+    /// count may drop it, but a decision to kill the agent must not read that as finished.</summary>
+    [Test]
+    public async Task A_child_retired_for_age_stays_in_flight_until_its_stop_arrives() {
+        var time  = new FakeTimeProvider();
+        var clock = new AgentActivityClock(time);
+        clock.SetAwaitingInput(true);
+        clock.SubagentSeen("a", Ms(time));
+
+        time.Advance(Liveness);
+        await Assert.That(clock.TakeSubagentExpiries().RetiredAny).IsTrue();
+
+        await Assert.That(clock.LiveSubagents).IsEqualTo(0);
+        await Assert.That(clock.NothingInFlight).IsFalse();
+
+        clock.SubagentStopped("a", Ms(time));
+
+        await Assert.That(clock.NothingInFlight).IsTrue();
+    }
+
+    [Test]
+    public async Task A_retired_child_that_reports_again_is_settled_by_its_next_stop() {
+        var time  = new FakeTimeProvider();
+        var clock = new AgentActivityClock(time);
+        clock.SetAwaitingInput(true);
+        clock.SubagentSeen("a", Ms(time));
+        time.Advance(Liveness);
+        clock.TakeSubagentExpiries();
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        clock.SubagentSeen("a", Ms(time));
+        time.Advance(TimeSpan.FromSeconds(1));
+        clock.SubagentStopped("a", Ms(time));
+
+        await Assert.That(clock.NothingInFlight).IsTrue();
+    }
+
     [Test]
     public async Task The_parent_waiting_while_a_child_keeps_reporting_stays_waiting_with_the_child_counted() {
         var time  = new FakeTimeProvider();
