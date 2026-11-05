@@ -563,7 +563,11 @@
                             </Grid>
                         </Button>
                         <Border Classes="sectionBody">
-                            <views:PullRequestCard x:Name="PullRequestCard" DataContext="{Binding PullRequests}" />
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Linked to this session" FontSize="11" LineHeight="16"
+                                           Foreground="{StaticResource KcapFaintBrush}" IsVisible="{Binding PullRequests.HasPullRequest}" />
+                                <views:PullRequestCard x:Name="PullRequestCard" DataContext="{Binding PullRequests}" />
+                            </StackPanel>
                         </Border>
                     </StackPanel>
                     <ItemsControl x:Name="LinkCards" ItemsSource="{Binding Links}" ItemTemplate="{StaticResource LinkCard}"
@@ -733,37 +737,50 @@
                             </StackPanel>
                         </Grid>
                     </Button>
-                    <Border x:Name="PlanBody" Classes="sectionBody">
+                    <Border Classes="sectionBody">
                         <Border.IsVisible>
-                            <MultiBinding Converter="{x:Static BoolConverters.And}">
-                                <Binding Path="Plan.IsExpanded" />
-                                <Binding Path="Plan.HasPlan" />
+                            <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                                <Binding Path="Plan.ShowsBody" />
+                                <Binding Path="ShowsPlanMergeNote" />
                             </MultiBinding>
                         </Border.IsVisible>
-                        <ItemsControl x:Name="PlanTaskList" ItemsSource="{Binding Plan.Tasks}"
-                                      ItemTemplate="{StaticResource PlanTaskItem}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Spacing="10" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
-                    </Border>
-                    <Border x:Name="PlanInProgressBody" Classes="sectionBody">
-                        <Border.IsVisible>
-                            <MultiBinding Converter="{x:Static BoolConverters.And}">
-                                <Binding Path="!Plan.IsExpanded" />
-                                <Binding Path="Plan.HasInProgress" />
-                            </MultiBinding>
-                        </Border.IsVisible>
-                        <ItemsControl x:Name="PlanInProgressList" ItemsSource="{Binding Plan.InProgressTasks}"
-                                      ItemTemplate="{StaticResource PlanTaskItem}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Spacing="10" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
+                        <StackPanel Spacing="10">
+                            <TextBlock x:Name="PlanMergeNote" Text="{Binding PlanMergeNote}" FontSize="12" LineHeight="17"
+                                       Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
+                                       IsVisible="{Binding ShowsPlanMergeNote}" />
+                            <Border x:Name="PlanBody">
+                                <Border.IsVisible>
+                                    <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                        <Binding Path="Plan.IsExpanded" />
+                                        <Binding Path="Plan.HasPlan" />
+                                    </MultiBinding>
+                                </Border.IsVisible>
+                                <ItemsControl x:Name="PlanTaskList" ItemsSource="{Binding Plan.Tasks}"
+                                              ItemTemplate="{StaticResource PlanTaskItem}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Spacing="10" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </Border>
+                            <Border x:Name="PlanInProgressBody">
+                                <Border.IsVisible>
+                                    <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                        <Binding Path="!Plan.IsExpanded" />
+                                        <Binding Path="Plan.HasInProgress" />
+                                    </MultiBinding>
+                                </Border.IsVisible>
+                                <ItemsControl x:Name="PlanInProgressList" ItemsSource="{Binding Plan.InProgressTasks}"
+                                              ItemTemplate="{StaticResource PlanTaskItem}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Spacing="10" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </Border>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
 

@@ -37,6 +37,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             this.RaisePropertyChanged(nameof(PullRequests));
             this.RaisePropertyChanged(nameof(IsStale));
             RebuildLinks();
+            RaisePlanProgress();
         }
     }
     public bool ShowsLegacyLinks => PullRequests is null;
@@ -208,6 +209,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public bool ShowsRetry  => Phase == WorkContextPhase.Unreachable;
 
     void OnPullRequestChanged(object? sender, PropertyChangedEventArgs e) {
+        if (e.PropertyName is nameof(PullRequestContextViewModel.MergedPullRequests)) RaisePlanProgress();
         if (e.PropertyName is nameof(PullRequestContextViewModel.HasChoice)
             or nameof(PullRequestContextViewModel.HasNotice)
             or nameof(PullRequestContextViewModel.HasReaderNote)
@@ -332,6 +334,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             reading => IsReading = reading,
             cached: _source.Cached);
         Plan = new PlanSectionViewModel(plans, planActivity ?? new PlanActivity(), time);
+        Plan.PropertyChanged += OnPlanProgressChanged;
+        _disposables.Add(Disposable.Create(() => Plan.PropertyChanged -= OnPlanProgressChanged));
         Artefacts = artefacts;
         _opener = opener;
         _time = time;
