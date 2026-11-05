@@ -110,6 +110,32 @@ public class ClaudePluginInstallerTests {
         await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
     }
 
+    /// A project install records an absolute plugin path, which an upgrade can move: Claude then
+    /// cannot load the plugin however enabled it reads, so no hook will ever release a hold.
+    [Test]
+    public async Task RunsHooks_false_when_the_projects_marketplace_directory_is_gone() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateFile("project/.claude/settings.local.json", ProjectInstall(tmp.PathTo("moved")));
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    [Test]
+    public async Task RunsHooks_true_when_the_projects_marketplace_directory_exists() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        string marketplace = tmp.CreateDir("marketplace");
+        tmp.CreateFile("project/.claude/settings.local.json", ProjectInstall(marketplace));
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    static string ProjectInstall(string marketplacePath) => $$"""
+        { "enabledPlugins": { "kcap@kcap": true },
+          "extraKnownMarketplaces": { "kcap": { "source": { "source": "directory", "path": {{JsonValue.Create(marketplacePath).ToJsonString()}} } } } }
+        """;
+
     /// A second enabled id still loads when the project switches off the first, and it is that id's
     /// own payload that has to be checked.
     [Test]
