@@ -107,6 +107,11 @@ public sealed class SessionRuns(TimeProvider time) {
                     Finish(finished);
                     DropHeldIfACandidateEnded();
                     break;
+                case RunSignal.Restarted restarted:
+                    // The server hears a resume from a hook, which can land after the new process's own lines.
+                    foreach (var row in _rows.Where(r => r.StartedAt < restarted.At)) row.CutOff(restarted.At);
+                    DropHeldIfACandidateEnded();
+                    break;
                 case RunSignal.Identified identified:
                     Identify(identified);
                     break;
@@ -253,7 +258,7 @@ public sealed class SessionRuns(TimeProvider time) {
 
     /// A stop names no run, is dated when the server heard it, and comes at each pause as well as at the
     /// end, so it counts only while its agent has a single run. A resumed agent's later runs then end
-    /// only on the transcript's report, or with the session.
+    /// only on the transcript's report, at a restart, or with the session.
     RunRow? SoleRun(RunSignal.Stopped stopped) {
         RunRow? sole = null;
         foreach (var row in _rows) {

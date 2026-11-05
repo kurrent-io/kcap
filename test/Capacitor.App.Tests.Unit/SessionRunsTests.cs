@@ -468,6 +468,105 @@ public class SessionRunsTests {
         await Assert.That(s.RunningCount).IsEqualTo(0);
     }
 
+    /// Claude writes nothing more for an agent paused when its process goes, and its stops count for
+    /// nothing once it has reported, so the restart is the only thing left to end the row.
+    [Test]
+    public async Task A_restart_stops_an_agent_paused_on_its_own_work() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Waiting("c1", "a1", T0.AddMinutes(10)), Stop("a1", T0.AddMinutes(10))));
+
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(30))));
+
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Stopped);
+        await Assert.That(Only(s).EndedAt).IsEqualTo(T0.AddMinutes(30));
+        await Assert.That(s.RunningCount).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_restart_stops_a_background_command() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Shell("c1")));
+        s.Apply(Signals(Detached("c1", "b1")));
+
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(30))));
+
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Stopped);
+        await Assert.That(s.RunningCommandCount).IsEqualTo(0);
+    }
+
+    /// The server hears a resume from a hook, which can spool past lines the new process wrote.
+    [Test]
+    public async Task A_restart_heard_late_leaves_a_run_started_after_it() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1", T0.AddMinutes(30)), Detached("c1", "a1")));
+
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(10))));
+
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
+    }
+
+    /// The restart only presumes how a run went: a report that still lands knows better.
+    [Test]
+    [Arguments(RunOutcome.Done, RunState.Done)]
+    [Arguments(RunOutcome.Failed, RunState.Failed)]
+    public async Task A_report_after_a_restart_says_how_the_run_ended(RunOutcome outcome, RunState state) {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(30))));
+
+        s.Apply(Signals(Finished(null, "a1", outcome, at: T0.AddMinutes(20))));
+
+        await Assert.That(Only(s).State).IsEqualTo(state);
+        await Assert.That(Only(s).EndedAt).IsEqualTo(T0.AddMinutes(20));
+    }
+
+    /// An end that does not say how adds nothing to the restart's own reading of the run.
+    [Test]
+    public async Task A_message_reviving_a_stopped_agent_leaves_its_cut_off_run_stopped() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(30))));
+
+        s.Apply(Signals(Resumed("m1", "a1", T0.AddMinutes(40))));
+
+        await Assert.That(s.Rows[0].State).IsEqualTo(RunState.Stopped);
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+    }
+
+    /// A notification can be written after the line that follows it, so a wait from before the restart
+    /// can land after it, and must not bring back what a stop or the restart ended.
+    [Test]
+    public async Task A_wait_landing_after_a_restart_brings_nothing_back() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Stop("a1", T0.AddMinutes(10))));
+        s.Apply(Signals(Started("c2"), Detached("c2", "a2")));
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(30))));
+
+        s.Apply(Signals(Waiting(null, "a1", T0.AddMinutes(10)), Waiting(null, "a2", T0.AddMinutes(10))));
+
+        await Assert.That(s.RunningCount).IsEqualTo(0);
+    }
+
+    /// The records Claude writes for an agent caught paused by a restart, end to end through the chat's projection.
+    [Test]
+    public async Task A_transcript_with_a_paused_agent_stops_it_at_the_resume_hook() {
+        var chat = TranscriptChat.For("claude")!;
+        var context = chat.CreateContext("a1", null);
+        var s = new SessionRuns(Clock());
+        var number = 0;
+        foreach (var line in new[] {
+            """{"type":"assistant","timestamp":"2026-09-17T10:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_A","name":"Agent","input":{"description":"Fix it","subagent_type":"general-purpose"}}]}}""",
+            """{"type":"user","timestamp":"2026-09-17T10:00:01Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_A","content":"launched"}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a151b2d5ee7fd3108"}}""",
+            """{"type":"user","timestamp":"2026-09-17T10:07:00Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>a151b2d5ee7fd3108</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Fix it\" is waiting on its own background work</summary>\n</task-notification>"}}""",
+        }) s.Apply(chat.ProjectWithInputs(line, ++number, T0, context));
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
+
+        s.Apply(chat.ProjectWithInputs("""{"type":"attachment","timestamp":"2026-09-17T11:39:00Z","attachment":{"type":"hook_success","hookName":"SessionStart:resume"}}""", ++number, T0, context));
+
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Stopped);
+        await Assert.That(Only(s).StateText).IsEqualTo("stopped · 1h 39m");
+    }
+
     /// The local feed names a launch from its meta file after the lines are folded, so on a reopen it
     /// arrives once a resume owns the agent; it must leave the resumed run owning it.
     [Test]

@@ -115,9 +115,18 @@ public sealed class RunRow : ReactiveObject {
     internal void End(RunState? outcome, DateTimeOffset at) {
         if (IsEnded && !_outcomeUnknown) return;
         EndedAt = EndedAt is { } bare && bare < at ? bare : at;
-        Outcome = outcome ?? RunState.Done;
+        Outcome = outcome ?? (IsEnded ? Outcome : RunState.Done);
         _outcomeUnknown = outcome is null;
         _endedByStop = false;
+    }
+
+    /// The process holding the run is gone, so it reads as stopped and no wait can bring it back, but
+    /// that is only a presumption: a report that still lands says how it really ended.
+    internal void CutOff(DateTimeOffset at) {
+        _endedByStop = false;
+        if (IsEnded) return;
+        End(RunState.Stopped, at);
+        _outcomeUnknown = true;
     }
 
     /// A stop record ends the row without an outcome, and alone among ends it can be taken back:
