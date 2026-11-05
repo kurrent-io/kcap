@@ -37,11 +37,27 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         // Try the exact text first: a user can be documenting the paste wrapper itself. Unwrap
         // once, without stripping reminders/commands that may be part of that literal paste.
         // Claude Code puts newlines outside the wrapper; left on, ↑ recall resends them and each
-        // round trip grows the paste. Whitespace inside the paste is the user's and stays.
+        // round trip grows the paste. Only newlines touching a wrapper are its; the rest are typed.
         var normalized = text.Replace("\r\n", "\n");
         var pasted = UnwrapPastes(normalized);
-        if (!ReferenceEquals(pasted, normalized)) pasted = UnwrapPastes(normalized.Trim('\n'));
+        if (!ReferenceEquals(pasted, normalized)) pasted = UnwrapPastes(WithoutWrapperNewlines(normalized));
         return pasted == text ? [text] : [text, pasted];
+    }
+
+    static string WithoutWrapperNewlines(string text) {
+        var start = 0;
+        while (start < text.Length && text[start] == '\n') start++;
+        if (!text.AsSpan(start).StartsWith(PasteOpen, StringComparison.Ordinal)) start = 0;
+        var end = text.Length;
+        while (end > start && text[end - 1] == '\n') end--;
+        if (!EndsWithPasteClose(text.AsSpan(start, end - start))) end = text.Length;
+        return text[start..end];
+    }
+
+    static bool EndsWithPasteClose(ReadOnlySpan<char> text) {
+        if (!text.EndsWith("\">", StringComparison.Ordinal)) return false;
+        var close = text.LastIndexOf(PasteClose, StringComparison.Ordinal);
+        return close >= 0 && !text[(close + PasteClose.Length)..^2].Contains('"');
     }
 
     public string? SubmittedInput(CanonicalEvent evt, AcpEventEnvelope raw, AcpEventEnvelope? displayed) {
@@ -290,6 +306,7 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
     internal static string StripWrappers(string text) => Wrappers().Replace(UnwrapPastes(text), "").Trim();
 
     const string PasteOpen = "<pasted_content id=\"";
+    const string PasteClose = "</pasted_content id=\"";
 
     /// A paste is a block whose close repeats the id, with a newline right after the open tag and
     /// right before the close. Only those newlines come off: a one-line pair is prose, and spaces

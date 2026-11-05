@@ -58,6 +58,15 @@ public class ChatLiteralInputTests {
         await Assert.That(literal.Envelopes.Single().Text).IsEqualTo(body);
     }
 
+    /// Newlines at a message boundary held by typed text, not a wrapper, are the user's.
+    [Test]
+    public async Task Newlines_beside_typed_text_survive_a_restored_paste() {
+        const string raw = "\nintro\n<pasted_content id=\"7ce1\">\nbody\n</pasted_content id=\"7ce1\">\noutro\n\n";
+        const string expected = "\nintro\nbody\noutro\n\n";
+        var literal = Claude(raw).RestoreSubmittedInputs(text => text.Trim() == expected.Trim());
+        await Assert.That(literal.SubmittedInputs).IsEquivalentTo(new[] { expected });
+    }
+
     [Test]
     public async Task A_live_slash_command_takes_precedence_over_an_older_literal_wrapper() {
         const string wrapper = "<command-name>/review</command-name><command-args>path</command-args>";
