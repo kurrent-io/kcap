@@ -57,6 +57,15 @@ public class CopilotHookPayloadFormTests : IDisposable {
         return Command().Handle(new StringReader(payload.ToJsonString()), ["hook", "--copilot", "--event", hookEvent]);
     }
 
+    [Test]
+    public async Task A_payload_starting_with_a_byte_order_mark_still_starts_the_session() {
+        _server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+
+        await Command().Handle(new StringReader("\uFEFF" + new JsonObject { ["session_id"] = DashedId }.ToJsonString()), ["hook", "--copilot", "--event", "sessionStart"]);
+
+        await Assert.That(PostedTo("/hooks/session-start/copilot")).IsNotNull();
+    }
+
     JsonObject? PostedTo(string path) =>
         _server.FindLogEntries(Request.Create().WithPath(path).UsingPost()) is [var entry, ..]
             ? JsonNode.Parse(entry.RequestMessage.Body!)!.AsObject()

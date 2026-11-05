@@ -159,7 +159,8 @@ sealed class CopilotHookCommand(
         JsonNode? node;
 
         try {
-            node = JsonNode.Parse(body);
+            // A BOM would fail the parse, and the catch would lose the session silently.
+            node = JsonNode.Parse(body.TrimStart('\uFEFF'));
         } catch {
             // Best effort — never crash the host CLI on a malformed payload.
             return 0;
