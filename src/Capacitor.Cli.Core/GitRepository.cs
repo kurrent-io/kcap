@@ -164,6 +164,35 @@ public static class GitRepository {
         }
     }
 
+    /// <summary>The <c>origin</c> URL as the repository's own config states it, read with no git process;
+    /// null when there is none or the config cannot be read. Includes and <c>insteadOf</c> are not followed,
+    /// so this stands in only where git itself will not answer.</summary>
+    public static string? OriginUrl(string? startDir) {
+        if (string.IsNullOrEmpty(startDir) || ResolveCommonDir(startDir) is not { } commonDir) return null;
+
+        try {
+            var inOrigin = false;
+            foreach (var raw in File.ReadLinesShared(Path.Combine(commonDir, "config"))) {
+                var line = raw.Trim();
+                if (line.StartsWith('[')) {
+                    inOrigin = line.Equals("[remote \"origin\"]", StringComparison.Ordinal);
+                    continue;
+                }
+
+                if (!inOrigin) continue;
+
+                var equals = line.IndexOf('=');
+                if (equals > 0 && line[..equals].Trim().Equals("url", StringComparison.OrdinalIgnoreCase)) {
+                    return line[(equals + 1)..].Trim().Trim('"') is { Length: > 0 } url ? url : null;
+                }
+            }
+        } catch {
+            // Same "heuristic, not authoritative" stance as FindRoot.
+        }
+
+        return null;
+    }
+
     static bool IsObjectId(string text) =>
         text.Length is 40 or 64 && text.All(char.IsAsciiHexDigit);
 
