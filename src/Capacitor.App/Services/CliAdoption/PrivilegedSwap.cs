@@ -34,11 +34,11 @@ internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionReco
     /// The helper reports swapped a few renames after its pid; one silent for this long is told to put back.
     static readonly TimeSpan SwapWait = TimeSpan.FromSeconds(30);
 
-    /// <summary>Deleted or PutBack when the helper reported either. Without that report, a run that sent go is
-    /// CutShort, a cancelled prompt Cancelled, and anything else PutBack: no go was sent, so nothing was deleted.</summary>
+    /// <summary>Deleted or PutBack only on the helper's own report. A helper that never reported its pid never ran, so
+    /// any failure to that point is Cancelled; one that ran without reporting either outcome is CutShort.</summary>
     public async Task<PrivilegedResult> RunAsync(
             string installRoot, PrivilegedSpec spec, string prompt, Func<CancellationToken, Task<bool>> verify, CancellationToken ct) {
-        string[] args = ["-e", AppleScript, "--", prompt, PrivilegedSwapScript.Render(spec), .. PrivilegedSwapScript.Arguments(spec)];
+        string[] args = ["-e", AppleScript, "--", prompt, PrivilegedSwapScript.Render(spec), .. PrivilegedSwapScript.Arguments(spec, CurrentUid())];
         FileStream control;
         try {
             CreateChannel(spec);
@@ -46,17 +46,19 @@ internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionReco
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             Console.Error.WriteLine($"kcap: could not prepare the administrator helper: {ex.Message}");
             Remove(spec.ControlFifo);
-            return PrivilegedResult.PutBack;
+            return PrivilegedResult.Cancelled;
         }
 
         try {
             using (control) {
                 var helper = RunHelperAsync(args, ct);
                 var goSent = false;
+                var ran    = false;
                 var word   = PrivilegedSwapScript.PutBack;
                 try {
                     var status = await AwaitSwapAsync(spec.StatusFile, helper, ct).ConfigureAwait(false);
                     if (PidOf(status) is { } pid) {
+                        ran = true;
                         var operation = new PrivilegedOperation(installRoot, pid, ProcessStartToken.ForPid(pid), GoSent: false);
                         store.Update(r => r with { Privileged = operation });
                         if (status.Contains(PrivilegedSwapScript.Swapped) && !helper.IsCompleted && await verify(ct).ConfigureAwait(false)) {
@@ -69,17 +71,16 @@ internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionReco
                     Send(control, word);
                 }
 
-                var result    = await helper.ConfigureAwait(false);
-                var final     = ReadStatus(spec.StatusFile);
-                var cancelled = result is not null && AdministratorPrompt.WasCancelled(result);
-                if (result is { ExitCode: not 0 } && !cancelled)
+                var result = await helper.ConfigureAwait(false);
+                var final  = ReadStatus(spec.StatusFile);
+                ran |= PidOf(final) is not null;
+                if (result is { ExitCode: not 0 } && !AdministratorPrompt.WasCancelled(result))
                     Console.Error.WriteLine($"kcap: the administrator helper failed: {result.Stderr.Trim()}");
 
                 return final.Contains(PrivilegedSwapScript.Deleted)  ? PrivilegedResult.Deleted
                      : final.Contains(PrivilegedSwapScript.Restored) ? PrivilegedResult.PutBack
-                     : goSent                                        ? PrivilegedResult.CutShort
-                     : cancelled                                     ? PrivilegedResult.Cancelled
-                     : PrivilegedResult.PutBack;
+                     : goSent || ran                                 ? PrivilegedResult.CutShort
+                     : PrivilegedResult.Cancelled;
             }
         } finally {
             Remove(spec.ControlFifo);
@@ -87,12 +88,15 @@ internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionReco
         }
     }
 
-    /// <summary>Makes the owner-only control pipe, and clears a status file an earlier run left: the helper refuses to
-    /// start over one.</summary>
+    /// <summary>Makes the owner-only control pipe and the status file's 0700 folder, and clears a status file an earlier
+    /// run left: the helper refuses to start over one, or in a folder that is not private.</summary>
     internal static void CreateChannel(PrivilegedSpec spec) {
         if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("The administrator helper runs on macOS only.");
+        const UnixFileMode Private = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
         foreach (var path in new[] { spec.ControlFifo, spec.StatusFile }) {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var folder = Path.GetDirectoryName(path)!;
+            Directory.CreateDirectory(folder, Private);
+            if (new DirectoryInfo(folder).LinkTarget is null) File.SetUnixFileMode(folder, Private);
             File.Delete(path);
         }
         if (mkfifo(spec.ControlFifo, 0b110_000_000) != 0)
@@ -156,7 +160,12 @@ internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionReco
         }
     }
 
+    internal static uint CurrentUid() => getuid();
+
     // mode_t is 16 bits on macOS.
     [LibraryImport("libc", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
     private static partial int mkfifo(string path, ushort mode);
+
+    [LibraryImport("libc")]
+    private static partial uint getuid();
 }
