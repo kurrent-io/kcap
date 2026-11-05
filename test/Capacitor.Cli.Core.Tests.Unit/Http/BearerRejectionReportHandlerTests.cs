@@ -65,7 +65,9 @@ public class BearerRejectionReportHandlerTests {
         using var accepted = await listener.AcceptTcpClientAsync();
         time.Advance(BearerRejectionReportHandler.DefaultWebSocketConnectTimeout);
 
-        await Assert.That(async () => await connect.WaitAsync(TimeSpan.FromSeconds(5))).Throws<TimeoutException>();
+        // A guard that cancels rather than times out, so a connect that never returns fails the assertion.
+        using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await Assert.That(async () => await connect.WaitAsync(guard.Token)).Throws<TimeoutException>();
     }
 
     [Test]
