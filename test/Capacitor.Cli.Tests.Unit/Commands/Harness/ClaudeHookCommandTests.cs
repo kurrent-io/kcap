@@ -1525,8 +1525,8 @@ public class ClaudeHookCommandTests {
         await Assert.That(body!["workspace_root"]).IsNull();
     }
 
-    static string SessionStartHook(string source) =>
-        $$"""{"hook_event_name":"SessionStart","source":"{{source}}","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""";
+    string SessionStartHook(string source) =>
+        $$"""{"hook_event_name":"SessionStart","source":"{{source}}","session_id":"{{Sid}}","transcript_path":"/none","cwd":"{{AbsentCwd(Tmp)}}"}""";
 
     static async Task<JsonNode> SpooledBody(Fixture fx) {
         var content = await File.ReadAllTextAsync(fx.SpoolFiles.Single());
