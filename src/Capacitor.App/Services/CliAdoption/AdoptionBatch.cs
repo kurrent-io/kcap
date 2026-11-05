@@ -221,7 +221,7 @@ internal sealed class AdoptionBatch(
         install is { HolderPid: { } pid, HolderStartToken: { } token } && machine.StillRuns(pid, token);
 
     // Holders are cleared for the deletion check to record afresh: a recheck acts only on installs this launch carried
-    // that far.
+    // that far. A left install found left for another reason is another outcome, with a notice of its own.
     AdoptionRecord RecordIntent(IReadOnlyList<InstallPlan> plans) {
         var left = new List<InstallPlan>();
         var record = store.Update(r => {

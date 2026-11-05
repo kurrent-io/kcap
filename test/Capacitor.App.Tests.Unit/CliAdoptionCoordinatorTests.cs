@@ -396,6 +396,42 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Notifier.Notified[1]).Contains("kcap daemon stop --name spare");
     }
 
+    /// <summary>Fixing the shell profile does not reach the PATH a service saved when it was installed. Once only that
+    /// PATH lists the install's folder, the outcome is a new one, told once with how to give that service a fresh PATH,
+    /// and the switch finishes when it has one.</summary>
+    [Test]
+    public async Task A_folder_left_on_a_service_PATH_is_told_on_its_own_and_switches_once_that_PATH_is_fresh() {
+        var world = new AdoptionWorld(Tmp);
+        var own   = world.Install.CliBinary;
+        var (login, stored) = (own, own);
+        world.Machine.Evidence = _ => {
+            var found = world.Found();
+            return Task.FromResult(found with {
+                KcapOnLoginPath = login, Units = [.. found.Units.Select(u => u with { KcapOnStoredPath = stored })],
+            });
+        };
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Record.Installs.Single().Reason).IsEqualTo(LeftReason.OwnFolderOnPath);
+        await Assert.That(world.Notifier.Notified.Single()).Contains("shell profile");
+
+        login = world.Link;
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        await Assert.That(world.Record.Installs.Single().Reason).IsEqualTo(LeftReason.OwnFolderOnServicePath);
+        await Assert.That(world.Notifier.Notified.Count).IsEqualTo(2);
+        await Assert.That(world.Notifier.Notified[^1]).Contains($"kcap daemon service install --replace --name {AdoptionWorld.DaemonName}");
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+
+        stored = world.Link;
+        using (var last = world.Launch()) await world.FirstLookAsync(last);
+
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+        await Assert.That(world.Notifier.Notified.Count).IsEqualTo(3);
+    }
+
     /// <summary>A login shell that already finds the bundle elsewhere leaves the install's own link in place on every PATH
     /// that reaches it; the switch points that link at the bundle too before the install goes.</summary>
     [Test]

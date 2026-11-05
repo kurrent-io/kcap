@@ -104,6 +104,21 @@ public class AdoptionPreflightTests {
         await Assert.That(plan.Installs[0].Left).IsEqualTo(LeftReason.OwnFolderOnPath);
     }
 
+    /// <summary>A service's saved PATH is fixed by giving that service a fresh one, not by a shell profile, so the plan
+    /// names the service; the login PATH listing the folder too is what the user fixes first.</summary>
+    [Test]
+    public async Task A_service_PATH_naming_the_install_folder_leaves_it_for_that_service() {
+        var s   = Script("a");
+        var own = Path.Combine(s.Install.Root, "current", "bin", "kcap");
+
+        var service = Plan(Evidence([s.Install], s.Link, units: [Unit("u", own)]), stable: s.LinkFolder);
+        var both    = Plan(Evidence([s.Install], own, units: [Unit("u", own)]), stable: s.LinkFolder);
+
+        await Assert.That((service.Installs[0].Left, service.Installs[0].Cause)).IsEqualTo(((LeftReason?)LeftReason.OwnFolderOnServicePath, "u"));
+        await Assert.That((both.Installs[0].Left, both.Installs[0].Cause))
+            .IsEqualTo(((LeftReason?)LeftReason.OwnFolderOnPath, Path.GetDirectoryName(own)));
+    }
+
     [Test]
     public async Task A_left_install_that_wins_the_login_PATH_does_not_hold_an_eligible_one() {
         var left = Script("a");
