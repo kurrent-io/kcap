@@ -28,14 +28,11 @@ public class ClaudeHookSessionStartRelayTests {
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
     }
 
-    /// The relay rides ahead of client creation, so it is exercised through HandleWithDeps and
-    /// asserted on the bridge itself, never on the server.
-    async Task<int> RunAsync(HostedAgent hosted, string eventName) {
-        using var client = new HttpClient(new OkHandler());
-        var payload = $$$"""{"hook_event_name":"{{{eventName}}}","session_id":"{{{Sid}}}","cwd":"/tmp","source":"startup"}""";
-        return await new ClaudeHookCommand(Config.Root, Resolutions.At("http://server.example", Config.Root), new HookClock(new FakeTimeProvider()), Home, TestHarnesses.Under(Home), hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("http://server.example", Config.Root), new FixedCapacitorHttpClient()), SystemProcessStarter.Instance, router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
-            .HandleWithDeps(new HookSpool(Config.Root, time: TimeProvider.System, server: null), new StringReader(payload), () => Task.FromResult(new AuthAttempt(client, AuthStatus.Ok, null, null)), new StringWriter());
-    }
+    static string Payload(string eventName) =>
+        $$$"""{"hook_event_name":"{{{eventName}}}","session_id":"{{{Sid}}}","cwd":"/tmp","source":"startup"}""";
+
+    ClaudeHookCommand Command(HostedAgent hosted) =>
+        new(Config.Root, Resolutions.At("http://server.example", Config.Root), new HookClock(new FakeTimeProvider()), Home, TestHarnesses.Under(Home), hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("http://server.example", Config.Root), new FixedCapacitorHttpClient()), SystemProcessStarter.Instance, router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None);
 
     static WireMockServer Bridge() {
         var bridge = WireMockServer.Start();
@@ -48,9 +45,8 @@ public class ClaudeHookSessionStartRelayTests {
         using var bridge = Bridge();
         var hosted = new HostedAgent("agent-1", IsRendered: false, new DaemonBridge.Loopback($"http://127.0.0.1:{bridge.Ports[0]}/tok"));
 
-        var exit = await RunAsync(hosted, "SessionStart");
+        await Command(hosted).RelaySessionStartAsync(Payload("SessionStart"));
 
-        await Assert.That(exit).IsEqualTo(0);
         var body = JsonNode.Parse(bridge.LogEntries.Single(e => e.RequestMessage.Path == Route).RequestMessage.Body!)!;
         await Assert.That(body["agent_id"]!.GetValue<string>()).IsEqualTo("agent-1");
         await Assert.That(body["session_id"]!.GetValue<string>()).IsEqualTo(Sid);
@@ -63,7 +59,7 @@ public class ClaudeHookSessionStartRelayTests {
         using var bridge = Bridge();
         var hosted = new HostedAgent("agent-1", IsRendered: false, new DaemonBridge.Loopback($"http://127.0.0.1:{bridge.Ports[0]}/tok"));
 
-        await RunAsync(hosted, "Notification");
+        await Command(hosted).RelaySessionStartAsync(Payload("Notification"));
 
         await Assert.That(bridge.LogEntries.Count(e => e.RequestMessage.Path == Route)).IsEqualTo(0);
     }
@@ -75,8 +71,23 @@ public class ClaudeHookSessionStartRelayTests {
         using var bridge = Bridge();
         var unhosted = new HostedAgent(null, IsRendered: false, new DaemonBridge.Loopback($"http://127.0.0.1:{bridge.Ports[0]}/tok"));
 
-        await RunAsync(unhosted, "SessionStart");
+        await Command(unhosted).RelaySessionStartAsync(Payload("SessionStart"));
 
         await Assert.That(bridge.LogEntries.Count).IsEqualTo(0);
+    }
+
+    /// Program runs the claim and the global spool drain between the two, and either can spend the
+    /// whole hook budget, so the main handler must not be what sends this.
+    [Test]
+    public async Task The_main_handler_leaves_the_notice_to_the_early_relay() {
+        using var bridge = Bridge();
+        var hosted = new HostedAgent("agent-1", IsRendered: false, new DaemonBridge.Loopback($"http://127.0.0.1:{bridge.Ports[0]}/tok"));
+        using var client = new HttpClient(new OkHandler());
+
+        await Command(hosted).HandleWithDeps(
+            new HookSpool(Config.Root, time: TimeProvider.System, server: null), new StringReader(Payload("SessionStart")),
+            () => Task.FromResult(new AuthAttempt(client, AuthStatus.Ok, null, null)), new StringWriter());
+
+        await Assert.That(bridge.LogEntries.Count(e => e.RequestMessage.Path == Route)).IsEqualTo(0);
     }
 }
