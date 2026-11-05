@@ -7,8 +7,9 @@ public enum LeftReason { OwnFolderOnPath, UnsupervisedDaemon, PromptCancelled, D
 /// <summary>A link on the PATH the app repointed: <paramref name="Original"/> is what it held before.</summary>
 public sealed record LinkChange(string Path, string Original, string Replacement);
 
-/// <summary><paramref name="HeldBy"/>, <paramref name="HolderPid"/> and <paramref name="HolderStartToken"/> name the
-/// process that kept the install from being switched, when one did.</summary>
+/// <summary><paramref name="HeldBy"/>, <paramref name="HolderPid"/> and <paramref name="HolderStartToken"/> name what
+/// keeps a pending install from being deleted, when something did. For a left install, <paramref name="HeldBy"/> is the
+/// <see cref="InstallPlan.Cause"/> that left it.</summary>
 public sealed record RecordedInstall(
     OtherCliInstall Install, InstallState State, LeftReason? Reason, string? HeldBy, int? HolderPid, string? HolderStartToken);
 

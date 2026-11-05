@@ -69,4 +69,23 @@ public class AdoptionNoticesTests {
 
         await Assert.That(notifier.Notified).IsEquivalentTo(["was removed"]);
     }
+
+    /// <summary>A left install's notice names what to change and that the app finishes the switch afterwards; its key
+    /// stays the same whatever the cause, so one outcome is told once.</summary>
+    [Test]
+    public async Task A_left_notice_says_what_finishes_it() {
+        var install = new OtherCliInstall(OtherCliInstallKind.Script, "/Users/u/.kcap", "1.0.0", "/Users/u/.kcap/current/bin/kcap",
+            "/Users/u/.kcap/current/bin/kcap-daemon", "id", ["/Users/u/.kcap/versions", "/Users/u/.kcap/current", "/Users/u/.kcap/install.json"]);
+
+        var path   = AdoptionNotices.Left(install, LeftReason.OwnFolderOnPath, "/Users/u/.kcap/current/bin");
+        var daemon = AdoptionNotices.Left(install, LeftReason.UnsupervisedDaemon, "manual");
+
+        await Assert.That(path).Contains("/Users/u/.kcap/current/bin");
+        await Assert.That(path).Contains("open kcap again to finish switching");
+        await Assert.That(daemon).Contains("kcap daemon stop --name manual --keep-agents");
+        await Assert.That(daemon).Contains("open kcap again to finish switching");
+        foreach (var reason in Enum.GetValues<LeftReason>())
+            await Assert.That(AdoptionNotices.Left(install, reason, "x")).DoesNotContain("npm uninstall");
+        await Assert.That(AdoptionNotices.LeftKey(install, LeftReason.UnsupervisedDaemon)).IsEqualTo("left:/Users/u/.kcap:UnsupervisedDaemon");
+    }
 }

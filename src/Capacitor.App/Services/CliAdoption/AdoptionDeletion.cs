@@ -12,21 +12,36 @@ namespace Capacitor.App.Services.CliAdoption;
 internal sealed class AdoptionDeletion(
         IAdoptionMachine machine, AdoptionRecordStore store, AsideRetirement retirement, HarnessRegistry harnesses, string bundleRoot,
         Action<string, (string Key, string? Value)[]> log) {
-    internal const string Changed      = "changed";
-    internal const string RetireFailed = "retire_failed";
+    internal const string Changed            = "changed";
+    internal const string RetireFailed       = "retire_failed";
+    internal const string IdentityUnreadable = "identity_unreadable";
+    internal const string EntriesUnknown     = "entries_unknown";
+
+    /// <summary>Holds every install when the process list lacks this app's own process, which every real list holds:
+    /// the list could not be read, and an empty one would say nothing runs from any install.</summary>
+    internal const string ProcessesUnreadable = "processes:unreadable";
+
+    /// <summary>Holds an install, as <c>unfinished:&lt;entry&gt;</c>, while an aside of one of its entries left by an
+    /// earlier run could not be deleted; held for all when the retirement record itself could not be read.</summary>
+    internal const string Unfinished = "unfinished:";
 
     const string PidHolder = "pid:";
 
     /// <param name="processes">This user's processes, read once for every install.</param>
     /// <param name="sites">Everything that can name an install, read once for every install.</param>
+    /// <param name="unfinished">The entries whose interrupted retirement could not be finished; null when that is
+    /// unknown.</param>
     public async Task SettleAsync(
             IReadOnlyList<OtherCliInstall> installs, IReadOnlyList<ProcessFact> processes, IReadOnlyList<ReferenceSite> sites,
-            CancellationToken ct) {
+            IReadOnlyList<string>? unfinished, CancellationToken ct) {
         if (installs.Count == 0 || store.Load().CutoverUtc is not { } cutover) return;
+        var processesRead = processes.Any(p => p.Pid == Environment.ProcessId);
 
         foreach (var install in installs) {
             ct.ThrowIfCancellationRequested();
-            var holder = AdoptionConsumers.Holder(install, cutover, processes, sites, harnesses, bundleRoot)
+            var holder = UnfinishedEntry(install, unfinished)
+                      ?? (processesRead ? null : ProcessesUnreadable)
+                      ?? AdoptionConsumers.Holder(install, cutover, processes, sites, harnesses, bundleRoot)
                       ?? await ChangedAsync(install, ct).ConfigureAwait(false);
             if (holder is not null) {
                 Hold(install, holder);
@@ -43,14 +58,29 @@ internal sealed class AdoptionDeletion(
         }
     }
 
-    // A reinstall at the same path is another install: preflight plans it afresh on a later launch.
-    async Task<string?> ChangedAsync(OtherCliInstall install, CancellationToken ct) =>
-        await machine.ReadInstallAsync(install.CliBinary, ct).ConfigureAwait(false) is { } now && now.Identity != install.Identity
-            ? Changed
-            : null;
+    static string? UnfinishedEntry(OtherCliInstall install, IReadOnlyList<string>? unfinished) {
+        if (unfinished is null) return Unfinished + install.Root;
+        var entry = install.OwnedEntries.FirstOrDefault(e => unfinished.Contains(Path.GetFullPath(e), PathComparison.Comparer));
+        return entry is null ? null : Unfinished + entry;
+    }
 
+    // A reinstall at the same path is another install: preflight plans it afresh on a later launch. An install that
+    // cannot be read is one being changed, as mid `npm install -g`, unless its binaries are gone already: a retirement
+    // cut short deletes the entry holding them first, and is finished here.
+    async Task<string?> ChangedAsync(OtherCliInstall install, CancellationToken ct) {
+        if (await machine.ReadInstallAsync(install.CliBinary, ct).ConfigureAwait(false) is { } now)
+            return now.Identity == install.Identity && now.Version == install.Version ? null : Changed;
+
+        return File.Exists(install.CliBinary) || File.Exists(install.DaemonBinary) ? IdentityUnreadable : null;
+    }
+
+    // A record that lost the entries an install owns cannot say what deleting it means.
     string? Retire(OtherCliInstall install) {
-        foreach (var entry in install.OwnedEntries) {
+        if (install.OwnedEntries.Count == 0) {
+            log("adoption_retired", AdoptionEvent.For(install, "failed", EntriesUnknown));
+            return EntriesUnknown;
+        }
+        foreach (var entry in install.OwnedEntries.OrderByDescending(e => HoldsBinaries(install, e))) {
             bool retired;
             try {
                 retired = retirement.Retire(entry, aside => StillOurs(install, entry, aside));
@@ -91,16 +121,20 @@ internal sealed class AdoptionDeletion(
         log("adoption_switched", AdoptionEvent.For(install));
     }
 
+    static bool HoldsBinaries(OtherCliInstall install, string entry) =>
+        CanonicalPath.IsWithin(install.CliBinary, entry) || CanonicalPath.IsWithin(install.DaemonBinary, entry);
+
     static bool Into(LinkChange link, OtherCliInstall install) {
         var target = Path.IsPathRooted(link.Original) ? link.Original : Path.Join(Path.GetDirectoryName(link.Path), link.Original);
         return install.OwnedEntries.Prepend(install.Root).Any(folder => CanonicalPath.IsWithin(target, folder));
     }
 
-    // Checked on the renamed entry, so a tree put in its place between the identity check and the rename is not deleted.
+    // Checked on the renamed entry, so a tree put in its place since the identity check is never deleted: an npm
+    // package must still be kcap's at the recorded version, which a reinstall at the same path changes.
     static bool StillOurs(OtherCliInstall install, string entry, string aside) {
         var link = new FileInfo(aside).LinkTarget is not null;
         if (install.Kind == OtherCliInstallKind.Npm)
-            return !link && PackageName(aside) is { } name
+            return !link && Package(aside) is ({ } name, { } version) && version == install.Version
                 && (name == OtherCliInstallReader.NpmPackage || name.StartsWith(OtherCliInstallReader.NpmPackage + "-", StringComparison.Ordinal));
 
         return Path.GetFileName(entry) switch {
@@ -110,12 +144,12 @@ internal sealed class AdoptionDeletion(
         };
     }
 
-    static string? PackageName(string folder) {
+    static (string? Name, string? Version) Package(string folder) {
         try {
             using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(folder, "package.json")));
-            return doc.RootElement.Str("name");
+            return (doc.RootElement.Str("name"), doc.RootElement.Str("version"));
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) {
-            return null;
+            return (null, null);
         }
     }
 }

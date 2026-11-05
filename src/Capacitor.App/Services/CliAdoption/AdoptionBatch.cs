@@ -5,7 +5,8 @@ namespace Capacitor.App.Services.CliAdoption;
 /// <summary>One takeover batch, in order: preflight, intent, integrations, PATH, the daemon services, then the deletion
 /// check and the deletion. Every launch starts from fresh evidence; an install the record holds pending stays pending
 /// however little of it the evidence still sees, since a finished switch leaves nothing that names it. Each run says
-/// whether the record is still pending.</summary>
+/// whether a recheck should follow; a launch that changed nothing because it was held asks for none, since its record
+/// still carries the holders an earlier launch found.</summary>
 internal sealed class AdoptionBatch(
         IAdoptionMachine machine, AdoptionRecordStore store, AsideRetirement retirement, AdoptionIntegrations integrations,
         AdoptionPathStep path, AdoptionNotices notices, IAppStateStore appState, HarnessRegistry harnesses, AdoptionBundle bundle,
@@ -18,14 +19,14 @@ internal sealed class AdoptionBatch(
     readonly AdoptionDeletion    _deletion = new(machine, store, retirement, harnesses, bundle.Root, log);
 
     public async Task<bool> RunOnceAsync(CancellationToken ct) {
-        retirement.FinishInterrupted();
+        var unfinished = FinishInterrupted();
 
         AdoptionEvidence evidence;
         try {
             evidence = await machine.ReadEvidenceAsync(ct).ConfigureAwait(false);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             log("adoption_held", [("reason", EvidenceUnavailable), ("result", ex.Message)]);
-            return store.Load().Pending;
+            return false;
         }
         foreach (var found in evidence.Installs) log("adoption_found", AdoptionEvent.For(found));
 
@@ -33,7 +34,7 @@ internal sealed class AdoptionBatch(
         var plan = AdoptionPreflight.Plan(evidence, record, bundle.Version, bundle.Cli, bundle.InSystemApplications, userCanWrite, stableFolders);
         if (plan.HoldReason is { } hold) {
             log("adoption_held", [("reason", hold)]);
-            return record.Pending;
+            return false;
         }
         if (record.MachineSwitched) {
             Report(plan.Reported, record);
@@ -56,15 +57,15 @@ internal sealed class AdoptionBatch(
         if (moved.Count > 0) {
             var processes = machine.ReadProcesses();
             var sites     = await machine.ReadSitesAsync(ct).ConfigureAwait(false);
-            await _deletion.SettleAsync(moved, processes, sites, ct).ConfigureAwait(false);
+            await _deletion.SettleAsync(moved, processes, sites, unfinished, ct).ConfigureAwait(false);
         }
 
         return Finish(moved);
     }
 
-    /// <summary>The deletion check alone, for installs a launch has already moved. One whose recorded holder is still
-    /// the same process is left without reading anything; one no launch has carried to the check waits for the next
-    /// launch, which alone proves its PATH and daemon moved.</summary>
+    /// <summary>The deletion check alone, for installs a launch run has already moved. One whose recorded holder is
+    /// still the same process is left without reading anything; one no launch run has carried to the check is left to
+    /// the next one, which alone proves its PATH and daemon moved.</summary>
     public async Task<bool> RecheckAsync(CancellationToken ct) {
         var record = store.Load();
         if (!record.Pending) return false;
@@ -74,19 +75,32 @@ internal sealed class AdoptionBatch(
             .Select(i => i.Install).ToList();
         if (due.Count == 0) return true;
 
-        retirement.FinishInterrupted();
-        var processes = machine.ReadProcesses();
-        var sites     = await machine.ReadSitesAsync(ct).ConfigureAwait(false);
+        var unfinished = FinishInterrupted();
+        var processes  = machine.ReadProcesses();
+        var sites      = await machine.ReadSitesAsync(ct).ConfigureAwait(false);
         if (record.CutoverUtc is { } cutover && Named(due, cutover, sites)) {
             var done = await integrations.RepointAsync(foundNamed: true, ct).ConfigureAwait(false);
             log("adoption_integrations", [("result", done ? "ok" : "failed"), ("reason", "named")]);
         }
-        await _deletion.SettleAsync(due, processes, sites, ct).ConfigureAwait(false);
+        await _deletion.SettleAsync(due, processes, sites, unfinished, ct).ConfigureAwait(false);
 
         return Finish([]);
     }
 
     public void Dispose() => notices.Dispose();
+
+    // Asides a crash left behind are finished before anything else is retired. Null when the retirement record could
+    // not be read, which holds every deletion this run.
+    IReadOnlyList<string>? FinishInterrupted() {
+        try {
+            var unfinished = retirement.FinishInterrupted();
+            foreach (var entry in unfinished) log("adoption_retired", [("install", entry), ("result", "failed"), ("reason", "aside_not_deleted")]);
+            return unfinished;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TimeoutException) {
+            log("adoption_retired", [("result", "failed"), ("reason", ex.Message)]);
+            return null;
+        }
+    }
 
     bool StillHeld(RecordedInstall install) =>
         install is { HolderPid: { } pid, HolderStartToken: { } token } && machine.StillRuns(pid, token);
@@ -106,7 +120,9 @@ internal sealed class AdoptionBatch(
                     if (at >= 0 && installs[at] is { State: InstallState.Left } kept && kept.Install.Identity == plan.Install.Identity) continue;
                     left.Add(plan);
                 }
-                var next = new RecordedInstall(plan.Install, plan.Left is null ? InstallState.Pending : InstallState.Left, plan.Left, null, null, null);
+                var next = plan.Left is null
+                    ? new RecordedInstall(plan.Install, InstallState.Pending, null, null, null, null)
+                    : new RecordedInstall(plan.Install, InstallState.Left, plan.Left, plan.Cause, null, null);
                 if (at >= 0) installs[at] = next;
                 else installs.Add(next);
             }
@@ -160,7 +176,7 @@ internal sealed class AdoptionBatch(
                     notices.Post(AdoptionNotices.SwitchedKey(install), AdoptionNotices.Switched(install, removed: false));
                     break;
                 case InstallState.Left when recorded.Reason is { } reason:
-                    notices.Post(AdoptionNotices.LeftKey(install, reason), AdoptionNotices.Left(install, reason));
+                    notices.Post(AdoptionNotices.LeftKey(install, reason), AdoptionNotices.Left(install, reason, recorded.HeldBy));
                     break;
             }
         }
@@ -168,6 +184,9 @@ internal sealed class AdoptionBatch(
         return record.Pending;
     }
 
+    // An install left for a cause the user can remove is still to be switched once it is gone, which a machine
+    // recorded as switched would only report.
     static bool Settled(AdoptionRecord record) =>
-        record.Installs.Count > 0 && record.Installs.All(i => i.State != InstallState.Pending);
+        record.Installs.Count > 0 && record.Installs.All(i =>
+            i.State == InstallState.Switched || i is { State: InstallState.Left, Reason: { } reason } && !AdoptionPreflight.Rederived(reason));
 }

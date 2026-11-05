@@ -91,4 +91,38 @@ public class AdoptionRecordStoreTests {
 
         await Assert.That(store.Load().NoticesShown.Count).IsEqualTo(8);
     }
+
+    /// <summary>A file that leaves a list out, as a sparse or older one does, loads that list empty rather than null.</summary>
+    [Test]
+    public async Task A_sparse_file_loads_every_list_empty() {
+        Directory.CreateDirectory(Config.Directory);
+        File.WriteAllText(FilePath, "{}");
+
+        var loaded = new AdoptionRecordStore(Config).Load();
+
+        await Assert.That(loaded.Installs).IsEmpty();
+        await Assert.That(loaded.Links).IsEmpty();
+        await Assert.That(loaded.NoticesShown).IsEmpty();
+        await Assert.That(loaded.Pending).IsFalse();
+
+        var updated = new AdoptionRecordStore(Config).Update(r => r with { NoticesShown = [.. r.NoticesShown, "switched:/p"] });
+        await Assert.That(updated.NoticesShown).IsEquivalentTo(["switched:/p"]);
+    }
+
+    [Test]
+    public async Task A_record_without_notices_or_owned_entries_keeps_its_installs() {
+        Directory.CreateDirectory(Config.Directory);
+        File.WriteAllText(FilePath, """
+            {"installs":[{"install":{"kind":"Npm","root":"/p","version":"1.2.3","cli_binary":"/p/bin/kcap",
+              "daemon_binary":"/p/bin/kcap-daemon","identity":"ident"},"state":"Pending"}],"links":[]}
+            """);
+
+        var loaded = new AdoptionRecordStore(Config).Load();
+
+        await Assert.That(loaded.Installs.Single().Install.Root).IsEqualTo("/p");
+        await Assert.That(loaded.Installs.Single().Install.OwnedEntries).IsEmpty();
+        await Assert.That(loaded.NoticesShown).IsEmpty();
+        await Assert.That(loaded.Pending).IsTrue();
+    }
 }
+

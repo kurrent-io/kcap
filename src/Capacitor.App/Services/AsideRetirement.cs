@@ -51,13 +51,20 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
         return true;
     }
 
-    /// <summary>Deletes every recorded aside that passes the guards; records whose rename never happened are dropped.</summary>
-    public void FinishInterrupted() {
+    /// <summary>Deletes every recorded aside that passes the guards; records whose rename never happened are dropped.
+    /// Returns the originals whose aside could not be deleted: they stay recorded for the next call.</summary>
+    public IReadOnlyList<string> FinishInterrupted() {
+        var unfinished = new List<string>();
         foreach (var planned in Snapshot()) {
-            if (Exists(planned.Aside) && IsOwnAside(planned.Original, planned.Aside, planned.Kind == Link))
-                DeleteAside(planned.Original, planned.Aside, planned.Kind);
-            Forget(planned.Original);
+            try {
+                if (Exists(planned.Aside) && IsOwnAside(planned.Original, planned.Aside, planned.Kind == Link))
+                    DeleteAside(planned.Original, planned.Aside, planned.Kind);
+                Forget(planned.Original);
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                unfinished.Add(planned.Original);
+            }
         }
+        return unfinished;
     }
 
     /// <summary>The name a set-aside entry must carry: beside the original, with the generated suffix, and a link

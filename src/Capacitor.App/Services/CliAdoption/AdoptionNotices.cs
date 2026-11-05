@@ -75,8 +75,9 @@ internal sealed class AdoptionNotices : IDisposable {
     internal static string Switched(OtherCliInstall install, bool removed) =>
         $"kcap now uses the app's command-line tool. The {Name(install)} {(removed ? "was removed." : "is removed once nothing still uses it.")}";
 
-    internal static string Left(OtherCliInstall install, LeftReason reason) =>
-        $"kcap kept the {Name(install)} at {install.Root}: {Why(reason)}.";
+    /// <param name="cause">The PATH folder or daemon that left it, when the plan named one.</param>
+    internal static string Left(OtherCliInstall install, LeftReason reason, string? cause) =>
+        $"kcap kept the {Name(install)} at {install.Root}: {Why(reason, cause)}";
 
     internal static string Reported(OtherCliInstall install) =>
         $"kcap found the {Name(install)} at {install.Root} and left it in place. A terminal may run it instead of the app's command-line tool.";
@@ -84,12 +85,17 @@ internal sealed class AdoptionNotices : IDisposable {
     static string Name(OtherCliInstall install) =>
         $"{(install.Kind == OtherCliInstallKind.Npm ? "npm" : "script")} install of kcap {install.Version}";
 
-    static string Why(LeftReason reason) => reason switch {
-        LeftReason.OwnFolderOnPath         => "your PATH names a folder inside it, and removing it would leave no kcap on that PATH",
-        LeftReason.UnsupervisedDaemon      => "a kcap daemon its service did not start runs from it",
-        LeftReason.PromptCancelled         => "the administrator prompt was cancelled",
-        LeftReason.DeletionCutShort        => "removing it was cut short",
-        LeftReason.SharedInstallPrivateApp => "it serves every account on this Mac, and this app is installed for you alone",
-        _                                  => "it could not be switched",
+    // Each reason a user can clear says how; the app then finishes the switch on its next launch.
+    static string Why(LeftReason reason, string? cause) => reason switch {
+        LeftReason.OwnFolderOnPath =>
+            $"your PATH lists {cause ?? "a folder inside it"}, so removing the install would leave no kcap there. "
+          + "Remove that folder from PATH in your shell profile, then open kcap again to finish switching.",
+        LeftReason.UnsupervisedDaemon =>
+            $"the kcap daemon {(cause is null ? "" : $"'{cause}' ")}runs from it, and its service did not start it. "
+          + $"Stop it with kcap daemon stop{(cause is null ? "" : $" --name {cause}")} --keep-agents, then open kcap again to finish switching.",
+        LeftReason.PromptCancelled         => "the administrator prompt was cancelled.",
+        LeftReason.DeletionCutShort        => "removing it was cut short.",
+        LeftReason.SharedInstallPrivateApp => "it serves every account on this Mac, and this app is installed for you alone.",
+        _                                  => "it could not be switched.",
     };
 }

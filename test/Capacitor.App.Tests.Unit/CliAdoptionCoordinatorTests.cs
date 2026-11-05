@@ -38,7 +38,6 @@ public class CliAdoptionCoordinatorTests {
             CollectionOrdering.Matching);
         await Assert.That(world.Notifier.Notified.Single()).Contains($"npm install of kcap {AdoptionWorld.Version} was removed");
 
-        world.Machine.Evidence = _ => Task.FromResult(world.AfterSwitch());
         using (var next = world.Launch()) await world.FirstLookAsync(next);
 
         await Assert.That(world.Notifier.Notified.Count).IsEqualTo(1);
@@ -47,8 +46,8 @@ public class CliAdoptionCoordinatorTests {
     }
 
     /// <summary>Integrations and PATH move before the daemon, and a deferred daemon move undoes neither: the Mac runs the
-    /// app's kcap with the old install still on disk, which works. The next launch moves the daemon, and the service
-    /// file that named the install meanwhile is no integration, so the refresh is not run again.</summary>
+    /// app's kcap with the old install still on disk, which works. A later run moves the daemon, and the service file
+    /// that named the install meanwhile is no integration, so the refresh is not run again.</summary>
     [Test]
     public async Task A_busy_repoint_keeps_PATH_and_integrations_and_stays_pending() {
         var world = new AdoptionWorld(Tmp);
@@ -84,6 +83,153 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Root)).IsFalse();
         await Assert.That(world.Record.MachineSwitched).IsTrue();
         await Assert.That(world.Notifier.Notified.Count).IsEqualTo(1);
+    }
+
+    /// <summary>A held launch records no intent, so the holders an earlier launch found are still in the record: a
+    /// recheck acting on them would delete during a launch whose plan was held.</summary>
+    [Test]
+    [Arguments(AdoptionBatch.EvidenceUnavailable)]
+    [Arguments(AdoptionPreflight.NewerInstall)]
+    public async Task A_held_launch_arms_no_recheck_over_an_earlier_launch_s_holders(string hold) {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Processes = [world.OldSession(4300)];
+        world.Machine.Alive.Add(4300);
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        var newer = world.Install with { Root = Path.Combine(world.Home, ".kcap"), Version = "9.0.0" };
+        world.Machine.Evidence = hold == AdoptionBatch.EvidenceUnavailable
+            ? _ => throw new IOException("Could not determine the state of service 'io.kurrent.kcap.daemon.mac'.")
+            : _ => Task.FromResult(world.Found() with { Installs = [newer] });
+        using var held = world.Launch();
+        await world.FirstLookAsync(held);
+        await Assert.That(world.Logged("adoption_held").Single()["reason"]).IsEqualTo(hold);
+
+        world.Machine.Alive.Clear();
+        world.Machine.Processes = [];
+        var reads = world.Machine.ProcessReads;
+        await world.RecheckAsync(held);
+
+        await Assert.That(world.Machine.ProcessReads).IsEqualTo(reads);
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+        await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+    }
+
+    /// <summary>An install that cannot be read while its binaries are there is being changed, as mid
+    /// <c>npm install -g</c>: it is held, never read as gone.</summary>
+    [Test]
+    public async Task An_install_that_cannot_be_read_while_its_binaries_are_there_is_held() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Processes = [world.OldSession(4300)];
+        world.Machine.Alive.Add(4300);
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        world.Machine.Alive.Clear();
+        world.Machine.Processes = [];
+        world.Machine.InstallsUnreadable = true;
+        await world.RecheckAsync(launch);
+
+        await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo(AdoptionDeletion.IdentityUnreadable);
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+        await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+    }
+
+    /// <summary>The entry holding the binaries goes first, so a retirement cut short after it leaves an install that
+    /// reads as gone, and the next check finishes it.</summary>
+    [Test]
+    public async Task A_retirement_cut_short_after_the_binaries_went_is_finished() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Processes = [world.OldSession(4300)];
+        world.Machine.Alive.Add(4300);
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        Directory.Delete(world.Platform, recursive: true);
+        world.Machine.Alive.Clear();
+        world.Machine.Processes = [];
+        await world.RecheckAsync(launch);
+
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+    }
+
+    /// <summary>A package reinstalled at the same path after the identity check carries another version; its renamed
+    /// folder is moved back, never deleted.</summary>
+    [Test]
+    public async Task A_package_reinstalled_at_another_version_is_never_deleted() {
+        var world = new AdoptionWorld(Tmp);
+        File.WriteAllText(Path.Combine(world.Platform, "package.json"), """{"name":"@kurrent/kcap-darwin-arm64","version":"9.9.9"}""");
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo(AdoptionDeletion.Changed);
+        await Assert.That(File.Exists(world.Install.DaemonBinary)).IsTrue();
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+    }
+
+    /// <summary>A real process list holds the app's own process; one without it could not be read, and would say that
+    /// nothing runs from the install.</summary>
+    [Test]
+    public async Task A_process_list_without_the_app_itself_holds_the_deletion() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.ProcessesUnreadable = true;
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo(AdoptionDeletion.ProcessesUnreadable);
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+        await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+    }
+
+    /// <summary>An aside an earlier run left that cannot be deleted holds its own install, and only that: the rest of
+    /// the batch still runs, and nothing of that install is retired past it.</summary>
+    [Test]
+    public async Task An_aside_that_cannot_be_deleted_holds_its_install_and_the_rest_runs() {
+        var world = new AdoptionWorld(Tmp);
+        var aside = new AsideRetirement(world.Config, "cli-adoption-retire").Plan(world.Root).Aside;
+        Directory.CreateDirectory(aside);
+        File.WriteAllText(Path.Combine(aside, "left-behind"), "");
+        File.SetUnixFileMode(aside, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try {
+            using var launch = world.Launch();
+            await world.FirstLookAsync(launch);
+
+            var failed = world.Logged("adoption_retired").Single();
+            await Assert.That(failed["install"]).IsEqualTo(world.Root);
+            await Assert.That(failed["result"]).IsEqualTo("failed");
+            await Assert.That(Target(world.Link)).IsEqualTo(world.Bundle.Cli);
+            await Assert.That(world.PlistProgram()).IsEqualTo(world.Bundle.Daemon);
+            await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo(AdoptionDeletion.Unfinished + world.Root);
+            await Assert.That(Directory.Exists(world.Root)).IsTrue();
+            await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+        } finally {
+            File.SetUnixFileMode(aside, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    /// <summary>A daemon its service did not start leaves the install, and the notice says which daemon to stop; once
+    /// it is stopped, the next launch finishes the switch.</summary>
+    [Test]
+    public async Task A_left_install_says_what_finishes_it_and_switches_once_that_is_done() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.OtherDaemons.Add(new RunningDaemonFact("manual", 4999, "tok-4999", world.Install.DaemonBinary));
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Left);
+        await Assert.That(world.Notifier.Notified.Single()).Contains("kcap daemon stop --name manual");
+        await Assert.That(Target(world.Link)).IsEqualTo("../lib/node_modules/@kurrent/kcap/bin/kcap.js");
+        await Assert.That(world.Record.MachineSwitched).IsFalse();
+
+        world.Machine.OtherDaemons.Clear();
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+        await Assert.That(world.Record.MachineSwitched).IsTrue();
+        await Assert.That(world.Notifier.Notified.Count).IsEqualTo(2);
     }
 
     /// <summary>The lane proves only the app's daemon answering; the service file must name the bundle's daemon too.</summary>
@@ -129,12 +275,6 @@ public class CliAdoptionCoordinatorTests {
     public async Task A_stopped_service_counts_once_its_plist_names_the_bundle_daemon() {
         var world = new AdoptionWorld(Tmp);
         world.Machine.Jobs[AdoptionWorld.DaemonName] = new LaunchdJob(false, null, null);
-        world.Machine.Evidence = _ => {
-            var found = world.Found();
-            return Task.FromResult(found with {
-                Units = [.. found.Units.Select(u => u with { Loaded = false, JobPid = null, LoadedProgram = null })], Daemons = [],
-            });
-        };
         world.Machine.Repoint = _ => {
             world.WritePlist(world.Bundle.Daemon);
             return new MutationOutcome.UnconfirmedNoAttach();
@@ -158,7 +298,6 @@ public class CliAdoptionCoordinatorTests {
         world.Machine.Alive.Add(4300);
         using (var launch = world.Launch()) await world.FirstLookAsync(launch);
 
-        world.Machine.Evidence = _ => Task.FromResult(world.AfterSwitch());
         world.Machine.Sites = [new ReferenceSite(Path.Combine(world.Home, ".codex", "hooks.json"), world.Install.CliBinary, true)];
         world.Refresh.ExitCode = 1;
         using var next = world.Launch();
@@ -355,7 +494,6 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo("pid:4300");
 
         var hooks = Path.Combine(world.Home, ".codex", "hooks.json");
-        world.Machine.Evidence = _ => Task.FromResult(world.AfterSwitch());
         world.Machine.Processes = [];
         world.Machine.Alive.Clear();
         world.Machine.Sites = [new ReferenceSite(hooks, $$"""{"command":"{{world.Install.CliBinary}} hook"}""", true)];
