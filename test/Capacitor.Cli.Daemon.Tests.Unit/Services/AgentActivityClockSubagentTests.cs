@@ -228,6 +228,28 @@ public class AgentActivityClockSubagentTests {
         await Assert.That(clock.NothingInFlight).IsTrue();
     }
 
+    /// <summary>The retired record is gone, so only the mark can tell the stop of an earlier run from this one's.</summary>
+    [Test]
+    public async Task An_overtaken_stop_leaves_a_later_retired_run_in_flight() {
+        var time  = new FakeTimeProvider();
+        var clock = new AgentActivityClock(time);
+        clock.SetAwaitingInput(true);
+        clock.SubagentSeen("a", 1_000);
+        time.Advance(Liveness);
+        clock.TakeSubagentExpiries();
+        clock.SubagentSeen("a", 5_000);
+        time.Advance(Liveness);
+        clock.TakeSubagentExpiries();
+
+        clock.SubagentStopped("a", 3_000);
+
+        await Assert.That(clock.NothingInFlight).IsFalse();
+
+        clock.SubagentStopped("a", 6_000);
+
+        await Assert.That(clock.NothingInFlight).IsTrue();
+    }
+
     [Test]
     public async Task The_parent_waiting_while_a_child_keeps_reporting_stays_waiting_with_the_child_counted() {
         var time  = new FakeTimeProvider();

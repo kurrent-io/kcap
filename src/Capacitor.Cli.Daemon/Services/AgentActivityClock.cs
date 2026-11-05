@@ -348,10 +348,11 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
     }
 
     readonly Dictionary<string, SubagentRecord> _subagents = new(StringComparer.Ordinal);
-    // Ids retired for age with no stop. Hooks are a child's only sign of life, so one inside a long tool call
-    // ages out while it runs. A stop that was really lost costs one unneeded nudge; a running child read as
-    // finished dies with the agent and nothing picks its work up.
-    readonly HashSet<string> _unsettledSubagents = new(StringComparer.Ordinal);
+    // Ids retired for age with no stop, each with its last report's stamp: the record that held it is gone, and
+    // a stop stamped earlier belongs to an earlier run. Hooks are a child's only sign of life, so one inside a long
+    // tool call ages out while it runs. A stop that was really lost costs one unneeded nudge; a running child read
+    // as finished dies with the agent and nothing picks its work up.
+    readonly Dictionary<string, long> _unsettledSubagents = new(StringComparer.Ordinal);
     bool _subagentsReported;
 
     /// <summary>A live id unreported this long is retired by <see cref="TakeSubagentExpiries"/>:
@@ -417,7 +418,7 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
         lock (_gate) {
             var first = !_subagentsReported;
             _subagentsReported = true;
-            _unsettledSubagents.Remove(id);
+            if (_unsettledSubagents.TryGetValue(id, out var lastReport) && sentAtMs >= lastReport) _unsettledSubagents.Remove(id);
             var now = time.GetTimestamp();
 
             if (!_subagents.TryGetValue(id, out var record)) {
@@ -454,7 +455,7 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
                 }
                 if (record.Live) {
                     retired = true;
-                    _unsettledSubagents.Add(id);
+                    _unsettledSubagents[id] = record.SentAtMs;
                 } else if (age < SubagentStampRetention) continue;
                 (gone ??= []).Add(id);
             }
