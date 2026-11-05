@@ -824,7 +824,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         using var codex  = EnvScope.Exclusive("CODEX_THREAD_ID", "inherited");
         using var grok   = EnvScope.Exclusive("GROK_SESSION_ID", "grok-own");
 
-        var config = new DaemonConfig { Name = "daemon-a", Store = NewPaths(), DaemonEpoch = "epoch-1" };
+        var config = new DaemonConfig { Name = "daemon-a", Store = NewPaths(), DaemonEpoch = "epoch-1", Home = new UserHome("/home/kcap-test") };
         AcpHostedAgentRuntimeFactory.VersionStoreFor(config, descriptor.Vendor).Affirm("99.0.0");
         var ctx = (isReviewFlow ? ReviewContext() : MakeContext("agent-1")) with { Vendor = vendor, DaemonName = "daemon-a" };
 
@@ -2706,7 +2706,8 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         var config = new DaemonConfig {
             OpenCodeUnattendedReviewerEnabled = true,
             Store = NewPaths(),
-            Name  = "test-daemon"
+            Name  = "test-daemon",
+            Home  = new UserHome("/home/kcap-test")
         };
 
         if (launchTimeoutSeconds is { } seconds)

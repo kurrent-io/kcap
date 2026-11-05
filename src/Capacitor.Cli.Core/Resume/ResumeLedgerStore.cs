@@ -47,7 +47,23 @@ public sealed class ResumeLedgerStore(string resumeDirectory, TimeProvider? time
             fs.Flush(flushToDisk: true);
         }
 
-        File.Move(tempPath, finalPath, overwrite: true);
+        Replace(tempPath, finalPath);
+    }
+
+    const int ReplaceAttempts = 25;
+
+    /// <summary>On Windows a replace fails while anything has the target open, even a reader allowing delete, and a
+    /// reader holds it only for one read. Without the retry that reader would cost the entry this write.</summary>
+    static void Replace(string tempPath, string finalPath) {
+        for (var attempt = 1;; attempt++) {
+            try {
+                File.Move(tempPath, finalPath, overwrite: true);
+
+                return;
+            } catch (Exception ex) when (OperatingSystem.IsWindows() && attempt < ReplaceAttempts && ex is IOException or UnauthorizedAccessException) {
+                Thread.Sleep(TimeSpan.FromMilliseconds(20));
+            }
+        }
     }
 
     static readonly TimeSpan DeleteLockWait = TimeSpan.FromSeconds(1);
@@ -101,19 +117,38 @@ public sealed class ResumeLedgerStore(string resumeDirectory, TimeProvider? time
         return results;
     }
 
+    static readonly TimeSpan MarkLockWait = TimeSpan.FromSeconds(5);
+
     public int MarkInterrupted(string reason, Func<ResumeLedgerEntry, bool>? where = null) {
         var changed = 0;
 
-        foreach (var entry in ReadAll()) {
-            // A newer-schema entry rewritten by this version would lose the fields this version does not know.
-            if (entry.State == ResumeState.Interrupted || entry.SchemaVersion > ResumeLedgerEntry.CurrentSchemaVersion) continue;
-            if (where is not null && !where(entry)) continue;
+        List<string>? held = null;
 
-            Write(entry with { State = ResumeState.Interrupted, LastError = reason, UpdatedAt = (time ?? TimeProvider.System).GetUtcNow() });
-            changed++;
+        // Under each entry's lock and from a fresh read, so a snapshot cannot replace a locked update. A write without the
+        // lock could lose what its holder commits, so an entry that stays locked is reported after the rest are marked:
+        // left as it is, it resumes at the next start.
+        foreach (var listed in ReadAll()) {
+            // Only an entry this call means to mark is worth waiting on another agent's lock for.
+            if (Interrupted(listed) is null) continue;
+
+            var result = TryUpdateUnderLock(listed.AgentId, Interrupted, MarkLockWait);
+
+            if (result == LockedUpdate.Written) changed++;
+            else if (result == LockedUpdate.LockTimeout) (held ??= []).Add(listed.AgentId);
         }
 
+        if (held is not null)
+            throw new IOException($"the resume entry of {string.Join(", ", held)} stayed locked and may resume at the next start");
+
         return changed;
+
+        ResumeLedgerEntry? Interrupted(ResumeLedgerEntry entry) {
+            // A newer-schema entry rewritten by this version would lose the fields this version does not know.
+            if (entry.State == ResumeState.Interrupted || entry.SchemaVersion > ResumeLedgerEntry.CurrentSchemaVersion) return null;
+            if (where is not null && !where(entry)) return null;
+
+            return entry with { State = ResumeState.Interrupted, LastError = reason, UpdatedAt = (time ?? TimeProvider.System).GetUtcNow() };
+        }
     }
 
     public static ResumeLedgerEntry? FindByAgentId(DaemonStore store, string agentId) =>

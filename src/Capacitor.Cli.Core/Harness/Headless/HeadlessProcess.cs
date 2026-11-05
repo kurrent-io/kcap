@@ -66,6 +66,8 @@ static class HeadlessProcess {
 
         var name = Path.GetFileNameWithoutExtension(psi.FileName);
 
+        // Armed before the start, so the whole of the timeout counts from before the process can do anything.
+        using var timeoutCts = new CancellationTokenSource(timeout, time);
         using var process = CliProcess.TryStart(psi, log);
 
         if (process is null) return null;
@@ -79,7 +81,6 @@ static class HeadlessProcess {
             if (onStderr?.Invoke(line) == true) killEarly.TrySetResult();
         });
 
-        using var timeoutCts = new CancellationTokenSource(timeout, time);
         using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
         using var survivors  = new Survivors(process, time);
         var       budget     = new CleanupBudget();

@@ -22,11 +22,23 @@ sealed record OpenCodeHeadlessConfig(string ConfigContent, string Permission, st
 
     static readonly JsonDocumentOptions Jsonc = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
-    /// <summary>Reads the two keys from OpenCode's own layers, later winning: the XDG global config directory's
-    /// files, the file <c>OPENCODE_CONFIG</c> names, <c>~/.opencode</c>, the directory <c>OPENCODE_CONFIG_DIR</c>
-    /// names, then <c>OPENCODE_CONFIG_CONTENT</c>. Throws <see cref="HeadlessRunRefusedException"/> naming a layer
-    /// that is present but cannot be read or parsed, since OpenCode would refuse it too.</summary>
+    /// <summary>The whole configuration for a headless run: <see cref="UserModelAndProvider"/> with every tool off and
+    /// every permission denied, plus the user's credentials.</summary>
     public static OpenCodeHeadlessConfig Build(OpenCodePaths paths, IReadOnlyDictionary<string, string?> inheritedEnv) {
+        var permission = PermissionDocument();
+        var content = UserModelAndProvider(paths, inheritedEnv);
+
+        content["tools"]      = new JsonObject { ["*"] = false };
+        content["permission"] = permission.DeepClone();
+
+        return new(content.ToJsonString(), permission.ToJsonString(), ReadAuth(Path.Combine(paths.DataDir, "auth.json")));
+    }
+
+    /// <summary>The two keys from OpenCode's own layers, later winning: the XDG global config directory's files, the file
+    /// <c>OPENCODE_CONFIG</c> names, <c>~/.opencode</c>, the directory <c>OPENCODE_CONFIG_DIR</c> names, then
+    /// <c>OPENCODE_CONFIG_CONTENT</c>. Throws <see cref="HeadlessRunRefusedException"/> naming a layer that is present
+    /// but cannot be read or parsed, since OpenCode would refuse it too.</summary>
+    public static JsonObject UserModelAndProvider(OpenCodePaths paths, IReadOnlyDictionary<string, string?> inheritedEnv) {
         string? model    = null;
         var     provider = new JsonObject();
 
@@ -43,16 +55,12 @@ sealed record OpenCodeHeadlessConfig(string ConfigContent, string Permission, st
 
         if (Set(ConfigContentVariable) is { } inline) Merge(Parse(inline, ConfigContentVariable));
 
-        var permission = PermissionDocument();
-        var content = new JsonObject {
-            ["tools"]      = new JsonObject { ["*"] = false },
-            ["permission"] = permission.DeepClone(),
-        };
+        var content = new JsonObject();
 
         if (model is not null) content["model"] = (JsonNode?)model;
         if (provider.Count > 0) content["provider"] = provider;
 
-        return new(content.ToJsonString(), permission.ToJsonString(), ReadAuth(Path.Combine(paths.DataDir, "auth.json")));
+        return content;
 
         string? Set(string variable) => inheritedEnv.GetValueOrDefault(variable) is { } value && !string.IsNullOrWhiteSpace(value) ? value : null;
 
