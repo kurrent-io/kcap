@@ -1,10 +1,15 @@
 using System.Globalization;
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Tests.Unit.Commands;
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
+using WireMock.Server;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Copilot;
 
@@ -16,6 +21,7 @@ namespace Capacitor.Cli.Tests.Unit.Harness.Copilot;
 /// </summary>
 public class CopilotImportSourceTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
+    [TempHome] public required TempHome Home { get; init; }
 
     /// <summary>Copilot's layout rooted at a throwaway dir, so discovery walks the real
     /// <c>session-state/</c> and <c>history-session-state/</c> names rather than dirs Copilot
@@ -176,6 +182,110 @@ public class CopilotImportSourceTests {
         await Assert.That(meta!.Name).IsEqualTo("Reply with exactly: ok");
         await Assert.That(meta.Cwd).IsEqualTo("/private/tmp/quoted dir");
         await Assert.That(meta.CreatedAt).IsEqualTo(DateTimeOffset.Parse("2026-06-10T20:23:21.000Z", CultureInfo.InvariantCulture));
+    }
+
+    [Test]
+    public async Task workspace_yaml_parser_reads_the_repository_and_branch_copilot_recorded() {
+        using var tmp = new TempDir();
+
+        var path = tmp.PathTo("workspace.yaml");
+        await File.WriteAllTextAsync(path, """
+            id: 9157a15c-8a35-40ef-b3de-e35a5ef956a2
+            cwd: /work/widget
+            git_root: /work/widget
+            repository: acme/widget
+            host_type: github
+            branch: feature/x
+            """);
+
+        var meta = CopilotWorkspaceYaml.TryRead(path);
+
+        await Assert.That(meta!.Repository).IsEqualTo("acme/widget");
+        await Assert.That(meta.Branch).IsEqualTo("feature/x");
+    }
+
+    /// <summary>The server groups an imported session under a repository from its start payload. What
+    /// Copilot recorded then outranks the checkout now: the repository may have moved, and the branch
+    /// has usually changed.</summary>
+    [Test]
+    [Arguments("repository: acme/widget\nbranch: recorded\n", "git@github.invalid:other/checkout.git", "acme", "widget", "recorded", null)]
+    [Arguments("repository: group/sub/widget\nbranch: recorded\n", null, "group/sub", "widget", "recorded", null)]
+    [Arguments("branch: recorded\n", "git@github.invalid:acme/widget.git", "acme", "widget", "recorded", "git@github.invalid:acme/widget.git")]
+    [Arguments("", "git@github.invalid:acme/widget.git", "acme", "widget", null, "git@github.invalid:acme/widget.git")]
+    public async Task an_imported_session_starts_with_its_repository(
+            string yaml, string? origin, string owner, string name, string? branch, string? remoteUrl) {
+        using var tmp  = new TempDir();
+        using var repo = GitRepo.Create();
+        if (origin is not null) repo.Do("remote", "add", "origin", origin);
+
+        var body = await ImportedStart(tmp, repo.Path, yaml);
+
+        var repository = body["repository"]!.AsObject();
+        await Assert.That(repository["owner"]!.GetValue<string>()).IsEqualTo(owner);
+        await Assert.That(repository["repo_name"]!.GetValue<string>()).IsEqualTo(name);
+        await Assert.That(repository["branch"]?.GetValue<string>()).IsEqualTo(branch);
+        await Assert.That(repository["remote_url"]?.GetValue<string>()).IsEqualTo(remoteUrl);
+    }
+
+    [Test]
+    public async Task a_session_outside_any_repository_starts_without_one() {
+        using var tmp = new TempDir();
+
+        var body = await ImportedStart(tmp, tmp.CreateDir("plain"), "");
+
+        await Assert.That(body["repository"]).IsNull();
+    }
+
+    async Task<JsonObject> ImportedStart(TempDir tmp, string cwd, string extraYaml) {
+        var paths = Layout(tmp);
+        WriteSession(paths.SessionStateDir, Sid1, cwd: cwd, createdAt: "2026-06-01T10:00:00Z");
+        await File.AppendAllTextAsync(paths.WorkspaceYaml(paths.SessionStateDir, Sid1), extraYaml);
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+
+        var source     = new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
+
+        await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
+
+        var start = server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/session-start/copilot");
+
+        return JsonNode.Parse(start.RequestMessage.Body!)!.AsObject();
+    }
+
+    /// <summary>Copilot's own record is where the import places the session, so discovery lists it there: when a
+    /// removed worktree leaves no folder to read, and when the folder now has another remote.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task discovery_lists_a_session_under_the_repository_copilot_recorded(bool folderHasAnotherRemote) {
+        using var tmp  = new TempDir();
+        using var repo = GitRepo.Create();
+        repo.Do("remote", "add", "origin", "git@github.invalid:other/checkout.git");
+        var paths = Layout(tmp);
+        WriteSession(paths.SessionStateDir, Sid1, cwd: folderHasAnotherRemote ? repo.Path : tmp.PathTo("removed-worktree"), createdAt: "2026-06-01T10:00:00Z");
+        await File.AppendAllTextAsync(paths.WorkspaceYaml(paths.SessionStateDir, Sid1), "repository: acme/widget\nbranch: main\n");
+
+        using var server = WireMockServer.Start();
+        ImportCommand.ImportDiscoveryResult? found = null;
+
+        await new ImportCommand(Config.Root, Resolutions.At(server.Url!, Config.Root), Home, TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(), time: TimeProvider.System, console: new TestImportTerminal().Console)
+            .HandleImport(
+                filterCwd:               null,
+                sources:                 [new CopilotImportSource(Config.Root, paths, router: new GitProviderRouter(), time: TimeProvider.System)],
+                explicitVendorSelection: true,
+                discoverOnly:            true,
+                discoverJson:            true,
+                onDiscovered:            r => found = r);
+
+        await Assert.That(found!.Summary.UnmatchedCount).IsEqualTo(0);
+        await Assert.That(found.Summary.Repos.Single().Owner).IsEqualTo("acme");
+        await Assert.That(found.Summary.Repos.Single().Name).IsEqualTo("widget");
     }
 
     [Test]
