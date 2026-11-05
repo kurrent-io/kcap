@@ -90,6 +90,26 @@ public class OpenCodeCliRunnerTests {
         await Assert.That(File.ReadAllText(Path.Combine(run, "opencode", "model.json"))).IsEqualTo("recent");
     }
 
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task The_users_recent_models_reach_the_run_under_its_own_state_home() {
+        var seen = Tmp.CreateDir("seen").Path;
+        Tmp.CreateFile(Path.Combine("user-state", "opencode", "model.json"), "recent");
+        var env = DaemonEnvironment();
+        env["XDG_STATE_HOME"] = Path.Combine(Tmp.Path, "user-state");
+        var opencode = FakeOpenCode($"""
+            cat "$XDG_STATE_HOME/opencode/model.json" > '{seen}/model'
+            printf '%s' "$XDG_STATE_HOME" > '{seen}/state-home'
+            echo '{Reply("ok")}'
+            echo '{StepFinish}'
+            """);
+
+        var outcome = await Run(opencode, "Name it.", env: env);
+
+        await Assert.That(outcome.Failure).IsNull();
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "model"))).IsEqualTo("recent");
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "state-home"))).IsNotEqualTo(env["XDG_STATE_HOME"]);
+    }
+
     [Test]
     public async Task No_recent_models_leaves_the_private_state_empty() {
         var run = Tmp.CreateDir("run-state").Path;
