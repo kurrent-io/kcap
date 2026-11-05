@@ -153,6 +153,17 @@ public class SessionStatusDotsTests {
     }
 
     [Test]
+    public async Task A_collapsed_group_counts_a_subagent_only_the_transcript_sees() {
+        var row = Local("a", awaiting: true, subagents: 0, title: "Paused");
+
+        var rollup = SessionStatusDots.Rollup([row], new HashSet<string>(),
+            work: new Dictionary<string, RunningWork> { [row.Key] = new(0, 1) });
+
+        await Assert.That(rollup!.Label).IsEqualTo("Working");
+        await Assert.That(rollup.Tip).Contains("1 subagent running");
+    }
+
+    [Test]
     public async Task A_collapsed_group_names_how_many_share_the_dominant_status() {
         var idle = Local("a", awaiting: true, title: "First");
         var also = Local("b", awaiting: true, title: "Second");
