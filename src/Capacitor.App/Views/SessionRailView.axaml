@@ -305,12 +305,12 @@
                                        IsVisible="{Binding ReloadFailureText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                     </Border>
-                    <!-- The chip docks beside the column, on its last line. With no alert and no named
-                         org the column is empty and the chip stands alone. -->
+                    <!-- The chip docks beside the column, on its last line. -->
                     <Grid ColumnDefinitions="*,Auto" ClipToBounds="True">
-                    <StackPanel Grid.Column="0" VerticalAlignment="Bottom" Spacing="6" IsVisible="{Binding !ShowsUpdateContext}">
-                    <!-- The words are the indicator, painted in the alert's tone; the hover carries
-                         what the one line leaves out. -->
+                    <StackPanel Grid.Column="0" VerticalAlignment="Bottom" Spacing="2" IsVisible="{Binding !ShowsUpdateContext}">
+                    <!-- One status slot above the org: the alert when something needs the user,
+                         Connected otherwise. The words are the indicator; the hover carries what the
+                         one line leaves out. -->
                     <StackPanel x:Name="RailAlertRow" Spacing="6"
                                 IsVisible="{Binding Alert, Converter={x:Static ObjectConverters.IsNotNull}}">
                         <TextBlock x:Name="RailAlertText" Text="{Binding Alert.Text, FallbackValue={x:Null}}" Classes="footerValue"
@@ -323,30 +323,20 @@
                                 IsVisible="{Binding AlertActionCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
                                 Padding="10,3" FontSize="12" CornerRadius="6" />
                     </StackPanel>
-                    <!-- A Grid, not a horizontal StackPanel: the org needs a bounded width to trim. -->
-                    <Grid x:Name="RailConnectionStatus" ColumnDefinitions="Auto,*">
-                        <Grid.IsVisible>
-                            <MultiBinding Converter="{x:Static BoolConverters.Or}">
-                                <Binding Path="ShowsConnected" />
-                                <Binding Path="TenantName" Converter="{x:Static StringConverters.IsNotNullOrEmpty}" />
-                            </MultiBinding>
-                        </Grid.IsVisible>
-                        <TextBlock x:Name="RailConnectedText" Grid.Column="0" Margin="0,0,7,0"
-                                   Text="{x:Static vm:MainWindowViewModel.ConnectedText}"
-                                   Classes="footerValue" Foreground="{StaticResource KcapSuccessBrush}"
-                                   IsVisible="{Binding ShowsConnected}" />
-                        <TextBlock x:Name="RailTenantText" Grid.Column="1" Text="{Binding TenantName}" Classes="footerValue"
-                                   Foreground="{StaticResource KcapFaintBrush}" TextTrimming="CharacterEllipsis"
-                                   IsVisible="{Binding TenantName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                            <ToolTip.Tip>
-                                <StackPanel Spacing="2">
-                                    <TextBlock Text="{Binding ServerUrl}" />
-                                    <TextBlock Text="{x:Static vm:MainWindowViewModel.ServerUrlTip}"
-                                               Classes="kcapTipCaption" />
-                                </StackPanel>
-                            </ToolTip.Tip>
-                        </TextBlock>
-                    </Grid>
+                    <TextBlock x:Name="RailConnectedText" Text="{x:Static vm:MainWindowViewModel.ConnectedText}"
+                               Classes="footerValue" Foreground="{StaticResource KcapSuccessBrush}"
+                               IsVisible="{Binding ShowsConnected}" />
+                    <TextBlock x:Name="RailTenantText" Text="{Binding FooterIdentity}" Classes="footerValue"
+                               Foreground="{StaticResource KcapFaintBrush}" TextTrimming="CharacterEllipsis"
+                               IsVisible="{Binding FooterIdentity, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <ToolTip.Tip>
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{Binding ServerUrl}" />
+                                <TextBlock Text="{x:Static vm:MainWindowViewModel.ServerUrlTip}"
+                                           Classes="kcapTipCaption" />
+                            </StackPanel>
+                        </ToolTip.Tip>
+                    </TextBlock>
                     </StackPanel>
                     <StackPanel x:Name="RailUpdateContext" Grid.Column="0" VerticalAlignment="Center" Spacing="4"
                                 IsVisible="{Binding ShowsUpdateContext}">

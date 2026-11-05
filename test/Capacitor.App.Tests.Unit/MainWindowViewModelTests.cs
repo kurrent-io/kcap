@@ -569,6 +569,19 @@ public class MainWindowViewModelTests {
         await Assert.That(MainWindowViewModel.ProfileLabelForRail(profile)).IsEqualTo(expected);
     }
 
+    /// The footer names the host, port included, never the scheme; either half stands alone when
+    /// the other is missing.
+    [Test]
+    [Arguments("kurrent", "https://kurrent.kcap.ai", "kurrent · kurrent.kcap.ai")]
+    [Arguments("kurrent", "http://localhost:9999", "kurrent · localhost:9999")]
+    [Arguments("", "https://kurrent.kcap.ai", "kurrent.kcap.ai")]
+    [Arguments("kurrent", "", "kurrent")]
+    [Arguments("kurrent", "not a url", "kurrent")]
+    [Arguments("", "", "")]
+    public async Task IdentityLine_joins_the_org_and_the_server_host(string tenant, string serverUrl, string expected) {
+        await Assert.That(MainWindowViewModel.IdentityLine(tenant, serverUrl)).IsEqualTo(expected);
+    }
+
     /// The alert takes the launcher card's tone: grey while in progress, amber when it needs the user, red once broken.
     [Test]
     [Arguments(AttachState.Connecting, null, "connected", false, StatusColors.Pending)]

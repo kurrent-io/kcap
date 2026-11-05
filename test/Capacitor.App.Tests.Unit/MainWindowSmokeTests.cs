@@ -120,8 +120,8 @@ public class MainWindowSmokeTests {
         return lines;
     }
 
-    /// A healthy stack renders Connected and the org, but no daemon name, agent count or version:
-    /// Settings › About holds the rest.
+    /// A healthy stack renders Connected and the org with its server host, but no daemon name, agent
+    /// count, version or full URL: Settings › About holds the rest.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task MainWindow_renders_only_connected_and_the_org_while_everything_works() {
@@ -159,7 +159,7 @@ public class MainWindowSmokeTests {
             return texts;
         });
 
-        await Assert.That(rendered).Contains("kurrent");
+        await Assert.That(rendered).Contains("kurrent · localhost:9999");
         await Assert.That(rendered).Contains(MainWindowViewModel.ConnectedText);
         await Assert.That(rendered).DoesNotContain("of 5 agents");
         await Assert.That(rendered).DoesNotContain("daemon-a");
@@ -1808,7 +1808,7 @@ public class MainWindowSmokeTests {
         await Assert.That(shown.HealthyConnected).IsTrue();
         await Assert.That(shown.AlertConnected).IsFalse();
         await Assert.That(shown.HealthyTexts).Contains(MainWindowViewModel.ConnectedText);
-        await Assert.That(shown.HealthyTexts).Contains("kurrent");
+        await Assert.That(shown.HealthyTexts).Contains("kurrent · localhost:9999");
         await Assert.That(shown.HealthyTexts).DoesNotContain("daemon-a");
         await Assert.That(shown.Text).IsEqualTo(MainWindowViewModel.DaemonStoppedText);
         await Assert.That(shown.Tip).IsEqualTo(HomeViewModel.DaemonDownNotice);

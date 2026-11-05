@@ -65,6 +65,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     ObservableAsPropertyHelper<string>? _serverUrl;
     public string ServerUrl => _serverUrl?.Value ?? "";
 
+    ObservableAsPropertyHelper<string>? _footerIdentity;
+    /// The org and the server host on one line under the status; the full URL stays on hover.
+    public string FooterIdentity => _footerIdentity?.Value ?? TenantName;
+
     ObservableAsPropertyHelper<RailAlert?>? _alert;
     /// The footer's status line when something needs the user; null while everything works, when
     /// the footer says Connected instead.
@@ -541,6 +545,11 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
 
             _serverUrl = snapshots.Select(s => s.Daemon.ServerUrl)
                 .ToProperty(this, x => x.ServerUrl, "")
+                .DisposeWith(disposables);
+
+            _footerIdentity = snapshots.Select(s => IdentityLine(TenantName, s.Daemon.ServerUrl))
+                .DistinctUntilChanged()
+                .ToProperty(this, x => x.FooterIdentity, TenantName)
                 .DisposeWith(disposables);
 
             // Seeded with "" so this fires before the first snapshot arrives. AlertFor reads the word
@@ -1396,6 +1405,15 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             _ when restartPending == DaemonRestartWait.Agents => new(RestartPendingText, StatusColors.InProgress, Detail: RestartWhenNoAgentsMessage),
             _ when restartPending == DaemonRestartWait.Unstated => new(RestartPendingText, StatusColors.InProgress, Detail: RestartUnstatedMessage),
             _ => null,
+        };
+    }
+
+    internal static string IdentityLine(string tenantName, string serverUrl) {
+        var host = Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri) ? uri.Authority : "";
+        return (tenantName.Length, host.Length) switch {
+            (0, _) => host,
+            (_, 0) => tenantName,
+            _ => $"{tenantName} · {host}",
         };
     }
 
