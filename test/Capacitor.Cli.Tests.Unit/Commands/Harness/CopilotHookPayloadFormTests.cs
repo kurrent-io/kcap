@@ -175,9 +175,10 @@ public class CopilotHookPayloadFormTests : IDisposable {
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(_starter.Starts).IsEqualTo(0);
 
-        var drained = PostedTo("/hooks/transcript");
-        await Assert.That(drained).IsNotNull();
-        await Assert.That(drained!["lines"]!.AsArray().Count).IsEqualTo(3);
+        // A drain can split across batches.
+        var drained = _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .Sum(entry => JsonNode.Parse(entry.RequestMessage.Body!)!["lines"]!.AsArray().Count);
+        await Assert.That(drained).IsEqualTo(3);
 
         var ended = PostedTo("/hooks/session-end/copilot");
         await Assert.That(ended!["session_id"]!.GetValue<string>()).IsEqualTo(SessionId);
