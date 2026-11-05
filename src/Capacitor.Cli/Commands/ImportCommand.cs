@@ -1065,10 +1065,9 @@ class ImportCommand(
             }
         }
 
-        // A harness's own record places a session whose folder is gone or no longer has its remote.
+        // A harness's own record is where the import will place the session, whatever its folder holds now.
         foreach (var session in discoveriesPerSource.SelectMany(d => d)) {
-            if (resolved.GetValueOrDefault(session.SessionId) is null
-             && session.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) is string recorded
+            if (session.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) is string recorded
              && ParseRecordedRepository(recorded) is { } repo) {
                 resolved[session.SessionId] = repo;
             }

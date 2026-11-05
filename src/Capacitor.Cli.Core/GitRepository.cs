@@ -183,7 +183,7 @@ public static class GitRepository {
 
                 var equals = line.IndexOf('=');
                 if (equals > 0 && line[..equals].Trim().Equals("url", StringComparison.OrdinalIgnoreCase)) {
-                    return line[(equals + 1)..].Trim().Trim('"') is { Length: > 0 } url ? url : null;
+                    return ConfigValue(line[(equals + 1)..].Trim()) is { Length: > 0 } url ? url : null;
                 }
             }
         } catch {
@@ -191,6 +191,13 @@ public static class GitRepository {
         }
 
         return null;
+    }
+
+    // A quoted value ends at its closing quote; an unquoted one at a comment.
+    static string ConfigValue(string raw) {
+        if (raw.StartsWith('"')) return raw.IndexOf('"', 1) is > 0 and var close ? raw[1..close] : raw[1..];
+
+        return raw.IndexOfAny(['#', ';']) is >= 0 and var comment ? raw[..comment].TrimEnd() : raw;
     }
 
     static bool IsObjectId(string text) =>

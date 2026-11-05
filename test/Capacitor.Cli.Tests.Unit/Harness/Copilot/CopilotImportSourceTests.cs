@@ -258,13 +258,17 @@ public class CopilotImportSourceTests {
         return JsonNode.Parse(start.RequestMessage.Body!)!.AsObject();
     }
 
-    /// <summary>Discovery works from the folder, which a removed worktree no longer has. Copilot's own
-    /// record of the repository still places the session.</summary>
+    /// <summary>Copilot's own record is where the import places the session, so discovery lists it there: when a
+    /// removed worktree leaves no folder to read, and when the folder now has another remote.</summary>
     [Test]
-    public async Task discovery_matches_a_session_whose_folder_is_gone_to_the_repository_copilot_recorded() {
-        using var tmp = new TempDir();
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task discovery_lists_a_session_under_the_repository_copilot_recorded(bool folderHasAnotherRemote) {
+        using var tmp  = new TempDir();
+        using var repo = GitRepo.Create();
+        repo.Do("remote", "add", "origin", "git@github.invalid:other/checkout.git");
         var paths = Layout(tmp);
-        WriteSession(paths.SessionStateDir, Sid1, cwd: tmp.PathTo("removed-worktree"), createdAt: "2026-06-01T10:00:00Z");
+        WriteSession(paths.SessionStateDir, Sid1, cwd: folderHasAnotherRemote ? repo.Path : tmp.PathTo("removed-worktree"), createdAt: "2026-06-01T10:00:00Z");
         await File.AppendAllTextAsync(paths.WorkspaceYaml(paths.SessionStateDir, Sid1), "repository: acme/widget\nbranch: main\n");
 
         using var server = WireMockServer.Start();
