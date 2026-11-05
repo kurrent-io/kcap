@@ -8,7 +8,10 @@ namespace Capacitor.Cli.Core.Harness.Headless;
 /// </summary>
 internal static class HeadlessFailureClassifier {
     static readonly string[] SpendMarkers = ["credit balance", "quota", "usage limit", "rate limit"];
-    static readonly string[] CredentialMarkers = ["no models available", "no api key", "oauth refresh failed", "invalid_grant"];
+    static readonly string[] CredentialMarkers = [
+        "no models available", "no api key", "oauth refresh failed", "invalid_grant",
+        "could not load credentials", "could not load the default credentials", "security token included in the request is invalid",
+    ];
 
     public static ClaudeCliFailure Classify(int? statusCode, string? message) {
         if (statusCode is 401 or 403) return ClaudeCliFailure.NotSignedIn;
