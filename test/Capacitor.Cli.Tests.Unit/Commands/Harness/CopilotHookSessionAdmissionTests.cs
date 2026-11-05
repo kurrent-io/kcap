@@ -158,6 +158,30 @@ public class CopilotHookSessionAdmissionTests : IDisposable {
         await Assert.That(_spawner.Keys).IsEquivalentTo([Parent.Replace("-", "")]);
     }
 
+    [Test]
+    public async Task a_new_session_naming_a_parent_before_its_state_dir_exists_is_kept() {
+        await Fire("sessionStart", new JsonObject { ["sessionId"] = Agent, ["parentAgentId"] = Parent });
+
+        await Assert.That(_server.LogEntries.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task a_later_firing_naming_a_parent_with_no_state_dir_is_a_subagent() {
+        await Fire("agentStop", new JsonObject { ["sessionId"] = Agent, ["parentAgentId"] = Parent });
+
+        await Assert.That(_spawner.Keys).IsEmpty();
+    }
+
+    [Test]
+    public async Task a_transcript_in_a_non_uuid_session_dir_is_another_session() {
+        await Fire("agentStop", new JsonObject {
+            ["sessionId"]      = Agent,
+            ["transcriptPath"] = Path.Combine(StateDir("named-session"), "events.jsonl")
+        });
+
+        await Assert.That(_spawner.Keys).IsEmpty();
+    }
+
     // subagentStart and subagentStop carry these fields on the parent's own session id.
     [Test]
     public async Task a_session_naming_itself_as_parent_is_kept() {

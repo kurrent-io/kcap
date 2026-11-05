@@ -10,14 +10,27 @@ namespace Capacitor.Cli.Harness.Copilot;
 static class CopilotSubagentFiring {
     /// <summary>Takes positive evidence and the lack of a state dir together, because dropping a real
     /// session's firing is the worse mistake. A missing dir alone proves nothing, since sessionStart can
-    /// run first, and a resumed or forked session has its own dir whatever else its payload names.</summary>
-    public static bool Is(Guid session, string? parentAgentId, string? transcriptPath, CopilotPaths paths) {
+    /// run first, and a resumed or forked session has its own dir whatever else its payload names. For
+    /// the same reason a parent id alone is no evidence on sessionStart: a new session's dir may not exist
+    /// yet, and dropping that firing loses the whole session.</summary>
+    public static bool Is(string eventName, Guid session, string? parentAgentId, string? transcriptPath, CopilotPaths paths) {
         var transcriptDir = string.IsNullOrEmpty(transcriptPath) ? null : Path.GetDirectoryName(transcriptPath);
 
-        var namesAParent        = !string.IsNullOrEmpty(parentAgentId) && !(Guid.TryParse(parentAgentId, out var parent) && parent == session);
-        var readsAnotherSession = Guid.TryParse(Path.GetFileName(transcriptDir), out var owner) && owner != session;
+        var namesAParent = eventName != "sessionStart"
+                        && !string.IsNullOrEmpty(parentAgentId)
+                        && !(Guid.TryParse(parentAgentId, out var parent) && parent == session);
 
-        return (namesAParent || readsAnotherSession) && !HasStateDir(session.ToString("D"), transcriptDir, paths);
+        return (namesAParent || ReadsAnotherSession(session, transcriptDir, paths))
+            && !HasStateDir(session.ToString("D"), transcriptDir, paths);
+    }
+
+    // A UUID dir is a session's wherever it sits; any other name counts only directly under a state root.
+    static bool ReadsAnotherSession(Guid session, string? transcriptDir, CopilotPaths paths) {
+        if (Path.GetFileName(transcriptDir) is not { Length: > 0 } owner) return false;
+
+        return Guid.TryParse(owner, out var id)
+            ? id != session
+            : paths.SessionStateDirs.Any(root => string.Equals(Path.GetFullPath(root), Path.GetDirectoryName(Path.GetFullPath(transcriptDir!)), StringComparison.Ordinal));
     }
 
     // Beside the reported transcript too: the hook's COPILOT_HOME can differ from the running Copilot's.

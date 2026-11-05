@@ -178,7 +178,7 @@ sealed class CopilotHookCommand(
         // activity is inlined in the parent's transcript, so dropping the firing loses nothing.
         if (!Guid.TryParse(dashedSessionId, out var session)) return 0;
 
-        if (CopilotSubagentFiring.Is(session, TryGetString(node, "parentAgentId"), TryGetString(node, "transcriptPath"),
+        if (CopilotSubagentFiring.Is(eventName, session, TryGetString(node, "parentAgentId"), TryGetString(node, "transcriptPath"),
                 harnesses.Of<CopilotHarness>().Paths)) return 0;
 
         var sessionId = dashedSessionId.Replace("-", "");
