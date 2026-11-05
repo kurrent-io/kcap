@@ -73,9 +73,7 @@ public class WorkContextPlanProgressTests {
         await h.ShowAsync();
 
         await Assert.That(h.Vm.ShowsPlanMergeNote).IsTrue();
-        await Assert.That(h.Vm.PlanMergeHeading).IsEqualTo("PR #2 merged");
-        await Assert.That(h.Vm.PlanMergeNote).StartsWith("2 tasks are still marked open");
-        await Assert.That(h.Vm.PlanMergeNote).Contains("relationship to the plan is unconfirmed");
+        await Assert.That(h.Vm.PlanMergeNote).IsEqualTo("PR #2 merged with 2 tasks still open. Merges don’t update the plan.");
         await Assert.That(h.Vm.Plan.DoneCount).IsEqualTo(2);
         await Assert.That(h.Vm.Plan.Tasks[0].State).IsEqualTo(PlanTaskState.Pending);
         await h.Vm.Plan.ToggleCommand.Execute();
@@ -98,7 +96,8 @@ public class WorkContextPlanProgressTests {
         h.Plans.Enqueue(Read("pending", "in_progress"));
         await h.ShowAsync();
         await h.SetTasksAsync("completed", "pending");
-        await Assert.That(h.Vm.PlanMergeNote).StartsWith("1 task is still marked open");
+        await Assert.That(h.Vm.PlanMergeNote).StartsWith("PR #2 merged with 1 task still open");
+        await Assert.That(h.Vm.Plan.ShowsBody).IsFalse();
         await h.SetTasksAsync("completed", "skipped");
         await Assert.That(h.Vm.ShowsPlanMergeNote).IsFalse();
         await h.SetTasksAsync();
@@ -112,7 +111,7 @@ public class WorkContextPlanProgressTests {
         await h.ShowAsync();
         h.Prs.SetForeground(false);
         await Assert.That(h.Vm.ShowsPlanMergeNote).IsFalse();
-        await Assert.That(h.Vm.PlanMergeHeading).IsEmpty();
+        await Assert.That(h.Vm.PlanMergeNote).IsEmpty();
         h.Prs.SetForeground(true);
         await h.SettlePrAsync();
         await Assert.That(h.Vm.ShowsPlanMergeNote).IsTrue();
