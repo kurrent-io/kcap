@@ -93,13 +93,13 @@ sealed class CopilotFinalizeDrainCommand(
         // dedupe anything the hook's inline-drain already delivered.
         await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: "copilot");
 
-        if (endBody is not null) await EndSessionAsync(sessionId, endBody, sawShutdown);
+        if (endBody is not null) await EndSessionAsync(sessionId, endBody);
     }
 
-    async Task EndSessionAsync(string sessionId, string endBody, bool sawShutdown) {
-        // Without a terminal shutdown nothing proves this run is the last. A session that carried on has
-        // a watcher again, and that watcher ends it; this end would close a live session.
-        if (!sawShutdown && watchers.IsWatcherAlive(sessionId)) {
+    async Task EndSessionAsync(string sessionId, string endBody) {
+        // The hook stops the watcher before this runs, so a live one is either a resumed run this end would
+        // close, or one the hook died before stopping, whose parent-exit path sends the end itself.
+        if (watchers.IsWatcherAlive(sessionId)) {
             Log($"session end not sent for {sessionId}: a watcher is running");
 
             return;

@@ -256,44 +256,27 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         await Assert.That(TranscriptPostCount()).IsEqualTo(0);
     }
 
+    // A live watcher owns the end: a resumed run must stay open, and a watcher the hook never stopped
+    // sends its own parent-exit end. A terminal shutdown proves nothing here, since a resumed run may not
+    // have written yet.
     [Test]
-    public async Task LeavesTheEnd_ToALiveWatcher_WhenShutdownNeverLanded() {
+    [Arguments("no-shutdown")]
+    [Arguments("terminal-shutdown")]
+    [Arguments("earlier-runs-shutdown")]
+    public async Task LeavesTheEnd_ToALiveWatcher(string transcript) {
         using var tmp = new TempDir();
-        const string sessionId = "test-finalize-resumed";
+        var sessionId = $"test-finalize-watcher-{transcript}";
         StubServer(sessionId);
         StubSessionEnd();
         await MarkWatcherAlive(sessionId);
 
-        await RunQuickly(sessionId, NewTranscript(tmp, AssistantLine + "\n"));
+        var lines = transcript switch {
+            "no-shutdown"       => AssistantLine + "\n",
+            "terminal-shutdown" => ShutdownLine + "\n",
+            _                   => ShutdownLine + "\n" + AssistantLine + "\n"
+        };
 
-        await Assert.That(SessionEndBodies()).IsEmpty();
-        await Assert.That(TranscriptPostCount()).IsEqualTo(1);
-    }
-
-    // The hook can die before it stops the watcher. A terminal shutdown still proves the run is over.
-    [Test]
-    public async Task EndsTheSession_DespiteALiveWatcher_WhenShutdownIsTerminal() {
-        using var tmp = new TempDir();
-        const string sessionId = "test-finalize-unkilled";
-        StubServer(sessionId);
-        StubSessionEnd();
-        await MarkWatcherAlive(sessionId);
-
-        await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"));
-
-        await Assert.That(SessionEndBodies()).IsEquivalentTo([EndBody]);
-    }
-
-    // An earlier run's shutdown mid-file is not this run's end.
-    [Test]
-    public async Task LeavesTheEnd_ToALiveWatcher_WhenOnlyAnEarlierRunsShutdownIsPresent() {
-        using var tmp = new TempDir();
-        const string sessionId = "test-finalize-second-run";
-        StubServer(sessionId);
-        StubSessionEnd();
-        await MarkWatcherAlive(sessionId);
-
-        await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n" + AssistantLine + "\n"));
+        await RunQuickly(sessionId, NewTranscript(tmp, lines));
 
         await Assert.That(SessionEndBodies()).IsEmpty();
     }
