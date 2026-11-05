@@ -574,13 +574,17 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             _worked += _time.GetElapsedTime(pausedAt);
             _workingSince = null;
         }
+        // History hides the empty-chat note, so a launch prompt that has not gone says so here.
+        var unsent = _launchPromptUnconfirmed && !_ended && _items.Count > 0;
         ActivityNote = _failureNote is { } failure && Phase != ChatTabPhase.Failed
             ? FailureNote(failure)
-            : _status == "Starting"
-                ? VendorLabel.Length > 0 ? $"Starting {VendorLabel}…" : "Starting…"
-                : working && _workingSince is { } since
-                    ? WorkingNote(_worked + _time.GetElapsedTime(since)) : "";
-        ShowsActivityNote = _failureNote is not null && Phase != ChatTabPhase.Failed && ActivityNote.Length > 0;
+            : unsent
+                ? LaunchPromptUnconfirmedNote
+                : _status == "Starting"
+                    ? VendorLabel.Length > 0 ? $"Starting {VendorLabel}…" : "Starting…"
+                    : working && _workingSince is { } since
+                        ? WorkingNote(_worked + _time.GetElapsedTime(since)) : "";
+        ShowsActivityNote = (unsent || (_failureNote is not null && Phase != ChatTabPhase.Failed)) && ActivityNote.Length > 0;
         ShowsLiveNote = !ShowsActivityNote && ActivityNote.Length > 0;
         RefreshAgentStatus();
         RefreshQueuedSend();
@@ -798,6 +802,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             if (empty == (_items.Count == 0)) return;
             empty = _items.Count == 0;
             RaisePhaseNote();
+            RefreshActivityNote();
         };
         ShowTerminalCommand = ReactiveCommand.Create(() => ShowTerminal?.Invoke());
         _disposables.Add(ShowTerminalCommand);
@@ -1128,6 +1133,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         if (_launchPromptUnconfirmed != (info.LaunchPromptUnconfirmed == true)) {
             _launchPromptUnconfirmed = info.LaunchPromptUnconfirmed == true;
             RaisePhaseNote();
+            RefreshActivityNote();
         }
         _waitsOnUser = info.WaitsOnUser;
         if (info.Ended)
