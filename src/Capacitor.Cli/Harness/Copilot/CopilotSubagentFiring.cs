@@ -24,13 +24,16 @@ static class CopilotSubagentFiring {
             && !HasStateDir(session.ToString("D"), transcriptDir, paths);
     }
 
-    // A UUID dir is a session's wherever it sits; any other name counts only directly under a state root.
+    // A UUID dir is a session's wherever it sits; any other name counts only directly under a dir named like a
+    // state root, since the hook's COPILOT_HOME can differ from the running Copilot's.
     static bool ReadsAnotherSession(Guid session, string? transcriptDir, CopilotPaths paths) {
         if (Path.GetFileName(transcriptDir) is not { Length: > 0 } owner) return false;
 
-        return Guid.TryParse(owner, out var id)
-            ? id != session
-            : paths.SessionStateDirs.Any(root => string.Equals(Path.GetFullPath(root), Path.GetDirectoryName(Path.GetFullPath(transcriptDir!)), StringComparison.Ordinal));
+        if (Guid.TryParse(owner, out var id)) return id != session;
+
+        var root = Path.GetFileName(Path.GetDirectoryName(transcriptDir));
+
+        return paths.SessionStateDirs.Any(known => string.Equals(Path.GetFileName(known), root, StringComparison.OrdinalIgnoreCase));
     }
 
     // Beside the reported transcript too: the hook's COPILOT_HOME can differ from the running Copilot's.

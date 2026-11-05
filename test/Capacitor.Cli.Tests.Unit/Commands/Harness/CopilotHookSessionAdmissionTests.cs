@@ -173,10 +173,14 @@ public class CopilotHookSessionAdmissionTests : IDisposable {
     }
 
     [Test]
-    public async Task a_transcript_in_a_non_uuid_session_dir_is_another_session() {
+    [Arguments("")]
+    [Arguments("relocated")]
+    public async Task a_transcript_in_a_non_uuid_session_dir_is_another_session(string relocatedTo) {
+        var root = relocatedTo.Length == 0 ? Paths.SessionStateDir : Path.Combine(Home.Path, relocatedTo, "SESSION-STATE");
+
         await Fire("agentStop", new JsonObject {
             ["sessionId"]      = Agent,
-            ["transcriptPath"] = Path.Combine(StateDir("named-session"), "events.jsonl")
+            ["transcriptPath"] = Path.Combine(root, "named-session", "events.jsonl")
         });
 
         await Assert.That(_spawner.Keys).IsEmpty();
