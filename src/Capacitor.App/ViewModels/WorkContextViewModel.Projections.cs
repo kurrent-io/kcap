@@ -245,8 +245,8 @@ public sealed partial class WorkContextViewModel {
         }
     }
 
-    bool _runsExpanded;
-    public bool RunsExpanded { get => _runsExpanded; private set => this.RaiseAndSetIfChanged(ref _runsExpanded, value); }
+    bool _subagentsExpanded;
+    public bool SubagentsExpanded { get => _subagentsExpanded; private set => this.RaiseAndSetIfChanged(ref _subagentsExpanded, value); }
 
     public ReactiveCommand<Unit, Unit> TogglePartsCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> TogglePeopleCommand { get; private set; } = null!;
@@ -254,7 +254,7 @@ public sealed partial class WorkContextViewModel {
     public ReactiveCommand<Unit, Unit> ToggleUsageCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleCheckoutCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleSessionCommand { get; private set; } = null!;
-    public ReactiveCommand<Unit, Unit> ToggleRunsCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> ToggleSubagentsCommand { get; private set; } = null!;
 
     void InitializeProjections() {
         TogglePartsCommand   = Toggle(() => PartsExpanded = !PartsExpanded);
@@ -269,7 +269,7 @@ public sealed partial class WorkContextViewModel {
         ToggleSessionCommand  = Toggle(() => SessionExpanded = !SessionExpanded);
         _layout.PropertyChanged += OnLayoutChanged;
         _disposables.Add(System.Reactive.Disposables.Disposable.Create(() => _layout.PropertyChanged -= OnLayoutChanged));
-        ToggleRunsCommand = Toggle(() => RunsExpanded = !RunsExpanded);
+        ToggleSubagentsCommand = Toggle(() => SubagentsExpanded = !SubagentsExpanded);
     }
 
     ReactiveCommand<Unit, Unit> Toggle(Action flip) {

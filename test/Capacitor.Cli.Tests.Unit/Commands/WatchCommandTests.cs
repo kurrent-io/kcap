@@ -442,6 +442,33 @@ public class WatchCommandTests {
         await Assert.That(should).IsFalse();
     }
 
+    /// <summary>A session with no turn counts too: its start hook already registered it, and nothing else
+    /// would stop its watcher. Copilot CLI keeps a parent-exit signal, so idling there ends nothing.</summary>
+    [Test]
+    [Arguments(true, true, true, 61, true)]
+    [Arguments(true, true, false, 61, true)]
+    [Arguments(true, true, true, 59, false)]
+    [Arguments(true, false, true, 61, false)]
+    [Arguments(false, true, true, 61, false)]
+    public async Task ShouldEndOnIdle_for_copilot_only_for_a_Local_session_watcher(
+            bool vsCodeLocal, bool isSessionWatcher, bool thresholdReached, int quietMinutes, bool expected) {
+        var should = WatchCommand.ShouldEndOnIdle(
+            vendor: "copilot", isSessionWatcher: isSessionWatcher, thresholdReached: thresholdReached,
+            lastActivityAt: IdleNow - TimeSpan.FromMinutes(quietMinutes), now: IdleNow, idleTimeout: IdleWindow,
+            vsCodeLocal: vsCodeLocal);
+
+        await Assert.That(should).IsEqualTo(expected);
+    }
+
+    /// <summary>The Local transcript's own lines reach the server once a turn is taken, and its session.start
+    /// alone does not count as one.</summary>
+    [Test]
+    [Arguments("""{"type":"user.message","data":{"content":"Read README.md","attachments":[]},"id":"abdf2e64-7dbe-4ac0-8e8b-5974db55fb46","timestamp":"2026-11-05T03:39:56.346Z"}""", true)]
+    [Arguments("""{"type":"session.start","data":{"sessionId":"d72e59eb-1ced-4194-8df4-c3ae346b63d7","version":1,"producer":"copilot-agent","copilotVersion":"0.73.0","vscodeVersion":"1.145.0"},"id":"24b4ba4b-0543-4afc-b3c5-aa128944879d","timestamp":"2026-11-05T03:39:56.150Z"}""", false)]
+    public async Task A_Local_transcript_line_is_a_real_turn_only_when_it_is_one(string line, bool expected) {
+        await Assert.That(WatchCommand.IsRealTurnLine(line, "copilot", TimeProvider.System)).IsEqualTo(expected);
+    }
+
     [Test]
     public async Task ShouldEndOnIdle_false_when_not_yet_idle() {
         var should = WatchCommand.ShouldEndOnIdle(
@@ -634,6 +661,7 @@ public class WatchCommandTests {
     // Codex knob, and vice versa.
     [Test]
     [Arguments("codex",       true,  "KCAP_CODEX_IDLE_MINUTES",           "15", 15)]
+    [Arguments("copilot",     true,  "KCAP_COPILOT_IDLE_MINUTES",         "15", 15)]
     [Arguments("codex",       false, "KCAP_CODEX_SUBAGENT_REAP_MINUTES",  "45", 45)]
     [Arguments("antigravity", true,  "KCAP_ANTIGRAVITY_IDLE_MINUTES",     "20", 20)]
     [Arguments("cursor",      true,  "KCAP_CURSOR_IDLE_CEILING_MINUTES",  "25", 25)]
@@ -1321,4 +1349,36 @@ public class PiTitleHelperTests {
         await Assert.That(WatchCommand.TryExtractUserText(line, TimeProvider.System, "pi")).IsNull();
         await Assert.That(WatchCommand.TryExtractAssistantText(line, "pi")).IsNull();
     }
+
+    [Test]
+    public async Task A_Local_session_tool_stays_in_flight_until_its_result() {
+        var pending = new HashSet<string>();
+
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"tool.execution_start","data":{"toolCallId":"a"}}""");
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"tool.execution_start","data":{"toolCallId":"b"}}""");
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"tool.execution_complete","data":{"toolCallId":"a","success":true}}""");
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"user.message","data":{"content":"a queued prompt"}}""");
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, "not json");
+
+        await Assert.That(pending).IsEquivalentTo(["b"]);
+    }
+
+    [Test]
+    [Arguments(0, false)]
+    [Arguments(3, true)]
+    [Arguments(5, false)]
+    public async Task A_Local_session_tool_holds_off_idle_end_only_up_to_the_ceiling(int hoursSinceActivity, bool expected) {
+        var now   = DateTimeOffset.UtcNow;
+        var state = new WatchState { LastActivityAt = now.AddHours(-hoursSinceActivity) };
+        if (hoursSinceActivity > 0) state.PendingCopilotToolCalls.Add("a");
+
+        await Assert.That(WatchCommand.CopilotToolInFlight(state, now)).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("copilot", "/x/GitHub.copilot-chat/transcripts/s.jsonl", true)]
+    [Arguments("copilot", "/x/session-state/s/events.jsonl", false)]
+    [Arguments("codex", "/x/GitHub.copilot-chat/transcripts/s.jsonl", false)]
+    public async Task Only_a_Local_session_tracks_Copilot_tools(string vendor, string path, bool expected) =>
+        await Assert.That(WatchCommand.TracksCopilotToolCalls(vendor, path)).IsEqualTo(expected);
 }

@@ -389,7 +389,7 @@ public class WorkspaceViewSmokeTests {
             await Assert.That(IsOffscreen(chatHost)).IsTrue();
             await Assert.That(Visible(window, "OpenInWebButton")).IsFalse();
             await Assert.That(Visible(window, "StopButton")).IsTrue().Because("a starting launch can be cancelled");
-            foreach (var name in new[] { "ChatActivityNote", "SubagentsBanner", "QueuedMessagesBanner", "ComposerCard", "ReadOnlyBanner", "SendButton" })
+            foreach (var name in new[] { "ChatActivityNote", "BackgroundTasksBanner", "QueuedMessagesBanner", "ComposerCard", "ReadOnlyBanner", "SendButton" })
                 await Assert.That(Visible(window, name)).IsFalse().Because($"{name} has nothing to show yet");
 
             daemon.Agents.AddOrUpdate(Agent(AgentId, hasTerminal: false));
@@ -402,7 +402,7 @@ public class WorkspaceViewSmokeTests {
             await Assert.That(Visible(window, "StopButton")).IsTrue();
             await Assert.That(chatHost.IsEffectivelyVisible).IsTrue();
             await Assert.That(Visible(window, "ComposerInput")).IsTrue();
-            await Assert.That(Visible(window, "SubagentsBanner")).IsFalse();
+            await Assert.That(Visible(window, "BackgroundTasksBanner")).IsFalse();
 
             window.Close();
             Dispatcher.UIThread.RunJobs();

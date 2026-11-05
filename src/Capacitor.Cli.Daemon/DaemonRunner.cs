@@ -11,6 +11,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Harness.Headless;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Policy;
@@ -367,6 +368,11 @@ public static partial class DaemonRunner {
         PiReviewerLaunchDir.SweepStale(
             coverageStateDir, config.DaemonEpoch ?? "unpinned", new ConsoleErrorLogger());
 
+        // Headless runs' private directories: swept unconditionally, like the reviewer homes above.
+        var headlessRuns = new HeadlessRunRoot(coverageStateDir, config.DaemonEpoch ?? "unpinned");
+
+        if (headlessRuns.SweepStale() is { } sweepSkipped) LogHeadlessSweepSkipped(new ConsoleErrorLogger(), sweepSkipped);
+
         config.RecordlessSurvivorsImpossible = new CoverageJournal(coverageStateDir, NullLogger.Instance)
             .RecordBoot(daemonLock.InstanceId, daemonLock.PriorInstanceId,
                 priorLockReadFailed: daemonLock.PriorLockIndeterminate, thisEpochContained: OperatingSystem.IsWindows());
@@ -578,6 +584,17 @@ public static partial class DaemonRunner {
                 policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
             )
         );
+        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
+            new AcpHostedAgentRuntimeFactory(
+                AcpVendorDescriptors.MistralVibe,
+                sp.GetRequiredService<DaemonConfig>(),
+                sp.GetRequiredService<ILoggerFactory>(),
+                sp.GetRequiredService<ServerConnection>(), time,
+                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
+                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
+                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
+            )
+        );
 
         // Not an ACP factory: agy speaks NDJSON over one child process PER TURN, so it carries its own
         // runtime rather than AcpHostedAgentRuntimeFactory's persistent-child shape. Takes the logger
@@ -631,6 +648,14 @@ public static partial class DaemonRunner {
         builder.Services.AddSingleton<IHeadlessHarness>(sp => new Harness.Codex.CodexHeadlessHarness(
             sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(),
             sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Harness.Codex.CodexHeadlessHarness>>()));
+        builder.Services.AddSingleton(headlessRuns);
+        builder.Services.AddSingleton<IHeadlessHarness>(sp => new PiHeadlessHarness(
+            sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(), sp.GetRequiredService<HeadlessRunRoot>(),
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<PiHeadlessHarness>>()));
+        builder.Services.AddSingleton<IHeadlessHarness>(sp => new OpenCodeHeadlessHarness(
+            sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(), sp.GetRequiredService<HeadlessRunRoot>(),
+            sp.GetRequiredService<TimeProvider>(), OpenCodeHeadlessHarness.ProcessEnvironment,
+            sp.GetRequiredService<ILogger<OpenCodeHeadlessHarness>>()));
         builder.Services.AddSingleton(sp => new HeadlessPromptRunner(
             sp.GetServices<IHeadlessHarness>(), sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ILogger<HeadlessPromptRunner>>(),
@@ -1955,6 +1980,9 @@ public static partial class DaemonRunner {
             _ => comparison == 0
         };
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Stale headless run directories were not swept: {Reason}")]
+    static partial void LogHeadlessSweepSkipped(ILogger logger, string reason);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "kcap daemon '{Name}' starting, connecting to {ServerUrl}")]
     static partial void LogDaemonStarting(ILogger logger, string name, string serverUrl);

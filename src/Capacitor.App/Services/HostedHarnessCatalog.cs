@@ -31,7 +31,7 @@ public static class HostedHarnessCatalog {
         { "opencode",    "acp" },
         { "antigravity", "rpc" },
         { "pi",          "rpc" },
-        { "mistral-vibe", "pty" },
+        { "mistral-vibe", "acp" },
         { "grok",        "acp" },
         { "muse",        "rpc" },
     };
@@ -40,8 +40,8 @@ public static class HostedHarnessCatalog {
     /// fallback makes an unmapped vendor indistinguishable from a mapped "rpc" one.
     internal static IReadOnlyCollection<string> MappedVendors => TransportFamilies.Keys;
 
-    /// Harnesses listed only when a daemon advertises one: no daemon hosts Mistral Vibe, and one too
-    /// old to host Grok or Muse Code says nothing about it, so a daemon's silence must not offer them.
+    /// Harnesses listed only when a daemon advertises one: a daemon too old to host Mistral Vibe, Grok
+    /// or Muse Code says nothing about it, so a daemon's silence must not offer them.
     static readonly HashSet<string> RecordingOnly = new(StringComparer.OrdinalIgnoreCase) { "mistral-vibe", "grok", "muse" };
 
     public static IReadOnlyList<HarnessOption> Build(string[]? supportedVendors) {
@@ -194,11 +194,11 @@ public static class HostedHarnessCatalog {
             ? tile
             : (vendor.Length > 0 ? vendor[..1].ToUpperInvariant() : "?", "#B0B7C6");
 
-    /// Display label for a vendor token: the option's Label when the list carries one, the raw
-    /// token otherwise (before the first daemon snapshot, or a token this build has never heard
-    /// of). Shared by the harness chip and the repository menu's remembered-harness pill.
+    /// Display label for a vendor token: the option's Label when the list carries one, the harness's
+    /// own name when it does not (a harness listed only when advertised, such as a stored Mistral Vibe
+    /// session's), and the raw token only for one this build has never heard of.
     public static string LabelFor(IReadOnlyList<HarnessOption> options, string vendor) =>
-        options.FirstOrDefault(o => string.Equals(o.Vendor, vendor, StringComparison.OrdinalIgnoreCase))?.Label ?? vendor;
+        options.FirstOrDefault(o => string.Equals(o.Vendor, vendor, StringComparison.OrdinalIgnoreCase))?.Label ?? LabelFor(vendor);
 
     /// Display name for a vendor token with no option list in hand. An unknown token stays as given.
     public static string LabelFor(string vendor) =>

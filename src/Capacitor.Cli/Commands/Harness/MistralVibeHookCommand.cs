@@ -62,6 +62,8 @@ sealed class MistralVibeHookCommand(
         if (string.IsNullOrEmpty(dashedSessionId) || !Guid.TryParse(dashedSessionId, out _)) return 0;
         var sessionId = dashedSessionId.Replace("-", "");
 
+        if (MistralVibeHostedSession.IsDaemonHosted(sessionId)) return 0;
+
         // `kcap disable` must stop every POST and watcher restart for the session.
         if (DisabledSessions.IsDisabled(sessionId, config)) return 0;
 

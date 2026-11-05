@@ -208,6 +208,9 @@ public class CopilotImportSourceTests {
     [Arguments("""{"type":"hook.start","data":{"hookInvocationId":"h1","hookType":"sessionEnd","input":{}},"id":"11","timestamp":"2026-06-10T20:24:41Z","parentId":null}""", false)]
     [Arguments("""{"type":"hook.end","data":{"hookInvocationId":"h1","hookType":"sessionEnd","success":true},"id":"12","timestamp":"2026-06-10T20:24:41Z","parentId":null}""", false)]
     [Arguments("""{"type":"assistant.turn_end","data":{"turnId":"0"},"id":"13","timestamp":"2026-06-10T20:23:59Z","parentId":null}""", false)]
+    [Arguments("""{"type":"session.usage_record","data":{"usage":{"model":"claude-haiku-4.5","inputTokens":5,"outputTokens":1}},"id":"14","timestamp":"2026-06-10T20:23:54Z","parentId":null}""", true)]
+    [Arguments("""{"type":"session.usage_record","data":{"usage":{"inputTokens":5,"outputTokens":1}},"id":"15","timestamp":"2026-06-10T20:23:54Z","parentId":null}""", false)]
+    [Arguments("""{"type":"session.usage_record","data":{"model":"claude-haiku-4.5"},"id":"16","timestamp":"2026-06-10T20:23:54Z","parentId":null}""", false)]
     [Arguments("not json", false)]
     public async Task import_relevance_mirrors_the_server_normalizer_mapping(string line, bool expected) {
         await Assert.That(CopilotImportSource.IsImportRelevantLine(line)).IsEqualTo(expected);

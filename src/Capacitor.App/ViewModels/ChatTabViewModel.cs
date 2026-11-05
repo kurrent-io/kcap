@@ -167,45 +167,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         this.RaisePropertyChanged(nameof(QueueSummary));
     }
 
-    /// While a turn is live a foreground launch is already a Task row in the transcript, so the
-    /// strip keeps only the runs that outlive the turn.
-    IEnumerable<RunRow> StripRows =>
-        ActivityNote.Length == 0 ? _runs.Running : _runs.Running.Where(static r => r.IsBackground);
+    /// A foreground run is the turn's own Task row in the transcript, so the band lists only what
+    /// was sent to the background.
+    IEnumerable<RunRow> BackgroundRows => _runs.Running.Where(static r => r.IsBackground);
 
-    public bool HasRunningRuns => StripRows.Any();
-
-    /// The one strip row when there is exactly one: the view reads its name and state line, which
-    /// the row itself keeps current, so a tick changes nothing here.
-    public RunRow? RunningRow {
-        get {
-            using var rows = StripRows.GetEnumerator();
-            if (!rows.MoveNext()) return null;
-            var only = rows.Current;
-            return rows.MoveNext() ? null : only;
-        }
-    }
-
-    public string RunSummary {
-        get {
-            var running = StripRows.ToList();
-            if (running.Count < 2) return "";
-            var shells = running.Count(r => r.IsShell);
-            var agents = running.Count - shells;
-            var counts = (agents, shells) switch {
-                (_, 0) => $"{agents} subagents",
-                (0, _) => $"{shells} commands",
-                _      => $"{Plural(agents, "subagent")}, {Plural(shells, "command")}",
-            };
-            return running.All(r => r.IsBackground) ? $"{counts} running in background" : $"{counts} running";
-        }
-    }
-
-    static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+    public BackgroundTasksViewModel Tasks { get; } = new();
 
     void RefreshRuns() {
-        this.RaisePropertyChanged(nameof(HasRunningRuns));
-        this.RaisePropertyChanged(nameof(RunningRow));
-        this.RaisePropertyChanged(nameof(RunSummary));
+        Tasks.Refresh(BackgroundRows);
         RefreshAgentStatus();
     }
 
@@ -570,12 +539,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         get => _activityNote;
         private set {
             if (_activityNote == value) return;
-            var turnChanged = _activityNote.Length == 0 != (value.Length == 0);
             this.RaiseAndSetIfChanged(ref _activityNote, value);
-            if (!turnChanged) return;
-            this.RaisePropertyChanged(nameof(HasRunningRuns));
-            this.RaisePropertyChanged(nameof(RunningRow));
-            this.RaisePropertyChanged(nameof(RunSummary));
         }
     }
 
@@ -797,6 +761,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         _time = time;
         _permissions = permissions;
         _runs = runs;
+        Tasks.Refresh(BackgroundRows);
         _runs.Changed += RefreshRuns;
         _lifetimeToken = _lifetime.Token;
         _senders = senders is null ? null : new MessageSenderLookup(senders, time, _lifetimeToken, LogOnce, ConfirmAttributedDispatch);
@@ -1747,11 +1712,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                         cursor.OpenGroup = null;
                         cursor.OpenShell = null;
                         cursor.Fresh.Add(new SystemNoteItem(e.Text ?? "", e.ToolKind switch {
-                            ChatDisplayKind.AgentReport    => SystemNoteItem.AgentReportLabel,
-                            ChatDisplayKind.AgentMessage   => SystemNoteItem.AgentMessageLabel,
+                            ChatDisplayKind.AgentReport      => SystemNoteItem.AgentReportLabel,
+                            ChatDisplayKind.AgentMessage     => SystemNoteItem.AgentMessageLabel,
                             ChatDisplayKind.TaskNotification => SystemNoteItem.TaskNotificationLabel,
-                            ChatDisplayKind.CompactSummary => SystemNoteItem.CompactSummaryLabel,
-                            _                              => SystemNoteItem.NoteLabel,
+                            ChatDisplayKind.CompactSummary   => SystemNoteItem.CompactSummaryLabel,
+                            ChatDisplayKind.Interrupted      => SystemNoteItem.InterruptedLabel,
+                            ChatDisplayKind.Trigger          => e.ToolName is { Length: > 0 } trigger ? trigger : SystemNoteItem.NoteLabel,
+                            _                                => SystemNoteItem.NoteLabel,
                         }));
                         break;
                     case AcpEventKind.ToolCall: {
@@ -2064,6 +2031,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         try { _lifetime.Cancel(); } catch (ObjectDisposedException) { }
         _disposables.Dispose();
         Cards.Dispose();
+        Tasks.Dispose();
         Tray.Clear();
         _rootSubject.Dispose();
         _intakeNotice.Dispose();

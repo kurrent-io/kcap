@@ -24,6 +24,24 @@ public class HeadlessHarnessProbeTests {
     }
 
     [Test]
+    public async Task Pi_and_opencode_are_detected_in_ordinal_order() {
+        var binaries = TestBinaries.Searching(Tmp, "pi", "opencode", "claude");
+        var home     = new UserHome(Tmp.CreateDir("home"));
+
+        await Assert.That(HeadlessHarnessProbe.Detect(TestHarnesses.Under(home, binaries), binaries))
+            .IsEquivalentTo(new[] { "claude", "opencode", "pi" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    [Test]
+    [Arguments("claude", "Claude Code")]
+    [Arguments("codex", "Codex")]
+    [Arguments("pi", "Pi")]
+    [Arguments("opencode", "OpenCode")]
+    [Arguments("other", "other")]
+    public async Task A_token_has_a_label(string token, string label) =>
+        await Assert.That(HeadlessHarnessProbe.Label(token)).IsEqualTo(label);
+
+    [Test]
     public async Task Nothing_resolves_nothing_listed() {
         var home = new UserHome(Tmp.CreateDir("home"));
 

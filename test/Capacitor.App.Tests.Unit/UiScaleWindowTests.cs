@@ -1,4 +1,5 @@
 using System.Reactive.Linq;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -84,6 +85,37 @@ public class UiScaleWindowTests {
             window.KeyPressQwerty(PhysicalKey.Equal, Modifier);
             Dispatcher.UIThread.RunJobs();
             await Assert.That(setting.Current).IsEqualTo(RefreshShortcut.UsesControl ? UiScale.Default : 1.1);
+        } finally { window.Close(); }
+    });
+
+    /// The zoom scales the show-sidebar button but not the macOS window buttons beside it, so at
+    /// either end of the range it keeps its 100% window centre there, and the header still clears it.
+    [Test]
+    public Task A_zoomed_sidebar_toggle_keeps_clear_of_the_window_buttons_and_the_header_of_the_controls() => AvaloniaSession.RunOnUiAsync(async () => {
+        var setting = await NewSetting();
+        var window = new MainWindow { ContentScale = setting, Width = 1400, Height = 800 };
+        var view = new WorkspaceView();
+        try {
+            window.ContentPane.Children.Insert(0, view);
+            window.Show();
+            window.Panes.RailCollapsed = true;
+            window.UpdateLayout();
+            var title = view.FindControl<SessionTitleEditor>("WorkspaceTitle")!;
+            var button = window.RailToggleButton;
+            Point Centre() => button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+            var atDefault = Centre();
+
+            foreach (var scale in new[] { UiScale.Min, UiScale.Max }) {
+                await setting.SetAsync(scale);
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var right = window.ForwardButton.TranslatePoint(new Point(window.ForwardButton.Bounds.Width, 0), window)!.Value.X;
+                if (OperatingSystem.IsMacOS()) {
+                    await Assert.That(Centre().X).IsEqualTo(atDefault.X).Within(0.5);
+                    await Assert.That(Centre().Y).IsEqualTo(atDefault.Y).Within(0.5);
+                }
+                await Assert.That(title.TranslatePoint(default, window)!.Value.X).IsGreaterThan(right);
+            }
         } finally { window.Close(); }
     });
 

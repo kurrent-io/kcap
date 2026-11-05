@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Capacitor.App.Services;
@@ -48,16 +49,22 @@ public class PaneLayoutMemoryTests {
         await Assert.That(restored.ContextCollapsed).IsTrue();
     }
 
-    /// A width saved on a larger screen must not push the splitter off a smaller window.
+    /// A width saved on a larger screen, or a long drag, must leave the content beside it usable,
+    /// including a session beside its open details pane.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_rail_never_lays_out_wider_than_its_share_of_the_window() {
+    public async Task The_rail_never_lays_out_wider_than_the_content_beside_it_can_spare() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var window = new MainWindow { Width = 1400, Height = 800 };
             window.Panes.RailWidth = 5000;
             window.Show();
             window.UpdateLayout();
-            await Assert.That(window.SessionRail.Bounds.Width).IsEqualTo(1400 * PaneLayout.MaxShare);
+            await Assert.That(window.SessionRail.Bounds.Width)
+                .IsEqualTo(1400 - PaneLayout.ContextMinWidth - PaneLayout.SessionMinWidth);
+
+            window.Panes.ContextCollapsed = true;
+            window.UpdateLayout();
+            await Assert.That(window.SessionRail.Bounds.Width).IsEqualTo(1400 - PaneLayout.ContentMinWidth);
             window.Close();
         });
     }
@@ -86,35 +93,124 @@ public class PaneLayoutMemoryTests {
             await Assert.That(window.Panes.RailCollapsed).IsTrue();
             await Assert.That(window.SessionRail.Opacity).IsEqualTo(1);
 
-            window.RailExpandButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.RailToggleButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
             await Assert.That(window.SessionRail.Bounds.Width).IsEqualTo(PaneLayout.RailMinWidth);
             window.Close();
         });
     }
 
+    /// One toggle hides and shows the rail from the same window position, so a second click undoes the first.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Collapsing_the_rail_leaves_a_strip_whose_button_brings_it_back_at_its_width() {
+    public async Task Collapsing_the_rail_gives_its_whole_width_to_the_content_and_the_unmoved_toggle_brings_it_back() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var window = new MainWindow { Width = 1400, Height = 800 };
             window.Panes.RailWidth = 400;
             window.Show();
+            window.UpdateLayout();
+            var toggle = window.RailToggleButton;
+            Point Place() => toggle.TranslatePoint(default, window)!.Value;
+            var expanded = Place();
 
-            window.SessionRail.FindControl<Button>("CollapseButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
             await Assert.That(window.Panes.RailCollapsed).IsTrue();
             await Assert.That(window.SessionRail.IsVisible).IsFalse();
             await Assert.That(window.RailSplitter.IsVisible).IsFalse();
-            await Assert.That(window.RailExpandButton.IsEffectivelyVisible).IsTrue();
-            // Below the title bar, where neither the window title nor its buttons can cover it.
-            await Assert.That(window.RailExpandButton.Bounds.Top).IsGreaterThanOrEqualTo(44);
-            await Assert.That(window.ContentPane.Bounds.X).IsEqualTo(window.RailStrip.Bounds.Width);
+            await Assert.That(window.ContentPane.Bounds.X).IsEqualTo(0);
+            await Assert.That(window.ContentPane.Bounds.Width).IsEqualTo(1400);
+            await Assert.That(toggle.IsEffectivelyVisible).IsTrue();
+            await Assert.That(Place()).IsEqualTo(expanded);
+            await Assert.That(Place().Y + toggle.Bounds.Height).IsLessThanOrEqualTo(44);
 
-            window.RailExpandButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
             await Assert.That(window.SessionRail.Bounds.Width).IsEqualTo(400);
-            await Assert.That(window.RailStrip.IsVisible).IsFalse();
+            await Assert.That(Place()).IsEqualTo(expanded);
+            window.Close();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_sidebar_shortcut_toggles_the_rail() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var window = new MainWindow { Width = 1400, Height = 800 };
+            var modifier = ShortcutLabels.UsesCommandKey ? RawInputModifiers.Meta : RawInputModifiers.Control;
+            window.Show();
+            window.KeyPressQwerty(PhysicalKey.B, modifier);
+            await Assert.That(window.Panes.RailCollapsed).IsTrue();
+            window.KeyPressQwerty(PhysicalKey.B, modifier);
+            await Assert.That(window.Panes.RailCollapsed).IsFalse();
+            window.Close();
+        });
+    }
+
+    /// Back and forward stay beside the toggle on its line whether the rail shows or not.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_and_forward_stay_beside_the_toggle_in_both_rail_states() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var window = new MainWindow { Width = 1400, Height = 800 };
+            window.Show();
+            window.UpdateLayout();
+            Point Middle(Control c) => c.TranslatePoint(new Point(c.Bounds.Width / 2, c.Bounds.Height / 2), window)!.Value;
+            var back = Middle(window.BackButton);
+            var forward = Middle(window.ForwardButton);
+            await Assert.That(back.Y).IsEqualTo(Middle(window.RailToggleButton).Y).Within(0.5);
+            await Assert.That(back.X).IsGreaterThan(Middle(window.RailToggleButton).X);
+
+            window.Panes.RailCollapsed = true;
+            window.UpdateLayout();
+            await Assert.That(window.BackButton.IsEffectivelyVisible).IsTrue();
+            await Assert.That(Middle(window.BackButton)).IsEqualTo(back);
+            await Assert.That(Middle(window.ForwardButton)).IsEqualTo(forward);
+            window.Close();
+        });
+    }
+
+    /// The header must clear the window controls only while the rail is collapsed, and give the space back after.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_session_header_clears_the_window_controls_while_the_rail_is_collapsed() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var window = new MainWindow { Width = 1400, Height = 800 };
+            var view = new WorkspaceView();
+            window.ContentPane.Children.Insert(0, view);
+            window.Show();
+            window.UpdateLayout();
+            var title = view.FindControl<SessionTitleEditor>("WorkspaceTitle")!;
+            // Measured from the content pane, which the rail moves.
+            double TitleLeft() => title.TranslatePoint(default, window.ContentPane)!.Value.X;
+            var expandedLeft = TitleLeft();
+
+            window.Panes.RailCollapsed = true;
+            window.UpdateLayout();
+            var controlsRight = window.ForwardButton.TranslatePoint(new Point(window.ForwardButton.Bounds.Width, 0), window.ContentPane)!.Value.X;
+            await Assert.That(TitleLeft()).IsGreaterThan(controlsRight);
+
+            window.Panes.RailCollapsed = false;
+            window.UpdateLayout();
+            await Assert.That(TitleLeft()).IsEqualTo(expandedLeft);
+            window.Close();
+        });
+    }
+
+    /// A wide saved width or a long drag must leave the session beside the details pane usable.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_details_pane_never_lays_out_wider_than_the_session_beside_it_can_spare() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var window = new MainWindow { Width = 1400, Height = 800 };
+            window.Panes.RailCollapsed = true;
+            window.Panes.ContextWidth = 5000;
+            var view = new WorkspaceView();
+            window.ContentPane.Children.Add(view);
+            window.Show();
+            window.UpdateLayout();
+            var pane = view.FindControl<WorkContextView>("WorkContextHost")!;
+            await Assert.That(pane.Bounds.Width).IsEqualTo(view.Bounds.Width - PaneLayout.SessionMinWidth);
             window.Close();
         });
     }

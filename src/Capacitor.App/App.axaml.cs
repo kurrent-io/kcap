@@ -2331,7 +2331,7 @@ public partial class App : Application {
             laneStatus: lane?.Status, restartPending: restartPending, daemonOnOtherInstall: daemonOnOtherInstall,
             originOf: originOf, remoteWorkspaceFactory: remoteWorkspaceFactory, directory: resolvedDirectory,
             serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
-            searchFactory: searchFactory,
+            searchFactory: searchFactory, appServerUrl: appServerUrl,
             openFeedback: openFeedback, opener: new ShellUrlOpener(), requestSignIn: requestSignIn,
             settingsAction: settingsAction, checkForUpdatesAction: checkForUpdatesAction,
             uninstallAction: uninstallAction, requestSetup: requestSetup, historyImport: historyImport,

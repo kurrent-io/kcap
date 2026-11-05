@@ -1,5 +1,6 @@
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
+using Capacitor.Models.Transcripts.UserMessages;
 
 namespace Capacitor.App.ViewModels;
 
@@ -16,6 +17,7 @@ internal sealed class RemoteSubagentFeed(
     const int MaxPagesPerRead = 20;
 
     readonly IChatDisplayRules? _rules = TranscriptChat.SubagentRulesFor(vendor);
+    readonly ScheduledPrompts _scheduled = new();
     readonly CancellationTokenSource _lifetime = new();
     /// The server's `from` counts the events already received, not an event number: a stream whose oldest
     /// events have aged out starts above zero.
@@ -106,7 +108,7 @@ internal sealed class RemoteSubagentFeed(
         var payload = CanonicalEventJson.TryParse(eventType, json);
         if (payload is null) return null;
         var at = CanonicalEventTime.Of(payload) ?? timestamp ?? time.GetUtcNow();
-        var projected = TranscriptChat.Project(new CanonicalEvent(eventType, payload, Guid.Empty, at), _rules);
+        var projected = TranscriptChat.Project(new CanonicalEvent(eventType, payload, Guid.Empty, at), _rules, _scheduled);
         // A hidden record can still carry a run's end.
         return projected.Envelopes.Count == 0 && projected.SubmittedInputs.Count == 0 && projected.Runs.Count == 0
             ? null

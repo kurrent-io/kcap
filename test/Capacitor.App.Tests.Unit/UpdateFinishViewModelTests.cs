@@ -170,7 +170,7 @@ public class UpdateFinishViewModelTests {
 
         await Assert.That(done is { Settled: true, Clean: true }).IsTrue();
         await Assert.That(done.Steps.Select(step => step.Title).SequenceEqual(["kcap 1.4.1", "Local server", "Daemon 1.4.1"])).IsTrue();
-        await Assert.That(done.Steps.Select(step => step.Detail).SequenceEqual(["Installed", "Up to date", "Running"])).IsTrue();
+        await Assert.That(done.Steps.Select(step => step.Detail).SequenceEqual(["Updated", "Up to date", "Running"])).IsTrue();
         await Assert.That(noted is { Settled: true, Clean: false }).IsTrue();
         await Assert.That(busy.Settled).IsFalse();
     }
@@ -199,7 +199,7 @@ public class UpdateFinishViewModelTests {
             var stuckCompleted = 0;
             stuck.Completed += () => stuckCompleted++;
             clock.Advance(TimeSpan.FromMinutes(1));
-            await Assert.That(stuck.Heading).IsEqualTo("kcap is installed");
+            await Assert.That(stuck.Heading).IsEqualTo("kcap is updated");
             await Assert.That(stuckCompleted).IsEqualTo(0);
             stuck.OpenCommand.Execute().Subscribe();
             await Assert.That(stuckCompleted).IsEqualTo(1);
