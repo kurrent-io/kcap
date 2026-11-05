@@ -95,6 +95,35 @@ public class OpenCodeCliRunnerLiveTests {
         await RunsRootIsEmpty();
     }
 
+    /// <summary>Fake Bedrock credentials in the user's home: AWS rejecting them proves they reached the SDK, and with no
+    /// such file the SDK finds nothing to send. Neither call reaches a model or needs an AWS account.</summary>
+    [Test]
+    public async Task A_home_file_aws_sign_in_reaches_bedrock_through_the_private_home() {
+        const string bedrock = "amazon-bedrock/anthropic.claude-haiku-4-5-20251001-v1:0";
+
+        Dictionary<string, string?> EnvWithHome(string home) {
+            var env = Inherited();
+            foreach (var name in env.Keys.Where(k => k.StartsWith("AWS_", StringComparison.Ordinal)).ToList()) env.Remove(name);
+            env["HOME"]        = home;
+            env["AWS_PROFILE"] = "default";
+            env["AWS_REGION"]  = "us-east-1";
+
+            return env;
+        }
+
+        var bare = await Run(Wrapper(), "ok", env: EnvWithHome(Tmp.CreateDir("bare-home").Path), model: bedrock);
+        await Assert.That(bare.Error).Contains("Could not load credentials");
+        await Assert.That(bare.Failure).IsEqualTo(ClaudeCliFailure.NotSignedIn);
+
+        var home = Tmp.CreateDir("aws-home").Path;
+        Tmp.CreateFile(Path.Combine("aws-home", ".aws", "credentials"),
+            "[default]\naws_access_key_id=AKIAFAKEFAKEFAKEFAKE\naws_secret_access_key=fakefakefakefakefakefakefakefakefakefake\n");
+
+        var signedIn = await Run(Wrapper(), "ok", env: EnvWithHome(home), model: bedrock);
+        await Assert.That(signedIn.Error).Contains("security token");
+        await Assert.That(signedIn.Failure).IsEqualTo(ClaudeCliFailure.NotSignedIn);
+    }
+
     /// <summary>A request names no model unless the user chose one, so this is the path every default run takes. The
     /// model is the user's own, from their config.</summary>
     [Test]

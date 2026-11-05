@@ -627,6 +627,13 @@ public class ClaudeChatRulesTests {
         await Assert.That(waiting.At).IsEqualTo(new DateTimeOffset(2026, 9, 17, 10, 5, 0, TimeSpan.Zero));
     }
 
+    [Test]
+    public async Task A_resume_hook_record_is_a_restart_with_no_row() {
+        var result = R("""{"type":"attachment","timestamp":"2026-11-04T17:29:08Z","attachment":{"type":"hook_success","hookName":"SessionStart:resume"}}""");
+        await Assert.That(result.Envelopes).IsEmpty();
+        await Assert.That(((RunSignal.Restarted)result.Runs.Single()).At).IsEqualTo(new DateTimeOffset(2026, 11, 4, 17, 29, 8, TimeSpan.Zero));
+    }
+
     /// A message to a stopped subagent starts it again under its id, and the message's call is that
     /// run's handle. A result naming no resumed agent starts nothing.
     [Test]

@@ -63,6 +63,7 @@ static class OpenCodeCliRunner {
             CopyRecentModels(inheritedEnv, paths.Home, state.Path, log);
 
             var env = BuildEnvironment(inheritedEnv, new(home.Path, configHome.Path, configDir.Path, data.Path, state.Path), config, paths.Home);
+            OpenCodeHomeCredentials.Apply(CredentialHome(inheritedEnv, paths.Home), home.Path, log);
 
             return await RunCoreAsync(BuildPrompt(prompt, systemPrompt, schema), env, timeout, time, log, cwd.Path, model, schema, executable, ct);
         } catch (HeadlessRunRefusedException ex) {
@@ -274,6 +275,10 @@ static class OpenCodeCliRunner {
 
         return Path.Combine(HomeOf(env, userHome), ".cache");
     }
+
+    /// <summary>The home the AWS SDK reads <c>.aws</c> from, which prefers <c>HOME</c> on every platform.</summary>
+    internal static string CredentialHome(IReadOnlyDictionary<string, string?> env, string userHome) =>
+        env.GetValueOrDefault("HOME") is { Length: > 0 } home ? home : HomeOf(env, userHome);
 
     static string HomeOf(IReadOnlyDictionary<string, string?> env, string userHome) =>
         env.GetValueOrDefault(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME") is { Length: > 0 } home ? home : userHome;

@@ -274,9 +274,15 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         if (context.Options.AccessTokenProvider is { } provider && await provider() is { Length: > 0 } token)
             socket.Options.SetRequestHeader("Authorization", $"Bearer {token}");
 
+        using var cap    = new CancellationTokenSource(WebSocketConnectTimeout, _time);
+        using var capped = CancellationTokenSource.CreateLinkedTokenSource(ct, cap.Token);
+
         try {
-            await socket.ConnectAsync(context.Uri, ct);
+            await socket.ConnectAsync(context.Uri, capped.Token);
             return socket;
+        } catch (OperationCanceledException) when (cap.IsCancellationRequested && !ct.IsCancellationRequested) {
+            socket.Dispose();
+            throw new TimeoutException($"No answer from {context.Uri.Host} within {WebSocketConnectTimeout.TotalSeconds:F0}s while opening the WebSocket.");
         } catch {
             socket.Dispose();
             throw;
@@ -391,6 +397,10 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
 
     /// A hung call would leave the hand-off composer checking for as long as it hangs.
     static readonly TimeSpan LaunchFeaturesTimeout = TimeSpan.FromSeconds(10);
+
+    /// Nothing in SignalR or the socket bounds the TLS handshake and upgrade reply: a network that drops
+    /// after the SYN otherwise holds the lane in Connecting until the kernel gives up, about 15 minutes.
+    static readonly TimeSpan WebSocketConnectTimeout = TimeSpan.FromSeconds(30);
 
     public async Task<IReadOnlySet<string>?> GetLaunchFeaturesAsync(CancellationToken ct) {
         var hub = _hub;
