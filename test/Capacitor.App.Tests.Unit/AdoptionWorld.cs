@@ -80,6 +80,7 @@ sealed class AdoptionWorld {
     public MemoryAppState AppState { get; } = new();
     public RecordingNotifier Notifier { get; } = new();
     public BehaviorSubject<IAppNotifier?> Window { get; }
+    public BehaviorSubject<DaemonActivity?> Activity { get; } = new(null);
     public Func<string, bool> UserCanWrite { get; set; } = _ => true;
     public AdoptionNotices? Notices { get; private set; }
 
@@ -149,7 +150,9 @@ sealed class AdoptionWorld {
             new AdoptionIntegrations(new ApplicationIntegrationRefresh(Config, Refresh), Bundle.Cli, store, Time),
             new AdoptionPathStep(Probe, new AdoptedLinkInventory(Config), store, Shim, Stable), Notices, appState ?? AppState,
             Harnesses, Bundle, Stable, folder => UserCanWrite(folder), Write);
-        return new CliAdoptionCoordinator(batch, Time, Write, lifetime);
+        var launch = new CliAdoptionCoordinator(batch, Time, Write, lifetime);
+        launch.FollowDaemon(Activity);
+        return launch;
     }
 
     /// <summary>Starts <paramref name="launch"/> and waits for its first look and the notices it posted.</summary>
@@ -162,6 +165,13 @@ sealed class AdoptionWorld {
     /// <summary>Fires the recheck timer, when there is one, and waits for what it ran.</summary>
     public async Task RecheckAsync(CliAdoptionCoordinator launch) {
         Time.Advance(CliAdoptionCoordinator.RecheckInterval);
+        await SettledAsync(launch);
+    }
+
+    /// <summary>Reports the daemon idle, after a moment of being unattached, and waits for what that ran.</summary>
+    public async Task IdleAsync(CliAdoptionCoordinator launch) {
+        Activity.OnNext(null);
+        Activity.OnNext(new DaemonActivity(0, Busy: false));
         await SettledAsync(launch);
     }
 

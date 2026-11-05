@@ -1013,6 +1013,7 @@ public partial class App : Application {
         _ = MutationRequestFactory.TryBuild(MutationVerb.Repoint, ValidProfileName(profiles?.Resolution), profiles?.Resolution.ServerUrl,
             service.DaemonName, out var repoint);
         _adoptionDaemon = new AdoptionDaemon(repoint, () => lifecycle.LatestActivity, expectedRestart, service.RestartLoopAsync);
+        _adoption?.FollowDaemon(lifecycle.Activity);
         // Subscribe-before-run doesn't matter here (Offerable replays); always started so manual install keeps working in Incomplete mode — autoOfferSuppressed skips only the dialog.
         shimOffer.Start();
         _shimOffer = shimOffer;

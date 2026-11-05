@@ -136,6 +136,20 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     /// The attached daemon's latest reported activity; null until a snapshot arrives and whenever the attach drops.
     public DaemonActivity? LatestActivity => Volatile.Read(ref _latestActivity);
 
+    /// <see cref="LatestActivity"/> each time it is set; replays the latest on subscribe.
+    public IObservable<DaemonActivity?> Activity => _activity.AsObservable();
+
+    readonly BehaviorSubject<DaemonActivity?> _activity = new(null);
+    readonly Lock _activityLock = new();
+
+    // Snapshots and attach changes arrive on different threads; the stream must see them one at a time.
+    void SetActivity(DaemonActivity? activity) {
+        lock (_activityLock) {
+            Volatile.Write(ref _latestActivity, activity);
+            _activity.OnNext(activity);
+        }
+    }
+
     /// The standing report about the attached daemon's identity, null while it matches. A state, not an event:
     /// a banner that resets on connect returns to it rather than losing it to however the two are ordered.
     public IObservable<string?> IdentityReport => _identityReport;
@@ -241,7 +255,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
             _latestActiveAgents = snap.Daemon.ActiveAgents;
             var busy = snap.Busy ?? (snap.Daemon.ActiveAgents > 0 || snap.Pending is { Count: > 0 });
             _latestBusy = busy;
-            Volatile.Write(ref _latestActivity, new DaemonActivity(snap.Daemon.ActiveAgents, busy));
+            SetActivity(new DaemonActivity(snap.Daemon.ActiveAgents, busy));
             Volatile.Write(ref _latestDaemon, snap.Daemon);
             bool idleNow;
             lock (_lock) idleNow = _mismatchWaitsForIdle && !busy;
@@ -266,7 +280,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     void OnAttachStatus(AttachStatus status) {
         bool isFirstTerminalOutcome;
 
-        if (status.State != AttachState.Connected) Volatile.Write(ref _latestActivity, null);
+        if (status.State != AttachState.Connected) SetActivity(null);
 
         lock (_lock) {
             _generation++;

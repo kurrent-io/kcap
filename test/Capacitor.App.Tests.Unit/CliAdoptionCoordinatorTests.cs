@@ -67,11 +67,11 @@ public class CliAdoptionCoordinatorTests {
             await Assert.That(world.Logged("adoption_held").Single()["reason"]).IsEqualTo("daemon_busy");
             await Assert.That(world.Notifier.Notified).IsEmpty();
 
-            // Only a launch proves the daemon moved, so a recheck leaves an install that never reached the deletion alone.
+            // While the daemon move waits, a recheck runs the whole batch again; still busy, it deletes nothing.
             await world.RecheckAsync(launch);
 
+            await Assert.That(world.Machine.Repoints).IsEqualTo(2);
             await Assert.That(world.Machine.ProcessReads).IsEqualTo(0);
-            await Assert.That(world.Machine.SiteReads).IsEqualTo(0);
             await Assert.That(Directory.Exists(world.Root)).IsTrue();
         }
 
@@ -83,6 +83,65 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Root)).IsFalse();
         await Assert.That(world.Record.MachineSwitched).IsTrue();
         await Assert.That(world.Notifier.Notified.Count).IsEqualTo(1);
+    }
+
+    /// <summary>A first look that meets a daemon not yet attached, or busy, defers the move; the daemon turning idle
+    /// reruns the batch from fresh evidence, with no relaunch.</summary>
+    [Test]
+    public async Task A_deferred_daemon_move_runs_on_the_next_idle_report_without_a_relaunch() {
+        var world = new AdoptionWorld(Tmp);
+        var refused = 0;
+        world.Machine.Repoint = _ => refused++ == 0 ? new MutationOutcome.Refused(AdoptionRepoint.Busy, RecoverySurface.None) : null;
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+
+        await world.IdleAsync(launch);
+
+        await Assert.That(world.Machine.Repoints).IsEqualTo(2);
+        await Assert.That(world.PlistProgram()).IsEqualTo(world.Bundle.Daemon);
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+        await Assert.That(world.Record.MachineSwitched).IsTrue();
+    }
+
+    [Test]
+    public async Task A_deferred_daemon_move_runs_again_on_the_recheck_tick() {
+        var world = new AdoptionWorld(Tmp);
+        var refused = 0;
+        world.Machine.Repoint = _ => refused++ == 0 ? new MutationOutcome.Refused("daemon_busy", RecoverySurface.None) : null;
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+        await world.RecheckAsync(launch);
+
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+        await Assert.That(world.Record.MachineSwitched).IsTrue();
+    }
+
+    /// <summary>The first install's repoint restarts the app's daemon, so the second meets it unattached and defers;
+    /// once it reports idle again the batch finishes the second.</summary>
+    [Test]
+    public async Task A_second_install_refused_while_the_daemon_restarted_is_retried_once_it_reports_idle() {
+        var world = new AdoptionWorld(Tmp);
+        var second = world.AddInstall("nvm", "flow", 5100);
+        var refused = 0;
+        world.Machine.Repoint = install =>
+            install == second.Install && refused++ == 0 ? new MutationOutcome.Refused(AdoptionRepoint.Busy, RecoverySurface.None) : null;
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+        await Assert.That(Directory.Exists(second.Root)).IsTrue();
+        await Assert.That(world.Record.Pending).IsTrue();
+
+        await world.IdleAsync(launch);
+
+        await Assert.That(Directory.Exists(second.Root)).IsFalse();
+        await Assert.That(Directory.Exists(second.Platform)).IsFalse();
+        await Assert.That(world.Record.Installs.All(i => i.State == InstallState.Switched)).IsTrue();
+        await Assert.That(world.Record.MachineSwitched).IsTrue();
     }
 
     /// <summary>A held launch records no intent, so the holders an earlier launch found are still in the record: a

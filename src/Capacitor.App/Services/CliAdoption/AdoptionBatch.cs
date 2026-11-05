@@ -17,8 +17,14 @@ internal sealed class AdoptionBatch(
 
     readonly AdoptionServiceMove _services = new(machine, bundle, log);
     readonly AdoptionDeletion    _deletion = new(machine, store, retirement, harnesses, bundle.Root, log);
+    volatile bool _awaitingDaemon;
+
+    /// <summary>Whether the last launch run left a daemon move waiting for a safe point: running it again from fresh
+    /// evidence is what moves it.</summary>
+    public bool AwaitingDaemon => _awaitingDaemon;
 
     public async Task<bool> RunOnceAsync(CancellationToken ct) {
+        _awaitingDaemon = false;
         var unfinished = FinishInterrupted();
 
         AdoptionEvidence evidence;
@@ -53,7 +59,8 @@ internal sealed class AdoptionBatch(
         log("adoption_path", [("result", linked ? "ok" : "failed")]);
         if (!linked) return Finish([]);
 
-        var moved = await _services.MoveAsync(pending, evidence, ct).ConfigureAwait(false);
+        var (moved, deferred) = await _services.MoveAsync(pending, evidence, ct).ConfigureAwait(false);
+        _awaitingDaemon = deferred.Count > 0;
         if (moved.Count > 0) {
             var processes = machine.ReadProcesses();
             var sites     = await machine.ReadSitesAsync(ct).ConfigureAwait(false);
