@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Capacitor.Cli.Capture;
+using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
@@ -190,12 +191,13 @@ partial class WatchCommand(
         vendor == "kiro" && agentId is null && crewPresent;
 
     /// <summary>The session-end reason the watcher posts for how it came to stop, or null when it posts none.</summary>
-    internal static string? DecideEndReason(bool parentExited, bool crewFinished, bool wedgedCeiling, bool idle) =>
-        parentExited  ? "parent_exited"
-      : crewFinished  ? "crew_finished"
-      : wedgedCeiling ? "parent_dead_ceiling"
-      : idle          ? "idle_timeout"
-      :                 null;
+    internal static string? DecideEndReason(bool parentExited, bool crewFinished, bool wedgedCeiling, bool idle, bool copilotShutdown) =>
+        parentExited    ? "parent_exited"
+      : crewFinished    ? "crew_finished"
+      : wedgedCeiling   ? "parent_dead_ceiling"
+      : idle            ? "idle_timeout"
+      : copilotShutdown ? "session_shutdown"
+      :                   null;
 
     /// <summary>
     /// Decides whether the parent-exit watchdog should run. Pure so the three
@@ -589,6 +591,11 @@ partial class WatchCommand(
 
                 break;
 
+            case ParentWatchdog.ParentAlreadyDead when EndsWhenParentFoundDead(vendor, agentId):
+                ArmParentMonitor(parentPid!.Value);
+
+                break;
+
             case ParentWatchdog.ParentAlreadyDead:
                 Log(time, $"Parent pid {parentPid} already dead at watcher startup; entering staged recovery — "
                   + "will periodically re-resolve + re-arm the watchdog, and only end after a long ceiling "
@@ -651,6 +658,7 @@ partial class WatchCommand(
         if (SkipsThresholdBuffering(vendor)) state.ThresholdReached = true;
         var idleTimeout = ResolveIdleWindow(vendor, isSessionWatcher: agentId is null, Environment.GetEnvironmentVariable);
         var idleExit = false;
+        var copilotShutdownExit = false;
 
         // Idle grace between a Codex collab child's task_complete and its live
         // subagent-stop POST (codex child watchers only — see the loop's stop check). The
@@ -900,6 +908,7 @@ partial class WatchCommand(
             if (TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ClaudePendingToolCallsReplay(state.PendingClaudeToolCalls));
             if (TracksCodexToolCalls(vendor)) replay.Add(CodexWatcherStateReplay(state, isChildWatcher: agentId is not null));
             if (TracksCopilotToolCalls(vendor, transcriptPath)) replay.Add(new(WindowOnly: false, line => { UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line); return false; }));
+            if (TracksCopilotShutdown(vendor, agentId, transcriptPath)) replay.Add(CopilotShutdownReplay(state, time));
             await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, replay, cts.Token, message => Log(time, message));
         }
 
@@ -1112,6 +1121,14 @@ partial class WatchCommand(
                     break;
                 }
 
+                if (CopilotShutdownSettled(state.CopilotShutdownSeenAt, time.GetUtcNow())) {
+                    Log(time, $"session.shutdown still the transcript's last line after {CopilotShutdownGrace.TotalSeconds:0}s; ending session (session_shutdown)");
+                    copilotShutdownExit = true;
+                    cts.Cancel();
+
+                    break;
+                }
+
                 try {
                     await Task.Delay(TimeSpan.FromSeconds(1), time, cts.Token);
                 } catch (OperationCanceledException) {
@@ -1281,7 +1298,8 @@ partial class WatchCommand(
             parentExited:  Volatile.Read(ref parentExited)      == 1,
             crewFinished:  Volatile.Read(ref crewFinished)      == 1,
             wedgedCeiling: Volatile.Read(ref wedgedCeilingExit) == 1,
-            idle:          idleExit);
+            idle:          idleExit,
+            copilotShutdown: copilotShutdownExit);
 
         // Task 11 (D1): Cursor's idle-ceiling exit must NOT synthesize session-end here —
         // unlike Codex/Antigravity, end synthesis for Cursor has exactly one owner (the
@@ -2203,6 +2221,36 @@ partial class WatchCommand(
     internal static bool CopilotToolInFlight(WatchState state, DateTimeOffset now) =>
         state.PendingCopilotToolCalls.Count > 0 && now - state.LastActivityAt < CopilotToolCeiling;
 
+    /// <summary>How long <c>session.shutdown</c> must stay last before it counts as the session's end: a resume
+    /// appends to the same file, and VS Code has written its resume line 0.9s after the shutdown.</summary>
+    internal static readonly TimeSpan CopilotShutdownGrace = TimeSpan.FromSeconds(30);
+
+    /// <summary>A Local transcript has no shutdown line, and a child's end comes from its session.</summary>
+    internal static bool TracksCopilotShutdown(string vendor, string? agentId, string transcriptPath) =>
+        vendor == "copilot" && agentId is null && !Capacitor.Cli.Core.Harness.Copilot.CopilotPaths.IsVsCodeLocalTranscript(transcriptPath);
+
+    internal static DateTimeOffset? CopilotShutdownAfter(DateTimeOffset? seenAt, IEnumerable<string> lines, DateTimeOffset now) =>
+        lines.LastOrDefault(line => !string.IsNullOrWhiteSpace(line)) switch {
+            null                                                           => seenAt,
+            // Buffered lines are read again until they are sent, so a repeat must not restart the clock.
+            var last when CopilotFinalizeDrainCommand.IsShutdownLine(last) => seenAt ?? now,
+            _                                                              => null,
+        };
+
+    internal static bool CopilotShutdownSettled(DateTimeOffset? seenAt, DateTimeOffset now) =>
+        seenAt is { } at && now - at >= CopilotShutdownGrace;
+
+    internal static TranscriptReplayConsumer CopilotShutdownReplay(WatchState state, TimeProvider time) =>
+        new(WindowOnly: true, line => {
+            state.CopilotShutdownSeenAt = CopilotShutdownAfter(state.CopilotShutdownSeenAt, [line], time.GetUtcNow());
+
+            return false;
+        });
+
+    /// <summary>A Copilot watcher's parent was found by name, so it being gone means the agent has stopped, not
+    /// that a hook returned. Waiting for a re-resolve could not help: nothing above a watcher names the agent.</summary>
+    internal static bool EndsWhenParentFoundDead(string vendor, string? agentId) => vendor == "copilot" && agentId is null;
+
     internal static void UpdateCopilotPendingToolCalls(HashSet<string> pending, string line) {
         try {
             using var doc  = JsonDocument.Parse(line);
@@ -2905,6 +2953,10 @@ partial class WatchCommand(
                 foreach (var line in drainRead.Lines) {
                     UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line);
                 }
+            }
+
+            if (TracksCopilotShutdown(vendor, agentId, transcriptPath)) {
+                state.CopilotShutdownSeenAt = CopilotShutdownAfter(state.CopilotShutdownSeenAt, drainRead.Lines, time.GetUtcNow());
             }
 
             state.ObserveCodexReadings?.Invoke(drainRead.Lines);

@@ -152,14 +152,21 @@ sealed class CopilotFinalizeDrainCommand(
                 }
             }
 
-            if (lastNonBlank is null) {
-                return false;
-            }
+            return lastNonBlank is not null && IsShutdownLine(lastNonBlank);
+        } catch {
+            return false;
+        }
+    }
 
-            using var doc = JsonDocument.Parse(lastNonBlank);
+    /// <summary>Whether a transcript line is a <c>session.shutdown</c> envelope, rather than one quoting it.</summary>
+    internal static bool IsShutdownLine(string line) {
+        if (!line.Contains("session.shutdown", StringComparison.Ordinal)) return false;
+
+        try {
+            using var doc = JsonDocument.Parse(line);
 
             return doc.RootElement.Str("type") == "session.shutdown";
-        } catch {
+        } catch (JsonException) {
             return false;
         }
     }
