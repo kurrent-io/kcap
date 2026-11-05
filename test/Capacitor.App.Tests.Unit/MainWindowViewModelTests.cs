@@ -333,6 +333,7 @@ public class MainWindowViewModelTests {
             await Assert.That(vm.DaemonName).IsEqualTo("daemon-a");
             await Assert.That(vm.ServerUrl).IsEqualTo("http://localhost:9999");
             await Assert.That(vm.Alert).IsNull();
+            await Assert.That(vm.ShowsConnected).IsTrue();
         });
     }
 
@@ -406,6 +407,22 @@ public class MainWindowViewModelTests {
         var alert = MainWindowViewModel.AlertFor(new AttachStatus(state, reason, null), daemonConnection);
         await Assert.That(alert?.Text).IsEqualTo(text);
         await Assert.That(alert?.Recovery ?? RailRecovery.None).IsEqualTo(recovery);
+    }
+
+    /// Connected needs the attach and the daemon's hub both up, and gives way to any alert, so it
+    /// cannot sit beside a word that says otherwise.
+    [Test]
+    [Arguments(AttachState.Connected, "connected", false, true)]
+    [Arguments(AttachState.Connected, "connected", true, false)]
+    [Arguments(AttachState.Connected, "", false, false)]
+    [Arguments(AttachState.Connected, "reconnecting", false, false)]
+    [Arguments(AttachState.Connecting, "connected", false, false)]
+    [Arguments(AttachState.Unreachable, "connected", false, false)]
+    public async Task ShowsConnectedFor_only_when_attached_connected_and_alert_free(
+            AttachState state, string daemonConnection, bool alerting, bool expected) {
+        var alert = alerting ? new RailAlert(MainWindowViewModel.RestartPendingText, StatusColors.InProgress) : null;
+        await Assert.That(MainWindowViewModel.ShowsConnectedFor(new AttachStatus(state, null, null), daemonConnection, alert))
+            .IsEqualTo(expected);
     }
 
     /// Waiting on the daemon hub will not restore an expired sign-in, so it wins whatever the attach
@@ -505,6 +522,43 @@ public class MainWindowViewModelTests {
         await Assert.That(pending.Detail).IsEqualTo(message);
     }
 
+    /// A signed-out daemon on another server cannot be repaired by the app's Sign in, so the
+    /// mismatch speaks instead of its sign-out and no Sign in is offered, even on the app's profile.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_signed_out_daemon_on_another_server_alerts_the_mismatch() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                tenantName: "kurrent", appServerUrl: "https://kurrent.kcap.ai", requestSignIn: () => { });
+            using var activation = vm.Activator.Activate();
+
+            service.SnapshotsSubject.OnNext(Snap(serverUrl: "https://other.kcap.ai", connection: "disconnected",
+                credential: "env", profile: "kurrent"));
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+
+            await Assert.That(vm.Alert?.Text).IsEqualTo(MainWindowViewModel.DaemonOtherServerText);
+            await Assert.That(vm.SignInVisible).IsFalse();
+        });
+    }
+
+    /// A daemon on another server outranks the reports that assume it serves this app, and gives way
+    /// to a local server that needs the user.
+    [Test]
+    public async Task AlertFor_a_daemon_on_another_server_outranks_its_hub_word_and_queued_restarts() {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        const string notice = "This machine's daemon uses another server.";
+
+        var alert = MainWindowViewModel.AlertFor(connected, "reconnecting", restartPending: DaemonRestartWait.Turns,
+            otherServerNotice: notice);
+        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonOtherServerText);
+        await Assert.That(alert.Detail).IsEqualTo(notice);
+
+        var local = MainWindowViewModel.LocalServerAlertFor(updateFailed: false, starting: false, stopped: true, canStart: true);
+        await Assert.That(MainWindowViewModel.AlertFor(connected, "connected", local: local, otherServerNotice: notice))
+            .IsEqualTo(local);
+    }
+
     /// A restart waiting for turns follows an update to the other install, so it outranks the report; any other queued
     /// restart brings back the same version, so the report outranks it.
     [Test]
@@ -550,6 +604,46 @@ public class MainWindowViewModelTests {
     [Arguments("kurrent", "kurrent")]
     public async Task ProfileLabelForRail_hides_the_built_in_default(string? profile, string expected) {
         await Assert.That(MainWindowViewModel.ProfileLabelForRail(profile)).IsEqualTo(expected);
+    }
+
+    /// A daemon attached to another server must not lend its host to the app's org, and its hub
+    /// being up says nothing about this app's server: the footer alerts instead of saying Connected.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_daemon_on_another_server_alerts_and_keeps_the_app_profiles_identity() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                tenantName: "kurrent", appServerUrl: "https://kurrent.kcap.ai");
+            using var activation = vm.Activator.Activate();
+
+            service.SnapshotsSubject.OnNext(Snap(serverUrl: "https://other.kcap.ai", connection: "connected"));
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+
+            await Assert.That(vm.FooterIdentity).IsEqualTo("kurrent · kurrent.kcap.ai");
+            await Assert.That(vm.FooterServerUrl).IsEqualTo("https://kurrent.kcap.ai");
+            await Assert.That(vm.Alert?.Text).IsEqualTo(MainWindowViewModel.DaemonOtherServerText);
+            await Assert.That(vm.Alert?.Detail).Contains("another server");
+            await Assert.That(vm.ShowsConnected).IsFalse();
+
+            service.SnapshotsSubject.OnNext(Snap(serverUrl: "https://kurrent.kcap.ai", connection: "connected"));
+
+            await Assert.That(vm.Alert).IsNull();
+            await Assert.That(vm.ShowsConnected).IsTrue();
+        });
+    }
+
+    /// The footer names the host, port included, never the scheme; either half stands alone when
+    /// the other is missing.
+    [Test]
+    [Arguments("kurrent", "https://kurrent.kcap.ai", "kurrent · kurrent.kcap.ai")]
+    [Arguments("kurrent", "http://localhost:9999", "kurrent · localhost:9999")]
+    [Arguments("", "https://kurrent.kcap.ai", "kurrent.kcap.ai")]
+    [Arguments("kurrent", "", "kurrent")]
+    [Arguments("kurrent", "not a url", "kurrent")]
+    [Arguments("", "", "")]
+    public async Task IdentityLine_joins_the_org_and_the_server_host(string tenant, string serverUrl, string expected) {
+        await Assert.That(MainWindowViewModel.IdentityLine(tenant, serverUrl)).IsEqualTo(expected);
     }
 
     /// The alert takes the launcher card's tone: grey while in progress, amber when it needs the user, red once broken.

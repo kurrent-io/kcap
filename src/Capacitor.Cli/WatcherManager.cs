@@ -438,17 +438,12 @@ public sealed partial class WatcherManager(
     }
 
     /// <summary>
-    /// Spawns a detached, short-lived <c>kcap copilot-finalize</c> process that
-    /// delivers the Copilot <c>session.shutdown</c> tail (and any final assistant
-    /// turn) which Copilot writes to events.jsonl only AFTER the sessionEnd hook
-    /// returns. The hook calls this as its FIRST action — before killing
-    /// the live watcher and POSTing session-end — so the drainer is guaranteed to
-    /// exist even if the POST hangs and Copilot SIGKILLs the hook; being detached
-    /// it survives that kill and is the only thing left to read the file. Fire-
-    /// and-forget and idempotent (server watermark + deterministic ids); mirrors
+    /// Spawns a detached, short-lived <c>kcap copilot-finalize</c> process that delivers the transcript
+    /// tail Copilot writes after its sessionEnd hook, then <paramref name="endBody"/>. Being detached it
+    /// survives Copilot killing the hook. Fire-and-forget and idempotent; mirrors
     /// <see cref="SpawnWhatsDoneGenerator"/>.
     /// </summary>
-    public void SpawnCopilotFinalizeDrain(string sessionId, string transcriptPath) {
+    public void SpawnCopilotFinalizeDrain(string sessionId, string transcriptPath, string endBody) {
         // A detached child that would poll for up to 45s and then exit 2 on an unusable URL, leaving
         // no marker any assertion could observe. Refuse to launch it at all.
         if (!HookHttp.IsPostable(Url)) {
@@ -474,6 +469,7 @@ public sealed partial class WatcherManager(
             psi.ArgumentList.Add("copilot-finalize");
             psi.ArgumentList.Add(sessionId);
             psi.ArgumentList.Add(transcriptPath);
+            psi.ArgumentList.Add(endBody);
 
             // Don't let this detached child inherit the agent's pipe descriptors —
             // same pipe-leak hazard as the spawns above. The child writes its own output to a

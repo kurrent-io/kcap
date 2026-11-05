@@ -1,0 +1,55 @@
+using Avalonia;
+using Avalonia.Controls;
+
+namespace Capacitor.App.Views;
+
+/// <see cref="MainWindow"/> keeps its sidebar toggle, back and forward in one place at the window's
+/// top-left; while the rail is collapsed they float over the content's corner, and a header attached
+/// here pads its leading edge clear of them. Outside a MainWindow nothing floats there and the header
+/// keeps its own padding.
+public static class RailClearance {
+    // macOS draws its window buttons at a size the UI zoom does not change, centred 14pt down a
+    // 28pt title bar with the last one ending at x=62, and Avalonia offers no way to move them. There
+    // the controls are sized to fit that bar and the toggle keeps its 100% window centre, set apart
+    // from the buttons, at any zoom; only their size scales.
+    static readonly bool BesideWindowButtons = OperatingSystem.IsMacOS();
+    const double WindowButtonsMiddle = 14;
+    const double CentreBesideWindowButtons = 82;
+
+    public static readonly double ButtonSize = BesideWindowButtons ? 24 : 30;
+    public const double Spacing = 4;
+    public const double ToggleGap = 10;
+    const double Gap = 10;
+
+    static double ControlsWidth => 3 * ButtonSize + ToggleGap + Spacing;
+
+    /// The toggle's top-left in the content's units, which the UI zoom scales.
+    public static Point ButtonOrigin(double scale) => BesideWindowButtons
+        ? new(CentreBesideWindowButtons / scale - ButtonSize / 2, WindowButtonsMiddle / scale - ButtonSize / 2)
+        : new(12, 7);
+
+    /// How far a header at the content's leading edge pads to clear the controls, in content units.
+    public static double Leading(double scale) => ButtonOrigin(scale).X + ControlsWidth + Gap;
+
+    public static void Attach(Control view, Border header) {
+        var own = header.Padding;
+        MainWindow? window = null;
+
+        void Apply() => header.Padding = window?.RailLeading is > 0 and var leading
+            ? new Thickness(Math.Max(own.Left, leading), own.Top, own.Right, own.Bottom)
+            : own;
+
+        void OnChanged(object? sender, EventArgs e) => Apply();
+
+        view.AttachedToVisualTree += (_, _) => {
+            window = TopLevel.GetTopLevel(view) as MainWindow;
+            if (window is not null) window.RailLeadingChanged += OnChanged;
+            Apply();
+        };
+        view.DetachedFromVisualTree += (_, _) => {
+            if (window is not null) window.RailLeadingChanged -= OnChanged;
+            window = null;
+            Apply();
+        };
+    }
+}

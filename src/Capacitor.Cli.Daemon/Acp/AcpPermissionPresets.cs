@@ -68,5 +68,6 @@ internal static class AcpPermissionPresets {
         AcpVendorDescriptors.OpenCode.Vendor,
         AcpVendorDescriptors.Gemini.Vendor,
         AcpVendorDescriptors.Grok.Vendor,
+        AcpVendorDescriptors.MistralVibe.Vendor,
     };
 }

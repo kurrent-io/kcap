@@ -5,6 +5,7 @@ using System.Text.Json;
 using Capacitor.Cli.Core.Policy;
 using Capacitor.Models.Transcripts;
 using Capacitor.Models.Transcripts.Harness.Claude;
+using Capacitor.Models.Transcripts.UserMessages;
 using Kurrent.Agent.Schema.Events;
 
 /// <summary>
@@ -235,7 +236,7 @@ public static class ClaudeJudgeDeclarationReader {
 
             foreach (var evt in ClaudeTranscriptEvents.Instance.Project(line, 0, DateTimeOffset.UnixEpoch, context).Events) {
                 if (evt.EventId != id || evt.Payload is not UserMessageReceived message) continue;
-                if (ClaudeHarnessPayload.IsHarnessPayload(message.Content)) return null;
+                if (UserPromptDisplay.IsHarnessPayload(message.Content, out _)) return null;
                 return new(uuid, Reference(root.Str("promptId")));
             }
         } catch (JsonException) { }

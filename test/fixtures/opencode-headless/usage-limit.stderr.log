@@ -1,0 +1,25 @@
+timestamp=2026-11-04T17:08:25.167Z level=INFO run=00000000 message="creating instance" directory=/placeholder/run
+timestamp=2026-11-04T17:08:25.168Z level=INFO run=00000000 message=fromDirectory directory=/placeholder/run
+timestamp=2026-11-04T17:08:25.284Z level=INFO run=00000000 message=bootstrapping directory=/placeholder/run
+timestamp=2026-11-04T17:08:25.290Z level=INFO run=00000000 message=loading path=/placeholder/home/.config/opencode/config.json
+timestamp=2026-11-04T17:08:25.290Z level=INFO run=00000000 message=loading path=/placeholder/home/.config/opencode/opencode.json
+timestamp=2026-11-04T17:08:25.294Z level=INFO run=00000000 message=loading path=/placeholder/home/.config/opencode/opencode.jsonc
+timestamp=2026-11-04T17:08:25.314Z level=DEBUG run=00000000 message="loaded custom config from OPENCODE_CONFIG_CONTENT"
+timestamp=2026-11-04T17:08:25.456Z level=INFO run=00000000 message="all LSPs are disabled"
+timestamp=2026-11-04T17:08:25.458Z level=INFO run=00000000 message="all formatters are disabled"
+timestamp=2026-11-04T17:08:25.458Z level=INFO run=00000000 message=init
+timestamp=2026-11-04T17:08:25.677Z level=INFO run=00000000 message=created id=ses_placeholder slug=eager-nebula version=1.18.21 projectID=global directory=/placeholder/run path=placeholder/run workspaceID=undefined parentID=undefined title="New session - 2026-11-04T17:08:25.677Z" agent=undefined model=undefined metadata=undefined permission="[{\"permission\":\"question\",\"pattern\":\"*\",\"action\":\"deny\"},{\"permission\":\"plan_enter\",\"pattern\":\"*\",\"action\":\"deny\"},{\"permission\":\"plan_exit\",\"pattern\":\"*\",\"action\":\"deny\"}]" cost=0 tokens.input=0 tokens.output=0 tokens.reasoning=0 tokens.cache.read=0 tokens.cache.write=0 time.created=1793812105677 time.updated=1793812105677
+timestamp=2026-11-04T17:08:25.693Z level=INFO run=00000000 message="event connected"
+timestamp=2026-11-04T17:08:27.128Z level=INFO run=00000000 message=loop session.id=ses_placeholder step=0
+timestamp=2026-11-04T17:08:27.154Z level=INFO run=00000000 message="shell tool using shell" shell=/bin/zsh
+timestamp=2026-11-04T17:08:27.534Z level=INFO run=00000000 message=stream providerID=opencode modelID=deepseek-v4.1-flash-free session.id=ses_placeholder small=true agent=title mode=primary
+timestamp=2026-11-04T17:08:27.564Z level=INFO run=00000000 message="llm runtime selected" llm.runtime=ai-sdk llm.provider=opencode llm.model=deepseek-v4.1-flash-free
+timestamp=2026-11-04T17:08:27.705Z level=INFO run=00000000 message=init count=55
+timestamp=2026-11-04T17:08:28.106Z level=INFO run=00000000 message="watcher backend" directory=/placeholder/run platform=darwin backend=fs-events
+timestamp=2026-11-04T17:08:28.119Z level=INFO run=00000000 message="project copy refresh started" projectID=global
+timestamp=2026-11-04T17:08:28.120Z level=INFO run=00000000 message="project copy refresh done" projectID=global updated=[] removed=[]
+timestamp=2026-11-04T17:08:28.167Z level=INFO run=00000000 message="booting location services" directory=/placeholder/run workspaceID=undefined
+timestamp=2026-11-04T17:08:29.705Z level=INFO run=00000000 message=process session.id=ses_placeholder messageID=msg_placeholder
+timestamp=2026-11-04T17:08:29.706Z level=INFO run=00000000 message=stream providerID=opencode modelID=deepseek-v4.1-flash-free session.id=ses_placeholder small=false agent=build mode=primary
+timestamp=2026-11-04T17:08:29.755Z level=INFO run=00000000 message="llm runtime selected" llm.runtime=ai-sdk llm.provider=opencode llm.model=deepseek-v4.1-flash-free
+timestamp=2026-11-04T17:08:30.068Z level=ERROR run=00000000 message="stream error" providerID=opencode modelID=deepseek-v4.1-flash-free session.id=ses_placeholder small=false agent=build mode=primary error.error="AI_APICallError: Free usage limit reached. Free models work in OpenCode (https://opencode.ai); subscribe to OpenCode Go to keep going: https://opencode.ai/go"

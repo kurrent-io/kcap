@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Claude;
 
 /// The chat-level view of Claude records: what the Chat tab shows for each record shape.
@@ -12,11 +14,14 @@ public class ClaudeChatRulesTests {
     [Test]
     [Arguments("")]
     [Arguments(" inspect the queue ")]
-    public async Task Hidden_slash_commands_acknowledge_the_submitted_command_and_arguments(string args) {
+    public async Task A_slash_command_shows_its_command_line_and_acknowledges_it(string args) {
         var chat = TranscriptChat.For("claude")!;
         var result = chat.ProjectWithInputs($$$"""{"type":"user","message":{"content":"<command-name>/review</command-name><command-message>review</command-message><command-args>{{{args}}}</command-args>"}}""", 1, Received, chat.CreateContext("a1", null));
-        await Assert.That(result.Envelopes).IsEmpty();
-        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { args.Trim().Length == 0 ? "/review" : $"/review {args.Trim()}" });
+        var line = args.Trim().Length == 0 ? "/review" : $"/review {args.Trim()}";
+        var row = result.Envelopes.Single();
+        await Assert.That(row.Kind).IsEqualTo(AcpEventKind.UserMessage);
+        await Assert.That(row.Text).IsEqualTo(line);
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { line });
     }
 
     [Test]
@@ -531,13 +536,19 @@ public class ClaudeChatRulesTests {
         await Assert.That(mention.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
         await Assert.That(mention.SubmittedInputs).IsEquivalentTo(new[] { "why did <agent-message from=\"x\"> show up?" });
 
+        // The whole frame typed word for word is the harness's to the classifier, whatever the origin says,
+        // so it shows only once a send matches it.
         var typed = R("""{"type":"user","origin":{"kind":"human"},"message":{"content":"<agent-message from=\"x\">\nwhat is this?\n</agent-message>"}}""");
-        await Assert.That(typed.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
-        await Assert.That(typed.SubmittedInputs.Single()).StartsWith("<agent-message");
+        await Assert.That(typed.Envelopes).IsEmpty();
+        var restored = typed.RestoreSubmittedInputs(text => text.StartsWith("<agent-message", StringComparison.Ordinal));
+        await Assert.That(restored.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
+        await Assert.That(restored.SubmittedInputs.Single()).StartsWith("<agent-message");
 
+        // So is a message opening with the frame's tag, which only a matching send gives back to the person.
         var oneLine = R("""{"type":"user","message":{"content":"<agent-message from=\"x\"> is what?"}}""");
-        await Assert.That(oneLine.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
-        await Assert.That(oneLine.SubmittedInputs).IsEquivalentTo(new[] { "<agent-message from=\"x\"> is what?" });
+        await Assert.That(oneLine.Envelopes).IsEmpty();
+        var typedOneLine = oneLine.RestoreSubmittedInputs(text => text == "<agent-message from=\"x\"> is what?");
+        await Assert.That(typedOneLine.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
     }
 
     [Test]
@@ -602,6 +613,35 @@ public class ClaudeChatRulesTests {
         await Assert.That(finished.Outcome).IsEqualTo(RunOutcome.Stopped);
     }
 
+    /// Claude Code reports a background agent that stopped with work of its own still running as
+    /// completed, and only the summary says it resumes. The first such notification names the call,
+    /// a repeat the agent alone.
+    [Test]
+    [Arguments("<tool-use-id>toolu_A</tool-use-id>\n", "toolu_A")]
+    [Arguments("", null)]
+    public async Task A_completed_notification_for_an_agent_waiting_on_its_own_work_is_a_wait(string callTag, string? callId) {
+        var text = $"<task-notification>\n<task-id>a151b2d5ee7fd3108</task-id>\n{callTag}<output-file>/tmp/a151b2d5ee7fd3108.output</output-file>\n<status>completed</status>\n<summary>Agent \"Fix review round 1\" is waiting on its own background work</summary>\n<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>\n<result>This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.\n</result>\n</task-notification>";
+        var waiting = (RunSignal.Waiting)R($$$"""{"type":"user","timestamp":"2026-09-17T10:05:00Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"{{{text.Replace("\n", "\\n").Replace("\"", "\\\"")}}}"}}""").Runs.Single();
+        await Assert.That(waiting.CallId).IsEqualTo(callId);
+        await Assert.That(waiting.AgentId).IsEqualTo("a151b2d5ee7fd3108");
+        await Assert.That(waiting.At).IsEqualTo(new DateTimeOffset(2026, 9, 17, 10, 5, 0, TimeSpan.Zero));
+    }
+
+    /// A message to a stopped subagent starts it again under its id, and the message's call is that
+    /// run's handle. A result naming no resumed agent starts nothing.
+    [Test]
+    public async Task A_message_that_resumes_a_stopped_agent_is_a_resume_keyed_by_its_call() {
+        static string SendResult(string fields) =>
+            $$$"""{"type":"user","timestamp":"2026-09-17T10:20:00Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_M","content":[{"type":"text","text":"ok"}]}]},"toolUseResult":{"success":true,{{{fields}}}}}""";
+
+        var resumed = (RunSignal.Resumed)R(SendResult("\"message\":\"Resuming agent a151b2d\",\"resumedAgentId\":\"a151b2d5ee7fd3108\",\"revivedAgentId\":\"a151b2d5ee7fd3108\"")).Runs.Single();
+        await Assert.That(resumed.CallId).IsEqualTo("toolu_M");
+        await Assert.That(resumed.AgentId).IsEqualTo("a151b2d5ee7fd3108");
+        await Assert.That(resumed.At).IsEqualTo(new DateTimeOffset(2026, 9, 17, 10, 20, 0, TimeSpan.Zero));
+
+        await Assert.That(R(SendResult("\"message\":\"Message queued for delivery\"")).Runs).IsEmpty();
+    }
+
     [Test]
     public async Task A_notification_status_is_matched_without_regard_to_case() {
         var finished = (RunSignal.Finished)R(Notification(originKind: true, status: "Completed")).Runs.Single();
@@ -615,5 +655,173 @@ public class ClaudeChatRulesTests {
         await Assert.That(stopped.CallId).IsNull();
         await Assert.That(stopped.AgentId).IsEqualTo("a9f262478e032f427");
         await Assert.That(stopped.Outcome).IsEqualTo(RunOutcome.Stopped);
+    }
+
+    static string User(string content, string flags = "") =>
+        JsonSerializer.Serialize(new { type = "user", message = new { content } })[..^1] + (flags.Length > 0 ? "," + flags : "") + "}";
+
+    /// A trigger is labelled as what it is, never as the person, and its frame is left out.
+    [Test]
+    [Arguments("<system-reminder>\nAuto-fix is on.\n</system-reminder>\n\n<ci-monitor-event>Check `build` failed.</ci-monitor-event>", "CI event", "Check `build` failed.")]
+    [Arguments("<cross-session-message from=\"uds:/tmp/cc.sock\">\nPR has a thread\n</cross-session-message>", "Message from another session", "PR has a thread")]
+    public async Task A_trigger_is_a_labelled_note_that_acknowledges_nothing(string content, string label, string body) {
+        var result = R(User(content));
+        var note = result.Envelopes.Single();
+        await Assert.That(note.Kind).IsEqualTo(AcpEventKind.SystemNote);
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
+        await Assert.That(note.ToolName).IsEqualTo(label);
+        await Assert.That(note.Text).IsEqualTo(body);
+        await Assert.That(result.SubmittedInputs).IsEmpty();
+    }
+
+    /// Another session's message carries no agent frame, so it is a trigger rather than an agent's note.
+    [Test]
+    public async Task A_peer_outside_the_agent_frame_is_a_trigger() {
+        var note = R(User("Can you rebase?", "\"origin\":{\"kind\":\"peer\"}")).Envelopes.Single();
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
+        await Assert.That(note.ToolName).IsEqualTo("Message from another session");
+        await Assert.That(note.Text).IsEqualTo("Can you rebase?");
+    }
+
+    [Test]
+    [Arguments("[Request interrupted by user]")]
+    [Arguments("[Request interrupted by user for tool use]")]
+    public async Task An_interrupt_marker_is_an_interrupted_note(string content) {
+        var result = R(User(content));
+        var note = result.Envelopes.Single();
+        await Assert.That(note.Kind).IsEqualTo(AcpEventKind.SystemNote);
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.Interrupted);
+        await Assert.That(note.Text).IsEqualTo("");
+        await Assert.That(result.SubmittedInputs).IsEmpty();
+    }
+
+    /// The harness carrying on is never shown as the person's message.
+    [Test]
+    [Arguments("Stop hook feedback:\n[merge PR #4577 once CI is green]: CI is still running; keep going.")]
+    [Arguments("Continue from where you left off.")]
+    [Arguments("A session-scoped Stop hook is now active with condition: \"merge PR #4577\".")]
+    [Arguments("<!-- kcap-memory-index:v1 -->\n## Team memory")]
+    [Arguments("[Image: source: /private/tmp/demo/images/1.png]")]
+    [Arguments("<system-reminder>\nThe user named this session \"ci-watch\".\n</system-reminder>")]
+    [Arguments("<local-command-stdout>Set model to opus</local-command-stdout>")]
+    public async Task A_continuation_shows_no_row_and_acknowledges_nothing(string content) {
+        var result = R(User(content));
+        await Assert.That(result.Envelopes).IsEmpty();
+        await Assert.That(result.SubmittedInputs).IsEmpty();
+    }
+
+    /// Claude records who wrote a line, and a person may type the words the harness sends after a crash.
+    [Test]
+    public async Task Words_claude_records_as_the_persons_stay_theirs() {
+        var row = R(User("Continue from where you left off.", "\"origin\":{\"kind\":\"human\"}")).Envelopes.Single();
+        await Assert.That(row.Kind).IsEqualTo(AcpEventKind.UserMessage);
+        await Assert.That(row.Text).IsEqualTo("Continue from where you left off.");
+    }
+
+    /// A server event can lose the flag; the summary's lead still says what it is.
+    [Test]
+    public async Task A_compaction_summary_without_its_flag_is_still_a_note() {
+        var note = R(User("This session is being continued from a previous conversation that ran out of context.")).Envelopes.Single();
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.CompactSummary);
+    }
+
+    [Test]
+    public async Task A_notification_followed_by_a_question_is_the_persons() {
+        var row = R(User("<task-notification>\n<status>completed</status>\n</task-notification>\n\nwhy did this open a turn?")).Envelopes.Single();
+        await Assert.That(row.Kind).IsEqualTo(AcpEventKind.UserMessage);
+    }
+
+    /// A wake-up's prompt and a loop's firing come back as plain text, recognisable only once scheduled.
+    [Test]
+    public async Task Scheduled_prompts_are_recognised_once_the_transcript_scheduled_them() {
+        var chat = TranscriptChat.For("claude")!;
+        var context = chat.CreateContext("a1", null);
+        IReadOnlyList<AcpEventEnvelope> Line(string line) => chat.Project(line, 1, Received, context);
+        const string wake = "check CI for PR #4577";
+
+        await Assert.That(Line(User(wake)).Single().Kind).IsEqualTo(AcpEventKind.UserMessage);
+
+        Line($$$"""{"type":"assistant","uuid":"{{{Guid.NewGuid()}}}","message":{"content":[{"type":"tool_use","id":"t1","name":"ScheduleWakeup","input":{"delaySeconds":60,"prompt":"{{{wake}}}"}}]}}""");
+        Line(User("<command-name>/loop</command-name><command-args>10m review threads</command-args>"));
+
+        await Assert.That(Line(User(wake))).IsEmpty();
+        var loop = Line(User("review threads")).Single();
+        await Assert.That(loop.ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
+        await Assert.That(loop.ToolName).IsEqualTo("Scheduled loop");
+    }
+
+    /// Another session sending a command's tags is a trigger: neither the person's row nor a receipt.
+    [Test]
+    [Arguments("<bash-input>ls</bash-input>")]
+    [Arguments("<command-name>/review</command-name><command-args>x</command-args>")]
+    public async Task A_peers_command_is_a_trigger_and_acknowledges_nothing(string content) {
+        var result = R(User(content, "\"origin\":{\"kind\":\"peer\"}"));
+        await Assert.That(result.Envelopes.Single().ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
+        await Assert.That(result.SubmittedInputs).IsEmpty();
+    }
+
+    /// A reminder ahead of a notification or an agent's report leaves it the harness's note, its words kept.
+    [Test]
+    public async Task A_reminder_ahead_of_a_notification_or_a_report_keeps_its_note() {
+        var notification = R(User("<system-reminder>x</system-reminder>\n<task-notification><summary>done</summary><result>report</result></task-notification>")).Envelopes.Single();
+        await Assert.That(notification.ToolKind).IsEqualTo(ChatDisplayKind.TaskNotification);
+        await Assert.That(notification.Text).IsEqualTo("**done**\n\nreport");
+
+        var report = R(User("<system-reminder>x</system-reminder>\n<agent-message from=\"a1\">\n[Subagent hand-back] The report follows:\n  Done.\n</agent-message>")).Envelopes.Single();
+        await Assert.That(report.ToolKind).IsEqualTo(ChatDisplayKind.AgentReport);
+        await Assert.That(report.Text).IsEqualTo("Done.");
+    }
+
+    /// A scheduled firing is the harness's even when its prompt holds a command's tags, so it acknowledges no send.
+    [Test]
+    public async Task A_scheduled_firing_with_a_commands_tags_acknowledges_nothing() {
+        var chat = TranscriptChat.For("claude")!;
+        var context = chat.CreateContext("a1", null);
+        chat.ProjectWithInputs("""{"type":"assistant","uuid":"8f6f1f43-3a64-4a0e-9a8f-5f52a8a3b2c1","message":{"content":[{"type":"tool_use","id":"t1","name":"ScheduleWakeup","input":{"prompt":"<bash-input>ls</bash-input>"}}]}}""", 1, Received, context);
+
+        var firing = chat.ProjectWithInputs(User("<bash-input>ls</bash-input>"), 2, Received, context);
+        await Assert.That(firing.Envelopes).IsEmpty();
+        await Assert.That(firing.SubmittedInputs).IsEmpty();
+    }
+
+    /// A reminder beside a bang command is the harness's: the row and the receipt are still the command's.
+    [Test]
+    public async Task A_bang_command_behind_a_reminder_is_still_its_shell_row() {
+        var result = R(User("<system-reminder>x</system-reminder>\n<bash-input>ls</bash-input>"));
+        var row = result.Envelopes.Single();
+        await Assert.That(row.ToolKind).IsEqualTo(ChatDisplayKind.Shell);
+        await Assert.That(row.Text).IsEqualTo("! ls");
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "!ls" });
+    }
+
+    /// A reminder can quote a shell tag; the command is the one after it, in the row and the receipt.
+    [Test]
+    public async Task A_shell_tag_a_reminder_quotes_is_not_the_command() {
+        var result = R(User("<system-reminder><bash-input>pwd</bash-input></system-reminder>\n<bash-input>ls</bash-input>"));
+        await Assert.That(result.Envelopes.Single().Text).IsEqualTo("! ls");
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "!ls" });
+    }
+
+    [Test]
+    public async Task A_slash_command_a_reminder_quotes_is_not_the_receipt() {
+        var result = R(User("<system-reminder><command-name>/clear</command-name></system-reminder>\n<command-name>/review</command-name><command-args>x</command-args>"));
+        await Assert.That(result.Envelopes.Single().Text).IsEqualTo("/review x");
+        await Assert.That(result.SubmittedInputs).IsEquivalentTo(new[] { "/review x" });
+    }
+
+    /// A reminder ahead of a notification can quote another task's tags; the run that ends is the notification's.
+    [Test]
+    public async Task A_reminder_ahead_of_a_notification_does_not_pick_the_task_it_ends() {
+        var finished = R(User("<system-reminder><task-id>other</task-id><status>failed</status></system-reminder>\n<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n</task-notification>"))
+            .Runs.OfType<RunSignal.Finished>().Single();
+        await Assert.That(finished.AgentId).IsEqualTo("a1");
+        await Assert.That(finished.Outcome).IsEqualTo(RunOutcome.Done);
+    }
+
+    /// A hand-back is the subagent's report however Claude delivered it.
+    [Test]
+    public async Task An_unframed_handback_is_a_subagent_report() {
+        var note = R(User("All done.", "\"origin\":{\"kind\":\"peer\",\"handback\":true}")).Envelopes.Single();
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.AgentReport);
     }
 }

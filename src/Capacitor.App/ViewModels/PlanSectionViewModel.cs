@@ -43,6 +43,8 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     public bool ShowsPlan => HasPlan || IsLoading || IsUnavailable;
     public bool HasTasks      => _tasks.Count > 0;
     public bool HasInProgress => _inProgress.Count > 0;
+    /// Whether the section has task rows to show: every task expanded, only the in-progress ones collapsed.
+    public bool ShowsBody => IsExpanded ? HasPlan : HasInProgress;
     public int DoneCount => _tasks.Count(task => task.IsSettled);
     /// What the expanded header says; collapsed, the header shows Counts.
     public string HeaderText => $"{DoneCount} of {_tasks.Count} done";
@@ -51,7 +53,13 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     public IReadOnlyList<PlanTaskCount> Counts => _counts;
 
     bool _isExpanded;
-    public bool IsExpanded { get => _isExpanded; private set => this.RaiseAndSetIfChanged(ref _isExpanded, value); }
+    public bool IsExpanded {
+        get => _isExpanded;
+        private set {
+            this.RaiseAndSetIfChanged(ref _isExpanded, value);
+            this.RaisePropertyChanged(nameof(ShowsBody));
+        }
+    }
     public ReactiveCommand<Unit, Unit> ToggleCommand { get; }
 
     /// Test-only seam: the current lease's read, or the last one started.
@@ -164,6 +172,7 @@ public sealed class PlanSectionViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(ShowsPlan));
         this.RaisePropertyChanged(nameof(HasTasks));
         this.RaisePropertyChanged(nameof(HasInProgress));
+        this.RaisePropertyChanged(nameof(ShowsBody));
         this.RaisePropertyChanged(nameof(DoneCount));
         this.RaisePropertyChanged(nameof(HeaderText));
     }

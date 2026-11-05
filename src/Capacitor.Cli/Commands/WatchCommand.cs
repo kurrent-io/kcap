@@ -673,7 +673,8 @@ partial class WatchCommand(
         state.LastCoverageCheck = time.GetUtcNow();
 
         if (vendor == "claude" && agentId is null) {
-            state.SecondaryRoots = new SecondaryRepoRoots(GitRepository.FindRoot, cwd is null ? null : GitRepository.FindRoot(cwd));
+            state.SecondaryRoots    = new SecondaryRepoRoots(GitRepository.FindRoot, cwd is null ? null : GitRepository.FindRoot(cwd));
+            state.SubagentCheckouts = new ClaudeSubagentCheckouts(transcriptPath);
         }
 
         // No cwd-derived repo (launched outside any checkout, or no cwd at all): fall back to
@@ -909,6 +910,7 @@ partial class WatchCommand(
             if (vendor == "claude") replay.Add(CreatedPullRequestsReplay(state));
             if (TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ClaudePendingToolCallsReplay(state.PendingClaudeToolCalls));
             if (TracksCodexToolCalls(vendor)) replay.Add(CodexWatcherStateReplay(state, isChildWatcher: agentId is not null));
+            if (TracksCopilotToolCalls(vendor, transcriptPath)) replay.Add(new(WindowOnly: false, line => { UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line); return false; }));
             await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, replay, cts.Token, message => Log(time, message));
         }
 
@@ -984,6 +986,11 @@ partial class WatchCommand(
                 if (state.Commits is not CommitObservation.Uncovered && time.GetUtcNow() - state.LastCoverageCheck > TimeSpan.FromSeconds(60)) {
                     state.Commits           = state.Commits.Rechecked(await GitHook.CoversAsync(config, sessionId, cwd, time));
                     state.LastCoverageCheck = time.GetUtcNow();
+                }
+
+                if (time.GetUtcNow() - state.LastSubagentCheckoutScan >= SubagentCheckoutScanGap) {
+                    ObserveSubagentCheckouts(state, time);
+                    state.LastSubagentCheckoutScan = time.GetUtcNow();
                 }
 
                 if (SecondaryProbeDue(state, time.GetUtcNow())) {
@@ -1102,13 +1109,15 @@ partial class WatchCommand(
                         idleTimeout,
                         // A tool awaiting its result suppresses idle-end: Codex tracks call_ids,
                         // Antigravity counts PLANNER_RESPONSE calls vs result steps, Claude tracks
-                        // tool_use ids awaiting their tool_result.
+                        // tool_use ids awaiting their tool_result, Copilot Local tracks toolCallIds.
                         toolInFlight: vendor switch {
                             "antigravity" => state.PendingAntigravityToolCalls > 0,
                             "claude"      => state.PendingClaudeToolCalls.Count > 0,
+                            "copilot"     => CopilotToolInFlight(state, time.GetUtcNow()),
                             _             => state.PendingCodexToolCalls.Count > 0,
                         },
-                        disconnectedSinceActivity: state.AccumulatedDisconnected)) {
+                        disconnectedSinceActivity: state.AccumulatedDisconnected,
+                        vsCodeLocal: vendor == "copilot" && Capacitor.Cli.Core.Harness.Copilot.CopilotPaths.IsVsCodeLocalTranscript(transcriptPath))) {
                     Log(time, $"{vendor} transcript idle for >{idleTimeout.TotalMinutes:F0}m; ending session (idle_timeout)");
                     idleExit = true;
                     cts.Cancel();
@@ -1221,6 +1230,7 @@ partial class WatchCommand(
             // A PR is usually opened in the session's last turn, after the previous 60s probe.
             await LinkCreatedPullRequestsAsync(state, sessionId,
                 FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, lastChance: true, TouchHeartbeat);
+            ObserveSubagentCheckouts(state, time, final: true);
             await LinkSecondaryPullRequestsAsync(state, sessionId,
                 FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, TouchHeartbeat);
         }
@@ -1882,6 +1892,16 @@ partial class WatchCommand(
             return roots.IsFull;
         });
 
+    static readonly TimeSpan SubagentCheckoutScanGap = TimeSpan.FromSeconds(10);
+
+    internal static void ObserveSubagentCheckouts(WatchState state, TimeProvider time, bool final = false) {
+        if (state is not { SubagentCheckouts: { } subagentCheckouts, SecondaryRoots: { } secondaryRoots }) return;
+
+        var knownRoots = secondaryRoots.Roots.Count;
+        subagentCheckouts.FeedInto(secondaryRoots, final);
+        if (secondaryRoots.Roots.Count > knownRoots) Log(time, $"Probing secondary checkouts for a PR: {string.Join(", ", secondaryRoots.Roots)}");
+    }
+
     internal static void ObserveCreatedPullRequest(WatchState state, string line) {
         if (CreatedPullRequests.FromClaudeLine(line) is not { } pr) return;
         if (state.LinkedPullRequests.Contains((pr.Owner, pr.RepoName, pr.Number)) || state.PendingCreatedPullRequests.Contains(pr)) return;
@@ -2005,6 +2025,7 @@ partial class WatchCommand(
         vendor switch {
             "antigravity"                     => ResolveCodexIdleTimeout(env("KCAP_ANTIGRAVITY_IDLE_MINUTES")),
             "cursor"                          => ResolveCursorIdleCeiling(env("KCAP_CURSOR_IDLE_CEILING_MINUTES")),
+            "copilot"                         => ResolveCodexIdleTimeout(env("KCAP_COPILOT_IDLE_MINUTES")),
             "claude" when !isSessionWatcher   => ResolveClaudeSubagentIdleCeiling(env("KCAP_CLAUDE_SUBAGENT_IDLE_MINUTES")),
             "codex" when !isSessionWatcher    => ResolveCodexSubagentReapCeiling(env("KCAP_CODEX_SUBAGENT_REAP_MINUTES")),
             _                                 => ResolveCodexIdleTimeout(env("KCAP_CODEX_IDLE_MINUTES")),
@@ -2039,7 +2060,8 @@ partial class WatchCommand(
             DateTimeOffset now,
             TimeSpan       idleTimeout,
             bool           toolInFlight              = false,
-            TimeSpan       disconnectedSinceActivity = default
+            TimeSpan       disconnectedSinceActivity = default,
+            bool           vsCodeLocal               = false
         ) {
         // Which vendors may idle-exit, and in which role:
         //   codex             — both. Session: the idle window is the fallback session-end signal
@@ -2055,10 +2077,14 @@ partial class WatchCommand(
         //                       leaks it for the life of the parent). Its SESSION watcher has a
         //                       working watchdog AND a sessionEnd hook, so a ceiling there could
         //                       end a live session out from under a thinking user.
+        //   copilot           — a VS Code Local SESSION only: it has neither a session-end hook nor a
+        //                       parent to watch. Copilot CLI has both, so the same ceiling-end risk
+        //                       as Claude's session watcher applies there.
         var eligible = vendor switch {
             "codex" or "cursor" => true,
             "antigravity"       => isSessionWatcher,
             "claude"            => !isSessionWatcher,
+            "copilot"           => isSessionWatcher && vsCodeLocal,
             _                   => false,
         };
 
@@ -2066,8 +2092,9 @@ partial class WatchCommand(
 
         // A child watcher never buffers, so requiring ThresholdReached would make it permanently
         // ineligible. A session watcher keeps the gate: a session nobody has taken a turn in has not
-        // gone idle, and its end comes from the parent's exit instead.
-        if (isSessionWatcher && !thresholdReached) return false;
+        // gone idle, and its end comes from the parent's exit instead. A Local session has no parent
+        // to end it, so idling is its end with or without a turn.
+        if (isSessionWatcher && !thresholdReached && !vsCodeLocal) return false;
 
         return now - lastActivityAt - disconnectedSinceActivity > idleTimeout && !toolInFlight;
     }
@@ -2179,6 +2206,36 @@ partial class WatchCommand(
     /// match. Not gated on watcher role: a collab child needs it for ShouldPostSubagentStop.
     /// </summary>
     internal static bool TracksCodexToolCalls(string vendor) => vendor == "codex";
+
+    /// <summary>Only a VS Code Local session idle-ends, and raw drain lines are unbounded, so nothing else parses them here.</summary>
+    internal static bool TracksCopilotToolCalls(string vendor, string transcriptPath) =>
+        vendor == "copilot" && Capacitor.Cli.Core.Harness.Copilot.CopilotPaths.IsVsCodeLocalTranscript(transcriptPath);
+
+    /// <summary>A Local session has no parent process to end it, so a tool that never reports back, such as
+    /// one running when VS Code quits, would keep it open and its watcher running for good without a ceiling.</summary>
+    internal static readonly TimeSpan CopilotToolCeiling = TimeSpan.FromHours(4);
+
+    internal static bool CopilotToolInFlight(WatchState state, DateTimeOffset now) =>
+        state.PendingCopilotToolCalls.Count > 0 && now - state.LastActivityAt < CopilotToolCeiling;
+
+    internal static void UpdateCopilotPendingToolCalls(HashSet<string> pending, string line) {
+        try {
+            using var doc  = JsonDocument.Parse(line);
+            var       root = doc.RootElement;
+
+            switch (root.Str("type")) {
+                case "tool.execution_start" when root.Obj("data")?.Str("toolCallId") is { } started:
+                    pending.Add(started);
+                    break;
+
+                case "tool.execution_complete" when root.Obj("data")?.Str("toolCallId") is { } completed:
+                    pending.Remove(completed);
+                    break;
+            }
+        } catch {
+            // Ignore malformed / non-JSON lines — never break the drain loop
+        }
+    }
 
     internal static void UpdateCodexPendingToolCalls(HashSet<string> pending, string line) {
         try {
@@ -2856,6 +2913,12 @@ partial class WatchCommand(
             if (TracksCodexToolCalls(vendor)) {
                 foreach (var line in drainRead.Lines) {
                     UpdateCodexPendingToolCalls(state.PendingCodexToolCalls, line);
+                }
+            }
+
+            if (TracksCopilotToolCalls(vendor, transcriptPath)) {
+                foreach (var line in drainRead.Lines) {
+                    UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line);
                 }
             }
 
@@ -5296,17 +5359,7 @@ partial class WatchCommand(
 
     /// <summary>True if <paramref name="line"/> (a single, newline-less transcript line) parses as a
     /// complete JSON document. Used to gate consuming an unterminated final line at shutdown.</summary>
-    static bool IsCompleteJsonRecord(string line) {
-        var trimmed = line.Trim();
-        if (trimmed.Length == 0) return false;
-
-        try {
-            using var _ = JsonDocument.Parse(trimmed);
-            return true;
-        } catch (JsonException) {
-            return false;
-        }
-    }
+    static bool IsCompleteJsonRecord(string line) => JsonRecord.IsComplete(line);
 
     /// <summary>Read-only view of <c>inner</c> that reports EOF after <c>limit</c> bytes, so a
     /// StreamReader over it can't read past a length sampled before a concurrent append.</summary>

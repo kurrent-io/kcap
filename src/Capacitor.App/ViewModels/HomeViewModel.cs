@@ -92,7 +92,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     /// A daemon attached by name that serves another server: signing in again cannot move it.
     internal static string DaemonOnOtherServerNotice(string daemonServer, string appServer) {
         var (daemonLabel, appLabel) = AttachedIdentity.ServerLabels(daemonServer, appServer);
-        return $"This machine's daemon uses another server. It's connected to {daemonLabel}, so it can't run agents for {appLabel}.";
+        return $"This machine's daemon uses another server. It's set up for {daemonLabel}, so it can't run agents for {appLabel}.";
     }
 
     /// The daemon's server when it is known and is not the app's; null otherwise, an unknown side included.
@@ -796,7 +796,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         // ordering guarantees a real value is there (MainWindowViewModel's identical seam comment).
         var foreignServer = daemon.Snapshots.Select(s => ForeignDaemonServer(s.Daemon.ServerUrl, appServerUrl))
             .StartWith((string?)null).DistinctUntilChanged();
-        // A daemon serving another server is connected to the wrong one: it cannot launch for this app.
+        // A daemon serving another server cannot launch for this app.
         var daemonAvailability = daemon.Status.CombineLatest(
             daemon.Snapshots.Select(s => s.Daemon.Connection).StartWith(""), AvailabilityFor);
         var availability = daemonAvailability.CombineLatest(foreignServer,

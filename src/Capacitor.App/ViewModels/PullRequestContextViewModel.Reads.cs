@@ -287,8 +287,8 @@ public sealed partial class PullRequestContextViewModel {
     }
     /// An overview the card has read is fresher than the list row it was chosen from, which waits
     /// for the next list refresh.
-    bool IsSettled(PullRequestChoice choice) =>
-        (_lifecycles.GetValueOrDefault(choice.Subject) ?? choice.Link.Lifecycle) is "merged" or "closed";
+    bool IsSettled(PullRequestChoice choice) => LifecycleOf(choice) is "merged" or "closed";
+    string? LifecycleOf(PullRequestChoice choice) => _lifecycles.GetValueOrDefault(choice.Subject) ?? choice.Link.Lifecycle;
     /// True when the subject's lifecycle is new or has changed.
     bool Learn(PullRequestSubjectDto subject, string? lifecycle) {
         if (lifecycle is null) return false;

@@ -1606,7 +1606,7 @@ public class HomeViewModelTests {
             lane.StatusSubject.OnNext(new ServerLaneStatus(laneState));
 
             await Assert.That(vm.ConnectionNotice)
-                .IsEqualTo("This machine's daemon uses another server. It's connected to norton.kcap.ai, so it can't run agents for kurrent.kcap.ai.");
+                .IsEqualTo("This machine's daemon uses another server. It's set up for norton.kcap.ai, so it can't run agents for kurrent.kcap.ai.");
             await Assert.That(vm.SignInVisible).IsFalse();
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsFalse();
         });

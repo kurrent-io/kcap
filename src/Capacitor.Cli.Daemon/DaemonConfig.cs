@@ -539,10 +539,10 @@ public class DaemonConfig {
     /// whichever binary this names. Overridable via <c>KCAP_GEMINI_PATH</c>.</summary>
     public string GeminiPath { get; set; } = Core.Harness.Gemini.GeminiHarness.CliBinary;
 
-    /// <summary>Path or bare command for the Mistral Vibe CLI. Overridable via <c>KCAP_MISTRAL_VIBE_PATH</c>.
-    /// Vibe is a recording-only harness — the daemon never launches it — so this exists only to give
-    /// <c>kcap config</c> a slot for the binary path; it is not read by any launcher.</summary>
-    public string MistralVibePath { get; set; } = Core.Harness.MistralVibe.MistralVibeHarness.CliBinary;
+    /// <summary>Path or bare command for Mistral Vibe's ACP entry point, spawned with no arguments by
+    /// <c>AcpHostedAgentRuntimeFactory</c>. It is <c>vibe-acp</c>, not the <c>vibe</c> TUI. Overridable
+    /// via <c>KCAP_MISTRAL_VIBE_PATH</c>.</summary>
+    public string MistralVibePath { get; set; } = Core.Harness.MistralVibe.MistralVibeHarness.AcpBinary;
 
     /// <summary>Path or bare command for Grok Build. Overridable via <c>KCAP_GROK_PATH</c>.</summary>
     public string GrokPath { get; set; } = Core.Harness.Grok.GrokHarness.CliBinary;
