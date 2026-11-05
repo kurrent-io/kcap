@@ -1525,6 +1525,70 @@ public class ClaudeHookCommandTests {
         await Assert.That(body!["workspace_root"]).IsNull();
     }
 
+    static string SessionStartHook(string source) =>
+        $$"""{"hook_event_name":"SessionStart","source":"{{source}}","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""";
+
+    static async Task<JsonNode> SpooledBody(Fixture fx) {
+        var content = await File.ReadAllTextAsync(fx.SpoolFiles.Single());
+        return JsonNode.Parse(JsonNode.Parse(content.Split('\n')[0])!["body"]!.GetValue<string>())!;
+    }
+
+    static async Task AssertFiredBetween(JsonNode body, DateTimeOffset before) {
+        var firedAt = body["started_at"]!.GetValue<DateTimeOffset>();
+        await Assert.That(firedAt).IsGreaterThanOrEqualTo(before);
+        await Assert.That(firedAt).IsLessThanOrEqualTo(DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>The server dates a start it is given no time for when it writes it, so a replayed
+    /// resume would claim to be later than the runs its own process started, and end them.</summary>
+    [Test]
+    public async Task a_resume_is_posted_with_the_time_it_fired() {
+        using var fx = new Fixture(Config.Root);
+        var before = DateTimeOffset.UtcNow;
+
+        await fx.EnterAsync(SessionStartHook("resume"));
+
+        var posted = fx.Sent.Single(s => s.StartsWith("/hooks/session-start|", StringComparison.Ordinal));
+        await AssertFiredBetween(JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!, before);
+    }
+
+    [Test]
+    public async Task a_resume_spooled_on_a_failed_post_keeps_the_time_it_fired() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError);
+        var before = DateTimeOffset.UtcNow;
+
+        await fx.EnterAsync(SessionStartHook("resume"));
+
+        await AssertFiredBetween(await SpooledBody(fx), before);
+    }
+
+    [Test]
+    public async Task a_resume_spooled_on_the_degraded_arm_keeps_the_time_it_fired() {
+        using var fx = new Fixture(Config.Root);
+        var before = DateTimeOffset.UtcNow;
+
+        await new ClaudeHookCommand(Config.Root, Resolutions.At("not-a-url", Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, fx.Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            .HandleWithDeps(fx.Spool, new StringReader(SessionStartHook("resume")),
+                () => throw new InvalidOperationException("no client is buildable for an unusable URL"));
+
+        await AssertFiredBetween(await SpooledBody(fx), before);
+    }
+
+    /// <summary>The field is the session's original start to the server, which only a resume's
+    /// boundary needs to be told again.</summary>
+    [Test]
+    [Arguments("startup")]
+    [Arguments("compact")]
+    [Arguments("clear")]
+    public async Task another_session_start_leaves_its_time_to_the_server(string source) {
+        using var fx = new Fixture(Config.Root);
+
+        await fx.EnterAsync(SessionStartHook(source));
+
+        var posted = fx.Sent.Single(s => s.StartsWith("/hooks/session-start|", StringComparison.Ordinal));
+        await Assert.That(JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!["started_at"]).IsNull();
+    }
+
     [Test]
     public async Task session_end_on_5xx_is_spooled_and_returns_zero() {
         using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError);
@@ -2207,6 +2271,13 @@ public class ClaudeHookCommandTests {
 
             return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).HandleCore(
                 Client, AuthStatus.Ok, Spool, new StringReader(stdin), stdout);
+        }
+
+        /// <summary>One hook invocation from its entry point, through what both arms share.</summary>
+        public Task<int> EnterAsync(string stdin) {
+            StubMemoryServer();
+            return new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+                .HandleWithDeps(Spool, new StringReader(stdin), () => Task.FromResult(new AuthAttempt(Client, AuthStatus.Ok)));
         }
 
         /// <summary>One plan-read hook invocation, posting through the stub client.</summary>
