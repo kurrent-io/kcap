@@ -45,6 +45,17 @@ public class ChatLiteralInputTests {
         await Assert.That(literal.Envelopes.Single().Text).IsEqualTo(body);
     }
 
+    /// The trimmed match stands in for the app's queue, which compares sends trimmed: the
+    /// restored input must still be the body alone, or ↑ recall resends the blank lines.
+    [Test]
+    public async Task A_paste_restores_without_the_blank_lines_ahead_of_its_wrapper() {
+        const string body = "this is a test\none\ntwo";
+        const string raw = "\n\n<pasted_content id=\"7ce1\">\n" + body + "\n</pasted_content id=\"7ce1\">";
+        var literal = Claude(raw).RestoreSubmittedInputs(text => text.Trim() == body);
+        await Assert.That(literal.SubmittedInputs).IsEquivalentTo(new[] { body });
+        await Assert.That(literal.Envelopes.Single().Text).IsEqualTo(body);
+    }
+
     [Test]
     public async Task A_live_slash_command_takes_precedence_over_an_older_literal_wrapper() {
         const string wrapper = "<command-name>/review</command-name><command-args>path</command-args>";

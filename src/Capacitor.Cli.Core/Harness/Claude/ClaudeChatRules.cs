@@ -36,7 +36,11 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
             || SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) is not (null or "human")) return [];
         // Try the exact text first: a user can be documenting the paste wrapper itself. Unwrap
         // once, without stripping reminders/commands that may be part of that literal paste.
-        var pasted = UnwrapPastes(text.Replace("\r\n", "\n"));
+        // Claude Code puts blank lines ahead of the wrapper; left on, ↑ recall resends them and
+        // each round trip grows the paste.
+        var unwrapped = text.Replace("\r\n", "\n");
+        var pasted = UnwrapPastes(unwrapped);
+        if (!ReferenceEquals(pasted, unwrapped)) pasted = pasted.Trim();
         return pasted == text ? [text] : [text, pasted];
     }
 
