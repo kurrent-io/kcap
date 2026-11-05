@@ -37,12 +37,18 @@ internal sealed class AdoptionRecordStore(ConfigRoot config) {
         }
     }
 
-    // A file that leaves a list out deserializes it as null; an entry without the install it names is dropped.
+    // A file that leaves a list out deserializes it as null; an entry without the install or the service it names is
+    // dropped. An unproven move left with no service to check still needs the app's own daemon to prove it.
     static AdoptionRecord Complete(AdoptionRecord record) => record with {
         Installs = [.. ((IReadOnlyList<RecordedInstall>?)record.Installs ?? [])
             .Where(i => (OtherCliInstall?)i.Install is not null)
             .Select(i => (IReadOnlyList<string>?)i.Install.OwnedEntries is null ? i with { Install = i.Install with { OwnedEntries = [] } } : i)],
         Links        = (IReadOnlyList<LinkChange>?)record.Links ?? [],
         NoticesShown = (IReadOnlyList<string>?)record.NoticesShown ?? [],
+        UnprovenMoves = [.. ((IReadOnlyList<UnprovenMove>?)record.UnprovenMoves ?? [])
+            .Where(m => (string?)m.InstallRoot is not null)
+            .Select(m => m with {
+                Units = [.. ((IReadOnlyList<ServiceUnitFact>?)m.Units ?? []).Where(u => (string?)u.Name is not null && (string?)u.PlistPath is not null)],
+            })],
     };
 }

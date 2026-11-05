@@ -75,12 +75,20 @@ internal sealed class AdoptionNotices : IDisposable {
 
     internal static string ReportedKey(OtherCliInstall install) => "reported:" + install.Root;
 
+    internal static string UnprovenKey(OtherCliInstall install) => "unproven:" + install.Root;
+
     internal static string Switched(OtherCliInstall install, bool removed) =>
         $"kcap now uses the app's command-line tool. The {Name(install)} {(removed ? "was removed." : "is removed once nothing still uses it.")}";
 
     /// <param name="cause">The PATH folder or daemon that left it, when the plan named one.</param>
     internal static string Left(OtherCliInstall install, LeftReason reason, string? cause) =>
         $"kcap kept the {Name(install)} at {install.Root}: {Why(reason, cause)}";
+
+    /// <param name="daemon">The daemon that did not start on the app's kcap, when known.</param>
+    internal static string Unproven(OtherCliInstall install, string? daemon) =>
+        $"kcap could not confirm that the daemon {(string.IsNullOrEmpty(daemon) ? "" : $"'{daemon}' ")}started on the app's "
+      + $"command-line tool, so it kept the {Name(install)} at {install.Root} as a fallback. It checks again each time it "
+      + "opens, and removes that install once the daemon runs the app's kcap.";
 
     internal static string Reported(OtherCliInstall install) =>
         $"kcap found the {Name(install)} at {install.Root} and left it in place. A terminal may run it instead of the app's command-line tool.";

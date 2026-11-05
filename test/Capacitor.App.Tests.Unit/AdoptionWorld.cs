@@ -314,7 +314,7 @@ sealed class AdoptionWorld {
             if (!await stillSame(ct)) return new MutationOutcome.Refused(AdoptionRepoint.InstallChanged, RecoverySurface.None);
             if (Repoint?.Invoke(install) is { } scripted) return scripted;
 
-            var moved = world._installs.Single(n => n.Install == install);
+            var moved = world._installs.Single(n => AdoptionPreflight.SameRoot(n.Install, install));
             WritePlist(moved, world.Bundle.Daemon);
             Jobs[moved.Daemon] = new LaunchdJob(true, moved.NewPid, world.Bundle.Daemon);
             return new MutationOutcome.Succeeded();
