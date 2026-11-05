@@ -25,13 +25,14 @@ public class WatcherSpawnArgsTests {
             .IsEqualTo(Environment.GetEnvironmentVariable(HostedAgent.AgentIdVar));
     }
 
-    /// <summary>VS Code's Local harness runs hooks with no agent process above them, so the fallback could
-    /// only resolve a process whose exit says nothing about the session, a transient shell included.</summary>
+    /// <summary>The test host has no agent above it, which is what a hook sees when its agent cannot be named.
+    /// A Copilot watcher then follows nothing, since all the fallback can find is a process whose exit says
+    /// nothing about the session, a transient hook shell included.</summary>
     [Test]
     [Arguments("copilot", "/data/GitHub.copilot-chat/transcripts/abc.jsonl", false)]
-    [Arguments("copilot", "/home/.copilot/session-state/abc/events.jsonl", true)]
+    [Arguments("copilot", "/home/.copilot/session-state/abc/events.jsonl", false)]
     [Arguments("claude", "/home/.claude/projects/abc.jsonl", true)]
-    public async Task A_watcher_follows_a_parent_unless_it_tails_a_Local_transcript(string vendor, string transcript, bool followsParent) {
+    public async Task Only_a_named_agent_gives_a_Copilot_watcher_a_parent(string vendor, string transcript, bool followsParent) {
         var starter = FakeProcessStarter.Refusing();
         var spawner = new ProcessWatcherSpawner(
             Config.Root, Resolutions.At("http://localhost", Config.Root), WatcherPaths.FromEnvironment(Config.Root), starter, TimeProvider.System);

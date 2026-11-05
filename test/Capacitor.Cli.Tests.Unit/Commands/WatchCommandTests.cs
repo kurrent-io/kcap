@@ -443,19 +443,19 @@ public class WatchCommandTests {
     }
 
     /// <summary>A session with no turn counts too: its start hook already registered it, and nothing else
-    /// would stop its watcher. Copilot CLI keeps a parent-exit signal, so idling there ends nothing.</summary>
+    /// would stop its watcher. A session whose host was found keeps a parent-exit signal, so idling there ends nothing.</summary>
     [Test]
     [Arguments(true, true, true, 61, true)]
     [Arguments(true, true, false, 61, true)]
     [Arguments(true, true, true, 59, false)]
     [Arguments(true, false, true, 61, false)]
     [Arguments(false, true, true, 61, false)]
-    public async Task ShouldEndOnIdle_for_copilot_only_for_a_Local_session_watcher(
-            bool vsCodeLocal, bool isSessionWatcher, bool thresholdReached, int quietMinutes, bool expected) {
+    public async Task ShouldEndOnIdle_for_copilot_only_for_a_session_watcher_with_no_end_signal(
+            bool noEndSignal, bool isSessionWatcher, bool thresholdReached, int quietMinutes, bool expected) {
         var should = WatchCommand.ShouldEndOnIdle(
             vendor: "copilot", isSessionWatcher: isSessionWatcher, thresholdReached: thresholdReached,
             lastActivityAt: IdleNow - TimeSpan.FromMinutes(quietMinutes), now: IdleNow, idleTimeout: IdleWindow,
-            vsCodeLocal: vsCodeLocal);
+            noEndSignal: noEndSignal);
 
         await Assert.That(should).IsEqualTo(expected);
     }
@@ -1376,9 +1376,10 @@ public class PiTitleHelperTests {
     }
 
     [Test]
-    [Arguments("copilot", "/x/GitHub.copilot-chat/transcripts/s.jsonl", true)]
-    [Arguments("copilot", "/x/session-state/s/events.jsonl", false)]
-    [Arguments("codex", "/x/GitHub.copilot-chat/transcripts/s.jsonl", false)]
-    public async Task Only_a_Local_session_tracks_Copilot_tools(string vendor, string path, bool expected) =>
-        await Assert.That(WatchCommand.TracksCopilotToolCalls(vendor, path)).IsEqualTo(expected);
+    [Arguments("copilot", "/x/GitHub.copilot-chat/transcripts/s.jsonl", false, true)]
+    [Arguments("copilot", "/x/session-state/s/events.jsonl", false, false)]
+    [Arguments("copilot", "/x/session-state/s/events.jsonl", true, true)]
+    [Arguments("codex", "/x/GitHub.copilot-chat/transcripts/s.jsonl", true, false)]
+    public async Task Only_a_session_that_can_idle_end_tracks_Copilot_tools(string vendor, string path, bool hostMissing, bool expected) =>
+        await Assert.That(WatchCommand.TracksCopilotToolCalls(vendor, path, hostMissing)).IsEqualTo(expected);
 }

@@ -633,6 +633,32 @@ static partial class ProcessHelpers {
         return null;
     }
 
+    /// <summary>The Copilot process above this one, or null: see <see cref="ResolveCopilotHostPid"/>.</summary>
+    public static int? GetCopilotHostPid() => GetParentPid() is { } parent ? ResolveCopilotHostPid(parent, GetProcessInfo) : null;
+
+    /// <summary>
+    /// The nearest Copilot CLI or VS Code <c>copilot-runtime</c> on the chain from <paramref name="startPid"/>, or
+    /// null. Only a name will do: the parent and process-group fallbacks can land on the shell running the hook,
+    /// and that shell's exit would end the session. The runtime is not one of the <c>copilot</c> vendor's names
+    /// because it hosts every chat in VS Code, and a lookup by that vendor claims the process for one session.
+    /// </summary>
+    internal static int? ResolveCopilotHostPid(
+            int                                                 startPid,
+            Func<int, (int ppid, IReadOnlyList<string> names)?> lookup,
+            int                                                 maxHops = 16
+        ) {
+        var pid = startPid;
+
+        for (var hop = 0; hop < maxHops && pid > 1; hop++) {
+            if (lookup(pid) is not { } info) return null;
+            if (info.names.Any(name => MatchesAgentName(name, "copilot") || MatchesAgentName(name, "copilot-runtime"))) return pid;
+
+            pid = info.ppid;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Returns <c>(ppid, names)</c> for an arbitrary live PID, or null if the process
     /// can't be inspected (gone, access denied, or unsupported platform). Feeds the
