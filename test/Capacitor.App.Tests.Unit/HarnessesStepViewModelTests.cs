@@ -122,6 +122,27 @@ public class HarnessesStepViewModelTests {
         });
     }
 
+    /// Copilot inside VS Code is named as that, and starts on: no Copilot CLI is why the page would otherwise misread it.
+    [Test]
+    [Arguments(true, false, "VS Code", "in VS Code", true)]
+    [Arguments(false, true, "VS Code", "in VS Code", true)]
+    [Arguments(true, false, null, "on your PATH", true)]
+    [Arguments(false, false, null, "settings folder only", false)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_Copilot_row_says_where_it_found_copilot(bool binary, bool app, string? hostApp, string signal, bool on) {
+        var (line, record) = await AvaloniaSession.DispatchAsync(async () => {
+            var h = new Harness(Config.Root, new Dictionary<HarnessId, DetectedAgent> {
+                [HarnessId.Copilot] = new(binary, true, app, hostApp),
+            });
+            await h.Vm.OnEnterAsync(CancellationToken.None);
+
+            return (h.Row("Copilot").SignalLine, h.Row("Copilot").Record);
+        });
+
+        await Assert.That(line).IsEqualTo(signal);
+        await Assert.That(record).IsEqualTo(on);
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Rows_are_the_detected_harnesses_in_registry_order_with_both_answers_on() {
@@ -192,7 +213,7 @@ public class HarnessesStepViewModelTests {
 
         await Assert.That(noneFound).IsTrue();
         await Assert.That(declineVisible).IsTrue();
-        await Assert.That(SetupLocation.NoneFoundTail).Contains(SetupLocation.Relaunch);
+        await Assert.That(SetupLocation.NoneFoundTail).Contains("Settings → Harnesses");
         await Assert.That(SetupLocation.NothingSelectedNote).Contains("Settings → Harnesses");
     }
 

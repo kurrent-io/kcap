@@ -13,9 +13,14 @@ namespace Capacitor.App.ViewModels.Onboarding;
 /// server; not now stores nothing, so coming back through setup never clears an earlier answer.
 /// </summary>
 public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IImportIntelligence {
+    const string Purpose = "kcap titles your sessions, says what each one achieved and runs evals in the background. ";
+
     public const string Explanation =
-        "kcap titles your sessions, says what each one achieved and runs evals in the background. Choose what runs those " +
-        "model calls: your own coding agent on this machine, or a provider with your API key.";
+        Purpose + "Choose what runs those model calls: your own coding agent on this machine, or a provider with your API key.";
+
+    /// Only the harnesses that run the server's headless prompts can serve here; Copilot and Cursor cannot.
+    public const string ProviderOnlyExplanation =
+        Purpose + "Choose a provider with your API key to run those model calls. Of coding agents, only Claude Code, Codex, Pi and OpenCode can run them.";
 
     readonly IKcapCli                                    _cli;
     readonly Action<Action>                              _post;
@@ -48,7 +53,7 @@ public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IIm
     public WizardStepId Id          => WizardStepId.Intelligence;
     public string       Title       => "Who runs background intelligence?";
     public string       Eyebrow     => "Background intelligence";
-    public string?      Lede        => Explanation;
+    public string?      Lede        => _headlessRead is null || Options.Any(o => o.IsLocalAgent) ? Explanation : ProviderOnlyExplanation;
     public bool         Applicable  => true;
     public bool         PassThrough => !_onLocalPath();
     public string       SkipLabel   => "Not now";
@@ -184,6 +189,7 @@ public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IIm
         _offeredFor = TickedKey();
         Options     = options;
         IsLoading = false;
+        this.RaisePropertyChanged(nameof(Lede));
         this.RaisePropertyChanged(nameof(ProviderSelected));
     }
 

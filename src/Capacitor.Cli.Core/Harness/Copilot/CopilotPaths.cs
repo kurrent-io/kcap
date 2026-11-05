@@ -69,6 +69,15 @@ public sealed class CopilotPaths {
     public string WorkspaceYaml(string sessionStateDir, string sessionDirName)
         => Path.Combine(sessionStateDir, sessionDirName, "workspace.yaml");
 
-    /// <summary>Whether Copilot has run here — it creates this root on first run.</summary>
-    public bool HasUserData() => Directory.Exists(Root);
+    /// <summary>Whether Copilot has run here, by what it writes itself. Wiring creates this root and its
+    /// hooks, MCP config and instructions, so none of those can say so; VS Code writes <c>logs</c> on its
+    /// first launch, before any sign-in.</summary>
+    public bool HasUserData() =>
+        CopilotOwnDirectories.Any(dir => Directory.Exists(Path.Combine(Root, dir)))
+     || File.Exists(Path.Combine(Root, "config.json"));
+
+    static readonly string[] CopilotOwnDirectories = ["logs", "ide", "session-state", "history-session-state"];
+
+    /// <summary>Whether VS Code has signed Copilot in here: only its harness writes <c>ide</c>.</summary>
+    public bool HasVsCodeSignIn() => Directory.Exists(Path.Combine(Root, "ide"));
 }
