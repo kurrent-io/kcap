@@ -123,6 +123,9 @@ public sealed class ResumeLedgerStore(string resumeDirectory, TimeProvider? time
         // Under each entry's lock and from a fresh read, so a snapshot from before a locked update cannot replace it. A
         // holder that keeps the lock past the wait does not stop the stop path.
         foreach (var listed in ReadAll()) {
+            // Only an entry this call means to mark is worth waiting on another agent's lock for.
+            if (Interrupted(listed) is null) continue;
+
             var result = TryUpdateUnderLock(listed.AgentId, Interrupted, DeleteLockWait);
 
             if (result == LockedUpdate.LockTimeout && TryRead(listed.AgentId) is { } current && Interrupted(current) is { } marked) {
