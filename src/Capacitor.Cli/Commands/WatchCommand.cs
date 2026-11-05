@@ -585,6 +585,8 @@ partial class WatchCommand(
             }, cts.Token);
         }
 
+        var armDeadParentOnConnect = false;
+
         switch (DecideParentWatchdog(parentPid, ProcessHelpers.IsProcessAlive)) {
             case ParentWatchdog.NoParentPid:
                 Log(time, "No parent pid supplied; parent-exit watchdog disabled (session-end relies on the agent's own hook)");
@@ -592,7 +594,7 @@ partial class WatchCommand(
                 break;
 
             case ParentWatchdog.ParentAlreadyDead when EndsWhenParentFoundDead(vendor, agentId):
-                ArmParentMonitor(parentPid!.Value);
+                armDeadParentOnConnect = true;
 
                 break;
 
@@ -854,6 +856,8 @@ partial class WatchCommand(
         // Crew keeps one kiro-cli process for a whole chat and its in-process sub-agents, so the
         // parent-pid watchdog alone would leave a finished sub-agent or a replaced chat session open.
         // Armed only once connected: a cancel before then skips the final drain and end POST.
+        if (armDeadParentOnConnect) ArmParentMonitor(parentPid!.Value);
+
         if (WatchesCrewEnd(vendor, agentId, harnesses.Of<KiroHarness>().Crew.IsPresent())) {
             var crewEnd = new KiroCrewSessionEndWatch(harnesses.Of<KiroHarness>().Crew, harnesses.Of<KiroHarness>().Paths.SessionsDir, sessionId, time);
 
@@ -1300,7 +1304,8 @@ partial class WatchCommand(
             crewFinished:  Volatile.Read(ref crewFinished)      == 1,
             wedgedCeiling: Volatile.Read(ref wedgedCeilingExit) == 1,
             idle:          idleExit,
-            copilotShutdown: copilotShutdownExit);
+            // The final drain clears this if a resume landed after the grace ran out.
+            copilotShutdown: copilotShutdownExit && state.CopilotShutdownSeenAt is not null);
 
         // Task 11 (D1): Cursor's idle-ceiling exit must NOT synthesize session-end here —
         // unlike Codex/Antigravity, end synthesis for Cursor has exactly one owner (the
