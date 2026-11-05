@@ -83,7 +83,7 @@ public class OpenCodeReviewerLaunchTests {
     ///
     /// <para><b>Why a literal and not <c>OpenCodeReviewerPermissions.ReadTools</c>.</b> Iterating the
     /// source list makes it its own oracle: adding <c>bash</c> to <c>ReadTools</c> and dropping it from
-    /// <c>ForbiddenTools</c> would widen the reviewer to a shell and keep this test green, because both
+    /// <c>OpenCodeForbiddenTools</c> would widen the reviewer to a shell and keep this test green, because both
     /// halves of the comparison moved together. The same trap
     /// <c>AcpHostedAgentRuntimeFactory.ExpectedGeminiArgv</c> documents for argv. Written out, a widened
     /// posture goes red and a deliberate widening has to be restated here.</para>

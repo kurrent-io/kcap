@@ -111,6 +111,28 @@ public static partial class ProcessTree {
     /// <summary>Bounds the walk; a daemon's whole tree is far smaller.</summary>
     const int MaxWalk = 4096;
 
+    /// <summary>Every descendant of <paramref name="pid"/> now, each with its start identity, listed only while
+    /// <paramref name="pid"/> still carries <paramref name="identity"/>. Kept by a caller that must still reach
+    /// them after the root exits and they are reparented.</summary>
+    public static IReadOnlyList<(int Pid, string Identity)> Descendants(int pid, string identity) {
+        if (!Matches(pid, identity)) return [];
+
+        var found    = new List<(int, string)>();
+        var seen     = new HashSet<int> { pid };
+        var frontier = new Queue<int>([pid]);
+
+        while (frontier.Count > 0 && seen.Count < MaxWalk) {
+            foreach (var child in Children(frontier.Dequeue())) {
+                if (child <= 0 || !seen.Add(child) || ProcessStartToken.ForPid(child) is not { } childIdentity) continue;
+
+                found.Add((child, childIdentity));
+                frontier.Enqueue(child);
+            }
+        }
+
+        return Matches(pid, identity) ? found : [];
+    }
+
     /// <summary>
     /// Whether <paramref name="pid"/> runs under <paramref name="ancestor"/> now. A process reparented away
     /// from it, by a double fork or its parent's exit, no longer counts. Always false on Windows, which
@@ -147,7 +169,77 @@ public static partial class ProcessTree {
     static bool Matches(int pid, string identity) => pid > 0 && ProcessStartToken.Matches(pid, identity) == true;
 
     static IEnumerable<int> Children(int parent) =>
-        OperatingSystem.IsMacOS() ? MacChildren(parent) : LinuxChildren(parent);
+        OperatingSystem.IsWindows() ? WindowsChildren(parent)
+        : OperatingSystem.IsMacOS() ? MacChildren(parent)
+        : LinuxChildren(parent);
+
+    // ── Windows: a Toolhelp snapshot's parent ids ─────────────────────────────────────────────────
+
+    const uint Th32csSnapProcess = 0x2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    unsafe struct ProcessEntry32 {
+        public uint  Size;
+        public uint  Usage;
+        public uint  ProcessId;
+        public nuint DefaultHeapId;
+        public uint  ModuleId;
+        public uint  Threads;
+        public uint  ParentProcessId;
+        public int   PriorityClassBase;
+        public uint  Flags;
+        public fixed char ExeFile[260];
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint CreateToolhelp32Snapshot(uint flags, uint processId);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "Process32FirstW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool Process32First(nint snapshot, ref ProcessEntry32 entry);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "Process32NextW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool Process32Next(nint snapshot, ref ProcessEntry32 entry);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseHandle(nint handle);
+
+    /// <summary>A Windows parent id outlives its process and can be reused, so a child counts only when it
+    /// started after the parent did.</summary>
+    static unsafe List<int> WindowsChildren(int parent) {
+        var children = new List<int>();
+
+        if (StartTicks(parent) is not { } parentStart) return children;
+
+        var snapshot = CreateToolhelp32Snapshot(Th32csSnapProcess, 0);
+        if (snapshot == -1) return children;
+
+        try {
+            var entry = new ProcessEntry32 { Size = (uint)sizeof(ProcessEntry32) };
+
+            for (var more = Process32First(snapshot, ref entry); more; more = Process32Next(snapshot, ref entry)) {
+                if (entry.ParentProcessId != (uint)parent || entry.ProcessId == (uint)parent) continue;
+
+                if (StartTicks((int)entry.ProcessId) is { } childStart && childStart >= parentStart) children.Add((int)entry.ProcessId);
+            }
+        } finally {
+            CloseHandle(snapshot);
+        }
+
+        return children;
+    }
+
+    static long? StartTicks(int pid) {
+        try {
+            using var process = Process.GetProcessById(pid);
+
+            return process.StartTime.ToUniversalTime().Ticks;
+        } catch {
+            return null;
+        }
+    }
 
     // ── macOS: libproc lists a process's children directly ───────────────────────────────────────
 

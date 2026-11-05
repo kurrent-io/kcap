@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Harness.Kiro;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -119,44 +120,11 @@ internal static class OpenCodeReviewerConfigDir {
         }
 
         try {
-            // The containment check above is LEXICAL, so a link planted AT the path resolves inside the
-            // root and would then be enumerated — following it into the target and deleting the
-            // target's contents. DeleteTreeNoFollow protects nested entries but takes the top-level
-            // path on trust, so the top level is checked here.
-            var attributes = new FileInfo(full).Attributes;
-
-            if (attributes.HasFlag(FileAttributes.ReparsePoint)) {
-                if (attributes.HasFlag(FileAttributes.Directory)) Directory.Delete(full);
-                else                                             File.Delete(full);
-
-                return;
-            }
-
-            DeleteTreeNoFollow(full);
+            NoFollowTree.Delete(full);
         } catch (Exception ex) {
             // Log and continue: an undeletable directory must not fail a round or block startup.
             log.LogWarning(ex, "Failed to delete OpenCode reviewer config dir {Path}", full);
         }
-    }
-
-    /// <summary>
-    /// Recursive delete that unlinks a directory symlink rather than descending through it. Kind is
-    /// read from the attributes, which do NOT follow — <c>Directory.Exists</c> does, and would report
-    /// false for a dangling directory link, falling through to a <c>File.Delete</c> that a Windows
-    /// reparse point rejects.
-    /// </summary>
-    static void DeleteTreeNoFollow(string path) {
-        foreach (var entry in Directory.EnumerateFileSystemEntries(path)) {
-            var attributes  = new FileInfo(entry).Attributes;
-            var isDirectory = attributes.HasFlag(FileAttributes.Directory);
-            var isLink      = attributes.HasFlag(FileAttributes.ReparsePoint);
-
-            if (isDirectory && isLink) Directory.Delete(entry);   // the link; its target is untouched
-            else if (isDirectory)      DeleteTreeNoFollow(entry);
-            else                       File.Delete(entry);
-        }
-
-        Directory.Delete(path);
     }
 
     const UnixFileMode OwnerOnly =
