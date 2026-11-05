@@ -40,6 +40,18 @@ public class RepositoryDetectionPrSkipTests {
     }
 
     [Test]
+    public async Task Git_that_answers_only_the_branch_still_leaves_the_checkout_to_name_the_remote() {
+        using var repo = GitRepo.Create();
+        repo.Do("remote", "add", "origin", "git@github.invalid:acme/widget.git");
+
+        var detected = await RepositoryDetection.DetectRepositoryAsync(new GitProviderRouter(), Config.Root,
+            repo.Path, TimeProvider.System, detectPullRequest: false,
+            run: (_, args, _, _) => Task.FromResult(args.Contains("--show-current") || args.Contains("rev-parse") ? "main" : null));
+
+        await Assert.That(detected!.Owner).IsEqualTo("acme");
+    }
+
+    [Test]
     public async Task Git_that_will_not_answer_outside_a_checkout_finds_no_repository() {
         using var cwd = new TempDir();
 
