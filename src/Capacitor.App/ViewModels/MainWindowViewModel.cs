@@ -65,9 +65,19 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     ObservableAsPropertyHelper<string>? _serverUrl;
     public string ServerUrl => _serverUrl?.Value ?? "";
 
+    readonly string _appServerUrl;
+    ObservableAsPropertyHelper<string>? _footerServerUrl;
+    /// The org's server: the app profile's, not the daemon's, which can be attached to another
+    /// server. The daemon's stands in only when the app has no profile server.
+    public string FooterServerUrl => _footerServerUrl?.Value ?? _appServerUrl;
+
+    ObservableAsPropertyHelper<string>? _footerIdentity;
+    /// The org and its server host on one line under the status; the full URL stays on hover.
+    public string FooterIdentity => _footerIdentity?.Value ?? IdentityLine(TenantName, _appServerUrl);
+
     ObservableAsPropertyHelper<RailAlert?>? _alert;
-    /// The footer's one status line, null while everything works: component health and versions
-    /// live in Settings › About, so a healthy rail shows none.
+    /// The footer's status line when something needs the user; null while everything works, when
+    /// the footer says Connected instead.
     public RailAlert? Alert => _alert?.Value;
 
     ObservableAsPropertyHelper<IBrush>? _statusBrush;
@@ -77,6 +87,11 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     ObservableAsPropertyHelper<System.Windows.Input.ICommand?>? _alertActionCommand;
     /// The command behind the alert's recovery action; null when the alert offers none.
     public System.Windows.Input.ICommand? AlertActionCommand => _alertActionCommand?.Value;
+
+    ObservableAsPropertyHelper<bool>? _showsConnected;
+    /// A healthy stack still says so: without it, a working footer looks the same as one whose
+    /// status has not arrived yet.
+    public bool ShowsConnected => _showsConnected?.Value ?? false;
 
     ObservableAsPropertyHelper<bool>? _showsUpdateContext;
     public bool ShowsUpdateContext => _showsUpdateContext?.Value ?? false;
@@ -412,8 +427,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             IObservable<bool>? movingToWindowsService = null,
             Func<string, RemoteSessionViewModel?>? serverWorkspaceFactory = null,
             Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory = null,
-            IServerSessionsService? sessions = null) {
+            IServerSessionsService? sessions = null, string? appServerUrl = null) {
         _service = service;
+        _appServerUrl = appServerUrl ?? "";
         _serverFactory = serverWorkspaceFactory;
         Time = time;
         Activity = activity;
@@ -538,6 +554,16 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .ToProperty(this, x => x.ServerUrl, "")
                 .DisposeWith(disposables);
 
+            var footerServerUrl = _appServerUrl.Length > 0
+                ? Observable.Return(_appServerUrl)
+                : snapshots.Select(s => s.Daemon.ServerUrl).DistinctUntilChanged();
+            _footerServerUrl = footerServerUrl
+                .ToProperty(this, x => x.FooterServerUrl, _appServerUrl)
+                .DisposeWith(disposables);
+            _footerIdentity = footerServerUrl.Select(url => IdentityLine(TenantName, url))
+                .ToProperty(this, x => x.FooterIdentity, IdentityLine(TenantName, _appServerUrl))
+                .DisposeWith(disposables);
+
             // Seeded with "" so this fires before the first snapshot arrives. AlertFor reads the word
             // only once the attach is Connected, and DaemonClientService applies the snapshot before
             // that transition, so a real value is there by then.
@@ -564,8 +590,16 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             var signedOut = signInExpired.CombineLatest(daemonSignIn, (app, daemon) => app || daemon.SignedOut)
                 .DistinctUntilChanged();
 
+            // The app's Sign in cannot repair a daemon serving another server.
+            var otherServerWhileConnected = status
+                .CombineLatest(snapshots.Select(s => HomeViewModel.ForeignDaemonServer(s.Daemon.ServerUrl, _appServerUrl)).StartWith((string?)null),
+                    (st, foreign) => st.State == AttachState.Connected && foreign is not null
+                        ? HomeViewModel.DaemonOnOtherServerNotice(foreign, _appServerUrl) : null)
+                .DistinctUntilChanged();
+
             var signInVisible = signInExpired
-                .CombineLatest(daemonSignIn, (app, daemon) => (app || daemon is { SignedOut: true, OursToRepair: true }) && offersSignIn);
+                .CombineLatest(daemonSignIn, otherServerWhileConnected,
+                    (app, daemon, otherServer) => (app || (daemon is { SignedOut: true, OursToRepair: true } && otherServer is null)) && offersSignIn);
             _signInVisible = signInVisible
                 .ToProperty(this, x => x.SignInVisible, false)
                 .DisposeWith(disposables);
@@ -624,12 +658,17 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .DistinctUntilChanged();
             var moving = (movingToWindowsService ?? Observable.Return(false)).ObserveOn(RxSchedulers.MainThreadScheduler);
 
+            // The app's expired sign-in still outranks the mismatch, as in the launcher.
+            var alertSignedOut = signInExpired
+                .CombineLatest(daemonSignIn, otherServerWhileConnected,
+                    (app, daemon, otherServer) => app || (daemon.SignedOut && otherServer is null))
+                .DistinctUntilChanged();
             var alert = status
-                .CombineLatest(daemonConnection, signedOut, failed, signInVisible, moving,
+                .CombineLatest(daemonConnection, alertSignedOut, failed, signInVisible, moving,
                     (st, connection, expired, broken, canSignIn, isMoving) => (st, connection, expired, broken, canSignIn, isMoving))
-                .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected,
-                    (d, local, other, pending) => AlertFor(d.st, d.connection, d.expired, d.broken, d.canSignIn, d.isMoving,
-                        local, other, pending))
+                .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected, otherServerWhileConnected,
+                    (d, local, other, pending, otherServer) => AlertFor(d.st, d.connection, d.expired, d.broken, d.canSignIn, d.isMoving,
+                        local, other, pending, otherServer))
                 .DistinctUntilChanged();
             _alert = alert
                 .ToProperty(this, x => x.Alert, (RailAlert?)null)
@@ -639,6 +678,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .DisposeWith(disposables);
             _alertActionCommand = alert.Select(a => CommandFor(a?.Recovery ?? RailRecovery.None))
                 .ToProperty(this, x => x.AlertActionCommand, (System.Windows.Input.ICommand?)null)
+                .DisposeWith(disposables);
+            _showsConnected = status.CombineLatest(daemonConnection, alert, ShowsConnectedFor)
+                .DistinctUntilChanged()
+                .ToProperty(this, x => x.ShowsConnected, false)
                 .DisposeWith(disposables);
 
             var backgroundSource = (backgroundPriority ?? Observable.Return(false)).ObserveOn(RxSchedulers.MainThreadScheduler);
@@ -1313,6 +1356,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             ? ""
             : profileName;
 
+    public const string ConnectedText           = "Connected";
     internal const string SignInRequiredText    = "Sign in required";
     internal const string DaemonConnectingText  = "Connecting to the daemon…";
     internal const string DaemonRestartingText  = "Daemon restarting…";
@@ -1325,6 +1369,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     internal const string ServerLostText        = "Server disconnected";
     internal const string RestartPendingText    = "Daemon restart pending";
     internal const string DaemonNotUpdatedText  = "Daemon not updated";
+    internal const string DaemonOtherServerText = "Daemon on another server";
     internal const string LocalStoppedText      = "Local server stopped";
     internal const string LocalChangingText     = "Local server changing…";
     internal const string LocalRestartingText   = "Local server restarting…";
@@ -1360,7 +1405,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     internal static RailAlert? AlertFor(
             AttachStatus status, string daemonConnection, bool signedOut = false, bool failed = false,
             bool canSignIn = false, bool moving = false, RailAlert? local = null, DaemonOnOtherInstall? otherInstall = null,
-            DaemonRestartWait restartPending = DaemonRestartWait.None) {
+            DaemonRestartWait restartPending = DaemonRestartWait.None, string? otherServerNotice = null) {
         var needsUser = failed ? StatusColors.Disrupted : StatusColors.InProgress;
         if (signedOut) return new(SignInRequiredText, needsUser, canSignIn ? RailRecovery.SignIn : RailRecovery.None);
         if (status.State == AttachState.Connecting) return new(DaemonConnectingText, StatusColors.Pending);
@@ -1375,6 +1420,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 _ => new(DaemonUnreachableText, needsUser, RailRecovery.Reconnect),
             };
         if (local is not null) return local;
+        // Its hub word describes the other server, so nothing below it speaks for this app.
+        if (otherServerNotice is not null) return new(DaemonOtherServerText, StatusColors.InProgress, Detail: otherServerNotice);
 
         return daemonConnection switch {
             "connecting"   => new(ServerConnectingText, StatusColors.Pending),
@@ -1388,6 +1435,19 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             _ => null,
         };
     }
+
+    internal static string IdentityLine(string tenantName, string serverUrl) {
+        var host = Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri) ? uri.Authority : "";
+        return (tenantName.Length, host.Length) switch {
+            (0, _) => host,
+            (_, 0) => tenantName,
+            _ => $"{tenantName} · {host}",
+        };
+    }
+
+    /// Connected only on the daemon's own word, and never beside an alert, so the two cannot disagree.
+    internal static bool ShowsConnectedFor(AttachStatus status, string daemonConnection, RailAlert? alert) =>
+        alert is null && status.State == AttachState.Connected && daemonConnection == "connected";
 
     /// The local server's alert: null when it runs, or when there is no local server at all.
     /// <param name="canStart">The launcher's Start is offered: an installation that exists and nothing else owns.</param>

@@ -120,11 +120,11 @@ public class MainWindowSmokeTests {
         return lines;
     }
 
-    /// A healthy stack renders no status, daemon name, agent count or version in the window: only
-    /// the org stays, and Settings › About holds the rest.
+    /// A healthy stack renders Connected and the org with its server host, but no daemon name, agent
+    /// count, version or full URL: Settings › About holds the rest.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task MainWindow_renders_no_health_line_while_everything_works() {
+    public async Task MainWindow_renders_only_connected_and_the_org_while_everything_works() {
         // Rendered text, so no immediate scheduler: an OAPH delivered immediately notifies
         // before its value is readable, and a binding that reads on the notification keeps the
         // stale one. The dispatcher scheduler sets the value first, as it does in the app.
@@ -159,8 +159,8 @@ public class MainWindowSmokeTests {
             return texts;
         });
 
-        await Assert.That(rendered).Contains("kurrent");
-        await Assert.That(rendered).DoesNotContain("Connected");
+        await Assert.That(rendered).Contains("kurrent · localhost:9999");
+        await Assert.That(rendered).Contains(MainWindowViewModel.ConnectedText);
         await Assert.That(rendered).DoesNotContain("of 5 agents");
         await Assert.That(rendered).DoesNotContain("daemon-a");
         await Assert.That(rendered).DoesNotContain("1.2.3");
@@ -1757,11 +1757,11 @@ public class MainWindowSmokeTests {
         }
     });
 
-    /// A healthy footer carries no status. A stopped daemon shows the alert with its long copy on
-    /// hover, and its Start runs the same start as the launcher's.
+    /// A healthy footer says Connected beside the org and no alert. A stopped daemon swaps Connected
+    /// for the alert with its long copy on hover, and its Start runs the same start as the launcher's.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Rail_footer_shows_an_alert_and_its_action_only_when_something_needs_the_user() {
+    public async Task Rail_footer_says_connected_when_healthy_and_alerts_when_something_needs_the_user() {
         var shown = await AvaloniaSession.DispatchAsync(() => {
             var service = new FakeDaemonClientService();
             service.SnapshotsSubject.OnNext(Snap(daemon: "daemon-a", connection: "connected", active: 1, max: 5));
@@ -1776,6 +1776,8 @@ public class MainWindowSmokeTests {
             var row = rail.FindControl<StackPanel>("RailAlertRow")!;
             var footer = rail.FindControl<StackPanel>("RailFooterPanel")!;
             var healthyRow = row.IsEffectivelyVisible;
+            var connected = rail.FindControl<TextBlock>("RailConnectedText")!;
+            var healthyConnected = connected.IsEffectivelyVisible;
             var healthyTexts = footer.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToArray();
 
@@ -1786,6 +1788,8 @@ public class MainWindowSmokeTests {
             var action = rail.FindControl<Button>("RailAlertActionButton")!;
             var result = (
                 HealthyRow: healthyRow,
+                HealthyConnected: healthyConnected,
+                AlertConnected: connected.IsEffectivelyVisible,
                 HealthyTexts: healthyTexts,
                 Text: row.IsEffectivelyVisible ? text.Text : null,
                 Tip: ToolTip.GetTip(text) as string,
@@ -1801,7 +1805,10 @@ public class MainWindowSmokeTests {
         });
 
         await Assert.That(shown.HealthyRow).IsFalse();
-        await Assert.That(shown.HealthyTexts).Contains("kurrent");
+        await Assert.That(shown.HealthyConnected).IsTrue();
+        await Assert.That(shown.AlertConnected).IsFalse();
+        await Assert.That(shown.HealthyTexts).Contains(MainWindowViewModel.ConnectedText);
+        await Assert.That(shown.HealthyTexts).Contains("kurrent · localhost:9999");
         await Assert.That(shown.HealthyTexts).DoesNotContain("daemon-a");
         await Assert.That(shown.Text).IsEqualTo(MainWindowViewModel.DaemonStoppedText);
         await Assert.That(shown.Tip).IsEqualTo(HomeViewModel.DaemonDownNotice);

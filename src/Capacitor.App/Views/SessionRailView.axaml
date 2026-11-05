@@ -268,8 +268,8 @@
                            Margin="16,0,16,8" IsVisible="{Binding LoadingSessions}" />
             </StackPanel>
 
-            <!-- Health speaks only when something needs the user; Settings › About holds each
-                 component's status and version. The org stays, with its server URL on hover. -->
+            <!-- The footer always states the connection: Connected while healthy, the alert otherwise.
+                 Settings › About holds each component's status and version. -->
             <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{StaticResource KcapBorderBrush}">
                 <StackPanel x:Name="RailFooterPanel" Margin="16,10,16,10" Spacing="2">
                     <!-- A daemon launchd holds in the background band throttles every hosted agent; the
@@ -289,12 +289,12 @@
                                        IsVisible="{Binding ReloadFailureText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                     </Border>
-                    <!-- The chip docks beside the column, on its last line. With no alert and no named
-                         org the column is empty and the chip stands alone. -->
+                    <!-- The chip docks beside the column, on its last line. -->
                     <Grid ColumnDefinitions="*,Auto" ClipToBounds="True">
-                    <StackPanel Grid.Column="0" VerticalAlignment="Bottom" Spacing="6" IsVisible="{Binding !ShowsUpdateContext}">
-                    <!-- The words are the indicator, painted in the alert's tone; the hover carries
-                         what the one line leaves out. -->
+                    <StackPanel Grid.Column="0" VerticalAlignment="Bottom" Spacing="2" IsVisible="{Binding !ShowsUpdateContext}">
+                    <!-- One status slot above the org: the alert when something needs the user,
+                         Connected otherwise. The words are the indicator; the hover carries what the
+                         one line leaves out. -->
                     <StackPanel x:Name="RailAlertRow" Spacing="6"
                                 IsVisible="{Binding Alert, Converter={x:Static ObjectConverters.IsNotNull}}">
                         <TextBlock x:Name="RailAlertText" Text="{Binding Alert.Text, FallbackValue={x:Null}}" Classes="footerValue"
@@ -307,12 +307,15 @@
                                 IsVisible="{Binding AlertActionCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
                                 Padding="10,3" FontSize="12" CornerRadius="6" />
                     </StackPanel>
-                    <TextBlock x:Name="RailTenantText" Text="{Binding TenantName}" Classes="footerValue"
+                    <TextBlock x:Name="RailConnectedText" Text="{x:Static vm:MainWindowViewModel.ConnectedText}"
+                               Classes="footerValue" Foreground="{StaticResource KcapSuccessBrush}"
+                               IsVisible="{Binding ShowsConnected}" />
+                    <TextBlock x:Name="RailTenantText" Text="{Binding FooterIdentity}" Classes="footerValue"
                                Foreground="{StaticResource KcapFaintBrush}" TextTrimming="CharacterEllipsis"
-                               IsVisible="{Binding TenantName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                               IsVisible="{Binding FooterIdentity, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                         <ToolTip.Tip>
                             <StackPanel Spacing="2">
-                                <TextBlock Text="{Binding ServerUrl}" />
+                                <TextBlock Text="{Binding FooterServerUrl}" />
                                 <TextBlock Text="{x:Static vm:MainWindowViewModel.ServerUrlTip}"
                                            Classes="kcapTipCaption" />
                             </StackPanel>
