@@ -33,11 +33,12 @@ public class AgentOrchestratorResumeOnBootTests {
             ThrowsFromSupports ? throw new InvalidOperationException("the factory faulted") : true;
         public bool ResumesIdle { get; init; }
         public bool ResumesIdleWithoutPrompt(string? runtimeTransport) => ResumesIdle;
-        public bool LostWork { get; init; }
-        public DateTimeOffset? LostWorkAskedSince { get; private set; }
+        public volatile bool LostWork;
+        int _lostWorkScans;
+        public int LostWorkScans => Volatile.Read(ref _lostWorkScans);
 
-        public bool ReportsLostWork(string? transcriptPath, DateTimeOffset since) {
-            LostWorkAskedSince = since;
+        public bool ReportsLostWork(string? transcriptPath) {
+            Interlocked.Increment(ref _lostWorkScans);
 
             return LostWork;
         }
@@ -559,8 +560,7 @@ public class AgentOrchestratorResumeOnBootTests {
     }
 
     /// <summary>The vendor records the work a restart cut off but starts no turn on it, and only it knows about
-    /// background shells, so the nudge goes out after all. The window starts at the stop: nothing the agent reported
-    /// before that was lost to this restart.</summary>
+    /// background shells, so the nudge goes out after all.</summary>
     [Test]
     public async Task A_silent_resume_sends_the_nudge_when_the_vendor_reports_lost_work() {
         var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true, LostWork = true });
@@ -573,7 +573,39 @@ public class AgentOrchestratorResumeOnBootTests {
         var runtime = (FakeHostedAgentRuntime) f.Orch.GetAgentForTest("resume-lost")!.Runtime;
         await Assert.That(f.Factory.Contexts.Single().Prompt).IsEqualTo("");
         await Assert.That(runtime.UserInputs).IsEquivalentTo([ResumeNudge.Build(entry.ResumingAt!.Value, "build the thing")]);
-        await Assert.That(f.Factory.LostWorkAskedSince).IsEqualTo(entry.ResumingAt);
+    }
+
+    /// <summary>A slow start writes its notices, and discovery links the transcript, after the readiness window.</summary>
+    [Test]
+    public async Task Lost_work_reported_after_the_readiness_window_still_gets_the_nudge() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-slow", awaitingInput: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var runtime = (FakeHostedAgentRuntime) f.Orch.GetAgentForTest("resume-slow")!.Runtime;
+        await Assert.That(runtime.UserInputs).IsEmpty();
+
+        f.Factory.LostWork = true;
+        await WaitHarness.PollUntilAsync(() => runtime.UserInputs.Count == 1);
+    }
+
+    /// <summary>An idle agent has nothing to report, so the looking has to end by itself.</summary>
+    [Test]
+    public async Task An_agent_with_nothing_lost_is_only_looked_at_for_a_while() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-idle", awaitingInput: true);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await WaitHarness.PollUntilAsync(() => f.Factory.LostWorkScans == AgentOrchestrator.LostWorkScans);
+        await Task.Delay(f.Config.ResumeReadinessWindow * 2);
+
+        await Assert.That(f.Factory.LostWorkScans).IsEqualTo(AgentOrchestrator.LostWorkScans);
     }
 
     [Test]

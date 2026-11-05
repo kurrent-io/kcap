@@ -108,8 +108,7 @@ internal sealed partial class ClaudeLauncher(
 
     public bool SupportsResume => true;
 
-    public bool ReportsLostWork(string? transcriptPath, DateTimeOffset since) =>
-        transcriptPath is not null && ClaudeLostWork.IsReported(transcriptPath, since);
+    public bool ReportsLostWork(string? transcriptPath) => transcriptPath is not null && ClaudeLostWork.IsReported(transcriptPath);
 
     public bool SupportsReviewerResume => true;
 

@@ -1418,6 +1418,10 @@ internal partial class AgentOrchestrator {
         return null;
     }
 
+    /// <summary>Scans for lost work, half a readiness window apart: a slow start writes its notices, and discovery links
+    /// the transcript, after that window. An idle agent has nothing to find, so the looking has to end.</summary>
+    internal const int LostWorkScans = 12;
+
     /// <summary>An agent back with no turn stays idle even when the restart cut off its background work, because its
     /// vendor records that and starts no turn on it. Asked once the agent is back, so it also covers what the
     /// predecessor could not see at its stop: background shells, and an older daemon's record of a waiting agent. A
@@ -1425,12 +1429,21 @@ internal partial class AgentOrchestrator {
     /// as long as any dialog on screen and the resume must not hold its lane slot for that long.</summary>
     async Task NudgeIfWorkWasLostAsync(AgentInstance agent, ResumeLedgerEntry entry) {
         try {
-            if (!agent.ActivityClock.AwaitingInput || entry.ResumingAt is not { } stoppedAt) return;
-            if (!_runtimeFactories.TryGetValue(entry.Vendor, out var factory) || !factory.ReportsLostWork(agent.TranscriptPath, stoppedAt)) return;
+            if (!_runtimeFactories.TryGetValue(entry.Vendor, out var factory)) return;
+
+            for (var scan = 1; ; scan++) {
+                if (!agent.ActivityClock.AwaitingInput || agent.IsCleanupStarted) return;
+                if (factory.ReportsLostWork(agent.TranscriptPath)) break;
+                if (scan == LostWorkScans) return;
+
+                await Task.Delay(_config.ResumeReadinessWindow / 2, _time, _shutdownCts.Token);
+            }
 
             var outcome = await DeliverInputAsync(agent, ResumeNudge.Build(LastAlive(entry, null), entry.Launch.Prompt), attachmentIds: null, onlyIfWaiting: true);
             if (outcome.Kind == InputDeliveryKind.Delivered) LogResumeNudgedLostWork(agent.Id);
             else LogResumeNudgeDropped(null, agent.Id, outcome.Error ?? outcome.Reason ?? "");
+        } catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested) {
+            // The vendor's record stands until a turn answers it, so the next resume finds it.
         } catch (Exception ex) {
             LogResumeNudgeDropped(ex, agent.Id, "fault");
         }

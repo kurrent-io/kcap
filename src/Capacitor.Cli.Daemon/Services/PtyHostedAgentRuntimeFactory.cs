@@ -40,7 +40,7 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
     /// reopens its session and waits.</summary>
     public bool ResumesIdleWithoutPrompt(string? runtimeTransport) => SupportsRestartResume(runtimeTransport);
 
-    public bool ReportsLostWork(string? transcriptPath, DateTimeOffset since) => launcher.ReportsLostWork(transcriptPath, since);
+    public bool ReportsLostWork(string? transcriptPath) => launcher.ReportsLostWork(transcriptPath);
 
     public string? BorrowedReviewContainment => launcher.BorrowedReviewContainment;
 
