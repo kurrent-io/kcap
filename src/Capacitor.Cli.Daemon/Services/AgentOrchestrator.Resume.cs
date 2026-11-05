@@ -1413,8 +1413,26 @@ internal partial class AgentOrchestrator {
         }
 
         await ReleaseHeldInputAsync(entry.AgentId);
+        if (silent) await NudgeIfWorkWasLostAsync(agent, entry);
 
         return null;
+    }
+
+    /// <summary>An agent back with no turn stays idle even when the restart cut off its background work, because its
+    /// vendor records that and starts no turn on it. Asked once the agent is back, so it also covers what the
+    /// predecessor could not see at its stop: background shells, and an older daemon's record of a waiting agent. A
+    /// failed nudge leaves a resume that succeeded standing.</summary>
+    async Task NudgeIfWorkWasLostAsync(AgentInstance agent, ResumeLedgerEntry entry) {
+        try {
+            if (!agent.ActivityClock.AwaitingInput || entry.ResumingAt is not { } stoppedAt) return;
+            if (!_runtimeFactories.TryGetValue(entry.Vendor, out var factory) || !factory.ReportsLostWork(agent.TranscriptPath, stoppedAt)) return;
+
+            var outcome = await DeliverInputAsync(agent, ResumeNudge.Build(LastAlive(entry, null), entry.Launch.Prompt), attachmentIds: null);
+            if (outcome.Kind == InputDeliveryKind.Delivered) LogResumeNudgedLostWork(agent.Id);
+            else LogResumeNudgeDropped(null, agent.Id, outcome.Reason ?? "");
+        } catch (Exception ex) {
+            LogResumeNudgeDropped(ex, agent.Id, "fault");
+        }
     }
 
     /// <summary>Whether the resumed runtime is still running, and still this agent, once the readiness
@@ -1836,4 +1854,10 @@ internal partial class AgentOrchestrator {
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Resume: agent {AgentId} {Outcome}")]
     partial void LogResumeOutcome(string agentId, string outcome);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Resume: agent {AgentId} lost background work to the restart and was nudged")]
+    partial void LogResumeNudgedLostWork(string agentId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Resume: agent {AgentId} lost background work but its nudge was dropped: {Reason}")]
+    partial void LogResumeNudgeDropped(Exception? ex, string agentId, string reason);
 }

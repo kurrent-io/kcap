@@ -56,6 +56,9 @@ internal interface IHostedAgentLauncher {
     /// <summary>Whether <see cref="BuildArgs"/> resumes the vendor session a restart resume names.</summary>
     bool SupportsResume => false;
 
+    /// <summary>See <see cref="IHostedAgentRuntimeFactory.ReportsLostWork"/>.</summary>
+    bool ReportsLostWork(string? transcriptPath, DateTimeOffset since) => false;
+
     /// <summary>Whether a reviewer launched by this launcher in an owned worktree reopens its session
     /// across a daemon restart. Declared only once a live probe of the reviewer shape has passed.</summary>
     bool SupportsReviewerResume => false;

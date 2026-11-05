@@ -133,6 +133,10 @@ internal interface IHostedAgentRuntimeFactory {
     /// Only a runtime that judges the resume by its process, not by a first turn, may say so.</summary>
     bool ResumesIdleWithoutPrompt(string? runtimeTransport) => false;
 
+    /// <summary>Whether the vendor recorded, at or after <paramref name="since"/>, background work that did not survive
+    /// the restart. Asked after a resume with no prompt, because the vendor starts no turn on what it recorded.</summary>
+    bool ReportsLostWork(string? transcriptPath, DateTimeOffset since) => false;
+
     /// <summary>The models this vendor can launch on this machine, or null when it publishes no
     /// catalog. Null is also every probe failure: consumers then fall through to their other sources
     /// instead of reading an empty list as "nothing usable".</summary>

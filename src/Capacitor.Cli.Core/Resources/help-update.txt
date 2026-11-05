@@ -34,10 +34,11 @@ the stack stays on its version until kcap local upgrade is run again. Other inst
 
 A daemon running in the background or as a service restarts on the new
 version by itself, on every platform. With nothing in progress it
-restarts at once. Otherwise it waits for its agents' turns, background
-subagents and flow rounds, for at most KCAP_RESTART_TURN_WAIT_SECONDS
-(default 300), and then cuts off what is still running; an evaluation
-or agent launch in progress holds it past that limit. Its agents are
+restarts at once. Otherwise it waits for its agents' turns, Claude Code
+background subagents and flow rounds, for at most
+KCAP_RESTART_TURN_WAIT_SECONDS (default 300), and then cuts off what is
+still running; an evaluation or agent launch in progress holds it past
+that limit. Its agents are
 stopped, then resumed unless daemon.auto_resume is false, which leaves
 them interrupted in kcap agent ls, from where kcap agent resume <id>
 retries one. kcap daemon status shows the pending restart meanwhile. A

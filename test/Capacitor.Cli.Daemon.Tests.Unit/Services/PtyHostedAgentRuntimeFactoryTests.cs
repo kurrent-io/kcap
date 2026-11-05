@@ -118,6 +118,24 @@ public class PtyHostedAgentRuntimeFactoryTests {
         }
     }
 
+    /// The orchestrator only sees the factory, so a launcher that answers but is never asked would pass its own tests.
+    [Test]
+    public async Task Claude_reports_lost_work_from_its_transcript_and_another_vendor_reports_none() {
+        var config  = new DaemonConfig { ClaudePath = "claude", ServerUrl = "", CapacitorPath = "kcap" };
+        var claude  = new ClaudeLauncher(config, TestHarnesses.Under(Home), NullLogger<ClaudeLauncher>.Instance);
+        var factory = new PtyHostedAgentRuntimeFactory(claude, new NullPtyProcessFactory(), NullLogger<PtyHostedAgentRuntimeFactory>.Instance, TimeProvider.System, Home);
+        var other   = new PtyHostedAgentRuntimeFactory(new RecordingLauncher("gemini", "/opt/vendor/gemini"), new NullPtyProcessFactory(), NullLogger<PtyHostedAgentRuntimeFactory>.Instance, TimeProvider.System, Home);
+        var since   = new DateTimeOffset(2026, 11, 4, 17, 28, 15, TimeSpan.Zero);
+        var path    = Tmp.CreateFile("session.jsonl", """
+            {"type":"user","timestamp":"2026-11-04T17:28:30.000Z","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<status>stopped</status>\n</task-notification>"}}
+
+            """);
+
+        await Assert.That(factory.ReportsLostWork(path, since)).IsTrue();
+        await Assert.That(factory.ReportsLostWork(null, since)).IsFalse();
+        await Assert.That(other.ReportsLostWork(path, since)).IsFalse();
+    }
+
     [Test]
     public async Task Claude_resumes_an_owned_reviewer_but_not_a_borrowed_one() {
         var config  = new DaemonConfig { ClaudePath = "claude", ServerUrl = "", CapacitorPath = "kcap" };

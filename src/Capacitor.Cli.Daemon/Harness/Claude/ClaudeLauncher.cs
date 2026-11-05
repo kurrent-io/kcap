@@ -9,6 +9,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Mcp;
 using Capacitor.Cli.Daemon.Services;
+using Capacitor.Models.Transcripts.Harness.Claude;
 using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Harness.Claude;
@@ -106,6 +107,9 @@ internal sealed partial class ClaudeLauncher(
     }
 
     public bool SupportsResume => true;
+
+    public bool ReportsLostWork(string? transcriptPath, DateTimeOffset since) =>
+        transcriptPath is not null && ClaudeLostWork.IsReported(transcriptPath, since);
 
     public bool SupportsReviewerResume => true;
 
