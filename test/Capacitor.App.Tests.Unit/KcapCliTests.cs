@@ -910,6 +910,19 @@ public class KcapCliTests {
     }
 
     [Test]
+    public async Task RepointFromAsync_runs_the_repoint_from_the_old_install() {
+        var runner = new FakeProcessRunner();
+        var cli = MakeCli(runner);
+
+        await cli.RepointFromAsync("/opt/homebrew/lib/node_modules/@kurrent/kcap", CancellationToken.None);
+
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(
+            ["daemon", "service", "repoint", "--from", "/opt/homebrew/lib/node_modules/@kurrent/kcap"], CollectionOrdering.Matching);
+        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromMinutes(5));
+        await Assert.That(runner.SeenOptions.EnvOverlay![KcapCli.ExpectServerUrlVar]).IsEqualTo(CanonicalServer);
+    }
+
+    [Test]
     public async Task ServiceReloadAsync_without_a_cli_is_exit_127() {
         var runner = new FakeProcessRunner();
         var cli = new KcapCli(runner, null, "daemon-a", "work", _ => Task.FromResult<string?>(null), CanonicalServer);

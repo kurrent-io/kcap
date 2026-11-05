@@ -73,6 +73,7 @@ public sealed class LateBoundKcapCli(Func<IKcapCli> bind, string? cliPath) : IKc
     public Task<ProcessResult> ServiceStartVerifiedAsync(CancellationToken ct) => bind().ServiceStartVerifiedAsync(ct);
 
     public Task<ProcessResult> ServiceReloadAsync(CancellationToken ct) => bind().ServiceReloadAsync(ct);
+    public Task<ProcessResult> RepointFromAsync(string dir, CancellationToken ct) => bind().RepointFromAsync(dir, ct);
 
     public Task<ProcessResult> ServiceInstallWindowsServiceAsync(CancellationToken ct) => bind().ServiceInstallWindowsServiceAsync(ct);
 

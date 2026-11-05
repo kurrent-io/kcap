@@ -1827,6 +1827,111 @@ public class DaemonMutationLaneTests {
         await Assert.That(outcome).IsEqualTo(new MutationOutcome.Succeeded());
     }
 
+    // ---- repoint ----
+
+    const string BundleCli    = "/Applications/Kcap.app/Contents/MacOS/kcap";
+    const string BundleDaemon = "/Applications/Kcap.app/Contents/MacOS/kcap-daemon";
+    const string OldDaemon    = "/opt/homebrew/lib/node_modules/@kurrent/kcap/node_modules/@kurrent/kcap-darwin-arm64/bin/kcap-daemon";
+
+    static MutationRequest RepointReq() => Req(MutationVerb.Repoint) with { RepointFrom = "/opt/homebrew/lib/node_modules/@kurrent/kcap" };
+
+    DaemonMutationLane RepointLane(FakeKcapCli cli, ScriptedObservation observation, Func<int, string?> executableOf,
+            FakeTimeProvider? time = null, OutcomeChannel? channel = null) {
+        var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, path) => { cli.CliPath = path; return cli; } },
+            channel, () => BundleCli, oneShotFactory: _ => observation, time: time);
+        lane.ExecutableOf = executableOf;
+        return lane;
+    }
+
+    static FakeKcapCli Repointed(int pid = 200) => new() {
+        StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Ownership(jobPid: pid, daemonPid: pid, loadedSpawnType: "daemon")),
+        RepointBehavior = (_, _) => Task.FromResult(new ProcessResult(0, "Daemon 'daemon-a': now runs it; it restarted and resumes its agents.\n", "", false)),
+    };
+
+    /// A successor that answers every evidence leg but was started from the old install is the service still on
+    /// the old binary, however cleanly the CLI exited.
+    [Test]
+    public async Task A_repoint_whose_successor_runs_the_old_binary_is_not_a_success() {
+        var cli = Repointed();
+        var observation = new ScriptedObservation {
+            Sequence = new Queue<ObservedEvidence?>([MatchingEvidence(pid: 100, instanceId: "inst-old")]),
+            Behavior = (_, _) => Task.FromResult<ObservedEvidence?>(MatchingEvidence(pid: 200, instanceId: "inst-new")),
+        };
+        await using var lane = RepointLane(cli, observation, pid => pid == 200 ? OldDaemon : null);
+
+        var outcome = await lane.RunAsync(RepointReq(), CancellationToken.None).WaitAsync(Bounded);
+
+        await Assert.That(outcome).IsEqualTo(new MutationOutcome.AttentionSkew("daemon_executable_mismatch"));
+        await Assert.That(cli.RepointFromCalls).IsEquivalentTo(["/opt/homebrew/lib/node_modules/@kurrent/kcap"]);
+    }
+
+    [Test]
+    public async Task A_repoint_counts_once_a_successor_of_the_bundle_daemon_answers() {
+        var cli = Repointed();
+        var observation = new ScriptedObservation {
+            Sequence = new Queue<ObservedEvidence?>([MatchingEvidence(pid: 100, instanceId: "inst-old")]),
+            Behavior = (_, _) => Task.FromResult<ObservedEvidence?>(MatchingEvidence(pid: 200, instanceId: "inst-new")),
+        };
+        await using var lane = RepointLane(cli, observation, pid => pid == 200 ? BundleDaemon : OldDaemon);
+
+        var outcome = await lane.RunAsync(RepointReq(), CancellationToken.None).WaitAsync(Bounded);
+
+        await Assert.That(outcome).IsEqualTo(new MutationOutcome.Succeeded());
+    }
+
+    /// The instance that answered before the repoint, still on the old binary, is never taken for its successor.
+    [Test]
+    public async Task A_repoint_answered_only_by_the_old_instance_is_a_skew() {
+        var time = new FakeTimeProvider();
+        var cli = Repointed(pid: 100);
+        var observation = new ScriptedObservation {
+            Behavior = (_, _) => Task.FromResult<ObservedEvidence?>(MatchingEvidence(pid: 100, instanceId: "inst-old")),
+        };
+        await using var lane = RepointLane(cli, observation, _ => OldDaemon, time);
+
+        var outcome = await Drive(lane.RunAsync(RepointReq(), CancellationToken.None), time, DaemonMutationLane.DetachedPollInterval);
+
+        await Assert.That(outcome).IsEqualTo(new MutationOutcome.AttentionSkew("predecessor_still_running"));
+    }
+
+    /// A service already on the bundle's daemon is left running, so the instance that answered before is the right one.
+    [Test]
+    public async Task A_repoint_that_found_the_service_already_moved_accepts_the_same_instance() {
+        var cli = Repointed(pid: 100);
+        var observation = new ScriptedObservation {
+            Behavior = (_, _) => Task.FromResult<ObservedEvidence?>(MatchingEvidence(pid: 100, instanceId: "inst-1")),
+        };
+        await using var lane = RepointLane(cli, observation, _ => BundleDaemon);
+
+        var outcome = await lane.RunAsync(RepointReq(), CancellationToken.None).WaitAsync(Bounded);
+
+        await Assert.That(outcome).IsEqualTo(new MutationOutcome.Succeeded());
+    }
+
+    /// The CLI takeover owns what it tells the user; a failed repoint never reaches the lifecycle surface's channel.
+    [Test]
+    public async Task A_repoint_outcome_reaches_only_its_caller() {
+        var channel = new OutcomeChannel();
+        var cli = new FakeKcapCli { RepointBehavior = (_, _) => Task.FromResult(new ProcessResult(1, "", "Could not repoint service 'daemon-a'\n", false)) };
+        await using var lane = RepointLane(cli, new ScriptedObservation(), _ => null, channel: channel);
+
+        var outcome = await lane.RunAsync(RepointReq(), CancellationToken.None).WaitAsync(Bounded);
+
+        await Assert.That(outcome).IsEqualTo(new MutationOutcome.Failed(1, null, RecoverySurface.Attention));
+        await AssertChannelEmptyAsync(channel);
+    }
+
+    [Test]
+    public async Task A_repoint_without_a_folder_never_runs_the_cli() {
+        var cli = new FakeKcapCli();
+        await using var lane = RepointLane(cli, new ScriptedObservation(), _ => BundleDaemon);
+
+        var outcome = await lane.RunAsync(Req(MutationVerb.Repoint), CancellationToken.None).WaitAsync(Bounded);
+
+        await Assert.That(outcome).IsEqualTo(new MutationOutcome.Failed(DaemonMutationLane.UnexpectedExitCode, "internal_error", RecoverySurface.Attention));
+        await Assert.That(cli.RepointFromCalls).IsEmpty();
+    }
+
     // ---- account verbs ----
 
     static MutationRequest AccountReq() =>

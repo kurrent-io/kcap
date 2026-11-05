@@ -2315,6 +2315,13 @@ sealed class FakeKcapCli : IKcapCli {
         return ReloadBehavior(ct);
     }
 
+    public readonly List<string> RepointFromCalls = [];
+    public Func<string, CancellationToken, Task<ProcessResult>> RepointBehavior = (_, _) => Task.FromResult(new ProcessResult(0, "", "", false));
+    public Task<ProcessResult> RepointFromAsync(string dir, CancellationToken ct) {
+        RepointFromCalls.Add(dir);
+        return RepointBehavior(dir, ct);
+    }
+
     public int InstallVerifiedCallCount;
     public bool? LastInstallReplace;
     public string? LastRetireServiceId;

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Capacitor.App.Services.Onboarding;
+using Capacitor.App.Services.Update;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
@@ -9,7 +10,7 @@ using Capacitor.Cli.Core.Setup;
 namespace Capacitor.App.Services.Mutation;
 
 /// The per-verb classification seam the lane's control flow delegates into — kept separate so control flow never has to change when classification rules change.
-/// <paramref name="predecessor"/> is the daemon observed just before a reload, null for any other verb.
+/// <paramref name="predecessor"/> is the daemon observed just before a reload or a repoint, null for any other verb.
 internal delegate Task<MutationOutcome> MutationClassifier(
     MutationRequest request, ProcessResult result, IKcapCli executor, IDaemonObservation observation,
     string? attemptId, ObservedEvidence? predecessor, CancellationToken ct);
@@ -23,6 +24,9 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
     // The one EvidenceFailureLeg sentinel that means "not yet confirmable" rather than "a definite problem".
     const string UnreachableLeg = "unreachable";
     const string PredecessorLeg = "predecessor_still_running";
+
+    // `daemon service repoint` exits 3 when a daemon was busy or did not stop in time; a later attempt may succeed.
+    const int RepointDeferredExit = 3;
 
     internal static readonly TimeSpan DetachedConfirmWindow = TimeSpan.FromSeconds(10);
     internal static readonly TimeSpan DetachedPollInterval  = TimeSpan.FromSeconds(1);
@@ -50,6 +54,8 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
     internal MutationClassifier Classify { get; set; }
 
     internal Func<long, CancellationToken, Task<bool>> AccountsRevisionReached { get; set; } = (_, _) => Task.FromResult(false);
+
+    internal Func<int, string?> ExecutableOf { get; set; } = ProcessExecutable.Of;
 
     public DaemonMutationLane(
             DaemonStore store, ILoginShellProbe shellProbe, OutcomeChannel channel,
@@ -261,9 +267,10 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         return next;
     }
 
-    // The channel feeds the daemon lifecycle surface; an account verb's outcome belongs to the Accounts tab,
-    // and an exclusive action's to its caller, each presenting what it got back.
-    static bool ReachesChannel(ActionSlot slot) => slot.Body is null && !slot.Request.Verb.IsAccountVerb();
+    // The channel feeds the daemon lifecycle surface; an account verb's outcome belongs to the Accounts tab, a
+    // repoint's to the CLI takeover, and an exclusive action's to its caller, each presenting what it got back.
+    static bool ReachesChannel(ActionSlot slot) =>
+        slot.Body is null && !slot.Request.Verb.IsAccountVerb() && slot.Request.Verb != MutationVerb.Repoint;
 
     void Deliver(ActionSlot slot, MutationOutcome outcome) {
         var isSuccess = outcome is MutationOutcome.Succeeded or MutationOutcome.SucceededAfterTimeout;
@@ -335,7 +342,9 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         }
 
         var attemptId = request.Verb == MutationVerb.DetachedStart ? Guid.NewGuid().ToString("N") : null;
-        var predecessor = request.Verb == MutationVerb.Reload ? await observation.ObserveAsync(request, ct).ConfigureAwait(false) : null;
+        var predecessor = request.Verb is MutationVerb.Reload or MutationVerb.Repoint
+            ? await observation.ObserveAsync(request, ct).ConfigureAwait(false)
+            : null;
 
         // The runner starts the child before consulting ct, and an already-exited child's own wait
         // can return normally under a cancelled token — this is the last gate before a real spawn.
@@ -359,6 +368,8 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
             MutationVerb.StartVerified => executor.ServiceStartVerifiedAsync(ct),
             MutationVerb.DetachedStart => executor.DetachedStartAsync(attemptId!, ct),
             MutationVerb.Reload        => executor.ServiceReloadAsync(ct),
+            MutationVerb.Repoint       => executor.RepointFromAsync(
+                request.RepointFrom ?? throw new ArgumentException("A repoint names the folder it moves services from.", nameof(request)), ct),
             MutationVerb.InstallWindowsService => executor.ServiceInstallWindowsServiceAsync(ct),
             var verb when verb.IsAccountVerb() => executor.AccountsAsync(
                 verb, request.Account ?? throw new ArgumentException("An account verb carries its AccountArgs.", nameof(request)), ct),
@@ -374,6 +385,7 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         request.Verb switch {
             MutationVerb.DetachedStart => ClassifyDetachedStartAsync(request, result, observation, attemptId, ct),
             MutationVerb.Reload        => ClassifyReloadAsync(request, result, executor, observation, predecessor, ct),
+            MutationVerb.Repoint       => ClassifyRepointAsync(request, result, executor, observation, predecessor, ct),
             var verb when verb.IsAccountVerb() => ClassifyAccountVerbAsync(request, result, ct),
             _                          => ClassifyServiceVerbAsync(request, result, executor, observation, ct),
         };
@@ -456,9 +468,10 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
 
     // Positive evidence only: every leg below must independently hold for Succeeded — any
     // gap degrades to AttentionSkew/AttentionRepair/UnconfirmedNoAttach, never a guessed success.
+    // `runsExpected`, when set, must hold for the confirmed daemon's pid.
     static async Task<MutationOutcome> ClassifyServiceSuccessAsync(
             MutationRequest request, IKcapCli executor, IDaemonObservation observation, CancellationToken ct,
-            bool requirePositiveSpawnType = false) {
+            bool requirePositiveSpawnType = false, Func<int, bool>? runsExpected = null) {
         var evidence  = await observation.ObserveAsync(request, ct).ConfigureAwait(false);
         var ownership = await executor.ServiceStatusAsync(ct).ConfigureAwait(false);
 
@@ -500,6 +513,9 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         if (confirm!.Pid != evidence.Pid || confirm.InstanceId != evidence.InstanceId)
             return new MutationOutcome.AttentionSkew("instance_changed_during_classification");
 
+        if (runsExpected is not null && !runsExpected(confirm.Pid!.Value))
+            return new MutationOutcome.AttentionSkew("daemon_executable_mismatch");
+
         return new MutationOutcome.Succeeded();
     }
 
@@ -523,7 +539,7 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
             ObservedEvidence? predecessor, CancellationToken ct) {
         if (result.TimedOut) return new MutationOutcome.UnconfirmedNoAttach();
         if (result.ExitCode != 0) {
-            LogReloadFailure(request, result);
+            LogVerbFailure(request, result);
             return new MutationOutcome.Failed(result.ExitCode, ReasonLine.TrySingle(result.Stderr, "refresh_outcome="), RecoverySurface.Attention);
         }
 
@@ -533,6 +549,31 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         if (waited is not null) return waited;
 
         return await ClassifyServiceSuccessAsync(request, executor, observation, ct, requirePositiveSpawnType: true).ConfigureAwait(false);
+    }
+
+    // The repoint moves a service onto the daemon beside the kcap that ran it, so only an instance started from that
+    // binary proves it. One that answered beforehand from another binary is the old daemon; one already running that
+    // binary is a service the repoint found moved.
+    async Task<MutationOutcome> ClassifyRepointAsync(
+            MutationRequest request, ProcessResult result, IKcapCli executor, IDaemonObservation observation,
+            ObservedEvidence? predecessor, CancellationToken ct) {
+        if (result.TimedOut) return new MutationOutcome.UnconfirmedNoAttach();
+        if (result.ExitCode == RepointDeferredExit) return new MutationOutcome.Refused("daemon_busy", RecoverySurface.None);
+        if (result.ExitCode != 0) {
+            LogVerbFailure(request, result);
+            return new MutationOutcome.Failed(result.ExitCode, null, RecoverySurface.Attention);
+        }
+
+        if (executor.CliPath is not { } cli) return new MutationOutcome.AttentionSkew("daemon_executable_unknown");
+        var daemon = CanonicalPath.Resolve(Path.Combine(Path.GetDirectoryName(CanonicalPath.Resolve(cli))!, "kcap-daemon"));
+        bool Runs(int pid) => ExecutableOf(pid) is { } exe && PathComparison.Equal(CanonicalPath.Resolve(exe), daemon);
+
+        var stale = predecessor is { Reachable: true, Pid: { } old, InstanceId: { } instance } && !Runs(old) ? instance : null;
+        var waited = await AwaitFullEvidenceAsync(request, observation, null, ct, stale).ConfigureAwait(false);
+        if (waited is not null) return waited;
+
+        return await ClassifyServiceSuccessAsync(request, executor, observation, ct, requirePositiveSpawnType: true, runsExpected: Runs)
+            .ConfigureAwait(false);
     }
 
     // DetachedStart has no CLI-side verify engine — the lane itself confirms via a bounded post-spawn observation window.
@@ -627,10 +668,10 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         return null;
     }
 
-    static void LogReloadFailure(MutationRequest request, ProcessResult result) {
+    static void LogVerbFailure(MutationRequest request, ProcessResult result) {
         var detail = result.Stderr.Trim();
         Console.Error.WriteLine(
-            $"DaemonMutationLane: reload exit {result.ExitCode} daemon={request.DaemonName}" +
+            $"DaemonMutationLane: {request.Verb.ToString().ToLowerInvariant()} exit {result.ExitCode} daemon={request.DaemonName}" +
             (detail.Length == 0 ? "" : $": {detail}"));
     }
 
