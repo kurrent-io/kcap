@@ -109,7 +109,7 @@ internal static class OpenCodeLaunchEnvironment {
         if (userConfig.Count > 0) environment[ConfigContentVariable] = userConfig.ToJsonString();
         else environment.Remove(ConfigContentVariable);
 
-        OpenCodeHomeCredentials.Apply(environment, home, dirs.Home, _ => { });
+        OpenCodeHomeCredentials.Apply(home, dirs.Home, _ => { });
 
         environment[HomeVariable]                       = dirs.Home;
         environment[TestHomeVariable]                   = dirs.Home;

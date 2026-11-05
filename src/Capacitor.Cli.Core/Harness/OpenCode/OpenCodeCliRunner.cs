@@ -63,7 +63,7 @@ static class OpenCodeCliRunner {
             CopyRecentModels(inheritedEnv, paths.Home, state.Path, log);
 
             var env = BuildEnvironment(inheritedEnv, new(home.Path, configHome.Path, configDir.Path, data.Path, state.Path), config, paths.Home);
-            OpenCodeHomeCredentials.Apply(env, HomeOf(inheritedEnv, paths.Home), home.Path, log);
+            OpenCodeHomeCredentials.Apply(HomeOf(inheritedEnv, paths.Home), home.Path, log);
 
             return await RunCoreAsync(BuildPrompt(prompt, systemPrompt, schema), env, timeout, time, log, cwd.Path, model, schema, executable, ct);
         } catch (HeadlessRunRefusedException ex) {

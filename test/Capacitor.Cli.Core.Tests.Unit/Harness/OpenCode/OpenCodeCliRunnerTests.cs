@@ -132,16 +132,20 @@ public class OpenCodeCliRunnerTests {
         await Assert.That((await File.ReadAllTextAsync(Path.Combine(seen, "listing"))).Trim()).IsEmpty();
     }
 
-    [Test, RunOn(OS.Windows)]
-    public async Task On_windows_the_aws_files_are_named_unless_the_user_already_named_them() {
+    /// <summary>The whole directory, so an SSO token cache is there too, and removing the run leaves it alone.</summary>
+    [Test]
+    public async Task The_aws_directory_reaches_the_private_home_and_survives_its_removal() {
         var user = Tmp.CreateDir("user-home").Path;
-        var file = Tmp.CreateFile(Path.Combine("user-home", ".aws", "credentials"), "aws");
-        Dictionary<string, string?> env = new() { ["AWS_CONFIG_FILE"] = "mine" };
+        var file = Tmp.CreateFile(Path.Combine("user-home", ".aws", "sso", "cache", "token.json"), "token");
+        var home = Tmp.CreateDir("private-home").Path;
 
-        OpenCodeHomeCredentials.Apply(env, user, Tmp.CreateDir("private").Path, _ => { });
+        OpenCodeHomeCredentials.Apply(user, home, _ => { });
 
-        await Assert.That(env["AWS_SHARED_CREDENTIALS_FILE"]).IsEqualTo(file);
-        await Assert.That(env["AWS_CONFIG_FILE"]).IsEqualTo("mine");
+        await Assert.That(File.ReadAllText(Path.Combine(home, ".aws", "sso", "cache", "token.json"))).IsEqualTo("token");
+
+        NoFollowTree.Delete(home);
+
+        await Assert.That(File.Exists(file)).IsTrue();
     }
 
     [Test, ExcludeOn(OS.Windows)]

@@ -32,6 +32,7 @@ public class ProcessTreeTests {
         using var root = OperatingSystem.IsWindows()
             ? Process.Start(new ProcessStartInfo("cmd.exe", "/c ping -n 300 127.0.0.1 >NUL") { UseShellExecute = false, CreateNoWindow = true })!
             : StartTree("sh -c 'sleep 300 & wait' & wait");
+        // Windows can also list the conhost that serves cmd's console, so ping is only the least it lists.
         var expected = OperatingSystem.IsWindows() ? 1 : 2;
 
         try {
@@ -44,7 +45,9 @@ public class ProcessTreeTests {
                 listed = ProcessTree.Descendants(root.Id, identity);
             }
 
-            await Assert.That(listed.Count).IsEqualTo(expected);
+            if (OperatingSystem.IsWindows()) await Assert.That(listed.Count).IsGreaterThanOrEqualTo(expected);
+            else await Assert.That(listed.Count).IsEqualTo(expected);
+
             foreach (var (pid, childIdentity) in listed) await Assert.That(PidIdentity.Capture(pid)).IsEqualTo(childIdentity);
             await Assert.That(ProcessTree.Descendants(root.Id, identity + "0")).IsEmpty();
         } finally {
