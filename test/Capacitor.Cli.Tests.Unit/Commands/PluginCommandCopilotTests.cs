@@ -220,6 +220,37 @@ public class PluginCommandCopilotTests {
     // Deterministic native-binary path: registration writes the resolved binary as the command
     // (default: the running process), so tests inject their own value and assert that,
     // never blessing whatever executable happens to run the suite.
+    /// <summary>A hook written by an older kcap names the bare command, which is all an update has to replace.</summary>
+    [Test]
+    public async Task An_update_rewrites_a_stale_hook_command_to_the_running_binary() {
+        using var home = new TempHome();
+        var env   = TestEnv(home.Path);
+        var hooks = env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson;
+
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(hooks)!);
+        await File.WriteAllTextAsync(hooks, """{"version":1,"hooks":{"sessionStart":[{"type":"command","command":"'/old/kcap' hook --copilot --event sessionStart"}]}}""");
+        await File.WriteAllTextAsync(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(hooks)!, CopilotHooksInstaller.MarkerFileName), "0.0.1");
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--copilot", "--if-installed"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(await File.ReadAllTextAsync(hooks)).DoesNotContain("/old/kcap");
+        await Assert.That(JsonNode.Parse(await File.ReadAllTextAsync(hooks))!["hooks"]!["sessionStart"]![0]!["command"]!.GetValue<string>())
+            .Contains($"'{TestBinaryPath}' hook --copilot --event sessionStart");
+    }
+
+    /// <summary>The hooks name the binary, so a kcap that is not on PATH yet can still install them.</summary>
+    [Test]
+    public async Task A_first_install_does_not_need_kcap_on_PATH() {
+        using var home = new TempHome();
+        var env = TestEnv(home.Path);
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--copilot"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(File.Exists(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson)).IsTrue();
+    }
+
     internal const string TestBinaryPath = "/opt/kcap-test/bin/kcap";
 
     static PluginEnvironment TestEnv(string fakeHome) => new(

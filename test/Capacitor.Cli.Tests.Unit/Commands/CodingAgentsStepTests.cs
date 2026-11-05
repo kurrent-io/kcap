@@ -1871,6 +1871,22 @@ public class CodingAgentsStepTests {
         await Assert.That(sink.Lines).Contains(l => l.Contains("Could not write Copilot hooks"));
     }
 
+    /// <summary>A hook that names kcap's full path runs in an app whose PATH predates the install.</summary>
+    [Test]
+    public async Task Copilot_hooks_naming_the_binary_install_with_kcap_not_on_path() {
+        var sink     = new Sink();
+        var calls    = new InstallerCalls { CapacitorOnPathReturns = false };
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: false, NoPrompt: false);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: true);
+
+        var result = await RunAsync(
+            options, detected, TestPaths(), calls.AsInstallers() with { CopilotHooksNeedPath = () => false },
+            prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(result.CopilotHooksInstalled).IsTrue();
+        await Assert.That(calls.CopilotHooksCalled).IsTrue();
+    }
+
     [Test]
     public async Task Copilot_kcap_not_on_path_aborts_install_without_writing_hooks() {
         var sink     = new Sink();

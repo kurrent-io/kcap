@@ -27,7 +27,6 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
     static readonly JsonSerializerOptions WriteOpts = new() { WriteIndented = true };
 
     const string CursorHookCommand  = "kcap hook --cursor";
-    const string CopilotHookCommand = "kcap hook --copilot";
     const string KiroHookCommand    = "kcap hook --kiro";
 
     const int DefaultHookTimeout = 30;
@@ -1756,8 +1755,8 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
          && !AgentInstructionsWriter.IsInstalled(copilot.InstructionsMd))
             return 0;
 
-        // kcap.json writes the bare `kcap hook --copilot`. Not checked on the postinstall path.
-        if (!refreshOnly && !toolsOnly && !KcapOnPath) {
+        // Not checked on the postinstall path.
+        if (!refreshOnly && !toolsOnly && CopilotHooksNeedPath(env.ResolveMcpBinaryPath) && !KcapOnPath) {
             await env.Stderr.WriteLineAsync(
                 "Cannot install Copilot hooks: 'kcap' is not on PATH. "
               + InstallProvenance.NotOnPathHint()
@@ -1771,7 +1770,7 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         // separate files and must be healed if a prior write failed (warning-only) or was deleted.
         var hooksCurrent = refreshOnly && CopilotHooksInstaller.ReadMarker(hooksPath) == CapacitorVersion.Current();
         if (!toolsOnly && !hooksCurrent) {
-            if (InstallCopilotHooks(hooksPath)) {
+            if (InstallCopilotHooks(hooksPath, env.ResolveMcpBinaryPath)) {
                 await env.Stdout.WriteLineAsync(
                     refreshOnly
                         ? $"Copilot hooks refreshed ({hooksPath})"
@@ -1909,17 +1908,18 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
     /// <c>kcap.json</c> wholesale — no merge with user-authored entries is
     /// needed (unlike the shared-file Cursor/Codex installers). Each entry
     /// embeds the event name in the command because Copilot hook payloads
-    /// carry no uniform event-name field (see <see cref="CopilotHookCommand"/>).
+    /// carry no uniform event-name field (see <c>CopilotHookCommand</c>).
     /// </summary>
-    public static bool InstallCopilotHooks(string hooksPath) {
+    public static bool InstallCopilotHooks(string hooksPath, Func<string?>? resolveBinaryPath = null) {
         try {
+            var binary = CopilotHookBinary(resolveBinaryPath);
             var hooks = new JsonObject();
 
             foreach (var evt in CopilotHooksParser.CopilotHookEvents) {
                 hooks[evt] = new JsonArray(
                     new JsonObject {
                         ["type"]       = "command",
-                        ["command"]    = $"{CopilotHookCommand} --event {evt}",
+                        ["command"]    = CopilotHooksParser.HookCommandLine(evt, binary, OperatingSystem.IsWindows()),
                         ["timeoutSec"] = DefaultHookTimeout
                     }
                 );
@@ -1937,6 +1937,16 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
             return true;
         } catch { return false; }
     }
+
+    /// <summary>
+    /// The full path, so a hook runs in an app whose PATH predates the install. A refresh rewrites it, as the
+    /// version marker changes with every update. Anything but kcap running this code gets the bare command.
+    /// </summary>
+    static string CopilotHookBinary(Func<string?>? resolveBinaryPath) =>
+        KcapBinaryCommand.Resolve(resolveBinaryPath) is var command && KcapBinaryCommand.IsKcap(command) ? command : KcapMcpServers.Command;
+
+    public static bool CopilotHooksNeedPath(Func<string?>? resolveBinaryPath = null) =>
+        CopilotHookBinary(resolveBinaryPath) == KcapMcpServers.Command;
 
     /// <summary>
     /// Deletes kcap's Copilot hooks file (kcap owns it wholesale — there are
