@@ -240,6 +240,9 @@ class WatchState {
     // Only populated for claude child watchers — nothing else reads it.
     public HashSet<string> PendingClaudeToolCalls { get; } = new(StringComparer.Ordinal);
 
+    // Same guard for a VS Code Local session's idle end. Only populated for those watchers.
+    public HashSet<string> PendingCopilotToolCalls { get; } = new(StringComparer.Ordinal);
+
     // Codex collab CHILD watcher only (vendor == "codex" && agentId != null): folds the child
     // rollout's own task_complete/turn-activity lines so the polling loop can post a LIVE
     // subagent-stop once the turn is done and a grace window elapsed — before this,
