@@ -85,6 +85,17 @@ public class AtomicFileTests {
     }
 
     [Test]
+    public async Task A_reader_holding_the_file_keeps_its_contents_and_lets_the_replace_through() {
+        var path = Tmp.CreateFile("a.json", "old");
+        using var reader = new StreamReader(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
+
+        AtomicFile.Replace(path, "new");
+
+        await Assert.That(File.ReadAllTextShared(path)).IsEqualTo("new");
+        await Assert.That(await reader.ReadToEndAsync()).IsEqualTo("old");
+    }
+
+    [Test]
     public async Task Replace_without_following_replaces_the_link_itself() {
         Skip.When(OperatingSystem.IsWindows(), "creating a symlink needs privileges Windows CI does not have");
         var target = Tmp.CreateFile("elsewhere/SKILL.md", "old");
