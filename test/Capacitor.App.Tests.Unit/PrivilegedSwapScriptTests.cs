@@ -97,6 +97,40 @@ public class PrivilegedSwapScriptTests {
         foreach (var (entry, _, _, _) in spec.Entries) await Assert.That(File.Exists(Path.Combine(entry.Original, "package.json"))).IsTrue();
     }
 
+    /// <summary>Another account that can write a link's folder can plant a link to a directory at the staging name, which
+    /// root must not follow into that directory. The second link's is planted, so the first, already swapped, comes
+    /// back.</summary>
+    [Test]
+    public async Task A_link_planted_at_the_staging_name_is_not_followed() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        var trap    = Tmp.CreateDir("trap");
+        var planted = install.Links[1].Path + ".kcap-swap-" + spec.Staging;
+        Directory.CreateSymbolicLink(planted, trap);
+        await using var run = Run.Start(Tmp, spec);
+
+        var result = await run.ExitAsync();
+
+        await Assert.That(result.ExitCode).IsEqualTo(4);
+        await Assert.That(run.Words()).IsEquivalentTo(["restored"]);
+        await Assert.That(Directory.EnumerateFileSystemEntries(trap)).IsEmpty();
+        await Assert.That(new FileInfo(planted).LinkTarget).IsEqualTo(trap);
+        await install.AssertUntouchedAsync(spec);
+    }
+
+    /// <summary>The staging name is the app's random part: one anyone could guess could be planted before the prompt.</summary>
+    [Test]
+    [Arguments("")]
+    [Arguments("0123456789abcdef")]
+    [Arguments("0123456789ABCDEF0123456789ABCDEF")]
+    [Arguments("../../../../../../../../tmp/x/aa")]
+    public async Task A_staging_name_that_is_not_random_hex_is_refused(string staging) {
+        var refused = PrivilegedNpmInstall.Create(Tmp).Spec(Tmp) with { Staging = staging };
+
+        await Assert.That(() => PrivilegedSwapScript.Render(refused)).Throws<ArgumentException>();
+        await Assert.That(() => PrivilegedSwapScript.Arguments(refused, PrivilegedSwap.CurrentUid())).Throws<ArgumentException>();
+    }
+
     /// <summary>The second package fails its own check after the first passed, so both come back.</summary>
     [Test]
     [Arguments("marker gone")]
@@ -416,7 +450,7 @@ public class PrivilegedSwapScriptTests {
         var link       = new LinkChange(path, old, bundle);
         var spec = new PrivilegedSpec(
             [link], [.. Layout.Select(e => new PrivilegedEntry(retirement.Plan(Path.Combine(root, e.Name)), e.Kind, null, []))],
-            Tmp.PathTo("helper", "control"), Tmp.PathTo("helper", "status"), TimeSpan.FromSeconds(30));
+            Tmp.PathTo("helper", "control"), Tmp.PathTo("helper", "status"), TimeSpan.FromSeconds(30), PrivilegedNpmInstall.Staging);
         return (spec, root, link);
     }
 

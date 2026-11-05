@@ -9,6 +9,7 @@ namespace Capacitor.App.Tests.Unit;
 /// a service unit's PATH entry. A sibling package in the same scope must survive.</summary>
 internal sealed record PrivilegedNpmInstall(string Scope, string Sibling, IReadOnlyList<string> Packages, IReadOnlyList<LinkChange> Links) {
     public const string Version = "1.4.1-beta.2";
+    public const string Staging = "0123456789abcdef0123456789abcdef";
 
     public static PrivilegedNpmInstall Create(TempDir tmp, string prefix = "usr local") {
         var scope    = tmp.CreateDir(prefix, "lib", "node_modules", "@kurrent");
@@ -45,7 +46,7 @@ internal sealed record PrivilegedNpmInstall(string Scope, string Sibling, IReadO
             Links,
             [.. Packages.Select(p => new PrivilegedEntry(
                 retirement.Plan(p), PrivilegedEntryKind.Directory, "package.json", [$"\"@kurrent/{Path.GetFileName(p)}\"", $"\"{Version}\""]))],
-            tmp.PathTo(helper, "control"), tmp.PathTo(helper, "status"), goWait ?? TimeSpan.FromSeconds(30));
+            tmp.PathTo(helper, "control"), tmp.PathTo(helper, "status"), goWait ?? TimeSpan.FromSeconds(30), Staging);
     }
 
     public async Task AssertUntouchedAsync(PrivilegedSpec spec) {

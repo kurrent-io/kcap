@@ -29,8 +29,8 @@ internal static class PrivilegedSwapScript {
             trap '' HUP PIPE
             umask 022
 
-            status=$1 control=$2 owner=$3
-            shift 3
+            status=$1 control=$2 owner=$3 stage=$4
+            shift 4
             nlinks=$1; shift; k=0
             while [ $k -lt $nlinks ]; do links[$k]=$1; olds[$k]=$2; news[$k]=$3; shift 3; k=$((k + 1)); done
             nentries=$1; shift; k=0; m=0
@@ -61,9 +61,11 @@ internal static class PrivilegedSwapScript {
 
             relink() {
                 [ -L "$1" ] && [ "$(/usr/bin/readlink -- "$1")" = "$2" ] || return 1
-                /bin/ln -s -- "$3" "$1.kcap-swap-$$" || return 1
-                /bin/mv -fh -- "$1.kcap-swap-$$" "$1" && return 0
-                /bin/rm -f -- "$1.kcap-swap-$$"
+                # Without -h, ln follows a link someone planted at the staging name and makes kcap in its directory.
+                local staged="$1.kcap-swap-$stage"
+                /bin/ln -sh -- "$3" "$staged" || return 1
+                [ -L "$staged" ] && [ "$(/usr/bin/readlink -- "$staged")" = "$3" ] && /bin/mv -fh -- "$staged" "$1" && return 0
+                [ -L "$staged" ] && /bin/rm -f -- "$staged"
                 return 1
             }
 
@@ -149,12 +151,12 @@ internal static class PrivilegedSwapScript {
     }
 
     /// <summary>The script's positional arguments: the status file, the control pipe, the uid that must own their
-    /// folder, then the links as a count and (path, original, replacement) triples, and the entries as a count and
-    /// (original, aside, kind d/l/f, marker, substring count, substrings…) groups, an empty marker meaning a kind check
-    /// only.</summary>
+    /// folder, the staging name's random part, then the links as a count and (path, original, replacement) triples, and
+    /// the entries as a count and (original, aside, kind d/l/f, marker, substring count, substrings…) groups, an empty
+    /// marker meaning a kind check only.</summary>
     internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec, uint owner) {
         Validate(spec);
-        var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), Number(spec.Links.Count) };
+        var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), spec.Staging, Number(spec.Links.Count) };
         foreach (var link in spec.Links) args.AddRange([link.Path, link.Original, link.Replacement]);
         args.Add(Number(spec.Entries.Count));
         foreach (var entry in spec.Entries) {
@@ -188,6 +190,7 @@ internal static class PrivilegedSwapScript {
         // An unnormalised path, such as <link>//status, would let the script's folder check see past a link.
         Require(spec.ControlFifo, Normal, "control pipe");
         Require(spec.StatusFile, Normal, "status file");
+        Require(spec.Staging, s => s.Length >= 32 && s.All(char.IsAsciiHexDigitLower), "staging name");
         if (Path.GetDirectoryName(spec.StatusFile) != Path.GetDirectoryName(spec.ControlFifo))
             throw new ArgumentException("The status file and the control pipe must share one folder.", nameof(spec));
         foreach (var link in spec.Links) {
