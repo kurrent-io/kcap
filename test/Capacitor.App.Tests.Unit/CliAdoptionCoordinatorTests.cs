@@ -919,6 +919,71 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Platform)).IsTrue();
     }
 
+    /// <summary>A Finish run can leave the install it took back in for a reason the user can clear, here a daemon they
+    /// started from the old install after cancelling the prompt. The switched machine checks that install again on each
+    /// launch, as its notice says, and switches it once the daemon is stopped; an install that is only reported stays
+    /// untouched throughout.</summary>
+    [Test]
+    public async Task A_reopened_install_left_for_a_rederived_reason_is_checked_again_on_a_switched_machine() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Admin.Answer = PrivilegedResult.Cancelled;
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+        await Assert.That(world.Record.MachineSwitched).IsTrue();
+
+        var later = world.AddInstall("nvm", "flow", 5100);
+        world.Machine.OtherDaemons.Add(new RunningDaemonFact("manual", 4999, "tok-4999", world.Install.DaemonBinary));
+        world.Admin.Answer = null;
+        using (var finishing = world.Launch()) {
+            await world.FirstLookAsync(finishing);
+            await finishing.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+            await world.SettledAsync(finishing);
+        }
+
+        var left = world.Record.Installs.Single(i => i.Install.Root == world.Root);
+        await Assert.That((left.State, left.Reason)).IsEqualTo((InstallState.Left, (LeftReason?)LeftReason.UnsupervisedDaemon));
+        await Assert.That(world.Notifier.Notified[^1]).Contains("kcap daemon stop --name manual");
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
+
+        using (var stillRunning = world.Launch()) await world.FirstLookAsync(stillRunning);
+
+        await Assert.That(world.Record.Installs.Single(i => i.Install.Root == world.Root).State).IsEqualTo(InstallState.Left);
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
+
+        world.Machine.OtherDaemons.Clear();
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(2);
+        await Assert.That(world.Record.Installs.Single(i => i.Install.Root == world.Root).State).IsEqualTo(InstallState.Switched);
+        await Assert.That(Directory.Exists(world.Platform)).IsFalse();
+        await Assert.That(world.Record.MachineSwitched).IsTrue();
+        await Assert.That(world.Record.Installs.Select(i => i.Install.Root)).IsEquivalentTo([world.Root]);
+        await Assert.That(Directory.Exists(later.Platform)).IsTrue();
+        await Assert.That(Target(later.Link)).IsEqualTo(AdoptionWorld.NpmLinkTarget);
+        await Assert.That(AdoptionWorld.ProgramOf(later)).IsEqualTo(later.Install.DaemonBinary);
+        var asked = world.Admin.Specs.SelectMany(spec => spec.Entries).Select(e => e.Entry.Original);
+        await Assert.That(asked.Any(e => e.StartsWith(later.Root, StringComparison.Ordinal))).IsFalse();
+    }
+
+    /// <summary>A pending root-owned install with nothing of it left is switched, wherever the app runs: there is
+    /// nothing for the ~/Applications rule to keep.</summary>
+    [Test]
+    public async Task A_pending_install_with_nothing_left_is_switched_even_from_user_Applications() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Bundle = world.Bundle with { InSystemApplications = false };
+        world.SwitchedAllButTheFiles();
+        Directory.Delete(world.Root, recursive: true);
+        Directory.Delete(world.Platform, recursive: true);
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(world.Logged("adoption_retired").Single()["reason"]).IsEqualTo(AdoptionPrivilegedStep.NothingLeft);
+        await Assert.That(world.Admin.Prompts).IsEmpty();
+    }
+
     /// <summary>Finish switching never clears the machine's switch: an install that appeared after it is only reported,
     /// and stays untouched and unprompted for on later launches, even while the reopened install stays held.</summary>
     [Test]

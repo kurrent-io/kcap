@@ -157,27 +157,33 @@ public class AdoptionPreflightTests {
         await Assert.That(plan.HoldReason).IsNull();
     }
 
-    /// <summary>Finish switching reopens an install without clearing the machine's switch; any other install found
-    /// there, a reinstall at the reopened one's path included, is reported.</summary>
+    /// <summary>Finish switching reopens an install without clearing the machine's switch, and may leave it for a
+    /// reason checked again each launch: both are planned. Any other install found there is reported: one that appeared,
+    /// one left for a reason only Finish switching retries, and a reinstall at a reopened one's path.</summary>
     [Test]
-    public async Task On_a_switched_machine_only_the_installs_the_record_holds_pending_are_planned() {
+    public async Task On_a_switched_machine_only_installs_Finish_switching_took_back_in_are_planned() {
         var held      = Script("a");
-        var appeared  = Script("b");
-        var reinstall = Script("c");
+        var rederived = Script("b");
+        var appeared  = Script("c");
+        var cancelled = Script("d");
+        var reinstall = Script("e");
         var record    = AdoptionRecord.Empty with {
             MachineSwitched = true,
             Installs = [
                 new RecordedInstall(held.Install, InstallState.Pending, null, null, null, null),
+                new RecordedInstall(rederived.Install, InstallState.Left, LeftReason.UnsupervisedDaemon, "manual", null, null),
+                new RecordedInstall(cancelled.Install, InstallState.Left, LeftReason.PromptCancelled, null, null, null),
                 new RecordedInstall(reinstall.Install with { Identity = "old" }, InstallState.Pending, null, null, null, null),
             ],
         };
 
-        var plan = Plan(Evidence([held.Install, appeared.Install, reinstall.Install], held.Link), record,
-            stable: [held.LinkFolder, appeared.LinkFolder, reinstall.LinkFolder]);
+        var plan = Plan(Evidence([held.Install, rederived.Install, appeared.Install, cancelled.Install, reinstall.Install], held.Link),
+            record, stable: [held.LinkFolder, rederived.LinkFolder, appeared.LinkFolder, cancelled.LinkFolder, reinstall.LinkFolder]);
 
         await Assert.That(plan.HoldReason).IsNull();
-        await Assert.That(plan.Installs.Select(p => p.Install)).IsEquivalentTo([held.Install]);
-        await Assert.That(plan.Reported).IsEquivalentTo([appeared.Install, reinstall.Install]);
+        await Assert.That(plan.Installs.Select(p => p.Install)).IsEquivalentTo([held.Install, rederived.Install]);
+        await Assert.That(plan.Installs.All(p => p.Left is null)).IsTrue();
+        await Assert.That(plan.Reported).IsEquivalentTo([appeared.Install, cancelled.Install, reinstall.Install]);
     }
 
     [Test]
