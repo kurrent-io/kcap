@@ -1351,20 +1351,16 @@ public class PiTitleHelperTests {
     }
 
     [Test]
-    public async Task A_Local_session_tool_stays_in_flight_until_its_result_or_the_next_prompt() {
+    public async Task A_Local_session_tool_stays_in_flight_until_its_result() {
         var pending = new HashSet<string>();
 
         WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"tool.execution_start","data":{"toolCallId":"a"}}""");
         WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"tool.execution_start","data":{"toolCallId":"b"}}""");
         WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"tool.execution_complete","data":{"toolCallId":"a","success":true}}""");
-        await Assert.That(pending).IsEquivalentTo(["b"]);
-
-        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"user.message","agentId":"sub","data":{"content":"x"}}""");
-        await Assert.That(pending).IsEquivalentTo(["b"]);
-
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"user.message","data":{"content":"a queued prompt"}}""");
         WatchCommand.UpdateCopilotPendingToolCalls(pending, "not json");
-        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"user.message","data":{"content":"x"}}""");
-        await Assert.That(pending).IsEmpty();
+
+        await Assert.That(pending).IsEquivalentTo(["b"]);
     }
 
     [Test]

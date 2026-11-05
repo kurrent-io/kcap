@@ -899,7 +899,7 @@ partial class WatchCommand(
             if (vendor == "claude") replay.Add(CreatedPullRequestsReplay(state));
             if (TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ClaudePendingToolCallsReplay(state.PendingClaudeToolCalls));
             if (TracksCodexToolCalls(vendor)) replay.Add(CodexWatcherStateReplay(state, isChildWatcher: agentId is not null));
-            if (TracksCopilotToolCalls(vendor, transcriptPath)) replay.Add(new(WindowOnly: true, line => { UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line); return false; }));
+            if (TracksCopilotToolCalls(vendor, transcriptPath)) replay.Add(new(WindowOnly: false, line => { UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line); return false; }));
             await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, replay, cts.Token, message => Log(time, message));
         }
 
@@ -2203,7 +2203,6 @@ partial class WatchCommand(
     internal static bool CopilotToolInFlight(WatchState state, DateTimeOffset now) =>
         state.PendingCopilotToolCalls.Count > 0 && now - state.LastActivityAt < CopilotToolCeiling;
 
-    /// <summary>A person's next message means the tools before it are over, whether or not they reported.</summary>
     internal static void UpdateCopilotPendingToolCalls(HashSet<string> pending, string line) {
         try {
             using var doc  = JsonDocument.Parse(line);
@@ -2216,10 +2215,6 @@ partial class WatchCommand(
 
                 case "tool.execution_complete" when root.Obj("data")?.Str("toolCallId") is { } completed:
                     pending.Remove(completed);
-                    break;
-
-                case "user.message" when root.Str("agentId") is null:
-                    pending.Clear();
                     break;
             }
         } catch {
