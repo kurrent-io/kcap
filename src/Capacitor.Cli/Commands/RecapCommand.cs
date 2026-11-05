@@ -33,12 +33,12 @@ class RecapCommand(
         }
 
         if (entries.Count == 0) {
-            await Console.Out.WriteLineAsync($"No session summaries found for {repo.Owner}/{repo.RepoName}.");
+            await Console.Out.WriteLineAsync($"No session summaries found for {LocalRepository.Label(repo.Owner, repo.RepoName)}.");
 
             return 0;
         }
 
-        await Console.Out.WriteLineAsync($"# Recent sessions for {repo.Owner}/{repo.RepoName}");
+        await Console.Out.WriteLineAsync($"# Recent sessions for {LocalRepository.Label(repo.Owner, repo.RepoName)}");
         await Console.Out.WriteLineAsync();
 
         foreach (var entry in entries) {

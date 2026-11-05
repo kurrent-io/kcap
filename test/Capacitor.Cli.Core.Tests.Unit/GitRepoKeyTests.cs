@@ -100,4 +100,30 @@ public class GitRepoKeyTests {
     public async Task A_path_that_names_nothing_has_no_key(string? path) {
         await Assert.That(GitRepoKey.ForCheckout(path)).IsNull();
     }
+
+    // A daemon deciding a launch and a hook deciding the session it starts must read one key.
+    [Test]
+    public async Task With_a_config_root_a_repository_with_no_remote_keys_by_its_local_identity() {
+        using var config = new TempConfigRoot("key");
+        using var repo   = GitRepo.Create();
+        var local = LocalRepository.Of(config.Root, repo.Path)!.Value;
+
+        await Assert.That(GitRepoKey.ForCheckout(repo.Path, config.Root)).IsEqualTo($"{local.Owner}/{local.Name}");
+    }
+
+    [Test]
+    public async Task With_a_config_root_a_remote_still_names_the_repository() {
+        using var config = new TempConfigRoot("key");
+        using var repo   = GitRepo.Create();
+        repo.AddRemote("git@github.com:acme/widgets.git");
+
+        await Assert.That(GitRepoKey.ForCheckout(repo.Path, config.Root)).IsEqualTo("acme/widgets");
+    }
+
+    [Test]
+    public async Task With_a_config_root_a_folder_outside_any_repository_stays_unplaced() {
+        using var config = new TempConfigRoot("key");
+
+        await Assert.That(GitRepoKey.ForCheckout(config.CreateDir("plain").Path, config.Root)).IsNull();
+    }
 }

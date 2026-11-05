@@ -2713,6 +2713,8 @@ kcap config set allowed_repos "myorg/service,myorg/web"
 kcap config set allowed_repos ""      # back to allowing every repo
 ```
 
+A repository with no remote is stored under its folder name, marked local, with an owner kcap derives from this machine and the repository's git directory, so two people's repositories that share a folder name never merge. Name one in either list as `local~/<folder>`, which matches every repository with no remote on this machine in a folder of that name and nothing with a remote. A list of remotes alone leaves every repository with no remote out. Moving the folder, or working in a copy on another machine, stores later sessions under another local repository; once the repository gains a remote, new sessions are stored under the remote's name and earlier ones stay where they were stored.
+
 Two consequences worth knowing before you set it. A session whose repo kcap cannot resolve is **not** captured — that covers detection failing or timing out, and also **any work outside a git repo at all**, so scratch directories stop being recorded. And if you set both `allowed_repos` and `allowed_paths`, they are independent gates: a session must be admitted by *both*, mirroring the way either denylist alone can exclude one.
 
 **Path exclusions** silently skip any session whose working directory is, or sits inside, a configured path — useful for ignoring scratch dirs, worktrees, or monorepo subtrees regardless of git remote:

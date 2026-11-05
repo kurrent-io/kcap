@@ -269,8 +269,8 @@ public sealed class ConfigCommand(
         Console.Error.WriteLine("  disable_harness_nudge       Skip new-harness setup nudges (in-session + CLI stderr) (true/false)");
         Console.Error.WriteLine("  disable_relative_worktrees_nudge  Skip the SessionStart nudge to use relative worktree links in a sandbox (true/false)");
         Console.Error.WriteLine("  use_provider_api_key        Keep ANTHROPIC_API_KEY/OPENAI_API_KEY in headless agent spawns (true/false)");
-        Console.Error.WriteLine("  excluded_repos              Excluded repos, comma-separated (owner/repo,owner/repo)");
-        Console.Error.WriteLine("  allowed_repos               Capture only these repos, comma-separated; empty allows all");
+        Console.Error.WriteLine("  excluded_repos              Excluded repos, comma-separated (owner/repo,local~/folder)");
+        Console.Error.WriteLine("  allowed_repos               Capture only these repos, comma-separated (owner/repo,local~/folder); empty allows all");
         Console.Error.WriteLine("  flows.reviewer_vendor       Preferred review-flow reviewer vendor (used only when the definition names none)");
         Console.Error.WriteLine("  skills.auto_sync            Background skills refresh at Claude session start (true/false, default false)");
         Console.Error.WriteLine("  telemetry                   Anonymous CLI usage reporting, machine-wide (on/off)");

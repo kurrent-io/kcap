@@ -3,6 +3,7 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
@@ -25,6 +26,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     public const string DaemonNotRunning = "Your local kcap daemon isn't running. Start it to hand off.";
     public const string ContextUnavailable = "Couldn't load this session's details from your kcap server";
     public const string NoRepository = "This session isn't linked to a GitHub repository, so it can't be handed off";
+    public const string NoRemote     = "This session's repository has no remote, so it can't be handed off";
     public const string ProbeFailed = "Your local kcap daemon didn't answer, so the starting point couldn't be checked";
     public const string CheckoutUnreadable = "Your local kcap daemon couldn't read this checkout, so the starting point couldn't be checked";
     public const string CheckingOrigin = "Checking origin…";
@@ -504,6 +506,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         }
         if (_context is not { RepoOwner: { Length: > 0 } owner, RepoName: { Length: > 0 } name } context)
             return new(NoRepository);
+        // The daemon proves a checkout by its origin, which a repository with no remote does not have.
+        if (LocalRepository.IsLocal(owner)) return new(NoRemote);
 
         var candidates = await Task.Run(() => _candidateRoots(ct), ct);
         var checkouts = await _finder.FindAllAsync(owner, name, _session.Cwd, candidates, ct);

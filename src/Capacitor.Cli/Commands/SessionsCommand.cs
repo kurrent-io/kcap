@@ -45,7 +45,7 @@ partial class SessionsCommand(
             }
 
             repoHash = RepoHashHelper.ComputeRepoHash(repo.Owner, repo.RepoName);
-            label    = $"{repo.Owner}/{repo.RepoName}";
+            label    = LocalRepository.Label(repo.Owner, repo.RepoName);
         } else {
             repoHash = options.RepoHash!;
             label    = options.Repo;

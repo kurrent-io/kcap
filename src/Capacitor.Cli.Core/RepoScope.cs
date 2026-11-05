@@ -21,7 +21,7 @@ public static class RepoScope {
 
         return repoKey is not null
             && excludedRepos is { Count: > 0 }
-            && excludedRepos.Contains(repoKey, StringComparer.OrdinalIgnoreCase);
+            && Names(excludedRepos, repoKey);
     }
 
     /// <summary>
@@ -31,5 +31,14 @@ public static class RepoScope {
     /// </summary>
     public static bool IsOutsideAllowlist(string? repoKey, IReadOnlyList<string>? allowedRepos)
         => allowedRepos is { Count: > 0 }
-        && (repoKey is null || !allowedRepos.Contains(repoKey, StringComparer.OrdinalIgnoreCase));
+        && (repoKey is null || !Names(allowedRepos, repoKey));
+
+    /// <summary>Whether the list names the key, a repository with no remote also by its folder
+    /// (<see cref="LocalRepository.Matches"/>).</summary>
+    public static bool Names(IReadOnlyList<string> entries, string repoKey) {
+        foreach (var entry in entries)
+            if (LocalRepository.Matches(entry, repoKey)) return true;
+
+        return false;
+    }
 }

@@ -10,11 +10,8 @@ using Capacitor.Cli.PrDetection;
 namespace Capacitor.Cli;
 
 static class RepositoryDetection {
-    // Bump whenever the cached shape/derivation changes so stale entries are ignored.
-    // v2: added Host + provider-aware parsing.
-    // v3: multi-segment owner parsing (nested GitLab groups) — v2 entries for
-    //     nested repos have owner=null and must re-derive.
-    internal const int CacheSchemaVersion = 3;
+    // Bump whenever the cached shape or derivation changes, so older entries are derived again.
+    internal const int CacheSchemaVersion = 4;
 
     internal static CommandRunner DefaultRunner(TimeProvider time) =>
         (cmd, arguments, cwd, timeout) => RunCommandAsync(cmd, arguments, cwd, time, timeout);
@@ -183,6 +180,14 @@ static class RepositoryDetection {
 
                 (owner, repoName) = GitUrlParser.ParseRemoteUrl(remoteUrl);
                 host = remoteUrl is null ? null : RemoteMatcher.ExtractHost(remoteUrl);
+
+                // An origin that names no owner — none at all, or a path — is not a hosting service's, and its
+                // URL can be a private path, so neither leaves the machine.
+                if ((owner is null || repoName is null) && LocalRepository.Of(config, cwd) is { } local) {
+                    (owner, repoName) = local;
+                    remoteUrl         = null;
+                    host              = null;
+                }
 
                 // Save to cache (without branch — it's always detected fresh)
                 SaveCache(

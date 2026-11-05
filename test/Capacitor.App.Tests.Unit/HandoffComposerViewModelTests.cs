@@ -229,6 +229,17 @@ public class HandoffComposerViewModelTests {
         await Assert.That(rig.Ops.Probes).IsEmpty();
     });
 
+    // The daemon checks a checkout by its origin, which a repository with no remote does not have.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_repository_with_no_remote_is_disabled_with_the_reason() => Run(async rig => {
+        rig.Sessions.HandoffContext = new HandoffContextDto(SessionId, "local~0123456789abcdef0123", "widgets", "feature/x", null, ["c1"]);
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(vm.DisabledReason).IsEqualTo(HandoffComposerViewModel.NoRemote);
+        await Assert.That(rig.Ops.Probes).IsEmpty();
+    });
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task The_reasons_are_checked_access_then_server_then_daemon_then_checkout() => Run(async rig => {

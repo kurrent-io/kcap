@@ -5818,7 +5818,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             cwd: transcript.Cwd,
             model: transcript.ResolvedModel,
             rawSessionId: transcript.AcpSessionId,
-            repository: HostedSessionRepository.Read(transcript.Cwd)
+            repository: HostedSessionRepository.Read(transcript.Cwd, dir => LocalRepository.Of(_config.ConfigRoot, dir))
         );
 
         var forwarder = new AcpTranscriptForwarder(
@@ -6930,7 +6930,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
 
         if (!AgentCaptureScope.Configured(profile)) return null;
-        if (!AgentCaptureScope.IsOutOfScope(origin, profile, _config.Home)) return null;
+        if (!AgentCaptureScope.IsOutOfScope(origin, profile, _config.Home, _config.ConfigRoot)) return null;
 
         LogLaunchOutOfCaptureScope(agentId, origin ?? "");
         await _server.LaunchFailedAsync(agentId, AgentCaptureScope.RefusalReason);
