@@ -862,9 +862,18 @@ internal partial class AgentOrchestrator {
                 }
             }
 
-            await DeliverSendInputAsync(next);
+            try {
+                await DeliverSendInputAsync(next);
+            } catch (Exception ex) {
+                // Forgotten so the server's resend can deliver it; the rest of the queue still goes.
+                if (next.DispatchId is { } failed) _dispatchedInputs.Forget(failed);
+                LogHeldInputDeliveryFailed(ex, agentId);
+            }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Delivering a held round to agent {AgentId} failed; the server resends it")]
+    partial void LogHeldInputDeliveryFailed(Exception ex, string agentId);
 
     /// <summary>A participant whose resume ended unpublished is gone, which is what each held input is told.</summary>
     async Task DropHeldInputAsync(string agentId) {

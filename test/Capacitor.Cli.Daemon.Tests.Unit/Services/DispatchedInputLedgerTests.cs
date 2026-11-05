@@ -4,8 +4,8 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// The ledger keeps every dispatch id the server may still resend: a settled one until the resend window has
-/// passed since its last copy arrived, however many others came in between, and one in flight for as long as it is.
+/// The ledger keeps every dispatch id the server may still resend, settled or in flight, until the resend window
+/// has passed since its last copy arrived, however many others came in between.
 /// </summary>
 public class DispatchedInputLedgerTests {
     readonly FakeTimeProvider      _time   = new();
@@ -51,14 +51,17 @@ public class DispatchedInputLedgerTests {
         await Assert.That(Again(_ledger, id)).IsEqualTo(DispatchState.Taken);
     }
 
+    /// <summary>An id whose delivery never settles is kept through the resend window, then dropped like any other.</summary>
     [Test]
-    public async Task An_id_in_flight_never_expires() {
+    public async Task An_id_in_flight_is_kept_through_the_window_then_dropped() {
         var id = Guid.NewGuid();
         _ledger.Admit(id, out _);
 
-        _time.Advance(DispatchedInputLedger.Retention * 10);
-        _ledger.Admit(Guid.NewGuid(), out _);
-
+        _time.Advance(DispatchedInputLedger.Retention);
         await Assert.That(Again(_ledger, id)).IsEqualTo(DispatchState.InFlight);
+
+        _time.Advance(DispatchedInputLedger.Retention + TimeSpan.FromSeconds(1));
+
+        await Assert.That(Again(_ledger, id)).IsEqualTo(DispatchState.New);
     }
 }

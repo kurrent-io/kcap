@@ -314,6 +314,29 @@ public class AgentOrchestratorParticipantResumeOnBootTests {
         await Assert.That(f.Server.InputAcks).IsEquivalentTo([(round.DispatchId!.Value, "reviewer-1")]);
     }
 
+    /// <summary>A held round whose delivery throws once released is forgotten, so the server's resend delivers it, and
+    /// the rounds held behind it are still delivered.</summary>
+    [Test]
+    public async Task A_held_round_whose_delivery_throws_is_delivered_by_the_resend_and_the_rest_still_go() {
+        var (f, lane) = await StartHandshake();
+        await using var _ = f.Orch;
+        var failing = Round("round 2");
+        var behind  = Round("round 3");
+        var thrown  = 0;
+        f.Orch.SendInputBeforeWriteHookForTest = () =>
+            Interlocked.Increment(ref thrown) == 1 ? Task.FromException(new IOException("write failed")) : Task.CompletedTask;
+
+        await f.Orch.HandleSendInputForTest(failing);
+        await f.Orch.HandleSendInputForTest(behind);
+        f.Factory.Gate!.SetResult();
+        await WaitHarness.WaitBoundedAsync(lane, "the resume lane");
+        await f.Orch.HandleSendInputForTest(failing);
+
+        var inputs = f.Factory.LastRuntime!.UserInputs;
+        await Assert.That(inputs.Count(i => i.Contains("round 2"))).IsEqualTo(1);
+        await Assert.That(inputs.Count(i => i.Contains("round 3"))).IsEqualTo(1);
+    }
+
     /// <summary>A round held for a resume that fails is refused and never acknowledged.</summary>
     [Test]
     public async Task A_held_round_whose_resume_fails_is_refused_and_never_acknowledged() {

@@ -4,9 +4,10 @@ namespace Capacitor.Cli.Daemon.Services;
 /// is acknowledged, so a resend of one already taken must be answered, never typed again. Process memory
 /// only: the server never resends to another daemon process.
 ///
-/// <para>A settled entry is kept for <see cref="Retention"/> after the last copy of it arrived, which outlasts
-/// the server's resend window, so a resend can never find its id gone. An entry still in flight is never
-/// dropped.</para></summary>
+/// <para>An entry is kept for <see cref="Retention"/> after the last copy of it arrived, which outlasts the
+/// server's resend window, so a resend can never find its id gone. That holds for one still in flight too: no
+/// copy can arrive after it is dropped, and a delivery that never settles cannot hold it for the daemon's
+/// lifetime.</para></summary>
 internal sealed class DispatchedInputLedger(TimeProvider time) {
     // The server stops resending 10 minutes after the first send.
     internal static readonly TimeSpan Retention = TimeSpan.FromMinutes(15);
@@ -56,7 +57,7 @@ internal sealed class DispatchedInputLedger(TimeProvider time) {
         List<Guid>? expired = null;
 
         foreach (var (id, entry) in _state)
-            if (entry.State != DispatchState.InFlight && now - entry.LastSeen > Retention)
+            if (now - entry.LastSeen > Retention)
                 (expired ??= []).Add(id);
 
         if (expired is null) return;
