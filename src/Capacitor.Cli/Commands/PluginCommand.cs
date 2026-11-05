@@ -1959,8 +1959,8 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         const string evt = "sessionStart";
 
         try {
-            return JsonNode.Parse(File.ReadAllText(hooksPath))?["hooks"]?[evt]?[0]?["command"]?.GetValue<string>()
-                == CopilotHooksParser.HookCommandLine(evt, CopilotHookBinary(resolveBinaryPath), OperatingSystem.IsWindows());
+            return JsonNode.Parse(File.ReadAllText(hooksPath))?["hooks"]?[evt] is JsonArray { Count: > 0 } entries
+                && entries[0]?["command"]?.GetValue<string>() == CopilotHooksParser.HookCommandLine(evt, CopilotHookBinary(resolveBinaryPath), OperatingSystem.IsWindows());
         } catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException) {
             return false;
         }

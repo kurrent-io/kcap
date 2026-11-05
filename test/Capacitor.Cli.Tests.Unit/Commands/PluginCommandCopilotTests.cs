@@ -220,6 +220,23 @@ public class PluginCommandCopilotTests {
     // Deterministic native-binary path: registration writes the resolved binary as the command
     // (default: the running process), so tests inject their own value and assert that,
     // never blessing whatever executable happens to run the suite.
+    [Test]
+    public async Task A_refresh_repairs_a_hook_file_with_no_entries() {
+        using var home = new TempHome();
+        var env   = TestEnv(home.Path);
+        var hooks = env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson;
+
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(hooks)!);
+        await File.WriteAllTextAsync(hooks, """{"version":1,"hooks":{"sessionStart":[]}}""");
+        await File.WriteAllTextAsync(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(hooks)!, CopilotHooksInstaller.MarkerFileName), CapacitorVersion.Current());
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--copilot", "--if-installed"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(JsonNode.Parse(await File.ReadAllTextAsync(hooks))!["hooks"]!["sessionStart"]![0]!["command"]!.GetValue<string>())
+            .Contains($"'{TestBinaryPath}' hook --copilot --event sessionStart");
+    }
+
     /// <summary>A hook can name another binary at any version: an update, or an install moved between roots at the same one.</summary>
     [Test]
     [Arguments(false)]

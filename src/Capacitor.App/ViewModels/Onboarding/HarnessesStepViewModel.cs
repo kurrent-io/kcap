@@ -438,6 +438,7 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
     };
 
     void RestateSelection() {
+        this.RaisePropertyChanged(nameof(PathHazard));
         this.RaisePropertyChanged(nameof(SelectedCount));
         this.RaisePropertyChanged(nameof(NextLabel));
         this.RaisePropertyChanged(nameof(DeclineVisible));

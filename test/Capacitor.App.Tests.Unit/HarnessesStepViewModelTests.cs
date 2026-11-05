@@ -545,6 +545,26 @@ public class HarnessesStepViewModelTests {
         await Assert.That(calls).IsEqualTo(1);
     }
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Selecting_another_harness_beside_Copilot_raises_the_path_warning() {
+        var changed = await AvaloniaSession.DispatchAsync(async () => {
+            var (h, _) = await HarnessWithPathFix(failing: false, new Dictionary<HarnessId, DetectedAgent> {
+                [HarnessId.Copilot] = new(false, true),
+                [HarnessId.Claude]  = new(true, true),
+            });
+            foreach (var row in h.Vm.Rows) row.Record = row.Tools = row.Id == HarnessId.Copilot;
+
+            var raised = 0;
+            h.Vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(h.Vm.PathHazard)) raised++; };
+            h.Vm.Rows.Single(r => r.Id == HarnessId.Claude).Record = true;
+
+            return (raised > 0, h.Vm.PathHazard);
+        });
+
+        await Assert.That(changed).IsEqualTo((true, true));
+    }
+
     // A failing install meets someone else's kcap where it would link.
     async Task<(Harness, PathFixViewModel)> HarnessWithPathFix(bool failing, IReadOnlyDictionary<HarnessId, DetectedAgent>? detected = null) {
         var dir = Path.GetDirectoryName(ConfigPath)!;
