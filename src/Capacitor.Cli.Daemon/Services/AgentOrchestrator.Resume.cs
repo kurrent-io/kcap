@@ -1413,7 +1413,7 @@ internal partial class AgentOrchestrator {
         }
 
         await ReleaseHeldInputAsync(entry.AgentId);
-        if (silent) await NudgeIfWorkWasLostAsync(agent, entry);
+        if (silent) _ = NudgeIfWorkWasLostAsync(agent, entry);
 
         return null;
     }
@@ -1421,7 +1421,8 @@ internal partial class AgentOrchestrator {
     /// <summary>An agent back with no turn stays idle even when the restart cut off its background work, because its
     /// vendor records that and starts no turn on it. Asked once the agent is back, so it also covers what the
     /// predecessor could not see at its stop: background shells, and an older daemon's record of a waiting agent. A
-    /// failed nudge leaves a resume that succeeded standing.</summary>
+    /// failed nudge leaves a resume that succeeded standing. Never throws: it runs unobserved, since a delivery lasts
+    /// as long as any dialog on screen and the resume must not hold its lane slot for that long.</summary>
     async Task NudgeIfWorkWasLostAsync(AgentInstance agent, ResumeLedgerEntry entry) {
         try {
             if (!agent.ActivityClock.AwaitingInput || entry.ResumingAt is not { } stoppedAt) return;

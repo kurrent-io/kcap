@@ -632,6 +632,26 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(runtime.UserInputs).IsEmpty();
     }
 
+    /// <summary>A delivery lasts as long as a dialog on screen does, so a resume that waited for its nudge would hold
+    /// a lane slot for that long: two such agents would stop every later resume.</summary>
+    [Test]
+    public async Task A_nudge_held_up_in_delivery_leaves_the_resume_free_to_finish() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true, LostWork = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-dialog", awaitingInput: true);
+        var dialogCloses = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        f.Orch.SendInputBeforeWriteHookForTest = () => dialogCloses.Task;
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+
+        var runtime = (FakeHostedAgentRuntime) f.Orch.GetAgentForTest("resume-dialog")!.Runtime;
+        await Assert.That(runtime.UserInputs).IsEmpty();
+
+        dialogCloses.SetResult();
+        await WaitHarness.PollUntilAsync(() => runtime.UserInputs.Count == 1);
+    }
+
     [Test]
     public async Task A_resuming_entry_relaunches_under_its_agent_id_with_the_vendor_session_and_nudge() {
         var f = Build();
