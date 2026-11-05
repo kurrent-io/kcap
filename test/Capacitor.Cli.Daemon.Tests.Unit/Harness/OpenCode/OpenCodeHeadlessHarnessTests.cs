@@ -55,10 +55,7 @@ public class OpenCodeHeadlessHarnessTests {
             #!/bin/sh
             printf '%s\n' "$@" > '{{argsFile}}'
             printf '%s' "$KCAP_PROBE" > '{{envFile}}'
-            while [ $# -gt 0 ]; do
-              if [ "$1" = "--file" ]; then cp "$2" '{{promptCopy}}'; fi
-              shift
-            done
+            cat > '{{promptCopy}}'
             exit 0
             """);
 

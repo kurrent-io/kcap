@@ -73,9 +73,9 @@ public class OpenCodeCliRunnerLiveTests {
     OpenCodePaths Paths => new(new(Tmp.Path), null, UserConfig, UserData);
 
     Task<ClaudeCliOutcome> Run(string executable, string prompt, TimeSpan? timeout = null, string? jsonSchema = null,
-        IReadOnlyDictionary<string, string?>? env = null, CancellationToken ct = default) =>
+        IReadOnlyDictionary<string, string?>? env = null, string? model = Model, CancellationToken ct = default) =>
         OpenCodeCliRunner.RunDetailedAsync(prompt, timeout ?? Deadline, TimeProvider.System, Console.WriteLine,
-            new HeadlessRunRoot(StateDir, "live"), Paths, env ?? Inherited(), Model, jsonSchema, null, executable, ct);
+            new HeadlessRunRoot(StateDir, "live"), Paths, env ?? Inherited(), model, jsonSchema, null, executable, ct);
 
     async Task RunsRootIsEmpty() =>
         await Assert.That(Directory.Exists(RunsRoot) ? Directory.EnumerateFileSystemEntries(RunsRoot) : []).IsEmpty();
@@ -93,6 +93,33 @@ public class OpenCodeCliRunnerLiveTests {
         await Assert.That(outcome.Result.OutputTokens).IsGreaterThan(0);
         await Assert.That(outcome.Result.CostUsd!.Value).IsGreaterThan(0);
         await RunsRootIsEmpty();
+    }
+
+    /// <summary>A request names no model unless the user chose one, so this is the path every default run takes. The
+    /// model is the user's own, from their config.</summary>
+    [Test]
+    public async Task A_run_with_no_model_answers_on_the_users_default() {
+        var env = Inherited();
+        Tmp.CreateFile(Path.Combine("user-config", "opencode", "opencode.json"), $$"""{"model":"{{Model}}"}""");
+
+        var outcome = await Run(Wrapper(), "Reply with the single word: ok", env: env, model: null);
+
+        await Assert.That(outcome.Failure).IsNull();
+        await Assert.That(outcome.Result!.Result.Trim('.', ' ', '\n').ToLowerInvariant()).IsEqualTo("ok");
+    }
+
+    /// <summary>The shape of a judge's request: a long transcript with a schema to answer in, which a model given the
+    /// prompt as a file answers in prose.</summary>
+    [Test]
+    public async Task A_schema_answer_over_a_long_transcript_comes_back_as_the_matched_object() {
+        var transcript = string.Concat(Enumerable.Range(0, 600).Select(i => $"user: step {i}: fix the redirect\nassistant: edited auth.ts, tests pass\n"));
+
+        var outcome = await Run(Wrapper(), $"Score this session.\n<transcript>\n{transcript}</transcript>\nUse title for a short summary and n for a score from 1 to 5.",
+            jsonSchema: TitleSchema);
+
+        await Assert.That(outcome.Failure).IsNull();
+        using var doc = JsonDocument.Parse(outcome.Result!.Result);
+        await Assert.That(doc.RootElement.GetProperty("n").GetInt32()).IsBetween(1, 5);
     }
 
     [Test]
@@ -154,7 +181,7 @@ public class OpenCodeCliRunnerLiveTests {
             env: env);
 
         await Assert.That(outcome.Failure).IsNull();
-        await Assert.That((await File.ReadAllTextAsync(listing)).Trim()).IsEqualTo("prompt.md");
+        await Assert.That((await File.ReadAllTextAsync(listing)).Trim()).IsEmpty();
     }
 
     [Test]
