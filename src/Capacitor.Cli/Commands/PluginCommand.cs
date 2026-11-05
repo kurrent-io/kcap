@@ -1956,11 +1956,12 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
     }
 
     static bool CopilotHooksRunThisBinary(string hooksPath, Func<string?>? resolveBinaryPath) {
-        const string evt = "sessionStart";
+        var binary = CopilotHookBinary(resolveBinaryPath);
 
         try {
-            return JsonNode.Parse(File.ReadAllText(hooksPath))?["hooks"]?[evt] is JsonArray { Count: > 0 } entries
-                && entries[0]?["command"]?.GetValue<string>() == CopilotHooksParser.HookCommandLine(evt, CopilotHookBinary(resolveBinaryPath), OperatingSystem.IsWindows());
+            return JsonNode.Parse(File.ReadAllText(hooksPath))?["hooks"] is JsonObject hooks
+                && CopilotHooksParser.CopilotHookEvents.All(evt => hooks[evt] is JsonArray { Count: > 0 } entries
+                    && entries[0]?["command"]?.GetValue<string>() == CopilotHooksParser.HookCommandLine(evt, binary, OperatingSystem.IsWindows()));
         } catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException) {
             return false;
         }

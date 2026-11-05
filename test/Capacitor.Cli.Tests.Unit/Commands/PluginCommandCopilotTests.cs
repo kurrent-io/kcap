@@ -221,7 +221,7 @@ public class PluginCommandCopilotTests {
     // (default: the running process), so tests inject their own value and assert that,
     // never blessing whatever executable happens to run the suite.
     [Test]
-    public async Task A_refresh_repairs_a_hook_file_with_no_entries() {
+    public async Task A_refresh_repairs_a_hook_file_missing_entries() {
         using var home = new TempHome();
         var env   = TestEnv(home.Path);
         var hooks = env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson;

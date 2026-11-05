@@ -53,8 +53,15 @@ public static class CopilotHooksParser {
         static bool FieldContains(JsonNode? entry, string field) =>
             entry?[field] is JsonValue jv
          && jv.TryGetValue<string>(out var cmd)
-         && cmd.Contains("kcap", StringComparison.Ordinal)
-         && cmd.Contains(HookArguments, StringComparison.Ordinal);
+         && cmd.IndexOf($" {HookArguments}", StringComparison.Ordinal) is > 0 and var at
+         && KcapBinaryCommand.IsKcap(Unquote(cmd[..at]));
+
+        // The executable as HookCommandLine writes it; either quoting's escape only changes characters in the path.
+        static string Unquote(string executable) {
+            var bare = executable.StartsWith("& ", StringComparison.Ordinal) ? executable[2..] : executable;
+
+            return bare is ['\'', .., '\''] ? bare[1..^1].Replace(@"'\''", "'").Replace("''", "'") : bare;
+        }
     }
 
     /// <summary>

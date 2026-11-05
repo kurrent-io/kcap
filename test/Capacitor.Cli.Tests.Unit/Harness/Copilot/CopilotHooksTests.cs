@@ -132,6 +132,15 @@ public class CopilotHooksTests {
         await Assert.That(PluginCommand.CopilotHooksNeedPath(() => processPath)).IsEqualTo(needsPath);
 
     [Test]
+    [Arguments("kcap hook --copilot --event sessionStart", true)]
+    [Arguments("'/a b/kcap' hook --copilot --event sessionStart", true)]
+    [Arguments(@"& 'C:\A B\kcap.exe' hook --copilot --event sessionStart", true)]
+    [Arguments("'/home/kcap-tools/other' hook --copilot --event sessionStart", false)]
+    [Arguments("/opt/kcap/other hook --copilot --event sessionStart", false)]
+    public async Task parser_recognises_kcap_by_its_executable_not_its_directory(string command, bool recognised) =>
+        await Assert.That(CopilotHooksParser.EntryReferencesCapacitorCopilotHook(new JsonObject { ["command"] = command })).IsEqualTo(recognised);
+
+    [Test]
     public async Task parser_matches_command_bash_and_powershell_fields() {
         await Assert.That(CopilotHooksParser.EntryReferencesCapacitorCopilotHook(
             JsonNode.Parse("""{"command":"kcap hook --copilot --event sessionStart"}"""))).IsTrue();

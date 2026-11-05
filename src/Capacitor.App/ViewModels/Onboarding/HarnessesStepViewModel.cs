@@ -113,8 +113,8 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
     public PathFixViewModel? PathFix { get; }
 
-    /// The login shell cannot find kcap, nothing has fixed that yet, and a harness selected needs it to.
-    public bool PathHazard => PathFix is { Fixed: false } && NeedsKcapOnPath;
+    /// The login shell cannot find kcap, nothing has fixed that yet, and the selection does not rule out needing it.
+    public bool PathHazard => PathFix is { Fixed: false } && (NeedsKcapOnPath || !Rows.Any(r => r.Selected));
 
     // Copilot's hooks and every harness's MCP config name kcap by its full path; other harnesses' hooks use the bare command.
     bool NeedsKcapOnPath => Rows.Any(r => r.Selected && r.Id != HarnessId.Copilot);
