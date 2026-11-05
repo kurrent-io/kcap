@@ -1335,7 +1335,7 @@ partial class WatchCommand(
             wedgedCeiling: Volatile.Read(ref wedgedCeilingExit) == 1,
             idle:          idleExit,
             // Read again: a resume can land after the grace ran out, and the final drain does not always run.
-            copilotShutdown: copilotShutdownExit && CopilotFinalizeDrainCommand.LastLineIsShutdown(transcriptPath));
+            copilotShutdown: copilotShutdownExit && !CopilotFinalizeDrainCommand.MovedPastShutdown(transcriptPath));
 
         // Task 11 (D1): Cursor's idle-ceiling exit must NOT synthesize session-end here —
         // unlike Codex/Antigravity, end synthesis for Cursor has exactly one owner (the

@@ -137,25 +137,35 @@ sealed class CopilotFinalizeDrainCommand(
     /// </summary>
     internal static bool LastLineIsShutdown(string transcriptPath) {
         try {
-            if (!File.Exists(transcriptPath)) {
-                return false;
-            }
-
-            string? lastNonBlank = null;
-
-            using (var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            using (var reader = new StreamReader(stream)) {
-                while (reader.ReadLine() is { } line) {
-                    if (!string.IsNullOrWhiteSpace(line)) {
-                        lastNonBlank = line;
-                    }
-                }
-            }
-
-            return lastNonBlank is not null && IsShutdownLine(lastNonBlank);
+            return ReadLastLine(transcriptPath) is { } last && IsShutdownLine(last);
         } catch {
             return false;
         }
+    }
+
+    /// <summary>True only when the transcript was read and ends on something other than a shutdown. Failing to read
+    /// it proves nothing, so a caller that already saw a shutdown keeps that answer.</summary>
+    internal static bool MovedPastShutdown(string transcriptPath) {
+        try {
+            return ReadLastLine(transcriptPath) is { } last && !IsShutdownLine(last);
+        } catch {
+            return false;
+        }
+    }
+
+    static string? ReadLastLine(string transcriptPath) {
+        if (!File.Exists(transcriptPath)) return null;
+
+        string? lastNonBlank = null;
+
+        using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+
+        while (reader.ReadLine() is { } line) {
+            if (!string.IsNullOrWhiteSpace(line)) lastNonBlank = line;
+        }
+
+        return lastNonBlank;
     }
 
     /// <summary>Whether a transcript line is a <c>session.shutdown</c> envelope, rather than one quoting it.</summary>

@@ -1,4 +1,5 @@
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.PrDetection;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -85,6 +86,17 @@ public class CopilotShutdownEndTests {
     [Arguments(30, true)]
     public async Task It_settles_only_after_the_grace(int seconds, bool expected) =>
         await Assert.That(WatchCommand.CopilotShutdownSettled(T0, T0.AddSeconds(seconds))).IsEqualTo(expected);
+
+    /// <summary>A transcript that can't be read must not cancel an end already decided.</summary>
+    [Test]
+    [Arguments(Shutdown, false)]
+    [Arguments(Resume, true)]
+    [Arguments(null, false)]
+    public async Task Only_a_readable_later_line_moves_past_the_shutdown(string? last, bool moved) {
+        var path = last is null ? Tmp.PathTo("missing.jsonl") : Tmp.CreateFile("events.jsonl", Shutdown + "\n" + last + "\n");
+
+        await Assert.That(CopilotFinalizeDrainCommand.MovedPastShutdown(path)).IsEqualTo(moved);
+    }
 
     [Test]
     public async Task No_shutdown_seen_never_settles() =>
