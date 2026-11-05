@@ -18,6 +18,14 @@ internal static class AdoptionReferenceSites {
     /// when it resolves none; it holds an install unless that path is inside the bundle.</summary>
     internal const string ClaudePluginSite = "claude-plugin:";
 
+    /// <summary>A service file, or the job launchd loaded from one: these name an install until its daemon moves, which
+    /// no integrations refresh does.</summary>
+    internal static bool IsService(ReferenceSite site) =>
+        site.Name.StartsWith(LaunchdSite, StringComparison.Ordinal)
+     || Path.GetFileName(site.Name) == LaunchAgents
+     || Path.GetFileName(Path.GetDirectoryName(site.Name)) == LaunchAgents;
+
+    const string LaunchAgents      = "LaunchAgents";
     const string AccountsSite      = "accounts:";
     const string LaunchdSite       = "launchd:";
     const string DaemonLabelPrefix = "io.kurrent.kcap.daemon.";
@@ -29,7 +37,7 @@ internal static class AdoptionReferenceSites {
     internal static async Task<IReadOnlyList<ReferenceSite>> ReadAsync(
             UserHome home, HarnessRegistry harnesses, AccountStore accounts, Launchctl launchctl, CancellationToken ct) {
         var sites  = new Sites();
-        var labels = await Task.Run(() => ReadLaunchAgents(Path.Combine(home.Path, "Library", "LaunchAgents"), sites), ct)
+        var labels = await Task.Run(() => ReadLaunchAgents(Path.Combine(home.Path, "Library", LaunchAgents), sites), ct)
             .ConfigureAwait(false);
         foreach (var label in labels) sites.Add(await PrintAsync(launchctl, label, ct).ConfigureAwait(false));
 

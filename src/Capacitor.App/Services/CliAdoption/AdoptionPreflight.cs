@@ -59,8 +59,12 @@ public static class AdoptionPreflight {
     internal static string LinkKey(string location) =>
         Path.Join(CanonicalPath.Resolve(Path.GetDirectoryName(location)!), Path.GetFileName(location));
 
+    /// The record keeps one entry per install folder, however the folder is spelled.
+    internal static bool SameRoot(OtherCliInstall a, OtherCliInstall b) =>
+        PathComparison.Equal(CanonicalPath.Resolve(a.Root), CanonicalPath.Resolve(b.Root));
+
     static LeftReason? RecordedLeft(OtherCliInstall install, AdoptionRecord record) =>
-        record.Installs.FirstOrDefault(r => PathComparison.Equal(CanonicalPath.Resolve(r.Install.Root), CanonicalPath.Resolve(install.Root)))
+        record.Installs.FirstOrDefault(r => SameRoot(r.Install, install))
             is { State: InstallState.Left, Reason: { } reason } recorded && recorded.Install.Identity == install.Identity
             ? reason
             : null;
