@@ -45,18 +45,14 @@ public class CopilotShutdownEndTests {
         await Assert.That(state.CopilotShutdownSeenAt).IsNull();
     }
 
-    /// <summary>A watcher started after the shutdown was already delivered drains nothing, so it learns of it here.</summary>
+    /// <summary>A resumed or forked session can sit on an earlier run's shutdown until its first new line, with its
+    /// runtime live.</summary>
     [Test]
-    [Arguments(Shutdown, true)]
-    [Arguments(Resume, false)]
-    public async Task A_watcher_resuming_past_the_cursor_reads_the_tail(string last, bool seen) {
-        var path  = Tmp.CreateFile("events.jsonl", Shutdown + "\n" + last + "\n");
-        var state = new WatchState();
-
-        await TranscriptReplay.ReplayAsync(path, 2, [WatchCommand.CopilotShutdownReplay(state, _time)], CancellationToken.None, _ => { });
-
-        await Assert.That(state.CopilotShutdownSeenAt is not null).IsEqualTo(seen);
-    }
+    [Arguments(Shutdown, -1, true)]
+    [Arguments(Shutdown, 1, false)]
+    [Arguments("""{"type":"session.shutdown","data":{},"id":"e4"}""", -1, false)]
+    public async Task Only_a_shutdown_written_since_the_watcher_started_counts(string line, int startOffsetSeconds, bool seen) =>
+        await Assert.That(WatchCommand.CopilotShutdownAfter(null, [line], T0, T0.AddSeconds(startOffsetSeconds)) is not null).IsEqualTo(seen);
 
     [Test]
     [Arguments("copilot", null, "/home/.copilot/session-state/abc/events.jsonl", true)]
@@ -68,18 +64,18 @@ public class CopilotShutdownEndTests {
 
     [Test]
     public async Task A_drain_ending_on_shutdown_starts_the_grace_and_blank_lines_do_not_hide_it() =>
-        await Assert.That(WatchCommand.CopilotShutdownAfter(null, [Resume, Shutdown, "  "], T0)).IsEqualTo(T0);
+        await Assert.That(WatchCommand.CopilotShutdownAfter(null, [Resume, Shutdown, "  "], T0, T0)).IsEqualTo(T0);
 
     [Test]
     [Arguments(Resume)]
     [Arguments(Quoted)]
     public async Task A_later_line_clears_it(string later) =>
-        await Assert.That(WatchCommand.CopilotShutdownAfter(T0, [Shutdown, later], T0.AddSeconds(1))).IsNull();
+        await Assert.That(WatchCommand.CopilotShutdownAfter(T0, [Shutdown, later], T0.AddSeconds(1), T0)).IsNull();
 
     [Test]
     public async Task Nothing_new_and_a_reread_of_the_same_line_keep_the_clock_running() {
-        await Assert.That(WatchCommand.CopilotShutdownAfter(T0, [], T0.AddSeconds(5))).IsEqualTo(T0);
-        await Assert.That(WatchCommand.CopilotShutdownAfter(T0, [Shutdown], T0.AddSeconds(5))).IsEqualTo(T0);
+        await Assert.That(WatchCommand.CopilotShutdownAfter(T0, [], T0.AddSeconds(5), T0)).IsEqualTo(T0);
+        await Assert.That(WatchCommand.CopilotShutdownAfter(T0, [Shutdown], T0.AddSeconds(5), T0)).IsEqualTo(T0);
     }
 
     /// <summary>On real transcripts a VS Code resume wrote its line 0.9s after the shutdown.</summary>
