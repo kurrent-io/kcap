@@ -174,8 +174,12 @@ public class OpenCodeReviewerLaunchTests {
     /// <summary>The recursion guard: without an isolated config dir the reviewer inherits the
     /// operator's global MCP servers, the flow-starting one included.</summary>
     [Test]
+    [NotInParallel]
     public async Task AReviewLaunch_GetsAnEmptyIsolatedConfigDirectory() {
         SkipOnWindows();
+
+        using var noCredentials = new TempDir();
+        using var userHome      = EnvScope.Exclusive(OpenCodeLaunchEnvironment.HomeVariable, noCredentials.Path);
 
         var psi = Psi(isReviewFlow: true, EnabledConfig(Daemons.Store));
 
@@ -199,6 +203,23 @@ public class OpenCodeReviewerLaunchTests {
                         new DaemonConfig { Store = Daemons.Store, Name = "test-daemon" })),
                 StringComparison.Ordinal)).IsTrue();
         }
+    }
+
+    /// <summary>The reviewer's own private home carries the user's cloud sign-ins, so Bedrock and Vertex still work.</summary>
+    [Test]
+    [NotInParallel]
+    public async Task AReviewLaunch_KeepsTheUsersCloudSignIns() {
+        SkipOnWindows();
+
+        using var user = new TempDir();
+        user.CreateFile(Path.Combine(".aws", "credentials"), "aws");
+
+        using var home = EnvScope.Exclusive(OpenCodeLaunchEnvironment.HomeVariable, user.Path);
+
+        var psi = Psi(isReviewFlow: true);
+
+        var linked = Path.Combine(psi.Environment[OpenCodeLaunchEnvironment.HomeVariable]!, ".aws", "credentials");
+        await Assert.That(File.ReadAllText(linked)).IsEqualTo("aws");
     }
 
     /// <summary>Without these the data directory, and with it the sign-in, would follow the private home.</summary>

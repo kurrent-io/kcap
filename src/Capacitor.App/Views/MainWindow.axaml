@@ -8,7 +8,7 @@
                      x:Class="Capacitor.App.Views.MainWindow"
                      x:TypeArguments="vm:MainWindowViewModel"
                      x:DataType="vm:MainWindowViewModel"
-                     Title="kcap Desktop"
+                     Title=""
                      Icon="avares://kcap-desktop/Assets/kcap-icon.png"
                      Width="{x:Static svc:WindowSizeMemory.DefaultWidth}"
                      MinWidth="{x:Static svc:WindowSizeMemory.MinWidth}"

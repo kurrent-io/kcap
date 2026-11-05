@@ -23,6 +23,11 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
 
     public bool StartsSubagentRows => true;
 
+    /// The server writes a session start for every hook source, a compaction's included.
+    public bool IsRestart(SessionStarted started) =>
+        string.Equals(SchemaExtensions.Text(SchemaExtensions.Slug(started, ClaudeCodeExtension.Slug), SessionSource), "resume", StringComparison.OrdinalIgnoreCase);
+
+    const string SessionSource = "source";
     const string StoppedTaskMessage = "Successfully stopped task";
     const string HandbackPointer = "This agent's report was delivered to you as a message";
 
