@@ -63,13 +63,15 @@ Updating: after `kcap update`, a running daemon detects the new binary and
 restarts itself, stopping its hosted agents and resuming them on the new
 version unless daemon.auto_resume is false. It waits until no eval, launch
 or flow round is in progress and every interactive agent is waiting on
-input, so a daemon with nothing in progress restarts at once. Turns and
-flow rounds hold it for at most KCAP_RESTART_TURN_WAIT_SECONDS, then are
-cut off; an eval or a launch holds it past that limit. `kcap daemon status`
-reports the running daemon's version plus any pending restart, so you can
-confirm a self-update took effect. A daemon started in a terminal restarts
-only by hand. On Windows a daemon started on a release that did not watch
-for updates there needs `kcap daemon restart` once.
+input, with no Claude Code background subagent running, so a daemon with
+nothing in progress restarts at once. Turns, Claude Code background
+subagents and flow rounds hold it for at most
+KCAP_RESTART_TURN_WAIT_SECONDS, then are cut off; an eval or a launch
+holds it past that limit. `kcap daemon status` reports
+the running daemon's version plus any pending restart, so you can confirm
+a self-update took effect. A daemon started in a terminal restarts only
+by hand. On Windows a daemon started on a release that did not watch for
+updates there needs `kcap daemon restart` once.
 
 Resume after a restart: `kcap agent ls` shows each agent's state (running,
 resuming, interrupted), and `kcap agent resume <id>` retries an interrupted one.
