@@ -5063,7 +5063,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// write depends on — the borrowed-snapshot refresh, attachment downloads, and the reap-claim
     /// checks that decide whether a condemned agent may still be written to — happens inside the
     /// agent's own delivery section.</summary>
-    internal async Task<InputDeliveryOutcome> DeliverInputAsync(AgentInstance agent, string text, string[]? attachmentIds, Guid? dispatchId = null) {
+    internal async Task<InputDeliveryOutcome> DeliverInputAsync(
+            AgentInstance agent, string text, string[]? attachmentIds, Guid? dispatchId = null, bool onlyIfWaiting = false) {
         // Refused before the section, so nothing is downloaded for a message that was never going to
         // be delivered. The ids are re-validated here whichever lane they arrived on: the local frame
         // checks them too, but a server dispatch reaches this method directly. A borrowed cwd is the
@@ -5195,6 +5196,13 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     batch?.Rollback();
 
                     return InputDeliveryOutcome.Drop(SendInputDropReason.DeliveryFailed, TearingDown);
+                }
+
+                // Only here: a message mid-delivery leaves the agent waiting until its write lands.
+                if (onlyIfWaiting && !agent.ActivityClock.AwaitingInput) {
+                    batch?.Rollback();
+
+                    return InputDeliveryOutcome.Drop(SendInputDropReason.DeliveryFailed, "agent is on a turn");
                 }
 
                 // Under the gate and before the write: the bump retires the previous round's probe before

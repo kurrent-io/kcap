@@ -40,6 +40,8 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
     /// reopens its session and waits.</summary>
     public bool ResumesIdleWithoutPrompt(string? runtimeTransport) => SupportsRestartResume(runtimeTransport);
 
+    public bool ReportsLostWork(string? transcriptPath) => launcher.ReportsLostWork(transcriptPath);
+
     public string? BorrowedReviewContainment => launcher.BorrowedReviewContainment;
 
     /// <summary>PTY factories delegate reviewer-model resolution to their launcher-owned policy — the

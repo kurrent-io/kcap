@@ -34,6 +34,36 @@ static class ProcTable {
 /// chain (where the durable agent always appears) and matches by process name.
 /// </summary>
 public class CodingAgentPidResolverTests {
+    /// <summary>The ancestries a Copilot hook can run under. A hook shell is never the answer: it exits with
+    /// the hook, and following it ends a session mid-chat.</summary>
+    public static IEnumerable<Func<((int pid, int ppid, string comm)[] Table, int? Expected)>> CopilotAncestries() {
+        // VS Code on Windows and macOS: the runtime sits above the hook shell.
+        yield return () => ([(90, 50, "powershell.exe"), (50, 20, @"C:\Users\x\AppData\Local\Programs\VS Code\copilot-runtime.exe"), (20, 1, "Code.exe")], 50);
+        yield return () => ([(90, 50, "sh"), (50, 20, "copilot-runtime"), (20, 1, "Code Helper (Plugin)")], 50);
+        // VS Code started from a Copilot CLI's shell: Windows keeps that ancestry, and the CLI's exit says nothing.
+        yield return () => ([(90, 50, "cmd.exe"), (50, 20, "copilot-runtime.exe"), (20, 10, "Code.exe"), (10, 5, "copilot.exe"), (5, 1, "pwsh.exe")], 50);
+        // Copilot CLI, directly and under VS Code's terminal shim, which is also named copilot.
+        yield return () => ([(90, 50, "sh"), (50, 20, "copilot"), (20, 1, "-zsh")], 50);
+        yield return () => ([(90, 50, "cmd.exe"), (50, 30, "copilot.exe"), (30, 20, "copilot.exe"), (20, 1, "pwsh.exe")], 50);
+        // No agent on the chain, and a chain that cannot be read past the shell.
+        yield return () => ([(90, 20, "cmd.exe"), (20, 1, "Code.exe")], null);
+        yield return () => ([(90, 50, "powershell.exe")], null);
+    }
+
+    [Test]
+    [MethodDataSource(nameof(CopilotAncestries))]
+    public async Task A_Copilot_hook_follows_its_runtime_or_CLI_and_never_a_hook_shell(
+            (int pid, int ppid, string comm)[] table, int? expected) =>
+        await Assert.That(ProcessHelpers.ResolveCopilotHostPid(90, ProcTable.Of(table))).IsEqualTo(expected);
+
+    /// <summary>One runtime hosts every chat in VS Code, so it stays out of what a name lookup for the
+    /// <c>copilot</c> vendor finds: that lookup also claims a process for one session.</summary>
+    [Test]
+    [Arguments("copilot-runtime")]
+    [Arguments("copilot-runtime.exe")]
+    public async Task The_shared_runtime_is_not_the_copilot_vendors_process(string name) =>
+        await Assert.That(ProcessHelpers.MatchesAgentName(name, "copilot")).IsFalse();
+
     [Test]
     public async Task Resolves_claude_when_it_is_the_immediate_parent() {
         // hook(100) -> claude(50) -> zsh(20) -> init(1)

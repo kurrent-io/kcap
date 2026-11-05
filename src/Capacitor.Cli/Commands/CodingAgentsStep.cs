@@ -108,6 +108,7 @@ internal static class CodingAgentsStep {
             Func<TomlConfigFile.Outcome>?                           RegisterVibeMcp = null,
             Func<string /*hooksJsonPath*/, bool>?                    InstallGrokHooks = null,
             Func<string /*settingsPath*/, bool>?                     InstallMuseHooks = null,
+            Func<bool>?                                              CopilotHooksNeedPath = null,
             Func<JsonMcpConfigWriter.Change>?                        RegisterMuseMcp = null,
             Func<string /*skillsDir*/, IReadOnlySet<string>>?        ReadAgentSkillsConsumers = null,
             Action<string /*skillsDir*/, IEnumerable<string>>?       WriteAgentSkillsConsumers = null
@@ -574,9 +575,8 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        // kcap.json writes the bare "kcap hook --copilot" command and relies
-        // on Copilot finding it on PATH — same precheck as the Cursor branch.
-        if (!installers.CapacitorOnPath()) {
+        // Only a bare command relies on Copilot finding kcap on PATH.
+        if ((installers.CopilotHooksNeedPath?.Invoke() ?? true) && !installers.CapacitorOnPath()) {
             writeLine("  [yellow]⚠[/] Copilot hooks not installed — 'kcap' is not on PATH.");
             writeLine("    [dim]" + Markup.Escape(InstallProvenance.NotOnPathHint()) + "[/]");
 

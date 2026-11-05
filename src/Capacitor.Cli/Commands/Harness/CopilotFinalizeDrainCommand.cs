@@ -137,29 +137,46 @@ sealed class CopilotFinalizeDrainCommand(
     /// </summary>
     internal static bool LastLineIsShutdown(string transcriptPath) {
         try {
-            if (!File.Exists(transcriptPath)) {
-                return false;
-            }
+            return ReadLastLine(transcriptPath) is { } last && IsShutdownLine(last);
+        } catch {
+            return false;
+        }
+    }
 
-            string? lastNonBlank = null;
+    /// <summary>True only when the transcript was read and ends on something other than a shutdown. Failing to read
+    /// it proves nothing, so a caller that already saw a shutdown keeps that answer.</summary>
+    internal static bool MovedPastShutdown(string transcriptPath) {
+        try {
+            return ReadLastLine(transcriptPath) is { } last && !IsShutdownLine(last);
+        } catch {
+            return false;
+        }
+    }
 
-            using (var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            using (var reader = new StreamReader(stream)) {
-                while (reader.ReadLine() is { } line) {
-                    if (!string.IsNullOrWhiteSpace(line)) {
-                        lastNonBlank = line;
-                    }
-                }
-            }
+    static string? ReadLastLine(string transcriptPath) {
+        if (!File.Exists(transcriptPath)) return null;
 
-            if (lastNonBlank is null) {
-                return false;
-            }
+        string? lastNonBlank = null;
 
-            using var doc = JsonDocument.Parse(lastNonBlank);
+        using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+
+        while (reader.ReadLine() is { } line) {
+            if (!string.IsNullOrWhiteSpace(line)) lastNonBlank = line;
+        }
+
+        return lastNonBlank;
+    }
+
+    /// <summary>Whether a transcript line is a <c>session.shutdown</c> envelope, rather than one quoting it.</summary>
+    internal static bool IsShutdownLine(string line) {
+        if (!line.Contains("session.shutdown", StringComparison.Ordinal)) return false;
+
+        try {
+            using var doc = JsonDocument.Parse(line);
 
             return doc.RootElement.Str("type") == "session.shutdown";
-        } catch {
+        } catch (JsonException) {
             return false;
         }
     }
