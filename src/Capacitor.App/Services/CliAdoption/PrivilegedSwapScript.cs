@@ -1,13 +1,14 @@
 using System.Globalization;
+using Capacitor.Cli.Core.Install;
 
 namespace Capacitor.App.Services.CliAdoption;
 
 /// <summary>
 /// The bash script one administrator prompt runs as root. It writes its pid to the status file, replaces each link
 /// still holding its original target, reports <see cref="Swapped"/> and waits for one word on the control pipe. On
-/// <see cref="Go"/> it sets every entry aside and checks each against its own marker, or only its kind, before deleting
-/// any, so a failed check puts the whole install back. Any other word, end of file or no word in time puts the links
-/// back. After go it finishes even if the app is gone.
+/// <see cref="Go"/> it sets every entry aside and checks each against its expected kind and its own marker before
+/// deleting any, so a failed check puts the whole install back. Any other word, end of file or no word in time puts
+/// the links back. After go it finishes even if the app is gone.
 /// <para>Every path reaches it as a positional argument, never as script text. It creates the status file itself, only
 /// inside a real 0700 folder the app's user owns, and writes only through that descriptor: root must not write through
 /// a path someone else controls.</para>
@@ -34,7 +35,7 @@ internal static class PrivilegedSwapScript {
             while [ $k -lt $nlinks ]; do links[$k]=$1; olds[$k]=$2; news[$k]=$3; shift 3; k=$((k + 1)); done
             nentries=$1; shift; k=0; m=0
             while [ $k -lt $nentries ]; do
-                entries[$k]=$1; asides[$k]=$2; markers[$k]=$3; first[$k]=$m; c=$4; shift 4
+                entries[$k]=$1; asides[$k]=$2; kinds[$k]=$3; markers[$k]=$4; first[$k]=$m; c=$5; shift 5
                 while [ $c -gt 0 ]; do needs[$m]=$1; shift; m=$((m + 1)); c=$((c - 1)); done
                 last[$k]=$m
                 k=$((k + 1))
@@ -57,9 +58,6 @@ internal static class PrivilegedSwapScript {
 
             [ -p "$control" ] && ! [ -L "$control" ] && exec 4<>"$control" && exec 3<"$control" && exec 4<&- && [ -p /dev/fd/3 ] \
                 || { echo "kcap: $control is not the control pipe" >&2; say {{Restored}}; exit 3; }
-
-            i=0
-            while [ $i -lt $nentries ]; do kinds[$i]=$(kind "${entries[$i]}"); i=$((i + 1)); done
 
             relink() {
                 [ -L "$1" ] && [ "$(/usr/bin/readlink -- "$1")" = "$2" ] || return 1
@@ -150,9 +148,9 @@ internal static class PrivilegedSwapScript {
             """;
     }
 
-    /// <summary>The script's positional arguments: the status file, the control pipe, the uid that must own the status
-    /// file's folder, then the links as a count and (path, original, replacement) triples, and the entries as a count
-    /// and (original, aside, marker, substring count, substrings…) groups, an empty marker meaning a kind check
+    /// <summary>The script's positional arguments: the status file, the control pipe, the uid that must own their
+    /// folder, then the links as a count and (path, original, replacement) triples, and the entries as a count and
+    /// (original, aside, kind d/l/f, marker, substring count, substrings…) groups, an empty marker meaning a kind check
     /// only.</summary>
     internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec, uint owner) {
         Validate(spec);
@@ -160,7 +158,7 @@ internal static class PrivilegedSwapScript {
         foreach (var link in spec.Links) args.AddRange([link.Path, link.Original, link.Replacement]);
         args.Add(Number(spec.Entries.Count));
         foreach (var entry in spec.Entries) {
-            args.AddRange([entry.Entry.Original, entry.Entry.Aside, entry.Marker ?? "", Number(entry.MarkerContains.Count)]);
+            args.AddRange([entry.Entry.Original, entry.Entry.Aside, Letter(entry.Kind), entry.Marker ?? "", Number(entry.MarkerContains.Count)]);
             args.AddRange(entry.MarkerContains);
         }
         return args;
@@ -168,28 +166,51 @@ internal static class PrivilegedSwapScript {
 
     static string Number(long n) => n.ToString(CultureInfo.InvariantCulture);
 
+    static string Letter(PrivilegedEntryKind kind) => kind switch {
+        PrivilegedEntryKind.Directory => "d",
+        PrivilegedEntryKind.Link      => "l",
+        PrivilegedEntryKind.File      => "f",
+        _                             => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+    };
+
+    /// The kind each script install entry has; nothing else may reach root without a marker.
+    static PrivilegedEntryKind? ScriptLayoutKind(string entry) => Path.GetFileName(entry) switch {
+        ScriptInstallLayout.VersionsName   => PrivilegedEntryKind.Directory,
+        ScriptInstallLayout.CurrentName    => PrivilegedEntryKind.Link,
+        ScriptInstallLayout.MarkerFileName => PrivilegedEntryKind.File,
+        _                                  => null,
+    };
+
     // A line break would let `$(readlink)` match a target it trimmed and split a marker substring into two patterns.
     static void Validate(PrivilegedSpec spec) {
         if (spec.GoWait <= TimeSpan.Zero) throw new ArgumentException("The wait for go must be positive.", nameof(spec));
 
-        Require(spec.ControlFifo, Path.IsPathFullyQualified, "control pipe");
-        Require(spec.StatusFile, Path.IsPathFullyQualified, "status file");
+        // An unnormalised path, such as <link>//status, would let the script's folder check see past a link.
+        Require(spec.ControlFifo, Normal, "control pipe");
+        Require(spec.StatusFile, Normal, "status file");
+        if (Path.GetDirectoryName(spec.StatusFile) != Path.GetDirectoryName(spec.ControlFifo))
+            throw new ArgumentException("The status file and the control pipe must share one folder.", nameof(spec));
         foreach (var link in spec.Links) {
             Require(link.Path, Path.IsPathFullyQualified, "link");
             Require(link.Original, _ => true, "link target");
             Require(link.Replacement, Path.IsPathFullyQualified, "link replacement");
         }
-        foreach (var (entry, marker, contains) in spec.Entries) {
-            Require(entry.Original, o => Path.IsPathFullyQualified(o) && Path.GetFullPath(o) == o, "entry");
+        foreach (var (entry, kind, marker, contains) in spec.Entries) {
+            Require(entry.Original, Normal, "entry");
             Require(entry.Aside, a => AsideRetirement.IsOwnAside(entry.Original, a, linkAllowed: true), "aside");
             if (string.IsNullOrEmpty(marker)) {
-                if (contains.Count > 0) throw new ArgumentException($"Marker substrings for {entry.Original} need a marker.");
+                if (contains.Count > 0 || ScriptLayoutKind(entry.Original) != kind)
+                    throw new ArgumentException($"{entry.Original} needs a marker to be deleted as a {kind}.", nameof(spec));
             } else {
                 Require(marker, m => !Path.IsPathRooted(m) && !m.Split('/').Contains(".."), "marker");
+                if (kind != PrivilegedEntryKind.Directory || contains.Count == 0)
+                    throw new ArgumentException($"The marker of {entry.Original} needs a directory and at least one substring.", nameof(spec));
             }
             foreach (var needed in contains) Require(needed, _ => true, "marker substring");
         }
     }
+
+    static bool Normal(string path) => Path.IsPathFullyQualified(path) && Path.GetFullPath(path) == path;
 
     static void Require(string value, Func<string, bool> valid, string what) {
         if (string.IsNullOrEmpty(value) || value.AsSpan().IndexOfAny('\n', '\r', '\0') >= 0 || !valid(value))

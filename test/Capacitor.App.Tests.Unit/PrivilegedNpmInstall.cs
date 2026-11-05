@@ -44,13 +44,13 @@ internal sealed record PrivilegedNpmInstall(string Scope, string Sibling, IReadO
         return new PrivilegedSpec(
             Links,
             [.. Packages.Select(p => new PrivilegedEntry(
-                retirement.Plan(p), "package.json", [$"\"@kurrent/{Path.GetFileName(p)}\"", $"\"{Version}\""]))],
+                retirement.Plan(p), PrivilegedEntryKind.Directory, "package.json", [$"\"@kurrent/{Path.GetFileName(p)}\"", $"\"{Version}\""]))],
             tmp.PathTo(helper, "control"), tmp.PathTo(helper, "status"), goWait ?? TimeSpan.FromSeconds(30));
     }
 
     public async Task AssertUntouchedAsync(PrivilegedSpec spec) {
         foreach (var link in Links) await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Original);
-        foreach (var (entry, _, _) in spec.Entries) {
+        foreach (var (entry, _, _, _) in spec.Entries) {
             await Assert.That(File.Exists(Path.Combine(entry.Original, "package.json"))).IsTrue();
             await Assert.That(Path.Exists(entry.Aside)).IsFalse();
         }

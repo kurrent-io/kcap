@@ -1,7 +1,8 @@
 namespace Capacitor.App.Services.CliAdoption;
 
 /// <summary>An entry the privileged helper deletes, under the aside name <see cref="AsideRetirement.Plan"/> recorded.
-/// With a <paramref name="Marker"/>, a path relative to the entry, the aside must be a directory holding it as a regular
-/// file that contains every one of <paramref name="MarkerContains"/>. Without one, the aside must only still be the kind
-/// of entry, link, directory or file, it was when the helper started.</summary>
-public sealed record PrivilegedEntry(AsideEntry Entry, string? Marker, IReadOnlyList<string> MarkerContains);
+/// Its aside must be of <paramref name="Kind"/>. With a <paramref name="Marker"/>, a path relative to a directory entry,
+/// the aside must also hold it as a regular file containing every one of <paramref name="MarkerContains"/>, of which
+/// there must be at least one. Only a script install's own <c>versions</c>, <c>current</c> and <c>install.json</c> may
+/// go without a marker, each as the kind that layout gives it.</summary>
+public sealed record PrivilegedEntry(AsideEntry Entry, PrivilegedEntryKind Kind, string? Marker, IReadOnlyList<string> MarkerContains);
