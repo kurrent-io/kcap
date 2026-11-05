@@ -107,34 +107,48 @@ public static class ClaudePluginInstaller {
     /// </summary>
     public static bool IsEffectivelyInstalled(string settingsPath) => EffectiveMcpJsonPath(settingsPath) is not null;
 
-    /// <summary>True when Claude will run the plugin's hooks in <paramref name="projectDir"/>. The
-    /// project's settings outrank the user's, and <c>kcap plugin install --project</c> writes there.
-    /// At user scope the plugin counts when it is loadable or not recorded yet, since Claude installs
-    /// an enabled plugin on its first start; a record that is unreadable or has lost its payload
-    /// does not count.</summary>
+    /// <summary>True when Claude will run the plugin's hooks in <paramref name="projectDir"/>. No hook
+    /// runs under <c>disableAllHooks</c>. The project's settings outrank the user's, id by id, because
+    /// Claude treats each plugin id on its own, and <c>kcap plugin install --project</c> writes there.
+    /// At user scope an id counts when it is loadable or not recorded yet, since Claude installs an
+    /// enabled plugin on its first start; a record that is unreadable or has lost its payload does
+    /// not count.</summary>
     public static bool RunsHooks(string settingsPath, string projectDir) {
-        foreach (var name in (string[]) ["settings.local.json", "settings.json"])
-            if (EnabledFlag(Path.Combine(projectDir, ".claude", name)) is { } enabled) return enabled;
+        JsonObject?[] project = [
+            ReadSettings(Path.Combine(projectDir, ".claude", "settings.local.json")),
+            ReadSettings(Path.Combine(projectDir, ".claude", "settings.json"))
+        ];
 
-        return EnabledKcapPluginKey(settingsPath) is { } key
-            && (IsEffectivelyInstalled(settingsPath) || AwaitsFirstInstall(settingsPath, key));
+        if (Nearest([.. project, ReadSettings(settingsPath)], scope => scope["disableAllHooks"]) == true) return false;
+
+        var userKey = EnabledKcapPluginKey(settingsPath);
+
+        foreach (var key in KcapPluginKeys) {
+            var inProject = Nearest(project, scope => (scope["enabledPlugins"] as JsonObject)?[key]);
+            if (inProject == true) return true;
+
+            if (inProject is null && key == userKey
+             && (IsEffectivelyInstalled(settingsPath) || AwaitsFirstInstall(settingsPath, key)))
+                return true;
+        }
+
+        return false;
     }
 
-    /// <summary>What a settings file says about the plugin, or null when it says nothing.</summary>
-    static bool? EnabledFlag(string settingsPath) {
+    static JsonObject? ReadSettings(string path) {
         try {
-            if (!File.Exists(settingsPath)) return null;
-            if (JsonNode.Parse(File.ReadAllTextShared(settingsPath)) is not JsonObject root) return null;
-            if (root["enabledPlugins"] is not JsonObject enabled) return null;
-
-            bool? flag = null;
-            foreach (var key in KcapPluginKeys)
-                if (enabled[key] is JsonValue v && v.TryGetValue<bool>(out var on)) flag = flag == true || on;
-
-            return flag;
+            return File.Exists(path) ? JsonNode.Parse(File.ReadAllTextShared(path)) as JsonObject : null;
         } catch {
             return null;
         }
+    }
+
+    /// <summary>The flag as the nearest scope setting it has it, or null when none does.</summary>
+    static bool? Nearest(JsonObject?[] scopes, Func<JsonObject, JsonNode?> read) {
+        foreach (var scope in scopes)
+            if (scope is not null && read(scope) is JsonValue v && v.TryGetValue<bool>(out var flag)) return flag;
+
+        return null;
     }
 
     static bool AwaitsFirstInstall(string settingsPath, string enabledKey) {

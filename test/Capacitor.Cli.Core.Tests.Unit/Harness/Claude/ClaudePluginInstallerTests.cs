@@ -98,6 +98,47 @@ public class ClaudePluginInstallerTests {
         await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
     }
 
+    /// Claude treats each plugin id on its own, so switching off a legacy id in a repository leaves
+    /// the current one running. Merging the ids would drop this launch from the hold and from arrival
+    /// confirmation, and a first-run screen could take the prompt with no sign of it.
+    [Test]
+    public async Task RunsHooks_keeps_project_precedence_to_the_same_plugin_id() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        tmp.CreateFile("project/.claude/settings.json", """{ "enabledPlugins": { "kapacitor@kurrent": false } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    /// No hook of any plugin fires under this setting, so nothing could ever release a hold, and a
+    /// resumed agent has no transcript to fall back on.
+    [Test]
+    public async Task RunsHooks_false_when_the_user_disables_all_hooks() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", """{ "enabledPlugins": { "kcap@kcap": true }, "disableAllHooks": true }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    [Test]
+    public async Task RunsHooks_false_when_the_project_disables_all_hooks() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        tmp.CreateFile("project/.claude/settings.local.json", """{ "disableAllHooks": true }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    /// The nearer scope decides this too, so a repository can turn hooks back on for itself.
+    [Test]
+    public async Task RunsHooks_true_when_the_project_overrides_the_users_disable_all_hooks() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", """{ "enabledPlugins": { "kcap@kcap": true }, "disableAllHooks": true }""");
+        tmp.CreateFile("project/.claude/settings.json", """{ "disableAllHooks": false }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
     [Test]
     public async Task IsEffectivelyInstalled_true_when_the_installed_cache_ships_the_payload() {
         using var tmp = new TempDir();
