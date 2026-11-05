@@ -376,6 +376,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
             openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held) { InputSending = inputSending };
+        Chat.Tasks.RunOpened += OpenSubagent;
+        _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
         lane.Status.Select(s => s.Subject).DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(subject => {

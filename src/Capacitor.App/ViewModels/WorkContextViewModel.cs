@@ -132,16 +132,17 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public bool CanCopySessionId => _sessionIdText.Length > 0 && _sessionIdText != "resolving…";
 
     /// The session's subagents, shared with the chat tab; a session-local fact like the ones
-    /// under SESSION, so it renders in every pane phase.
-    public IAvaloniaReadOnlyList<RunRow> Runs => _runs.Rows;
-    public bool HasRuns => _runs.Rows.Count > 0;
+    /// under SESSION, so it renders in every pane phase. Background commands are listed above the
+    /// composer instead.
+    public IAvaloniaReadOnlyList<RunRow> Subagents => _runs.Agents;
+    public bool HasSubagents => _runs.Agents.Count > 0;
     /// What the collapsed section lists.
-    public IAvaloniaReadOnlyList<RunRow> RunningRuns => _runs.Running;
-    public bool HasRunningRuns => _runs.RunningCount > 0;
-    public string RunsHeader {
+    public IAvaloniaReadOnlyList<RunRow> RunningSubagents => _runs.RunningAgents;
+    public bool HasRunningSubagents => _runs.RunningAgents.Count > 0;
+    public string SubagentsHeader {
         get {
-            var running = _runs.RunningCount;
-            var total = _runs.Rows.Count;
+            var running = _runs.RunningAgents.Count;
+            var total = _runs.Agents.Count;
             return running switch {
                 0                     => $"{total}",
                 var r when r == total => $"{r} running",
@@ -155,8 +156,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
 
     /// What the collapsed header shows: one entry per state something is in, so the numbers
     /// add up to the list.
-    public IReadOnlyList<RunCount> RunCounts =>
-        [.. RunCountOrder.Select(state => new RunCount(state, _runs.Count(state))).Where(c => c.Count > 0)];
+    public IReadOnlyList<RunCount> SubagentCounts =>
+        [.. RunCountOrder.Select(state => new RunCount(state, _runs.Agents.Count(row => row.State == state))).Where(c => c.Count > 0)];
 
     /// A subagent row the user chose to read; the workspace opens its transcript in place of the chat.
     public event Action<RunRow>? RunOpened;
@@ -168,10 +169,10 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public PlanSectionViewModel Plan { get; }
 
     void RefreshRuns() {
-        this.RaisePropertyChanged(nameof(HasRuns));
-        this.RaisePropertyChanged(nameof(HasRunningRuns));
-        this.RaisePropertyChanged(nameof(RunsHeader));
-        this.RaisePropertyChanged(nameof(RunCounts));
+        this.RaisePropertyChanged(nameof(HasSubagents));
+        this.RaisePropertyChanged(nameof(HasRunningSubagents));
+        this.RaisePropertyChanged(nameof(SubagentsHeader));
+        this.RaisePropertyChanged(nameof(SubagentCounts));
     }
 
     internal static string MiddleTruncate(string value, int head = 8, int tail = 8) {

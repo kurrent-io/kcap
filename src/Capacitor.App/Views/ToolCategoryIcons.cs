@@ -34,6 +34,7 @@ public static class ToolCategoryIcons {
     };
 
     public static LucideIconKind CommandIcon => ForCategory(ToolCategory.Command);
+    public static LucideIconKind AgentIcon => ForCategory(ToolCategory.Agent);
     public static LucideIconKind NoteIcon => LucideIconKind.StickyNote;
     public static LucideIconKind PermissionIcon => LucideIconKind.ShieldQuestionMark;
     public static LucideIconKind QuestionIcon => ForCategory(ToolCategory.Question);

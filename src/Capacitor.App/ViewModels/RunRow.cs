@@ -3,7 +3,7 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// One subagent or background command as the sidebar shows it. Outcome is the row's own state;
+/// One subagent or background command of a session. Outcome is the row's own state;
 /// State is what it presents, which reads Stopped for a still-running row once the session is over.
 public sealed class RunRow : ReactiveObject {
     bool _isBackground;
@@ -13,6 +13,7 @@ public sealed class RunRow : ReactiveObject {
     bool _openable = true;
     RunState _state = RunState.Running;
     string _stateText = "";
+    string _elapsedText = "";
 
     public RunRow(string callId, string name, string description, DateTimeOffset startedAt, RunKind kind = RunKind.Agent) {
         CallId = callId;
@@ -85,6 +86,11 @@ public sealed class RunRow : ReactiveObject {
 
     public string StateText { get => _stateText; private set => this.RaiseAndSetIfChanged(ref _stateText, value); }
 
+    /// The duration alone; empty for a row the session's end stopped.
+    public string ElapsedText { get => _elapsedText; private set => this.RaiseAndSetIfChanged(ref _elapsedText, value); }
+
+    public bool HasDescription => Description.Length > 0;
+
     public bool IsRunning => State == RunState.Running;
     public bool IsFailed  => State == RunState.Failed;
 
@@ -136,7 +142,9 @@ public sealed class RunRow : ReactiveObject {
         var stoppedBySession = sessionOver && !IsEnded;
         State = stoppedBySession ? RunState.Stopped : Outcome;
         // Nothing dates an end the session imposed, so that row shows no duration.
-        StateText = stoppedBySession ? "stopped" : Text(State, IsBackground, (EndedAt ?? now) - StartedAt);
+        var elapsed = (EndedAt ?? now) - StartedAt;
+        ElapsedText = stoppedBySession ? "" : Duration(elapsed);
+        StateText = stoppedBySession ? "stopped" : Text(State, IsBackground, elapsed);
     }
 
     // Background only matters while the run is live: it says the chat is not waiting on it.

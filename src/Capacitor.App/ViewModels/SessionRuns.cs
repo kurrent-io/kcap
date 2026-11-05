@@ -11,6 +11,8 @@ namespace Capacitor.App.ViewModels;
 public sealed class SessionRuns(TimeProvider time) {
     readonly AvaloniaList<RunRow> _rows = new();
     readonly AvaloniaList<RunRow> _running = new();
+    readonly AvaloniaList<RunRow> _agents = new();
+    readonly AvaloniaList<RunRow> _runningAgents = new();
     readonly Dictionary<string, RunRow> _byCall = new(StringComparer.Ordinal);
     /// Calls that may still go to the background, by call id; a Detached promotes one to a row,
     /// its result drops it. The session's end leaves them: a remote lane can turn it back off.
@@ -38,6 +40,9 @@ public sealed class SessionRuns(TimeProvider time) {
     public IAvaloniaReadOnlyList<RunRow> Running => _running;
     public int RunningCount => Count(RunState.Running);
     public int RunningCommandCount => _running.Count(row => row.IsShell);
+    /// The subagent rows, which the sidebar lists; commands are listed only above the composer.
+    public IAvaloniaReadOnlyList<RunRow> Agents => _agents;
+    public IAvaloniaReadOnlyList<RunRow> RunningAgents => _runningAgents;
 
     public int Count(RunState state) => _counts[(int)state];
 
@@ -281,6 +286,8 @@ public sealed class SessionRuns(TimeProvider time) {
             counts[(int)row.State]++;
         }
         StableRows.Sync(_running, _rows.Where(row => row.IsRunning));
+        StableRows.Sync(_agents, _rows.Where(row => !row.IsShell));
+        StableRows.Sync(_runningAgents, _running.Where(row => !row.IsShell));
         var runningBackground = _running.Count(row => row.IsBackground);
         if (counts.SequenceEqual(_counts) && runningBackground == _runningBackground) return;
         counts.CopyTo(_counts);
