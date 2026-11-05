@@ -1349,4 +1349,40 @@ public class PiTitleHelperTests {
         await Assert.That(WatchCommand.TryExtractUserText(line, TimeProvider.System, "pi")).IsNull();
         await Assert.That(WatchCommand.TryExtractAssistantText(line, "pi")).IsNull();
     }
+
+    [Test]
+    public async Task A_Local_session_tool_stays_in_flight_until_its_result_or_the_next_prompt() {
+        var pending = new HashSet<string>();
+
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"tool.execution_start","data":{"toolCallId":"a"}}""");
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"tool.execution_start","data":{"toolCallId":"b"}}""");
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"tool.execution_complete","data":{"toolCallId":"a","success":true}}""");
+        await Assert.That(pending).IsEquivalentTo(["b"]);
+
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"user.message","agentId":"sub","data":{"content":"x"}}""");
+        await Assert.That(pending).IsEquivalentTo(["b"]);
+
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, "not json");
+        WatchCommand.UpdateCopilotPendingToolCalls(pending, """{"type":"user.message","data":{"content":"x"}}""");
+        await Assert.That(pending).IsEmpty();
+    }
+
+    [Test]
+    [Arguments(0, false)]
+    [Arguments(3, true)]
+    [Arguments(5, false)]
+    public async Task A_Local_session_tool_holds_off_idle_end_only_up_to_the_ceiling(int hoursSinceActivity, bool expected) {
+        var now   = DateTimeOffset.UtcNow;
+        var state = new WatchState { LastActivityAt = now.AddHours(-hoursSinceActivity) };
+        if (hoursSinceActivity > 0) state.PendingCopilotToolCalls.Add("a");
+
+        await Assert.That(WatchCommand.CopilotToolInFlight(state, now)).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("copilot", "/x/GitHub.copilot-chat/transcripts/s.jsonl", true)]
+    [Arguments("copilot", "/x/session-state/s/events.jsonl", false)]
+    [Arguments("codex", "/x/GitHub.copilot-chat/transcripts/s.jsonl", false)]
+    public async Task Only_a_Local_session_tracks_Copilot_tools(string vendor, string path, bool expected) =>
+        await Assert.That(WatchCommand.TracksCopilotToolCalls(vendor, path)).IsEqualTo(expected);
 }

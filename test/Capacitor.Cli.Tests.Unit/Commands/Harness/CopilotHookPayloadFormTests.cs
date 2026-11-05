@@ -80,10 +80,10 @@ public class CopilotHookPayloadFormTests : IDisposable {
     }
 
     static string LocalTranscriptPath(TempDir dir) {
-        var transcripts = Path.Combine(dir.Path, "Application Support", "GitHub.copilot-chat", "transcripts");
-        Directory.CreateDirectory(transcripts);
+        var relative = Path.Combine("Application Support", "GitHub.copilot-chat", "transcripts");
+        dir.CreateDir(relative);
 
-        return Path.Combine(transcripts, DashedId + ".jsonl");
+        return dir.PathTo(Path.Combine(relative, DashedId + ".jsonl"));
     }
 
     static JsonObject LocalPayload(TempDir dir, string transcriptPath, string hookEventName) => new() {

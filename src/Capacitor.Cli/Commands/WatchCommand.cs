@@ -899,6 +899,7 @@ partial class WatchCommand(
             if (vendor == "claude") replay.Add(CreatedPullRequestsReplay(state));
             if (TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ClaudePendingToolCallsReplay(state.PendingClaudeToolCalls));
             if (TracksCodexToolCalls(vendor)) replay.Add(CodexWatcherStateReplay(state, isChildWatcher: agentId is not null));
+            if (TracksCopilotToolCalls(vendor, transcriptPath)) replay.Add(new(WindowOnly: true, line => { UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line); return false; }));
             await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, replay, cts.Token, message => Log(time, message));
         }
 
@@ -1095,10 +1096,11 @@ partial class WatchCommand(
                         idleTimeout,
                         // A tool awaiting its result suppresses idle-end: Codex tracks call_ids,
                         // Antigravity counts PLANNER_RESPONSE calls vs result steps, Claude tracks
-                        // tool_use ids awaiting their tool_result.
+                        // tool_use ids awaiting their tool_result, Copilot Local tracks toolCallIds.
                         toolInFlight: vendor switch {
                             "antigravity" => state.PendingAntigravityToolCalls > 0,
                             "claude"      => state.PendingClaudeToolCalls.Count > 0,
+                            "copilot"     => CopilotToolInFlight(state, time.GetUtcNow()),
                             _             => state.PendingCodexToolCalls.Count > 0,
                         },
                         disconnectedSinceActivity: state.AccumulatedDisconnected,
@@ -2190,6 +2192,41 @@ partial class WatchCommand(
     /// </summary>
     internal static bool TracksCodexToolCalls(string vendor) => vendor == "codex";
 
+    /// <summary>Only a VS Code Local session idle-ends, and raw drain lines are unbounded, so nothing else parses them here.</summary>
+    internal static bool TracksCopilotToolCalls(string vendor, string transcriptPath) =>
+        vendor == "copilot" && Capacitor.Cli.Core.Harness.Copilot.CopilotPaths.IsVsCodeLocalTranscript(transcriptPath);
+
+    /// <summary>A Local session has no parent process to end it, so a tool that never reports back, such as
+    /// one running when VS Code quits, would keep it open and its watcher running for good without a ceiling.</summary>
+    internal static readonly TimeSpan CopilotToolCeiling = TimeSpan.FromHours(4);
+
+    internal static bool CopilotToolInFlight(WatchState state, DateTimeOffset now) =>
+        state.PendingCopilotToolCalls.Count > 0 && now - state.LastActivityAt < CopilotToolCeiling;
+
+    /// <summary>A person's next message means the tools before it are over, whether or not they reported.</summary>
+    internal static void UpdateCopilotPendingToolCalls(HashSet<string> pending, string line) {
+        try {
+            using var doc  = JsonDocument.Parse(line);
+            var       root = doc.RootElement;
+
+            switch (root.Str("type")) {
+                case "tool.execution_start" when root.Obj("data")?.Str("toolCallId") is { } started:
+                    pending.Add(started);
+                    break;
+
+                case "tool.execution_complete" when root.Obj("data")?.Str("toolCallId") is { } completed:
+                    pending.Remove(completed);
+                    break;
+
+                case "user.message" when root.Str("agentId") is null:
+                    pending.Clear();
+                    break;
+            }
+        } catch {
+            // Ignore malformed / non-JSON lines — never break the drain loop
+        }
+    }
+
     internal static void UpdateCodexPendingToolCalls(HashSet<string> pending, string line) {
         try {
             using var doc  = JsonDocument.Parse(line);
@@ -2866,6 +2903,12 @@ partial class WatchCommand(
             if (TracksCodexToolCalls(vendor)) {
                 foreach (var line in drainRead.Lines) {
                     UpdateCodexPendingToolCalls(state.PendingCodexToolCalls, line);
+                }
+            }
+
+            if (TracksCopilotToolCalls(vendor, transcriptPath)) {
+                foreach (var line in drainRead.Lines) {
+                    UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line);
                 }
             }
 
