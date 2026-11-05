@@ -16,6 +16,8 @@ namespace Capacitor.Cli.Core.Http;
 internal sealed class BearerRejectionReportHandler(TimeProvider time, Action<string> report) : DelegatingHandler {
     const int MaxBodyBytes = 4096;
 
+    public static readonly TimeSpan DefaultWebSocketConnectTimeout = TimeSpan.FromSeconds(30);
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
         var response = await base.SendAsync(request, ct);
 
@@ -44,8 +46,15 @@ internal sealed class BearerRejectionReportHandler(TimeProvider time, Action<str
     /// SignalR's own factory sets that the server acts on — the bearer, and <c>X-Requested-With</c>, which
     /// makes cookie auth answer 401 instead of redirecting.
     /// </summary>
+    /// <remarks>
+    /// The connect is capped: nothing in SignalR or the socket bounds the TLS handshake and upgrade reply,
+    /// so a network that drops after the SYN leaves the connect waiting on the kernel's retransmit
+    /// exhaustion (about 15 minutes on Linux), and the hub sits in Connecting for all of it.
+    /// </remarks>
     public static async ValueTask<WebSocket> ConnectWebSocketAsync(
-            Uri uri, Func<Task<string?>>? accessTokenProvider, TimeProvider time, Action<string> report, CancellationToken ct) {
+            Uri uri, Func<Task<string?>>? accessTokenProvider, TimeProvider time, Action<string> report, CancellationToken ct,
+            TimeSpan? connectTimeout = null) {
+        var timeout   = connectTimeout ?? DefaultWebSocketConnectTimeout;
         var webSocket = new ClientWebSocket();
 
         webSocket.Options.CollectHttpResponseDetails = true;
@@ -55,11 +64,18 @@ internal sealed class BearerRejectionReportHandler(TimeProvider time, Action<str
 
         if (!string.IsNullOrWhiteSpace(bearer)) webSocket.Options.SetRequestHeader("Authorization", $"Bearer {bearer}");
 
+        using var cap    = new CancellationTokenSource(timeout, time);
+        using var capped = CancellationTokenSource.CreateLinkedTokenSource(ct, cap.Token);
+
         try {
-            if (LoopbackConnect.WebSocketInvoker(uri) is { } invoker) await webSocket.ConnectAsync(uri, invoker, ct);
-            else await webSocket.ConnectAsync(uri, ct);
+            if (LoopbackConnect.WebSocketInvoker(uri) is { } invoker) await webSocket.ConnectAsync(uri, invoker, capped.Token);
+            else await webSocket.ConnectAsync(uri, capped.Token);
 
             return webSocket;
+        } catch (OperationCanceledException) when (cap.IsCancellationRequested && !ct.IsCancellationRequested) {
+            webSocket.Dispose();
+
+            throw new TimeoutException($"No answer from {uri.Host} within {timeout.TotalSeconds:F0}s while opening the WebSocket.");
         } catch (WebSocketException) {
             if (webSocket.HttpStatusCode == HttpStatusCode.Unauthorized) {
                 try {
