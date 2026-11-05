@@ -5,6 +5,7 @@ using Capacitor.App.Platform.Linux;
 using Capacitor.App.Platform.Mac;
 using Capacitor.App.Platform.Windows;
 using Capacitor.App.Services.Notifications;
+using Capacitor.App.Services.Voice;
 
 namespace Capacitor.App.Platform;
 
@@ -70,6 +71,9 @@ public abstract class DesktopHost : IDisposable {
     public virtual void WaitUntilReady() { }
 
     public abstract IDesktopNotificationSink CreateNotificationSink(Action<Action> dispatch);
+
+    /// The microphone and speech output voice control runs on; null where voice control is not offered.
+    public virtual VoiceDevices? VoiceDevices => null;
 
     public SingleInstanceLock SingleInstance { get; }
 

@@ -314,6 +314,226 @@
                 </ScrollViewer>
             </TabItem>
 
+            <TabItem x:Name="VoiceTab" Classes="settingsNav" AutomationProperties.Name="Voice"
+                     IsVisible="{Binding Voice, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <views:AppIcon Kind="Mic" Size="16" />
+                        <TextBlock Text="Voice" VerticalAlignment="Center" />
+                    </StackPanel>
+                </TabItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <views:SettingsPage Classes="settingsPage">
+                        <StackPanel Classes="settingsHeader">
+                            <TextBlock Classes="kcapTitle" Text="Voice control" />
+                            <TextBlock Classes="kcapSubtitle" TextWrapping="Wrap"
+                                       Text="kcap listens on this computer with a local Whisper model and answers out loud. Audio never leaves the machine; the model downloads once." />
+                        </StackPanel>
+
+                        <TextBlock x:Name="VoiceUnavailableText" Classes="kcapHint" TextWrapping="Wrap"
+                                   Text="{Binding Voice.UnavailableText, FallbackValue={x:Null}}"
+                                   IsVisible="{Binding !Voice.IsAvailable, FallbackValue=False}" />
+
+                        <Border Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                                BorderThickness="1" CornerRadius="12" Padding="20"
+                                IsEnabled="{Binding Voice.IsAvailable, FallbackValue=False}">
+                            <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Classes="kcapLabel" Text="Listen for the wake word" />
+                                        <TextBlock x:Name="VoiceStatusText" Classes="kcapHint" TextWrapping="Wrap"
+                                                   Text="{Binding Voice.StatusText, FallbackValue={x:Null}}"
+                                                   />
+                                        <TextBlock x:Name="VoiceLastHeardText" Classes="kcapHint" TextWrapping="Wrap"
+                                                   Text="{Binding Voice.LastHeardText, FallbackValue={x:Null}}"
+                                                   IsVisible="{Binding Voice.LastHeardText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+                                        <TextBlock x:Name="VoiceTimingsText" Classes="kcapHint" TextWrapping="Wrap"
+                                                   Text="{Binding Voice.TimingsText, FallbackValue={x:Null}}"
+                                                   IsVisible="{Binding Voice.TimingsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="VoiceEnabledToggle" Grid.Column="1" Classes="kcapSwitch"
+                                                  IsChecked="{Binding Voice.Enabled, Mode=TwoWay, FallbackValue=False}"
+                                                  AutomationProperties.Name="Voice control"
+                                                  VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                                BorderThickness="1" CornerRadius="12" Padding="20"
+                                IsEnabled="{Binding Voice.IsAvailable, FallbackValue=False}">
+                            <StackPanel Spacing="12">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Classes="kcapLabel" Text="Wake word" />
+                                    <TextBlock x:Name="WakeWordHintText" Classes="kcapHint" TextWrapping="Wrap"
+                                               Text="{Binding Voice.WakeWordHint, FallbackValue={x:Null}}" />
+                                </StackPanel>
+                                <TextBox x:Name="WakeWordInput" Classes="kcapField" MaxLength="40"
+                                         PlaceholderText="computer"
+                                         Text="{Binding Voice.WakeWord, Mode=TwoWay, FallbackValue={x:Null}}"
+                                         AutomationProperties.Name="Wake word" />
+
+                                <StackPanel Spacing="6">
+                                    <TextBlock Classes="kcapLabel" Text="Command model" />
+                                    <TextBlock Classes="kcapHint" TextWrapping="Wrap"
+                                               Text="A small, fast model listens for the wake word all the time; this one transcribes what you say after it. Larger hears names and long prompts better, and answers more slowly." />
+                                </StackPanel>
+                                <ComboBox x:Name="VoiceModelPicker" Classes="kcapField" HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding Voice.Models, FallbackValue={x:Null}}"
+                                          SelectedItem="{Binding Voice.Model, Mode=TwoWay, FallbackValue={x:Null}}"
+                                          AutomationProperties.Name="Command model">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:VoiceModelOption">
+                                            <TextBlock Text="{Binding Label}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+
+                                <StackPanel Spacing="6">
+                                    <TextBlock Classes="kcapLabel" Text="Understanding" />
+                                    <TextBlock Classes="kcapHint" TextWrapping="Wrap"
+                                               Text="Fixed commands such as yes, stop and read more always work at once. A model reads anything else, so &quot;close the login one&quot; finds the session instead of going to the agent." />
+                                </StackPanel>
+                                <ComboBox x:Name="VoiceUnderstandingPicker" Classes="kcapField" HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding Voice.Understandings, FallbackValue={x:Null}}"
+                                          SelectedItem="{Binding Voice.Understanding, Mode=TwoWay, FallbackValue={x:Null}}"
+                                          AutomationProperties.Name="Understanding">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:VoiceUnderstandingOption">
+                                            <TextBlock Text="{Binding Label}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <TextBlock x:Name="VoiceUnderstandingStatusText" Classes="kcapHint" TextWrapping="Wrap"
+                                           Text="{Binding Voice.UnderstandingStatus, FallbackValue={x:Null}}"
+                                           IsVisible="{Binding Voice.UnderstandingStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+
+                                <TextBlock Classes="kcapLabel" Text="Microphone" />
+                                <ComboBox x:Name="VoiceMicrophonePicker" Classes="kcapField" HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding Voice.Microphones, FallbackValue={x:Null}}"
+                                          SelectedItem="{Binding Voice.Microphone, Mode=TwoWay, FallbackValue={x:Null}}"
+                                          AutomationProperties.Name="Microphone">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:VoiceChoice">
+                                            <TextBlock Text="{Binding Label}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Classes="kcapLabel" Text="Microphone sensitivity" />
+                                        <TextBlock Classes="kcapHint" TextWrapping="Wrap"
+                                                   Text="Raise it to be heard when you whisper; lower it if room noise sets it off." />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <Button x:Name="SensitivityDownButton" Classes="kcapChip"
+                                                Command="{Binding Voice.SensitivityDownCommand, FallbackValue={x:Null}}"
+                                                AutomationProperties.Name="Lower sensitivity" ToolTip.Tip="Lower sensitivity">
+                                            <views:AppIcon Kind="Minus" Size="16" />
+                                        </Button>
+                                        <TextBlock x:Name="SensitivityText" Text="{Binding Voice.SensitivityLabel, FallbackValue={x:Null}}"
+                                                   MinWidth="44" TextAlignment="Center" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                                        <Button x:Name="SensitivityUpButton" Classes="kcapChip"
+                                                Command="{Binding Voice.SensitivityUpCommand, FallbackValue={x:Null}}"
+                                                AutomationProperties.Name="Raise sensitivity" ToolTip.Tip="Raise sensitivity">
+                                            <views:AppIcon Kind="Plus" Size="16" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                                BorderThickness="1" CornerRadius="12" Padding="20"
+                                IsEnabled="{Binding Voice.IsAvailable, FallbackValue=False}">
+                            <StackPanel Spacing="12">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Classes="kcapLabel" Text="Read replies aloud" />
+                                        <TextBlock Classes="kcapHint" TextWrapping="Wrap"
+                                                   Text="After a spoken prompt, read the agent's reply when its turn ends, and say when it needs permission or has a question." />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="ReadRepliesToggle" Grid.Column="1" Classes="kcapSwitch"
+                                                  IsChecked="{Binding Voice.ReadReplies, Mode=TwoWay, FallbackValue=False}"
+                                                  AutomationProperties.Name="Read replies aloud"
+                                                  VerticalAlignment="Center" />
+                                </Grid>
+                                <TextBlock Classes="kcapLabel" Text="Voice" />
+                                <ComboBox x:Name="VoicePicker" Classes="kcapField" HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding Voice.Voices, FallbackValue={x:Null}}"
+                                          SelectedItem="{Binding Voice.Voice, Mode=TwoWay, FallbackValue={x:Null}}"
+                                          AutomationProperties.Name="Speaking voice">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:VoiceChoice">
+                                            <TextBlock Text="{Binding Label}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Classes="kcapLabel" Text="Answer instantly" />
+                                        <TextBlock Classes="kcapHint" TextWrapping="Wrap"
+                                                   Text="With a natural voice chosen, short answers use the instant Windows voice and replies are read in the natural one." />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="InstantAnswersToggle" Grid.Column="1" Classes="kcapSwitch"
+                                                  IsChecked="{Binding Voice.InstantAnswers, Mode=TwoWay, FallbackValue=True}"
+                                                  AutomationProperties.Name="Answer instantly"
+                                                  VerticalAlignment="Center" />
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Classes="kcapLabel" Text="Save my commands as audio" />
+                                        <TextBlock Classes="kcapHint" TextWrapping="Wrap"
+                                                   Text="{Binding Voice.SaveAudioHint, FallbackValue={x:Null}}" />
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="SaveAudioToggle" Grid.Column="1" Classes="kcapSwitch"
+                                                  IsChecked="{Binding Voice.SaveAudio, Mode=TwoWay, FallbackValue=False}"
+                                                  AutomationProperties.Name="Save my commands as audio"
+                                                  VerticalAlignment="Center" />
+                                </Grid>
+                                <TextBlock x:Name="NaturalVoiceStatusText" Classes="kcapHint" TextWrapping="Wrap"
+                                           Text="{Binding Voice.NaturalVoiceStatus, FallbackValue={x:Null}}"
+                                           IsVisible="{Binding Voice.NaturalVoiceStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                                    <TextBlock Classes="kcapLabel" Text="Speaking rate" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <Button x:Name="RateDownButton" Classes="kcapChip"
+                                                Command="{Binding Voice.RateDownCommand, FallbackValue={x:Null}}"
+                                                AutomationProperties.Name="Speak slower" ToolTip.Tip="Slower">
+                                            <views:AppIcon Kind="Minus" Size="16" />
+                                        </Button>
+                                        <TextBlock x:Name="RateText" Text="{Binding Voice.RateLabel, FallbackValue={x:Null}}"
+                                                   MinWidth="44" TextAlignment="Center" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                                        <Button x:Name="RateUpButton" Classes="kcapChip"
+                                                Command="{Binding Voice.RateUpCommand, FallbackValue={x:Null}}"
+                                                AutomationProperties.Name="Speak faster" ToolTip.Tip="Faster">
+                                            <views:AppIcon Kind="Plus" Size="16" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                                BorderThickness="1" CornerRadius="12" Padding="20">
+                            <StackPanel Spacing="6">
+                                <TextBlock Classes="kcapLabel" Text="What you can say" />
+                                <TextBlock x:Name="VoiceCommandsText" Classes="kcapHint" TextWrapping="Wrap"
+                                           Text="{Binding Voice.CommandsText, FallbackValue={x:Null}}" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock x:Name="VoiceSaveMessageText" Classes="kcapHint" TextWrapping="Wrap"
+                                   Text="{Binding Voice.SaveMessage, FallbackValue={x:Null}}"
+                                   Foreground="{StaticResource KcapDangerBrush}"
+                                   IsVisible="{Binding Voice.SaveMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+                    </views:SettingsPage>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem x:Name="NotificationsTab" Classes="settingsNav" AutomationProperties.Name="Notifications">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal" Spacing="10">

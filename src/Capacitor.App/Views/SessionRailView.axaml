@@ -330,6 +330,31 @@
                             </StackPanel>
                         </ToolTip.Tip>
                     </TextBlock>
+                    <StackPanel x:Name="RailVoiceRow" Orientation="Horizontal" Spacing="8" Margin="0,2,0,4"
+                                IsVisible="{Binding Voice, Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <!-- A record button: the circle starts listening, the square stops it. -->
+                        <Button x:Name="RailVoiceButton" Classes="kcapChip" Width="26" Height="26" Padding="0" CornerRadius="13"
+                                Command="{Binding Voice.ToggleCommand, FallbackValue={x:Null}}"
+                                ToolTip.Tip="{Binding Voice.Tip, FallbackValue={x:Null}}"
+                                AutomationProperties.Name="{Binding Voice.ActionName, FallbackValue=Start listening}">
+                            <Panel>
+                                <Ellipse x:Name="RailVoiceLevelHalo" Fill="{StaticResource KcapDangerBrush}" Opacity="0.35"
+                                         Width="{Binding Voice.HaloSize, FallbackValue=0}" Height="{Binding Voice.HaloSize, FallbackValue=0}"
+                                         IsHitTestVisible="False"
+                                         IsVisible="{Binding Voice.IsOn, FallbackValue=False}" />
+                                <Ellipse x:Name="RailVoiceStartGlyph" Width="12" Height="12" Fill="{StaticResource KcapDangerBrush}"
+                                         IsVisible="{Binding !Voice.IsOn, FallbackValue=True}" />
+                                <Rectangle x:Name="RailVoiceStopGlyph" Width="10" Height="10" RadiusX="2" RadiusY="2"
+                                           Fill="{StaticResource KcapDangerBrush}"
+                                           IsVisible="{Binding Voice.IsOn, FallbackValue=False}" />
+                            </Panel>
+                        </Button>
+                        <TextBlock x:Name="RailVoiceText" Text="{Binding Voice.Text, FallbackValue={x:Null}}" Classes="footerMeta"
+                                   VerticalAlignment="Center" ToolTip.Tip="{Binding Voice.Tip, FallbackValue={x:Null}}" />
+                    </StackPanel>
+                    <TextBlock x:Name="RailVoiceHeardText" Text="{Binding Voice.HeardText, FallbackValue={x:Null}}" Classes="footerMeta"
+                               TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"
+                               IsVisible="{Binding Voice.HeardText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
                     </StackPanel>
                     <StackPanel x:Name="RailUpdateContext" Grid.Column="0" VerticalAlignment="Center" Spacing="4"
                                 IsVisible="{Binding ShowsUpdateContext}">

@@ -21,6 +21,7 @@ using Capacitor.App.Services.Mutation;
 using Capacitor.App.Services.Notifications;
 using Capacitor.App.Services.Onboarding;
 using Capacitor.App.Services.Update;
+using Capacitor.App.Services.Voice;
 using Capacitor.Cli.Core.Install;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
@@ -29,6 +30,7 @@ using Capacitor.App.Views;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
@@ -40,7 +42,6 @@ using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Core.Setup.Intelligence;
 using Capacitor.Remote.Models;
-using Capacitor.Cli.Core.Harness;
 using Microsoft.Extensions.DependencyInjection;
 using Capacitor.App.Platform.Linux;
 using Capacitor.App.Platform.Mac;
@@ -204,6 +205,10 @@ public partial class App : Application {
     AccountsService? _accounts;
     IObservable<DateTimeOffset>? _usageClock;
     NotificationSettingsService? _notificationSettings;
+    VoiceSettingsService? _voiceSettings;
+    VoiceAssistant? _voice;
+    KokoroEngine? _kokoro;
+    VoiceInterpreters? _voiceInterpreters;
     IDesktopNotificationSink? _notificationSink;
     IDesktopNotificationAccess? _notificationAccess;
     IDisposable? _notificationAccessPrompt;
@@ -441,7 +446,7 @@ public partial class App : Application {
             await _workspaceTeardown.DrainAsync();
             await HandleStartupFailureAsync(
                 desktop, ex, _service, _shutdown,
-                [_tray, _trayVm, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
+                [_tray, _trayVm, _voice, _voiceInterpreters, _kokoro, _voiceSettings, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
                     _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
                     _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart],
                 _lifecycle, _lane, _localUpgrade, _localSearch, _menuBar, _coordinator);
@@ -463,6 +468,10 @@ public partial class App : Application {
             _notificationSink = null;
             _notificationSessions = null;
             _notificationSettings = null;
+            _voice = null;
+            _kokoro = null;
+            _voiceInterpreters = null;
+            _voiceSettings = null;
             _permissionFeed = null;
             _attention = null;
             _handoffDrafts = null;
@@ -1305,6 +1314,25 @@ public partial class App : Application {
                     inAppPages: () => inAppPages.IsOn)
                 : null;
 
+        if (Program.Host.VoiceDevices is { } voiceDevices && _voice is null) {
+            var voiceSettings = new VoiceSettingsService(_config.Path("voice.json"));
+            _voiceSettings = voiceSettings;
+            var voiceHost = new MainWindowVoiceHost(
+                () => _coordinator?.Window?.DataContext as MainWindowViewModel,
+                () => { if (!_shutdownStarted) _coordinator?.ShowMainWindow(); }, _uiScale);
+            var devices = voiceDevices;
+            if (voiceDevices.OpenPlayer is { } openPlayer) {
+                var kokoro = new KokoroEngine(_config.Path("voice-models"));
+                _kokoro = kokoro;
+                devices = voiceDevices with { OpenSpeech = () => new HybridSpeechOutput(kokoro, voiceDevices.OpenSpeech(), openPlayer()) };
+            }
+            var interpreters = new VoiceInterpreters(HarnessRegistry.FromEnvironment(_userHome), _time);
+            _voiceInterpreters = interpreters;
+            _voice = new VoiceAssistant(voiceSettings, new VoiceModelStore(_config.Path("voice-models")), devices,
+                path => new WhisperRecognizer(path), voiceHost, work => Dispatcher.UIThread.InvokeAsync(work, DispatcherPriority.Normal), _time,
+                interpreters.For, new SileroVadModel(_config.Path("voice-models")).OpenAsync);
+        }
+
         _coordinator = new MainWindowCoordinator(
             () => TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
@@ -1339,6 +1367,7 @@ public partial class App : Application {
                 localServer: localServer, localStack: localStack, uiScale: _uiScale, usageNotice: _usageNotice,
                 web: webWorkspace, openLaunchApprovals: launchApprovals.Show,
                 search: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : ServerSearchHttp.Search(sessionHttp, profiles),
+                voice: _voice is { } voice && _voiceSettings is { } voicePreferences ? new VoiceIndicatorViewModel(voice.Status, voicePreferences, voice.Levels) : null,
                 harnessesSettingsAction: _openHarnessesSettings)),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
@@ -1628,6 +1657,8 @@ public partial class App : Application {
                     : null,
                 Appearance = new AppearanceSettingsViewModel(_uiScale),
                 Privacy    = new PrivacySettingsViewModel(_telemetry, _config, _usageNotice),
+                Voice      = _voiceSettings is { } voiceSettings ? new VoiceSettingsViewModel(voiceSettings, _voice, _kokoro?.Status, _voiceInterpreters is { } interpreters ? interpreters.For : null,
+                    Program.Host.VoiceDevices?.ListMicrophones, Program.Host.VoiceDevices?.DefaultMicrophone) : null,
                 Search     = _localStack?.Search,
                 Experimental = new ExperimentalSettingsViewModel(new ExperimentalSettingsStore(_config), settings.ProfileName, service),
                 About = new AboutSettingsViewModel(service, SettingsCli(settings, service.DaemonName).Cli.VersionAsync, _localStack,
@@ -2197,7 +2228,7 @@ public partial class App : Application {
             RailPreferencesStore? railPreferences = null, AccountReadings? readings = null,
             Func<CancellationToken, Task>? repairDaemon = null, IObservable<string?>? repairOffer = null,
             string? profileName = null, Func<SearchRequest, CancellationToken, Task<SearchFetch>>? search = null,
-            IObservable<Action?>? harnessesSettingsAction = null) {
+            IObservable<Action?>? harnessesSettingsAction = null, VoiceIndicatorViewModel? voice = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2289,6 +2320,7 @@ public partial class App : Application {
             backgroundPriority: backgroundPriority, reloadState: reloadState, isReloading: isReloading, reloadDaemon: reloadDaemon, openLaunchApprovals: openLaunchApprovals,
             movingToWindowsService: movingToWindowsService) {
             LocalStack = localStack,
+            Voice = voice,
             Web = web,
         };
         var window = adopt?.Window ?? new MainWindow();
@@ -2305,6 +2337,7 @@ public partial class App : Application {
         var savedState = adopt?.State ?? appState.LoadAsync().GetAwaiter().GetResult();
         WindowSizeMemory.Apply(window, savedState);
         WindowSizeMemory.Attach(window, appState);
+        if (voice is not null) window.Closed += (_, _) => voice.Dispose();
         PaneLayoutMemory.Apply(window.Panes, savedState);
         PaneLayoutMemory.Attach(window.Panes, appState);
         if (show) window.Show();
@@ -2994,7 +3027,7 @@ public partial class App : Application {
             // both belong on the dispatcher; uninstall keeps that same window and process alive.
             await Dispatcher.UIThread.InvokeAsync(async () => {
                 IDisposable?[] ui = [
-                    _tray, _trayVm, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
+                    _tray, _trayVm, _voice, _voiceInterpreters, _kokoro, _voiceSettings, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
                     _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
                     _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart,
                 ];

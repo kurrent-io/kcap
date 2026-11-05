@@ -41,6 +41,14 @@
         <PackageReference Include="SvcSystems.UI.Terminal" />
         <PackageReference Include="Velopack" />
         <PackageReference Include="XTerm.NET" />
+        <PackageReference Include="NAudio.WinMM" />
+        <PackageReference Include="NAudio.Wasapi" />
+        <PackageReference Include="org.k2fsa.sherpa.onnx" />
+        <PackageReference Include="SharpZipLib" />
+        <PackageReference Include="System.Speech" />
+        <PackageReference Include="Whisper.net" />
+        <!-- whisper.cpp natives for every platform are large; only Windows offers voice control. -->
+        <PackageReference Include="Whisper.net.Runtime" Condition="$([MSBuild]::IsOSPlatform('Windows')) Or $(RuntimeIdentifier.StartsWith('win'))" />
     </ItemGroup>
     <ItemGroup>
         <!-- .axaml files are auto-included as AvaloniaXaml by Avalonia's build props; plain

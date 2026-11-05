@@ -5,7 +5,7 @@ using Capacitor.Cli.Core.Config;
 
 namespace Capacitor.Cli.Core.Harness.Claude;
 
-record ClaudeCliResult(
+public record ClaudeCliResult(
         string  Result,
         string? Model,
         long    InputTokens,
@@ -21,7 +21,7 @@ record ClaudeCliResult(
 /// nothing. <see cref="Subtype"/> is the result envelope's <c>subtype</c> when the run failed with one, and
 /// <see cref="Error"/> its <c>result</c> text when the envelope says <c>is_error</c>. A signed-out or rate-limited
 /// run reports subtype <c>success</c>, so only <see cref="Error"/> says what went wrong.</summary>
-readonly record struct ClaudeCliOutcome(
+public readonly record struct ClaudeCliOutcome(
         ClaudeCliResult?  Result,
         ClaudeCliFailure? Failure,
         ClaudeCliUsage?   Usage   = null,
@@ -29,7 +29,7 @@ readonly record struct ClaudeCliOutcome(
         string?           Error   = null
     );
 
-enum ClaudeCliFailure {
+public enum ClaudeCliFailure {
     /// <summary>The internal per-call timeout elapsed; the subprocess was killed.</summary>
     Timeout,
     /// <summary>The process failed to launch, or exited non-zero with no result recoverable from
@@ -44,7 +44,7 @@ enum ClaudeCliFailure {
     NotSignedIn
 }
 
-static class ClaudeCliRunner {
+public static class ClaudeCliRunner {
     /// <summary>
     /// Runs <c>claude -p &lt;prompt&gt; --output-format json --max-turns &lt;N&gt; --model &lt;model&gt;</c>
     /// with no tools, and parses the JSON response. Returns null on failure

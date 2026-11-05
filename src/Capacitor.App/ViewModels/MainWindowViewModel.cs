@@ -184,6 +184,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// The local stack's rail row beside the daemon's; null unless the server is this machine's local installation.
     public LocalStackViewModel? LocalStack { get; init; }
 
+    /// The rail's voice control line; null where voice control is not offered.
+    public VoiceIndicatorViewModel? Voice { get; init; }
+
     /// The launch auto-open's staleness token — see NavigationGate. Read from the SHARED gate, not
     /// a per-window counter, so a window built after shutdown began sees the latch too.
     public int NavigationGeneration => _navigation.Generation;
