@@ -48,8 +48,11 @@ internal sealed class SessionRunMonitor : IDisposable {
             ChatTabViewModel.PollInterval, ChatTabViewModel.PollInterval);
         _subscriptions.Add(_accessLease);
         if (_remote) {
+            // A server row leaves the loaded set on a page cut or a scope change, not when its session ends.
+            var outlivesRow = rowKey.StartsWith("server:", StringComparison.Ordinal);
             directory.Rows.Connect().Filter(row => row.Key == rowKey)
                 .QueryWhenChanged(query => query.Items.FirstOrDefault())
+                .Where(row => row is not null || !outlivesRow)
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
                 .Subscribe(row => Follow(row is null ? ChatSessionInfo.Gone : ChatSessionInfo.FromRemote(row, false), null))
                 .DisposeWith(_subscriptions);

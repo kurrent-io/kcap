@@ -1416,6 +1416,68 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// Closes the workspace on a running subagent, removes the row, and returns what is then published.
+    static async Task<IReadOnlyDictionary<string, RunningWork>> AfterTheRowLeaves(Harness h, AgentRow row, SessionRunActivity commands, Func<IReadOnlyDictionary<string, RunningWork>> latest) {
+        var vm = h.Build(row, commands: commands);
+        await h.UntilAsync(vm, () => latest().GetValueOrDefault(row.Key).Subagents == 1, "running subagent");
+        await vm.TeardownAsync();
+        await WaitUntilAsync(() => {
+            h.Time.Advance(ChatTabViewModel.PollInterval);
+            return h.Lane.Tails.Count == 2;
+        }, what: "background monitor tail");
+        h.Directory.Rows.Remove(row.Key);
+        await Task.Delay(100);
+        return latest();
+    }
+
+    /// A server row leaves the loaded set on a page cut or a scope change, which says nothing about
+    /// the session, so only the row coming back ended stops the monitor.
+    [Test]
+    public async Task A_terminal_session_leaving_the_loaded_set_stays_tracked_until_it_returns_ended() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
+            using var subscription = commands.Running.Subscribe(running => latest = running);
+            var row = Harness.ServerRow("s1", "active");
+
+            var gone = await AfterTheRowLeaves(h, row, commands, () => latest);
+            await Assert.That(gone.GetValueOrDefault(row.Key).Subagents).IsEqualTo(1);
+
+            h.Directory.Rows.AddOrUpdate(row);
+            await Task.Delay(100);
+            await Assert.That(latest.GetValueOrDefault(row.Key).Subagents).IsEqualTo(1);
+
+            h.Directory.Rows.AddOrUpdate(row with { Status = "Completed" });
+            await WaitUntilAsync(() => !latest.ContainsKey(row.Key), what: "the row's end");
+        });
+    }
+
+    /// A hosted agent's row going means the agent has gone, and nothing else would stop the monitor.
+    [Test]
+    public async Task A_hosted_row_leaving_the_directory_stops_tracking_its_session() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
+            using var subscription = commands.Running.Subscribe(running => latest = running);
+            var row = Harness.Row(vendor: "claude");
+
+            var gone = await AfterTheRowLeaves(h, row, commands, () => latest);
+            await Assert.That(gone.ContainsKey(row.Key)).IsFalse();
+        });
+    }
+
     /// A refused or missing seed stops the remote feed for good, so the count the workspace handed
     /// over must not outlive it.
     [Test]
