@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Harness.Copilot;
 
 namespace Capacitor.Cli;
 
@@ -37,7 +38,12 @@ public sealed class ProcessWatcherSpawner(
             // walks the ppid ancestry to find the agent by name, which is robust to the
             // differing process-group topologies of Claude (transient hook group → bare
             // getpgrp() resolves a dead PID) and Codex (inherits the agent's group).
-            var parentPid     = requestedParentPid ?? ProcessHelpers.GetCodingAgentPid(vendor);
+            // A VS Code Local session has no such process: what the fallback resolves there says nothing
+            // about the session, and a transient shell's exit would end it straight away.
+            var parentPid     = requestedParentPid
+                             ?? (vendor == "copilot" && CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)
+                                    ? null
+                                    : ProcessHelpers.GetCodingAgentPid(vendor));
             var arguments     = BuildSpawnArgs(key, transcriptPath, agentId, sessionIdOverride, cwd, skipTitle, parentPid, vendor);
 
             var psi = new ProcessStartInfo(kcapPath, arguments) {

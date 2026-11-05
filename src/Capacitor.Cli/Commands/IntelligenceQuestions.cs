@@ -12,7 +12,7 @@ sealed class IntelligenceQuestions : IIntelligenceQuestions {
     public string Choose(IReadOnlyList<string> harnesses) {
         AnsiConsole.MarkupLine($"  {Markup.Escape(Explanation)}");
 
-        var choices = harnesses.Select(h => (Token: h, Label: $"My local agent: {HarnessLabel(h)}"))
+        var choices = harnesses.Select(h => (Token: h, Label: $"My local agent: {HeadlessHarnessProbe.Label(h)}"))
             .Append((Token: LocalIntelligenceStep.ProviderChoice, Label: "A provider, with my API key"))
             .Append((Token: IntelligenceAnswer.NoneToken, Label: "Not now"))
             .ToList();
@@ -37,10 +37,4 @@ sealed class IntelligenceQuestions : IIntelligenceQuestions {
 
     public bool ImportOutcomes() =>
         AnsiConsole.Prompt(new ConfirmationPrompt("Also summarise what each imported session achieved?") { DefaultValue = true });
-
-    public static string HarnessLabel(string harness) => harness switch {
-        HeadlessHarnessProbe.Claude => "Claude Code",
-        HeadlessHarnessProbe.Codex  => "Codex",
-        _                           => harness,
-    };
 }

@@ -38,9 +38,18 @@ public class CanonicalEventJsonTests {
     }
 
     [Test]
+    public async Task ReadsTheServersSessionStartWithItsSourceAndItsOwnTime() {
+        var started = CanonicalEventJson.TryParse(CanonicalEventTypes.SessionStarted,
+            """{"timestamp":"2026-11-04T17:29:08Z","extensions":{"claude_code":{"source":"Resume"}}}""");
+        await Assert.That(started).IsTypeOf<SessionStarted>();
+        await Assert.That(SchemaExtensions.Text(SchemaExtensions.Slug(started!, "claude_code"), "source")).IsEqualTo("Resume");
+        await Assert.That(CanonicalEventTime.Of(started!)).IsEqualTo(new DateTimeOffset(2026, 11, 4, 17, 29, 8, TimeSpan.Zero));
+    }
+
+    [Test]
     public async Task UnknownTypesAndMalformedPayloadsReadAsNull() {
         await Assert.That(CanonicalEventJson.TryParse("InterruptIssued", """{"request_id":"r1"}""")).IsNull();
-        await Assert.That(CanonicalEventJson.TryParse(CanonicalEventTypes.SessionStarted, """{}""")).IsNull();
+        await Assert.That(CanonicalEventJson.TryParse(CanonicalEventTypes.UsageApplied, """{}""")).IsNull();
         await Assert.That(CanonicalEventJson.TryParse(CanonicalEventTypes.UserMessageReceived, "not json")).IsNull();
         await Assert.That(CanonicalEventJson.TryParse(CanonicalEventTypes.UserMessageReceived, """{"content":42}""")).IsNull();
     }

@@ -188,6 +188,26 @@ public class ClaudeTranscriptEventsTests {
         }
     }
 
+    /// The hook's record is the only trace of a resume in the transcript. It stays an eventless line
+    /// so the leaf keeps projecting what the server's normalizer does.
+    [Test]
+    public async Task A_resume_hook_record_marks_a_restart_and_projects_no_event() {
+        var result = P($$$"""{"type":"attachment","uuid":"{{{Uuid}}}","timestamp":"2026-11-04T17:29:08.377Z","attachment":{"type":"hook_success","hookName":"SessionStart:resume","hookEvent":"SessionStart"}}""");
+        await Assert.That(result.Events).IsEmpty();
+        await Assert.That(result.RestartedAt).IsEqualTo(new DateTimeOffset(2026, 11, 4, 17, 29, 8, 377, TimeSpan.Zero));
+    }
+
+    /// A compaction keeps its process, and an async hook's response lands whenever that hook finishes,
+    /// long after runs of the new process may have started.
+    [Test]
+    [Arguments("hook_success", "SessionStart:compact")]
+    [Arguments("hook_success", "SessionStart:startup")]
+    [Arguments("async_hook_response", "SessionStart:resume")]
+    public async Task Other_hook_records_mark_no_restart(string type, string hook) {
+        var result = P($$$"""{"type":"attachment","timestamp":"2026-11-04T17:29:08.377Z","attachment":{"type":"{{{type}}}","hookName":"{{{hook}}}"}}""");
+        await Assert.That(result.RestartedAt).IsNull();
+    }
+
     [Test]
     public async Task A_queued_command_task_notification_attachment_projects_one_user_message() {
         var line = $$$"""{"parentUuid":"p1","isSidechain":false,"attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"X\" finished</summary>\n</task-notification>","source_uuid":"s1","commandMode":"task-notification","timestamp":"2026-09-17T11:53:57.948Z"},"type":"attachment","uuid":"{{{Uuid}}}","timestamp":"2026-09-17T11:53:58.000Z"}""";

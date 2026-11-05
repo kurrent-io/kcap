@@ -187,6 +187,11 @@ internal sealed record AcpVendorDescriptor {
     /// use ACP's <c>elicitation/create</c>. Null leaves such a request unhandled.</summary>
     public AcpQuestionProtocol? QuestionProtocol { get; }
 
+    /// <summary>Whether this vendor's <c>session/request_permission</c> names its call by <c>toolCallId</c> alone,
+    /// so the runtime fills in the title, kind and input the call announced. See <see cref="AcpAnnouncedToolCalls"/>.
+    /// </summary>
+    public bool                         CompletesPermissionToolCall { get; }
+
     public AcpVendorDescriptor(
             HarnessId                   Harness,
             ImmutableArray<string>      Argv,
@@ -209,6 +214,7 @@ internal sealed record AcpVendorDescriptor {
             Func<Core.Acp.AcpNotification, AcpSubagentSignal?>?
                                         SubagentReader = null,
             AcpQuestionProtocol?        QuestionProtocol = null,
+            bool                        CompletesPermissionToolCall = false,
             bool                        InjectsKcapMcpServers = false
         ) {
         // Before the checks below, every one of which names {Vendor} in its message: that is derived
@@ -272,6 +278,7 @@ internal sealed record AcpVendorDescriptor {
         this.TurnUsageReader = TurnUsageReader;
         this.SubagentReader  = SubagentReader;
         this.QuestionProtocol = QuestionProtocol;
+        this.CompletesPermissionToolCall = CompletesPermissionToolCall;
 
         if (UnattendedInteractionPolicy == AcpUnattendedInteractionPolicy.AllowlistedAutoApprove && ToolAdmitter is null)
             throw new ArgumentException(
@@ -662,5 +669,23 @@ internal static class AcpVendorDescriptors {
         // in docs/probes/2026-08-04-acp-reconnect-c0/ passes on it, with that release as a version
         // floor.
         SupportsReconnectResume: false
+    );
+
+    /// <summary>Mistral Vibe through <c>vibe-acp</c>, which takes no arguments. Interactive hosting only:
+    /// no unattended reviewer has been measured, so none is offered. Its model is a standard
+    /// <c>category: "model"</c> config option.</summary>
+    public static readonly AcpVendorDescriptor MistralVibe = new(
+        Harness:             HarnessId.MistralVibe,
+        Argv:                [],
+        UnattendedTrustArgv: [],
+        SupportsUnattended:  false,
+        ModelSelector:       ConfigOptionModelSelector.Instance,
+        SupportsMcpServers:  true,
+        // vibe-acp 3.0.1 sends a permission request's toolCall as {toolCallId} alone.
+        CompletesPermissionToolCall: true,
+        // Both resume probes pass on vibe-acp 3.0.1: session/load replays before its response after a
+        // tree kill mid-turn and after a graceful stop, and the reloaded session recalls its history.
+        SupportsReconnectResume: true,
+        SupportsRestartResume:   true
     );
 }

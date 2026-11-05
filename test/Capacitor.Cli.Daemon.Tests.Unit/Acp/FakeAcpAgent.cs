@@ -52,6 +52,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
 
     JsonElement _sessionNewResult = ProbeConfirmedSessionNewResult;
     bool        _failNextSetConfigOption;
+    (int Code, string Message)? _failNextPrompt;
     bool        _failNextSetModel;
 
     JsonElement                  _initializeResult = ProbeConfirmedInitializeResult;
@@ -192,6 +193,10 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// continue with Cursor's default model" handling.
     /// </summary>
     public void FailNextSetConfigOption() => _failNextSetConfigOption = true;
+
+    /// <summary>Answers the NEXT <c>session/prompt</c> with a JSON-RPC error after its scripted updates, as an
+    /// agent does when its model call fails.</summary>
+    public void FailNextPrompt(int code, string message) => _failNextPrompt = (code, message);
 
     /// <summary>
     /// Arranges the NEXT <c>session/set_model</c> request to be answered with a JSON-RPC error
@@ -541,6 +546,12 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
 
         if (HoldPromptResponses is { } gate)
             await gate.Task.ConfigureAwait(false);
+
+        if (_failNextPrompt is { } failure) {
+            _failNextPrompt = null;
+            await WriteErrorResponseAsync(id, failure.Code, failure.Message, ct).ConfigureAwait(false);
+            return;
+        }
 
         await WriteResponseAsync(id, result, ct).ConfigureAwait(false);
     }

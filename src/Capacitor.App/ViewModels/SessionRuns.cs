@@ -11,12 +11,17 @@ namespace Capacitor.App.ViewModels;
 public sealed class SessionRuns(TimeProvider time) {
     readonly AvaloniaList<RunRow> _rows = new();
     readonly AvaloniaList<RunRow> _running = new();
+    readonly AvaloniaList<RunRow> _agents = new();
+    readonly AvaloniaList<RunRow> _runningAgents = new();
     readonly Dictionary<string, RunRow> _byCall = new(StringComparer.Ordinal);
     /// Calls that may still go to the background, by call id; a Detached promotes one to a row,
     /// its result drops it. The session's end leaves them: a remote lane can turn it back off.
     readonly Dictionary<string, RunSignal.Started> _pending = new(StringComparer.Ordinal);
     /// The row an agent id currently belongs to; the latest Detached wins.
     readonly Dictionary<string, RunRow> _byAgent = new(StringComparer.Ordinal);
+    /// Agents the transcript reports on itself. A stop names no run and a Claude agent stops at every
+    /// pause, so stops count only while the stream carries no report for their agent.
+    readonly HashSet<string> _reported = new(StringComparer.Ordinal);
     /// Ids that arrived before the row they name: by call when the source knew it, otherwise in arrival
     /// order. The local meta file and the server's start record can both beat the call's own line.
     readonly Dictionary<string, string> _earlyByCall = new(StringComparer.Ordinal);
@@ -27,6 +32,8 @@ public sealed class SessionRuns(TimeProvider time) {
     /// Rows per presented state, indexed by the state's value.
     readonly int[] _counts = new int[Enum.GetValues<RunState>().Length];
     int _runningBackground;
+    /// The latest restart heard, for a line that lands behind it.
+    DateTimeOffset? _restartedAt;
     bool _sessionOver;
     bool _opensSubagents = true;
 
@@ -35,6 +42,9 @@ public sealed class SessionRuns(TimeProvider time) {
     public IAvaloniaReadOnlyList<RunRow> Running => _running;
     public int RunningCount => Count(RunState.Running);
     public int RunningCommandCount => _running.Count(row => row.IsShell);
+    /// The subagent rows, which the sidebar lists; commands are listed only above the composer.
+    public IAvaloniaReadOnlyList<RunRow> Agents => _agents;
+    public IAvaloniaReadOnlyList<RunRow> RunningAgents => _runningAgents;
 
     public int Count(RunState state) => _counts[(int)state];
 
@@ -84,8 +94,25 @@ public sealed class SessionRuns(TimeProvider time) {
                     (detachedHere ??= new(StringComparer.Ordinal)).Add(detached.CallId);
                     Detach(detached);
                     break;
+                case RunSignal.Resumed resumed:
+                    (detachedHere ??= new(StringComparer.Ordinal)).Add(resumed.CallId);
+                    Resume(resumed);
+                    break;
+                case RunSignal.Waiting waiting:
+                    Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.Waited(waiting.At);
+                    break;
+                case RunSignal.Stopped stopped:
+                    if (!_reported.Contains(stopped.AgentId)) SoleRun(stopped)?.Stop(stopped.At);
+                    DropHeldIfACandidateEnded();
+                    break;
                 case RunSignal.Finished finished:
                     Finish(finished);
+                    DropHeldIfACandidateEnded();
+                    break;
+                case RunSignal.Restarted restarted:
+                    if (!(_restartedAt > restarted.At)) _restartedAt = restarted.At;
+                    // The server hears a resume from a hook, which can land after the new process's own lines.
+                    foreach (var row in _rows.Where(r => r.StartedAt < restarted.At)) row.CutOff(restarted.At);
                     DropHeldIfACandidateEnded();
                     break;
                 case RunSignal.Identified identified:
@@ -95,8 +122,8 @@ public sealed class SessionRuns(TimeProvider time) {
         }
         foreach (var envelope in projection.Envelopes) {
             if (envelope.Kind != AcpEventKind.ToolResult || envelope.ToolCallId is not { } callId) continue;
-            // The launch acknowledgement arrives beside its Detached and must not end the row; a
-            // later result for the same call, an error included, does.
+            // The launch acknowledgement arrives beside its Detached or Resumed and must not end the
+            // row; a later result for the same call, an error included, does.
             if (detachedHere?.Contains(callId) == true) continue;
             _pending.Remove(callId);
             if (_byCall.TryGetValue(callId, out var row))
@@ -110,9 +137,11 @@ public sealed class SessionRuns(TimeProvider time) {
         _rows.Clear();
         _byCall.Clear();
         _byAgent.Clear();
+        _reported.Clear();
         _pending.Clear();
         _earlyByCall.Clear();
         _earlyUnpaired.Clear();
+        _restartedAt = null;
         Refresh();
     }
 
@@ -130,8 +159,7 @@ public sealed class SessionRuns(TimeProvider time) {
 
     RunRow Add(RunSignal.Started started) {
         var row = new RunRow(started.CallId, started.Name, started.Description, started.At, started.Kind) { Openable = _opensSubagents };
-        _byCall[started.CallId] = row;
-        _rows.Add(row);
+        Place(row);
         if (row.Kind == RunKind.Agent) {
             if (_earlyByCall.Remove(started.CallId, out var agentId)) Name(row, agentId);
             else PairUnpaired();
@@ -139,15 +167,34 @@ public sealed class SessionRuns(TimeProvider time) {
         return row;
     }
 
+    /// A pre-restart line can land behind the restart on the server's stream, and reads as if it had not.
+    void Place(RunRow row) {
+        _byCall[row.CallId] = row;
+        _rows.Add(row);
+        if (row.StartedAt < _restartedAt) row.CutOff(_restartedAt.Value);
+    }
+
     void Detach(RunSignal.Detached detached) {
         if (!_byCall.TryGetValue(detached.CallId, out var row)) {
             if (!_pending.Remove(detached.CallId, out var pending)) return;
             row = Add(pending);
         }
-        if (row.IsEnded) return;
+        if (row.IsEnded && !row.IsCutOff) return;
         row.MarkBackground();
         Name(row, detached.AgentId);
         PairUnpaired();
+    }
+
+    /// A second run of a subagent takes the first run's name and the agent id. The resume says the last
+    /// run stopped, but that run's notification can land after it, so a row still running ends without
+    /// the outcome that notification then supplies.
+    void Resume(RunSignal.Resumed resumed) {
+        if (_byCall.ContainsKey(resumed.CallId) || !_byAgent.TryGetValue(resumed.AgentId, out var previous)) return;
+        previous.End(null, resumed.At);
+        var row = new RunRow(resumed.CallId, previous.Name, previous.Description, resumed.At, previous.Kind) { Openable = _opensSubagents };
+        Place(row);
+        row.MarkBackground();
+        Name(row, resumed.AgentId);
     }
 
     /// Names the subagent a call started, from a source that reads it outside the projected lines.
@@ -158,7 +205,8 @@ public sealed class SessionRuns(TimeProvider time) {
     void Identify(RunSignal.Identified identified) {
         if (identified.CallId is { } callId) {
             if (_byCall.TryGetValue(callId, out var row)) {
-                if (row.Kind == RunKind.Agent) Name(row, identified.AgentId);
+                // A launch already named by its id must not take the agent back from a later run of it.
+                if (row.Kind == RunKind.Agent && row.AgentId != identified.AgentId) Name(row, identified.AgentId);
                 PairUnpaired();
             } else if (_earlyByCall.Count < MaxEarly) {
                 _earlyByCall[callId] = identified.AgentId;
@@ -201,8 +249,6 @@ public sealed class SessionRuns(TimeProvider time) {
         _earlyUnpaired.Remove(agentId);
     }
 
-    /// A known call id decides alone and never falls through to the agent id: a repeated
-    /// notification for a first execution must not end a second one holding the same id.
     void Finish(RunSignal.Finished finished) {
         var outcome = finished.Outcome switch {
             null                    => (RunState?)null,
@@ -210,14 +256,36 @@ public sealed class SessionRuns(TimeProvider time) {
             RunOutcome.Stopped => RunState.Stopped,
             _                       => RunState.Done,
         };
-        if (finished.CallId is { } callId && _byCall.TryGetValue(callId, out var byCall)) {
-            byCall.End(outcome, finished.At);
-            return;
+        Report(RowFor(finished.CallId, finished.AgentId, finished.At), finished.AgentId)?.End(outcome, finished.At);
+    }
+
+    RunRow? Report(RunRow? row, string? agentId) {
+        if (agentId is not null) _reported.Add(agentId);
+        if (row?.AgentId is { } named) _reported.Add(named);
+        return row;
+    }
+
+    /// A stop names no run, is dated when the server heard it, and comes at each pause as well as at the
+    /// end, so it counts only while its agent has a single run. A resumed agent's later runs then end
+    /// only on the transcript's report, at a restart, or with the session.
+    RunRow? SoleRun(RunSignal.Stopped stopped) {
+        RunRow? sole = null;
+        foreach (var row in _rows) {
+            if (row.AgentId != stopped.AgentId) continue;
+            if (sole is not null) return null;
+            sole = row;
         }
-        // A completion dated before the row started belongs to an earlier execution.
-        if (finished.AgentId is { } agentId && _byAgent.TryGetValue(agentId, out var byAgent)
-            && finished.At >= byAgent.StartedAt)
-            byAgent.End(outcome, finished.At);
+        return sole?.StartedAt <= stopped.At ? sole : null;
+    }
+
+    /// A known call id decides alone and never falls through to the agent id: a repeated
+    /// notification for a first execution must not reach a second one holding the same id. By
+    /// agent id, a signal goes to the run that was live at its time: a run's notification can land
+    /// after the next run started.
+    RunRow? RowFor(string? callId, string? agentId, DateTimeOffset at) {
+        if (callId is not null && _byCall.TryGetValue(callId, out var byCall)) return byCall;
+        if (agentId is null || !_byAgent.TryGetValue(agentId, out var owner)) return null;
+        return at >= owner.StartedAt ? owner : _rows.LastOrDefault(r => r.AgentId == agentId && r.StartedAt <= at);
     }
 
     DateTimeOffset Stamp(string? iso) =>
@@ -232,6 +300,8 @@ public sealed class SessionRuns(TimeProvider time) {
             counts[(int)row.State]++;
         }
         StableRows.Sync(_running, _rows.Where(row => row.IsRunning));
+        StableRows.Sync(_agents, _rows.Where(row => !row.IsShell));
+        StableRows.Sync(_runningAgents, _running.Where(row => !row.IsShell));
         var runningBackground = _running.Count(row => row.IsBackground);
         if (counts.SequenceEqual(_counts) && runningBackground == _runningBackground) return;
         counts.CopyTo(_counts);

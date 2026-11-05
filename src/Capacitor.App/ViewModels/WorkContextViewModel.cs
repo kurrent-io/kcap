@@ -37,6 +37,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             this.RaisePropertyChanged(nameof(PullRequests));
             this.RaisePropertyChanged(nameof(IsStale));
             RebuildLinks();
+            RaisePlanProgress();
         }
     }
     public bool ShowsLegacyLinks => PullRequests is null;
@@ -61,8 +62,6 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     internal const string UnreachableNote  = "Couldn't reach the server.";
 
     readonly bool _isRemote;
-    /// A session no daemon hosts: nothing reports how it ran, so the vendor must not stand in for that.
-    readonly bool _sessionOnly;
     readonly IWorkContextSource _source;
     readonly SingleFlightReader<string, WorkContextRead> _reader;
     readonly SingleFlightReader<(string? Path, string? Reported), string> _branchReader;
@@ -80,7 +79,14 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     string _repository = "—";
     public string Repository { get => _repository; private set => this.RaiseAndSetIfChanged(ref _repository, value); }
     string? _repositoryPath;
-    public string? RepositoryPath { get => _repositoryPath; private set => this.RaiseAndSetIfChanged(ref _repositoryPath, value); }
+    public string? RepositoryPath {
+        get => _repositoryPath;
+        private set {
+            this.RaiseAndSetIfChanged(ref _repositoryPath, value);
+            this.RaisePropertyChanged(nameof(CanCopyRepository));
+        }
+    }
+    public bool CanCopyRepository => !string.IsNullOrEmpty(_repositoryPath);
     string _worktree = "—";
     public string Worktree { get => _worktree; private set => this.RaiseAndSetIfChanged(ref _worktree, value); }
     string? _worktreePath;
@@ -103,8 +109,6 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public bool CanCopyBranch => _branch != "—";
     string _harness = "—";
     public string Harness { get => _harness; private set => this.RaiseAndSetIfChanged(ref _harness, value); }
-    string _transport = "—";
-    public string Transport { get => _transport; private set => this.RaiseAndSetIfChanged(ref _transport, value); }
     string _tokens = SessionFactText.Unknown;
     public string Tokens { get => _tokens; private set => this.RaiseAndSetIfChanged(ref _tokens, value); }
     string _cost = SessionFactText.Unknown;
@@ -129,16 +133,17 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public bool CanCopySessionId => _sessionIdText.Length > 0 && _sessionIdText != "resolving…";
 
     /// The session's subagents, shared with the chat tab; a session-local fact like the ones
-    /// under SESSION, so it renders in every pane phase.
-    public IAvaloniaReadOnlyList<RunRow> Runs => _runs.Rows;
-    public bool HasRuns => _runs.Rows.Count > 0;
+    /// under SESSION, so it renders in every pane phase. Background commands are listed above the
+    /// composer instead.
+    public IAvaloniaReadOnlyList<RunRow> Subagents => _runs.Agents;
+    public bool HasSubagents => _runs.Agents.Count > 0;
     /// What the collapsed section lists.
-    public IAvaloniaReadOnlyList<RunRow> RunningRuns => _runs.Running;
-    public bool HasRunningRuns => _runs.RunningCount > 0;
-    public string RunsHeader {
+    public IAvaloniaReadOnlyList<RunRow> RunningSubagents => _runs.RunningAgents;
+    public bool HasRunningSubagents => _runs.RunningAgents.Count > 0;
+    public string SubagentsHeader {
         get {
-            var running = _runs.RunningCount;
-            var total = _runs.Rows.Count;
+            var running = _runs.RunningAgents.Count;
+            var total = _runs.Agents.Count;
             return running switch {
                 0                     => $"{total}",
                 var r when r == total => $"{r} running",
@@ -152,8 +157,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
 
     /// What the collapsed header shows: one entry per state something is in, so the numbers
     /// add up to the list.
-    public IReadOnlyList<RunCount> RunCounts =>
-        [.. RunCountOrder.Select(state => new RunCount(state, _runs.Count(state))).Where(c => c.Count > 0)];
+    public IReadOnlyList<RunCount> SubagentCounts =>
+        [.. RunCountOrder.Select(state => new RunCount(state, _runs.Agents.Count(row => row.State == state))).Where(c => c.Count > 0)];
 
     /// A subagent row the user chose to read; the workspace opens its transcript in place of the chat.
     public event Action<RunRow>? RunOpened;
@@ -165,10 +170,10 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public PlanSectionViewModel Plan { get; }
 
     void RefreshRuns() {
-        this.RaisePropertyChanged(nameof(HasRuns));
-        this.RaisePropertyChanged(nameof(HasRunningRuns));
-        this.RaisePropertyChanged(nameof(RunsHeader));
-        this.RaisePropertyChanged(nameof(RunCounts));
+        this.RaisePropertyChanged(nameof(HasSubagents));
+        this.RaisePropertyChanged(nameof(HasRunningSubagents));
+        this.RaisePropertyChanged(nameof(SubagentsHeader));
+        this.RaisePropertyChanged(nameof(SubagentCounts));
     }
 
     internal static string MiddleTruncate(string value, int head = 8, int tail = 8) {
@@ -205,6 +210,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public bool ShowsRetry  => Phase == WorkContextPhase.Unreachable;
 
     void OnPullRequestChanged(object? sender, PropertyChangedEventArgs e) {
+        if (e.PropertyName is nameof(PullRequestContextViewModel.MergedPullRequests)) RaisePlanProgress();
         if (e.PropertyName is nameof(PullRequestContextViewModel.HasChoice)
             or nameof(PullRequestContextViewModel.HasNotice)
             or nameof(PullRequestContextViewModel.HasReaderNote)
@@ -308,10 +314,9 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             IObservable<AgentStatusDto?> presence, IWorkContextSource source, TimeProvider time, IUrlOpener opener,
             SessionRuns runs, Action? requestSignIn = null, IObservable<Unit>? signInCompleted = null,
             Action<string>? openWorkItem = null, IPlanSource? plans = null, PlanActivity? planActivity = null,
-            ArtefactsTabViewModel? artefacts = null, bool isRemote = false, bool sessionOnly = false,
+            ArtefactsTabViewModel? artefacts = null, bool isRemote = false,
             IObservable<ServerLaneStatus>? serverLane = null, WorkContextLayout? layout = null) {
         _isRemote = isRemote;
-        _sessionOnly = sessionOnly;
         _layout = layout ?? new WorkContextLayout();
         _source = source;
         _branchReader = new SingleFlightReader<(string? Path, string? Reported), string>(
@@ -330,6 +335,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             reading => IsReading = reading,
             cached: _source.Cached);
         Plan = new PlanSectionViewModel(plans, planActivity ?? new PlanActivity(), time);
+        Plan.PropertyChanged += OnPlanProgressChanged;
+        _disposables.Add(Disposable.Create(() => Plan.PropertyChanged -= OnPlanProgressChanged));
         Artefacts = artefacts;
         _opener = opener;
         _time = time;
@@ -414,12 +421,6 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(PhaseNote));
     }
 
-    internal static string TransportLabel(string family) => family switch {
-        "pty" => "PTY",
-        "acp" => "ACP",
-        _     => "chat",
-    };
-
     void UpdateFacts(AgentStatusDto dto) {
         ResolveRepository(dto.RepoPath);
         RepositoryPath = dto.RepoPath;
@@ -432,7 +433,6 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         ResolveBranch();
         var vendorLabel = HostedHarnessCatalog.LabelFor(DefaultHarnessOptions, dto.Vendor);
         Harness = $"{vendorLabel} · {HostedHarnessCatalog.ModelLabelFor(dto.Vendor, dto.Model ?? "")}";
-        Transport = _sessionOnly ? "—" : TransportLabel(HostedHarnessCatalog.EffectiveFamily(dto.HasTerminal, dto.Vendor));
         if (!_reader.HasCurrent) SessionIdText = SessionIds.Canonical(dto.SessionId) ?? "resolving…";
         UpdateRequester(dto, vendorLabel);
     }

@@ -148,6 +148,7 @@ public partial class WorktreeManager {
     public async Task<WorktreeInfo> CreateHandoffAsync(
             string repoPath, HandoffStart start, string? name = null, CancellationToken ct = default) {
         ct.ThrowIfCancellationRequested();
+        var pinned       = PinSource(repoPath);
         var worktreeRoot = Path.Combine(repoPath, ".capacitor", "worktrees");
         name ??= await PickWorktreeNameAsync(repoPath, worktreeRoot);
         var worktreePath = Path.Combine(worktreeRoot, name);
@@ -157,8 +158,10 @@ public partial class WorktreeManager {
         if (!detached && !await IsValidRefNameAsync(repoPath, branch))
             throw new InvalidOperationException($"invalid_base_ref: {branch}");
 
+        var commonDir = await ResolvedCommonDirAsync(repoPath);
+        RefuseIfSourceMoved(repoPath, pinned);
         Directory.CreateDirectory(worktreeRoot);
-        await ExcludeWorktreeRootAsync(repoPath);
+        await ExcludeWorktreeRootAsync(repoPath, pinned, commonDir);
 
         // Pinning the start under the worktree's own ref keeps a fork head out of the unsaved-work count,
         // and removal deletes it.
@@ -179,7 +182,9 @@ public partial class WorktreeManager {
                     if (checkedOut) throw StartChanged($"{branch} is checked out in another worktree");
                 }
 
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 await RunGit(repoPath, GitTimeout, time, "update-ref", fetchedRef, start.Sha);
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
 
                 switch (start.Checkout) {
                     case HandoffCheckout.CreateBranch:
@@ -191,6 +196,7 @@ public partial class WorktreeManager {
                         // the gate cannot do for the user's own git, so the fast-forward moves no tree but ours.
                         await RunGit(repoPath, GitTimeout, time, noHooks, "worktree", "add", "--no-checkout", worktreePath, branch);
                         registered = true;
+                        await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                         var moved = await RunGitCaptureResult(repoPath, GitTimeout, time, false, [],
                             "update-ref", $"refs/heads/{branch}", start.Sha, start.LocalBranchSha!);
                         if (moved.ExitCode != 0) throw StartChanged($"{branch} moved before it could be fast-forwarded");
@@ -206,26 +212,37 @@ public partial class WorktreeManager {
                 }
             });
         } catch {
-            if (registered)
-                await WithWorktreeMetadataGate(repoPath, time, () =>
-                    RunGitBestEffort(repoPath, time, "worktree", "remove", "--force", worktreePath));
-            await RunGitBestEffort(repoPath, time, "update-ref", "-d", fetchedRef);
+            try {
+                await RollBackUnlessMovedAsync(repoPath, pinned, commonDir, async () => {
+                    if (registered)
+                        await WithWorktreeMetadataGate(repoPath, time, async () => {
+                            if (await RepositoryStillAtAsync(repoPath, pinned, commonDir))
+                                await RunGitBestEffort(repoPath, time, "worktree", "remove", "--force", worktreePath);
+                        });
+                    if (await RepositoryStillAtAsync(repoPath, pinned, commonDir))
+                        await RunGitBestEffort(repoPath, time, "update-ref", "-d", fetchedRef);
+                });
+            } catch { /* keep the original failure */ }
             throw;
         }
 
-        await StripOrRollBackAsync(created);
+        await StripOrRollBackAsync(created, pinned, commonDir);
 
         try {
             // Written directly: --set-upstream-to refuses a branch outside a single-branch clone's refspec.
             if (start.Checkout == HandoffCheckout.CreateBranch) {
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 await RunGit(repoPath, GitTimeout, time, "config", $"branch.{branch}.remote", "origin");
+                await RefuseIfRepositoryMovedAsync(repoPath, pinned, commonDir);
                 await RunGit(repoPath, GitTimeout, time, "config", $"branch.{branch}.merge", $"refs/heads/{branch}");
             }
 
             var head = (await RunGitCapture(worktreePath, GitTimeout, time, true, "rev-parse", "HEAD")).Trim();
             if (head != start.Sha) throw StartChanged($"the worktree is at {head}, not {start.Sha}");
         } catch {
-            try { await RemoveAsync(created, time, keepUnsavedWork: false); } catch { /* keep the original failure */ }
+            try {
+                await RollBackUnlessMovedAsync(repoPath, pinned, commonDir, () => RemoveAsync(created, time, keepUnsavedWork: false));
+            } catch { /* keep the original failure */ }
             throw;
         }
 

@@ -100,6 +100,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     readonly CompositeDisposable _disposables = new();
     readonly BehaviorSubject<AgentRow> _row;
     readonly TimeProvider _time;
+    RailSort _sort = RailSort.LastUpdated;
 
     public RailSessionViewModel(
             AgentRow row, IObservable<string?> selectedSessionKey,
@@ -110,13 +111,18 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             IObservable<IReadOnlyDictionary<string, RailPullRequestSummary>>? pullRequests = null,
             IObservable<bool>? localOnAppServer = null, Action<string, AgentOrigin, PullRequestSubjectDto?>? openPullRequest = null,
             IObservable<Unit>? ageTicks = null,
-            Action<string>? openServer = null, IObservable<RailGrouping>? grouping = null) {
+            Action<string>? openServer = null, IObservable<RailGrouping>? grouping = null,
+            IObservable<RailSort>? sort = null) {
         _time = time;
         _row = new BehaviorSubject<AgentRow>(row).DisposeWith(_disposables);
         Id = row.Id;
         Key = row.Key;
         UpdateFields(row);
         ageTicks?.Subscribe(_ => RefreshAge()).DisposeWith(_disposables);
+        sort?.DistinctUntilChanged().Subscribe(next => {
+            _sort = next;
+            RefreshAge();
+        }).DisposeWith(_disposables);
         (pullRequests ?? Observable.Return<IReadOnlyDictionary<string, RailPullRequestSummary>>(
                 FrozenDictionary<string, RailPullRequestSummary>.Empty))
             .CombineLatest(localOnAppServer ?? Observable.Return(true), _row, (map, localReadable, current) =>
@@ -222,26 +228,34 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    /// Ended: when it ended and how long it ran. Live: the age, with the kind, borrow and subagent
-    /// notes a daemon row carries. A remote registry row's registration time is not a start, so it
-    /// shows no age.
+    /// Every row shows the time the rail sorts by, in one format: when the session started under
+    /// Created, when it was last active otherwise. An ended row adds how long it ran; a live one the
+    /// kind, borrow and subagent notes a daemon row carries. A remote registry row's registration time
+    /// is neither, so it shows no time.
     string MetaFor(AgentRow row) {
-        var now = _time.GetUtcNow();
         var created = AsUtc(row.CreatedAt);
         if (row.IsEndedSession && row.EndedAt is { } endedRaw) {
             var ended = AsUtc(endedRaw);
-            return $"{RelativeTime.Ago(new DateTimeOffset(ended), now, _time.LocalTimeZone)} · {UptimeFormat.Format(ended - created)}";
+            var shown = _sort == RailSort.Created ? created : AsUtc(row.LastActivityAt ?? endedRaw);
+            return $"{Since(shown)} · {UptimeFormat.Format(ended - created)}";
         }
         var kind = row.Kind is "agent" or "session" ? null : row.Kind;
         var borrowed = row.WorkLocation == WorkLocationText.Borrowed ? "borrowed" : null;
-        var age = row.Origin == AgentOrigin.Remote ? null : LiveAge(now.UtcDateTime - created);
+        var age = row.Origin == AgentOrigin.Remote ? null
+            : Since(_sort == RailSort.Created ? created : AsUtc(row.LastActivityAt ?? row.CreatedAt));
         var subagents = row.LiveSubagents is int live and > 0 ? $"{live} subagent{(live == 1 ? "" : "s")}" : null;
         return Join(kind, borrowed, age, subagents);
     }
 
-    /// The age ticks once a minute, so a count of seconds would sit still beside the status word
-    /// and read as how long the agent has been working, which the chat counts per turn.
-    internal static string LiveAge(TimeSpan age) => age < TimeSpan.FromMinutes(1) ? "<1m" : UptimeFormat.Format(age);
+    /// Exact to the minute under a day and to the hour under a week, so neighbouring rows a few
+    /// hours apart never print the same label. No seconds: the rail refreshes once a minute.
+    string Since(DateTime utc) {
+        var now = _time.GetUtcNow();
+        var at = new DateTimeOffset(utc);
+        var age = now - at;
+        if (age < TimeSpan.FromMinutes(1)) return "<1m ago";
+        return age < TimeSpan.FromDays(7) ? $"{UptimeFormat.Format(age)} ago" : RelativeTime.Ago(at, now, _time.LocalTimeZone);
+    }
 
     /// A local stamp is converted rather than relabelled: relabelling shifts it by the UTC offset,
     /// enough to move an age across a day boundary.

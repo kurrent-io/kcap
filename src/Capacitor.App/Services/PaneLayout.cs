@@ -6,8 +6,15 @@ public sealed class PaneLayout {
     public const double RailMinWidth = 330;
     public const double ContextMinWidth = 320;
 
-    // Of the space the pane shares, so its splitter stays on screen and can be dragged back.
-    public const double MaxShare = 0.9;
+    // What the rail leaves the content beside it: the launcher's 680 composer and its margins.
+    public const double ContentMinWidth = 720;
+
+    // What the work-context pane leaves a session: its header's view switch and actions beside a title.
+    public const double SessionMinWidth = 600;
+
+    /// A pane may grow until the rest of the space it shares is down to restMin, which also keeps its
+    /// splitter on screen, but never below its own minimum.
+    public static double MaxWidth(double shared, double min, double restMin) => Math.Max(min, shared - restMin);
 
     // How a pane dragged below its minimum looks until it is released and hides.
     public const double HidingOpacity = 0.4;
@@ -27,6 +34,10 @@ public sealed class PaneLayout {
     public bool RailCollapsed { get => _railCollapsed; set => Set(ref _railCollapsed, value); }
     public double ContextWidth { get => _contextWidth; set => Set(ref _contextWidth, value); }
     public bool ContextCollapsed { get => _contextCollapsed; set => Set(ref _contextCollapsed, value); }
+
+    /// What the rail leaves beside it: the launcher's minimum, or a session's beside the open work-context pane.
+    public double RailRestMinWidth =>
+        ContextCollapsed ? ContentMinWidth : Math.Max(ContentMinWidth, ContextMinWidth + SessionMinWidth);
 
     public event EventHandler? Changed;
 

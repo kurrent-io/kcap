@@ -16,9 +16,13 @@ public sealed class OpenCodePaths {
     /// <param name="xdgConfigHome">XDG_CONFIG_HOME, the parent of the <c>opencode</c> config leaf.</param>
     /// <param name="xdgDataHome">XDG_DATA_HOME, the parent of the <c>opencode</c> data leaf.</param>
     public OpenCodePaths(UserHome home, string? configDir, string? xdgConfigHome, string? xdgDataHome) {
-        ConfigDir = !string.IsNullOrWhiteSpace(configDir) ? configDir
-                  : !string.IsNullOrEmpty(xdgConfigHome) ? Path.Combine(xdgConfigHome, "opencode")
-                  :                                        Path.Combine(home.Path, ".config", "opencode");
+        Home = home.Path;
+
+        GlobalConfigDir = !string.IsNullOrEmpty(xdgConfigHome)
+            ? Path.Combine(xdgConfigHome, "opencode")
+            : Path.Combine(home.Path, ".config", "opencode");
+
+        ConfigDir = !string.IsNullOrWhiteSpace(configDir) ? configDir : GlobalConfigDir;
 
         DataDir = !string.IsNullOrEmpty(xdgDataHome)
             ? Path.Combine(xdgDataHome, "opencode")
@@ -28,6 +32,11 @@ public sealed class OpenCodePaths {
         ImportLedgerJson = Path.Combine(home.Path, ".cache", "kcap", "opencode-imported.json");
     }
 
+    /// <summary>The user's home, which OpenCode also reads <c>.opencode/opencode.json</c> under.</summary>
+    public string Home { get; }
+
+    /// <summary>The XDG config leaf, which OpenCode loads whether or not <c>OPENCODE_CONFIG_DIR</c> is set.</summary>
+    public string GlobalConfigDir { get; }
 
     public string ConfigDir { get; }
     public string DataDir   { get; }

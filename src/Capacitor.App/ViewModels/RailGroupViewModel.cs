@@ -65,7 +65,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             IObservable<bool> localOnAppServer, Action<string, AgentOrigin, PullRequestSubjectDto?>? openPullRequest,
             bool isExpanded, Action<bool> setExpanded, IObservable<Unit>? ageTicks,
             Action<string>? openServer, IObservable<RailGrouping> grouping,
-            IObservable<IComparer<RailSessionViewModel>> rowComparer) {
+            IObservable<IComparer<RailSessionViewModel>> rowComparer, IObservable<RailSort> sort) {
         Key = group.Key;
         Kind = kind;
         _label = label;
@@ -108,7 +108,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         group.Cache.Connect()
             .TransformWithInlineUpdate(row => new RailSessionViewModel(row, selectedSessionKey, agentsWithPending, remoteStale,
                 openLocal, openRemote, time, agentsAwaitingAnswer, agentsRunningCommands,
-                pullRequests, localOnAppServer, openPullRequest, ageTicks, openServer, grouping), (vm, row) => vm.Update(row))
+                pullRequests, localOnAppServer, openPullRequest, ageTicks, openServer, grouping, sort), (vm, row) => vm.Update(row))
             .DisposeMany()
             .SortAndBind(_sessionsSource, rowComparer)
             .Subscribe()

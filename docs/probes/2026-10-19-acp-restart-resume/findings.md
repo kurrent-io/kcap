@@ -51,6 +51,8 @@ originating session's scratchpad.
 | Gemini (0.60.0) | all four | — | not reached | — | — | — |
 | Grok | — | not probed | | | | |
 | Kiro | — | not probed | | | | |
+| Mistral Vibe (vibe-acp 3.0.1, Windows) | idle / daemon | stdin EOF, 1.22 s, exit 0 | ok | 9 | 0 | yes |
+| | mid-turn / daemon | stdin EOF, 3.24 s, exit 0 | ok | 11 | 0 | yes |
 
 The only update after any load response was `available_commands_update`, which is not conversation.
 
@@ -72,12 +74,16 @@ The only update after any load response was `available_commands_update`, which i
   (`@vibe-kit/grok-cli` 1.0.1, which rejects `agent --no-leader stdio`); xAI's CLI is not installed.
   Its own probe (`docs/probes/2026-10-13-grok-acp/`) saw `session/load` work after a SIGKILL while
   idle, but that is not the gate.
+- **Mistral Vibe** exits on stdin EOF, mid-turn included once the cancel lands, and passes. Run on Windows,
+  where the probe's group kill is `taskkill /T /F` and `--kill sigterm` does not apply; the mid-turn run left
+  its `sleep 20` shell alive after `vibe-acp` exited, which the daemon's tree kill reaps
 - **Kiro** stays on kcap continue. `kiro-cli` is not installed here, so whether its stale-owner lock
   clears after a clean exit is still unmeasured.
 
 ## Conclusions
 
-1. `SupportsRestartResume` is true for Cursor, Copilot and OpenCode, false for Gemini, Grok and Kiro.
+1. `SupportsRestartResume` is true for Cursor, Copilot, OpenCode and Mistral Vibe, false for Gemini, Grok and
+   Kiro.
 2. For every passing vendor the `session/load` response is a closed replay barrier, so suppressing
    notifications until the response drops exactly the replay.
 3. A loaded session restores the conversation, not just an id: each one recalled a codeword it was

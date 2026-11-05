@@ -410,8 +410,9 @@ internal sealed class CopilotImportSource : IImportSource {
     /// <c>session.start</c> always emits; <c>user.message</c> emits for
     /// non-empty <c>content</c>; <c>assistant.message</c> emits per non-empty
     /// reasoningText / content / toolRequests entry;
-    /// <c>tool.execution_complete</c> emits when <c>toolCallId</c> is present.
-    /// Everything else (hook.*, system.*, assistant.turn_*, session.* telemetry,
+    /// <c>tool.execution_complete</c> emits when <c>toolCallId</c> is present;
+    /// <c>session.usage_record</c> emits when <c>usage.model</c> is non-empty.
+    /// Everything else (hook.*, system.*, assistant.turn_*, other session.* telemetry,
     /// subagent.*, tool.execution_start) is skipped server-side and can never
     /// advance the transcript watermark. Fail direction on drift: treating a
     /// skipped line as relevant re-classifies a complete session as Partial
@@ -433,6 +434,7 @@ internal sealed class CopilotImportSource : IImportSource {
                                           || data.Str("reasoningText") is { Length: > 0 }
                                           || data.Arr("toolRequests") is { } requests && requests.GetArrayLength() > 0,
                 "tool.execution_complete" => data.Str("toolCallId") is not null,
+                "session.usage_record"    => data.Obj("usage") is { } usage && usage.Str("model") is { Length: > 0 },
                 _                         => false
             };
         } catch {

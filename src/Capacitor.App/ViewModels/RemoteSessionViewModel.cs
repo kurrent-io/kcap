@@ -325,7 +325,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         commands?.Track($"remote:{row.Id}", runs).DisposeWith(_disposables);
         WorkContext = new WorkContextViewModel(_presence, workContext, time, opener, runs,
             requestSignIn, signInCompleted, actions.OpenWorkItemInWeb, plans, planActivity,
-            artefacts: Artefacts, isRemote: true, sessionOnly: row.Origin == AgentOrigin.Server, serverLane: lane.Status,
+            artefacts: Artefacts, isRemote: true, serverLane: lane.Status,
             layout: workContextLayout);
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));
@@ -376,6 +376,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
             openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held) { InputSending = inputSending };
+        Chat.Tasks.RunOpened += OpenSubagent;
+        _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
         lane.Status.Select(s => s.Subject).DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(subject => {

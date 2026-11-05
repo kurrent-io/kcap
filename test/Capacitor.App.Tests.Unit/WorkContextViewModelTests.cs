@@ -40,10 +40,10 @@ public class WorkContextViewModelTests {
         public BehaviorSubject<ServerLaneStatus> Lane { get; } = new(new(ServerLaneState.Connected));
         public WorkContextViewModel Vm { get; }
 
-        public Harness(bool isRemote = false, bool sessionOnly = false, WorkContextLayout? layout = null) {
+        public Harness(bool isRemote = false, WorkContextLayout? layout = null) {
             Runs = new SessionRuns(Time);
             Vm = new WorkContextViewModel(Presence, Source, Time, Opener, Runs, () => SignInRequests++, SignIn, OpenedWorkItems.Add, Plans, PlanActivity,
-                isRemote: isRemote, sessionOnly: sessionOnly, serverLane: Lane, layout: layout);
+                isRemote: isRemote, serverLane: Lane, layout: layout);
         }
 
         public Task PlanSettledAsync() => Vm.Plan.PendingReadForTesting ?? Task.CompletedTask;
@@ -194,7 +194,6 @@ public class WorkContextViewModelTests {
             await Assert.That(h.Vm.WorktreePath).IsEqualTo("/repo/myproj/.capacitor/worktrees/agent-1");
             await Assert.That(h.Vm.Branch).IsEqualTo("feature/x");
             await Assert.That(h.Vm.Harness).IsEqualTo("Claude Code · Claude Opus 5");
-            await Assert.That(h.Vm.Transport).IsEqualTo("PTY");
             await Assert.That(h.Vm.SessionExpanded).IsFalse();
             await Assert.That(h.Vm.SessionIdText).IsEqualTo("resolving…");
             await Assert.That(h.Vm.Phase).IsEqualTo(WorkContextPhase.WaitingForSession);
@@ -215,42 +214,30 @@ public class WorkContextViewModelTests {
 
             await Assert.That(h.Vm.Branch).IsEqualTo("—");
             await Assert.That(h.Vm.Worktree).IsEqualTo("main checkout · borrowed");
-            await Assert.That(h.Vm.Transport).IsEqualTo("PTY");
             await Assert.That(h.Vm.SessionExpanded).IsFalse();
             await h.Vm.TeardownAsync();
         });
     }
 
-    /// The dash stands in for an unknown worktree or branch; it is never offered for copying.
+    /// The dash stands in for an unknown repository, worktree or branch; it is never offered for copying.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Only_a_known_worktree_and_branch_can_be_copied() {
+    public async Task Only_a_known_repository_worktree_and_branch_can_be_copied() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            await h.PushAsync(Dto(sessionId: null, branch: null) with { WorktreePath = null });
+            await h.PushAsync(Dto(sessionId: null, branch: null) with { WorktreePath = null, RepoPath = null });
 
             await Assert.That(h.Vm.Worktree).IsEqualTo("—");
             await Assert.That(h.Vm.Branch).IsEqualTo("—");
+            await Assert.That(h.Vm.CanCopyRepository).IsFalse();
             await Assert.That(h.Vm.CanCopyWorktree).IsFalse();
             await Assert.That(h.Vm.CanCopyBranch).IsFalse();
 
             await h.PushAsync(Dto(sessionId: null, branch: "capacitor/agent-1"));
 
+            await Assert.That(h.Vm.CanCopyRepository).IsTrue();
             await Assert.That(h.Vm.CanCopyWorktree).IsTrue();
             await Assert.That(h.Vm.CanCopyBranch).IsTrue();
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task Transport_follows_the_effective_family() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            await h.PushAsync(Agent("c1", "cursor", hasTerminal: false, repoPath: "/repo/x", sessionId: null));
-            await Assert.That(h.Vm.Transport).IsEqualTo("ACP");
-            await h.PushAsync(Agent("c1", "claude", hasTerminal: false, repoPath: "/repo/x", sessionId: null));
-            await Assert.That(h.Vm.Transport).IsEqualTo("chat");
             await h.Vm.TeardownAsync();
         });
     }
@@ -269,33 +256,6 @@ public class WorkContextViewModelTests {
             },
         };
 
-    /// A session no daemon hosts has no terminal flag; its vendor alone must not read as a PTY.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    [Arguments("claude")]
-    [Arguments("codex")]
-    public async Task A_session_only_row_shows_no_inferred_transport(string vendor) {
-        await RunOnUiAsync(async () => {
-            var h = new Harness(isRemote: true, sessionOnly: true);
-            h.Source.Enqueue(SummaryRead());
-            await h.PushAsync(ServerSession(vendor, branch: "main"));
-            await Assert.That(h.Vm.Transport).IsEqualTo("—");
-            await Assert.That(h.Vm.Branch).IsEqualTo("main");
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task A_remote_daemon_row_keeps_the_vendor_transport() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness(isRemote: true);
-            await h.PushAsync(Agent("a1", "claude", hasTerminal: null, repoPath: "/repo/x", sessionId: null));
-            await Assert.That(h.Vm.Transport).IsEqualTo("PTY");
-            await h.Vm.TeardownAsync();
-        });
-    }
-
     /// The listing carries the branch first seen with the repository and can carry none; the
     /// summary's primary repository keeps the one recorded later.
     [Test]
@@ -307,7 +267,7 @@ public class WorkContextViewModelTests {
     public async Task A_session_only_row_without_a_listed_branch_shows_the_stored_one(
             string vendor, string? repoBranch, string? primaryBranch, string expected) {
         await RunOnUiAsync(async () => {
-            var h = new Harness(isRemote: true, sessionOnly: true);
+            var h = new Harness(isRemote: true);
             h.Source.Enqueue(SummaryRead(repoBranch, primaryBranch));
             await h.PushAsync(ServerSession(vendor, branch: null));
             await Assert.That(h.Vm.Branch).IsEqualTo(expected);
@@ -319,7 +279,7 @@ public class WorkContextViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_listed_branch_wins_over_the_summary() {
         await RunOnUiAsync(async () => {
-            var h = new Harness(isRemote: true, sessionOnly: true);
+            var h = new Harness(isRemote: true);
             h.Source.Enqueue(SummaryRead(primaryBranch: "later"));
             await h.PushAsync(ServerSession("codex", branch: "listed"));
             await Assert.That(h.Vm.Branch).IsEqualTo("listed");
@@ -332,7 +292,7 @@ public class WorkContextViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_stored_branch_does_not_outlive_a_refused_read() {
         await RunOnUiAsync(async () => {
-            var h = new Harness(isRemote: true, sessionOnly: true);
+            var h = new Harness(isRemote: true);
             h.Source.Enqueue(SummaryRead(primaryBranch: "main"), WorkContextRead.Of(WorkContextReadKind.SessionUnknown));
             await h.PushAsync(ServerSession("claude", branch: null));
             await Assert.That(h.Vm.Branch).IsEqualTo("main");
@@ -1965,38 +1925,49 @@ public class WorkContextViewModelTests {
             var h = new Harness();
             await Assert.That(h.Vm.PartsExpanded).IsFalse();
             await Assert.That(h.Vm.PeopleExpanded).IsFalse();
+            await Assert.That(h.Vm.CheckoutExpanded).IsFalse();
             await Assert.That(h.Vm.SessionExpanded).IsFalse();
-            await Assert.That(h.Vm.SessionToggleText).IsEqualTo("More");
+            await Assert.That(h.Vm.UsageExpanded).IsTrue();
 
             await h.Vm.TogglePartsCommand.Execute();
+            await h.Vm.ToggleCheckoutCommand.Execute();
             await h.Vm.ToggleSessionCommand.Execute();
+            await h.Vm.ToggleUsageCommand.Execute();
 
             await Assert.That(h.Vm.PartsExpanded).IsTrue();
+            await Assert.That(h.Vm.CheckoutExpanded).IsTrue();
             await Assert.That(h.Vm.SessionExpanded).IsTrue();
-            await Assert.That(h.Vm.SessionToggleText).IsEqualTo("Less");
+            await Assert.That(h.Vm.UsageExpanded).IsFalse();
             await h.Vm.TeardownAsync();
         });
     }
 
-    /// Every session's pane shares one layout, so the session section stays as the reader left it
-    /// when they switch to another session, and a pane already open follows the change.
+    /// Every session's pane shares one layout, so the usage, checkout and session sections stay as the
+    /// reader left them when they switch to another session, and a pane already open follows the change.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_session_section_stays_open_across_sessions() {
+    public async Task The_session_fact_sections_keep_their_folds_across_sessions() {
         await RunOnUiAsync(async () => {
             var layout = new WorkContextLayout();
             var first = new Harness(layout: layout);
             var raised = new List<string?>();
             first.Vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
 
+            await first.Vm.ToggleUsageCommand.Execute();
+            await first.Vm.ToggleCheckoutCommand.Execute();
             await first.Vm.ToggleSessionCommand.Execute();
             var second = new Harness(layout: layout);
 
+            await Assert.That(second.Vm.UsageExpanded).IsFalse();
+            await Assert.That(second.Vm.CheckoutExpanded).IsTrue();
             await Assert.That(second.Vm.SessionExpanded).IsTrue();
-            await Assert.That(second.Vm.SessionToggleText).IsEqualTo("Less");
             await second.Vm.ToggleSessionCommand.Execute();
             await Assert.That(first.Vm.SessionExpanded).IsFalse();
-            await Assert.That(raised).Contains(nameof(WorkContextViewModel.SessionToggleText));
+            await Assert.That(first.Vm.SessionToggleName).IsEqualTo("Session, collapsed");
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.SessionToggleName));
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.UsageExpanded));
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.CheckoutExpanded));
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.SessionExpanded));
             await first.Vm.TeardownAsync();
             await second.Vm.TeardownAsync();
         });
@@ -2009,22 +1980,47 @@ public class WorkContextViewModelTests {
             var h = new Harness();
             var raised = new List<string?>();
             h.Vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
-            await Assert.That(h.Vm.HasRuns).IsFalse();
+            await Assert.That(h.Vm.HasSubagents).IsFalse();
 
             var now = h.Time.GetUtcNow();
             h.Runs.Apply(Spawn("c1", now));
             h.Runs.Apply(Spawn("c2", now));
-            await Assert.That(h.Vm.HasRuns).IsTrue();
-            await Assert.That(h.Vm.Runs).Count().IsEqualTo(2);
-            await Assert.That(h.Vm.RunsHeader).IsEqualTo("2 running");
-            await Assert.That(raised).Contains(nameof(WorkContextViewModel.HasRuns));
-            await Assert.That(raised).Contains(nameof(WorkContextViewModel.RunsHeader));
+            await Assert.That(h.Vm.HasSubagents).IsTrue();
+            await Assert.That(h.Vm.Subagents).Count().IsEqualTo(2);
+            await Assert.That(h.Vm.SubagentsHeader).IsEqualTo("2 running");
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.HasSubagents));
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.SubagentsHeader));
 
             h.Runs.Apply(Finish("c1", now.AddSeconds(5)));
-            await Assert.That(h.Vm.RunsHeader).IsEqualTo("1 of 2 running");
+            await Assert.That(h.Vm.SubagentsHeader).IsEqualTo("1 of 2 running");
             h.Runs.Apply(Finish("c2", now.AddSeconds(6)));
-            await Assert.That(h.Vm.RunsHeader).IsEqualTo("2");
-            await Assert.That(h.Vm.HasRuns).IsTrue();
+            await Assert.That(h.Vm.SubagentsHeader).IsEqualTo("2");
+            await Assert.That(h.Vm.HasSubagents).IsTrue();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// Background commands are listed above the composer, so the section neither lists nor counts
+    /// them, and a session that only ran commands shows no section at all.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_subagents_section_leaves_background_commands_out() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            var now = h.Time.GetUtcNow();
+            h.Runs.Apply(new([], [], [
+                new RunSignal.Started("s1", "Run the full suite", "dotnet test", now, RunKind.Shell, Provisional: true),
+                new RunSignal.Detached("s1", "b1"),
+            ]));
+            await Assert.That(h.Runs.RunningCommandCount).IsEqualTo(1);
+            await Assert.That(h.Vm.HasSubagents).IsFalse();
+            await Assert.That(h.Vm.SubagentCounts).IsEmpty();
+
+            h.Runs.Apply(Spawn("c1", now));
+            await Assert.That(h.Vm.Subagents.Select(r => r.CallId)).IsEquivalentTo(new[] { "c1" });
+            await Assert.That(h.Vm.RunningSubagents.Select(r => r.CallId)).IsEquivalentTo(new[] { "c1" });
+            await Assert.That(h.Vm.SubagentsHeader).IsEqualTo("1 running");
+            await Assert.That(h.Vm.SubagentCounts).IsEquivalentTo(new RunCount[] { new(RunState.Running, 1) });
             await h.Vm.TeardownAsync();
         });
     }
@@ -2040,19 +2036,19 @@ public class WorkContextViewModelTests {
             h.Push(Dto());
             await Assert.That(h.Vm.Phase).IsEqualTo(WorkContextPhase.Loading);
             h.Runs.Apply(Spawn("c1", h.Time.GetUtcNow()));
-            await Assert.That(h.Vm.HasRuns).IsTrue();
-            await Assert.That(h.Vm.RunsHeader).IsEqualTo("1 running");
+            await Assert.That(h.Vm.HasSubagents).IsTrue();
+            await Assert.That(h.Vm.SubagentsHeader).IsEqualTo("1 running");
 
             gate.SetResult(WorkContextRead.Of(WorkContextReadKind.Unreachable, "no response"));
             await h.Vm.PendingReadForTesting!;
             await Assert.That(h.Vm.Phase).IsEqualTo(WorkContextPhase.Unreachable);
-            await Assert.That(h.Vm.HasRuns).IsTrue();
+            await Assert.That(h.Vm.HasSubagents).IsTrue();
 
             h.Source.Enqueue(WorkContextRead.Of(WorkContextReadKind.SignedOut));
             await h.TickAsync();
             await Assert.That(h.Vm.Phase).IsEqualTo(WorkContextPhase.SignedOut);
-            await Assert.That(h.Vm.HasRuns).IsTrue();
-            await Assert.That(h.Vm.Runs).Count().IsEqualTo(1);
+            await Assert.That(h.Vm.HasSubagents).IsTrue();
+            await Assert.That(h.Vm.Subagents).Count().IsEqualTo(1);
             await h.Vm.TeardownAsync();
         });
     }
@@ -2062,11 +2058,11 @@ public class WorkContextViewModelTests {
     public async Task The_subagents_section_starts_collapsed_and_the_toggle_opens_it() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            await Assert.That(h.Vm.RunsExpanded).IsFalse();
-            await h.Vm.ToggleRunsCommand.Execute();
-            await Assert.That(h.Vm.RunsExpanded).IsTrue();
-            await h.Vm.ToggleRunsCommand.Execute();
-            await Assert.That(h.Vm.RunsExpanded).IsFalse();
+            await Assert.That(h.Vm.SubagentsExpanded).IsFalse();
+            await h.Vm.ToggleSubagentsCommand.Execute();
+            await Assert.That(h.Vm.SubagentsExpanded).IsTrue();
+            await h.Vm.ToggleSubagentsCommand.Execute();
+            await Assert.That(h.Vm.SubagentsExpanded).IsFalse();
             await h.Vm.TeardownAsync();
         });
     }
@@ -2076,22 +2072,22 @@ public class WorkContextViewModelTests {
     public async Task The_collapsed_subagents_list_holds_the_running_rows_and_empties_when_the_session_is_over() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            await Assert.That(h.Vm.HasRunningRuns).IsFalse();
+            await Assert.That(h.Vm.HasRunningSubagents).IsFalse();
 
             var now = h.Time.GetUtcNow();
             h.Runs.Apply(Spawn("c1", now));
             h.Runs.Apply(Spawn("c2", now));
             h.Runs.Apply(Finish("c1", now.AddSeconds(5)));
-            await Assert.That(h.Vm.HasRunningRuns).IsTrue();
-            await Assert.That(h.Vm.RunningRuns.Select(r => r.CallId)).IsEquivalentTo(new[] { "c2" });
+            await Assert.That(h.Vm.HasRunningSubagents).IsTrue();
+            await Assert.That(h.Vm.RunningSubagents.Select(r => r.CallId)).IsEquivalentTo(new[] { "c2" });
 
             var raised = new List<string?>();
             h.Vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
             h.Runs.SessionOver = true;
 
-            await Assert.That(raised).Contains(nameof(WorkContextViewModel.HasRunningRuns));
-            await Assert.That(h.Vm.HasRunningRuns).IsFalse();
-            await Assert.That(h.Vm.RunningRuns).IsEmpty();
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.HasRunningSubagents));
+            await Assert.That(h.Vm.HasRunningSubagents).IsFalse();
+            await Assert.That(h.Vm.RunningSubagents).IsEmpty();
             await h.Vm.TeardownAsync();
         });
     }
@@ -2103,7 +2099,7 @@ public class WorkContextViewModelTests {
     public async Task The_collapsed_subagents_summary_counts_each_state_in_order_and_omits_the_empty_ones() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            await Assert.That(h.Vm.RunCounts).IsEmpty();
+            await Assert.That(h.Vm.SubagentCounts).IsEmpty();
 
             var now = h.Time.GetUtcNow();
             h.Runs.Apply(Spawn("c1", now));
@@ -2113,15 +2109,15 @@ public class WorkContextViewModelTests {
             h.Runs.Apply(new([], [], [new RunSignal.Finished("c2", null, RunOutcome.Failed, now.AddSeconds(6))]));
             var raised = new List<string?>();
             h.Vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
-            await Assert.That(h.Vm.RunCounts).IsEquivalentTo(new RunCount[] {
+            await Assert.That(h.Vm.SubagentCounts).IsEquivalentTo(new RunCount[] {
                 new(RunState.Running, 1), new(RunState.Done, 1), new(RunState.Failed, 1),
             }, CollectionOrdering.Matching);
-            await Assert.That(h.Vm.RunCounts.Select(c => c.Label))
+            await Assert.That(h.Vm.SubagentCounts.Select(c => c.Label))
                 .IsEquivalentTo(new[] { "1 running", "1 completed", "1 failed" }, CollectionOrdering.Matching);
 
             h.Runs.SessionOver = true;
-            await Assert.That(raised).Contains(nameof(WorkContextViewModel.RunCounts));
-            await Assert.That(h.Vm.RunCounts).IsEquivalentTo(new RunCount[] {
+            await Assert.That(raised).Contains(nameof(WorkContextViewModel.SubagentCounts));
+            await Assert.That(h.Vm.SubagentCounts).IsEquivalentTo(new RunCount[] {
                 new(RunState.Done, 1), new(RunState.Failed, 1), new(RunState.Stopped, 1),
             }, CollectionOrdering.Matching);
             await h.Vm.TeardownAsync();

@@ -2,6 +2,7 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Notifications;
 using Avalonia.Input;
@@ -10,6 +11,7 @@ using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
+using Lucide.Avalonia;
 using ReactiveUI.Reactive;
 using ReactiveUI.Avalonia.Reactive;
 
@@ -42,9 +44,6 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     ColumnDefinition RailColumn => SessionsSurface.ColumnDefinitions[0];
 
-    // Wide enough on macOS to hold the window buttons, which overlay the window's top-left corner.
-    static readonly double RailStripWidth = OperatingSystem.IsMacOS() ? 78 : 44;
-
     void OnRailSplitterDragDelta(object? sender, VectorEventArgs e) =>
         SessionRail.Opacity = PaneLayout.HidesAt(RailColumn.ActualWidth, PaneLayout.RailMinWidth) ? PaneLayout.HidingOpacity : 1;
 
@@ -58,14 +57,36 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         if (hides) Panes.RailCollapsed = true;
     }
 
-    void OnRailExpandClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Panes.RailCollapsed = false;
+    void OnRailToggleClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => ToggleRail();
+
+    void ToggleRail() => Panes.RailCollapsed = !Panes.RailCollapsed;
 
     void ApplyRail() {
         var collapsed = Panes.RailCollapsed;
-        RailColumn.Width = new GridLength(collapsed ? RailStripWidth : Panes.RailWidth);
+        RailColumn.Width = new GridLength(collapsed ? 0 : Panes.RailWidth);
         SessionRail.IsVisible = !collapsed;
         RailSplitter.IsVisible = !collapsed;
-        RailStrip.IsVisible = collapsed;
+        RailToggleIcon.Kind = collapsed ? LucideIconKind.PanelLeftOpen : LucideIconKind.PanelLeftClose;
+        var tip = $"{(collapsed ? "Show" : "Hide")} sidebar";
+        ToolTip.SetTip(RailToggleButton, $"{tip} ({ShortcutLabels.ToggleSidebar})");
+        AutomationProperties.SetName(RailToggleButton, tip);
+        ApplyRailClearance();
+    }
+
+    void LimitRail() =>
+        RailColumn.MaxWidth = PaneLayout.MaxWidth(SessionsSurface.Bounds.Width, PaneLayout.RailMinWidth, Panes.RailRestMinWidth);
+
+    /// How far a header at the content's leading edge pads to clear the window controls; zero while
+    /// the rail shows.
+    public double RailLeading => Panes.RailCollapsed ? RailClearance.Leading(_scale) : 0;
+
+    public event EventHandler? RailLeadingChanged;
+
+    void ApplyRailClearance() {
+        var origin = RailClearance.ButtonOrigin(_scale);
+        WindowControls.Margin = new Thickness(origin.X, origin.Y, 0, 0);
+        LauncherHeader.Margin = new Thickness(Math.Max(0, RailLeading - LauncherPane.Margin.Left), 0, 0, 0);
+        RailLeadingChanged?.Invoke(this, EventArgs.Empty);
     }
 
     WindowNotificationManager? _notifications;
@@ -112,6 +133,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         ScaleHost.LayoutTransform = scale == UiScale.Default ? null : new ScaleTransform(scale, scale);
         ApplyMinimumSize();
         ApplyCaptionInset();
+        ApplyRailClearance();
         if (Onboarding is not null) KeepOnboardingOnScreen();
     }
 
@@ -166,9 +188,17 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public MainWindow() {
         InitializeComponent();
-        SessionsSurface.SizeChanged += (_, e) => RailColumn.MaxWidth = e.NewSize.Width * PaneLayout.MaxShare;
-        SessionRail.CollapseRequested += (_, _) => Panes.RailCollapsed = true;
-        Panes.Changed += (_, _) => ApplyRail();
+        WindowControls.Spacing = RailClearance.Spacing;
+        RailToggleButton.Margin = new Thickness(0, 0, RailClearance.ToggleGap - RailClearance.Spacing, 0);
+        foreach (var button in new[] { RailToggleButton, BackButton, ForwardButton }) {
+            button.MinWidth = button.MinHeight = RailClearance.ButtonSize;
+            button.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
+        }
+        SessionsSurface.SizeChanged += (_, _) => LimitRail();
+        Panes.Changed += (_, _) => {
+            ApplyRail();
+            LimitRail();
+        };
         ApplyRail();
         KeyBindings.AddRange(ZoomShortcut.For(this));
         // A move, a display scaling change and a resized work area each change what the screen offers.
@@ -188,6 +218,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         };
         BindRefreshShortcuts();
         BindSearchShortcuts();
+        BindSidebarShortcut();
         BindHistoryShortcuts();
         BindSettingsShortcut();
         KeepContentClearOfCaptionButtons();
@@ -254,6 +285,14 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             bindings.Add(binding);
             KeyBindings.Add(binding);
         }
+    }
+
+    // ⌘B on macOS; Ctrl+B elsewhere yields to a focused terminal, where it is a shell and tmux key.
+    void BindSidebarShortcut() {
+        var toggle = ReactiveCommand.Create(ToggleRail);
+        KeyBindings.Add(ShortcutLabels.UsesCommandKey
+            ? new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Meta), Command = toggle }
+            : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, toggle) });
     }
 
     // ⌘K everywhere on macOS. Off macOS Ctrl+K is a terminal key, so it yields to a focused terminal.

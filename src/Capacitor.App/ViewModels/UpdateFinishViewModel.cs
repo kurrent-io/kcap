@@ -91,7 +91,7 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
     }
 
     public string Heading => _closing ? "Updating kcap…"
-        : !_settled ? "Finishing the update…" : _clean ? "kcap is ready" : "kcap is installed";
+        : !_settled ? "Finishing the update…" : _clean ? "kcap is ready" : "kcap is updated";
 
     public string Description => _closing
         ? "kcap restarts to install the update. Background services finish updating after it reopens."
@@ -184,7 +184,7 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
     internal static (IReadOnlyList<UpdateStep> Steps, bool Settled, bool Clean) Project(
             AppUpdateTransition transition, AttachStatus status, string? daemonVersion, string? connection, DaemonRestartWait restartPending,
             LocalStepInput? local, DaemonOnOtherInstall? otherInstall = null, bool waitedLong = false) {
-        var steps = new List<UpdateStep> { new($"kcap {Display(transition.To)}", "Installed", UpdateStepState.Done) };
+        var steps = new List<UpdateStep> { new($"kcap {Display(transition.To)}", "Updated", UpdateStepState.Done) };
         var localStep = LocalStep(local);
         if (localStep is not null) steps.Add(localStep);
         var localRunning = localStep?.State is UpdateStepState.Running or UpdateStepState.Pending;
@@ -197,7 +197,8 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
     /// connected as an outage, so the step is not done before it.</param>
     /// <param name="localRunning">The local server is still being upgraded. A daemon already on the new version waits for it
     /// rather than showing done and then dropping back when the server stops.</param>
-    /// <param name="otherInstall">The daemon runs a kcap this app does not ship, so only updating that install moves it on.</param>
+    /// <param name="otherInstall">The daemon runs a binary this app's update did not replace, so a restart does not move it on.
+    /// A restart waiting for turns outranks another install, whose update it follows, but not the app's own failed copy.</param>
     internal static UpdateStep DaemonStep(AttachStatus status, string? daemonVersion, string? connection, DaemonRestartWait restartPending,
             string appVersion, bool waitedLong = false, DaemonOnOtherInstall? otherInstall = null, bool localRunning = false) {
         const string title = "Daemon";
@@ -213,6 +214,9 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
             { State: AttachState.Connected } when current => new($"{title} {app}", "Connecting to the server", UpdateStepState.Running,
                 Activity: "Reconnecting the daemon to the server"),
             { State: AttachState.Connected } when newer => new(title, $"Running {Display(daemonVersion!)}, newer than this app", UpdateStepState.Note),
+            { State: AttachState.Connected } when otherInstall is { CopyFailure: { } failure } copy => new(title,
+                $"Runs {Display(copy.Version)} from this app's copy of its CLI, which it could not replace. Fix that and reopen the app",
+                UpdateStepState.Note, Hint: failure),
             { State: AttachState.Connected } when restartPending == DaemonRestartWait.Turns => new(title, "Waiting for active turns. Long turns may be interrupted", UpdateStepState.Note),
             { State: AttachState.Connected } when otherInstall is { } other => new(title,
                 $"Runs {Display(other.Version)} from another install. Update that install to move it on", UpdateStepState.Note, Hint: other.Executable),

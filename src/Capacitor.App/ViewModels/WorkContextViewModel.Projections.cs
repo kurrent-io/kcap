@@ -208,26 +208,53 @@ public sealed partial class WorkContextViewModel {
         }
     }
     readonly WorkContextLayout _layout;
-    /// Shared by every session's pane, so switching sessions keeps what the reader opened.
+    // Usage, checkout and session folds are shared by every session's pane, so switching sessions
+    // keeps what the reader opened.
+    public bool UsageExpanded {
+        get => _layout.UsageExpanded;
+        private set => _layout.UsageExpanded = value;
+    }
+    public bool CheckoutExpanded {
+        get => _layout.CheckoutExpanded;
+        private set => _layout.CheckoutExpanded = value;
+    }
     public bool SessionExpanded {
         get => _layout.SessionExpanded;
         private set => _layout.SessionExpanded = value;
     }
+    /// A header button has no expand state of its own to announce, so its name carries it.
+    public string UsageToggleName => FoldName("Usage", UsageExpanded);
+    public string CheckoutToggleName => FoldName("Checkout", CheckoutExpanded);
+    public string SessionToggleName => FoldName("Session", SessionExpanded);
+    static string FoldName(string section, bool expanded) => $"{section}, {(expanded ? "expanded" : "collapsed")}";
 
     void OnLayoutChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) {
-        if (e.PropertyName != nameof(WorkContextLayout.SessionExpanded)) return;
-        this.RaisePropertyChanged(nameof(SessionExpanded));
-        this.RaisePropertyChanged(nameof(SessionToggleText));
+        switch (e.PropertyName) {
+            case nameof(WorkContextLayout.UsageExpanded):
+                this.RaisePropertyChanged(nameof(UsageExpanded));
+                this.RaisePropertyChanged(nameof(UsageToggleName));
+                break;
+            case nameof(WorkContextLayout.CheckoutExpanded):
+                this.RaisePropertyChanged(nameof(CheckoutExpanded));
+                this.RaisePropertyChanged(nameof(CheckoutToggleName));
+                break;
+            case nameof(WorkContextLayout.SessionExpanded):
+                this.RaisePropertyChanged(nameof(SessionExpanded));
+                this.RaisePropertyChanged(nameof(SessionToggleName));
+                break;
+        }
     }
-    public string SessionToggleText => SessionExpanded ? "Less" : "More";
-    bool _runsExpanded;
-    public bool RunsExpanded { get => _runsExpanded; private set => this.RaiseAndSetIfChanged(ref _runsExpanded, value); }
+
+    bool _subagentsExpanded;
+    public bool SubagentsExpanded { get => _subagentsExpanded; private set => this.RaiseAndSetIfChanged(ref _subagentsExpanded, value); }
 
     public ReactiveCommand<Unit, Unit> TogglePartsCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> TogglePeopleCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleIssuesCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> ToggleUsageCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> ToggleCheckoutCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleSessionCommand { get; private set; } = null!;
-    public ReactiveCommand<Unit, Unit> ToggleRunsCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> ToggleSubagentsCommand { get; private set; } = null!;
 
     void InitializeProjections() {
         TogglePartsCommand   = Toggle(() => PartsExpanded = !PartsExpanded);
@@ -237,10 +264,12 @@ public sealed partial class WorkContextViewModel {
             else if (!HasMultipleIssues && SeparateIssue is { CanOpen: true } issue)
                 LinkPolicy.Open(_opener, issue.Url);
         });
-        ToggleSessionCommand = Toggle(() => SessionExpanded = !SessionExpanded);
+        ToggleUsageCommand    = Toggle(() => UsageExpanded = !UsageExpanded);
+        ToggleCheckoutCommand = Toggle(() => CheckoutExpanded = !CheckoutExpanded);
+        ToggleSessionCommand  = Toggle(() => SessionExpanded = !SessionExpanded);
         _layout.PropertyChanged += OnLayoutChanged;
         _disposables.Add(System.Reactive.Disposables.Disposable.Create(() => _layout.PropertyChanged -= OnLayoutChanged));
-        ToggleRunsCommand = Toggle(() => RunsExpanded = !RunsExpanded);
+        ToggleSubagentsCommand = Toggle(() => SubagentsExpanded = !SubagentsExpanded);
     }
 
     ReactiveCommand<Unit, Unit> Toggle(Action flip) {

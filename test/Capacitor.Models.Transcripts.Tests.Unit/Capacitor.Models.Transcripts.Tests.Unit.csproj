@@ -5,6 +5,9 @@
         <IsPackable>false</IsPackable>
     </PropertyGroup>
     <ItemGroup>
+        <None Include="../fixtures/codex/codex-user-lines.jsonl" Link="fixtures/codex/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+    <ItemGroup>
         <ProjectReference Include="..\Capacitor.Tests.Helpers\Capacitor.Tests.Helpers.csproj" />
         <ProjectReference Include="..\..\src\Capacitor.Models.Transcripts\Capacitor.Models.Transcripts.csproj" />
     </ItemGroup>
