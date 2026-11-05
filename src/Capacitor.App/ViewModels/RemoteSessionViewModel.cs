@@ -286,7 +286,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             AgentRow row, IAgentDirectory directory, SessionAccessService access, IPermissionService permissions,
             AgentActionService actions, IServerLane lane, SessionDetailReader readDetail, IUrlOpener opener, TimeProvider time, IWorkContextSource workContext,
             Func<ITerminalSurface>? surfaceFactory = null, IPlanArtifactSource? planArtifacts = null,
-            BackgroundCommandActivity? commands = null, IPullRequestSource? pullRequests = null,
+            SessionRunActivity? commands = null, IPullRequestSource? pullRequests = null,
             Action? requestSignIn = null, Action? linkGitHub = null, IObservable<Unit>? signInCompleted = null, IPlanSource? plans = null,
             ComposerDrafts? drafts = null, Func<string, Action>? inputSending = null,
             LastReads<PullRequestSnapshot>? pullRequestSnapshots = null, Action<string>? pullRequestLinksChanged = null,

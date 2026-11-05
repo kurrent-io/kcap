@@ -61,7 +61,7 @@ public class RemoteSessionViewModelTests {
 
         public RemoteSessionViewModel Build(AgentRow row, IPlanArtifactSource? planArtifacts = null,
                 Capacitor.Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,
-                BackgroundCommandActivity? commands = null, SubagentEventsReader? readSubagent = null, AccountReadings? readings = null,
+                SessionRunActivity? commands = null, SubagentEventsReader? readSubagent = null, AccountReadings? readings = null,
                 Func<AgentRow, HandoffComposerViewModel>? handoff = null, HandoffOutcomeReader? handoffOutcomes = null,
                 IPageContentSource? pageContent = null, IUrlOpener? opener = null, bool? webView = null, bool inAppPages = true,
                 IHeldMessagesApi? heldMessages = null) {
@@ -1315,9 +1315,9 @@ public class RemoteSessionViewModelTests {
             var row = Harness.Row(sessionId: null);
             h.Directory.Rows.AddOrUpdate(row);
             var unexpectedRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            BackgroundCommandMonitor? monitor = null;
+            SessionRunMonitor? monitor = null;
             var ended = false;
-            monitor = new BackgroundCommandMonitor(row.Key, _ => { }, () => {
+            monitor = new SessionRunMonitor(row.Key, _ => { }, () => {
                 ended = true;
                 monitor!.Dispose();
             }, new FakeDaemonClientService(), h.Directory, h.Access, (_, _) => {
@@ -1350,27 +1350,27 @@ public class RemoteSessionViewModelTests {
             h.Detail = new(RemoteFixtures.Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, call),
                 Event(1, CanonicalEventTypes.ToolResultReceived, launch)));
-            BackgroundCommandMonitor? monitor = null;
+            SessionRunMonitor? monitor = null;
             var backgroundSeed = new TaskCompletionSource<SessionDetailFetch>(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var commands = new BackgroundCommandActivity((key, report, ended, _) =>
-                monitor = new BackgroundCommandMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                monitor = new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
                     h.Access, (_, ct) => backgroundSeed.Task.WaitAsync(ct), h.Lane, h.Time));
-            IReadOnlyDictionary<string, int> latest = new Dictionary<string, int>();
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var row = Harness.Row(vendor: "claude") with { AwaitingInput = true };
             var vm = h.Build(row, commands: commands);
-            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1") == 1, "running command");
+            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1").Commands == 1, "running command");
             await vm.TeardownAsync();
             h.Time.Advance(ChatTabViewModel.PollInterval);
             await Task.Yield();
             await (monitor!.PendingReadForTesting ?? Task.CompletedTask);
-            await Assert.That(latest.GetValueOrDefault("remote:a1")).IsEqualTo(1);
+            await Assert.That(latest.GetValueOrDefault("remote:a1").Commands).IsEqualTo(1);
             backgroundSeed.SetResult(h.Detail);
             await WaitUntilAsync(() => h.Lane.Tails.Count == 2, what: "background monitor tail");
             h.Time.Advance(ChatTabViewModel.PollInterval);
             await Task.Yield();
             await (monitor!.PendingReadForTesting ?? Task.CompletedTask);
-            await Assert.That(latest.GetValueOrDefault("remote:a1")).IsEqualTo(1);
+            await Assert.That(latest.GetValueOrDefault("remote:a1").Commands).IsEqualTo(1);
 
             if (sessionEnds) h.Directory.Rows.AddOrUpdate(row with { Status = "Completed" });
             else h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, finished));
@@ -1398,13 +1398,13 @@ public class RemoteSessionViewModelTests {
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, call),
                 Event(1, CanonicalEventTypes.ToolResultReceived, launch)));
             var refusal = new SessionDetailFetch(null, NotFound: notFound, Unauthorized: !notFound);
-            using var commands = new BackgroundCommandActivity((key, report, ended, _) =>
-                new BackgroundCommandMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
                     h.Access, (_, _) => Task.FromResult(refusal), h.Lane, h.Time));
-            IReadOnlyDictionary<string, int> latest = new Dictionary<string, int>();
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var vm = h.Build(Harness.Row(vendor: "claude") with { AwaitingInput = true }, commands: commands);
-            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1") == 1, "running command");
+            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1").Commands == 1, "running command");
             await vm.TeardownAsync();
 
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
