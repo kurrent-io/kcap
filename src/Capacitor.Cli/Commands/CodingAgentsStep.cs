@@ -37,7 +37,7 @@ internal static class CodingAgentsStep {
 
     /// <param name="ClaudeHooksViaPowerShell">Windows with no Git Bash Claude can find: Claude then starts every hook
     /// through PowerShell, whose start-up alone can spend a short hook's whole time limit.</param>
-    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false);
+    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false, string? CopilotHostApp = null);
 
     internal record Paths(
             string  ClaudeSettingsPath,
@@ -559,12 +559,14 @@ internal static class CodingAgentsStep {
         toolsEligible = false;
 
         if (!detected.Copilot) {
-            writeLine("  [dim]· Copilot CLI not detected — skipping[/]");
+            writeLine("  [dim]· Copilot not detected — skipping. For Copilot in VS Code, open VS Code once and run setup again[/]");
 
             return false;
         }
 
-        writeLine("  [green]✓[/] Copilot CLI detected");
+        writeLine(detected.CopilotHostApp is { } host
+            ? $"  [green]✓[/] Copilot detected in {Markup.Escape(host)}"
+            : "  [green]✓[/] Copilot CLI detected");
 
         if (options.SkipCopilot && (options.SkipCopilotMcp || !options.ToolsIndependentOfCapture)) {
             writeLine("  [dim]· Copilot CLI hooks skipped by flag[/]");

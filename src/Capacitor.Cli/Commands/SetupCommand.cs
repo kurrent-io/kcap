@@ -1047,7 +1047,8 @@ sealed class SetupCommand(
             Vibe:        harnesses.Detected(HarnessId.MistralVibe),
             Grok:        harnesses.Detected(HarnessId.Grok),
             Muse:        harnesses.Detected(HarnessId.Muse),
-            ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable));
+            ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable),
+            CopilotHostApp: harnesses.Detect(HarnessId.Copilot).HostApp);
 
         bool PromptYesNo(string text) =>
             AnsiConsole.Prompt(new ConfirmationPrompt(text) { DefaultValue = true });

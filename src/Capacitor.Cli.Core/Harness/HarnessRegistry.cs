@@ -126,7 +126,8 @@ public sealed class HarnessRegistry : IReadOnlyList<IHarness>, IHarnessDetection
             ? new DetectedAgent(
                 BinaryFound:        harness.Signals.CanLaunch(_binaries),
                 InstallSignalFound: harness.Signals.HasUserData,
-                DesktopAppFound:    harness.Signals.HasDesktopApp(_apps))
+                DesktopAppFound:    harness.Signals.HasDesktopApp(_apps),
+                HostApp:            harness.Signals.FindHostApp(_binaries, _apps))
             // An id this registry never carried — a stale flag, a server payload — reads as absent
             // rather than throwing: neither must take a command down.
             : DetectedAgent.None;
