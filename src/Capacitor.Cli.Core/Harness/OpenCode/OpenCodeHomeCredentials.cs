@@ -21,12 +21,26 @@ internal static class OpenCodeHomeCredentials {
                 var link = Path.Combine(privateHome, relative);
                 Directory.CreateDirectory(Path.GetDirectoryName(link)!);
 
-                // A junction cannot point at a network share, where a symlink is the only link there is.
-                if (OperatingSystem.IsWindows() && !source.StartsWith(@"\\", StringComparison.Ordinal)) WindowsJunction.Create(link, source);
-                else Directory.CreateSymbolicLink(link, source);
+                Link(link, source);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 log($"OpenCode's {relative} sign-in could not be linked: {ex.Message}");
             }
         }
+    }
+
+    /// <summary>A junction cannot point at a network share, mapped or not, so a failed one falls back to a symlink, which
+    /// needs a privilege there.</summary>
+    static void Link(string link, string source) {
+        if (OperatingSystem.IsWindows()) {
+            try {
+                WindowsJunction.Create(link, source);
+
+                return;
+            } catch (IOException) {
+                // Create removes what it made, so the symlink has the path to itself.
+            }
+        }
+
+        Directory.CreateSymbolicLink(link, source);
     }
 }
