@@ -612,6 +612,26 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(runtime.UserInputs).IsEmpty();
     }
 
+    /// <summary>A message mid-delivery leaves the agent waiting until its write lands, so the check before the
+    /// delivery section passes. The wait ends inside the section here: a check anywhere earlier cannot see it.</summary>
+    [Test]
+    public async Task A_message_that_overtakes_the_nudge_keeps_it_out_of_the_turn_it_started() {
+        var f = Build(new ResumableFactory { PtyStyle = true, ResumesIdle = true, LostWork = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-overtaken", awaitingInput: true);
+        f.Orch.SendInputBeforeWriteHookForTest = () => {
+            f.Orch.GetAgentForTest("resume-overtaken")!.ActivityClock.SetAwaitingInput(false);
+
+            return Task.CompletedTask;
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var runtime = (FakeHostedAgentRuntime) f.Orch.GetAgentForTest("resume-overtaken")!.Runtime;
+        await Assert.That(runtime.UserInputs).IsEmpty();
+    }
+
     [Test]
     public async Task A_resuming_entry_relaunches_under_its_agent_id_with_the_vendor_session_and_nudge() {
         var f = Build();

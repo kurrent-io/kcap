@@ -1427,9 +1427,9 @@ internal partial class AgentOrchestrator {
             if (!agent.ActivityClock.AwaitingInput || entry.ResumingAt is not { } stoppedAt) return;
             if (!_runtimeFactories.TryGetValue(entry.Vendor, out var factory) || !factory.ReportsLostWork(agent.TranscriptPath, stoppedAt)) return;
 
-            var outcome = await DeliverInputAsync(agent, ResumeNudge.Build(LastAlive(entry, null), entry.Launch.Prompt), attachmentIds: null);
+            var outcome = await DeliverInputAsync(agent, ResumeNudge.Build(LastAlive(entry, null), entry.Launch.Prompt), attachmentIds: null, onlyIfWaiting: true);
             if (outcome.Kind == InputDeliveryKind.Delivered) LogResumeNudgedLostWork(agent.Id);
-            else LogResumeNudgeDropped(null, agent.Id, outcome.Reason ?? "");
+            else LogResumeNudgeDropped(null, agent.Id, outcome.Error ?? outcome.Reason ?? "");
         } catch (Exception ex) {
             LogResumeNudgeDropped(ex, agent.Id, "fault");
         }
