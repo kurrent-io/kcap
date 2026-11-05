@@ -69,6 +69,12 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
         get { lock (_gate) return _awaitingInput; }
     }
 
+    /// <summary>Waiting, with no background subagent still running. A turn's end says nothing about
+    /// one, and stopping the agent kills it, so only this means a stop interrupts no work.</summary>
+    public bool NothingInFlight {
+        get { lock (_gate) return _awaitingInput && CountLiveLocked() == 0; }
+    }
+
     /// <summary>Fires outside <see cref="_gate"/> on every genuine <see cref="AwaitingInput"/>
     /// change, with the new value.</summary>
     public Action<bool>? OnAwaitingInputChanged { get; set; }

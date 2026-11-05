@@ -52,9 +52,9 @@ internal partial class AgentOrchestrator {
     internal int FlowParticipantsMidRound =>
         _agents.Values.Count(a => !IsInteractive(a) && a.Status is "Starting" or "Running" && a.ActivityClock.TurnInFlight);
 
-    /// True when every live interactive agent is waiting on input, so a restart interrupts no turn.
+    /// True when no live interactive agent has anything in flight, so a restart interrupts no work.
     internal bool InteractiveAgentsAtTurnBoundary =>
-        _agents.Values.Where(a => IsInteractive(a) && a.Status is "Starting" or "Running").All(a => a.ActivityClock.AwaitingInput);
+        _agents.Values.Where(a => IsInteractive(a) && a.Status is "Starting" or "Running").All(a => a.ActivityClock.NothingInFlight);
 
     LaunchHold BeginLaunchHold() {
         Interlocked.Increment(ref _launchesInAdmission);
@@ -304,7 +304,7 @@ internal partial class AgentOrchestrator {
                         PredecessorInstanceId = _config.InstanceId,
                         ResumingAt            = now,
                         UpdatedAt             = now,
-                        AwaitingInput         = agent.ActivityClock.AwaitingInput,
+                        AwaitingInput         = agent.ActivityClock.NothingInFlight,
                         SessionId             = agent.SessionId ?? entry.SessionId,
                         VendorSession         = vendorSession,
                         Participant           = entry.Participant is { } p ? p with { ActivitySeq = clock.ActivitySeq, AgeMs = clock.AgeMs } : null,
@@ -1311,7 +1311,7 @@ internal partial class AgentOrchestrator {
             entry.Launch.RepoPath, entry.Vendor, entry.Launch.RequesterDisplay);
         var consent = _consentGate.GrantResume(entry.AgentId, input, entry.Launch.ConsentSource ?? "");
 
-        // An agent that was waiting comes back waiting: a nudge would start a turn nobody asked for. A participant
+        // An agent with nothing in flight comes back waiting: a nudge would start a turn nobody asked for. A participant
         // always gets its nudge, which is how it learns it was relaunched mid-flow.
         var silent  = entry.Participant is null && entry.AwaitingInput == true
                    && _runtimeFactories.TryGetValue(entry.Vendor, out var factory) && factory.ResumesIdleWithoutPrompt(entry.Transport);
