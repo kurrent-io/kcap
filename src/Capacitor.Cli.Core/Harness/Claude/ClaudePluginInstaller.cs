@@ -112,15 +112,16 @@ public static class ClaudePluginInstaller {
     /// Claude treats each plugin id on its own, and <c>kcap plugin install --project</c> writes there.
     /// At user scope an id counts when it is loadable or not recorded yet, since Claude installs an
     /// enabled plugin on its first start; a record that is unreadable or has lost its payload does
-    /// not count, and neither does a project marketplace whose directory has gone.</summary>
+    /// not count. What kcap cannot see counts as wired, such as managed policy or whether a project
+    /// plugin will load: a wrong yes holds the launch prompt with a warning and the terminal in
+    /// view, while a wrong no can lose it to a first-run screen with no sign at all.</summary>
     public static bool RunsHooks(string settingsPath, string projectDir) {
-        string[] projectFiles = [
-            Path.Combine(projectDir, ".claude", "settings.local.json"),
-            Path.Combine(projectDir, ".claude", "settings.json")
+        JsonObject?[] project = [
+            ReadSettings(Path.Combine(projectDir, ".claude", "settings.local.json")),
+            ReadSettings(Path.Combine(projectDir, ".claude", "settings.json"))
         ];
 
-        JsonObject?[] project = [.. projectFiles.Select(ReadSettings)];
-        JsonObject?[] user    = [ReadSettings(settingsPath)];
+        JsonObject?[] user = [ReadSettings(settingsPath)];
 
         if (Nearest([.. project, .. user], scope => scope["disableAllHooks"]) == true) return false;
 
@@ -128,7 +129,7 @@ public static class ClaudePluginInstaller {
             JsonNode? Enabled(JsonObject scope) => (scope["enabledPlugins"] as JsonObject)?[key];
 
             var inProject = Nearest(project, Enabled);
-            if (inProject == true && !projectFiles.Any(MarketplaceGone)) return true;
+            if (inProject == true) return true;
 
             if (inProject is null && Nearest(user, Enabled) == true
              && (EffectiveMcpJsonPath(settingsPath, key) is not null || AwaitsFirstInstall(settingsPath, key)))
@@ -137,9 +138,6 @@ public static class ClaudePluginInstaller {
 
         return false;
     }
-
-    static bool MarketplaceGone(string settingsFile) =>
-        RegisteredMarketplacePath(settingsFile) is { } path && !Directory.Exists(path);
 
     static JsonObject? ReadSettings(string path) {
         try {

@@ -110,23 +110,14 @@ public class ClaudePluginInstallerTests {
         await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
     }
 
-    /// A project install records an absolute plugin path, which an upgrade can move: Claude then
-    /// cannot load the plugin however enabled it reads, so no hook will ever release a hold.
+    /// Whether Claude can load a project's plugin is not something kcap can see from here. Doubt counts
+    /// as wired: a wrong hold shows its warning and the terminal, while a wrong paste can lose the
+    /// prompt to a first-run screen with no sign at all.
     [Test]
-    public async Task RunsHooks_false_when_the_projects_marketplace_directory_is_gone() {
+    public async Task RunsHooks_true_for_an_enabled_project_plugin_whatever_its_marketplace_path_says() {
         using var tmp = new TempDir();
         var settingsPath = tmp.CreateFile("settings.json", "{}");
         tmp.CreateFile("project/.claude/settings.local.json", ProjectInstall(tmp.PathTo("moved")));
-
-        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
-    }
-
-    [Test]
-    public async Task RunsHooks_true_when_the_projects_marketplace_directory_exists() {
-        using var tmp = new TempDir();
-        var settingsPath = tmp.CreateFile("settings.json", "{}");
-        string marketplace = tmp.CreateDir("marketplace");
-        tmp.CreateFile("project/.claude/settings.local.json", ProjectInstall(marketplace));
 
         await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
     }
