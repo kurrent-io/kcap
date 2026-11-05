@@ -343,4 +343,70 @@ public class ResumeLedgerStoreTests {
         await Assert.That(store.TryUpdateUnderLock("missing", e => e, TimeSpan.FromSeconds(1))).IsEqualTo(LockedUpdate.NoEntry);
         await Assert.That(store.TryUpdateUnderLock("agent-1", _ => null, TimeSpan.FromSeconds(1))).IsEqualTo(LockedUpdate.Unchanged);
     }
+
+    /// <summary>A reader that keeps opening the entry is on it at the moment of some of these replaces, and none may
+    /// cost its write.</summary>
+    [Test]
+    public async Task Every_write_lands_though_a_reader_keeps_opening_the_entry() {
+        using var tmp   = new TempDaemonStore();
+        var       store = ResumeLedgerStore.For(tmp.Store, "d1");
+        store.Write(Entry("a1"));
+
+        using var stop = new CancellationTokenSource();
+        var reader = Task.Run(() => {
+            while (!stop.IsCancellationRequested) store.TryRead("a1");
+        });
+
+        try {
+            for (var i = 1; i <= 100; i++) {
+                var replacement = Entry("a1") with { UpdatedAt = DateTimeOffset.UnixEpoch.AddDays(i) };
+                store.Write(replacement);
+                await Assert.That(store.TryRead("a1")!.UpdatedAt).IsEqualTo(replacement.UpdatedAt);
+            }
+        } finally {
+            await stop.CancelAsync();
+            await reader;
+        }
+    }
+
+    /// <summary>The mark waits for a holder and reads afresh, so a snapshot from before the holder's update cannot
+    /// replace it.</summary>
+    [Test]
+    public async Task MarkInterrupted_keeps_an_update_a_lock_holder_was_writing() {
+        using var tmp   = new TempDaemonStore();
+        var       store = ResumeLedgerStore.For(tmp.Store, "d1");
+        store.Write(Entry("a1"));
+        var committed = DateTimeOffset.UnixEpoch.AddDays(1);
+
+        Task<int> mark;
+        using (ResumeEntryLock.TryAcquire(store.EntryPath("a1"), TimeSpan.FromSeconds(1))) {
+            mark = Task.Run(() => store.MarkInterrupted("stopped"));
+            await Task.Delay(100);
+            store.Write(Entry("a1") with { EndCommittedAt = committed });
+        }
+
+        await Assert.That(await mark).IsEqualTo(1);
+        var entry = store.TryRead("a1")!;
+        await Assert.That(entry.State).IsEqualTo(ResumeState.Interrupted);
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(committed);
+    }
+
+    /// <summary>A write without the lock could lose what its holder commits, and an unmarked entry resumes at the next
+    /// start, so the failure names it, after the other entries are marked.</summary>
+    [Test]
+    public async Task MarkInterrupted_marks_the_rest_and_reports_an_entry_whose_lock_stays_held() {
+        using var tmp   = new TempDaemonStore();
+        var       store = ResumeLedgerStore.For(tmp.Store, "d1");
+        store.Write(Entry("held"));
+        store.Write(Entry("free"));
+        var before = store.TryRead("held")!.State;
+
+        using (ResumeEntryLock.TryAcquire(store.EntryPath("held"), TimeSpan.FromSeconds(1))) {
+            var failure = await Assert.That(() => store.MarkInterrupted("stopped")).Throws<IOException>();
+            await Assert.That(failure!.Message).Contains("held");
+        }
+
+        await Assert.That(store.TryRead("held")!.State).IsEqualTo(before);
+        await Assert.That(store.TryRead("free")!.State).IsEqualTo(ResumeState.Interrupted);
+    }
 }

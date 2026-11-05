@@ -1,0 +1,198 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using Capacitor.Cli.Core.Harness.Headless;
+using TUnit.Core.Enums;
+
+namespace Capacitor.Cli.Core.Tests.Unit.Harness.Headless;
+
+/// <summary>The child is a POSIX script that records its pid, so each kill can be proved by the process's identity
+/// leaving the table rather than by a directory that POSIX lets go while its process lives.</summary>
+public class HeadlessProcessTests {
+    [TempDir] public required TempDir Tmp { get; init; }
+
+    string PidFile => Path.Combine(Tmp.Path, "child.pid");
+
+    ProcessStartInfo Script(string body) =>
+        new(Tmp.CreateExecutable($"bin-{Guid.NewGuid():N}/child", $"#!/bin/sh\necho $$ > '{PidFile}'\n{body}\n"));
+
+    static Task<HeadlessProcessExit?> Run(ProcessStartInfo psi, string? stdin = null, Action<string>? onStdout = null,
+        Func<string, bool>? onStderr = null, TimeSpan? timeout = null, CancellationToken ct = default) =>
+        HeadlessProcess.RunAsync(psi, stdin, onStdout ?? (_ => { }), onStderr, timeout ?? TimeSpan.FromSeconds(20),
+            TimeProvider.System, _ => { }, ct);
+
+    Task<(int Pid, string Identity)> ChildAsync() => ChildAsync(PidFile);
+
+    static async Task<(int Pid, string Identity)> ChildAsync(string pidFile) {
+        var start = Environment.TickCount64;
+
+        while (Environment.TickCount64 - start < 10_000) {
+            if (File.Exists(pidFile) && int.TryParse((await File.ReadAllTextAsync(pidFile)).Trim(), out var pid))
+                return (pid, PidIdentity.Capture(pid));
+
+            await Task.Delay(20);
+        }
+
+        throw new TimeoutException($"the script never wrote {pidFile}");
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task Stdout_lines_stdin_and_the_exit_code_come_through() {
+        var lines = new ConcurrentQueue<string>();
+
+        var exit = await Run(Script("cat\necho done >&2\nexit 3"), "one\ntwö\n", lines.Enqueue);
+
+        await Assert.That(exit).IsEqualTo(new HeadlessProcessExit(3, false, false, "done"));
+        await Assert.That(lines).IsEquivalentTo(["one", "twö"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task Without_input_stdin_is_closed_at_once() {
+        var exit = await Run(Script("cat > /dev/null\nexit 0"), timeout: TimeSpan.FromSeconds(5));
+
+        await Assert.That(exit!.ExitCode).IsEqualTo(0);
+    }
+
+    /// <summary>The input is larger than a pipe buffer, so the write fails once the child has gone.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_child_that_exits_without_reading_its_input_still_reports_how_it_ended() {
+        var exit = await Run(Script("echo 'No models available' >&2\nexit 1"), new string('x', 1 << 20));
+
+        await Assert.That(exit).IsEqualTo(new HeadlessProcessExit(1, false, false, "No models available"));
+    }
+
+    /// <summary>The child closes its stdin and stays alive, so only a kill on the failed write ends the run
+    /// before the deadline.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_broken_input_pipe_kills_a_child_that_is_still_running_before_the_outcome() {
+        var go  = Path.Combine(Tmp.Path, "go");
+        var run = Run(Script($"while [ ! -f '{go}' ]; do sleep 0.05; done\nexec 0<&-\necho 'closed' >&2\nexec sleep 30"),
+            new string('x', 1 << 20));
+        var (pid, identity) = await ChildAsync();
+        await File.WriteAllTextAsync(go, "");
+        var exit = await run;
+
+        await Assert.That(exit).IsEqualTo(new HeadlessProcessExit(null, false, false, "closed"));
+        await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task Any_other_input_failure_kills_the_child_before_propagating() {
+        (int Pid, string Identity) child = (0, "");
+
+        var run = HeadlessProcess.RunAsync(Script("exec sleep 30"), async (_, _) => {
+                child = await ChildAsync();
+                throw new InvalidOperationException("writer broke");
+            }, _ => { }, null, TimeSpan.FromSeconds(20), TimeProvider.System, _ => { }, CancellationToken.None);
+
+        await Assert.That(async () => await run).Throws<InvalidOperationException>().WithMessage("writer broke");
+        await Assert.That(PidIdentity.IsGone(child.Pid, child.Identity)).IsTrue();
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_stderr_line_can_kill_the_child_early() {
+        var go = Path.Combine(Tmp.Path, "go");
+        var run = Run(Script($"while [ ! -f '{go}' ]; do sleep 0.05; done\necho 'stream error: usage limit' >&2\nexec sleep 30"),
+            onStderr: l => l.Contains("usage limit"));
+        var (pid, identity) = await ChildAsync();
+        var started = Environment.TickCount64;
+        await File.WriteAllTextAsync(go, "");
+        var exit = await run;
+
+        await Assert.That(exit).IsEqualTo(new HeadlessProcessExit(null, false, true, "stream error: usage limit"));
+        await Assert.That(Environment.TickCount64 - started).IsLessThan(10_000);
+        await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task The_deadline_kills_the_child_before_returning() {
+        var run  = Run(Script("exec sleep 30"), timeout: TimeSpan.FromSeconds(1));
+        var (pid, identity) = await ChildAsync();
+        var exit = await run;
+
+        await Assert.That(exit!.TimedOut).IsTrue();
+        await Assert.That(exit.ExitCode).IsNull();
+        await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
+    }
+
+    string DescendantFile => Path.Combine(Tmp.Path, "descendant.pid");
+
+    /// <summary>The background child inherits the output pipes and outlives the script, which waits long enough
+    /// for it to be listed. The drain reaches the deadline, and the child is gone by the time the run returns,
+    /// not merely signalled.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_descendant_holding_the_output_open_past_the_exit_is_a_timeout_and_is_gone_on_return() {
+        var run = Run(Script($"sleep 30 &\necho $! > '{DescendantFile}'\nsleep 1.5\nexit 0"), timeout: TimeSpan.FromSeconds(4));
+        var (pid, identity) = await ChildAsync(DescendantFile);
+        var exit = await run;
+
+        await Assert.That(exit!.TimedOut).IsTrue();
+        await Assert.That(exit.ExitCode).IsNull();
+        await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
+    }
+
+    /// <summary>The child keeps the output pipes but not stdin, so the script's exit breaks the input write. Its exit
+    /// code stands, and the run must not wait out the deadline or leave the child behind.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_descendant_of_a_child_that_exits_without_reading_its_input_is_gone_on_return() {
+        var run = Run(Script($"sleep 30 </dev/null &\necho $! > '{DescendantFile}'\nsleep 1.5\nexit 1"), new string('x', 1 << 20));
+        var (pid, identity) = await ChildAsync(DescendantFile);
+        var exit = await run;
+
+        await Assert.That(exit!.ExitCode).IsEqualTo(1);
+        await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
+    }
+
+    /// <summary>The child holds none of the pipes, so the run ends normally; it could still hold the run's directory.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_descendant_left_behind_by_a_normal_exit_is_gone_on_return() {
+        var run = Run(Script($"sleep 30 </dev/null >/dev/null 2>&1 &\necho $! > '{DescendantFile}'\nsleep 1.5\nexit 0"));
+        var (pid, identity) = await ChildAsync(DescendantFile);
+        var exit = await run;
+
+        await Assert.That(exit).IsEqualTo(new HeadlessProcessExit(0, false, false, ""));
+        await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
+    }
+
+    /// <summary>The descendant is orphaned as the script starts, before any listing can see it, so no kill reaches
+    /// it and it holds the output for the whole run: only the budget ends the cleanup. Given stdin, it also holds the
+    /// read end of a pipe nobody is reading.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Cleanup_ends_within_one_budget_while_a_descendant_out_of_reach_holds_the_pipes(bool holdsStdin) {
+        var redirect = holdsStdin ? "<&0" : "";
+        var run = Run(Script($"(sleep 30 {redirect} & echo $! > '{DescendantFile}')\nexec sleep 30"),
+            holdsStdin ? new string('x', 1 << 20) : null, timeout: TimeSpan.FromSeconds(1));
+        var started = Environment.TickCount64;
+        var (pid, identity) = await ChildAsync(DescendantFile);
+
+        try {
+            var exit = await run.WaitAsync(TimeSpan.FromSeconds(30));
+
+            await Assert.That(exit!.TimedOut).IsTrue();
+            await Assert.That(Environment.TickCount64 - started).IsLessThan(4_500);
+        } finally {
+            ProcessTree.Kill(pid, identity);
+        }
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task Cancellation_kills_the_child_before_propagating() {
+        using var cts = new CancellationTokenSource();
+        var run = Run(Script("exec sleep 30"), ct: cts.Token);
+        var (pid, identity) = await ChildAsync();
+
+        await cts.CancelAsync();
+
+        await Assert.That(async () => await run).Throws<OperationCanceledException>();
+        await Assert.That(PidIdentity.IsGone(pid, identity)).IsTrue();
+    }
+
+    [Test]
+    public async Task A_child_that_cannot_start_is_null() =>
+        await Assert.That(await Run(new ProcessStartInfo(Path.Combine(Tmp.Path, "missing")))).IsNull();
+
+    [Test]
+    public async Task ForLog_folds_lines_and_drops_control_characters() =>
+        await Assert.That(HeadlessProcess.ForLog("a\r\nb\u0007c")).IsEqualTo("a\\n\\nbc");
+}
