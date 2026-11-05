@@ -166,21 +166,11 @@ public sealed class StaleClientRepair(
     /// renamed over it, so PATH never goes without a kcap. True when replaced, false when the entry changed, null
     /// when the folder needs an administrator.
     async Task<bool?> TryReplaceAsync(string link, string target, string found, CancellationToken ct) {
-        var temp = Path.Combine(Path.GetDirectoryName(link)!, $".kcap-{Guid.NewGuid():N}");
         try {
-            File.CreateSymbolicLink(temp, target);
+            return await KcapLinkSwap.ReplaceAsync(
+                link, target, async token => await _identity.OfAsync(link, token).ConfigureAwait(false) == found, ct).ConfigureAwait(false);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return null;
-        }
-
-        try {
-            if (await _identity.OfAsync(link, ct).ConfigureAwait(false) != found) return false;
-            File.Move(temp, link, overwrite: true);
-            return true;
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return null;
-        } finally {
-            try { File.Delete(temp); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
     }
 

@@ -208,13 +208,16 @@ internal sealed class ApplicationReferences(IProcessRunner runner, UserHome home
     }
 
     async Task ReplaceLinkAsync(string path, string expected, string replacement, CancellationToken ct) {
-        if (new FileInfo(path).LinkTarget != expected) throw new IOException($"The terminal link changed: {path}");
+        try {
+            KcapLinkSwap.Replace(path, expected, replacement);
+        } catch (UnauthorizedAccessException) {
+            await ReplaceLinkAsAdministratorAsync(path, expected, replacement, ct);
+        }
+    }
+
+    async Task ReplaceLinkAsAdministratorAsync(string path, string expected, string replacement, CancellationToken ct) {
         var staging = path + ".migrating-" + Guid.NewGuid().ToString("N");
         try {
-            File.CreateSymbolicLink(staging, replacement);
-            if (new FileInfo(path).LinkTarget != expected) throw new IOException($"The terminal link changed: {path}");
-            File.Move(staging, path, true);
-        } catch (UnauthorizedAccessException) {
             const string script = "on run argv\nset p to quoted form of item 1 of argv\nset old to quoted form of item 2 of argv\nset dest to quoted form of item 3 of argv\nset tmp to quoted form of item 4 of argv\ndo shell script \"test -L \" & p & \" && test \\\"$(/usr/bin/readlink \" & p & \")\\\" = \" & old & \" && /bin/ln -s \" & dest & \" \" & tmp & \" && /bin/mv -f \" & tmp & \" \" & p with administrator privileges\nend run";
             var result = await runner.RunAsync("/usr/bin/osascript", ["-e", script, "--", path, expected, replacement, staging],
                 new RunOptions(Timeout: TimeSpan.FromMinutes(2)), ct);

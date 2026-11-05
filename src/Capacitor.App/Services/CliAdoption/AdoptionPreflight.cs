@@ -55,7 +55,8 @@ public static class AdoptionPreflight {
         return new InstallPlan(install, left, needsAdministrator, links);
     }
 
-    static string LinkKey(string location) =>
+    /// One physical link however the folder holding it is spelled.
+    internal static string LinkKey(string location) =>
         Path.Join(CanonicalPath.Resolve(Path.GetDirectoryName(location)!), Path.GetFileName(location));
 
     static LeftReason? RecordedLeft(OtherCliInstall install, AdoptionRecord record) =>
