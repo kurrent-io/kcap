@@ -83,6 +83,38 @@ public class SessionStatusDotsTests {
         await Assert.That(SessionStatusDots.ForRow(row, pending: false, answerExpected: true).Kind).IsEqualTo(AgentStatusKind.Answer);
     }
 
+    /// The server's idle flag replaces the live "Running" and its in-flight ring, the word the web and
+    /// `kcap sessions` already use.
+    [Test]
+    public async Task A_stale_row_reads_stale_rather_than_running() {
+        var status = SessionStatusDots.ForRow(Local("a") with { IsStale = true }, pending: false);
+
+        await Assert.That(status.Kind).IsEqualTo(AgentStatusKind.Stale);
+        await Assert.That(status.Label).IsEqualTo("Stale");
+        await Assert.That(status.AccessibleName).IsEqualTo("No activity for over an hour");
+        await Assert.That(status.IsInFlight).IsFalse();
+        await Assert.That(status.IsWarning).IsTrue();
+        await Assert.That(status.ShowsClock).IsTrue();
+    }
+
+    /// Only the bare "Running" gives way: what the daemon reported about the agent still stands.
+    [Test]
+    [Arguments("Running", false, AgentStatusKind.Working)]
+    [Arguments("Running", true, AgentStatusKind.Idle)]
+    [Arguments("Idle", null, AgentStatusKind.Idle)]
+    [Arguments("Failed", null, AgentStatusKind.Failed)]
+    [Arguments("Completed", null, AgentStatusKind.Done)]
+    public async Task The_stale_flag_never_outranks_a_reported_state(string status, bool? awaiting, AgentStatusKind expected) {
+        var row = Local("a", status: status, awaiting: awaiting) with { IsStale = true };
+
+        await Assert.That(SessionStatusDots.ForRow(row, pending: false).Kind).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task A_stale_row_asks_nothing_of_a_collapsed_group() {
+        await Assert.That(SessionStatusDots.Rollup([Local("a") with { IsStale = true }], new HashSet<string>())).IsNull();
+    }
+
     static AgentRow Local(string id, string status = "Running", bool? awaiting = null, int? subagents = null, string? title = null) =>
         AgentRow.FromLocal(
             new(id, "agent", "claude", "/repo", status, null, null, null, DateTime.UtcNow, null, null,
