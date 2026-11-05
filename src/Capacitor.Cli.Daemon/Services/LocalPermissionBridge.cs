@@ -1233,6 +1233,7 @@ internal sealed partial class LocalPermissionBridge(
         if (decision.Behavior == PermissionSettlements.Allow && ClaudePermissions.UpdatesFor(decision.ApplyPermissions, suggestions, toolName) is { } updates)
             decisionNode["updatedPermissions"] = updates;
         if (decision.UpdatedInput is { } ui) decisionNode["updatedInput"]         = JsonNode.Parse(ui.GetRawText());
+        AddDenyMessage(decisionNode, decision);
 
         var payload = new JsonObject {
             ["hookSpecificOutput"] = new JsonObject {
@@ -1245,16 +1246,23 @@ internal sealed partial class LocalPermissionBridge(
     }
 
     static string BuildCodexResponse(PermissionDecision decision) {
-        // Codex only consumes behavior — strip applyPermissions and updatedInput so the
-        // response stays valid for Codex's stricter hook schema.
+        // Codex's hook schema takes behavior and a deny's message only; applyPermissions and updatedInput would fail it.
+        var decisionNode = new JsonObject { ["behavior"] = decision.Behavior };
+        AddDenyMessage(decisionNode, decision);
+
         var payload = new JsonObject {
             ["hookSpecificOutput"] = new JsonObject {
                 ["hookEventName"] = "PermissionRequest",
-                ["decision"]      = new JsonObject { ["behavior"] = decision.Behavior }
+                ["decision"]      = decisionNode
             }
         };
 
         return payload.ToJsonString();
+    }
+
+    static void AddDenyMessage(JsonObject decisionNode, PermissionDecision decision) {
+        if (decision.Behavior == PermissionSettlements.Deny && !string.IsNullOrWhiteSpace(decision.Message))
+            decisionNode["message"] = decision.Message;
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Left {ToolName} for agent {AgentId} to Codex auto-review: no kcap policy decided it")]
