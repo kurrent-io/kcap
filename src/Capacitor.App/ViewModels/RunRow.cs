@@ -10,6 +10,7 @@ public sealed class RunRow : ReactiveObject {
     string? _agentId;
     bool _outcomeUnknown;
     bool _endedByStop;
+    DateTimeOffset? _cutOffAt;
     bool _openable = true;
     RunState _state = RunState.Running;
     string _stateText = "";
@@ -118,15 +119,18 @@ public sealed class RunRow : ReactiveObject {
         Outcome = outcome ?? (IsEnded ? Outcome : RunState.Done);
         _outcomeUnknown = outcome is null;
         _endedByStop = false;
+        _cutOffAt = null;
     }
 
-    /// The process holding the run is gone, so it reads as stopped and no wait can bring it back, but
-    /// that is only a presumption: a report that still lands says how it really ended.
+    /// The process holding the run is gone, so it reads as stopped, but that is only a presumption: a
+    /// report that still lands says how it really ended, and a wait dated past this shows it never did.
     internal void CutOff(DateTimeOffset at) {
-        _endedByStop = false;
-        if (IsEnded) return;
-        End(RunState.Stopped, at);
-        _outcomeUnknown = true;
+        if (IsEnded && !_endedByStop) return;
+        if (!IsEnded) {
+            End(RunState.Stopped, at);
+            _outcomeUnknown = true;
+        }
+        _cutOffAt = at;
     }
 
     /// A stop record ends the row without an outcome, and alone among ends it can be taken back:
@@ -138,13 +142,15 @@ public sealed class RunRow : ReactiveObject {
     }
 
     /// A wait shows the run had not ended, so it takes back an end that only a stop record made: the
-    /// pause's own stop, heard ahead of the notification.
-    internal void RetractStop() {
-        if (!_endedByStop) return;
+    /// pause's own stop, heard ahead of the notification. Past a restart only a wait dated after it
+    /// can, since a notification can be written well after the time it carries.
+    internal void RetractStop(DateTimeOffset at) {
+        if (_cutOffAt is { } cutOff ? at <= cutOff : !_endedByStop) return;
         Outcome = RunState.Running;
         EndedAt = null;
         _outcomeUnknown = false;
         _endedByStop = false;
+        _cutOffAt = null;
     }
 
     internal void Present(bool sessionOver, DateTimeOffset now) {

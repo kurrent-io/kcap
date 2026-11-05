@@ -97,7 +97,7 @@ public sealed class SessionRuns(TimeProvider time) {
                     Resume(resumed);
                     break;
                 case RunSignal.Waiting waiting:
-                    Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.RetractStop();
+                    Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.RetractStop(waiting.At);
                     break;
                 case RunSignal.Stopped stopped:
                     if (!_reported.Contains(stopped.AgentId)) SoleRun(stopped)?.Stop(stopped.At);

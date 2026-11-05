@@ -547,6 +547,35 @@ public class SessionRunsTests {
         await Assert.That(s.RunningCount).IsEqualTo(0);
     }
 
+    /// A restart can be dated late, and an in-process resume may leave a run going: a wait dated past
+    /// the restart can only come from a run that outlived it, however it had ended here.
+    [Test]
+    public async Task A_wait_dated_after_a_restart_shows_the_run_outlived_it() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Stop("a1", T0.AddMinutes(10))));
+        s.Apply(Signals(Started("c2"), Detached("c2", "a2")));
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(30))));
+
+        s.Apply(Signals(Waiting(null, "a1", T0.AddMinutes(40)), Waiting(null, "a2", T0.AddMinutes(40))));
+
+        await Assert.That(s.RunningCount).IsEqualTo(2);
+        await Assert.That(s.Rows[0].EndedAt).IsNull();
+        await Assert.That(s.Rows[1].EndedAt).IsNull();
+    }
+
+    /// Only the restart's presumption can be taken back: an end that says how is still final.
+    [Test]
+    public async Task A_wait_after_a_reported_end_brings_nothing_back_past_a_restart() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+        s.Apply(Signals(new RunSignal.Restarted(T0.AddMinutes(30))));
+        s.Apply(Signals(Finished(null, "a1", RunOutcome.Failed, at: T0.AddMinutes(35))));
+
+        s.Apply(Signals(Waiting(null, "a1", T0.AddMinutes(40))));
+
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Failed);
+    }
+
     /// The records Claude writes for an agent caught paused by a restart, end to end through the chat's projection.
     [Test]
     public async Task A_transcript_with_a_paused_agent_stops_it_at_the_resume_hook() {
