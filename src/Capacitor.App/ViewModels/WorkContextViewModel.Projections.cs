@@ -54,8 +54,12 @@ public sealed partial class WorkContextViewModel {
         get => _title;
         private set { this.RaiseAndSetIfChanged(ref _title, value); NotifyIdentity(); }
     }
+    /// GitHub numbers issues and pull requests in one sequence, so a seed spelled `!N` can be the issue
+    /// `#N` of its repository. Other providers number them apart.
+    string? _seedIssueIdentity;
+    bool HasHeaderKey(WorkContextLinkViewModel issue) => string.Equals(issue.Key, Key, StringComparison.OrdinalIgnoreCase);
     bool IsPrimaryIssue(WorkContextLinkViewModel? issue) =>
-        issue is not null && string.Equals(issue.Key, Key, StringComparison.OrdinalIgnoreCase);
+        issue is not null && (HasHeaderKey(issue) || Same(issue.Identity, _seedIssueIdentity));
     static bool IsFallbackIssueTitle(WorkContextLinkViewModel issue) =>
         issue.Title.Length == 0 || string.Equals(issue.Title, issue.Key, StringComparison.OrdinalIgnoreCase)
         || string.Equals(issue.Title, $"Issue {issue.Key}", StringComparison.OrdinalIgnoreCase);
@@ -63,8 +67,9 @@ public sealed partial class WorkContextViewModel {
         _issues.FirstOrDefault(IsPrimaryIssue) ?? _issues.FirstOrDefault();
     public string DisplayTitle => Title.Length > 0 && !string.Equals(Title, Key, StringComparison.OrdinalIgnoreCase) ? Title
         : PrimaryIssue is { } primary && IsPrimaryIssue(primary) && !IsFallbackIssueTitle(primary) ? primary.Title : "";
+    /// An untitled issue folds only into a header that spells its key: `!N` does not name the issue `#N`.
     public bool HasInlineIssue => PrimaryIssue is { } primary && IsPrimaryIssue(primary)
-        && (IsFallbackIssueTitle(primary) || string.Equals(primary.Title, DisplayTitle, StringComparison.OrdinalIgnoreCase));
+        && (IsFallbackIssueTitle(primary) ? HasHeaderKey(primary) : string.Equals(primary.Title, DisplayTitle, StringComparison.OrdinalIgnoreCase));
     /// Issues the section should show: every link-class issue except a primary absorbed into the work-item title.
     public IEnumerable<WorkContextLinkViewModel> SeparateIssues =>
         HasInlineIssue ? _issues.Where(i => !IsPrimaryIssue(i)) : _issues;
@@ -160,6 +165,7 @@ public sealed partial class WorkContextViewModel {
         && _links.Count == 0
         && !ShowsPullRequestCard;
     public const string PullRequestEmptyNote = "No pull request linked";
+    public const string IssueTitleMissingNote = "Title not available";
     public bool ShowsPullRequestSection => ShowsPullRequestCard || ShowsLegacyLinkCards || ShowsPullRequestEmpty;
     public string WhoCountText => _sessionCount switch {
         0     => "",
@@ -325,6 +331,7 @@ public sealed partial class WorkContextViewModel {
     }
 
     void ClearItem() {
+        _seedIssueIdentity = null;
         Key = null;
         Title = "";
         Overview = null;
@@ -435,6 +442,9 @@ public sealed partial class WorkContextViewModel {
     static bool Same(string a, string? b) => string.Equals(a, b, StringComparison.Ordinal);
 
     void ApplyItem(WorkItemDto item, IReadOnlyList<SessionWorkItemAssignmentDto> assignments) {
+        _seedIssueIdentity = item.Key is { Provider: "github" } seed
+            ? IssueIdentity("issue", seed.Provider, seed.Value.Replace('!', '#'))
+            : null;
         Key = FirstNonBlank(item.Key?.ShortKey);
         // An item with no tracker or generated title arrives with its key as the title.
         var title = FirstNonBlank(item.EnrichedTitle, item.Title) ?? "";
@@ -533,8 +543,9 @@ public sealed partial class WorkContextViewModel {
             || string.Equals(c.Identity, identity, StringComparison.Ordinal));
     }
 
-    static string IssueIdentity(WorkItemLinkDto link) =>
-        string.Join('\u001f', link.Kind, link.Provider, link.Value);
+    static string IssueIdentity(WorkItemLinkDto link) => IssueIdentity(link.Kind, link.Provider, link.Value);
+
+    static string IssueIdentity(string kind, string provider, string value) => string.Join('\u001f', kind, provider, value);
 
     void ApplyTopology(WorkItemTopologyDto topology) {
         PartOfTitle = topology.PartOf?.Title;
