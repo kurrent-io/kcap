@@ -22,6 +22,8 @@ public sealed record AdoptionRecord(
     PrivilegedOperation? Privileged, IReadOnlyList<string> NoticesShown, bool MachineSwitched) {
     public static AdoptionRecord Empty { get; } = new(null, [], [], null, [], false);
 
+    /// <summary>Whether an install still waits to be switched. On a machine already switched, only one Finish switching
+    /// took back in can.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public bool Pending => !MachineSwitched && Installs.Any(i => i.State == InstallState.Pending);
+    public bool Pending => Installs.Any(i => i.State == InstallState.Pending);
 }

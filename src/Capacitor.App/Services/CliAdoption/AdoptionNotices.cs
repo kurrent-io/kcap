@@ -101,7 +101,9 @@ internal sealed class AdoptionNotices : IDisposable {
             $"the administrator prompt was cancelled. To finish, choose {FinishSwitching} in the menu bar.",
         LeftReason.DeletionCutShort =>
             $"removing it was cut short, and only an administrator can remove the rest. To finish, choose {FinishSwitching} in the menu bar.",
-        LeftReason.SharedInstallPrivateApp => "it serves every account on this Mac, and this app is installed for you alone.",
+        LeftReason.SharedInstallPrivateApp =>
+            "it serves every account on this Mac, and this app is installed for you alone. "
+          + $"To finish, move kcap to /Applications, open it and choose {FinishSwitching} in the menu bar.",
         _                                  => "it could not be switched.",
     };
 }

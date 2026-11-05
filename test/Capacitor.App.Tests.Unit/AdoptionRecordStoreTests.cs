@@ -64,14 +64,16 @@ public class AdoptionRecordStoreTests {
         await Assert.That(store.Load().NoticesShown.Single()).IsEqualTo("x");
     }
 
+    /// <summary>Finish switching takes a left install back in without clearing the machine's switch, so a switched
+    /// machine can hold one pending.</summary>
     [Test]
-    public async Task Pending_is_true_only_while_an_install_waits_and_the_machine_is_not_switched() {
+    public async Task Pending_is_true_while_an_install_waits_switched_machine_or_not() {
         var waiting = new RecordedInstall(Install("/p"), InstallState.Pending, null, null, null, null);
         var record = AdoptionRecord.Empty with { Installs = [waiting] };
 
         await Assert.That(AdoptionRecord.Empty.Pending).IsFalse();
         await Assert.That(record.Pending).IsTrue();
-        await Assert.That((record with { MachineSwitched = true }).Pending).IsFalse();
+        await Assert.That((record with { MachineSwitched = true }).Pending).IsTrue();
         await Assert.That((record with { Installs = [waiting with { State = InstallState.Left }] }).Pending).IsFalse();
     }
 

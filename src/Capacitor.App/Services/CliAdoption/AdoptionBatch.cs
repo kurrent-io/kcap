@@ -7,9 +7,9 @@ namespace Capacitor.App.Services.CliAdoption;
 /// and the deletion, then each root-owned install behind its administrator prompt. Every launch starts from fresh
 /// evidence; an install the record holds pending stays pending however little of it the evidence still sees, since a
 /// finished switch leaves nothing that names it. Each run says whether a recheck should follow; a launch that changed
-/// nothing because it was held asks for none, since its record still carries the holders an earlier launch found. A
-/// launch raises the prompt for an install once at most, and an install the prompt or its deletion left waits for
-/// <see cref="FinishAsync"/>.</summary>
+/// nothing because it was held asks for none, since its record still carries the holders an earlier launch found. Only
+/// the launch run and <see cref="FinishAsync"/> reach the administrator prompt: a retry for a deferred daemon move and
+/// a recheck never do, so the prompt never appears mid-session unasked.</summary>
 internal sealed class AdoptionBatch(
         IAdoptionMachine machine, AdoptionRecordStore store, AsideRetirement retirement, AdoptionIntegrations integrations,
         AdoptionPathStep path, AdoptionNotices notices, IAppStateStore appState, HarnessRegistry harnesses, AdoptionBundle bundle,
@@ -23,10 +23,6 @@ internal sealed class AdoptionBatch(
     readonly AdoptionServiceMove _services = new(machine, bundle, log);
     readonly AdoptionDeletion    _deletion = new(machine, store, retirement, harnesses, bundle.Root, log);
     readonly HashSet<string> _rootOwned = new(PathComparison.Comparer);
-
-    // Root-owned installs this launch has taken to the privileged step, prompted or held: a later run of the same
-    // launch leaves them, so a prompt never appears mid-session unasked.
-    readonly HashSet<string> _attempted = new(PathComparison.Comparer);
     AdoptionPrivilegedStep? _privileged;
     volatile bool _awaitingDaemon;
     volatile bool _awaitingIdle;
@@ -39,22 +35,30 @@ internal sealed class AdoptionBatch(
     /// the daemon turning idle settles. A refusal the daemon or the install gave waits for a recheck instead.</summary>
     public bool AwaitingIdle => _awaitingIdle;
 
-    /// <summary>Whether an install was left behind a cancelled administrator prompt or a deletion cut short, which
-    /// only <see cref="FinishAsync"/> takes further.</summary>
-    public bool FinishOffered =>
-        store.Load().Installs.Any(i => i is { State: InstallState.Left, Reason: LeftReason.PromptCancelled or LeftReason.DeletionCutShort });
+    /// <summary>Whether an install waits on <see cref="FinishAsync"/>: left behind a cancelled administrator prompt or
+    /// a deletion cut short, or left for the app being installed for one user, once it runs from /Applications.</summary>
+    public bool FinishOffered => store.Load().Installs.Any(i => i.State == InstallState.Left && i.Reason switch {
+        LeftReason.PromptCancelled or LeftReason.DeletionCutShort => true,
+        LeftReason.SharedInstallPrivateApp                        => bundle.InSystemApplications,
+        _                                                         => false,
+    });
 
     AdoptionPrivilegedStep Privileged =>
         _privileged ??= new(machine, store, retirement, _deletion, path, administrator, bundle, helperFolder, log);
 
-    public Task<bool> RunOnceAsync(CancellationToken ct) => RunAsync(finishing: false, ct);
+    /// <summary>The launch's own run.</summary>
+    public Task<bool> RunOnceAsync(CancellationToken ct) => RunAsync(prompt: true, finishing: false, ct);
+
+    /// <summary>The batch again for a daemon move it deferred. A root-owned install it moves waits for the next launch
+    /// or Finish switching.</summary>
+    public Task<bool> RetryAsync(CancellationToken ct) => RunAsync(prompt: false, finishing: false, ct);
 
     /// <summary>The batch again, with every install left behind a cancelled prompt, a deletion cut short or an app
     /// installed for one user taken back in, and the prompt raised again where one is needed: nothing else retries
-    /// them. On a machine already recorded as switched it touches only those installs.</summary>
-    public Task<bool> FinishAsync(CancellationToken ct) => RunAsync(finishing: true, ct);
+    /// them. A machine already switched stays switched.</summary>
+    public Task<bool> FinishAsync(CancellationToken ct) => RunAsync(prompt: true, finishing: true, ct);
 
-    async Task<bool> RunAsync(bool finishing, CancellationToken ct) {
+    async Task<bool> RunAsync(bool prompt, bool finishing, CancellationToken ct) {
         _awaitingDaemon = false;
         _awaitingIdle   = false;
         await Privileged.SettleAsync(ct).ConfigureAwait(false);
@@ -70,11 +74,8 @@ internal sealed class AdoptionBatch(
         foreach (var found in evidence.Installs) log("adoption_found", AdoptionEvent.For(found));
 
         var record   = store.Load();
-        var reopened = finishing ? record.Installs.Where(Finishable).Select(i => i.Install).ToList() : [];
-        if (reopened.Count > 0 && record.MachineSwitched)
-            evidence = evidence with { Installs = [.. evidence.Installs.Where(i => reopened.Any(r => AdoptionPreflight.SameRoot(r, i)))] };
-
-        var plan = AdoptionPreflight.Plan(evidence, reopened.Count > 0 ? Reopen(record) : record, bundle.Version, bundle.Cli,
+        var reopened = finishing && record.Installs.Any(Finishable);
+        var plan = AdoptionPreflight.Plan(evidence, reopened ? Reopen(record) : record, bundle.Version, bundle.Cli,
             bundle.InSystemApplications, userCanWrite, stableFolders);
         if (plan.HoldReason is { } hold) {
             log("adoption_held", [("reason", hold)]);
@@ -82,11 +83,8 @@ internal sealed class AdoptionBatch(
         }
 
         record = CompleteByHand(evidence, record);
-        if (reopened.Count > 0) record = store.Update(Reopen);
-        if (record.MachineSwitched) {
-            Report(plan.Reported, record);
-            return Finish([]);
-        }
+        if (reopened) record = store.Update(Reopen);
+        if (record.MachineSwitched) Report(plan.Reported, record);
 
         if (plan.Installs.Count > 0 || record.Pending) record = RecordIntent(plan.Installs);
         if (plan.Installs.Count > 0) await appState.UpdateAsync(s => s.ShimOffered ? s : s with { ShimOffered = true }).ConfigureAwait(false);
@@ -111,10 +109,11 @@ internal sealed class AdoptionBatch(
             await _deletion.SettleAsync(userOwned, processes, sites, unfinished, ct).ConfigureAwait(false);
         }
 
-        foreach (var install in moved.Where(i => _rootOwned.Contains(Key(i)))) {
-            if (!_attempted.Add(Key(install)) && !finishing) continue;
-            var planned = plan.Installs.FirstOrDefault(p => AdoptionPreflight.SameRoot(p.Install, install));
-            await Privileged.RunAsync(install, planned, evidence, unfinished, ct).ConfigureAwait(false);
+        if (prompt) {
+            foreach (var install in moved.Where(i => _rootOwned.Contains(Key(i)))) {
+                var planned = plan.Installs.FirstOrDefault(p => AdoptionPreflight.SameRoot(p.Install, install));
+                await Privileged.RunAsync(install, planned, evidence, unfinished, ct).ConfigureAwait(false);
+            }
         }
 
         return Finish(userOwned);
@@ -154,7 +153,6 @@ internal sealed class AdoptionBatch(
         Installs = [.. record.Installs.Select(i => Finishable(i)
             ? i with { State = InstallState.Pending, Reason = null, HeldBy = null, HolderPid = null, HolderStartToken = null }
             : i)],
-        MachineSwitched = false,
     };
 
     static string Key(OtherCliInstall install) => CanonicalPath.Resolve(install.Root);

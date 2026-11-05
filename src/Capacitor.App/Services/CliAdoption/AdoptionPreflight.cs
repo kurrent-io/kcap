@@ -11,25 +11,32 @@ public static class AdoptionPreflight {
             AdoptionEvidence evidence, AdoptionRecord record, string appVersion, string bundleCli, bool appInSystemApplications,
             Func<string, bool> userCanWrite, IReadOnlyList<string> stableFolders) {
         if (evidence.Installs.Count == 0) return new AdoptionPlan(null, [], false, []);
-        if (record.MachineSwitched) return new AdoptionPlan(null, [], false, evidence.Installs);
+
+        // A switched machine takes further only what its record still holds pending, as Finish switching reopens it:
+        // any other install found is reported, never removed.
+        IReadOnlyList<OtherCliInstall> found =
+            record.MachineSwitched ? [.. evidence.Installs.Where(i => HeldPending(i, record))] : evidence.Installs;
+        IReadOnlyList<OtherCliInstall> reported =
+            record.MachineSwitched ? [.. evidence.Installs.Where(i => !HeldPending(i, record))] : [];
+        if (found.Count == 0) return new AdoptionPlan(null, [], false, reported);
 
         var locations = new[] { evidence.KcapOnLoginPath }.Concat(evidence.Units.Select(u => u.KcapOnStoredPath))
             .OfType<string>().DistinctBy(LinkKey, PathComparison.Comparer).ToList();
 
-        var installs = evidence.Installs.Select(i => RecordedLeft(i, record) is { } kept
+        var installs = found.Select(i => RecordedLeft(i, record) is { } kept
             ? PlanInstall(i, evidence, locations, bundleCli, appInSystemApplications, userCanWrite) with { Left = kept }
             : PlanInstall(i, evidence, locations, bundleCli, appInSystemApplications, userCanWrite)).ToList();
 
-        var hold = evidence.Installs.Any(i => PrereleaseSemver.IsNewer(i.Version, appVersion)) ? NewerInstall
-            : evidence.LoginPath is null                                                       ? PathUnknown
-                                                                                               : null;
+        var hold = found.Any(i => PrereleaseSemver.IsNewer(i.Version, appVersion)) ? NewerInstall
+            : evidence.LoginPath is null                                         ? PathUnknown
+                                                                                 : null;
 
         var eligible = installs.Where(p => p.Left is null).ToList();
         var stable = stableFolders.Select(CanonicalPath.Resolve).ToList();
         var needsStable = eligible.Count > 0 && (locations.Count == 0 || evidence.KcapOnLoginPath is null
             || eligible.SelectMany(p => p.Links).Any(l => !stable.Contains(CanonicalPath.Resolve(Path.GetDirectoryName(l.Path)!), PathComparison.Comparer)));
 
-        return new AdoptionPlan(hold, installs, needsStable, []);
+        return new AdoptionPlan(hold, installs, needsStable, reported);
     }
 
     static InstallPlan PlanInstall(
@@ -65,6 +72,9 @@ public static class AdoptionPreflight {
     /// The record keeps one entry per install folder, however the folder is spelled.
     internal static bool SameRoot(OtherCliInstall a, OtherCliInstall b) =>
         PathComparison.Equal(CanonicalPath.Resolve(a.Root), CanonicalPath.Resolve(b.Root));
+
+    static bool HeldPending(OtherCliInstall install, AdoptionRecord record) =>
+        record.Installs.Any(r => r.State == InstallState.Pending && SameRoot(r.Install, install) && r.Install.Identity == install.Identity);
 
     static LeftReason? RecordedLeft(OtherCliInstall install, AdoptionRecord record) =>
         record.Installs.FirstOrDefault(r => SameRoot(r.Install, install))

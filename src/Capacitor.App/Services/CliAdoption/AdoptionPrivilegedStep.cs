@@ -20,8 +20,7 @@ internal sealed class AdoptionPrivilegedStep(
     internal static readonly TimeSpan SettleWait = GoWait + TimeSpan.FromMinutes(1);
 
     /// <summary>Settles the helper run the record names, which a quit or crash left unfinished: waits for it to exit,
-    /// then reads the files. An install still in place is pending; one fully gone is switched; anything between can be
-    /// finished only by an administrator, so it is left for Finish switching, without a prompt.</summary>
+    /// then reads the files as <see cref="SettleFromFiles"/> does, without a prompt.</summary>
     public async Task SettleAsync(CancellationToken ct) {
         if (store.Load().Privileged is not { } helper) return;
         if (helper.Pid is { } pid) await machine.WaitForExitAsync(pid, helper.StartToken, SettleWait, ct).ConfigureAwait(false);
@@ -29,16 +28,7 @@ internal sealed class AdoptionPrivilegedStep(
         var root = CanonicalPath.Resolve(helper.InstallRoot);
         var settled = store.Load().Installs.FirstOrDefault(i =>
             i.State == InstallState.Pending && PathComparison.Equal(CanonicalPath.Resolve(i.Install.Root), root));
-        if (settled is { Install: var install }) {
-            var entries = Entries(install);
-            var asides  = entries.Count(e => retirement.Find(e) is { } aside && Exists(aside.Aside));
-            var present = entries.Count(Exists);
-            if (asides == 0 && present == entries.Count) log("adoption_privileged", AdoptionEvent.For(install, "settled", "in_place"));
-            else if (asides == 0 && present == 0) {
-                log("adoption_privileged", AdoptionEvent.For(install, "settled", "deleted"));
-                deletion.Switch(install, []);
-            } else Leave(install, LeftReason.DeletionCutShort);
-        }
+        if (settled is { Install: var install }) SettleFromFiles(install, helper.GoSent);
         store.Update(r => r with { Privileged = null });
     }
 
@@ -49,6 +39,10 @@ internal sealed class AdoptionPrivilegedStep(
     public async Task RunAsync(
             OtherCliInstall install, InstallPlan? plan, AdoptionEvidence evidence, IReadOnlyList<string>? unfinished, CancellationToken ct) {
         if (store.Load().CutoverUtc is not { } cutover) return;
+        if (!bundle.InSystemApplications) {
+            Leave(install, LeftReason.SharedInstallPrivateApp);
+            return;
+        }
         if (await HolderAsync(install, cutover, unfinished, ct).ConfigureAwait(false) is { } holder) {
             deletion.Hold(install, holder);
             return;
@@ -92,10 +86,33 @@ internal sealed class AdoptionPrivilegedStep(
                 Leave(install, LeftReason.PromptCancelled);
                 break;
             case PrivilegedResult.CutShort:
-                Leave(install, LeftReason.DeletionCutShort);
+                if (SettleFromFiles(install, store.Load().Privileged?.GoSent ?? false) == InstallState.Pending) path.Release(links);
                 break;
         }
         store.Update(r => r with { Privileged = null });
+    }
+
+    /// <summary>What a helper that ended without its outcome left, read from the files. Every entry in place, with
+    /// nothing set aside: pending, a working state if its links moved. Nothing left: switched. Anything between can be
+    /// finished only as root, so it is left for Finish switching. Before go the helper sets nothing aside, so whatever
+    /// was set aside then is an earlier run's, and needs root all the same.</summary>
+    InstallState SettleFromFiles(OtherCliInstall install, bool goSent) {
+        var entries = Entries(install);
+        var asides  = entries.Count(e => retirement.Find(e) is { } aside && Exists(aside.Aside));
+        var present = entries.Count(Exists);
+        var goField = ("go_sent", goSent ? "true" : "false");
+        if (asides == 0 && present == entries.Count) {
+            log("adoption_privileged", [.. AdoptionEvent.For(install, "settled", "in_place"), goField]);
+            return InstallState.Pending;
+        }
+        if (asides == 0 && present == 0) {
+            log("adoption_privileged", [.. AdoptionEvent.For(install, "settled", "deleted"), goField]);
+            deletion.Switch(install, []);
+            return InstallState.Switched;
+        }
+        log("adoption_privileged", [.. AdoptionEvent.For(install, "settled", "cut_short"), goField]);
+        Leave(install, LeftReason.DeletionCutShort);
+        return InstallState.Left;
     }
 
     internal static string Prompt(OtherCliInstall install) =>
