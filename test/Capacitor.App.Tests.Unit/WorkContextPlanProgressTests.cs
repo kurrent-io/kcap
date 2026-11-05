@@ -68,8 +68,8 @@ public class WorkContextPlanProgressTests {
         }).ToList(),
     }]);
 
-    /// The default selection moves off a PR its overview reads as merged, so a note tied to the
-    /// selected PR would never show here; the session's merged PR must still be named.
+    /// The default selection moves off a PR its overview reads as merged, so the merged PR here is
+    /// never the selected one and the note must name it anyway.
     [Test]
     public Task A_merged_session_PR_is_named_while_another_is_selected_and_selection_does_not_move_the_note() => RunOnUiAsync(async () => {
         await using var h = new Harness();
