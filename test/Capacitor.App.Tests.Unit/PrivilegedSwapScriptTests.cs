@@ -27,7 +27,7 @@ public class PrivilegedSwapScriptTests {
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(run.Words()).IsEquivalentTo(["swapped", "deleted"]);
-        foreach (var (entry, _, _) in spec.Entries) {
+        foreach (var (entry, _, _, _) in spec.Entries) {
             await Assert.That(Path.Exists(entry.Original)).IsFalse();
             await Assert.That(Path.Exists(entry.Aside)).IsFalse();
         }
@@ -94,7 +94,7 @@ public class PrivilegedSwapScriptTests {
         await Assert.That(run.Words()).IsEquivalentTo(["restored"]);
         await Assert.That(new FileInfo(install.Links[0].Path).LinkTarget).IsEqualTo(install.Links[0].Original);
         await Assert.That(new FileInfo(changed).LinkTarget).IsEqualTo(someone);
-        foreach (var (entry, _, _) in spec.Entries) await Assert.That(File.Exists(Path.Combine(entry.Original, "package.json"))).IsTrue();
+        foreach (var (entry, _, _, _) in spec.Entries) await Assert.That(File.Exists(Path.Combine(entry.Original, "package.json"))).IsTrue();
     }
 
     /// <summary>The second package fails its own check after the first passed, so both come back.</summary>
@@ -119,7 +119,7 @@ public class PrivilegedSwapScriptTests {
 
         await Assert.That(result.ExitCode).IsNotEqualTo(0);
         await Assert.That(run.Words()).IsEquivalentTo(["swapped", "restored"]);
-        foreach (var (entry, _, _) in spec.Entries) {
+        foreach (var (entry, _, _, _) in spec.Entries) {
             await Assert.That(Directory.Exists(entry.Original)).IsTrue();
             await Assert.That(Path.Exists(entry.Aside)).IsFalse();
         }
@@ -138,7 +138,7 @@ public class PrivilegedSwapScriptTests {
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(run.Words()).IsEquivalentTo(["swapped", "deleted"]);
-        foreach (var (entry, _, _) in spec.Entries) {
+        foreach (var (entry, _, _, _) in spec.Entries) {
             await Assert.That(Path.Exists(entry.Original) || new FileInfo(entry.Original).LinkTarget is not null).IsFalse();
             await Assert.That(Path.Exists(entry.Aside) || new FileInfo(entry.Aside).LinkTarget is not null).IsFalse();
         }
@@ -162,7 +162,7 @@ public class PrivilegedSwapScriptTests {
         await Assert.That(Directory.Exists(Path.Combine(root, "versions", "1.4.1"))).IsTrue();
         await Assert.That(new FileInfo(Path.Combine(root, "current")).LinkTarget).IsEqualTo("versions/1.4.1");
         await Assert.That(Directory.Exists(marker)).IsTrue();
-        foreach (var (entry, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Aside)).IsFalse();
+        foreach (var (entry, _, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Aside)).IsFalse();
         await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Original);
     }
 
@@ -180,7 +180,7 @@ public class PrivilegedSwapScriptTests {
 
         await Assert.That(result.ExitCode).IsEqualTo(0);
         await Assert.That(run.Words()).IsEquivalentTo(["swapped", "deleted"]);
-        foreach (var (entry, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Original)).IsFalse();
+        foreach (var (entry, _, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Original)).IsFalse();
         foreach (var link in install.Links) await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Replacement);
         await Assert.That(File.Exists(pwned)).IsFalse();
     }
@@ -194,7 +194,7 @@ public class PrivilegedSwapScriptTests {
         await run.WaitForAsync("swapped");
         await Task.Delay(TimeSpan.FromMilliseconds(300));
 
-        foreach (var (entry, _, _) in spec.Entries) {
+        foreach (var (entry, _, _, _) in spec.Entries) {
             await Assert.That(File.Exists(Path.Combine(entry.Original, "package.json"))).IsTrue();
             await Assert.That(Path.Exists(entry.Aside)).IsFalse();
         }
@@ -223,7 +223,7 @@ public class PrivilegedSwapScriptTests {
         await run.ExitAsync();
 
         await Assert.That(run.Words()).IsEquivalentTo(["swapped", "deleted"]);
-        foreach (var (entry, _, _) in spec.Entries) {
+        foreach (var (entry, _, _, _) in spec.Entries) {
             await Assert.That(Path.Exists(entry.Original)).IsFalse();
             await Assert.That(Path.Exists(entry.Aside)).IsFalse();
         }
@@ -262,14 +262,17 @@ public class PrivilegedSwapScriptTests {
     [Arguments("missing folder")]
     public async Task A_status_path_the_script_cannot_create_ends_the_run_before_any_write(string trap) {
         var install = PrivilegedNpmInstall.Create(Tmp);
-        var spec    = install.Spec(Tmp) with { StatusFile = Tmp.PathTo("status folder", "status") };
+        var spec    = install.Spec(Tmp, helper: "status folder");
         var target  = Tmp.PathTo("link target");
 
         await using var run = Run.Start(Tmp, spec, arrange: () => {
             switch (trap) {
                 case "occupied":      File.WriteAllText(spec.StatusFile, "keep"); break;
                 case "dangling link": File.CreateSymbolicLink(spec.StatusFile, target); break;
-                default:              Directory.Delete(Tmp.PathTo("status folder")); break;
+                default:
+                    File.Delete(spec.ControlFifo);
+                    Directory.Delete(Tmp.PathTo("status folder"));
+                    break;
             }
         });
         var result = await run.ExitAsync();
@@ -308,6 +311,92 @@ public class PrivilegedSwapScriptTests {
         await install.AssertUntouchedAsync(spec);
     }
 
+    /// <summary>The kind is the app's, fixed before the prompt: an entry that was something else already when the helper
+    /// started is moved back with the rest.</summary>
+    [Test]
+    [Arguments("script current is a directory")]
+    [Arguments("npm package is a link")]
+    public async Task An_entry_that_is_not_its_expected_kind_moves_the_install_back(string trap) {
+        PrivilegedSpec spec;
+        IReadOnlyList<LinkChange> links;
+        if (trap == "script current is a directory") {
+            (spec, var root, var link) = ScriptInstall();
+            File.Delete(Path.Combine(root, "current"));
+            Directory.CreateDirectory(Path.Combine(root, "current", "bin"));
+            links = [link];
+        } else {
+            var install  = PrivilegedNpmInstall.Create(Tmp);
+            spec         = install.Spec(Tmp);
+            links        = install.Links;
+            var launcher = spec.Entries[0].Entry.Original;
+            var checkout = Tmp.PathTo("checkout");
+            Directory.Move(launcher, checkout);
+            Directory.CreateSymbolicLink(launcher, checkout);
+        }
+        var before = spec.Entries.Select(e => new FileInfo(e.Entry.Original).LinkTarget ?? (Directory.Exists(e.Entry.Original) ? "d" : "f")).ToList();
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        var result = await run.ExitAsync();
+
+        await Assert.That(result.ExitCode).IsEqualTo(5);
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped", "restored"]);
+        await Assert.That(spec.Entries.Select(e => new FileInfo(e.Entry.Original).LinkTarget ?? (Directory.Exists(e.Entry.Original) ? "d" : "f")).ToList())
+            .IsEquivalentTo(before);
+        foreach (var (entry, _, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Aside) || new FileInfo(entry.Aside).LinkTarget is not null).IsFalse();
+        foreach (var link in links) await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Original);
+    }
+
+    /// <summary>Refused before the prompt: nothing reaches root without the check its kind needs.</summary>
+    [Test]
+    [Arguments("npm folder without a marker")]
+    [Arguments("marker without substrings")]
+    [Arguments("marker on a link")]
+    [Arguments("script entry as another kind")]
+    [Arguments("substrings without a marker")]
+    public async Task An_entry_without_the_check_it_needs_is_refused(string trap) {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        var (aside, kind, marker, contains) = spec.Entries[0];
+        var (scriptSpec, _, _) = ScriptInstall();
+        PrivilegedEntry entry = trap switch {
+            "npm folder without a marker"  => new(aside, kind, null, []),
+            "marker without substrings"    => new(aside, kind, marker, []),
+            "marker on a link"             => new(aside, PrivilegedEntryKind.Link, marker, contains),
+            "script entry as another kind" => scriptSpec.Entries[1] with { Kind = PrivilegedEntryKind.Directory },
+            _                              => scriptSpec.Entries[2] with { MarkerContains = ["stable"] },
+        };
+        var refused = spec with { Entries = [entry] };
+
+        await Assert.That(() => PrivilegedSwapScript.Render(refused)).Throws<ArgumentException>();
+        await Assert.That(() => PrivilegedSwapScript.Arguments(refused, PrivilegedSwap.CurrentUid())).Throws<ArgumentException>();
+    }
+
+    /// <summary>The folder check sees the status file's folder as written, and the control pipe must sit in it too.</summary>
+    [Test]
+    [Arguments("double slash")]
+    [Arguments("dot segment")]
+    [Arguments("control pipe elsewhere")]
+    public async Task A_channel_path_the_folder_check_would_not_cover_is_refused(string trap) {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        var linked  = Tmp.PathTo("linked helper");
+        Directory.CreateSymbolicLink(linked, Tmp.CreateDir("real helper"));
+        var refused = trap switch {
+            "double slash" => spec with { ControlFifo = linked + "//control", StatusFile = linked + "//status" },
+            "dot segment"  => spec with { ControlFifo = linked + "/./control", StatusFile = linked + "/./status" },
+            _              => spec with { ControlFifo = Tmp.PathTo("elsewhere", "control") },
+        };
+
+        await Assert.That(() => PrivilegedSwapScript.Render(refused)).Throws<ArgumentException>();
+        await Assert.That(() => PrivilegedSwapScript.Arguments(refused, PrivilegedSwap.CurrentUid())).Throws<ArgumentException>();
+    }
+
+    static readonly (string Name, PrivilegedEntryKind Kind)[] Layout = [
+        ("versions", PrivilegedEntryKind.Directory), ("current", PrivilegedEntryKind.Link), ("install.json", PrivilegedEntryKind.File),
+    ];
+
     /// <summary>A script install's root as a root-owned install folder would hold it: <c>versions</c>, a relative
     /// <c>current</c> link and <c>install.json</c>, each checked by kind only, beside data the installer does not
     /// own; a PATH link points through <c>current</c>.</summary>
@@ -326,7 +415,7 @@ public class PrivilegedSwapScriptTests {
         var retirement = new AsideRetirement(new ConfigRoot(Tmp.CreateDir("config")), "cli-adoption-retire");
         var link       = new LinkChange(path, old, bundle);
         var spec = new PrivilegedSpec(
-            [link], [.. new[] { "versions", "current", "install.json" }.Select(n => new PrivilegedEntry(retirement.Plan(Path.Combine(root, n)), null, []))],
+            [link], [.. Layout.Select(e => new PrivilegedEntry(retirement.Plan(Path.Combine(root, e.Name)), e.Kind, null, []))],
             Tmp.PathTo("helper", "control"), Tmp.PathTo("helper", "status"), TimeSpan.FromSeconds(30));
         return (spec, root, link);
     }

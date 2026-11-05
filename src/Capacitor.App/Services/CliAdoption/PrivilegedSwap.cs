@@ -34,8 +34,9 @@ internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionReco
     /// The helper reports swapped a few renames after its pid; one silent for this long is told to put back.
     static readonly TimeSpan SwapWait = TimeSpan.FromSeconds(30);
 
-    /// <summary>Deleted or PutBack only on the helper's own report. A helper that never reported its pid never ran, so
-    /// any failure to that point is Cancelled; one that ran without reporting either outcome is CutShort.</summary>
+    /// <summary>Deleted or PutBack only on the helper's own report. A helper that never reported its pid changed nothing,
+    /// whether it never started or refused its status folder, so any failure to that point is Cancelled; one that
+    /// reported its pid but neither outcome is CutShort.</summary>
     public async Task<PrivilegedResult> RunAsync(
             string installRoot, PrivilegedSpec spec, string prompt, Func<CancellationToken, Task<bool>> verify, CancellationToken ct) {
         string[] args = ["-e", AppleScript, "--", prompt, PrivilegedSwapScript.Render(spec), .. PrivilegedSwapScript.Arguments(spec, CurrentUid())];
