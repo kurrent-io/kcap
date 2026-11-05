@@ -32,27 +32,28 @@ internal sealed class AdoptionPrivilegedStep(
         store.Update(r => r with { Privileged = null });
     }
 
-    /// <summary>Asks nothing while something still holds the install, and nothing at all once none of it is left. The
-    /// helper swaps <paramref name="plan"/>'s links, which are the ones this launch found still finding the install.</summary>
+    /// <summary>Asks nothing once none of the install is left, which switches it, nor while the app runs from
+    /// ~/Applications or something still holds the install. The helper swaps <paramref name="plan"/>'s links, which are
+    /// the ones this launch found still finding the install.</summary>
     /// <param name="unfinished">Entries whose aside an earlier run could not delete: the helper deletes them; null when
     /// the retirement record could not be read, which holds the install.</param>
     public async Task RunAsync(
             OtherCliInstall install, InstallPlan? plan, AdoptionEvidence evidence, IReadOnlyList<string>? unfinished, CancellationToken ct) {
         if (store.Load().CutoverUtc is not { } cutover) return;
-        if (!bundle.InSystemApplications) {
-            Leave(install, LeftReason.SharedInstallPrivateApp);
-            return;
-        }
-        if (await HolderAsync(install, cutover, unfinished, ct).ConfigureAwait(false) is { } holder) {
-            deletion.Hold(install, holder);
-            return;
-        }
 
         var links   = plan?.Links ?? [];
         var entries = Entries(install);
         if (links.Count == 0 && !entries.Any(e => Exists(e) || retirement.Find(e) is { } aside && Exists(aside.Aside))) {
             log("adoption_retired", AdoptionEvent.For(install, "ok", NothingLeft));
             deletion.Switch(install, []);
+            return;
+        }
+        if (!bundle.InSystemApplications) {
+            Leave(install, LeftReason.SharedInstallPrivateApp);
+            return;
+        }
+        if (await HolderAsync(install, cutover, unfinished, ct).ConfigureAwait(false) is { } holder) {
+            deletion.Hold(install, holder);
             return;
         }
 

@@ -12,12 +12,13 @@ public static class AdoptionPreflight {
             Func<string, bool> userCanWrite, IReadOnlyList<string> stableFolders) {
         if (evidence.Installs.Count == 0) return new AdoptionPlan(null, [], false, []);
 
-        // A switched machine takes further only what its record still holds pending, as Finish switching reopens it:
-        // any other install found is reported, never removed.
+        // A switched machine takes further only what Finish switching took back in: an install its record holds
+        // pending, or one that run left for a reason checked again each launch. Any other install found is reported,
+        // never removed.
         IReadOnlyList<OtherCliInstall> found =
-            record.MachineSwitched ? [.. evidence.Installs.Where(i => HeldPending(i, record))] : evidence.Installs;
+            record.MachineSwitched ? [.. evidence.Installs.Where(i => Carried(i, record))] : evidence.Installs;
         IReadOnlyList<OtherCliInstall> reported =
-            record.MachineSwitched ? [.. evidence.Installs.Where(i => !HeldPending(i, record))] : [];
+            record.MachineSwitched ? [.. evidence.Installs.Where(i => !Carried(i, record))] : [];
         if (found.Count == 0) return new AdoptionPlan(null, [], false, reported);
 
         // A link no PATH here finds first is still another account's or another shell's kcap, gone with the install.
@@ -74,8 +75,10 @@ public static class AdoptionPreflight {
     internal static bool SameRoot(OtherCliInstall a, OtherCliInstall b) =>
         PathComparison.Equal(CanonicalPath.Resolve(a.Root), CanonicalPath.Resolve(b.Root));
 
-    static bool HeldPending(OtherCliInstall install, AdoptionRecord record) =>
-        record.Installs.Any(r => r.State == InstallState.Pending && SameRoot(r.Install, install) && r.Install.Identity == install.Identity);
+    static bool Carried(OtherCliInstall install, AdoptionRecord record) =>
+        record.Installs.Any(r =>
+            (r.State == InstallState.Pending || r is { State: InstallState.Left, Reason: { } reason } && Rederived(reason))
+         && SameRoot(r.Install, install) && r.Install.Identity == install.Identity);
 
     static LeftReason? RecordedLeft(OtherCliInstall install, AdoptionRecord record) =>
         record.Installs.FirstOrDefault(r => SameRoot(r.Install, install))
