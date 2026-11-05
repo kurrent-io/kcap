@@ -8,9 +8,13 @@ namespace Capacitor.App.Services.CliAdoption;
 /// <summary>Moves each install's daemon services onto the bundle's daemon and proves every one of them moved. The lane
 /// proves only the app's own daemon, and only while it runs: the repoint also moves the install's other services and
 /// its stopped ones, and each of those counts when its plist names the bundle's daemon and launchd holds no job under
-/// its label or one loaded from that daemon. A service that ran before must be running again.</summary>
-internal sealed class AdoptionServiceMove(IAdoptionMachine machine, AdoptionBundle bundle, Action<string, (string Key, string? Value)[]> log) {
-    const string DaemonBusy = "daemon_busy";
+/// its label or one loaded from that daemon. A service that ran before must be running again. Once the repoint has
+/// rewritten a unit nothing names the install any more, so a move its CLI ran without the lane proving it is recorded
+/// unproven, and the install is kept as the fallback until a later run proves those units moved.</summary>
+internal sealed class AdoptionServiceMove(
+        IAdoptionMachine machine, AdoptionRecordStore store, AdoptionBundle bundle, Action<string, (string Key, string? Value)[]> log) {
+    const string DaemonBusy   = "daemon_busy";
+    const string MoveUnproven = "move_unproven";
 
     /// <summary>A refusal a later attempt can get past: the daemon was not at a safe point, or the install changed.</summary>
     internal static bool Deferred(MutationOutcome outcome) =>
@@ -25,11 +29,13 @@ internal sealed class AdoptionServiceMove(IAdoptionMachine machine, AdoptionBund
         var deferred = new List<(OtherCliInstall, string)>();
         var ran      = false;
         foreach (var install in installs) {
-            var units = evidence.Units.Where(u => Inside(install, u.Program) || Inside(install, u.LoadedProgram)).ToList();
-            if (units.Count == 0) {
+            var units    = evidence.Units.Where(u => Inside(install, u.Program) || Inside(install, u.LoadedProgram)).ToList();
+            var unproven = Unproven(store.Load(), install);
+            if (units.Count == 0 && unproven is null) {
                 moved.Add(install);
                 continue;
             }
+            var proving = units.Concat(unproven?.Units.Where(r => !units.Exists(u => u.Name == r.Name)) ?? []).ToList();
 
             var outcome = await machine.RepointAsync(install, c => StillSameAsync(install, units, c), ct).ConfigureAwait(false);
             ran |= outcome is not MutationOutcome.Refused;
@@ -40,11 +46,14 @@ internal sealed class AdoptionServiceMove(IAdoptionMachine machine, AdoptionBund
                 deferred.Add((install, reason));
                 continue;
             }
-            if (await FailureAsync(outcome, units, ct).ConfigureAwait(false) is { } failure) {
-                log("adoption_repoint", AdoptionEvent.For(install, "failed", failure));
+            if (await FailureAsync(outcome, proving, ct).ConfigureAwait(false) is { } failure) {
+                log("adoption_repoint", AdoptionEvent.For(install, "failed", failure.Reason));
+                // Not rolled back to the old plist: the CLI already rolls back a bootstrap that fails.
+                if (outcome is not (MutationOutcome.Refused or MutationOutcome.Succeeded)) RecordUnproven(install, failure.Daemon, proving);
                 continue;
             }
             log("adoption_repoint", AdoptionEvent.For(install, "ok"));
+            if (unproven is not null) store.Update(r => r with { UnprovenMoves = [.. r.UnprovenMoves.Where(m => !Names(m, install))] });
             moved.Add(install);
         }
 
@@ -69,27 +78,44 @@ internal sealed class AdoptionServiceMove(IAdoptionMachine machine, AdoptionBund
         return true;
     }
 
-    async Task<string?> FailureAsync(MutationOutcome outcome, List<ServiceUnitFact> units, CancellationToken ct) {
+    /// <summary>The move a repoint left unproven for <paramref name="install"/>, if any.</summary>
+    internal static UnprovenMove? Unproven(AdoptionRecord record, OtherCliInstall install) =>
+        record.UnprovenMoves.FirstOrDefault(m => Names(m, install));
+
+    static bool Names(UnprovenMove move, OtherCliInstall install) =>
+        PathComparison.Equal(CanonicalPath.Resolve(move.InstallRoot), CanonicalPath.Resolve(install.Root));
+
+    void RecordUnproven(OtherCliInstall install, string? daemon, List<ServiceUnitFact> units) {
+        store.Update(r => r with {
+            UnprovenMoves = [.. r.UnprovenMoves.Where(m => !Names(m, install)), new UnprovenMove(install.Root, daemon, units)],
+        });
+        log("adoption_kept", AdoptionEvent.For(install, reason: $"{MoveUnproven}:{daemon}"));
+    }
+
+    // The first reason the move is not proven, with the daemon it concerns. With no unit left to check, as from a record
+    // that lost them, only the lane's proof of the app's own daemon counts.
+    async Task<(string Reason, string? Daemon)?> FailureAsync(MutationOutcome outcome, List<ServiceUnitFact> units, CancellationToken ct) {
+        var own     = machine.AppDaemonName;
+        var ownUnit = own is null ? null : units.Find(u => Running(u) && DaemonStore.Sanitize(u.Name) == DaemonStore.Sanitize(own));
+        var blamed  = ownUnit?.Name ?? units.FirstOrDefault()?.Name ?? own;
         switch (outcome) {
-            case MutationOutcome.Refused refused: return refused.Reason;
-            case MutationOutcome.Failed failed:   return failed.Reason ?? $"exit_{failed.ExitCode}";
+            case MutationOutcome.Refused refused: return (refused.Reason, blamed);
+            case MutationOutcome.Failed failed:   return (failed.Reason ?? $"exit_{failed.ExitCode}", blamed);
         }
 
-        var own = machine.AppDaemonName;
-        if (own is not null && units.Exists(u => Running(u) && DaemonStore.Sanitize(u.Name) == DaemonStore.Sanitize(own))
-         && outcome is not MutationOutcome.Succeeded) return Describe(outcome);
+        if ((ownUnit is not null || units.Count == 0) && outcome is not MutationOutcome.Succeeded) return (Describe(outcome), blamed);
 
         foreach (var unit in units) {
-            if (!IsBundleDaemon(PlistProgram(unit.PlistPath))) return $"unit_not_moved:{unit.Name}";
+            if (!IsBundleDaemon(PlistProgram(unit.PlistPath))) return ($"unit_not_moved:{unit.Name}", unit.Name);
 
             LaunchdJob job;
             try {
                 job = await machine.ReadJobAsync(unit.Name, ct).ConfigureAwait(false);
             } catch (IOException) {
-                return $"unit_unknown:{unit.Name}";
+                return ($"unit_unknown:{unit.Name}", unit.Name);
             }
-            if (job.Loaded && !IsBundleDaemon(job.Program)) return $"unit_not_moved:{unit.Name}";
-            if (Running(unit) && job.Pid is null) return $"unit_stopped:{unit.Name}";
+            if (job.Loaded && !IsBundleDaemon(job.Program)) return ($"unit_not_moved:{unit.Name}", unit.Name);
+            if (Running(unit) && job.Pid is null) return ($"unit_stopped:{unit.Name}", unit.Name);
         }
 
         return null;

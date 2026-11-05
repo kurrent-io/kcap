@@ -20,7 +20,7 @@ internal sealed class AdoptionBatch(
     internal const string MachineSwitched     = "machine_switched";
     internal const string RemovedByHand       = "removed_by_hand";
 
-    readonly AdoptionServiceMove _services = new(machine, bundle, log);
+    readonly AdoptionServiceMove _services = new(machine, store, bundle, log);
     readonly AdoptionDeletion    _deletion = new(machine, store, retirement, harnesses, bundle.Root, log);
     readonly HashSet<string> _rootOwned = new(PathComparison.Comparer);
     readonly HashSet<string> _unrepointed = new(StringComparer.Ordinal);
@@ -301,6 +301,9 @@ internal sealed class AdoptionBatch(
                     break;
                 case InstallState.Pending when moved.Any(m => AdoptionPreflight.SameRoot(m, install)):
                     notices.Post(AdoptionNotices.SwitchedKey(install), AdoptionNotices.Switched(install, removed: false));
+                    break;
+                case InstallState.Pending when AdoptionServiceMove.Unproven(record, install) is { } unproven:
+                    notices.Post(AdoptionNotices.UnprovenKey(install), AdoptionNotices.Unproven(install, unproven.Daemon));
                     break;
                 case InstallState.Left when recorded.Reason is { } reason:
                     notices.Post(AdoptionNotices.LeftKey(install, reason, recorded.HeldBy), AdoptionNotices.Left(install, reason, recorded.HeldBy));

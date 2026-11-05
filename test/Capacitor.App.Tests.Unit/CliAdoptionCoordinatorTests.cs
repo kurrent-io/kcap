@@ -488,6 +488,47 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Record.Pending).IsTrue();
     }
 
+    /// <summary>The repoint drops its preimage once the bootstrap succeeds, so a successor the lane cannot prove has no
+    /// rollback, and once nothing names the install it must still stay as the fallback, told once, until a later run
+    /// sees the app's daemon answer from the bundle.</summary>
+    [Test]
+    public async Task A_daemon_move_the_lane_could_not_prove_keeps_the_install_until_a_later_run_proves_it() {
+        var world = new AdoptionWorld(Tmp);
+        var answers = false;
+        world.Machine.Repoint = _ => {
+            world.WritePlist(world.Bundle.Daemon);
+            world.Machine.Jobs[AdoptionWorld.DaemonName] = new LaunchdJob(true, AdoptionWorld.NewDaemonPid, world.Bundle.Daemon);
+            return answers ? new MutationOutcome.Succeeded() : new MutationOutcome.UnconfirmedNoAttach();
+        };
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Record.Pending).IsTrue();
+        await Assert.That(world.Notifier.Notified.Single()).Contains($"daemon '{AdoptionWorld.DaemonName}'");
+        await Assert.That(world.Notifier.Notified.Single()).Contains($"kept the npm install of kcap {AdoptionWorld.Version}");
+
+        using (var next = world.Launch()) {
+            await world.FirstLookAsync(next);
+            await world.RecheckAsync(next);
+        }
+
+        await Assert.That(world.Found().Installs).IsEmpty();
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+        await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+        await Assert.That(world.Machine.Repoints).IsEqualTo(2);
+        await Assert.That(world.Record.Pending).IsTrue();
+        await Assert.That(world.Notifier.Notified.Count).IsEqualTo(1);
+
+        answers = true;
+        using (var last = world.Launch()) await world.FirstLookAsync(last);
+
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(world.Record.UnprovenMoves).IsEmpty();
+        await Assert.That(world.Notifier.Notified.Count).IsEqualTo(2);
+        await Assert.That(world.Notifier.Notified[^1]).Contains("was removed");
+    }
+
     /// <summary>A service that was not running gets no successor to answer, so its plist is the proof, and launchd must
     /// hold no job for it: a stopped service is never started by the switch.</summary>
     [Test]
