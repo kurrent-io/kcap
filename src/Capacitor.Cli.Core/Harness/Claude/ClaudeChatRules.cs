@@ -56,8 +56,8 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
 
     static bool EndsWithPasteClose(ReadOnlySpan<char> text) {
         if (!text.EndsWith("\">", StringComparison.Ordinal)) return false;
-        var close = text.LastIndexOf(PasteClose, StringComparison.Ordinal);
-        return close >= 0 && !text[(close + PasteClose.Length)..^2].Contains('"');
+        var idStart = text.LastIndexOf(PasteClose, StringComparison.Ordinal) + PasteClose.Length;
+        return idStart >= PasteClose.Length && idStart <= text.Length - 2 && !text[idStart..^2].Contains('"');
     }
 
     public string? SubmittedInput(CanonicalEvent evt, AcpEventEnvelope raw, AcpEventEnvelope? displayed) {

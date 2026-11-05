@@ -67,6 +67,15 @@ public class ChatLiteralInputTests {
         await Assert.That(literal.SubmittedInputs).IsEquivalentTo(new[] { expected });
     }
 
+    /// A close tag whose id quote is the final quote leaves no id between them to read.
+    [Test]
+    public async Task A_message_ending_in_a_bare_close_tag_keeps_its_trailing_newline() {
+        const string raw = "\n\n<pasted_content id=\"a\">\nbody\n</pasted_content id=\"a\">\n</pasted_content id=\">\n";
+        const string expected = "body\n</pasted_content id=\">\n";
+        var literal = Claude(raw).RestoreSubmittedInputs(text => text.Trim() == expected.Trim());
+        await Assert.That(literal.SubmittedInputs).IsEquivalentTo(new[] { expected });
+    }
+
     [Test]
     public async Task A_live_slash_command_takes_precedence_over_an_older_literal_wrapper() {
         const string wrapper = "<command-name>/review</command-name><command-args>path</command-args>";
