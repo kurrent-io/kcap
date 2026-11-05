@@ -391,19 +391,22 @@ public class ResumeLedgerStoreTests {
         await Assert.That(entry.EndCommittedAt).IsEqualTo(committed);
     }
 
-    /// <summary>A lock held past the wait leaves the entry unmarked, since a write without it could lose what the holder
-    /// commits.</summary>
+    /// <summary>A write without the lock could lose what its holder commits, and an unmarked entry resumes at the next
+    /// start, so the failure names it, after the other entries are marked.</summary>
     [Test]
-    public async Task MarkInterrupted_leaves_an_entry_whose_lock_stays_held() {
+    public async Task MarkInterrupted_marks_the_rest_and_reports_an_entry_whose_lock_stays_held() {
         using var tmp   = new TempDaemonStore();
         var       store = ResumeLedgerStore.For(tmp.Store, "d1");
-        store.Write(Entry("a1"));
-        var before = store.TryRead("a1")!.State;
+        store.Write(Entry("held"));
+        store.Write(Entry("free"));
+        var before = store.TryRead("held")!.State;
 
-        using (ResumeEntryLock.TryAcquire(store.EntryPath("a1"), TimeSpan.FromSeconds(1))) {
-            await Assert.That(store.MarkInterrupted("stopped")).IsEqualTo(0);
+        using (ResumeEntryLock.TryAcquire(store.EntryPath("held"), TimeSpan.FromSeconds(1))) {
+            var failure = await Assert.That(() => store.MarkInterrupted("stopped")).Throws<IOException>();
+            await Assert.That(failure!.Message).Contains("held");
         }
 
-        await Assert.That(store.TryRead("a1")!.State).IsEqualTo(before);
+        await Assert.That(store.TryRead("held")!.State).IsEqualTo(before);
+        await Assert.That(store.TryRead("free")!.State).IsEqualTo(ResumeState.Interrupted);
     }
 }

@@ -122,14 +122,23 @@ public sealed class ResumeLedgerStore(string resumeDirectory, TimeProvider? time
     public int MarkInterrupted(string reason, Func<ResumeLedgerEntry, bool>? where = null) {
         var changed = 0;
 
-        // Under each entry's lock and from a fresh read, so a snapshot cannot replace a locked update. A holder that keeps
-        // the lock past the wait leaves its entry unmarked: writing without the lock could lose what it commits.
+        List<string>? held = null;
+
+        // Under each entry's lock and from a fresh read, so a snapshot cannot replace a locked update. A write without the
+        // lock could lose what its holder commits, so an entry that stays locked is reported after the rest are marked:
+        // left as it is, it resumes at the next start.
         foreach (var listed in ReadAll()) {
             // Only an entry this call means to mark is worth waiting on another agent's lock for.
             if (Interrupted(listed) is null) continue;
 
-            if (TryUpdateUnderLock(listed.AgentId, Interrupted, MarkLockWait) == LockedUpdate.Written) changed++;
+            var result = TryUpdateUnderLock(listed.AgentId, Interrupted, MarkLockWait);
+
+            if (result == LockedUpdate.Written) changed++;
+            else if (result == LockedUpdate.LockTimeout) (held ??= []).Add(listed.AgentId);
         }
+
+        if (held is not null)
+            throw new IOException($"the resume entry of {string.Join(", ", held)} stayed locked and may resume at the next start");
 
         return changed;
 
