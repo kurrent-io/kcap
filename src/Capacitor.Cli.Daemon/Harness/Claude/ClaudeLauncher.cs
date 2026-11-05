@@ -109,8 +109,9 @@ internal sealed partial class ClaudeLauncher(
 
     public bool SupportsReviewerResume => true;
 
-    /// <summary>The plugin carries Claude's hooks, so an account without it reports nothing.</summary>
-    public bool HooksWired(LauncherContext ctx) => ClaudePluginInstaller.RunsHooks(PathsFor(ctx.Account).UserSettings);
+    /// <summary>The plugin carries Claude's hooks, so a launch without it reports nothing. Read after
+    /// <see cref="Prepare"/>, which copies a project-scoped install into the worktree.</summary>
+    public bool HooksWired(LauncherContext ctx) => ClaudePluginInstaller.RunsHooks(PathsFor(ctx.Account).UserSettings, ctx.Worktree.Path);
 
     /// <summary>SessionStart fires once the REPL is up, behind onboarding, trust and whatever other
     /// startup screen a release adds.</summary>

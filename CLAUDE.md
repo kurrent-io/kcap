@@ -114,7 +114,7 @@ running notes file that every PR edits.
   prompt is lost. With hooks wired only SessionStart, a relayed turn or a fresh agent's transcript
   releases the hold; a timeout that falls back to pasting undoes this. An enabled plugin with no
   install record counts as wired, because Claude installs it on the first start, the one this exists
-  for. A follow-up is refused once the hold is overdue rather than parked on it: server input runs
+  for, and the project's settings outrank the account's. A follow-up is refused once the hold is overdue rather than parked on it: server input runs
   on the daemon's one sequential SignalR dispatch, so it would stall every other agent's stop and
   launch. Codex stays on the output checks, since nothing shows it fires SessionStart ahead of the
   first input, and if it fires on the first turn a hold deadlocks

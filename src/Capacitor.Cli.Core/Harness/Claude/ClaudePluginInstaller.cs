@@ -21,6 +21,8 @@ namespace Capacitor.Cli.Core.Harness.Claude;
 /// upgrade is meaningful — not just for command-string drift.
 /// </remarks>
 public static class ClaudePluginInstaller {
+    static readonly string[] KcapPluginKeys = ["kcap@kcap", "kcap@kurrent", "kapacitor@kapacitor", "kapacitor@kurrent"];
+
     public const string MarkerFileName = ".kcap-plugin-version";
 
     /// <summary>
@@ -105,12 +107,48 @@ public static class ClaudePluginInstaller {
     /// </summary>
     public static bool IsEffectivelyInstalled(string settingsPath) => EffectiveMcpJsonPath(settingsPath) is not null;
 
-    /// <summary>True when Claude will run the plugin's hooks: enabled, and either loadable or not
-    /// recorded yet, since Claude installs an enabled plugin on its first start. A record whose
-    /// payload is gone does not count.</summary>
-    public static bool RunsHooks(string settingsPath) =>
-        EnabledKcapPluginKey(settingsPath) is not null
-     && (IsEffectivelyInstalled(settingsPath) || !HasInstallRecord(settingsPath));
+    /// <summary>True when Claude will run the plugin's hooks in <paramref name="projectDir"/>. The
+    /// project's settings outrank the user's, and <c>kcap plugin install --project</c> writes there.
+    /// At user scope the plugin counts when it is loadable or not recorded yet, since Claude installs
+    /// an enabled plugin on its first start; a record that is unreadable or has lost its payload
+    /// does not count.</summary>
+    public static bool RunsHooks(string settingsPath, string projectDir) {
+        foreach (var name in (string[]) ["settings.local.json", "settings.json"])
+            if (EnabledFlag(Path.Combine(projectDir, ".claude", name)) is { } enabled) return enabled;
+
+        return EnabledKcapPluginKey(settingsPath) is { } key
+            && (IsEffectivelyInstalled(settingsPath) || AwaitsFirstInstall(settingsPath, key));
+    }
+
+    /// <summary>What a settings file says about the plugin, or null when it says nothing.</summary>
+    static bool? EnabledFlag(string settingsPath) {
+        try {
+            if (!File.Exists(settingsPath)) return null;
+            if (JsonNode.Parse(File.ReadAllTextShared(settingsPath)) is not JsonObject root) return null;
+            if (root["enabledPlugins"] is not JsonObject enabled) return null;
+
+            bool? flag = null;
+            foreach (var key in KcapPluginKeys)
+                if (enabled[key] is JsonValue v && v.TryGetValue<bool>(out var on)) flag = flag == true || on;
+
+            return flag;
+        } catch {
+            return null;
+        }
+    }
+
+    static bool AwaitsFirstInstall(string settingsPath, string enabledKey) {
+        if (Path.GetDirectoryName(settingsPath) is not { Length: > 0 } claudeHome) return false;
+
+        var pluginsDir = Path.Combine(claudeHome, "plugins");
+
+        try {
+            return !File.Exists(Path.Combine(pluginsDir, "installed_plugins.json"))
+                || UserScopedInstalls(pluginsDir, enabledKey).Count == 0;
+        } catch {
+            return false;
+        }
+    }
 
     /// <summary>The <c>.mcp.json</c> Claude actually loads for the enabled kcap plugin, or null when
     /// the plugin is not effective (see <see cref="IsEffectivelyInstalled"/>).</summary>
@@ -199,7 +237,7 @@ public static class ClaudePluginInstaller {
             if (JsonNode.Parse(File.ReadAllText(settingsPath)) is not JsonObject root) return null;
             if (root["enabledPlugins"] is not JsonObject enabled) return null;
 
-            foreach (var key in (string[]) ["kcap@kcap", "kcap@kurrent", "kapacitor@kapacitor", "kapacitor@kurrent"])
+            foreach (var key in KcapPluginKeys)
                 if (HasEnabledFlag(enabled, key))
                     return key;
         } catch {

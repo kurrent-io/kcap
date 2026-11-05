@@ -56,6 +56,12 @@ internal sealed partial class LocalPermissionBridge(
     const string ToolSettledSuffix = "/tool-settled";
     const string SubagentSuffix    = "/subagent";
 
+    /// <summary>How long a session-start relay waits for its agent to be published: the hook can
+    /// outrun the launch that spawned it, and a notice dropped there leaves a launch prompt held.</summary>
+    internal static readonly TimeSpan SessionStartPlacementWait = TimeSpan.FromSeconds(2);
+
+    static readonly TimeSpan SessionStartPlacementPoll = TimeSpan.FromMilliseconds(50);
+
     internal static readonly TimeSpan ResponseWriteTimeout = TimeSpan.FromSeconds(2);
     internal static readonly TimeSpan RequestReadTimeout   = TimeSpan.FromSeconds(2);
     internal static readonly TimeSpan ShutdownDrain        = TimeSpan.FromSeconds(2);
@@ -529,7 +535,7 @@ internal sealed partial class LocalPermissionBridge(
 
             if (context.Request.HttpMethod == "POST" && path is not null
              && path.EndsWith(SessionStartSuffix, StringComparison.Ordinal)) {
-                await HandleSessionStartAsync(context, path);
+                await HandleSessionStartAsync(context, path, ct);
 
                 return;
             }
@@ -1061,10 +1067,18 @@ internal sealed partial class LocalPermissionBridge(
     /// <c>session_id</c> and the <c>agent_id</c>/<c>cwd</c> the attribution ladder reads. Shared token
     /// only, which is what a Claude reviewer holds too. Answers 204 whether or not the ladder placed
     /// the agent.
-    async Task HandleSessionStartAsync(HttpListenerContext context, string path) {
+    async Task HandleSessionStartAsync(HttpListenerContext context, string path, CancellationToken ct) {
         if (await ReadRelayAsync(context, path, SessionStartSuffix, reviewerAllowed: false) is not (var node, var sessionId, _)) return;
 
-        var attributed = AttributeHandler?.Invoke(new PermissionAttribution(Str(node, "agent_id"), sessionId, Str(node, "cwd")));
+        var query      = new PermissionAttribution(Str(node, "agent_id"), sessionId, Str(node, "cwd"));
+        var attributed = AttributeHandler?.Invoke(query);
+        var started    = time.GetTimestamp();
+
+        while (attributed is null && time.GetElapsedTime(started) < SessionStartPlacementWait) {
+            await Task.Delay(SessionStartPlacementPoll, time, ct);
+            attributed = AttributeHandler?.Invoke(query);
+        }
+
         if (attributed is { } agent) SessionStartHandler?.Invoke(agent.AgentId);
 
         Close(context, 204);

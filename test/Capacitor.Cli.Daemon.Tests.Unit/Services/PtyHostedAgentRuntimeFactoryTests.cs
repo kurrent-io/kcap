@@ -374,6 +374,28 @@ public class PtyHostedAgentRuntimeFactoryTests {
         }
     }
 
+    /// <summary>A project-scoped install lives in the repository's settings.local.json, which the
+    /// launch copies into the worktree, so the account's own settings say nothing about it.</summary>
+    [Test]
+    public async Task A_claude_launch_with_a_project_scoped_plugin_holds_its_prompt_for_session_start() {
+        var (factory, _, process) = NewPasteFactory();
+        var ctx = BuildClaudeLaunchContext(null) with { DaemonBridgeUrl = "http://127.0.0.1:9" };
+        Tmp.CreateFile("repo/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        var start = await factory.StartAsync(ctx, CancellationToken.None);
+
+        try {
+            _ = PumpAsync(start.Runtime);
+            process.Emit("\x1b[?2004hfirst-run screen");
+            await Task.Delay(PtyHostedAgentRuntime.LaunchPromptQuietWindow * 2);
+
+            await Assert.That(process.Writes).IsEmpty();
+        } finally {
+            process.Exit();
+            await start.Runtime.DisposeAsync();
+        }
+    }
+
     /// <summary>With no plugin no hook ever fires, whatever the bridge says: a hold would strand the
     /// prompt and a retry Enter would land on whatever is on screen.</summary>
     [Test]

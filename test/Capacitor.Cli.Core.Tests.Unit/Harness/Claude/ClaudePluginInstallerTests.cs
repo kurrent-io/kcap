@@ -34,7 +34,7 @@ public class ClaudePluginInstallerTests {
         tmp.CreateFile("cache/.mcp.json", "{}");
         WriteInstallRecord(tmp.Path, cache);
 
-        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath)).IsTrue();
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
     }
 
     /// Claude installs an enabled plugin on its first start, so the machine that has never run it
@@ -45,7 +45,7 @@ public class ClaudePluginInstallerTests {
         using var tmp = new TempDir();
         var settingsPath = WriteEnabledSettings(tmp.Path);
 
-        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath)).IsTrue();
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
     }
 
     [Test]
@@ -54,7 +54,7 @@ public class ClaudePluginInstallerTests {
         var settingsPath = WriteEnabledSettings(tmp.Path);
         WriteInstallRecord(tmp.Path, tmp.PathTo("gone"));
 
-        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath)).IsFalse();
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
     }
 
     [Test]
@@ -62,7 +62,40 @@ public class ClaudePluginInstallerTests {
         using var tmp = new TempDir();
         var settingsPath = tmp.CreateFile("settings.json", "{}");
 
-        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath)).IsFalse();
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    /// Only a confirmed absence means Claude has yet to install it: a corrupt record proves nothing,
+    /// and calling it a first install would hold a launch prompt for a hook that may never fire.
+    [Test]
+    public async Task RunsHooks_false_when_the_install_record_cannot_be_read() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        tmp.CreateFile("plugins/installed_plugins.json", "{ not json");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
+    }
+
+    /// `kcap plugin install --project` enables the plugin in the repository's settings.local.json
+    /// and leaves the user's settings alone.
+    [Test]
+    public async Task RunsHooks_true_when_only_the_project_enables_the_plugin() {
+        using var tmp = new TempDir();
+        var settingsPath = tmp.CreateFile("settings.json", "{}");
+        tmp.CreateFile("project/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsTrue();
+    }
+
+    /// Project settings outrank the user's, so a repository can switch the plugin off, and a launch
+    /// there must not wait for a hook that will not fire.
+    [Test]
+    public async Task RunsHooks_false_when_the_project_turns_off_a_plugin_the_user_enabled() {
+        using var tmp = new TempDir();
+        var settingsPath = WriteEnabledSettings(tmp.Path);
+        tmp.CreateFile("project/.claude/settings.json", """{ "enabledPlugins": { "kcap@kcap": false } }""");
+
+        await Assert.That(ClaudePluginInstaller.RunsHooks(settingsPath, tmp.PathTo("project"))).IsFalse();
     }
 
     [Test]

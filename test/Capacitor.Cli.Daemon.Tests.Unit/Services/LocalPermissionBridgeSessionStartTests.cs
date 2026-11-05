@@ -44,6 +44,21 @@ public class LocalPermissionBridgeSessionStartTests {
         await Assert.That(h.Seen.Single()).IsEqualTo("agent-1");
     }
 
+    /// The hook can outrun the launch that spawned it, and a resumed agent has no transcript to fall
+    /// back on, so a notice dropped here would leave its prompt held for good.
+    [Test]
+    public async Task A_relay_that_beats_the_agents_publication_is_placed_once_it_appears() {
+        await using var h = new Harness();
+        var calls = 0;
+        h.Bridge.AttributeHandler = _ => Interlocked.Increment(ref calls) < 3 ? null : new AttributedAgent("agent-1");
+        await h.StartAsync();
+
+        var response = await h.PostAsync(new { session_id = Session, agent_id = "agent-1" });
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+        await Assert.That(h.Seen.Single()).IsEqualTo("agent-1");
+    }
+
     /// A relay the ladder cannot place is not an error the hook can act on, so it is acknowledged
     /// and dropped rather than refused.
     [Test]
