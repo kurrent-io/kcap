@@ -590,8 +590,16 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             var signedOut = signInExpired.CombineLatest(daemonSignIn, (app, daemon) => app || daemon.SignedOut)
                 .DistinctUntilChanged();
 
+            // The app's Sign in cannot repair a daemon serving another server.
+            var otherServerWhileConnected = status
+                .CombineLatest(snapshots.Select(s => HomeViewModel.ForeignDaemonServer(s.Daemon.ServerUrl, _appServerUrl)).StartWith((string?)null),
+                    (st, foreign) => st.State == AttachState.Connected && foreign is not null
+                        ? HomeViewModel.DaemonOnOtherServerNotice(foreign, _appServerUrl) : null)
+                .DistinctUntilChanged();
+
             var signInVisible = signInExpired
-                .CombineLatest(daemonSignIn, (app, daemon) => (app || daemon is { SignedOut: true, OursToRepair: true }) && offersSignIn);
+                .CombineLatest(daemonSignIn, otherServerWhileConnected,
+                    (app, daemon, otherServer) => (app || (daemon is { SignedOut: true, OursToRepair: true } && otherServer is null)) && offersSignIn);
             _signInVisible = signInVisible
                 .ToProperty(this, x => x.SignInVisible, false)
                 .DisposeWith(disposables);
@@ -638,12 +646,6 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                     (st, other) => st.State == AttachState.Connected ? other : null)
                 .DistinctUntilChanged();
 
-            var otherServerWhileConnected = status
-                .CombineLatest(snapshots.Select(s => HomeViewModel.ForeignDaemonServer(s.Daemon.ServerUrl, _appServerUrl)).StartWith((string?)null),
-                    (st, foreign) => st.State == AttachState.Connected && foreign is not null
-                        ? HomeViewModel.DaemonOnOtherServerNotice(foreign, _appServerUrl) : null)
-                .DistinctUntilChanged();
-
             var localServer = Home?.LocalServer is { } recovery
                 ? recovery.WhenAnyValue(x => x.ServerDown, x => x.IsStarting, x => x.StartOffered, x => x.Condition,
                     (down, starting, offered, condition) => (Down: down, Starting: starting, Offered: offered, Condition: condition))
@@ -656,8 +658,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .DistinctUntilChanged();
             var moving = (movingToWindowsService ?? Observable.Return(false)).ObserveOn(RxSchedulers.MainThreadScheduler);
 
-            // A daemon on another server is past the app's Sign in, so its own sign-out yields to
-            // the mismatch; the app's expired sign-in still comes first, as in the launcher.
+            // The app's expired sign-in still outranks the mismatch, as in the launcher.
             var alertSignedOut = signInExpired
                 .CombineLatest(daemonSignIn, otherServerWhileConnected,
                     (app, daemon, otherServer) => app || (daemon.SignedOut && otherServer is null))
