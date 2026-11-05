@@ -243,6 +243,14 @@ class WatchState {
     // Same guard for a VS Code Local session's idle end. Only populated for those watchers.
     public HashSet<string> PendingCopilotToolCalls { get; } = new(StringComparer.Ordinal);
 
+    // When a session.shutdown became the transcript's last line, while it still is.
+    public DateTimeOffset? CopilotShutdownSeenAt { get; set; }
+
+    public DateTimeOffset StartedAt { get; set; }
+
+    // No Copilot process was found above this session's watcher, so nothing would end it but going idle.
+    public bool CopilotHostMissing { get; set; }
+
     // Codex collab CHILD watcher only (vendor == "codex" && agentId != null): folds the child
     // rollout's own task_complete/turn-activity lines so the polling loop can post a LIVE
     // subagent-stop once the turn is done and a grace window elapsed — before this,
