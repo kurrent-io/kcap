@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Install;
 
@@ -59,7 +60,7 @@ internal sealed class AdoptionPrivilegedStep(
 
         var folder = Path.Combine(Path.GetFullPath(helperFolder), "cli-adoption-helper-" + Guid.NewGuid().ToString("N"));
         var spec   = new PrivilegedSpec(links, [.. entries.Select(e => Entry(install, retirement.Plan(e)))],
-            Path.Combine(folder, "control"), Path.Combine(folder, "status"), GoWait);
+            Path.Combine(folder, "control"), Path.Combine(folder, "status"), GoWait, RandomNumberGenerator.GetHexString(32, lowercase: true));
         path.Adopt(links);
         PrivilegedResult result;
         try {

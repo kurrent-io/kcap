@@ -2,6 +2,9 @@ namespace Capacitor.App.Services.CliAdoption;
 
 /// <summary>Everything the privileged helper may touch, fixed before the administrator prompt. The status file and the
 /// control pipe share one folder, which must be this user's own, mode 0700, or the helper refuses to start.
-/// <paramref name="GoWait"/> bounds its wait for go.</summary>
+/// <paramref name="GoWait"/> bounds its wait for go. <paramref name="Staging"/> is random hex the helper puts in the
+/// name it makes each new link under before renaming it over the old one, so nobody can plant anything there in
+/// advance.</summary>
 public sealed record PrivilegedSpec(
-    IReadOnlyList<LinkChange> Links, IReadOnlyList<PrivilegedEntry> Entries, string ControlFifo, string StatusFile, TimeSpan GoWait);
+    IReadOnlyList<LinkChange> Links, IReadOnlyList<PrivilegedEntry> Entries, string ControlFifo, string StatusFile, TimeSpan GoWait,
+    string Staging);
