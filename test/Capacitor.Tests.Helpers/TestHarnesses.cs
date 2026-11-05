@@ -23,6 +23,8 @@ namespace Capacitor.Tests.Helpers;
 public sealed record TestHarness(HarnessId Id, string Label, HarnessSignals Signals) : IHarness {
     /// <summary>Blank — a name nothing resolves — unless a test says otherwise.</summary>
     public string CliBinary { get; init; } = "";
+
+    public IReadOnlyList<string> IntegrationFiles { get; init; } = [];
 }
 
 public static class TestHarnesses {

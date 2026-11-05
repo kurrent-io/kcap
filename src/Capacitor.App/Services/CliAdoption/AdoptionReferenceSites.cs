@@ -1,0 +1,123 @@
+using System.ComponentModel;
+using System.Text.Json;
+using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
+using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Harness.Claude;
+using Capacitor.Cli.Core.Setup;
+
+namespace Capacitor.App.Services.CliAdoption;
+
+/// <summary>Reads, fresh each time, everywhere that can name a kcap install: every launch agent, the job launchd
+/// holds for each kcap daemon, the git config, each harness's user-scope integration files and, in every Claude
+/// directory where kcap's plugin is installed, where Claude loads that plugin from and its plugin records.</summary>
+internal static class AdoptionReferenceSites {
+    /// <summary>Names the site whose text is the folder or <c>.mcp.json</c> Claude loads kcap's plugin from, or null
+    /// when it resolves none; it holds an install unless that path is inside the bundle.</summary>
+    internal const string ClaudePluginSite = "claude-plugin:";
+
+    const string LaunchdSite       = "launchd:";
+    const string DaemonLabelPrefix = "io.kurrent.kcap.daemon.";
+
+    internal static Task<IReadOnlyList<ReferenceSite>> ReadAsync(
+            UserHome home, IReadOnlyList<string> claudeHomes, Launchctl launchctl, CancellationToken ct) =>
+        ReadAsync(home, HarnessRegistry.FromEnvironment(home), claudeHomes, launchctl, ct);
+
+    internal static async Task<IReadOnlyList<ReferenceSite>> ReadAsync(
+            UserHome home, HarnessRegistry harnesses, IReadOnlyList<string> claudeHomes, Launchctl launchctl, CancellationToken ct) {
+        var sites  = new Sites();
+        var labels = await Task.Run(() => ReadLaunchAgents(Path.Combine(home.Path, "Library", "LaunchAgents"), sites), ct)
+            .ConfigureAwait(false);
+        foreach (var label in labels) sites.Add(await PrintAsync(launchctl, label, ct).ConfigureAwait(false));
+
+        await Task.Run(() => {
+            sites.AddFile(Path.Combine(home.Path, ".gitconfig"));
+            sites.AddFile(Path.Combine(home.Path, ".config", "git", "config"));
+            foreach (var harness in harnesses)
+                foreach (var file in harness.IntegrationFiles) sites.AddFile(file);
+            foreach (var claudeHome in claudeHomes) ReadClaude(AccountLayouts.Claude(home, claudeHome), sites);
+        }, ct).ConfigureAwait(false);
+
+        return sites.All;
+    }
+
+    /// <summary>The default Claude directory and each registered account's; null when the account registry cannot be
+    /// read, which leaves an account's Claude directory unknown.</summary>
+    internal static IReadOnlyList<string>? ClaudeHomes(UserHome home, AccountStore accounts) =>
+        accounts.TryLoad() is { } registry
+            ? [.. registry.Accounts.Where(a => a.Vendor == HarnessId.Claude).Select(a => a.Directory)
+                .Prepend(AccountLayouts.DefaultDirectory(HarnessId.Claude, home))
+                .DistinctBy(AccountDirectory.Normalize)]
+            : null;
+
+    static List<string> ReadLaunchAgents(string folder, Sites sites) {
+        if (!Directory.Exists(folder)) return [];
+
+        string[] plists;
+        try {
+            plists = [.. Directory.EnumerateFiles(folder, "*.plist").Order(StringComparer.Ordinal)];
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            sites.Add(new ReferenceSite(folder, null, false));
+            return [];
+        }
+
+        foreach (var plist in plists) sites.AddFile(plist);
+
+        return [.. plists.Select(p => Path.GetFileNameWithoutExtension(p))
+            .Where(l => l.Length > DaemonLabelPrefix.Length && l.StartsWith(DaemonLabelPrefix, StringComparison.Ordinal))];
+    }
+
+    // launchd keeps running the program it loaded, whatever the plist now says.
+    static async Task<ReferenceSite> PrintAsync(Launchctl launchctl, string label, CancellationToken ct) {
+        var name = LaunchdSite + label;
+        try {
+            var result = await launchctl.PrintAsync(label, ct).ConfigureAwait(false);
+            if (LaunchdPrint.Classify(result.ExitCode, result.Stdout, result.Stderr) != LabelProbe.Loaded) return new(name, null, true);
+
+            return LaunchdPrint.LoadedProgram(result.Stdout) is { } program ? new(name, program, true) : new(name, null, false);
+        } catch (Exception ex) when (ex is IOException or InvalidOperationException or Win32Exception) {
+            return new(name, null, false);
+        }
+    }
+
+    // A Claude directory without kcap's plugin is never repointed, so its records are not read: they would hold the
+    // install for good. Records that cannot be parsed hold it, since what they say Claude loads is then unknown.
+    static void ReadClaude(ClaudePaths paths, Sites sites) {
+        foreach (var file in ClaudeHarness.Over(paths).IntegrationFiles) sites.AddFile(file);
+        if (!ClaudePluginInstaller.IsInstalled(paths.UserSettings)) return;
+
+        var loads = ClaudePluginInstaller.EffectiveMcpJsonPath(paths.UserSettings)
+                 ?? ClaudePluginInstaller.RegisteredMarketplacePath(paths.UserSettings);
+        sites.Add(new ReferenceSite(ClaudePluginSite + paths.Home, loads, true));
+
+        var plugins = Path.Combine(paths.Home, "plugins");
+        sites.AddFile(Path.Combine(plugins, "known_marketplaces.json"), json: true);
+        sites.AddFile(Path.Combine(plugins, "installed_plugins.json"), json: true);
+    }
+
+    sealed class Sites {
+        readonly HashSet<string> _files = new(StringComparer.Ordinal);
+
+        public List<ReferenceSite> All { get; } = [];
+
+        public void Add(ReferenceSite site) => All.Add(site);
+
+        public void AddFile(string path, bool json = false) {
+            if (_files.Add(path)) All.Add(Read(path, json));
+        }
+
+        // A missing file names nothing; one that exists and cannot be read might.
+        static ReferenceSite Read(string path, bool json) {
+            try {
+                var text = File.ReadAllTextShared(path);
+                if (json) JsonDocument.Parse(text).Dispose();
+
+                return new ReferenceSite(path, text, true);
+            } catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) {
+                return new ReferenceSite(path, null, true);
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) {
+                return new ReferenceSite(path, null, false);
+            }
+        }
+    }
+}

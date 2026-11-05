@@ -22,6 +22,8 @@ public sealed class CopilotHarness : IHarness<CopilotHarness> {
     /// override a second time.</summary>
     public CopilotPaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.KcapHooksJson, Paths.McpConfigJson];
+
     const string VsCode = "VS Code";
 
     static readonly string[] VsCodeExtensionData = [
