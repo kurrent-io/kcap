@@ -90,6 +90,60 @@ public class OpenCodeCliRunnerTests {
         await Assert.That(File.ReadAllText(Path.Combine(run, "opencode", "model.json"))).IsEqualTo("recent");
     }
 
+    /// <summary>A cloud sign-in is usable from the run, and removing the run leaves the user's own files alone.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task The_users_cloud_sign_ins_reach_the_run_and_survive_its_removal() {
+        var seen = Tmp.CreateDir("seen").Path;
+        var aws  = Tmp.CreateFile(Path.Combine("user-home", ".aws", "credentials"), "aws");
+        var adc  = Tmp.CreateFile(Path.Combine("user-home", ".config", "gcloud", "application_default_credentials.json"), "gcloud");
+        var env  = DaemonEnvironment();
+        env["HOME"] = Tmp.PathTo("user-home");
+        var opencode = FakeOpenCode($"""
+            cat "$HOME/.aws/credentials" > '{seen}/aws'
+            cat "$HOME/.config/gcloud/application_default_credentials.json" > '{seen}/gcloud'
+            ls -A "$HOME/.config" > '{seen}/config-listing'
+            echo '{Reply("ok")}'
+            echo '{StepFinish}'
+            """);
+
+        var outcome = await Run(opencode, "Name it.", env: env);
+
+        await Assert.That(outcome.Failure).IsNull();
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "aws"))).IsEqualTo("aws");
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(seen, "gcloud"))).IsEqualTo("gcloud");
+        await Assert.That((await File.ReadAllTextAsync(Path.Combine(seen, "config-listing"))).Trim()).IsEqualTo("gcloud");
+        await Assert.That(File.Exists(aws)).IsTrue();
+        await Assert.That(File.Exists(adc)).IsTrue();
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_user_with_no_cloud_sign_in_gets_an_empty_private_home() {
+        var seen = Tmp.CreateDir("seen").Path;
+        var env  = DaemonEnvironment();
+        env["HOME"] = Tmp.CreateDir("bare-home").Path;
+        var opencode = FakeOpenCode($"""
+            ls -A "$HOME" > '{seen}/listing'
+            echo '{Reply("ok")}'
+            echo '{StepFinish}'
+            """);
+
+        await Run(opencode, "Name it.", env: env);
+
+        await Assert.That((await File.ReadAllTextAsync(Path.Combine(seen, "listing"))).Trim()).IsEmpty();
+    }
+
+    [Test, RunOn(OS.Windows)]
+    public async Task On_windows_the_aws_files_are_named_unless_the_user_already_named_them() {
+        var user = Tmp.CreateDir("user-home").Path;
+        var file = Tmp.CreateFile(Path.Combine("user-home", ".aws", "credentials"), "aws");
+        Dictionary<string, string?> env = new() { ["AWS_CONFIG_FILE"] = "mine" };
+
+        OpenCodeHomeCredentials.Apply(env, user, Tmp.CreateDir("private").Path, _ => { });
+
+        await Assert.That(env["AWS_SHARED_CREDENTIALS_FILE"]).IsEqualTo(file);
+        await Assert.That(env["AWS_CONFIG_FILE"]).IsEqualTo("mine");
+    }
+
     [Test, ExcludeOn(OS.Windows)]
     public async Task The_users_recent_models_reach_the_run_under_its_own_state_home() {
         var seen = Tmp.CreateDir("seen").Path;

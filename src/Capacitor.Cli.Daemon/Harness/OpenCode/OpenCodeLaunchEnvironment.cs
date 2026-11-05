@@ -80,7 +80,8 @@ internal static class OpenCodeLaunchEnvironment {
     /// servers into every session, the flows server among them. See <see cref="OpenCodeReviewerConfigDir"/>. The user's
     /// <c>model</c> and <c>provider</c> come back through <c>OPENCODE_CONFIG_CONTENT</c>, so the reviewer keeps their
     /// default and any custom provider. Data, state and cache are pinned because they would otherwise follow the
-    /// private home, and the data directory holds the sign-in and the sessions a restarted reviewer resumes.</para>
+    /// private home, and the data directory holds the sign-in and the sessions a restarted reviewer resumes. Cloud sign-ins
+    /// are kept by <see cref="OpenCodeHomeCredentials"/>.</para>
     ///
     /// <para><b><c>OPENCODE_DISABLE_PROJECT_CONFIG=1</c>: the reviewed branch is not trusted input.</b> Without it, a
     /// contributor-authored <c>opencode.json</c> or <c>.opencode/</c> is honoured and the repo's own
@@ -107,6 +108,8 @@ internal static class OpenCodeLaunchEnvironment {
 
         if (userConfig.Count > 0) environment[ConfigContentVariable] = userConfig.ToJsonString();
         else environment.Remove(ConfigContentVariable);
+
+        OpenCodeHomeCredentials.Apply(environment, home, dirs.Home, _ => { });
 
         environment[HomeVariable]                       = dirs.Home;
         environment[TestHomeVariable]                   = dirs.Home;
