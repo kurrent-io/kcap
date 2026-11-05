@@ -95,7 +95,7 @@ public class OpenCodeCliRunnerTests {
         var seen = Tmp.CreateDir("seen").Path;
         Tmp.CreateFile(Path.Combine("user-state", "opencode", "model.json"), "recent");
         var env = DaemonEnvironment();
-        env["XDG_STATE_HOME"] = Path.Combine(Tmp.Path, "user-state");
+        env["XDG_STATE_HOME"] = Tmp.PathTo("user-state");
         var opencode = FakeOpenCode($"""
             cat "$XDG_STATE_HOME/opencode/model.json" > '{seen}/model'
             printf '%s' "$XDG_STATE_HOME" > '{seen}/state-home'
