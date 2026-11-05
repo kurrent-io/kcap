@@ -47,7 +47,23 @@ public sealed class ResumeLedgerStore(string resumeDirectory, TimeProvider? time
             fs.Flush(flushToDisk: true);
         }
 
-        File.Move(tempPath, finalPath, overwrite: true);
+        Replace(tempPath, finalPath);
+    }
+
+    const int ReplaceAttempts = 25;
+
+    /// <summary>On Windows a replace fails while anything has the target open, even a reader allowing delete, and a
+    /// reader holds it only for one read. Without the retry that reader would cost the entry this write.</summary>
+    static void Replace(string tempPath, string finalPath) {
+        for (var attempt = 1;; attempt++) {
+            try {
+                File.Move(tempPath, finalPath, overwrite: true);
+
+                return;
+            } catch (Exception ex) when (OperatingSystem.IsWindows() && attempt < ReplaceAttempts && ex is IOException or UnauthorizedAccessException) {
+                Thread.Sleep(TimeSpan.FromMilliseconds(20));
+            }
+        }
     }
 
     static readonly TimeSpan DeleteLockWait = TimeSpan.FromSeconds(1);

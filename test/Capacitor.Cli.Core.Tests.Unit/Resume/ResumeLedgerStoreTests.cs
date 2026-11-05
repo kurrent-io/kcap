@@ -343,4 +343,24 @@ public class ResumeLedgerStoreTests {
         await Assert.That(store.TryUpdateUnderLock("missing", e => e, TimeSpan.FromSeconds(1))).IsEqualTo(LockedUpdate.NoEntry);
         await Assert.That(store.TryUpdateUnderLock("agent-1", _ => null, TimeSpan.FromSeconds(1))).IsEqualTo(LockedUpdate.Unchanged);
     }
+
+    /// <summary>A reader on the entry at the moment of the replace must not cost the write.</summary>
+    [Test]
+    public async Task A_write_lands_though_a_reader_has_the_entry_open() {
+        using var tmp   = new TempDaemonStore();
+        var       store = ResumeLedgerStore.For(tmp.Store, "d1");
+        store.Write(Entry("a1"));
+
+        var replacement = Entry("a1") with { UpdatedAt = DateTimeOffset.UnixEpoch.AddDays(1) };
+
+        Task write;
+        await using (new FileStream(store.EntryPath("a1"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
+            write = Task.Run(() => store.Write(replacement));
+            await Task.Delay(100);
+        }
+
+        await write;
+
+        await Assert.That(store.TryRead("a1")!.UpdatedAt).IsEqualTo(replacement.UpdatedAt);
+    }
 }
