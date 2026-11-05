@@ -227,7 +227,8 @@ internal static class CodingAgentsStep {
         // decline (or a no-agents machine) guarantees zero artifact mutations. See
         // SetupDecisions.DecideInstallAgents for how SetupCommand derives InstallAgents.
         if (detected is { Claude: false, Codex: false, Cursor: false, Copilot: false, Gemini: false, Kiro: false, Pi: false, OpenCode: false, Antigravity: false, Vibe: false, Grok: false, Muse: false }) {
-            writeLine("  [yellow]⚠ No supported agent CLI detected.[/] Install Claude Code, Codex CLI, Cursor, Copilot CLI, Gemini CLI, Kiro CLI, Pi, OpenCode, Antigravity, Mistral Vibe, Grok, or Muse Code to start capturing sessions.");
+            writeLine("  [yellow]⚠ No supported agent CLI detected.[/] Install Claude Code, Codex CLI, Cursor, Copilot CLI, Gemini CLI, Kiro CLI, Pi, OpenCode, Antigravity, Mistral Vibe, Grok, or Muse Code to start storing sessions.");
+            writeLine("  [dim]· For Copilot in VS Code, open VS Code once and run setup again.[/]");
 
             return Task.FromResult(new Result(false, false, false, false, false));
         }

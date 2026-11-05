@@ -1587,6 +1587,7 @@ public class CodingAgentsStepTests {
         await Assert.That(calls.CodexHooksCalled).IsFalse();
         await Assert.That(calls.AgentSkillsCalled).IsFalse();
         await Assert.That(sink.Lines).Contains(l => l.Contains("No supported agent CLI detected"));
+        await Assert.That(sink.Lines).Contains(l => l.Contains("For Copilot in VS Code, open VS Code once"));
     }
 
     [Test]
