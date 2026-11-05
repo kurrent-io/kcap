@@ -132,6 +132,22 @@ public class CopilotHookPayloadFormTests : IDisposable {
         await Assert.That(_spawner.Spawned.Single().TranscriptPath).IsEqualTo(SessionStateTranscript());
     }
 
+    /// <summary>The repository dedupe is per folder, and each session needs its own link.</summary>
+    [Test]
+    public async Task Every_session_in_a_folder_starts_with_its_repository() {
+        using var repo = GitRepo.Create();
+        repo.Do("remote", "add", "origin", "git@github.invalid:acme/widget.git");
+
+        foreach (var id in new[] { DashedId, "e5a1c0de-1ced-4194-8df4-c3ae346b63d7" }) {
+            await Fire("sessionStart", new JsonObject { ["sessionId"] = id, ["cwd"] = repo.Path, ["source"] = "new" });
+        }
+
+        var starts = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-start/copilot").UsingPost())
+            .Select(e => JsonNode.Parse(e.RequestMessage.Body!)!["repository"]?["repo_name"]?.GetValue<string>() ?? "none")
+            .ToList();
+        await Assert.That(starts).IsEquivalentTo(["widget", "widget"]);
+    }
+
     /// <summary>An empty path counts as none, in either spelling: Copilot sends one on some firings.</summary>
     [Test]
     [Arguments("session_id", "transcript_path", "/given/transcripts/t.jsonl", "/given/transcripts/t.jsonl")]
@@ -159,9 +175,10 @@ public class CopilotHookPayloadFormTests : IDisposable {
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(_starter.Starts).IsEqualTo(0);
 
-        var drained = PostedTo("/hooks/transcript");
-        await Assert.That(drained).IsNotNull();
-        await Assert.That(drained!["lines"]!.AsArray().Count).IsEqualTo(3);
+        // A drain can split across batches.
+        var drained = _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .Sum(entry => JsonNode.Parse(entry.RequestMessage.Body!)!["lines"]!.AsArray().Count);
+        await Assert.That(drained).IsEqualTo(3);
 
         var ended = PostedTo("/hooks/session-end/copilot");
         await Assert.That(ended!["session_id"]!.GetValue<string>()).IsEqualTo(SessionId);
