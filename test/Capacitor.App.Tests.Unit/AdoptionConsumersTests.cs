@@ -67,6 +67,52 @@ public class AdoptionConsumersTests {
         await Assert.That(Holder(install, [new(65, "/opt/homebrew/bin/node", ["node", "/Users/u/dev/server.js"], Before)])).IsNull();
     }
 
+    /// <summary>Vibe is a Python interpreter, named only by the title it sets or the script it runs.</summary>
+    [Test]
+    public async Task A_python_session_running_vibe_holds_it() {
+        var install = Npm();
+        const string python = "/Users/u/.local/share/uv/python/cpython-3.12.7-macos-aarch64-none/bin/python3.12";
+
+        await Assert.That(Holder(install, [new(80, python, ["Vibe CLI"], Before)])).IsEqualTo("pid:80");
+        await Assert.That(Holder(install, [new(81, python, ["/Users/u/.local/share/uv/tools/mistral-vibe/bin/python", "/Users/u/.local/bin/vibe"], Before)]))
+            .IsEqualTo("pid:81");
+        await Assert.That(Holder(install, [new(82, python, [python, "/Users/u/dev/tool.py"], Before)])).IsNull();
+    }
+
+    /// <summary>Cursor's CLI is node under its own <c>versions/&lt;v&gt;/</c>, started through an <c>agent</c> link.</summary>
+    [Test]
+    public async Task A_node_session_under_cursor_agents_versions_folder_holds_it() {
+        var install = Npm();
+        const string version = "/Users/u/.local/share/cursor-agent/versions/2025.11.04-8a1b2c3";
+
+        await Assert.That(Holder(install, [new(83, $"{version}/node", ["/Users/u/.local/bin/agent", "--use-system-ca", $"{version}/index.js"], Before)]))
+            .IsEqualTo("pid:83");
+        await Assert.That(Holder(install, [new(84, "/Users/u/.nvm/versions/node/v22.1.0/bin/node", ["node", "/Users/u/dev/server.js"], Before)]))
+            .IsNull();
+    }
+
+    [Test]
+    public async Task Arguments_are_read_for_javascript_runtimes_and_python_only() {
+        await Assert.That(ProcessFacts.ReadsArgs("/opt/homebrew/bin/node")).IsTrue();
+        await Assert.That(ProcessFacts.ReadsArgs("/Users/u/.bun/bin/bun")).IsTrue();
+        await Assert.That(ProcessFacts.ReadsArgs("/opt/homebrew/Cellar/python@3.12/3.12.7/bin/python3.12")).IsTrue();
+        await Assert.That(ProcessFacts.ReadsArgs("/Library/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python")).IsTrue();
+        await Assert.That(ProcessFacts.ReadsArgs("/usr/bin/login")).IsFalse();
+    }
+
+    /// <summary>Its deletion keeps the rest of the root, which can hold the user's own files.</summary>
+    [Test]
+    public async Task A_script_install_is_named_only_by_what_its_deletion_removes() {
+        var root    = Tmp.GetResolvedPath("kcap-home");
+        var current = Path.Combine(root, "current");
+        var install = new OtherCliInstall(OtherCliInstallKind.Script, root, "1.0.0", Path.Combine(current, "bin", "kcap"),
+            Path.Combine(current, "bin", "kcap-daemon"), "id", [Path.Combine(root, "versions"), current, Path.Combine(root, "install.json")]);
+
+        await Assert.That(Holder(install, sites: [new("/h/.gitconfig", $"[include]\n\tpath = {root}/gitconfig\n", true)])).IsNull();
+        await Assert.That(Holder(install, sites: [new("/h/.codex/config.toml", $"command = \"{install.CliBinary}\"", true)]))
+            .IsEqualTo("site:/h/.codex/config.toml");
+    }
+
     /// <summary>Cursor's IDE is the Cursor kcap hooks into, though its CLI is <c>cursor-agent</c>.</summary>
     [Test]
     public async Task A_harness_ide_started_before_the_cutover_holds_it() {

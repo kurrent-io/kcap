@@ -4,27 +4,30 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
+using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.App.Services.CliAdoption;
 
 /// <summary>Reads, fresh each time, everywhere that can name a kcap install: every launch agent, the job launchd
-/// holds for each kcap daemon, the git config, each harness's user-scope integration files and, in every Claude
-/// directory where kcap's plugin is installed, where Claude loads that plugin from and its plugin records.</summary>
+/// holds for each kcap daemon, the git config, each harness's user-scope integration files, the files kcap wires into
+/// each registered account's directory and, in every Claude directory where kcap's plugin is installed, where Claude
+/// loads that plugin from and its plugin records.</summary>
 internal static class AdoptionReferenceSites {
     /// <summary>Names the site whose text is the folder or <c>.mcp.json</c> Claude loads kcap's plugin from, or null
     /// when it resolves none; it holds an install unless that path is inside the bundle.</summary>
     internal const string ClaudePluginSite = "claude-plugin:";
 
+    const string AccountsSite      = "accounts:";
     const string LaunchdSite       = "launchd:";
     const string DaemonLabelPrefix = "io.kurrent.kcap.daemon.";
 
     internal static Task<IReadOnlyList<ReferenceSite>> ReadAsync(
-            UserHome home, IReadOnlyList<string> claudeHomes, Launchctl launchctl, CancellationToken ct) =>
-        ReadAsync(home, HarnessRegistry.FromEnvironment(home), claudeHomes, launchctl, ct);
+            UserHome home, AccountStore accounts, Launchctl launchctl, CancellationToken ct) =>
+        ReadAsync(home, HarnessRegistry.FromEnvironment(home), accounts, launchctl, ct);
 
     internal static async Task<IReadOnlyList<ReferenceSite>> ReadAsync(
-            UserHome home, HarnessRegistry harnesses, IReadOnlyList<string> claudeHomes, Launchctl launchctl, CancellationToken ct) {
+            UserHome home, HarnessRegistry harnesses, AccountStore accounts, Launchctl launchctl, CancellationToken ct) {
         var sites  = new Sites();
         var labels = await Task.Run(() => ReadLaunchAgents(Path.Combine(home.Path, "Library", "LaunchAgents"), sites), ct)
             .ConfigureAwait(false);
@@ -35,20 +38,27 @@ internal static class AdoptionReferenceSites {
             sites.AddFile(Path.Combine(home.Path, ".config", "git", "config"));
             foreach (var harness in harnesses)
                 foreach (var file in harness.IntegrationFiles) sites.AddFile(file);
-            foreach (var claudeHome in claudeHomes) ReadClaude(AccountLayouts.Claude(home, claudeHome), sites);
+            ReadAccounts(home, accounts, sites);
         }, ct).ConfigureAwait(false);
 
         return sites.All;
     }
 
-    /// <summary>The default Claude directory and each registered account's; null when the account registry cannot be
-    /// read, which leaves an account's Claude directory unknown.</summary>
-    internal static IReadOnlyList<string>? ClaudeHomes(UserHome home, AccountStore accounts) =>
-        accounts.TryLoad() is { } registry
-            ? [.. registry.Accounts.Where(a => a.Vendor == HarnessId.Claude).Select(a => a.Directory)
-                .Prepend(AccountLayouts.DefaultDirectory(HarnessId.Claude, home))
-                .DistinctBy(AccountDirectory.Normalize)]
-            : null;
+    // A registry that cannot be read is an unreadable site: any directory it lists could name the install. The default
+    // Claude directory is read whether or not it is registered; Codex's default is among the harnesses' own files.
+    static void ReadAccounts(UserHome home, AccountStore accounts, Sites sites) {
+        var registry = accounts.TryLoad();
+        if (registry is null) sites.Add(new ReferenceSite(AccountsSite + accounts.RegistryPath, null, false));
+        var listed = registry?.Accounts ?? [];
+
+        var claudeHomes = listed.Where(a => a.Vendor == HarnessId.Claude).Select(a => a.Directory)
+            .Prepend(AccountLayouts.DefaultDirectory(HarnessId.Claude, home))
+            .DistinctBy(AccountDirectory.Normalize);
+        foreach (var claudeHome in claudeHomes) ReadClaude(AccountLayouts.Claude(home, claudeHome), sites);
+
+        foreach (var codex in listed.Where(a => a.Vendor == HarnessId.Codex))
+            foreach (var file in CodexHarness.Over(AccountLayouts.Codex(home, codex.Directory)).IntegrationFiles) sites.AddFile(file);
+    }
 
     static List<string> ReadLaunchAgents(string folder, Sites sites) {
         if (!Directory.Exists(folder)) return [];

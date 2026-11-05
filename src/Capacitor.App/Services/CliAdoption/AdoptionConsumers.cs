@@ -20,7 +20,8 @@ internal static class AdoptionConsumers {
                 return $"pid:{process.Pid}";
         }
 
-        var needles = Needles(folders);
+        // A script install loses only its owned entries; the rest of its root can hold the user's own files.
+        var needles = Needles(install.Kind == OtherCliInstallKind.Script ? install.OwnedEntries : folders);
         foreach (var site in sites) {
             if (Holds(site, needles, bundleRoot)) return $"site:{site.Name}";
         }
@@ -38,7 +39,8 @@ internal static class AdoptionConsumers {
     static bool Within(string? path, List<string> folders) =>
         path is not null && folders.Exists(folder => CanonicalPath.IsWithin(path, folder));
 
-    // Both names: the vendor's CLI and the vendor itself, which is what its IDE or a retitled interpreter shows.
+    // Both names: the vendor's CLI, and the vendor itself, which is what its IDE shows and what Vibe's retitled Python
+    // interpreter matches.
     static bool IsHarness(ProcessFact process, HarnessRegistry harnesses) {
         var names = Names(process).Where(n => n.Length > 0).ToList();
 
@@ -47,17 +49,27 @@ internal static class AdoptionConsumers {
     }
 
     static IEnumerable<string> Names(ProcessFact process) {
-        foreach (var name in AgentProcessNames.Candidates(process.Executable)) yield return name;
+        foreach (var name in PathNames(process.Executable)) yield return name;
         if (process.Args is not { Count: > 0 } args) yield break;
 
-        foreach (var name in AgentProcessNames.Candidates(args[0])) yield return name;
+        foreach (var name in PathNames(args[0])) yield return name;
         if (ProcessArgs.Script(args) is { } script)
-            foreach (var name in AgentProcessNames.Candidates(script)) yield return name;
+            foreach (var name in PathNames(script)) yield return name;
         foreach (var name in ProcessArgs.ScriptNameCandidates(args)) yield return name;
     }
 
+    // A runtime under <vendor>/versions/<v>/ is named only by that folder: Cursor's CLI runs node from
+    // …/cursor-agent/versions/<v>/.
+    static IEnumerable<string> PathNames(string? path) {
+        foreach (var name in AgentProcessNames.Candidates(path)) yield return name;
+        if (string.IsNullOrEmpty(path)) yield break;
+
+        var parts = path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 4 && parts[^3].Equals("versions", StringComparison.OrdinalIgnoreCase)) yield return parts[^4];
+    }
+
     // kcap's JSON writers escape non-ASCII, so a path holding any appears in a file only in its escaped form.
-    static List<string> Needles(List<string> folders) =>
+    static List<string> Needles(IEnumerable<string> folders) =>
         [.. folders.SelectMany(f => new[] { f, CanonicalPath.Resolve(f) })
             .SelectMany(p => new[] { p, JsonEncodedText.Encode(p).Value })
             .Where(p => p.Length > 0)

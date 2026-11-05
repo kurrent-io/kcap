@@ -11,7 +11,7 @@ internal static partial class ProcessFacts {
     const uint ProcUidOnly = 4;
 
     /// <summary>This user's processes on macOS, empty elsewhere. A process that is gone or cannot be read by the time
-    /// it is asked about is left out; arguments are read only for a JavaScript runtime, whose script names its agent.</summary>
+    /// it is asked about is left out; arguments are read only where <see cref="ReadsArgs"/> says.</summary>
     internal static IReadOnlyList<ProcessFact> ForCurrentUser() {
         if (!OperatingSystem.IsMacOS()) return [];
 
@@ -23,13 +23,18 @@ internal static partial class ProcessFacts {
         return facts;
     }
 
+    /// <summary>A JavaScript runtime or a Python interpreter, which only its arguments name: the script it runs, or the
+    /// title it writes over them (Vibe's "Vibe CLI").</summary>
+    internal static bool ReadsArgs(string executable) =>
+        ProcessArgs.IsScriptRuntime(executable) || Path.GetFileName(executable).StartsWith("python", StringComparison.OrdinalIgnoreCase);
+
     static ProcessFact? Read(int pid) {
         try {
             DateTime started;
             using (var process = Process.GetProcessById(pid)) started = process.StartTime.ToUniversalTime();
 
             var executable = ProcessExecutable.Of(pid);
-            var args       = executable is not null && ProcessArgs.IsScriptRuntime(executable) ? ProcessArgs.Read(pid) : null;
+            var args       = executable is not null && ReadsArgs(executable) ? ProcessArgs.Read(pid) : null;
 
             return new ProcessFact(pid, executable, args, started);
         } catch (Exception) {

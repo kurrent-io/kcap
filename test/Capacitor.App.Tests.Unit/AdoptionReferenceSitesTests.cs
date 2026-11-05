@@ -34,6 +34,7 @@ public class AdoptionReferenceSitesTests {
     string BundleDaemon => Path.Combine(Bundle, "Contents", "MacOS", "kcap-daemon");
     string Claude => Tmp.PathTo("home", ".claude");
     HarnessRegistry Harnesses => TestHarnesses.Under(Home);
+    AccountStore Accounts => new(Tmp.PathTo("accounts"));
 
     OtherCliInstall Npm() {
         var scope    = Tmp.GetResolvedPath("prefix", "lib", "node_modules", "@kurrent");
@@ -53,7 +54,7 @@ public class AdoptionReferenceSitesTests {
             """);
 
     Task<IReadOnlyList<ReferenceSite>> Read(Launchd? launchd = null) =>
-        AdoptionReferenceSites.ReadAsync(Home, Harnesses, [Claude], new Launchctl(launchd ?? new Launchd(), "gui/501"), CancellationToken.None);
+        AdoptionReferenceSites.ReadAsync(Home, Harnesses, Accounts, new Launchctl(launchd ?? new Launchd(), "gui/501"), CancellationToken.None);
 
     async Task<string?> Holder(Launchd? launchd = null) =>
         AdoptionConsumers.Holder(Npm(), DateTime.UtcNow, [], await Read(launchd), Harnesses, Bundle);
@@ -159,18 +160,34 @@ public class AdoptionReferenceSitesTests {
         await Assert.That(await Holder()).IsEqualTo($"site:{installed}");
     }
 
-    [Test]
-    public async Task Claude_homes_are_the_default_and_each_registered_account() {
-        var store = new AccountStore(Tmp.CreateDir("accounts"));
-        var now   = DateTimeOffset.UtcNow;
-        store.Mutate(r => (r with { Accounts = [
-            new VendorAccount("a", HarnessId.Claude, Tmp.PathTo("work-claude"), "Work", now),
-            new VendorAccount("b", HarnessId.Codex, Tmp.PathTo("work-codex"), "Codex", now),
-        ] }, 0));
+    void Register(HarnessId vendor, string directory) =>
+        Accounts.Mutate(r => (r with { Accounts = [.. r.Accounts, new VendorAccount(vendor + "-" + r.Accounts.Count, vendor, directory, "Work", DateTimeOffset.UtcNow)] }, 0));
 
-        await Assert.That(AdoptionReferenceSites.ClaudeHomes(Home, store)).IsEquivalentTo([Claude, Tmp.PathTo("work-claude")]);
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_registered_Claude_accounts_plugin_still_loading_the_old_folder_holds_it() {
+        var work = Tmp.PathTo("work-claude");
+        Register(HarnessId.Claude, work);
+        Write(Path.Combine(Claude, "settings.json"), Settings(BundlePlugin));
+        Write(Path.Combine(work, "settings.json"), Settings(Path.Combine(Npm().Root, "plugin")));
 
-        File.WriteAllText(store.RegistryPath, "{ not json");
-        await Assert.That(AdoptionReferenceSites.ClaudeHomes(Home, store)).IsNull();
+        await Assert.That(await Holder()).IsEqualTo($"site:{Path.Combine(work, "settings.json")}");
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_registered_Codex_accounts_config_naming_the_old_binary_holds_it() {
+        var work = Tmp.PathTo("work-codex");
+        Register(HarnessId.Codex, work);
+        Write(Path.Combine(Home.Path, ".codex", "config.toml"), "");
+        var config = Path.Combine(work, "config.toml");
+        Write(config, $"[mcp_servers.kcap-review]\ncommand = \"{Npm().CliBinary}\"\n");
+
+        await Assert.That(await Holder()).IsEqualTo($"site:{config}");
+    }
+
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task An_unreadable_account_registry_holds_it() {
+        Write(Accounts.RegistryPath, "{ not json");
+
+        await Assert.That(await Holder()).IsEqualTo($"site:accounts:{Accounts.RegistryPath}");
     }
 }
