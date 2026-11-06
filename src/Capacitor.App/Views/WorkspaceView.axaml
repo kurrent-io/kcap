@@ -9,7 +9,7 @@
     <!-- Two columns: the workspace proper, and the work-context pane sized by ContextPaneSizing. The
          terminal keeps its own column, so the size it reports to the PTY is the real center width. -->
     <Grid x:Name="SplitGrid" ColumnDefinitions="*,320">
-    <Grid Grid.Column="0" RowDefinitions="Auto,*">
+    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
         <!-- Header: title over checkout · Chat/Terminal switch · actions.
              Harness/transport live in the work-context pane; leaving is the rail's job. -->
         <Border x:Name="SessionHeader" Grid.Row="0" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
@@ -22,6 +22,7 @@
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                         <views:AgentStatusMark x:Name="WorkspaceStatus" Classes="header"
                                                DataContext="{Binding Chat.AgentStatus}"
+                                               IsVisible="{Binding !$parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).HasConnectionNotice}"
                                                HorizontalAlignment="Left" VerticalAlignment="Center" />
                         <TextBlock x:Name="WorkspaceSubtitle" Grid.Column="1" Text="{Binding RepoLabelText}" FontSize="13"
                                    Foreground="{StaticResource KcapMutedBrush}" TextTrimming="CharacterEllipsis"
@@ -61,7 +62,9 @@
         <!-- Content: the terminal control (real resize wiring lives inside TerminalControl itself,
              see WorkspaceView.axaml.cs header comment) plus one state banner at a time, layered
              over it. -->
-        <Grid Grid.Row="1">
+        <views:SessionConnectionNotice x:Name="ConnectionBanner" Grid.Row="1" DataContext="{Binding ConnectionNotice}"
+                IsVisible="{Binding $parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).HasConnectionNotice}" />
+        <Grid Grid.Row="2">
             <!-- FontFamily MUST be set: the control's default is "Cascadia Mono", which only
                  exists on Windows — elsewhere it silently falls back to ESTIMATED cell metrics
                  while drawing with a real typeface, smearing every styled run off its column. -->
@@ -171,19 +174,9 @@
             <!-- Over the (still empty) chat host while the daemon is starting the runtime: the
                  stage line is the only sign the launch is alive during a handshake that can run
                  for many seconds. -->
-            <Border x:Name="StartingPanel" IsVisible="{Binding IsStarting}"
-                    Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
-                    CornerRadius="8" Padding="16,12" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <StackPanel Spacing="6" HorizontalAlignment="Center">
-                    <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
-                        <Ellipse Width="8" Height="8" Fill="{StaticResource KcapPurpleBrush}" Classes="pulsing" VerticalAlignment="Center"
-                                 views:PulseClock.IsActive="{Binding IsStarting}" />
-                        <TextBlock x:Name="StartingText" Text="{Binding StartingText}" Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                    </StackPanel>
-                    <TextBlock Text="The agent appears in the rail as soon as it registers." FontSize="13"
-                               Foreground="{StaticResource KcapMutedBrush}" HorizontalAlignment="Center" />
-                </StackPanel>
-            </Border>
+            <views:SessionConnectionNotice x:Name="StartingPanel" DataContext="{Binding StartingNotice}"
+                    VerticalAlignment="Top"
+                    IsVisible="{Binding $parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).ShowsStartingNotice}" />
         </Grid>
     </Grid>
     <views:WorkContextView x:Name="WorkContextHost" Grid.Column="1" DataContext="{Binding WorkContext}" />
