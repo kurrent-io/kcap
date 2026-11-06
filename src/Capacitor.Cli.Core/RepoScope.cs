@@ -16,12 +16,18 @@ public static class RepoScope {
     /// the list excludes.
     /// </summary>
     public static bool IsOutOfScope(
-            string? repoKey, IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) {
-        if (IsOutsideAllowlist(repoKey, allowedRepos)) return true;
+            string? repoKey, IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) =>
+        IsOutOfScope(repoKey, repoKey, allowedRepos, excludedRepos);
 
-        return repoKey is not null
+    /// <summary>The same, with the deny list matched against <paramref name="excludeKey"/>, which can name a repository
+    /// the session reports none for.</summary>
+    public static bool IsOutOfScope(
+            string? allowKey, string? excludeKey, IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) {
+        if (IsOutsideAllowlist(allowKey, allowedRepos)) return true;
+
+        return excludeKey is not null
             && excludedRepos is { Count: > 0 }
-            && excludedRepos.Contains(repoKey, StringComparer.OrdinalIgnoreCase);
+            && Names(excludedRepos, excludeKey);
     }
 
     /// <summary>
@@ -31,5 +37,14 @@ public static class RepoScope {
     /// </summary>
     public static bool IsOutsideAllowlist(string? repoKey, IReadOnlyList<string>? allowedRepos)
         => allowedRepos is { Count: > 0 }
-        && (repoKey is null || !allowedRepos.Contains(repoKey, StringComparer.OrdinalIgnoreCase));
+        && (repoKey is null || !Names(allowedRepos, repoKey));
+
+    /// <summary>Whether the list names the key, a repository with no remote also by its folder
+    /// (<see cref="LocalRepository.Matches"/>).</summary>
+    public static bool Names(IReadOnlyList<string> entries, string repoKey) {
+        foreach (var entry in entries)
+            if (LocalRepository.Matches(entry, repoKey)) return true;
+
+        return false;
+    }
 }
