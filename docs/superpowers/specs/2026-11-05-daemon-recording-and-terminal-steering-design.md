@@ -72,6 +72,8 @@ These would make the work a failure even if it functioned.
 - Only the session's owner can send into a terminal session. Hosted agents keep their current access rules.
 - Steering has one switch rather than one per session, stored with the daemon's consent settings, separate from launch consent, and off until set. `kcap setup` offers it. There is no per-session step, because a person can't turn on a per-session switch after leaving the terminal.
 - Remote tool approvals and remote interrupt stay out of the first version and come straight after it.
+- There are no new Postgres tables. The only schema change is two nullable columns on `hosted_agent_pending_dispatches`.
+- The FIFO matcher stays for raw terminal typing, which can't be stamped.
 - A message waiting in the daemon is rejected visibly if the daemon restarts or loses the server, and the sender sends it again.
 
 ## What the spike proved
@@ -88,7 +90,30 @@ Run on Claude Code 2.1.318, inside one live session, with a throwaway mod standi
 - A mod's own `prompt.submit` hook doesn't fire for its own prompts, so `session.append` is the only place it sees them.
 - Ingest already keeps these rows. `UserMessageClassifier` has no `plugin` case, so they classify as `Person`, and the author comes from the link.
 
-Not tested: a real daemon-to-mod round trip, a mod installed as a plugin rather than loaded from the dev folder, and Esc, exit, compaction, `/clear` or resume while a dispatch is waiting. The mod API is marked early access and may change without notice.
+The spike didn't test a real daemon-to-mod round trip, a mod installed as a plugin rather than loaded from the dev folder, or Esc, exit, compaction, `/clear` or resume while a dispatch is waiting. The steering proof covers those. The mod API is marked early access and may change without notice.
+
+**The steering proof.** Run on Claude Code 2.1.318 on macOS with Haiku, using real Claude processes in tmux, a Node stub for the daemon and server on a Unix socket, and a mod installed as a plugin from a local marketplace at project scope. There were 80 runs and 102 dispatches: 56 Delivered, 31 Rejected and 15 left Unconfirmed. A separate check against the raw transcripts found that no Rejected dispatch produced a row, no dispatch produced two rows, and every link matched its row's uuid, session and text. The stub implements the tables, so a dispatch couldn't end outside them. What the runs show is that real processes give a signal for each transition.
+
+- `$.http.fetch` with `socketPath` works from an installed plugin, and a round trip's link uuid equals the transcript line's uuid.
+- Esc during a turn removes a queued plugin prompt, and the submit resolves `{ drop }`, 7 of 7. That includes double Esc and the first Ctrl-C. A typed prompt queued beside it still runs.
+- After that, every plugin prompt drops with `the session was stopped and nobody has sent input since`. This outlasted 45 seconds. A typed prompt or `/clear` lifts it. `$.turn.abort` didn't cause it, in one run.
+- Esc at a permission dialog refuses the tool, but the turn ends `answer`, not `aborted`, and the queued prompt runs, 3 of 3. Those runs sent no later dispatch, so the refusal above wasn't tested there.
+- A prompt queued ahead of a session change isn't discarded. In 17 of 17 runs it was queued about a second before a `/clear` or `/resume` typed mid-turn, and it landed in the new conversation, including when "send now" aborted the turn. The link arrived 36 to 61 ms after `session.end`, apart from one run where a dialog held it for 1.5 seconds. The reverse order, and a submit in the milliseconds after a turn ends, weren't run.
+- A mod that takes a dispatch only when no turn is running avoids that case. Mid-turn `/clear` (2), resume and exit ended Held to Rejected with nothing submitted. This narrows the window and doesn't close it, because a queued command or typed prompt can still run first when a turn ends.
+- Exit produces no row and no `drop`. `session.end` fires with the dispatch in hand on every exit except `kill -9`, where only a lapse can tell. `--resume` doesn't restore the prompt, 2 of 2.
+- Compaction keeps the prompt and produces one row, after the boundary, 4 of 4. That includes auto-compaction inside a turn.
+- While a dialog is open at idle (`/config`, the resume picker), the queue stalls with no signal, and the row lands when the dialog closes.
+- `$.prompt.submit` refuses text that starts with `/`, after any leading whitespace, and the command doesn't run. Other shapes land with exact text: multi-line, padded, unicode, `@file`, `!`, 20,000 characters.
+- A `UserPromptSubmit` hook that blocks a prompt gives `drop` with the hook's reason.
+- `$.state` survives a reload and compaction, and `/clear` and resume wiped it in all 15 runs that read it afterwards. `$.store` survives all of them. It's one file per plugin shared by every process, so a process keys its own entries. Nothing removes old keys, and it caps at 4 MiB. Two processes writing at once lost nothing, in one run.
+- `session.end` fires on `/clear` and resume. `session.start` doesn't, and the module isn't reloaded. The new id arrives on `classic.SessionStart`. On an in-process resume, `$.session.id()` inside that hook still gives the old id, 9 of 9.
+- Rows already in a transcript don't reach `session.append` on any load.
+- A second process can resume a live session and keep the same id. Neither mod is told. Both write one transcript file, which forks.
+- A mod can't bind or pass `$`, so its helpers are closures in `session.start`.
+
+All 15 dispatches left Unconfirmed were forced: 9 process exits, 3 dialogs left open, and 3 from a bug in the proof's mod, fixed and rerun as Rejected. On 30 days of one machine's transcripts, 96 of 44,202 queued prompts were orphaned at end of file, the closest measure of exiting with something queued, and `/clear` appeared once in 23,329 prompts. That's one person's use, and there's no data on resume or on how long people leave a dialog open.
+
+Not tested: `socketPath` on Windows or Linux, a real daemon or server, a session with other plugins or kcap's hooks loaded, a handover refused for a dispatch already rejected, a daemon away past a grace period, and the moment between a turn ending and a queued command running.
 
 ## Part 1: the daemon records
 
@@ -159,11 +184,11 @@ As AI-4410 describes. `TranscriptBatch` gains an optional per-line dispatch id. 
 1. At session start the mod contacts the daemon. If there's no daemon, the switch is off, or the daemon doesn't serve this session's profile, the mod stays inert.
 2. The daemon registers the session with the server as an attached agent.
 3. The owner sends a message. The server applies the owner rule, reserves a dispatch as it does for hosted agents, and pushes it to the daemon. The dispatch is now Held, and the remote surface shows it as waiting for the turn to end.
-4. When the mod has nothing outstanding it asks the daemon for the next dispatch. The daemon asks the server to confirm the handover, and only then passes it to the mod. The dispatch is now With the mod.
-5. The mod keeps the dispatch somewhere that survives a module reload and a session change, and submits it from a timer with `asUser: true`.
+4. When the mod has nothing outstanding and no turn is running, it asks the daemon for the next dispatch. The daemon asks the server to confirm the handover, and only then passes it to the mod. The dispatch is now With the mod. A plugin prompt can't run before idle anyway, so waiting costs nothing, and a message still Held when someone runs `/clear`, resumes or exits mid-turn is rejected rather than carried into another conversation.
+5. The mod keeps the dispatch in `$.store`, the only place that survives both a module reload and a session change, and submits it from a timer with `asUser: true`. That store is one file shared by every Claude process, so each process keys its entries with its process key, and removes keys left by processes that have gone.
 6. The mod's `session.append` hook sees a `user` row with its own plugin origin and takes the uuid. The row's text must equal the dispatch's text.
 7. The mod reports the link and the daemon forwards it to the server. The dispatch is now Delivered, and the mod can ask for the next one.
-8. The server attaches the dispatch to the event whose id is that uuid.
+8. The server attaches the dispatch to the event whose id is that uuid. It finds the dispatch by id alone, because the row can land in a later session than the one the dispatch was sent to, and the link can arrive before the replacement agent attaches.
 
 **Link ordering.** The row comes through the recorder and the link through the daemon, so either can reach the server first. The server must accept both orders. This path doesn't depend on who records the session, so a session on the fallback watcher can still be steered.
 
@@ -177,14 +202,14 @@ As AI-4410 describes. `TranscriptBatch` gains an optional per-line dispatch id. 
 | Rejected | No | Not delivered, send again |
 | Unconfirmed | Possibly | Delivery unknown, check the session before sending again |
 
-Only a dispatch that cannot land is Rejected, and only Rejected tells the sender to send again.
+Only a dispatch that cannot land is Rejected, and only Rejected can tell the sender to send again.
 
 | From | To | When |
 |---|---|---|
 | Held | With the mod | The server confirms the handover. It refuses for a dispatch it has already rejected, and the daemon drops that dispatch |
 | Held | Rejected | The daemon's connection drops, the attachment lapses or ends, or the process has an Unconfirmed dispatch. The server does this itself, so a hard-killed daemon needs to report nothing |
 | With the mod | Delivered | The link arrives |
-| With the mod | Rejected | The submit returned `drop`. Nothing else can prove the prompt won't land |
+| With the mod | Rejected | The submit returned `drop` or refused the text. Nothing else can prove the prompt won't land |
 | With the mod | Unconfirmed | The session goes idle and no matching row appears within a grace period, or the session ends, or the attachment lapses, or the daemon stays away past a grace period |
 | Unconfirmed | Delivered | A late link arrives. The sender has been told to check, so this corrects the record |
 
@@ -192,9 +217,17 @@ The mod holds one dispatch at a time, and no handover is confirmed while one is 
 
 The daemon drops its Held dispatches when its connection drops. It can't confirm a handover while disconnected, so nothing it's holding can reach the mod after the server has rejected it.
 
-**Session changes.** An attached agent belongs to one session id. `/clear` and resume end that session while the process carries on under a new id, and no `session.start` fires. The mod sees this on `session.end`. Held dispatches are rejected, because they were written for the old conversation. A dispatch With the mod goes Unconfirmed, because it might still land in the new conversation.
+**Idle.** A turn completing doesn't prove a queued prompt will run, because an open dialog holds the queue with no signal. A dispatch can therefore go Unconfirmed while a dialog stays open, and a late link corrects it when the dialog closes. The grace period is a false alarm the design can absorb, and it stops steering only for as long as the dialog stays open.
 
-The mod then attaches again as a new agent under the new id, naming the agent it replaces so the server carries the barrier across. With nothing outstanding, steering carries straight on. With an Unconfirmed dispatch, the new agent takes no input until a late link arrives or the process exits. If the proof shows a session change always discards queued prompts, a dispatch With the mod can be Rejected at the change instead, and the barrier clears.
+**Stopped sessions.** After Esc during a turn, Claude refuses every plugin prompt until someone acts at the terminal, by typing a prompt or running `/clear`. Sending again would fail the same way, so the sender isn't told to. The mod knows this state from a turn that completed as aborted with no input since, and it never parses the engine's reason text. It reports the drop with that reason, and the sender sees "Not delivered, the session was stopped at the terminal". The dispatch is Rejected like any other drop, and the next one is handed over as normal.
+
+**Commands.** A message that starts with `/`, after any leading whitespace, can't be delivered, because `$.prompt.submit` refuses it. For an attached agent the server refuses such a message before it reserves a dispatch, so it never reaches a mod. The sender sees "Not delivered, commands can only be run at the terminal". Hosted agents are unaffected.
+
+**Session changes.** An attached agent belongs to one session id. `/clear` and resume end that session while the process carries on under a new id, and no `session.start` fires. The mod sees the end on `session.end` and the new id on `classic.SessionStart`. Held dispatches are rejected, because they were written for the old conversation. A dispatch With the mod goes Unconfirmed, because it's expected to land in the new conversation: in the proof it always did.
+
+The mod then attaches again as a new agent under the new id, naming the agent it replaces so the server carries the barrier across. With nothing outstanding, steering carries straight on. With an Unconfirmed dispatch, the new agent takes no input until a late link arrives or the process exits.
+
+**One process per session.** A second Claude process can resume a live session and keep its id, and neither mod is told. So an attachment belongs to a process as well as a session, and `/attach` names the process by a process key of its pid and start time, because a pid can be reused. The same process attaching again after a module reload or a daemon restart is accepted. A different process is refused while the first attachment is alive, and its mod stays inert and keeps trying until the first has gone.
 
 **Attached agent.** A new `IHostedAgentRuntime` with no PTY. Stop removes the attachment and touches nothing in the process. It offers no terminal output, resize, special keys or raw input. It's never resumed or restarted by the daemon, and it doesn't hold up a daemon restart or update. The rail and agent lists must not imply the daemon hosts it. `PersistedInterruptResolver` must not treat it as reachable, or remote answers to a permission prompt would be routed to a session that can't take them.
 
@@ -236,6 +269,7 @@ AOT rules apply to anything added to the daemon.
    - **Pass:** every dispatch ends in the state the tables give. A Rejected dispatch never produces a row, no dispatch produces two rows, and Unconfirmed is rare. The run includes a daemon hard-killed between push and handover, a row arriving after Unconfirmed, and a resend after Unconfirmed. No row from an old session can be linked to a dispatch sent after `/clear` or resume.
    - **Fail:** Unconfirmed turns out to be routine, for example because Esc routinely discards a queued prompt with no signal. Steering would stop in those sessions, so Part 3 then needs rethinking before it's built.
    - **Windows:** check `socketPath` there too. If it doesn't work, Part 3 ships on macOS and Linux first, and Windows waits for its own transport.
+   - **Result:** passed on macOS on 2026-11-06, as recorded under "What the spike proved". `socketPath` wasn't run on Windows or Linux. Part 3 isn't offered on Windows until it has been checked there, and the end-to-end run in step 6 covers Linux.
 3. **Extract the recorder**, with `kcap watch` on the shared code and no behaviour change.
 4. **Hosted recording and stamps** (Parts 1 and 2), hosted Claude first, measured against today's FIFO attribution on the same sessions.
 5. **Terminal and other-vendor recording.**
@@ -261,7 +295,7 @@ A server-side message queue drained at turn end, with daemons collecting unackno
 - A hosted session never falls back to a watcher on a daemon with the new capability.
 - A hook waits out a grace period on a stale daemon claim before spawning a watcher.
 - There is no takeover from a watcher back to the daemon.
-- Launch prompts are stamped. Raw input isn't, so the FIFO matcher keeps those cases and can't fully retire.
+- Launch prompts are stamped.
 - The switch is per daemon, so per profile.
 - A missing or corrupt switch reads as off.
 - `/clear` and resume end the attached agent, reject its Held dispatches and attach a new one.
@@ -273,6 +307,12 @@ A server-side message queue drained at turn end, with daemons collecting unackno
 - A handover needs the server's confirmation before the mod sees the dispatch.
 - The daemon stamps only when sure, and a mismatch or raw Enter suspends stamping until the session's process is replaced.
 - `TerminalChatInput` moves plain text from raw bytes to `SendText`, so the composer never suspends stamping.
+- The mod takes a dispatch only when no turn is running.
+- After Esc, a dispatch is Rejected with its own reason, and the sender isn't told to send again.
+- A message that starts with `/` is refused before a dispatch is reserved.
+- An orderly exit leaves a dispatch Unconfirmed, even though the proof suggests it can't land.
+- A second process on a live session is refused, and its mod keeps trying until the first has gone.
+- Part 3 isn't offered on Windows until `socketPath` has been checked there.
 - A line can carry a local marker, which keeps it away from the FIFO matcher.
 - The input log persists a hash of each submission rather than its text.
 - Claims are a new file, separate from the watcher pid file.
