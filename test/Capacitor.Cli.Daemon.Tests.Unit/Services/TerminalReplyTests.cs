@@ -7,6 +7,8 @@ public class TerminalReplyTests {
     [Test]
     [Arguments("\x1b[12;40R")]
     [Arguments("\x1b[0n")]
+    [Arguments("\x1b[?12;40;1R")]
+    [Arguments("\x1b[?10n")]
     [Arguments("\x1b[?62;22c")]
     [Arguments("\x1b[>0;276;0c")]
     [Arguments("\x1b[?2004;1$y")]

@@ -43,8 +43,8 @@ internal static class TerminalReply {
         if (i == start || i >= data.Length) return 0;
 
         return (data[i], prefix) switch {
-            ((byte)'R', 0)                                         => i + 1,
-            ((byte)'n', 0)                                         => i + 1,
+            ((byte)'R', 0 or (byte)'?')                            => i + 1,
+            ((byte)'n', 0 or (byte)'?')                            => i + 1,
             ((byte)'t', 0)                                         => i + 1,
             ((byte)'c', (byte)'?' or (byte)'>')                    => i + 1,
             ((byte)'u', (byte)'?')                                 => i + 1,

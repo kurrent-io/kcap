@@ -280,8 +280,14 @@ internal sealed partial class PtyHostedAgentRuntime(
         if (Withdrawn() is { } early) return early;
 
         // A write parked in the lane would otherwise hold the verdict as well as the Enter.
-        if (!await _lane.WaitAsync(ResubmitLaneWait, _disposal.Token))
-            return arrived.IsCompleted ? LaunchPromptOutcome.Confirmed : LaunchPromptOutcome.NotConfirmed;
+        using (var expiry = new CancellationTokenSource(ResubmitLaneWait, time))
+        using (var bound = CancellationTokenSource.CreateLinkedTokenSource(_disposal.Token, expiry.Token)) {
+            try {
+                await _lane.WaitAsync(bound.Token);
+            } catch (OperationCanceledException) when (!_disposal.IsCancellationRequested) {
+                return arrived.IsCompleted ? LaunchPromptOutcome.Confirmed : LaunchPromptOutcome.NotConfirmed;
+            }
+        }
         _deliveryHoldsLane = true;
 
         try {
