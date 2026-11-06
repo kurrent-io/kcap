@@ -610,9 +610,14 @@
                                     ToolTip.Tip="{Binding SeparateIssue.Url}"
                                     AutomationProperties.Name="{Binding SeparateIssue.AccessibleName}"
                                     HorizontalAlignment="Stretch">
-                                <TextBlock x:Name="IssueTitle" Text="{Binding SeparateIssue.Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
-                                           TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}"
-                                           IsVisible="{Binding SeparateIssue.Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <Panel>
+                                    <TextBlock x:Name="IssueTitle" Text="{Binding SeparateIssue.Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
+                                               TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}"
+                                               IsVisible="{Binding SeparateIssue.Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <TextBlock x:Name="IssueTitleMissing" Text="{x:Static vm:WorkContextLinkViewModel.TitleMissingNote}"
+                                               FontSize="13" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
+                                               IsVisible="{Binding SeparateIssue.Title, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
+                                </Panel>
                             </Button>
                             <ItemsControl x:Name="IssueList" ItemsSource="{Binding VisibleSeparateIssues}" IsVisible="{Binding HasMultipleIssues}">
                                 <ItemsControl.ItemsPanel>
@@ -631,6 +636,9 @@
                                                 <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
                                                            TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}"
                                                            IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                <TextBlock Text="{x:Static vm:WorkContextLinkViewModel.TitleMissingNote}"
+                                                           FontSize="13" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
+                                                           IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
                                             </StackPanel>
                                         </Button>
                                     </DataTemplate>

@@ -1,8 +1,10 @@
 using ReactiveUnit = System.Reactive.Unit;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.Http;
@@ -787,6 +789,9 @@ public class WorkContextViewModelTests {
             Url = url, Title = title, LinkClass = linkClass,
         };
 
+    static WorkItemKeyDto SeedKey(string shortKey, string value, string provider = "github", string kind = "pr") =>
+        new() { ShortKey = shortKey, Provider = provider, Kind = kind, Value = value };
+
     static WorkItemContributorDto Person(string userId, string? name, DateTimeOffset? at = null, string? avatar = null) =>
         new() { UserId = userId, DisplayName = name, LastActivityAt = at, AvatarUrl = avatar };
 
@@ -1087,7 +1092,7 @@ public class WorkContextViewModelTests {
         var view = new WorkContextView { DataContext = h.Vm };
         var window = new Window { Content = view, Width = 320, Height = 800 };
         var item = Item(title: "WK-2198", enriched: null) with {
-            Links = [Link("issue", "WK-2198", "https://linear.app/example/issue/WK-2198")],
+            Links = [Link("issue", "WK-2198", "https://linear.app/example/issue/WK-2198", provider: "linear")],
         };
         h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198"), item),
             ReadyWith(Row("w1", "WK-2198"), item with {
@@ -1128,12 +1133,13 @@ public class WorkContextViewModelTests {
     [Arguments("Tracker title", "Tracker title", "Tracker title", true)]
     [Arguments("Work item title", "Tracker title", "Work item title", false)]
     [Arguments(null, "WK-2198", "", true)]
+    [Arguments("Work item title", "", "Work item title", true)]
     public Task A_primary_issue_keeps_its_unique_title(string? enriched, string issueTitle, string displayTitle, bool inline) => RunOnUiAsync(async () => {
         var h = new Harness();
         var view = new WorkContextView { DataContext = h.Vm };
         var window = new Window { Content = view, Width = 320, Height = 800 };
         h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198"), Item(enriched: enriched) with {
-            Links = [Link("issue", "WK-2198", "https://linear.app/example/issue/WK-2198", issueTitle)],
+            Links = [Link("issue", "WK-2198", "https://linear.app/example/issue/WK-2198", issueTitle, provider: "linear")],
         }));
         try {
             window.Show();
@@ -1202,7 +1208,7 @@ public class WorkContextViewModelTests {
             var h = new Harness();
             h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198"), Item(title: "WK-2198", enriched: null) with {
                 Links = [
-                    Link("issue", "WK-2198", "https://linear.app/x/issue/WK-2198", "WK-2198"),
+                    Link("issue", "WK-2198", "https://linear.app/x/issue/WK-2198", "WK-2198", provider: "linear"),
                     Link("issue", "#860", "https://github.com/example/repo/issues/860", "Secondary tracker"),
                 ],
             }));
@@ -1268,6 +1274,126 @@ public class WorkContextViewModelTests {
             await h.Vm.TeardownAsync();
         });
     }
+
+    /// The header spells this seed `!2423`, which does not name the issue, so the row has to stay and
+    /// say why it has no title until the tracker supplies one.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_untitled_issue_behind_a_pull_request_spelled_seed_says_its_title_is_unavailable() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        var view = new WorkContextView { DataContext = h.Vm };
+        var window = new Window { Content = view, Width = 320, Height = 800 };
+        var item = Item(title: "Explain the count", enriched: null) with { Key = SeedKey("!2423", "github:o/r!2423") };
+        const string url = "https://github.com/o/r/issues/2423";
+        h.Source.Enqueue(
+            ReadyWith(Row("w1", "t"), item with { Links = [Link("issue", "#2423", url, value: "github:o/r#2423")] }),
+            ReadyWith(Row("w1", "t"), item with { Links = [Link("issue", "#2423", url, "Tracker title", value: "github:o/r#2423")] }));
+        try {
+            window.Show();
+            await h.PushAsync(Dto());
+            window.UpdateLayout();
+            await Assert.That(view.FindControl<StackPanel>("IssueSection")!.IsEffectivelyVisible).IsTrue();
+            await Assert.That(view.FindControl<TextBlock>("IssueTitle")!.IsEffectivelyVisible).IsFalse();
+            var note = view.FindControl<TextBlock>("IssueTitleMissing");
+            await Assert.That(note).IsNotNull();
+            await Assert.That(note!.IsEffectivelyVisible).IsTrue();
+            await Assert.That(note.Text).IsEqualTo("Title not available");
+            var button = view.FindControl<Button>("IssueTitleButton")!;
+            await Assert.That(AutomationProperties.GetName(button)).IsEqualTo("#2423: Title not available");
+
+            await h.TickAsync();
+            window.UpdateLayout();
+            await Assert.That(view.FindControl<TextBlock>("IssueTitle")!.Text).IsEqualTo("Tracker title");
+            await Assert.That(view.FindControl<TextBlock>("IssueTitle")!.IsEffectivelyVisible).IsTrue();
+            await Assert.That(note.IsEffectivelyVisible).IsFalse();
+            await Assert.That(AutomationProperties.GetName(button)).IsEqualTo("#2423: Tracker title");
+        } finally {
+            window.Close();
+            await h.Vm.TeardownAsync();
+            h.Presence.Dispose();
+            h.SignIn.Dispose();
+        }
+    });
+
+    /// GitHub gives an issue and a pull request one number, so a seed spelled `!N` is the same item as
+    /// its `#N` link and the section must not repeat the header's title.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments("Tracker title")]
+    [Arguments(null)]
+    public Task A_seed_spelled_as_a_pull_request_absorbs_its_titled_issue(string? enriched) => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(Row("w1", "!2423"), Item(title: "!2423", enriched: enriched) with {
+            Key   = SeedKey("!2423", "github:o/r!2423"),
+            Links = [Link("issue", "#2423", "https://github.com/o/r/issues/2423", "Tracker title", value: "github:o/r#2423")],
+        }));
+        await h.PushAsync(Dto());
+        await Assert.That(h.Vm.DisplayTitle).IsEqualTo("Tracker title");
+        await Assert.That(h.Vm.HasSeparateIssue).IsFalse();
+        await h.Vm.TeardownAsync();
+    });
+
+    /// Another provider's merge requests and issues are numbered apart, and the same number in
+    /// another repository is another item. Dropping either guard folds these into the header.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments("gitlab", "gitlab:o/r!7", "gitlab:o/r#7")]
+    [Arguments("github", "github:o/r!7", "github:o/other#7")]
+    public Task A_number_twin_that_is_another_item_stays_separate(string provider, string seed, string link) => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(Row("w1", "!7"), Item(title: "!7", enriched: "Tracker title") with {
+            Key   = SeedKey("!7", seed, provider),
+            Links = [Link("issue", "#7", title: "Tracker title", value: link, provider: provider)],
+        }));
+        await h.PushAsync(Dto());
+        await Assert.That(h.Vm.HasSeparateIssue).IsTrue();
+        await h.Vm.TeardownAsync();
+    });
+
+    /// The list replaces the single row once there are two separate issues, so it has to say the same.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_untitled_issue_in_the_list_says_its_title_is_unavailable() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        var view = new WorkContextView { DataContext = h.Vm };
+        var window = new Window { Content = view, Width = 320, Height = 800 };
+        h.Source.Enqueue(ReadyWith(Row("w1", "t"), Item() with {
+            Links = [
+                Link("issue", "#1", "https://github.com/o/r/issues/1", value: "github:o/r#1"),
+                Link("issue", "#2", "https://github.com/o/r/issues/2", "Titled", value: "github:o/r#2"),
+            ],
+        }));
+        try {
+            window.Show();
+            await h.PushAsync(Dto());
+            window.UpdateLayout();
+            var shown = view.FindControl<ItemsControl>("IssueList")!.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.IsEffectivelyVisible).Select(t => t.Text ?? "");
+            await Assert.That(shown).IsEquivalentTo(new[] { "#1", "Title not available", "#2", "Titled" });
+        } finally {
+            window.Close();
+            await h.Vm.TeardownAsync();
+            h.Presence.Dispose();
+            h.SignIn.Dispose();
+        }
+    });
+
+    /// A short key carries no repository, so only the full identity says which `#7` is the seed.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_issue_sharing_the_seed_short_key_stays_listed() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(Row("w1", "#7"), Item(title: "#7", enriched: "Main") with {
+            Key   = SeedKey("#7", "github:o/r#7", kind: "issue"),
+            Links = [
+                Link("issue", "#7", title: "Main", value: "github:o/r#7"),
+                Link("issue", "#7", title: "Other", value: "github:o/other#7"),
+            ],
+        }));
+        await h.PushAsync(Dto());
+        await Assert.That(h.Vm.SeparateIssues.Select(i => i.Title)).IsEquivalentTo(new[] { "Other" });
+        await h.Vm.TeardownAsync();
+    });
 
     /// The pane shows the session's pull requests only: a PR the work item links is not a link
     /// card, whatever its link class, while the item's issues still show.
