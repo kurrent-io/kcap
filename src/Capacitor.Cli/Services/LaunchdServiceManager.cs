@@ -36,10 +36,21 @@ sealed partial class LaunchdServiceManager(
         File.Exists(UnitPath(serviceId)) ? LaunchdPrint.Environment(File.ReadAllText(UnitPath(serviceId))) : null;
 
     /// <summary>The unit-writing half of <see cref="Install"/>, split out so it is testable without
-    /// invoking launchctl. A repoint's preimage goes first: the next repoint would put it back over this unit.</summary>
+    /// invoking launchctl. A repoint's preimage goes first, since the next repoint would put it back over this unit,
+    /// and comes back when the write fails: the plist it would undo is still there.</summary>
     internal void WriteUnitFiles(ServiceSpec spec) {
-        DiscardPreimage(spec.ServiceId);
-        _writeUnit(LaunchdUnit.PlistPath(home, spec.ServiceId), LaunchdUnit.Plist(spec), null);
+        var preimage = store?.RepointPreimagePath(spec.ServiceId);
+        var held     = preimage is not null && File.Exists(preimage) ? File.ReadAllText(preimage) : null;
+        if (held is not null) File.Delete(preimage!);
+        try {
+            _writeUnit(LaunchdUnit.PlistPath(home, spec.ServiceId), LaunchdUnit.Plist(spec), null);
+        } catch when (held is not null) {
+            // Best effort, so the write's failure is the one reported.
+            try {
+                AtomicFile.Replace(preimage!, held, mode: UnixFileMode.UserRead | UnixFileMode.UserWrite, followLink: false, durable: true);
+            } catch (Exception ex) when (Contained(ex)) { }
+            throw;
+        }
     }
 
     void DiscardPreimage(string serviceId) {

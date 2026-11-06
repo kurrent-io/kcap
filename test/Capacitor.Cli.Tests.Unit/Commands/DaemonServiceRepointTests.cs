@@ -251,6 +251,20 @@ public partial class DaemonServiceRepointTests {
         await Assert.That(console.GetCapturedError()).Contains("Daemon 'brew': launchd does not show the program its job runs");
     }
 
+    /// <summary>The write failed, so the plist the preimage would undo is still on disk.</summary>
+    [Test]
+    public async Task An_install_whose_write_fails_keeps_the_leftover_preimage() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        var original = LaunchdUnit.Plist(Spec("npm", OldDaemon));
+        File.WriteAllText(Preimage("npm"), original);
+        var manager = new LaunchdServiceManager(Home, TimeProvider.System,
+            writeUnit: (_, _, _) => throw new IOException("No space left on device"), store: Daemons.Store);
+
+        await Assert.That(() => manager.WriteUnitFiles(Spec("npm", Bundle))).Throws<IOException>();
+
+        await Assert.That(File.ReadAllText(Preimage("npm"))).IsEqualTo(original);
+    }
+
     /// <summary>Only a unit known to be gone lets its preimage go: something else at the plist path may hide the
     /// rewritten unit the preimage is there to undo.</summary>
     [Test]
