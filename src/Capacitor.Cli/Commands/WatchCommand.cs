@@ -2935,7 +2935,19 @@ partial class WatchCommand(
 
             var newLineNumbers = drainRead.LineNumbers;
             var newLines       = captured.Lines;
-            var linesRead      = drainRead.NextPosition;
+            // The server drops a line numbered at or below one it took, so a shorter file never
+            // lowers the cursor; only a reconnect rewind does. kcap import repairs lines written
+            // below it.
+            var linesRead = Math.Max(drainRead.NextPosition, state.LinesProcessed);
+
+            if (drainRead.NextPosition < state.LinesProcessed) {
+                if (!state.ShrinkLogged) {
+                    state.ShrinkLogged = true;
+                    Log(time, $"Transcript is shorter than the line cursor ({drainRead.NextPosition} < {state.LinesProcessed}); keeping the cursor, lines below it are not sent");
+                }
+            } else {
+                state.ShrinkLogged = false;
+            }
 
             state.Commits = state.Commits.Collect();
 

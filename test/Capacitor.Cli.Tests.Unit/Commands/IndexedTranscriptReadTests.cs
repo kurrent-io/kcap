@@ -257,4 +257,26 @@ public class IndexedTranscriptReadTests {
 
         await Assert.That(idle.BytesRead).IsLessThan(16 * 1024);
     }
+
+    [Test]
+    public async Task A_line_cut_inside_a_multibyte_character_is_held_until_complete() {
+        var whole = "{\"s\":\"é漢😀\"}\n"u8.ToArray();
+        var head  = "{\"a\":1}\n"u8.ToArray();
+        var cut   = head.Length + Array.IndexOf(whole, (byte)0xE6) + 2;
+        var path  = Tmp.PathTo("cut.jsonl");
+        var index = new TranscriptLineIndex();
+        await File.WriteAllBytesAsync(path, [.. head, .. whole[..(cut - head.Length)]]);
+
+        var held = await Read(path, 0, Hold, index);
+
+        await File.WriteAllBytesAsync(path, [.. head, .. whole]);
+        var done      = await Read(path, held.Result.NextPosition, Hold, index);
+        var reference = await Read(path, held.Result.NextPosition, Hold, null);
+
+        await Assert.That(held.Result.Lines).IsEquivalentTo(["{\"a\":1}"]);
+        await Assert.That(held.Result.NextPosition).IsEqualTo(1);
+        await Assert.That(done.Result.Lines).IsEquivalentTo(["{\"s\":\"é漢😀\"}"]);
+        await Assert.That(done.Result.LineNumbers).IsEquivalentTo([1]);
+        await AssertSame(reference.Result, done.Result, "completed multibyte line");
+    }
 }
