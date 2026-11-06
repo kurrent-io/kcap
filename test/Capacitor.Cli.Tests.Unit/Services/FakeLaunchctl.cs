@@ -21,6 +21,9 @@ sealed class FakeLaunchctl(UserHome home) {
     /// <summary>Every bootout fails and leaves the job loaded.</summary>
     public bool BootoutFails { get; set; }
 
+    /// <summary>print leaves out the program line.</summary>
+    public bool HidesProgram { get; set; }
+
     public void Load(string id, string program, bool running = true) => _jobs[LaunchdUnit.Label(id)] = (program, running);
 
     /// <summary>The daemon exits, as it does once it accepts a stop; the job stays loaded.</summary>
@@ -47,7 +50,7 @@ sealed class FakeLaunchctl(UserHome home) {
         switch (args) {
             case ["print", var target]:
                 return _jobs.TryGetValue(LabelOf(target), out var job)
-                    ? (0, $"{target} = {{\n\tstate = {(job.Running ? "running" : "not running")}\n\tprogram = {job.Program}\n\tspawn type = daemon (3)\n}}\n", "", false)
+                    ? (0, $"{target} = {{\n\tstate = {(job.Running ? "running" : "not running")}\n{(HidesProgram ? "" : $"\tprogram = {job.Program}\n")}\tspawn type = daemon (3)\n}}\n", "", false)
                     : (113, "", $"Could not find service \"{LabelOf(target)}\" in domain for user gui: 501", false);
             case ["bootout", _] when BootoutFails:
                 return (5, "", "Boot-out failed: 5: Input/output error", false);

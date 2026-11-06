@@ -259,9 +259,11 @@ sealed partial class LaunchdServiceManager(
         var beforeAmend = upgraded ?? original;
         var pending = preimagePath is null ? amended : amended ?? upgraded;
 
-        // A loaded job still running a version directory keeps it after the plist moves on.
+        // A loaded job keeps the program it loaded after the plist moves on, so one launchd does not name is taken
+        // as still running the binary the plist is about to stop naming.
         var loadedProgram = LaunchdPrint.LoadedProgram(printOut);
-        var pinned = loadedProgram is not null && stabilize is not null && stabilize(loadedProgram) != loadedProgram;
+        var retargeted = target is not null && target != binary;
+        var pinned = stabilize is not null && (loadedProgram is null ? retargeted : stabilize(loadedProgram) != loadedProgram);
         var spawn  = probe == LabelProbe.Loaded ? LaunchdUnit.LoadedSpawnType(printOut) : null;
         var stale  = probe == LabelProbe.Loaded && (SpawnTypes.IsBackgroundBand(spawn) || pinned || amended is not null);
 

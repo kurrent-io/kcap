@@ -184,6 +184,23 @@ public partial class DaemonServiceRepointTests {
         await Assert.That(console.GetCapturedError()).Contains("Daemon 'npm': its unit could not be read");
     }
 
+    /// <summary>Without the loaded program the job may run the old binary, so the rewrite takes a reload.</summary>
+    [Test]
+    public async Task A_job_whose_loaded_program_launchd_does_not_show_is_reloaded() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        Install("npm", OldDaemon);
+        var launchctl = new FakeLaunchctl(Home) { HidesProgram = true };
+        launchctl.Load("npm", OldDaemon);
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(launchctl).RepointFrom(Dir, Bundle);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(launchctl.Bootstrapped).IsEquivalentTo([Bundle]);
+        await Assert.That(launchctl.Program("npm")).IsEqualTo(Bundle);
+        await Assert.That(console.GetCapturedOutput()).Contains($"Daemon 'npm': now runs {Bundle}; it restarted");
+    }
+
     /// <summary>Only a unit known to be gone lets its preimage go: something else at the plist path may hide the
     /// rewritten unit the preimage is there to undo.</summary>
     [Test]
