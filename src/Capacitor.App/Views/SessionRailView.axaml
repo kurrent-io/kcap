@@ -70,19 +70,6 @@
             <Setter Property="FontSize" Value="12" />
             <Setter Property="CornerRadius" Value="7" />
         </Style>
-        <!-- Sized to read as one more picker beside Group and Sort, not as a standalone field. -->
-        <Style Selector="TextBox.railTitleField">
-            <Setter Property="Padding" Value="0,4,6,4" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="LetterSpacing" Value="0" />
-            <Setter Property="MinHeight" Value="0" />
-            <Setter Property="CornerRadius" Value="7" />
-        </Style>
-        <Style Selector="TextBox.railTitleField /template/ Border#PART_BorderElement,
-                         TextBox.railTitleField:focus /template/ Border#PART_BorderElement,
-                         TextBox.railTitleField:pointerover /template/ Border#PART_BorderElement">
-            <Setter Property="CornerRadius" Value="7" />
-        </Style>
         <Style Selector="Button.railPickerRow">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -275,12 +262,6 @@
                             </Panel>
                         </Button>
                     </Grid>
-                    <TextBox x:Name="RailTitleFilter" Classes="kcapField railTitleField clearButton"
-                             Text="{Binding TitleFilter, Mode=TwoWay}" AutomationProperties.Name="Filter sessions by title">
-                        <TextBox.InnerLeftContent>
-                            <TextBlock Text="Title" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" Margin="6,0,4,0" />
-                        </TextBox.InnerLeftContent>
-                    </TextBox>
                 </StackPanel>
 
                 <TextBlock Text="Loading sessions…" FontSize="12" Foreground="{StaticResource KcapFaintBrush}"
@@ -523,8 +504,7 @@
                                                                     </StackPanel>
                                                                 </ToolTip.Tip>
                                                                 <StackPanel Spacing="3">
-                                                                    <TextBlock views:TitleMatchText.Text="{Binding Primary}" FontSize="14.5" LineHeight="20"
-                                                                               views:TitleMatchText.Filter="{Binding $parent[views:SessionRailView].((vm:MainWindowViewModel)DataContext).Rail.TitleFilter, FallbackValue={x:Null}}"
+                                                                    <TextBlock Text="{Binding Primary}" FontSize="14.5" LineHeight="20"
                                                                                Classes="rowTitle" IsVisible="{Binding HasTitle}"
                                                                                Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
                                                                     <!-- Reserve the measured PR link width so machine and age never paint beneath its hit target. -->

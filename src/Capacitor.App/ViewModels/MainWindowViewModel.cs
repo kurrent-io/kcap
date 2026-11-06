@@ -820,6 +820,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             return;
         }
         Search?.Reset();
+        Search?.Refresh();
         IsSearchOpen = true;
         _navigation.Bump();
     }

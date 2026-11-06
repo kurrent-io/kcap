@@ -100,20 +100,6 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    string _titleFilter = "";
-    /// Narrows the loaded rows by title, case-insensitively; never persisted and never sent to the server.
-    public string TitleFilter {
-        get => _titleFilter;
-        set {
-            if (_disposables.IsDisposed) return;
-            value ??= "";
-            if (_titleFilter == value) return;
-            this.RaiseAndSetIfChanged(ref _titleFilter, value);
-            _stateFilter.OnNext(StateFilter());
-            this.RaisePropertyChanged(nameof(FiltersDiffer));
-        }
-    }
-
     public bool IsAll => _state == RailState.All;
     public bool IsLive => _state == RailState.Live;
     public bool IsEnded => _state == RailState.Ended;
@@ -182,12 +168,12 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     public string DirectionLabel => _descending ? "Descending" : "Ascending";
 
-    /// True when any control differs from its default, however the panel is collapsed.
+    /// True when any of the five controls differs from the defaults, however the panel is collapsed.
     public bool FiltersDiffer {
         get {
             var defaults = RailPreferences.Default;
             return _scope != defaults.Scope || _state != defaults.State || _grouping != defaults.Grouping
-                || _sort != defaults.Sort || _descending != defaults.Descending || _titleFilter.Trim().Length > 0;
+                || _sort != defaults.Sort || _descending != defaults.Descending;
         }
     }
 
@@ -394,13 +380,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     Func<AgentRow, bool> StateFilter() {
         var state = _state;
         var selected = _selectedSessionKey;
-        var title = _titleFilter.Trim();
-        return row => StateAdmits(state, row, selected) && TitleAdmits(title, row, selected);
+        return row => StateAdmits(state, row, selected);
     }
-
-    internal static bool TitleAdmits(string filter, AgentRow row, string? selectedKey) =>
-        filter.Length == 0 || row.Key == selectedKey
-        || row.Title?.Contains(filter, StringComparison.CurrentCultureIgnoreCase) == true;
 
     /// A row the workspace is on is always shown, whatever the filter says.
     internal static bool StateAdmits(RailState state, AgentRow row, string? selectedKey) =>

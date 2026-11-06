@@ -2322,7 +2322,7 @@ public partial class App : Application {
                 search,
                 sessions.Identity.ObserveOn(RxSchedulers.MainThreadScheduler),
                 (lane?.SessionAccessChanged ?? Observable.Never<string>()).ObserveOn(RxSchedulers.MainThreadScheduler),
-                time, RxSchedulers.MainThreadScheduler, open);
+                time, RxSchedulers.MainThreadScheduler, open, sidebar: () => rail.Groups.SelectMany(group => group.Sessions));
         vm = new MainWindowViewModel(
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,
             navigation: navigation, trackWorkspaceTeardown: trackWorkspaceTeardown, workspaceFactory: workspaceFactory,

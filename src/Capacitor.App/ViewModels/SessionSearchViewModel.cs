@@ -16,6 +16,7 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
 
     readonly Func<SearchRequest, CancellationToken, Task<SearchFetch>> _search;
     readonly Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>> _open;
+    readonly Func<IEnumerable<RailSessionViewModel>> _sidebar;
     readonly TimeProvider _time;
     readonly IScheduler _scheduler;
     readonly ObservableCollection<SearchHitViewModel> _hits = [];
@@ -26,7 +27,7 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
     readonly Subject<Unit> _closed = new();
 
     string _query = "";
-    SearchMode _tab = SearchMode.Sessions;
+    SearchMode _tab = SearchMode.Sidebar;
     int _highlightIndex;
     SearchListState _listState = SearchListState.Empty;
     string? _listMessage;
@@ -43,9 +44,11 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
         TimeProvider time,
         IScheduler scheduler,
         Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>> open,
+        Func<IEnumerable<RailSessionViewModel>>? sidebar = null,
         TimeSpan? debounce = null) {
         _search = search;
         _open = open;
+        _sidebar = sidebar ?? (() => []);
         _time = time;
         _scheduler = scheduler;
         Hits = new ReadOnlyObservableCollection<SearchHitViewModel>(_hits);
@@ -67,6 +70,11 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
             if (_query == value) return;
             var before = Trimmed;
             this.RaiseAndSetIfChanged(ref _query, value);
+            // Local and instant: the debounce would only move the highlight back under the user's keys.
+            if (_tab == SearchMode.Sidebar) {
+                RunSidebar();
+                return;
+            }
             if (Trimmed != before) CancelInFlight();
             if (Trimmed.Length < MinQueryLength) {
                 CancelInFlight();
@@ -83,6 +91,8 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
             if (_tab == value) return;
             this.RaiseAndSetIfChanged(ref _tab, value);
             Clear();
+            if (value != SearchMode.Sidebar && Trimmed.Length < MinQueryLength)
+                SetState(Trimmed.Length == 0 ? SearchListState.Empty : SearchListState.TooShort);
             RunCurrent();
         }
     }
@@ -106,15 +116,17 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
         HighlightIndex = Math.Clamp(_highlightIndex + delta, 0, _hits.Count - 1);
     }
 
-    public void NextTab() => Tab = Tab == SearchMode.Sessions ? SearchMode.Transcripts : SearchMode.Sessions;
+    static readonly SearchMode[] TabOrder = [SearchMode.Sidebar, SearchMode.Sessions, SearchMode.Transcripts];
 
-    public void PreviousTab() => NextTab();
+    public void NextTab() => Tab = TabOrder[(Array.IndexOf(TabOrder, Tab) + 1) % TabOrder.Length];
+
+    public void PreviousTab() => Tab = TabOrder[(Array.IndexOf(TabOrder, Tab) + TabOrder.Length - 1) % TabOrder.Length];
 
     public void Reset() {
         CancelInFlight();
         CancelIntent();
         _query = "";
-        _tab = SearchMode.Sessions;
+        _tab = SearchMode.Sidebar;
         _unavailable.Clear();
         this.RaisePropertyChanged(nameof(Query));
         this.RaisePropertyChanged(nameof(Tab));
@@ -146,11 +158,19 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
         } else SetState(Trimmed.Length == 0 ? SearchListState.Empty : SearchListState.TooShort);
     }
 
+    /// Fills the page for its current tab; the sidebar tab lists every sidebar session before a key is typed.
+    public void Refresh() => RunCurrent();
+
     public Task OpenHighlighted() =>
         _highlightIndex >= 0 && _highlightIndex < _hits.Count ? OpenAsync(_hits[_highlightIndex]) : Task.CompletedTask;
 
     public async Task OpenAsync(SearchHitViewModel hit) {
         CancelIntent();
+        if (hit.OpenSidebarRow is { } openRow) {
+            openRow.Execute().Subscribe();
+            ApplyOpen(SearchOpenOutcome.Opened, hit);
+            return;
+        }
         var cts = new CancellationTokenSource();
         _intent = cts;
         _intentHit = hit;
@@ -210,6 +230,10 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
     }
 
     void RunCurrent() {
+        if (_tab == SearchMode.Sidebar) {
+            RunSidebar();
+            return;
+        }
         if (Trimmed.Length < MinQueryLength) return;
 
         CancelInFlight();
@@ -263,6 +287,19 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
 
         if (_hits.Count > 0) SetState(SearchListState.Results);
         else SetState(SearchListState.NoResults, request.Mode == SearchMode.Sessions ? "No matching sessions" : "No transcript matches");
+    }
+
+    void RunSidebar() {
+        CancelInFlight();
+        var query = Trimmed;
+        var now = _time.GetLocalNow();
+        _hits.Clear();
+        foreach (var row in _sidebar()) {
+            if (SearchHitViewModel.ForSidebar(row, query, now) is { } hit) _hits.Add(hit);
+        }
+        HighlightIndex = 0;
+        if (_hits.Count > 0) SetState(SearchListState.Results);
+        else SetState(SearchListState.NoResults, query.Length == 0 ? "No sessions in the sidebar" : "No matching sessions in the sidebar");
     }
 
     void Clear() {

@@ -67,6 +67,15 @@
                     </ProgressBar>
                     <Border Height="1" Background="{StaticResource KcapBorderBrush}" />
                     <StackPanel Orientation="Horizontal" Spacing="4" Margin="10,8" IsVisible="{Binding !SearchSignedOut}">
+                        <Button x:Name="SearchSidebarTab" Classes="kcapChip searchTab" Content="Sidebar sessions"
+                                Click="OnSidebarTabClick" AutomationProperties.Name="Sidebar sessions">
+                            <Classes.active>
+                                <MultiBinding Converter="{x:Static views:SameValueConverter.Same}">
+                                    <Binding Path="Search.Tab" FallbackValue="{x:Null}" />
+                                    <Binding Source="{x:Static svc:SearchMode.Sidebar}" />
+                                </MultiBinding>
+                            </Classes.active>
+                        </Button>
                         <Button x:Name="SearchSessionsTab" Classes="kcapChip searchTab" Content="Sessions"
                                 Click="OnSessionsTabClick" AutomationProperties.Name="Sessions">
                             <Classes.active>

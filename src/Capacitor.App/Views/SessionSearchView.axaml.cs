@@ -60,6 +60,8 @@ public partial class SessionSearchView : UserControl {
         e.Handled = true;
     }
 
+    void OnSidebarTabClick(object? sender, RoutedEventArgs e) => SelectTab(SearchMode.Sidebar);
+
     void OnSessionsTabClick(object? sender, RoutedEventArgs e) => SelectTab(SearchMode.Sessions);
 
     void OnTranscriptsTabClick(object? sender, RoutedEventArgs e) => SelectTab(SearchMode.Transcripts);

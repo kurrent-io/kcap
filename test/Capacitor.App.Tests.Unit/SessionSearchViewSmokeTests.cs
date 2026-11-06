@@ -14,10 +14,36 @@ namespace Capacitor.App.Tests.Unit;
 
 /// The search page as drawn: snippet runs, and the signed-out prompt in place of the list.
 public class SessionSearchViewSmokeTests {
+    /// Opens on the sidebar tab; Tab moves to the server's Sessions tab.
     static void OpenWithShortcut(SearchWindowHost host) {
         host.Window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Meta);
         host.Settle();
+        host.Window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+        host.Settle();
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Shortcut_opens_on_the_sidebar_tab_and_lists_matching_rail_sessions_without_a_request() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Directory.Rows.AddOrUpdate(RemoteHost.ServerRow("a") with { Title = "Fix the login timeout" });
+        host.Directory.Rows.AddOrUpdate(RemoteHost.ServerRow("b") with { Title = "Tidy README" });
+        host.Settle();
+
+        host.Window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Meta);
+        host.Settle();
+        host.Window.KeyTextInput("THE");
+        host.SettleSearch();
+
+        var titles = host.Named<SessionSearchView>("SearchCover").GetVisualDescendants().OfType<TextBlock>()
+            .Where(t => t.Name == "SearchHitTitle")
+            .Select(t => string.Concat((t.Inlines ?? []).OfType<Run>().Select(r => r.Text)))
+            .ToArray();
+
+        await Assert.That(host.Vm.Search!.Tab).IsEqualTo(SearchMode.Sidebar);
+        await Assert.That(titles).IsEquivalentTo(["Fix the login timeout"]);
+        await Assert.That(host.Requests).IsEmpty();
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]

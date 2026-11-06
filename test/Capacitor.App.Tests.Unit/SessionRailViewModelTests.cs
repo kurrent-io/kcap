@@ -526,28 +526,6 @@ public class SessionRailViewModelTests {
         });
     }
 
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_title_filter_keeps_rows_whose_title_contains_it_ignoring_case() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var (directory, sessions, _, _, rail) = BuildWithControls();
-            using (directory) using (sessions) using (rail) {
-                directory.Rows.AddOrUpdate(Server("a", title: "Fix Login timeout"));
-                directory.Rows.AddOrUpdate(Server("b", title: "Add rail filter"));
-                directory.Rows.AddOrUpdate(Server("c") with { Title = null });
-
-                rail.TitleFilter = "  LOGIN ";
-                await Assert.That(rail.Groups.SelectMany(Ids)).IsEquivalentTo(["a"]);
-
-                rail.SelectedSessionKey = Server("b").Key;
-                await Assert.That(rail.Groups.SelectMany(Ids)).IsEquivalentTo(["a", "b"]);
-
-                rail.TitleFilter = "";
-                await Assert.That(rail.Groups.SelectMany(Ids)).IsEquivalentTo(["a", "b", "c"]);
-            }
-        });
-    }
-
     /// The PR tone cache reads only what this filter admits, so it must follow the state filter and
     /// the selected row the rail shows whatever the filter says.
     [Test]
