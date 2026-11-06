@@ -295,7 +295,7 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
                 }
             }
 
-            // The composer holds a goal a person reads; the server's prompt, written for the agent, goes with it.
+            // The launch opens with a line a person reads; the server's prompt, written for the agent, goes last.
             var goal = context is not null ? card.Label : NextWorkLaunchText.Goal(row, card.Label, card.Href is { } href ? _api.Resolve(href) : null);
             var (machine, local, path) = checkout is { } c
                 ? (c.DaemonName, string.Equals(c.DaemonName, _localDaemon, StringComparison.Ordinal), c.RepoPath)
