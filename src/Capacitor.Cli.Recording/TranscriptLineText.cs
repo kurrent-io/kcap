@@ -54,9 +54,9 @@ public static partial class TranscriptLineText {
         try {
             return File.ReadLinesShared(transcriptPath).Skip(fromLine)
                 .Any(line => !string.IsNullOrWhiteSpace(line) && IsRealTurnLine(line, vendor, parseErrors));
-        } catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or UnauthorizedAccessException) {
+        } catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) {
             return false;
-        } catch (IOException) {
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             // A read that failed can't rule a turn out. The final drain and its tail then send the lines or mark them.
             return true;
         }

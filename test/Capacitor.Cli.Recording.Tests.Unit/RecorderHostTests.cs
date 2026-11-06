@@ -1274,6 +1274,50 @@ public class RecorderHostTests {
         await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
     }
 
+    /// <summary>A file pending delete on Windows refuses a read this way, and a refusal says no more about what is left
+    /// than a failed read does.</summary>
+    [Test]
+    public async Task A_read_refused_below_the_threshold_marks_the_source_for_import() {
+        Skip.Unless(!OperatingSystem.IsWindows() && !Environment.IsPrivilegedProcess, "needs POSIX permissions and an unprivileged user");
+        if (OperatingSystem.IsWindows()) return;
+
+        var source = Source(Tmp.CreateFile("t.jsonl", "{\"type\":\"system\"}\n"));
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => Ticks(source.Key) >= 1, "the first tick");
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Prompt}\n{Reply}\n");
+
+        File.SetUnixFileMode(source.TranscriptPath, UnixFileMode.None);
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
+
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
+    }
+
+    /// <summary>The drain goes on to its completion signal, so a refused read costs the server no wait, and a watcher
+    /// reaches its session end.</summary>
+    [Test]
+    public async Task A_final_read_that_is_refused_marks_the_source_and_signals_the_drain() {
+        Skip.Unless(!OperatingSystem.IsWindows() && !Environment.IsPrivilegedProcess, "needs POSIX permissions and an unprivileged user");
+        if (OperatingSystem.IsWindows()) return;
+
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+
+        File.SetUnixFileMode(source.TranscriptPath, UnixFileMode.None);
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
+
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+    }
+
     /// <summary>The spool's directory is a file here, so no marker can be written. A host runs many recorders in
     /// a process whose stderr is nobody's, and the only sign of a lost marker has to reach this source's log.</summary>
     [Test]

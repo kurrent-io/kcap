@@ -1291,7 +1291,7 @@ public sealed class TranscriptRecorder(
             }
 
             return newLines;
-        } catch (IOException ex) {
+        } catch (Exception ex) when (ex is IOException || (isFinalDrain && ex is UnauthorizedAccessException)) {
             log($"Error reading file: {ex.Message}");
         } catch (OperationCanceledException) {
             // Expected during shutdown
@@ -1331,7 +1331,7 @@ public sealed class TranscriptRecorder(
                 transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             tail = await TranscriptReader.ReadNewCompleteLinesAsync(
                 stream, linesProcessed, IncompleteFinalLinePolicy.ConsumeIfComplete, ct, lineOffsets: lineOffsets);
-        } catch (IOException ex) {
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             // Nothing is left that could say what the final drain missed, and a mark is the only way those lines survive.
             log($"Shutdown-tail spool: failed to read transcript for {sessionId}: {ex.Message}");
             MarkForImport(transcriptSpool, $"shutdown tail: transcript could not be read: {ex.Message}");
