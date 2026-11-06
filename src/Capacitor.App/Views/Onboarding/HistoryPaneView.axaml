@@ -78,9 +78,7 @@
                 <StackPanel IsVisible="{Binding DetailsVisible}">
                     <Border Classes="onboardingRowRule" Padding="0,0,0,8">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBlock Classes="onboardingMicro" VerticalAlignment="Bottom">
-                                <Run Text="FOUND ON " /><Run Text="{Binding MachineName}" Foreground="{StaticResource OnboardingTextBrush}" />
-                            </TextBlock>
+                            <TextBlock Classes="onboardingMicro" VerticalAlignment="Bottom" Text="{Binding FoundOnHeader}" />
                             <TextBlock Grid.Column="1" Classes="onboardingMicro" Text="ONLY ME" IsVisible="{Binding CloudLevels}" />
                         </Grid>
                     </Border>
@@ -208,9 +206,9 @@
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="11">
                         <CheckBox x:Name="SummariseOutcomesCheckBox" Classes="onboardingCheck" VerticalAlignment="Top" Margin="0,1,0,0"
                                   IsChecked="{Binding SummariseOutcomes, Mode=TwoWay}" IsEnabled="{Binding SummariseEditable}"
-                                  AutomationProperties.Name="Also summarise what each session achieved" />
+                                  AutomationProperties.Name="Also summarize what each session achieved" />
                         <StackPanel Grid.Column="1" Spacing="3">
-                            <TextBlock Classes="onboardingLabel" FontSize="13" Text="Also summarise what each session achieved" />
+                            <TextBlock Classes="onboardingLabel" FontSize="13" Text="Also summarize what each session achieved" />
                             <TextBlock x:Name="ImportPaceText" Classes="onboardingDetail" Foreground="{StaticResource OnboardingMutedBrush}"
                                        TextWrapping="Wrap" Text="{Binding PaceLine}"
                                        IsVisible="{Binding PaceLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />

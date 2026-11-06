@@ -523,8 +523,9 @@
                                                                             </Border>
                                                                             <Border Classes="vendorMark" Width="16" Height="16" Margin="0,0,6,0"
                                                                                     VerticalAlignment="Center" Background="Transparent" IsVisible="{Binding HasVendor}"
-                                                                                    AutomationProperties.Name="{Binding Vendor, Converter={x:Static views:VendorLabelConverter.Instance}}">
-                                                                                <ContentControl HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                                    AutomationProperties.Name="{Binding Vendor, Converter={x:Static views:VendorLabelConverter.Instance}}"
+                                                                                    AutomationProperties.AccessibilityView="Content">
+                                                                                <ContentControl HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"
                                                                                                 Content="{Binding Vendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=14}" />
                                                                         </Border>
                                                                         <views:AgentStatusMark DataContext="{Binding Status}" MaxWidth="160" ToolTip.Tip="{x:Null}"

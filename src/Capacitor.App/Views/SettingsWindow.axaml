@@ -47,7 +47,7 @@
             </TabItem>
             <views:SettingsSectionHeader Classes="settingsNavHeader" Header="This profile" />
 
-            <TabItem x:Name="CaptureTab" Classes="settingsNav" AutomationProperties.Name="Privacy">
+            <TabItem x:Name="PrivacyTab" Classes="settingsNav" AutomationProperties.Name="Privacy">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <views:AppIcon Kind="Shield" Size="16" />
@@ -439,7 +439,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem x:Name="PrivacyTab" Classes="settingsNav" AutomationProperties.Name="Usage data"
+            <TabItem x:Name="UsageDataTab" Classes="settingsNav" AutomationProperties.Name="Usage data"
                      IsVisible="{Binding Privacy, Converter={x:Static ObjectConverters.IsNotNull}}">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal" Spacing="10">

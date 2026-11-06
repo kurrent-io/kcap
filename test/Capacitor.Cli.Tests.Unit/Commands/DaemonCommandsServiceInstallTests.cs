@@ -39,7 +39,7 @@ internal sealed class DaemonCommandsServiceInstallTests {
     public async Task Each_unit_describes_its_own_supervision() {
         var service = new WindowsServiceManager(Config.Root, new FakeServicePipe(), new FakeServiceEnrollmentStore(), tasks: null);
 
-        await Assert.That(DaemonServiceCommands.Supervision(service)).IsEqualTo("kcap-service restarts it if it stops, and starts it when you sign in.");
+        await Assert.That(DaemonServiceCommands.Supervision(service)).IsEqualTo("kcap-service runs from boot, starts your daemon when you sign in, and restarts it if it stops.");
         await Assert.That(DaemonServiceCommands.Supervision(new WindowsScheduledTaskServiceManager(Config.Root))).DoesNotContain("SIGKILL");
         await Assert.That(DaemonServiceCommands.Supervision(new SystemdServiceManager(Home))).Contains("SIGKILL");
     }

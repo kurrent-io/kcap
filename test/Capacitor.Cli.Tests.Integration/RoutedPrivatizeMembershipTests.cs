@@ -112,7 +112,7 @@ public class RoutedPrivatizeMembershipTests : IDisposable {
             );
         });
 
-        await Assert.That(stdout).DoesNotContain($"Loading {ProbeSessionId}")
+        await Assert.That(stdout).DoesNotContain($"Loading {SessionIds.Display(ProbeSessionId)}")
                     .Because("its import must not run at all once the floor could not be established");
     }
 
@@ -138,7 +138,7 @@ public class RoutedPrivatizeMembershipTests : IDisposable {
         // The override DID fire: the raw outcome is Skipped, yet the run counts it as Loaded and
         // prints the "Loading" line. Without this the zero-PUT assertion below would pass
         // vacuously — a plain suppressed no-op replay also emits no PUT.
-        await Assert.That(stdout).Contains($"Loading {ProbeSessionId} ({ProbeVendor.VendorId})");
+        await Assert.That(stdout).Contains($"Loading {SessionIds.Display(ProbeSessionId)} ({ProbeVendor.VendorId})");
         var doneIdx = stdout.IndexOf("== Done ==", StringComparison.Ordinal);
         await Assert.That(doneIdx).IsGreaterThanOrEqualTo(0);
         await Assert.That(LineMatches(stdout[doneIdx..], "Loaded", 1)).IsTrue();
