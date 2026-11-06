@@ -13,7 +13,8 @@ internal enum GitProviderKind { GitHub, GitLab, Unknown }
 /// <para>Injected, never constructed at a call site: one per process is what makes remembering
 /// worth anything. A recorder re-detects every 60s for as long as it runs, so a custom host would
 /// otherwise pay for that probe on every refresh. A process can run for weeks, so an answer expires, and
-/// a probe that failed says nothing about the host, so its GitLab is a guess kept for a few refreshes.</para>
+/// a probe that failed says nothing about the host, so what gh last answered stands and otherwise GitLab
+/// is a guess, kept either way for a few refreshes.</para>
 ///
 /// <para>Public because <c>kcap</c> injects it across the assembly boundary; everything it does
 /// stays internal.</para>
@@ -24,7 +25,7 @@ public sealed class GitProviderRouter(TimeProvider? time = null) {
 
     readonly TimeProvider _time = time ?? TimeProvider.System;
 
-    readonly ConcurrentDictionary<string, (GitProviderKind Kind, DateTimeOffset Until)> _memo = new(StringComparer.OrdinalIgnoreCase);
+    readonly ConcurrentDictionary<string, (GitProviderKind Kind, bool Answered, DateTimeOffset Until)> _memo = new(StringComparer.OrdinalIgnoreCase);
 
     internal async Task<GitProviderKind> ResolveAsync(string? host, string cwd, TimeSpan cap, CommandRunner run) {
         if (string.IsNullOrEmpty(host)) return GitProviderKind.Unknown;
@@ -34,8 +35,15 @@ public sealed class GitProviderRouter(TimeProvider? time = null) {
         if (_memo.TryGetValue(host, out var remembered) && _time.GetUtcNow() < remembered.Until) return remembered.Kind;
 
         var (kind, answered) = await ProbeAsync(host, cwd, cap, run);
-        _memo[host] = (kind, _time.GetUtcNow() + (answered ? AnswerLifetime : FailedProbeLifetime));
-        return kind;
+
+        if (answered) {
+            _memo[host] = (kind, true, _time.GetUtcNow() + AnswerLifetime);
+            return kind;
+        }
+
+        var kept = remembered.Answered ? remembered.Kind : kind;
+        _memo[host] = (kept, remembered.Answered, _time.GetUtcNow() + FailedProbeLifetime);
+        return kept;
     }
 
     static async Task<(GitProviderKind Kind, bool Answered)> ProbeAsync(string host, string cwd, TimeSpan cap, CommandRunner run) {
