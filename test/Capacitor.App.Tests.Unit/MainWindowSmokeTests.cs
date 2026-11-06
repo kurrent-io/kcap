@@ -1992,21 +1992,45 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Filter_dot_follows_filters_differ() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Custom_list_settings_stay_highlighted_when_controls_close() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
-        var dot = host.Named<Ellipse>("RailFilterDot");
-        var atDefaults = dot.IsVisible;
+        var filter = host.Named<Button>("RailFilterButton");
+        var icon = filter.GetVisualDescendants().OfType<AppIcon>().Single();
+        var presenter = filter.GetVisualDescendants().OfType<ContentPresenter>()
+            .Single(p => p.Name == "PART_ContentPresenter");
+        var app = Application.Current!;
+        var muted = app.FindResource("KcapMutedBrush");
+        var blue = app.FindResource("KcapInfoBrush");
+        var collapsedBackground = presenter.Background;
 
-        host.Rail.Scope = RailScope.Team;
-        host.Settle();
-        var narrowed = dot.IsVisible;
-        host.Rail.Scope = RailScope.Mine;
-        host.Settle();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
+        await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Default list settings");
+        Click(host, filter);
+        await Assert.That(host.Rail.FiltersOpen).IsTrue();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
+        var expandedBackground = presenter.Background;
+        await Assert.That(expandedBackground).IsNotSameReferenceAs(collapsedBackground);
 
-        await Assert.That(atDefaults).IsFalse();
-        await Assert.That(narrowed).IsTrue();
-        await Assert.That(dot.IsVisible).IsFalse();
-        await Assert.That(dot.Fill).IsSameReferenceAs(Application.Current!.FindResource("KcapInfoBrush"));
+        host.Rail.Sort = RailSort.Title;
+        host.Settle();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(blue);
+        await Assert.That(presenter.Background).IsSameReferenceAs(expandedBackground);
+        await Assert.That(ToolTip.GetTip(filter) as string).Contains("Custom list settings applied");
+        await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Custom list settings applied");
+
+        Click(host, filter);
+        host.Window.MouseMove(new Point(0, 0));
+        host.Settle();
+        await Assert.That(host.Rail.FiltersOpen).IsFalse();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(blue);
+        await Assert.That(presenter.Background).IsSameReferenceAs(collapsedBackground);
+
+        host.Rail.Sort = RailSort.LastUpdated;
+        host.Settle();
+        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
+        await Assert.That(presenter.Background).IsSameReferenceAs(collapsedBackground);
+        await Assert.That(ToolTip.GetTip(filter) as string).Contains("Default list settings");
+        await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Default list settings");
     });
 
     [Test]

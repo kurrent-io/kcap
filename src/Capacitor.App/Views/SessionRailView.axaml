@@ -76,8 +76,22 @@
             <Setter Property="Padding" Value="10,6" />
             <Setter Property="FontSize" Value="13" />
         </Style>
+        <Style Selector="Button#RailFilterButton">
+            <Setter Property="ToolTip.Tip" Value="Session list settings · Default list settings" />
+            <Setter Property="AutomationProperties.HelpText" Value="Default list settings. Adjust scope, state, grouping, or sorting." />
+        </Style>
         <Style Selector="Button#RailFilterButton.active /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        </Style>
+        <Style Selector="Button#RailFilterButton.custom">
+            <Setter Property="ToolTip.Tip" Value="Session list settings · Custom list settings applied" />
+            <Setter Property="AutomationProperties.HelpText" Value="Custom list settings applied: scope, state, grouping, or sorting differs from the defaults." />
+        </Style>
+        <Style Selector="Button#RailFilterButton views|AppIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Button#RailFilterButton.custom views|AppIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
         </Style>
         <Style Selector="TextBlock#RailSearchText">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
@@ -168,14 +182,10 @@
                     <Button x:Name="RailFilterButton" Grid.Column="1" Classes="kcapGhost kcapIcon"
                             DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                             Command="{Binding ToggleFiltersCommand}" Classes.active="{Binding FiltersOpen}"
+                            Classes.custom="{Binding FiltersDiffer}"
                             IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}"
-                            ToolTip.Tip="Filter sessions" AutomationProperties.Name="Filter sessions">
-                        <Panel>
-                            <views:AppIcon Kind="ListFilter" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                            <Ellipse x:Name="RailFilterDot" Width="6" Height="6" Fill="{StaticResource KcapInfoBrush}"
-                                     HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-3,-3,0"
-                                     IsVisible="{Binding FiltersDiffer}" />
-                        </Panel>
+                            AutomationProperties.Name="Session list settings">
+                        <views:AppIcon Kind="ListFilter" Size="14" />
                     </Button>
                 </Grid>
 
