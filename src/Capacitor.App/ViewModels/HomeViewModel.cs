@@ -314,6 +314,35 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         private set {
             this.RaiseAndSetIfChanged(ref _startError, value);
             StartErrorOffersDefault = false;
+            this.RaisePropertyChanged(nameof(CanRequestRepositoryAccess));
+        }
+    }
+
+    public bool CanRequestRepositoryAccess => !RemoteMachineSelected
+        && !string.IsNullOrEmpty(SelectedRepoPath)
+        && StartError is { } error
+        && error.Contains($"Access to the path '{SelectedRepoPath}' is denied", StringComparison.OrdinalIgnoreCase);
+
+    bool _requestingRepositoryAccess;
+    public async Task RequestRepositoryAccessAsync(Func<string, Task<bool>> requestAccess) {
+        if (!CanRequestRepositoryAccess || _requestingRepositoryAccess) return;
+        var path = SelectedRepoPath;
+        var error = StartError;
+        _requestingRepositoryAccess = true;
+        try {
+            if (!await requestAccess(path)) return;
+            await Task.Run(() => {
+                // Directory.Exists masks permission failures. Enumerating forces a real access check,
+                // including for an empty repository.
+                using var entries = Directory.EnumerateFileSystemEntries(path).GetEnumerator();
+                entries.MoveNext();
+            });
+            if (!RemoteMachineSelected && SelectedRepoPath == path && StartError == error)
+                StartError = null;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) {
+            // Keep the original refusal and draft available for another attempt.
+        } finally {
+            _requestingRepositoryAccess = false;
         }
     }
 
@@ -529,7 +558,10 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     /// wires the machine picker ever sees.
     public bool RemoteMachineSelected {
         get => _remoteMachineSelected;
-        private set => this.RaiseAndSetIfChanged(ref _remoteMachineSelected, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref _remoteMachineSelected, value);
+            this.RaisePropertyChanged(nameof(CanRequestRepositoryAccess));
+        }
     }
 
     // Drives the reactive pipelines below (CanExecute, Harnesses) — a subject rather than
