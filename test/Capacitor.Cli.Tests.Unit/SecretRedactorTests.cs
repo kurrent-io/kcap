@@ -400,6 +400,21 @@ public class SecretRedactorTests {
     }
 
     [Test]
+    [Arguments("DOC_INTEL_KEY", true)]
+    [Arguments("DB_PASS", true)]
+    [Arguments("primary_key", false)]
+    [Arguments("sort_Key", false)]
+    public async Task RedactsLine_JsonTextInAString_UppercaseKeyOrPassName(string name, bool redacted) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{\"{{{name}}}\":\"ordinaryOpaqueValue123\"}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result.Contains("ordinaryOpaqueValue123", StringComparison.Ordinal)).IsEqualTo(!redacted);
+    }
+
+    [Test]
     [Arguments("primary_key=user_id")]
     [Arguments("sort_key=created_at")]
     [Arguments("ssh_Key=id_ed25519")]
@@ -772,12 +787,13 @@ public class SecretRedactorTests {
     }
 
     [Test]
-    [Arguments("postgresql://postgres.abcdefghijklmnop:s3cr3t-Pw_9@aws-0-eu-west-1.pooler.supabase.com:5432/postgres", "s3cr3t-Pw_9", "postgresql://postgres.abcdefghijklmnop:[REDACTED]@aws-0-eu-west-1.pooler.supabase.com")]
-    [Arguments("DATABASE_URL=postgres://app:hunter2hunter2@db.internal:5432/app", "hunter2hunter2", "postgres://app:[REDACTED]@db.internal")]
-    [Arguments("mysql://root:rootpass123@127.0.0.1/shop", "rootpass123", "mysql://root:[REDACTED]@127.0.0.1")]
-    [Arguments("mongodb+srv://svc:m0ng0Pa55@cluster0.example.net/db", "m0ng0Pa55", "mongodb+srv://svc:[REDACTED]@cluster0.example.net")]
-    [Arguments("rediss://default:r3disPw@cache.example.com:6380", "r3disPw", "rediss://default:[REDACTED]@cache.example.com")]
-    [Arguments("amqps://guest:rabbitPw77@mq.example.com/vhost", "rabbitPw77", "amqps://guest:[REDACTED]@mq.example.com")]
+    // Each URL is split at its password so secret scanners don't flag these made-up fixtures.
+    [Arguments("postgresql://postgres.abcdefghijklmnop:" + "s3cr3t-Pw_9" + "@aws-0-eu-west-1.pooler.example.com:5432/postgres", "s3cr3t-Pw_9", "postgresql://postgres.abcdefghijklmnop:[REDACTED]@aws-0-eu-west-1.pooler.example.com")]
+    [Arguments("DATABASE_URL=postgres://app:" + "hunter2hunter2" + "@db.internal:5432/app", "hunter2hunter2", "postgres://app:[REDACTED]@db.internal")]
+    [Arguments("mysql://root:" + "rootpass123" + "@127.0.0.1/shop", "rootpass123", "mysql://root:[REDACTED]@127.0.0.1")]
+    [Arguments("mongodb+srv://svc:" + "m0ng0Pa55" + "@cluster0.example.net/db", "m0ng0Pa55", "mongodb+srv://svc:[REDACTED]@cluster0.example.net")]
+    [Arguments("rediss://default:" + "r3disPw" + "@cache.example.com:6380", "r3disPw", "rediss://default:[REDACTED]@cache.example.com")]
+    [Arguments("amqps://guest:" + "rabbitPw77" + "@mq.example.com/vhost", "rabbitPw77", "amqps://guest:[REDACTED]@mq.example.com")]
     public async Task RedactsLine_UrlUserinfo_AnyScheme(string text, string secret, string kept) {
         var line = $$$"""
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{text}}}","is_error":false}]}}

@@ -234,7 +234,7 @@ public static partial class SecretRedactor {
     private static partial Regex VendorTokenRx();
 
     [GeneratedRegex(
-        """((?:\\"|")(?:[^"\\]*(?:""" + SecretKeywords + """)[^"\\]*)(?:\\"|")[ \t]*:[ \t]*(?:\\"|"))([^"\\]+)((?:\\"|")|$)""",
+        """((?:\\"|")(?:[^"\\]*(?:""" + SecretKeywords + """)[^"\\]*|""" + UpperSecretSuffixName + """)(?:\\"|")[ \t]*:[ \t]*(?:\\"|"))([^"\\]+)((?:\\"|")|$)""",
         RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100
     )]
     private static partial Regex JsonKeySecretRx();
