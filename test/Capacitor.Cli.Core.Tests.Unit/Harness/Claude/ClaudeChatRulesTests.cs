@@ -680,6 +680,15 @@ public class ClaudeChatRulesTests {
         await Assert.That(result.SubmittedInputs).IsEmpty();
     }
 
+    /// A CI frame can carry any attribute, and a name on one does not make it a message from a session.
+    [Test]
+    public async Task A_ci_event_keeps_its_label_whatever_names_its_frame_carries() {
+        var note = R(User("<ci-monitor-event from-name=\"auto-fix\">Check `build` failed.</ci-monitor-event>")).Envelopes.Single();
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.Trigger);
+        await Assert.That(note.ToolName).IsEqualTo("CI event");
+        await Assert.That(note.Text).IsEqualTo("Check `build` failed.");
+    }
+
     /// Another session's message carries no agent frame, so it is that session's note rather than an agent's of this one.
     [Test]
     public async Task A_peer_outside_the_agent_frame_is_another_sessions_note() {
