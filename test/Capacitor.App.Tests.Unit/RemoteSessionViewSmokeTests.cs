@@ -75,10 +75,10 @@ public class RemoteSessionViewSmokeTests {
     public async Task Reconnecting_keeps_existing_chat_visible_and_uses_the_shared_notice() {
         await AvaloniaSession.DispatchAsync(async () => {
             var source = new FakeWorkContextSource();
-            var assignment = new SessionWorkItemAssignmentDto { WorkItemId = "w1", Label = "AI-5183", Source = "mcp", Confidence = 1, IsPrimary = true };
+            var assignment = new SessionWorkItemAssignmentDto { WorkItemId = "w1", Label = "WK-240", Source = "mcp", Confidence = 1, IsPrimary = true };
             source.Enqueue(new WorkContextRead(WorkContextReadKind.Ready, [assignment], assignment,
                 new WorkItemDto { WorkItemId = "w1", Title = "Unify session connection states",
-                    Key = new WorkItemKeyDto { ShortKey = "AI-5183", Provider = "linear", Kind = "issue", Value = "AI-5183" },
+                    Key = new WorkItemKeyDto { ShortKey = "WK-240", Provider = "linear", Kind = "issue", Value = "WK-240" },
                     State = new WorkItemStateDto { Kind = "in_flight" } }, null,
                 new SessionSummaryDto { SessionId = "s1" }, false, false, false, null));
             var retries = 0;
