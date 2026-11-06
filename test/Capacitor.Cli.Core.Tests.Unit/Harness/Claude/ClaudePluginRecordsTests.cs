@@ -104,6 +104,17 @@ public class ClaudePluginRecordsTests {
     }
 
     [Test]
+    public async Task Malformed_records_with_no_kcap_marketplace_are_never_read() {
+        Tmp.CreateFile("plugins/known_marketplaces.json", "{\"other\":{\"source\":{\"source\":\"github\",\"repo\":\"o/r\"}}}");
+        Tmp.CreateFile("plugins/installed_plugins.json", "{ broken");
+
+        var result = ClaudePluginRecords.Repoint(Tmp.Path, New);
+
+        await Assert.That(result).IsEqualTo(SettingsEdit.Unchanged);
+        await Assert.That(File.ReadAllText(Installed)).IsEqualTo("{ broken");
+    }
+
+    [Test]
     public async Task A_null_claude_home_never_touches_records() {
         Tmp.CreateFile("plugins/known_marketplaces.json", "{" + Market("kcap", Old) + "}");
         var before = File.ReadAllText(Markets);

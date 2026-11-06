@@ -29,21 +29,8 @@ public static class ClaudePluginRecords {
 
         if (probe is SettingsEdit.Malformed or SettingsEdit.Failed) return probe;
 
-        var installs = JsonSettingsFile.Edit(Path.Combine(pluginsDir, "installed_plugins.json"), root => {
-            if (oldFolders.Count == 0 || root["plugins"] is not JsonObject plugins) return false;
-
-            var changed = false;
-            foreach (var key in PluginKeys) {
-                if (plugins[key] is not JsonArray records) continue;
-
-                foreach (var record in records.OfType<JsonObject>()) {
-                    if (StringOf(record["installPath"]) is not { Length: > 0 } installPath) continue;
-                    if (Moved(installPath, oldFolders, pluginPath) is { } moved) changed |= Set(record, "installPath", moved);
-                }
-            }
-
-            return changed;
-        }, createIfMissing: false);
+        // Without an old folder no record names anything to move, so a broken file of Claude's must not block the rest.
+        var installs = oldFolders.Count == 0 ? SettingsEdit.Unchanged : RepointInstalls(pluginsDir, oldFolders, pluginPath);
 
         if (installs is SettingsEdit.Malformed or SettingsEdit.Failed) return installs;
 
@@ -61,6 +48,23 @@ public static class ClaudePluginRecords {
 
         return markets == SettingsEdit.Changed || installs == SettingsEdit.Changed ? SettingsEdit.Changed : SettingsEdit.Unchanged;
     }
+
+    static SettingsEdit RepointInstalls(string pluginsDir, List<string> oldFolders, string pluginPath) =>
+        JsonSettingsFile.Edit(Path.Combine(pluginsDir, "installed_plugins.json"), root => {
+            if (root["plugins"] is not JsonObject plugins) return false;
+
+            var changed = false;
+            foreach (var key in PluginKeys) {
+                if (plugins[key] is not JsonArray records) continue;
+
+                foreach (var record in records.OfType<JsonObject>()) {
+                    if (StringOf(record["installPath"]) is not { Length: > 0 } installPath) continue;
+                    if (Moved(installPath, oldFolders, pluginPath) is { } moved) changed |= Set(record, "installPath", moved);
+                }
+            }
+
+            return changed;
+        }, createIfMissing: false);
 
     static IEnumerable<JsonObject> KcapMarketplaces(JsonObject root) {
         foreach (var key in MarketplaceKeys) {
