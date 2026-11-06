@@ -13,6 +13,7 @@ public sealed class XtermTerminalSurface : ITerminalSurface {
     public TerminalControlModel Model { get; }
 
     public event Action<byte[]>? InputProduced;
+    public event Action? Typed;
     public event Action<int, int>? Resized;
 
     // The model exposes no Cols/Rows of its own; the wrapper's track every resize.
@@ -96,8 +97,10 @@ public sealed class XtermTerminalSurface : ITerminalSurface {
         }
     }
 
-    void OnUserInput(object? sender, TerminalUserInputEventArgs e) =>
+    void OnUserInput(object? sender, TerminalUserInputEventArgs e) {
+        Typed?.Invoke();
         InputProduced?.Invoke(e.Data.ToArray());
+    }
 
     // The engine hands a reply back as a decoded string; the PTY side needs bytes.
     void OnDataReceived(object? sender, XTerm.Events.TerminalEvents.DataEventArgs e) {

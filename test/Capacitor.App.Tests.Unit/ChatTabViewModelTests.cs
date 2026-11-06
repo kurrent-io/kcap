@@ -12,6 +12,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.WorkItems;
 using Capacitor.Models.Transcripts.Harness.Claude;
+using Lucide.Avalonia;
 using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
@@ -1150,6 +1151,44 @@ public class ChatTabViewModelTests {
         });
     }
 
+    /// Another session's message reads as an agent's, open under its sender's name, with none of its envelope left.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_message_from_another_session_renders_as_an_open_agent_note_under_its_sender() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            var path = Tmp.CreateFile("t.jsonl", [
+                """{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from=\"uds:/tmp/cc-socks/71031.sock\" from-name=\"quiet-cow-d1\" from-mode=\"prompting\">\nOne more symptom.\n\n- `declare_work_item` refuses the new name\n</cross-session-message>","isMeta":true,"origin":{"kind":"peer","name":"quiet-cow-d1"}}}""",
+            ]);
+            await h.PushAsync(Dto(path));
+
+            var note = (SystemNoteItem)h.Chat.Items.Single();
+            await Assert.That(note.Text).IsEqualTo("One more symptom.\n\n- `declare_work_item` refuses the new name");
+            await Assert.That(note.HeaderLabel).IsEqualTo("Message from quiet-cow-d1");
+            await Assert.That(note.IconKind).IsEqualTo(LucideIconKind.BotMessageSquare);
+            await Assert.That(note.IsExpanded).IsTrue();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// The agent's icon is for agents: a trigger with no session behind it stays a plain note.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_ci_event_stays_a_plain_note() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            var path = Tmp.CreateFile("t.jsonl", [
+                """{"type":"user","message":{"content":"<ci-monitor-event>Check `build` failed.</ci-monitor-event>"}}""",
+            ]);
+            await h.PushAsync(Dto(path));
+
+            var note = (SystemNoteItem)h.Chat.Items.Single();
+            await Assert.That(note.HeaderLabel).IsEqualTo("CI event");
+            await Assert.That(note.IconKind).IsEqualTo(LucideIconKind.StickyNote);
+            await h.TeardownAsync();
+        });
+    }
+
     /// A notification with only a summary has nothing behind it to fold, so it stays open.
     [Test]
     public async Task A_one_line_note_stays_open_and_a_longer_report_folds_under_its_first_line() {
@@ -1787,6 +1826,14 @@ public class ChatTabViewModelTests {
         public override string Hint => "scripted";
         public override bool CanAttach => CanAttachValue;
         public override string? AttachHint => CanAttachValue ? null : "attachments need the daemon updated";
+        public bool CanResubmitValue;
+        public bool ResubmitResult = true;
+        public int Resubmits;
+        public override bool CanResubmit => CanResubmitValue;
+        public override Task<bool> ResubmitAsync(CancellationToken ct) {
+            Resubmits++;
+            return Task.FromResult(ResubmitResult);
+        }
         public override Task<ChatSendOutcome> SendAsync(string text, IReadOnlyList<string> attachmentIds, CancellationToken ct) {
             Sends.Add((text, attachmentIds, ct));
             Pending = new TaskCompletionSource<ChatSendOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2057,6 +2104,65 @@ public class ChatTabViewModelTests {
             await Assert.That(h.Chat.RecallNewer()).IsTrue();
             await Assert.That(h.Chat.ComposerText).IsEqualTo("");
             await Assert.That(h.Chat.RecallNewer()).IsFalse();
+            await h.TeardownAsync();
+        });
+    }
+
+    static async Task TickForAsync(Harness h, TimeSpan span) {
+        for (var waited = TimeSpan.Zero; waited <= span; waited += ChatTabViewModel.PollInterval) await h.TickAsync();
+    }
+
+    /// An idle agent that never echoes a send may have taken its Enter as a newline, as it does for
+    /// a large paste still arriving: Enter is pressed once more, then the row says it was not picked
+    /// up instead of waiting for a confirmation that will not come.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_unechoed_send_to_an_idle_agent_is_resubmitted_once_then_reads_not_picked_up(bool resubmitted) {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true, ResubmitResult = resubmitted };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
+            await Assert.That(queued.IsNotPickedUp).IsFalse();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(queued.IsNotPickedUp).IsTrue();
+            await Assert.That(queued.PickupNote).IsEqualTo(QueuedChatMessage.NotPickedUpNote);
+            await Assert.That(queued.CanSendNow).IsTrue();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 3);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
+            await h.TeardownAsync();
+        });
+    }
+
+    /// A send made mid-turn waits in the agent's own queue until the turn ends, so the clock runs
+    /// only while the agent is not working.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_queued_behind_a_turn_is_not_resubmitted_while_the_agent_works() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = false });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
+            await Assert.That(input.Resubmits).IsEqualTo(0);
+            await Assert.That(queued.PickupNote).IsEqualTo(QueuedChatMessage.AwaitingPickupNote);
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
             await h.TeardownAsync();
         });
     }

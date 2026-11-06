@@ -18,6 +18,10 @@ public interface ITerminalSurface {
     /// need to reach the attached PTY, so the VM forwards this to SendInputAsync verbatim.
     event Action<byte[]>? InputProduced;
 
+    /// The viewer's own keyboard or mouse input, raised alongside its InputProduced. A protocol
+    /// reply is not raised here: the agent asks for those on its own while the viewer does nothing.
+    event Action? Typed;
+
     /// User-driven resize (cols, rows) — the VM forwards this to ResizeAsync.
     event Action<int, int>? Resized;
 

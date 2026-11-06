@@ -1136,7 +1136,7 @@ sealed class SetupCommand(
                 : [serverUrl]);
 
         var stepInstallers = new CodingAgentsStep.Installers(
-            InstallClaudePlugin:    InstallPlugin,
+            InstallClaudePlugin:    (settings, plugin) => InstallPlugin(settings, plugin, legacyProjectScope ? null : Path.GetDirectoryName(settings)),
             InstallCodexHooks:      PluginCommand.InstallCodexHooks,
             InstallCursorHooks:     PluginCommand.InstallCursorHooks,
             InstallCopilotHooks:    path => PluginCommand.InstallCopilotHooks(path),
@@ -3396,7 +3396,7 @@ sealed class SetupCommand(
     /// Registers the kcap plugin in a Claude Code settings.json file by merging
     /// the marketplace source and enabling the plugin. Preserves all existing settings.
     /// </summary>
-    internal static bool InstallPlugin(string settingsPath, string marketplacePath) =>
-        ClaudePluginWriter.Install(settingsPath, marketplacePath) is SettingsEdit.Changed or SettingsEdit.Unchanged;
+    internal static bool InstallPlugin(string settingsPath, string marketplacePath, string? claudeHome = null) =>
+        ClaudePluginWriter.Install(settingsPath, claudeHome, marketplacePath) is SettingsEdit.Changed or SettingsEdit.Unchanged;
 
 }

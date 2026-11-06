@@ -91,11 +91,13 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     const int PeekLength = 80;
 
     readonly string? _peek;
+    readonly LucideIconKind? _icon;
     bool _isExpanded;
 
-    public SystemNoteItem(string text, string label = NoteLabel) {
+    public SystemNoteItem(string text, string label = NoteLabel, LucideIconKind? icon = null) {
         Text = text;
         Label = label;
+        _icon = icon;
         // A compaction summary restates the whole conversation above it, and a subagent's report
         // can run to pages, so both start folded. A report of one line has nothing to fold.
         if (label is AgentReportLabel or TaskNotificationLabel) {
@@ -116,7 +118,7 @@ public sealed partial class SystemNoteItem : ChatItemViewModel {
     public bool ShowsBody => _isExpanded && !string.IsNullOrWhiteSpace(Text);
 
     public string HeaderLabel => _isExpanded || string.IsNullOrEmpty(_peek) ? Label : $"{Label} · {_peek}";
-    public LucideIconKind IconKind => ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
+    public LucideIconKind IconKind => _icon ?? ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
     public bool IsCollapsible { get; }
 
     public bool IsExpanded {

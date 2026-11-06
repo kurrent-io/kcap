@@ -1,4 +1,5 @@
 using Capacitor.Cli.Services;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Tests.Unit.Services;
 
@@ -30,12 +31,6 @@ public class ServiceRepointTests {
         await Assert.That(LaunchdUnit.WithBinary(LaunchdUnit.Plist(Spec(Stable)), Stable)).IsNull();
     }
 
-    [Test]
-    public async Task LoadedProgram_reads_the_print_line() {
-        await Assert.That(LaunchdUnit.LoadedProgram($"{Label} = {{\n\tprogram = {Pinned}\n}}")).IsEqualTo(Pinned);
-        await Assert.That(LaunchdUnit.LoadedProgram("")).IsNull();
-    }
-
     string Seed(string binary) {
         Directory.CreateDirectory(LaunchdUnit.AgentsDir(Home));
         var path = LaunchdUnit.PlistPath(Home, "test");
@@ -59,7 +54,7 @@ public class ServiceRepointTests {
                         loaded = false;
                         return (0, "", "", false);
                     case "bootstrap":
-                        (loaded, loadedProgram) = (true, LaunchdUnit.BinaryFromPlist(File.ReadAllText(LaunchdUnit.PlistPath(Home, "test")))!);
+                        (loaded, loadedProgram) = (true, LaunchdPrint.Binary(File.ReadAllText(LaunchdUnit.PlistPath(Home, "test")))!);
                         return (0, "", "", false);
                     default:
                         return (0, "", "", false);
@@ -77,7 +72,7 @@ public class ServiceRepointTests {
 
         await Assert.That(outcome).IsEqualTo(UnitRefresh.Reloaded);
         await Assert.That(error).IsNull();
-        await Assert.That(LaunchdUnit.BinaryFromPlist(File.ReadAllText(path))).IsEqualTo(Stable);
+        await Assert.That(LaunchdPrint.Binary(File.ReadAllText(path))).IsEqualTo(Stable);
         await Assert.That(calls.Select(c => c[0]).ToArray()).IsEquivalentTo(["print", "bootout", "bootstrap", "print"]);
     }
 
@@ -91,7 +86,7 @@ public class ServiceRepointTests {
         var outcome = Launchd(calls, Pinned).RefreshUnit("test", () => false, Plenty, out _, Stabilize);
 
         await Assert.That(outcome).IsEqualTo(UnitRefresh.Deferred);
-        await Assert.That(LaunchdUnit.BinaryFromPlist(File.ReadAllText(path))).IsEqualTo(Stable);
+        await Assert.That(LaunchdPrint.Binary(File.ReadAllText(path))).IsEqualTo(Stable);
         await Assert.That(calls.Select(c => c[0]).ToArray()).IsEquivalentTo(["print"]);
     }
 
