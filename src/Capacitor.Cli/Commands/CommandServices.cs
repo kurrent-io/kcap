@@ -46,7 +46,7 @@ public static class CommandServices {
         services.AddSingleton<IWatcherSpawner, ProcessWatcherSpawner>();
 
         // Singleton deliberately: per-resolution routers would each start with an empty memo.
-        services.AddSingleton<GitProviderRouter>();
+        services.AddSingleton(sp => new GitProviderRouter(sp.GetRequiredService<TimeProvider>()));
 
         // Factories because only a handful of commands take either. The registry is built over the
         // same probe instance, so a harness binary and a configured path search one PATH.
