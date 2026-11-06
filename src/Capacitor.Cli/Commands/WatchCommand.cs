@@ -2,6 +2,7 @@ using Capacitor.Cli.Recording;
 using Capacitor.Cli.Recording.Harness.Antigravity;
 using Capacitor.Cli.Recording.Harness.Codex;
 using Capacitor.Cli.Recording.Harness.Gemini;
+using Capacitor.Cli.Recording.Harness.Grok;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -785,7 +786,7 @@ class WatchCommand(
         } else if (agentId is null && vendor == "mistral-vibe") {
             await ScanMistralVibeSubagents(sessionId, transcriptPath, _vibeSubagents, _seenSubagents, _spawnedChildWatcherKeys, ct);
         } else if (agentId is null && vendor == "grok") {
-            await ScanGrokSubagents(sessionId, transcriptPath, drained, _grokSubagents, _spawnedChildWatcherKeys, ct);
+            await GrokSubagentScan.ScanGrokSubagents(_scans, sessionId, transcriptPath, drained, _grokSubagents, _spawnedChildWatcherKeys, ct);
         } else if (agentId is null && vendor == "muse") {
             await ScanMuseSubagents(sessionId, transcriptPath, _seenSubagents, _museChildren, _spawnedChildWatcherKeys, ct);
             await StopFinishedMuseChildren(sessionId, transcriptPath, drained, _museChildren);
@@ -894,63 +895,6 @@ class WatchCommand(
             spawnedChildKeys.Add(key);
 
             Log(time, $"Mistral Vibe subagent {agentId} registered + child watcher spawned");
-        }
-    }
-
-    /// <summary>
-    /// Grok fires no hook for a subagent: it runs as a sibling session the parent's transcript names when
-    /// it is spawned and when it finishes. A spawned child is registered (<c>subagent-start</c>,
-    /// fail-closed) and streamed by a child watcher once its transcript exists, retried each tick until
-    /// then; a finished one is drained and stopped.
-    /// </summary>
-    async Task ScanGrokSubagents(
-            string                sessionId,
-            string                transcriptPath,
-            IReadOnlyList<string> drained,
-            GrokSubagentTracker   tracker,
-            ICollection<string>   spawnedChildKeys,
-            CancellationToken     ct
-        ) {
-        if (tracker.Seeded) tracker.Observe(GrokSubagents.Read(drained));
-        else {
-            try { tracker.Seed(GrokSubagents.Read(File.ReadLinesShared(transcriptPath))); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { tracker.Observe(GrokSubagents.Read(drained)); }
-        }
-
-        foreach (var (child, type) in tracker.AwaitingStart()) {
-            if (ct.IsCancellationRequested) return;
-
-            var transcript = GrokSubagents.ChildTranscript(transcriptPath, child);
-            if (!File.Exists(transcript)) continue;
-
-            var agentId = GrokSubagents.AgentId(child);
-            if (!await _scans.PostSubagentStartAsync(sessionId, agentId, type ?? "subagent", transcript, ct)) continue;
-
-            tracker.Started(child);
-            Log(time, $"Grok subagent {agentId} ({type}) registered");
-        }
-
-        // Every tick, not only at registration: a child watcher that failed to spawn or exited early is
-        // restarted, and a failed launch leaves the parent watcher running.
-        foreach (var (child, _) in tracker.Active()) {
-            if (ct.IsCancellationRequested) return;
-
-            var agentId = GrokSubagents.AgentId(child);
-            var key     = $"{sessionId}-{agentId}";
-            try {
-                await watchers.EnsureWatcherRunning(key: key, transcriptPath: GrokSubagents.ChildTranscript(transcriptPath, child),
-                    agentId: agentId, sessionIdOverride: sessionId, vendor: "grok");
-                spawnedChildKeys.Add(key);
-            } catch (Exception ex) when (ex is not OperationCanceledException) {
-                Log(time, $"Grok subagent {agentId} child watcher failed to start: {ex.Message}");
-            }
-        }
-
-        foreach (var (child, type) in tracker.AwaitingStop()) {
-            if (ct.IsCancellationRequested) return;
-
-            if (await new GrokSubagentTeardown(profiles, http, watchers, time).FinishAsync(sessionId, transcriptPath, child, type))
-                tracker.Stopped(child);
         }
     }
 
