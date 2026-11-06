@@ -661,6 +661,22 @@ public class HistoryStepViewModelTests {
         await Assert.That(h.Vm.EmptyMessage).IsNotNull();
     }
 
+    /// Sessions in a folder with no remote have no repository to list, and the folder is the way to import them.
+    [Test]
+    public async Task A_report_with_only_folders_offers_the_folders() {
+        var h = new Harness(new ImportDiscoveryReport([], 1, [], [new("/w/copilot-demo", 1, [new(D30, 1), new(D90, 1), new(null, 1)])]));
+        await h.EnterAsync();
+
+        await Assert.That(h.Vm.EmptyMessage).IsNull();
+        await Assert.That(h.Vm.FoldersVisible).IsTrue();
+        await Assert.That(h.Vm.UnmatchedNote!).Contains("check their folders");
+
+        h.Vm.Folders.Single().Included = true;
+        await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None);
+
+        await Assert.That(h.Cli.ImportRequests.Single().Folders!).IsEquivalentTo(["/w/copilot-demo"]);
+    }
+
     /// Every line the local path can show, across each empty arm and the repository list.
     static async Task<List<string?>> LocalLinesAsync(bool onLocalPath) {
         var lines = new List<string?>();

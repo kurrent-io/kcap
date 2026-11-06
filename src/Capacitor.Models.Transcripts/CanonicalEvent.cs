@@ -38,6 +38,10 @@ public sealed record ProjectionResult(
     ) {
     public static readonly ProjectionResult Empty = new([], []);
 
+    /// When a record shows the vendor's process came back onto this transcript. Not an event: the
+    /// server's stream takes that from the session-start hook, and the two must not diverge.
+    public DateTimeOffset? RestartedAt { get; init; }
+
     public static ProjectionResult Of(IReadOnlyList<CanonicalEvent> events) => events.Count == 0 ? Empty : new(events, []);
 
     public static ProjectionResult Of(EventAmendment amendment) => new([], [amendment]);

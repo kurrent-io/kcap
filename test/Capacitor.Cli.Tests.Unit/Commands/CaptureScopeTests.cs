@@ -56,6 +56,24 @@ public class CaptureScopeTests {
         await Assert.That(result[0].OutsideAllowlist).IsFalse();
     }
 
+    /// <summary>An import places a session under the repository its harness recorded, so scope judges that one even
+    /// when its folder now resolves elsewhere.</summary>
+    [Test]
+    public async Task A_recorded_repository_is_judged_for_exclusion_and_the_allow_list() {
+        var recorded = Session("s1", "/tmp/anywhere") with {
+            SourceMeta = new Dictionary<string, object?> { [ImportCommand.RecordedRepositoryKey] = "acme/secret" }
+        };
+
+        var excluded = await Scope(excludedRepos: ["acme/secret"], repoDetector: Detects("other", "checkout")).ApplyAsync([recorded], NoResolved);
+        await Assert.That(excluded[0].ExcludedRepoKeys).IsEquivalentTo(["acme/secret"]);
+
+        var admitted = await Scope(allowedRepos: ["acme/secret"], repoDetector: Detects("other", "checkout")).ApplyAsync([recorded], NoResolved);
+        await Assert.That(admitted[0].OutsideAllowlist).IsFalse();
+
+        var outside = await Scope(allowedRepos: ["other/checkout"], repoDetector: Detects("other", "checkout")).ApplyAsync([recorded], NoResolved);
+        await Assert.That(outside[0].OutsideAllowlist).IsTrue();
+    }
+
     [Test]
     public async Task A_settled_session_is_stamped_too() {
         // An already-loaded session still reaches ImportSessionAsync to re-assert its lifecycle

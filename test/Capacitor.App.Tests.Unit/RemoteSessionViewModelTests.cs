@@ -61,7 +61,7 @@ public class RemoteSessionViewModelTests {
 
         public RemoteSessionViewModel Build(AgentRow row, IPlanArtifactSource? planArtifacts = null,
                 Capacitor.Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,
-                BackgroundCommandActivity? commands = null, SubagentEventsReader? readSubagent = null, AccountReadings? readings = null,
+                SessionRunActivity? commands = null, SubagentEventsReader? readSubagent = null, AccountReadings? readings = null,
                 Func<AgentRow, HandoffComposerViewModel>? handoff = null, HandoffOutcomeReader? handoffOutcomes = null,
                 IPageContentSource? pageContent = null, IUrlOpener? opener = null, bool? webView = null, bool inAppPages = true,
                 IHeldMessagesApi? heldMessages = null) {
@@ -1315,9 +1315,9 @@ public class RemoteSessionViewModelTests {
             var row = Harness.Row(sessionId: null);
             h.Directory.Rows.AddOrUpdate(row);
             var unexpectedRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            BackgroundCommandMonitor? monitor = null;
+            SessionRunMonitor? monitor = null;
             var ended = false;
-            monitor = new BackgroundCommandMonitor(row.Key, _ => { }, () => {
+            monitor = new SessionRunMonitor(row.Key, _ => { }, () => {
                 ended = true;
                 monitor!.Dispose();
             }, new FakeDaemonClientService(), h.Directory, h.Access, (_, _) => {
@@ -1350,27 +1350,27 @@ public class RemoteSessionViewModelTests {
             h.Detail = new(RemoteFixtures.Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, call),
                 Event(1, CanonicalEventTypes.ToolResultReceived, launch)));
-            BackgroundCommandMonitor? monitor = null;
+            SessionRunMonitor? monitor = null;
             var backgroundSeed = new TaskCompletionSource<SessionDetailFetch>(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var commands = new BackgroundCommandActivity((key, report, ended, _) =>
-                monitor = new BackgroundCommandMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                monitor = new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
                     h.Access, (_, ct) => backgroundSeed.Task.WaitAsync(ct), h.Lane, h.Time));
-            IReadOnlyDictionary<string, int> latest = new Dictionary<string, int>();
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var row = Harness.Row(vendor: "claude") with { AwaitingInput = true };
             var vm = h.Build(row, commands: commands);
-            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1") == 1, "running command");
+            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1").Commands == 1, "running command");
             await vm.TeardownAsync();
             h.Time.Advance(ChatTabViewModel.PollInterval);
             await Task.Yield();
             await (monitor!.PendingReadForTesting ?? Task.CompletedTask);
-            await Assert.That(latest.GetValueOrDefault("remote:a1")).IsEqualTo(1);
+            await Assert.That(latest.GetValueOrDefault("remote:a1").Commands).IsEqualTo(1);
             backgroundSeed.SetResult(h.Detail);
             await WaitUntilAsync(() => h.Lane.Tails.Count == 2, what: "background monitor tail");
             h.Time.Advance(ChatTabViewModel.PollInterval);
             await Task.Yield();
             await (monitor!.PendingReadForTesting ?? Task.CompletedTask);
-            await Assert.That(latest.GetValueOrDefault("remote:a1")).IsEqualTo(1);
+            await Assert.That(latest.GetValueOrDefault("remote:a1").Commands).IsEqualTo(1);
 
             if (sessionEnds) h.Directory.Rows.AddOrUpdate(row with { Status = "Completed" });
             else h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, finished));
@@ -1381,6 +1381,100 @@ public class RemoteSessionViewModelTests {
                 await Task.Delay(10);
             }
             await Assert.That(latest.ContainsKey("remote:a1")).IsFalse();
+        });
+    }
+
+    /// The rail looks a session running in a terminal up by its server key, so its work is published
+    /// under that key, and stays there once the workspace closes.
+    [Test]
+    public async Task A_terminal_sessions_subagent_stays_on_its_server_key_after_navigation_until_it_ends() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
+            using var subscription = commands.Running.Subscribe(running => latest = running);
+            var vm = h.Build(Harness.ServerRow("s1", "active"), commands: commands);
+            await h.UntilAsync(vm, () => latest.GetValueOrDefault("server:s1").Subagents == 1, "running subagent");
+
+            await vm.TeardownAsync();
+            await WaitUntilAsync(() => {
+                h.Time.Advance(ChatTabViewModel.PollInterval);
+                return h.Lane.Tails.Count == 2;
+            }, what: "background monitor tail");
+            await Assert.That(latest.GetValueOrDefault("server:s1").Subagents).IsEqualTo(1);
+
+            h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, AgentNotification));
+            await WaitUntilAsync(() => {
+                h.Time.Advance(ChatTabViewModel.PollInterval);
+                return !latest.ContainsKey("server:s1");
+            }, what: "the subagent's end");
+        });
+    }
+
+    /// Closes the workspace on a running subagent, removes the row, and returns what is then published.
+    static async Task<IReadOnlyDictionary<string, RunningWork>> AfterTheRowLeaves(Harness h, AgentRow row, SessionRunActivity commands, Func<IReadOnlyDictionary<string, RunningWork>> latest) {
+        var vm = h.Build(row, commands: commands);
+        await h.UntilAsync(vm, () => latest().GetValueOrDefault(row.Key).Subagents == 1, "running subagent");
+        await vm.TeardownAsync();
+        await WaitUntilAsync(() => {
+            h.Time.Advance(ChatTabViewModel.PollInterval);
+            return h.Lane.Tails.Count == 2;
+        }, what: "background monitor tail");
+        h.Directory.Rows.Remove(row.Key);
+        await Task.Delay(100);
+        return latest();
+    }
+
+    /// A server row leaves the loaded set on a page cut or a scope change, which says nothing about
+    /// the session, so only the row coming back ended stops the monitor.
+    [Test]
+    public async Task A_terminal_session_leaving_the_loaded_set_stays_tracked_until_it_returns_ended() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
+            using var subscription = commands.Running.Subscribe(running => latest = running);
+            var row = Harness.ServerRow("s1", "active");
+
+            var gone = await AfterTheRowLeaves(h, row, commands, () => latest);
+            await Assert.That(gone.GetValueOrDefault(row.Key).Subagents).IsEqualTo(1);
+
+            h.Directory.Rows.AddOrUpdate(row);
+            await Task.Delay(100);
+            await Assert.That(latest.GetValueOrDefault(row.Key).Subagents).IsEqualTo(1);
+
+            h.Directory.Rows.AddOrUpdate(row with { Status = "Completed" });
+            await WaitUntilAsync(() => !latest.ContainsKey(row.Key), what: "the row's end");
+        });
+    }
+
+    /// A hosted agent's row going means the agent has gone, and nothing else would stop the monitor.
+    [Test]
+    public async Task A_hosted_row_leaving_the_directory_stops_tracking_its_session() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
+            using var subscription = commands.Running.Subscribe(running => latest = running);
+            var row = Harness.Row(vendor: "claude");
+
+            var gone = await AfterTheRowLeaves(h, row, commands, () => latest);
+            await Assert.That(gone.ContainsKey(row.Key)).IsFalse();
         });
     }
 
@@ -1398,13 +1492,13 @@ public class RemoteSessionViewModelTests {
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, call),
                 Event(1, CanonicalEventTypes.ToolResultReceived, launch)));
             var refusal = new SessionDetailFetch(null, NotFound: notFound, Unauthorized: !notFound);
-            using var commands = new BackgroundCommandActivity((key, report, ended, _) =>
-                new BackgroundCommandMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
                     h.Access, (_, _) => Task.FromResult(refusal), h.Lane, h.Time));
-            IReadOnlyDictionary<string, int> latest = new Dictionary<string, int>();
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var vm = h.Build(Harness.Row(vendor: "claude") with { AwaitingInput = true }, commands: commands);
-            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1") == 1, "running command");
+            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1").Commands == 1, "running command");
             await vm.TeardownAsync();
 
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);

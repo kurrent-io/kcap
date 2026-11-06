@@ -265,6 +265,13 @@ public sealed class ClaudeHookCommand(
             // Ahead of both arms below, since each claims the new session before it posts.
             if (node is JsonObject hook && PreviousSession.Stamp(hook, config, () => ProcessHelpers.GetCodingAgentPid("claude", allowFallback: false)))
                 body = hook.ToJsonString();
+
+            // The server dates a start it is given no time for when it writes it, and a resume can
+            // replay from the spool after its own process started runs the boundary must not reach.
+            if (command == "session-start" && source == "resume" && node is JsonObject resumed && resumed["started_at"] is null) {
+                resumed["started_at"] = clock.Time.GetUtcNow().ToString("O");
+                body = resumed.ToJsonString();
+            }
         } catch { }
 
         if (command == "session-end" && SessionEndFence.ShouldHold(hosted, sessionId)) return 0;

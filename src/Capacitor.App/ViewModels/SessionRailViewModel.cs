@@ -42,6 +42,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly BehaviorSubject<string?> _selectedSessionKeyChanges = new(null);
     readonly BehaviorSubject<Func<AgentRow, bool>> _stateFilter;
     readonly Subject<Unit> _regroup = new();
+    IReadOnlyDictionary<string, RunningWork> _work = FrozenDictionary<string, RunningWork>.Empty;
     readonly BehaviorSubject<IComparer<RailSessionViewModel>> _rowComparer;
     readonly BehaviorSubject<IComparer<RailGroupViewModel>> _groupComparer;
     readonly BehaviorSubject<RailGrouping> _groupingChanges;
@@ -215,7 +216,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Action<string> openLocalSession, Action<string> openRemoteSession, TimeProvider time,
             IObservable<IReadOnlySet<string>>? agentsWithPending = null,
             IObservable<IReadOnlySet<string>>? agentsAwaitingAnswer = null,
-            IObservable<IReadOnlyDictionary<string, int>>? agentsRunningCommands = null,
+            IObservable<IReadOnlyDictionary<string, RunningWork>>? agentsRunningWork = null,
             IObservable<IReadOnlyDictionary<string, RailPullRequestSummary>>? pullRequests = null,
             Action<string, AgentOrigin, PullRequestSubjectDto?>? openPullRequest = null,
             Action<string>? openServerSession = null,
@@ -277,8 +278,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var prs = (pullRequests ?? Observable.Return<IReadOnlyDictionary<string, RailPullRequestSummary>>(
                 FrozenDictionary<string, RailPullRequestSummary>.Empty)).ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
         var localOnAppServer = directory.LocalDaemonOnAppServer.ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
-        var commands = (agentsRunningCommands ?? Observable.Return<IReadOnlyDictionary<string, int>>(
-                FrozenDictionary<string, int>.Empty)).ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
+        var work = (agentsRunningWork ?? Observable.Return<IReadOnlyDictionary<string, RunningWork>>(
+                FrozenDictionary<string, RunningWork>.Empty)).ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
 
         var paging = (sessions?.Paging ?? Observable.Return(new ServerSessionsPaging(0, 0, 1, false, false)))
             .ObserveOn(RxSchedulers.MainThreadScheduler).Replay(1).RefCount();
@@ -314,9 +315,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         directory.Rows.Connect()
             .Filter(_stateFilter)
             .ObserveOn(RxSchedulers.MainThreadScheduler)
-            .Group(row => GroupKey(row, _grouping, _today, _time.LocalTimeZone), _regroup)
+            .Group(GroupKeyOf, _regroup)
             .Transform(g => new RailGroupViewModel(
-                g, _grouping, LabelFor(g.Key, _grouping, g), selected, pending, stale, openLocalSession, openRemoteSession, time, answering, commands,
+                g, _grouping, LabelFor(g.Key, _grouping, g), selected, pending, stale, openLocalSession, openRemoteSession, time, answering, work,
                 prs, localOnAppServer, openPullRequest, !_collapsed.Contains(g.Key), expanded => {
                     if (expanded) _collapsed.Remove(g.Key);
                     else _collapsed.Add(g.Key);
@@ -326,6 +327,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .SortAndBind(_groupsSource, _groupComparer)
             .Subscribe()
             .DisposeWith(_disposables);
+        work.Subscribe(next => {
+            _work = next;
+            if (_grouping == RailGrouping.Status) _regroup.OnNext(Unit.Default);
+        }).DisposeWith(_disposables);
         // The groups, not the directory: a state filter that leaves nothing is an empty rail too.
         _isEmpty = Observable.FromEventPattern<NotifyCollectionChangedEventHandler, NotifyCollectionChangedEventArgs>(
                 handler => _groupsSource.CollectionChanged += handler, handler => _groupsSource.CollectionChanged -= handler)
@@ -363,7 +368,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         if (!row.HasValue && origin == AgentOrigin.Local)
             row = _directory.Rows.Lookup($"pending:{agentId}");
         if (!row.HasValue) return;
-        var groupKey = GroupKey(row.Value, _grouping, _today, _time.LocalTimeZone);
+        var groupKey = GroupKeyOf(row.Value);
         _collapsed.Remove(groupKey);
         Groups.FirstOrDefault(group => group.Key == groupKey)?.Expand();
     }
@@ -386,21 +391,23 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             _ => true,
         };
 
-    internal static string GroupKey(AgentRow row, RailGrouping grouping, DateOnly today, TimeZoneInfo zone) => grouping switch {
+    string GroupKeyOf(AgentRow row) => GroupKey(row, _grouping, _today, _time.LocalTimeZone, _work.GetValueOrDefault(row.Key));
+
+    internal static string GroupKey(AgentRow row, RailGrouping grouping, DateOnly today, TimeZoneInfo zone, RunningWork work = default) => grouping switch {
         RailGrouping.Repository => row.RepoGroupKey,
         // Invariant: a Buddhist or Hijri culture would write its own year into a key the label parses
         // back as Gregorian and the preferences persist.
         RailGrouping.Date => $"day:{LocalDay(row.LastActivityAt ?? row.CreatedAt, zone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}",
-        RailGrouping.Status => $"status:{StatusBucket(row)}",
+        RailGrouping.Status => $"status:{StatusBucket(row, work)}",
         _ => "all",
     };
 
     /// Waiting on you, Running, Failed, Ended: the order the status groups keep. A row whose chip
     /// says Working is Running even when its parent turn is waiting, or the group contradicts the chip.
-    static int StatusBucket(AgentRow row) {
+    static int StatusBucket(AgentRow row, RunningWork work) {
         if (row.IsEndedSession) return 3;
         if (row.Status == "Failed") return 2;
-        if (SessionStatusDots.ForRow(row, pending: false).Kind == AgentStatusKind.Working) return 1;
+        if (SessionStatusDots.ForRow(row, pending: false, work: work).Kind == AgentStatusKind.Working) return 1;
         return SessionStatusDots.NeedsAttention(row) ? 0 : 1;
     }
 

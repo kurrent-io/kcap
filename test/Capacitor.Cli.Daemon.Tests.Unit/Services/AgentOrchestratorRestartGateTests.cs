@@ -79,4 +79,18 @@ public class AgentOrchestratorRestartGateTests {
         b.ActivityClock.SetAwaitingInput(true);
         await Assert.That(orch.InteractiveAgentsAtTurnBoundary).IsTrue();
     }
+
+    [Test]
+    public async Task A_live_subagent_holds_the_boundary_for_an_agent_awaiting_input() {
+        await using var orch  = Build();
+        var             clock = orch.SeedAgentForTest("interactive").ActivityClock;
+        clock.SetAwaitingInput(true);
+        clock.SubagentSeen("child", 1);
+
+        await Assert.That(orch.InteractiveAgentsAtTurnBoundary).IsFalse();
+
+        clock.SubagentStopped("child", 2);
+
+        await Assert.That(orch.InteractiveAgentsAtTurnBoundary).IsTrue();
+    }
 }

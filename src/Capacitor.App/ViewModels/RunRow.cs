@@ -10,6 +10,10 @@ public sealed class RunRow : ReactiveObject {
     string? _agentId;
     bool _outcomeUnknown;
     bool _endedByStop;
+    /// With no report of its own, a run that began before the latest restart is running only if it
+    /// waited after that restart. Each is the latest heard, so the order they land in cannot matter.
+    DateTimeOffset? _restartedAt;
+    DateTimeOffset? _waitedAt;
     bool _openable = true;
     RunState _state = RunState.Running;
     string _stateText = "";
@@ -115,10 +119,26 @@ public sealed class RunRow : ReactiveObject {
     internal void End(RunState? outcome, DateTimeOffset at) {
         if (IsEnded && !_outcomeUnknown) return;
         EndedAt = EndedAt is { } bare && bare < at ? bare : at;
-        Outcome = outcome ?? RunState.Done;
+        Outcome = outcome ?? (IsEnded ? Outcome : RunState.Done);
         _outcomeUnknown = outcome is null;
         _endedByStop = false;
+        IsCutOff = false;
     }
+
+    /// Ended by a restart rather than by anything the run said.
+    internal bool IsCutOff { get; private set; }
+
+    /// The process holding the run is gone, so it reads as stopped, but that is only a presumption: a
+    /// report that still lands says how it really ended.
+    internal void CutOff(DateTimeOffset at) {
+        _restartedAt = Later(_restartedAt, at);
+        if (IsEnded || _waitedAt > _restartedAt) return;
+        End(RunState.Stopped, at);
+        _outcomeUnknown = true;
+        IsCutOff = true;
+    }
+
+    static DateTimeOffset Later(DateTimeOffset? known, DateTimeOffset at) => known > at ? known.Value : at;
 
     /// A stop record ends the row without an outcome, and alone among ends it can be taken back:
     /// a Claude agent also stops when it pauses on work of its own.
@@ -128,14 +148,17 @@ public sealed class RunRow : ReactiveObject {
         _endedByStop = true;
     }
 
-    /// A wait shows the run had not ended, so it takes back an end that only a stop record made: the
-    /// pause's own stop, heard ahead of the notification.
-    internal void RetractStop() {
-        if (!_endedByStop) return;
+    /// A wait shows the run had not ended, so it takes back an end that only a stop record or a restart
+    /// made: the pause's own stop, heard ahead of the notification. Past a restart only a wait dated
+    /// after it can, since a notification can be written well after the time it carries.
+    internal void Waited(DateTimeOffset at) {
+        _waitedAt = Later(_waitedAt, at);
+        if (!_endedByStop && !IsCutOff || _waitedAt <= _restartedAt) return;
         Outcome = RunState.Running;
         EndedAt = null;
         _outcomeUnknown = false;
         _endedByStop = false;
+        IsCutOff = false;
     }
 
     internal void Present(bool sessionOver, DateTimeOffset now) {

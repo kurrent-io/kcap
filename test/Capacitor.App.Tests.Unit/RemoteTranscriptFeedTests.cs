@@ -373,6 +373,33 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(subagents.Rows.Single().EndedAt).IsEqualTo(DateTimeOffset.Parse("2026-09-17T10:02:05Z", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
     }
 
+    /// A resumed session stays open, so the session-start event is all the stream says about a run
+    /// the old process took with it, and it is dated by the resume rather than by when it was stored.
+    [Test]
+    public async Task A_resumed_session_start_stops_a_seeded_background_row() {
+        using var h = new Harness(vendor: "claude") {
+            NextDetail = new(Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated,
+                    """{"tool_calls":[{"call_id":"toolu_A","tool_name":"Agent","arguments":{"subagent_type":"Explore","description":"look"}}],"timestamp":"2026-09-17T10:00:00Z"}"""),
+                Event(1, CanonicalEventTypes.ToolResultReceived,
+                    """{"call_id":"toolu_A","result":"launched","timestamp":"2026-09-17T10:00:01Z","extensions":{"claude_code":{"tool_use_result":{"status":"async_launched","agentId":"a9f262478e032f427"}}}}"""))),
+        };
+        var subagents = new SessionRuns(h.Time);
+        h.Access.OnNext(SessionAccessState.Established);
+        await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
+        foreach (var line in h.Feed.ReadAppended().Lines) subagents.Apply(line.Projection);
+        await Assert.That(subagents.RunningCount).IsEqualTo(1);
+
+        h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.SessionStarted,
+            """{"timestamp":"2026-09-17T10:02:05Z","extensions":{"claude_code":{"source":"Resume"}}}"""));
+        await WaitUntilAsync(() => h.Feed.CurrentOffset == 3, what: "the resume");
+        foreach (var line in h.Feed.ReadAppended().Lines) subagents.Apply(line.Projection);
+
+        await Assert.That(subagents.RunningCount).IsEqualTo(0);
+        await Assert.That(subagents.Rows.Single().State).IsEqualTo(RunState.Stopped);
+        await Assert.That(subagents.Rows.Single().EndedAt).IsEqualTo(DateTimeOffset.Parse("2026-09-17T10:02:05Z", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+    }
+
     /// The payload's own time is transcript-authoritative; the stream envelope only carries when
     /// the server happened to store it.
     [Test]

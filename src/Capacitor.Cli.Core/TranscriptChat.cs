@@ -23,6 +23,9 @@ public interface IChatDisplayRules {
     /// Subagent facts read off the raw envelope, whatever Filter decides for it.
     IReadOnlyList<RunSignal> Runs(CanonicalEvent evt, AcpEventEnvelope raw) => [];
 
+    /// True when the server's record of a session start means the vendor's process came back onto it.
+    bool IsRestart(SessionStarted started) => false;
+
     /// True when the vendor's own records start its subagent rows, so a start record only names one of them.
     bool StartsSubagentRows => false;
 }
@@ -37,6 +40,7 @@ public sealed class TranscriptChatProjection(ITranscriptProjection projection, I
     public ChatProjectionResult ProjectWithInputs(string line, int lineNumber, DateTimeOffset receivedAt, TranscriptContext context) {
         var chat = context as ChatContext;
         var result = projection.Project(line, lineNumber, receivedAt, chat?.Inner ?? context);
+        if (result.RestartedAt is { } restartedAt) return new([], [], [new RunSignal.Restarted(restartedAt)]);
         if (result.Events.Count == 0) return new([], [], []);
         return ChatProjectionResult.Combine(result.Events.Select(evt => TranscriptChat.Project(evt, rules, chat?.Scheduled)).ToArray());
     }
@@ -99,6 +103,8 @@ public static class TranscriptChat {
         // Written from the subagent-start hook, which names the agent but not its call.
         if (evt.Payload is SubagentStarted started)
             return new([], [], started.AgentId is { Length: > 0 } agentId ? SubagentStart(agentId, started.AgentType, evt.Timestamp, rules) : []);
+        if (evt.Payload is SessionStarted session && rules?.IsRestart(session) == true)
+            return new([], [], [new RunSignal.Restarted(evt.Timestamp)]);
         var envelopes = TranscriptEnvelopes.From(evt);
         if (envelopes.Count == 0) return new([], [], []);
         var parts = new List<ChatProjectionResult>(envelopes.Count);

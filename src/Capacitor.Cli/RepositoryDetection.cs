@@ -172,6 +172,10 @@ static class RepositoryDetection {
                 remoteUrl = remoteUrlTask.Result;
                 branch    = branchTask.Result;
 
+                // git may be missing from this process's PATH, or refuse a repository another account owns.
+                branch    ??= GitRepository.ShowCurrentBranch(cwd);
+                remoteUrl ??= GitRepository.OriginUrl(cwd);
+
                 // Not a git repo if we can't get branch or remote
                 if (branch is null && remoteUrl is null) {
                     return null;

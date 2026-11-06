@@ -131,7 +131,7 @@ public sealed class DoneStepViewModel : ReactiveObject, IWizardStep {
     /// Hooks load at agent start, so an agent open since before setup stores nothing until it is launched again,
     /// and when setup changed PATH, a terminal open since before it cannot run the hooks either.
     public string? RestartLine => !CapturePromised ? null
-        : _current.PathAdded ? "Agents already open will start storing sessions once you launch them again from a new terminal"
+        : _current.PathAdded ? "Agents already open will start storing sessions once you launch them again, from a new terminal if they run in one"
         : "Agents already open will start storing sessions the next time you launch them";
 
     public IReadOnlyList<CaptureItem> Capture => [.. _current.Recording.Select(label => new CaptureItem(label, _current.PathHazard))];

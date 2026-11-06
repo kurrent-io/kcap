@@ -175,8 +175,14 @@
                 <StackPanel x:Name="PreflightBlocked" Spacing="14" IsVisible="{Binding PreflightBlocked}">
                     <TextBlock x:Name="PreflightTitleText" Classes="onboardingHeadline" Text="{x:Static vm:HarnessPreflight.Title}" />
                     <TextBlock x:Name="PreflightMessageText" Classes="onboardingLede" Text="{x:Static vm:HarnessPreflight.Message}" />
-                    <Button x:Name="PreflightQuitButton" Classes="onboardingPrimary" Content="Quit kcap" Margin="0,12,0,0"
-                            HorizontalAlignment="Left" Command="{Binding QuitCommand}" />
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,12,0,0">
+                        <Button x:Name="PreflightCheckAgainButton" Classes="onboardingPrimary" Content="Check again"
+                                Command="{Binding CheckAgainCommand}" />
+                        <Button x:Name="PreflightContinueButton" Classes="onboardingSecondary" Content="Continue without one"
+                                Command="{Binding ContinueWithoutHarnessCommand}" />
+                        <Button x:Name="PreflightQuitButton" Classes="onboardingLink" Content="Quit kcap"
+                                Command="{Binding QuitCommand}" VerticalAlignment="Center" />
+                    </StackPanel>
                 </StackPanel>
 
                 <StackPanel Spacing="14" IsVisible="{Binding StepVisible}">

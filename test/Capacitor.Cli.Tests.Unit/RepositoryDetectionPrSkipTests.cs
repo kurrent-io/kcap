@@ -24,6 +24,43 @@ public class RepositoryDetectionPrSkipTests {
             return Task.FromResult(reply);
         };
 
+    /// <summary>A process started before git was installed has no git on its PATH, and git refuses a
+    /// repository another account owns. The checkout's own files still name the repository.</summary>
+    [Test]
+    public async Task Git_that_will_not_answer_leaves_the_checkout_to_name_the_repository() {
+        using var repo = GitRepo.Create();
+        repo.Do("remote", "add", "origin", "git@github.invalid:acme/widget.git");
+
+        var detected = await RepositoryDetection.DetectRepositoryAsync(new GitProviderRouter(), Config.Root,
+            repo.Path, TimeProvider.System, detectPullRequest: false, run: (_, _, _, _) => Task.FromResult<string?>(null));
+
+        await Assert.That(detected!.Owner).IsEqualTo("acme");
+        await Assert.That(detected.RepoName).IsEqualTo("widget");
+        await Assert.That(detected.Branch).IsEqualTo("main");
+    }
+
+    [Test]
+    public async Task Git_that_answers_only_the_branch_still_leaves_the_checkout_to_name_the_remote() {
+        using var repo = GitRepo.Create();
+        repo.Do("remote", "add", "origin", "git@github.invalid:acme/widget.git");
+
+        var detected = await RepositoryDetection.DetectRepositoryAsync(new GitProviderRouter(), Config.Root,
+            repo.Path, TimeProvider.System, detectPullRequest: false,
+            run: (_, args, _, _) => Task.FromResult(args.Contains("--show-current") || args.Contains("rev-parse") ? "main" : null));
+
+        await Assert.That(detected!.Owner).IsEqualTo("acme");
+    }
+
+    [Test]
+    public async Task Git_that_will_not_answer_outside_a_checkout_finds_no_repository() {
+        using var cwd = new TempDir();
+
+        var detected = await RepositoryDetection.DetectRepositoryAsync(new GitProviderRouter(), Config.Root,
+            cwd.Path, TimeProvider.System, detectPullRequest: false, run: (_, _, _, _) => Task.FromResult<string?>(null));
+
+        await Assert.That(detected).IsNull();
+    }
+
     [Test]
     public async Task DetectPullRequest_false_never_spawns_gh_or_glab() {
         using var cwd = new TempDir();

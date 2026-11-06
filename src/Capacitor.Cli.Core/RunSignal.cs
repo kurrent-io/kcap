@@ -28,6 +28,10 @@ public abstract record RunSignal {
     /// nor how. A Claude agent also stops each time it pauses on background work of its own.
     public sealed record Stopped(string AgentId, DateTimeOffset At) : RunSignal;
 
+    /// The vendor's process came back onto this session, so nothing started before At is still going,
+    /// and what was may never say so: a Claude agent paused on its own work gets no notification.
+    public sealed record Restarted(DateTimeOffset At) : RunSignal;
+
     /// The run ended outside its tool result. At least one key is set. A null outcome means the
     /// source knows only that it ended.
     public sealed record Finished(string? CallId, string? AgentId, RunOutcome? Outcome, DateTimeOffset At) : RunSignal;

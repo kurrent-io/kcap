@@ -9,11 +9,11 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// Continues folding run signals after the workspace releases its transcript and terminal.
-internal sealed class BackgroundCommandMonitor : IDisposable {
+/// Continues folding a session's run signals after the workspace releases its transcript and terminal.
+internal sealed class SessionRunMonitor : IDisposable {
     SessionRuns _runs;
     TranscriptFeedHandoff? _handoff;
-    readonly Action<int> _report;
+    readonly Action<RunningWork> _report;
     readonly Action _ended;
     readonly TimeProvider _time;
     readonly SessionAccessService _access;
@@ -31,7 +31,7 @@ internal sealed class BackgroundCommandMonitor : IDisposable {
     bool _seeded;
     bool _disposed;
 
-    public BackgroundCommandMonitor(string rowKey, Action<int> report, Action ended, IDaemonClientService daemon,
+    public SessionRunMonitor(string rowKey, Action<RunningWork> report, Action ended, IDaemonClientService daemon,
             IAgentDirectory directory, SessionAccessService access, SessionDetailReader readDetail,
             IServerLane lane, TimeProvider time, TranscriptFeedHandoff? handoff = null) {
         _handoff = handoff;
@@ -41,15 +41,18 @@ internal sealed class BackgroundCommandMonitor : IDisposable {
         _access = access;
         _readDetail = readDetail;
         _lane = lane;
-        _remote = rowKey.StartsWith("remote:", StringComparison.Ordinal);
+        _remote = !rowKey.StartsWith("local:", StringComparison.Ordinal);
         _agentId = rowKey[(rowKey.IndexOf(':') + 1)..];
         _runs = new SessionRuns(time);
         _timer = time.CreateTimer(_ => Dispatcher.UIThread.Post(Read), null,
             ChatTabViewModel.PollInterval, ChatTabViewModel.PollInterval);
         _subscriptions.Add(_accessLease);
         if (_remote) {
+            // A server row leaves the loaded set on a page cut or a scope change, not when its session ends.
+            var outlivesRow = rowKey.StartsWith("server:", StringComparison.Ordinal);
             directory.Rows.Connect().Filter(row => row.Key == rowKey)
                 .QueryWhenChanged(query => query.Items.FirstOrDefault())
+                .Where(row => row is not null || !outlivesRow)
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
                 .Subscribe(row => Follow(row is null ? ChatSessionInfo.Gone : ChatSessionInfo.FromRemote(row, false), null))
                 .DisposeWith(_subscriptions);
@@ -80,13 +83,13 @@ internal sealed class BackgroundCommandMonitor : IDisposable {
         if (!_remote && handoff is not null && handoff.Key == _key) {
             _feed = handoff.Feed;
             _runs = handoff.Runs;
-            _report(_runs.RunningCommandCount);
+            _report(_runs.Work);
             Read();
             return;
         }
         handoff?.Feed.Dispose();
         _runs.Clear();
-        if (_key is null) { _feed = null; _report(0); return; }
+        if (_key is null) { _feed = null; _report(default); return; }
         if (_remote) {
             var lease = _access.Acquire(_key);
             var denied = new SingleAssignmentDisposable();
@@ -116,7 +119,7 @@ internal sealed class BackgroundCommandMonitor : IDisposable {
                 if (_disposed || generation != _generation) return;
                 // A remote feed stops on either verdict; a local one retries on the next poll.
                 if (_remote && read.Status is FeedStatus.Missing or FeedStatus.Failed) { _ended(); return; }
-                if (read.Status == FeedStatus.Missing) { _report(0); return; }
+                if (read.Status == FeedStatus.Missing) { _report(default); return; }
                 if (read.Status == FeedStatus.Failed) return;
                 // The seed may arrive after this read drained the feed; only a consumed Reset counts.
                 if (_remote && !_seeded && read.Status != FeedStatus.Reset) return;
@@ -124,8 +127,8 @@ internal sealed class BackgroundCommandMonitor : IDisposable {
                     _seeded = true;
                     _runs.Clear();
                 }
-                _runs.ApplyAll(read.Lines.Select(line => line.Projection));
-                _report(_runs.RunningCommandCount);
+                _runs.ApplyAll(read.Lines.Select(line => line.Projection).Append(new([], [], read.Runs)));
+                _report(_runs.Work);
             });
         } catch (Exception ex) {
             Log(ex.Message);
@@ -134,7 +137,7 @@ internal sealed class BackgroundCommandMonitor : IDisposable {
         }
     }
 
-    static void Log(string message) => Console.Error.WriteLine($"kcap: background commands: {message}");
+    static void Log(string message) => Console.Error.WriteLine($"kcap: session runs: {message}");
 
     public void Dispose() {
         if (_disposed) return;

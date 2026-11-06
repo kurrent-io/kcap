@@ -53,6 +53,25 @@ public class AgentOrchestratorStopForResumeTests {
         await Assert.That(Ledger().TryRead("working")!.AwaitingInput).IsFalse();
     }
 
+    /// <summary>The stop kills a background subagent, and only the nudge gets the parent to pick its work up:
+    /// the turn having ended says nothing about it.</summary>
+    [Test]
+    public async Task KeepAgents_records_a_waiting_agent_with_a_live_subagent_as_not_waiting() {
+        var orch    = Build(new CaptureServerConnection());
+        var running = Seed(orch, "subagent-running").ActivityClock;
+        running.SetAwaitingInput(true);
+        running.SubagentSeen("child", 1);
+        var finished = Seed(orch, "subagent-finished").ActivityClock;
+        finished.SetAwaitingInput(true);
+        finished.SubagentSeen("child", 1);
+        finished.SubagentStopped("child", 2);
+
+        await orch.DisposeAsync();
+
+        await Assert.That(Ledger().TryRead("subagent-running")!.AwaitingInput).IsFalse();
+        await Assert.That(Ledger().TryRead("subagent-finished")!.AwaitingInput).IsTrue();
+    }
+
     [Test]
     public async Task KeepAgents_persists_the_ring_and_keeps_the_worktree_and_pid_record() {
         using var tmp      = new TempDir();

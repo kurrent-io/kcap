@@ -37,11 +37,11 @@ public class ProcessTreeTests {
         try {
             var identity = PidIdentity.Capture(root.Id);
             var start    = Environment.TickCount64;
-            var listed   = ProcessTree.Descendants(root.Id, identity);
+            var listed   = Listed();
 
             while (listed.Count < expected && Environment.TickCount64 - start < 10_000) {
                 await Task.Delay(50);
-                listed = ProcessTree.Descendants(root.Id, identity);
+                listed = Listed();
             }
 
             await Assert.That(listed.Count).IsEqualTo(expected);
@@ -49,6 +49,23 @@ public class ProcessTreeTests {
             await Assert.That(ProcessTree.Descendants(root.Id, identity + "0")).IsEmpty();
         } finally {
             ProcessTree.Kill(root);
+        }
+
+        // Windows can also list the short-lived conhost serving cmd's console, so only ping is counted there.
+        IReadOnlyList<(int Pid, string Identity)> Listed() {
+            var all = ProcessTree.Descendants(root.Id, PidIdentity.Capture(root.Id));
+
+            return OperatingSystem.IsWindows() ? [.. all.Where(d => IsPing(d.Pid))] : all;
+        }
+    }
+
+    static bool IsPing(int pid) {
+        try {
+            using var process = Process.GetProcessById(pid);
+
+            return process.ProcessName.Equals("ping", StringComparison.OrdinalIgnoreCase);
+        } catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) {
+            return false;
         }
     }
 

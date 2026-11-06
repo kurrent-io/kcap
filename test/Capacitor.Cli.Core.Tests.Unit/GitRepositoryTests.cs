@@ -2,6 +2,19 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 
 public class GitRepositoryTests {
     [Test]
+    [Arguments("url = https://github.com/acme/widget.git", "https://github.com/acme/widget.git")]
+    [Arguments("url = https://github.com/acme/widget.git # production", "https://github.com/acme/widget.git")]
+    [Arguments("url = https://github.com/acme/widget.git ; production", "https://github.com/acme/widget.git")]
+    [Arguments("url = \"https://github.com/acme/widget.git\" # production", "https://github.com/acme/widget.git")]
+    public async Task OriginUrl_reads_the_value_without_its_comment(string line, string expected) {
+        using var tmp = new TempDir();
+        tmp.CreateDir(".git");
+        tmp.CreateFile(".git/config", $"[remote \"origin\"]\n\t{line}\n");
+
+        await Assert.That(GitRepository.OriginUrl(tmp.Path)).IsEqualTo(expected);
+    }
+
+    [Test]
     public async Task FindRoot_returns_null_for_directory_with_no_git_entry_anywhere() {
         using var tmp = new TempDir();
         var nested = tmp.CreateDir("a", "b", "c");

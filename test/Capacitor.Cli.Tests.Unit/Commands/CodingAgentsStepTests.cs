@@ -1587,6 +1587,7 @@ public class CodingAgentsStepTests {
         await Assert.That(calls.CodexHooksCalled).IsFalse();
         await Assert.That(calls.AgentSkillsCalled).IsFalse();
         await Assert.That(sink.Lines).Contains(l => l.Contains("No supported agent CLI detected"));
+        await Assert.That(sink.Lines).Contains(l => l.Contains("For Copilot in VS Code, open VS Code once"));
     }
 
     [Test]
@@ -1837,7 +1838,22 @@ public class CodingAgentsStepTests {
             prompt: _ => true, writeLine: sink.Write);
 
         await Assert.That(calls.CopilotHooksCalled).IsFalse();
-        await Assert.That(sink.Lines).Contains(l => l.Contains("Copilot CLI not detected"));
+        await Assert.That(sink.Lines).Contains(l => l.Contains("Copilot not detected"));
+    }
+
+    [Test]
+    [Arguments("VS Code", "Copilot detected in VS Code")]
+    [Arguments(null, "Copilot detected")]
+    public async Task Setup_names_where_it_found_copilot(string? hostApp, string line) {
+        var sink     = new Sink();
+        var calls    = new InstallerCalls();
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: false, NoPrompt: false);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: true, CopilotHostApp: hostApp);
+
+        await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(sink.Lines).Contains(l => l.Contains(line));
+        await Assert.That(calls.CopilotHooksCalled).IsTrue();
     }
 
     [Test]
@@ -1869,6 +1885,22 @@ public class CodingAgentsStepTests {
         await Assert.That(result.CopilotHooksInstalled).IsFalse();
         await Assert.That(calls.CopilotHooksCalled).IsTrue();
         await Assert.That(sink.Lines).Contains(l => l.Contains("Could not write Copilot hooks"));
+    }
+
+    /// <summary>A hook that names kcap's full path runs in an app whose PATH predates the install.</summary>
+    [Test]
+    public async Task Copilot_hooks_naming_the_binary_install_with_kcap_not_on_path() {
+        var sink     = new Sink();
+        var calls    = new InstallerCalls { CapacitorOnPathReturns = false };
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: false, NoPrompt: false);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: true);
+
+        var result = await RunAsync(
+            options, detected, TestPaths(), calls.AsInstallers() with { CopilotHooksNeedPath = () => false },
+            prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(result.CopilotHooksInstalled).IsTrue();
+        await Assert.That(calls.CopilotHooksCalled).IsTrue();
     }
 
     [Test]
