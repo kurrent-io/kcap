@@ -636,6 +636,9 @@
                                                 <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
                                                            TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}"
                                                            IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                <TextBlock Text="{x:Static vm:WorkContextLinkViewModel.TitleMissingNote}"
+                                                           FontSize="13" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
+                                                           IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
                                             </StackPanel>
                                         </Button>
                                     </DataTemplate>

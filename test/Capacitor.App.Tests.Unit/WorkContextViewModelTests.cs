@@ -4,6 +4,7 @@ using System.Reactive.Subjects;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.Http;
@@ -1347,6 +1348,34 @@ public class WorkContextViewModelTests {
         await h.PushAsync(Dto());
         await Assert.That(h.Vm.HasSeparateIssue).IsTrue();
         await h.Vm.TeardownAsync();
+    });
+
+    /// The list replaces the single row once there are two separate issues, so it has to say the same.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_untitled_issue_in_the_list_says_its_title_is_unavailable() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        var view = new WorkContextView { DataContext = h.Vm };
+        var window = new Window { Content = view, Width = 320, Height = 800 };
+        h.Source.Enqueue(ReadyWith(Row("w1", "t"), Item() with {
+            Links = [
+                Link("issue", "#1", "https://github.com/o/r/issues/1", value: "github:o/r#1"),
+                Link("issue", "#2", "https://github.com/o/r/issues/2", "Titled", value: "github:o/r#2"),
+            ],
+        }));
+        try {
+            window.Show();
+            await h.PushAsync(Dto());
+            window.UpdateLayout();
+            var shown = view.FindControl<ItemsControl>("IssueList")!.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.IsEffectivelyVisible).Select(t => t.Text ?? "");
+            await Assert.That(shown).IsEquivalentTo(new[] { "#1", "Title not available", "#2", "Titled" });
+        } finally {
+            window.Close();
+            await h.Vm.TeardownAsync();
+            h.Presence.Dispose();
+            h.SignIn.Dispose();
+        }
     });
 
     /// A short key carries no repository, so only the full identity says which `#7` is the seed.
