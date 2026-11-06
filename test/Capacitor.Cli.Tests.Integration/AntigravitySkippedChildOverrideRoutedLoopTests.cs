@@ -181,9 +181,9 @@ public class AntigravitySkippedChildOverrideRoutedLoopTests : IDisposable {
         // --- Effect 3: the printed per-session line is the "Loading" line, not the grey
         // "Already loaded ... (no new content)" no-op line (which is what a raw Skipped outcome
         // with no override would print instead). ---
-        await Assert.That(stdout).Contains($"Loading {Root} (antigravity)");
-        await Assert.That(stdout).DoesNotContain($"Already loaded {Root}");
-        await Assert.That(stdout).DoesNotContain($"Refreshed {Root}");
+        await Assert.That(stdout).Contains($"Loading {RootConvId} (antigravity)");
+        await Assert.That(stdout).DoesNotContain($"Already loaded {RootConvId}");
+        await Assert.That(stdout).DoesNotContain($"Refreshed {RootConvId}");
 
         // --- Effects 1 & 2: isolate the "== Done ==" section from the earlier "== Plan ==" one
         // (which unconditionally prints "Excluded" even at 0) and check both the totals and the
