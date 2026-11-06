@@ -40,6 +40,22 @@ public class LocalRepositoryLookupTests {
         await Assert.That(SessionStartMemoryContextProvider.BuildUrl(ResolvingServer.BaseUrl, scope)).Contains($"repo={Bound}");
     }
 
+    /// <summary>A resolve that does not answer gives up within half the session start's budget, so the reads that need
+    /// the hash are not left without time; the scope then names no repository rather than the unbound one.</summary>
+    [Test]
+    public async Task A_resolve_that_does_not_answer_leaves_the_session_start_half_its_budget() {
+        using var repo   = GitRepo.Create();
+        var       server = new ResolvingServer(Bound) { HangResolve = true };
+        var resolver = new SessionStartMemoryScopeResolver(
+            new GitProviderRouter(), Config.Root, new WorkingDirectory(repo.Path), TimeProvider.System, _ => Task.FromResult(server.Client()));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        var scope = await resolver.ResolveAsync(repo.Path, ResolvingServer.BaseUrl, TimeSpan.FromSeconds(4), deadline.Token);
+
+        await Assert.That(scope.RepoHash).IsNull();
+        await Assert.That(server.Resolves).IsNotEmpty();
+    }
+
     [Test]
     public async Task Recap_reads_the_resolved_hash() {
         using var repo   = GitRepo.Create();

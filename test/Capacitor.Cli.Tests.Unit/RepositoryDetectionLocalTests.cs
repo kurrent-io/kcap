@@ -78,6 +78,19 @@ public class RepositoryDetectionLocalTests {
         await Assert.That(second.RepoName).IsEqualTo(first.RepoName);
     }
 
+    // The servers can change while a detection is cached, and one that stores no local identity is sent none.
+    [Test]
+    public async Task A_cached_local_identity_is_not_sent_to_a_server_that_since_reports_an_older_version() {
+        using var repo = GitRepo.Create();
+        await Assert.That(LocalRepository.IsLocal((await Detect(repo.Path))!.Owner)).IsTrue();
+
+        await ReportTo("1.0.0");
+        var found = await Detect(repo.Path);
+
+        await Assert.That(found!.Owner).IsNull();
+        await Assert.That(found.RepoName).IsNull();
+    }
+
     [Test]
     public async Task A_folder_outside_git_stays_repository_less() =>
         await Assert.That(await Detect(Tmp.CreateDir("plain").Path)).IsNull();

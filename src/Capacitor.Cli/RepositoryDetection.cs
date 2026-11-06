@@ -156,6 +156,11 @@ static class RepositoryDetection {
                 repoName  = cache.RepoName;
                 host      = cache.Host;
                 branch    = await branchTask;
+
+                // The servers can change within the cache's life, and one that does not store a local identity must
+                // not be sent one.
+                if (LocalRepository.IsLocal(owner) && !await LocalRepositorySupport.AcceptedEverywhereAsync(config, ProfileOverrides.FromEnvironment()))
+                    (owner, repoName) = (null, null);
             } else {
                 // Run git commands in parallel
                 var userNameTask  = run("git", "config user.name", cwd, gitCap);
