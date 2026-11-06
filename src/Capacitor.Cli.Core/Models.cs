@@ -1167,6 +1167,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(FindRepoForRemoteRequest))]
 [JsonSerializable(typeof(BorrowProbeResult))]
 [JsonSerializable(typeof(SendInputCommand))]
+[JsonSerializable(typeof(SendInputAcked))]
 [JsonSerializable(typeof(SendRawInputCommand))]
 [JsonSerializable(typeof(ResizeTerminalCommand))]
 [JsonSerializable(typeof(PrepareEvalCommand))]
@@ -2362,7 +2363,10 @@ public readonly record struct DaemonConnect(
         bool                                        SupportsResumeInPlace = false,
         // Relays a deny's Message to the agent. False from a daemon predating it; the server then
         // tells the person their reason was not delivered.
-        bool                                        SupportsDenyMessage = false
+        bool                                        SupportsDenyMessage = false,
+        // Answers each SendInput carrying a dispatch id with SendInputAcked once taken, and ignores a resend
+        // of one already taken. An older server ignores it and sends each input once.
+        bool                                        SupportsInputAcks = false
     );
 
 public sealed record UnattendedVendorCapability(

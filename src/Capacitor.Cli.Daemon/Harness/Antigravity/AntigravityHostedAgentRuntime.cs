@@ -430,8 +430,8 @@ internal sealed class AntigravityHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
     public Task SendUserInputAndWaitForWriteAsync(string text) => EnqueueTurn(text, acknowledgeWrite: true);
 
-    public Task SendDispatchedInputAsync(string text, Guid dispatchId, bool waitForWrite) =>
-        EnqueueTurn(text, acknowledgeWrite: waitForWrite, dispatchId);
+    public Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) =>
+        InputAdmission.Of(EnqueueTurn(text, acknowledgeWrite: true, dispatchId));
 
     /// <summary>Acquire-then-IMMEDIATELY-release: queues behind an in-flight turn and returns once it's
     /// done, but never itself holds <see cref="_turnGate"/> — see the class doc's rule (d), which is the
