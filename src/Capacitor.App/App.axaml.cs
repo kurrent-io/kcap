@@ -696,10 +696,10 @@ public partial class App : Application {
         }
         Func<Task>? prepare = prepareApp ? () => PrepareAppForUninstallAsync(previous) : null;
         var run = OperatingSystem.IsMacOS()
-            ? uninstall.BuildRun(Environment.ProcessPath, root => new MacAppRemoval(runner, _userHome, root), cli, () => Quit(0), prepare: prepare)
+            ? uninstall.BuildRun(Environment.ProcessPath, root => new MacAppRemoval(runner, _userHome, _config, root), cli, () => Quit(0), prepare: prepare)
             : OperatingSystem.IsLinux()
                 ? uninstall.BuildAppImageRun(AppImageInstall.Detect(Environment.GetEnvironmentVariable),
-                    install => new LinuxAppRemoval(runner, _userHome, install, Environment.GetEnvironmentVariable, _time), cli, () => Quit(0), prepare: prepare)
+                    install => new LinuxAppRemoval(runner, _userHome, _config, install, Environment.GetEnvironmentVariable, _time), cli, () => Quit(0), prepare: prepare)
                 : OperatingSystem.IsWindows()
                     ? BuildWindowsUninstallRun(desktop, uninstall, cli, () => Quit(0), prepare)
                     : null;
@@ -770,7 +770,7 @@ public partial class App : Application {
         ApplicationsMover Mover(string apps) => new(runner, ApplicationsMover.PromoteExclusive, apps,
             swap: ApplicationsMover.SwapAtomic, isRunning: InstalledAppRunning,
             quitRunning: QuitInstalledAppAsync,
-            migrateReferences: () => new ApplicationReferences(runner, _userHome, _daemonStore, _time),
+            migrateReferences: () => new ApplicationReferences(runner, _userHome, _daemonStore, _time, _config),
             activate: async (target, ct) => {
                 new ApplicationIntegrationRefresh(_config, runner).Schedule(target);
                 RecordInstallerHandover(plan, replacedVersion);
@@ -1531,7 +1531,7 @@ public partial class App : Application {
         Time: _time,
         Log: Console.Error,
         PathProfiles: () => OperatingSystem.IsMacOS()
-            ? ShellProfile.Removable(_userHome, new KcapLinkRemover(KcapLinkFolders.For(_userHome), Path.Combine(bundleRoot, "Contents", "MacOS", "kcap")).Find())
+            ? ShellProfile.Removable(_userHome, KcapLinkRemover.For(_userHome, _config, Path.Combine(bundleRoot, "Contents", "MacOS", "kcap")).Find())
             : [],
         UserPathFolder: OperatingSystem.IsWindows()
             ? () => Platform.Windows.WindowsAppRemoval.FolderOnUserPath(Path.Combine(Program.Host.CliDirectory, CliResolver.BundledCliFileName))

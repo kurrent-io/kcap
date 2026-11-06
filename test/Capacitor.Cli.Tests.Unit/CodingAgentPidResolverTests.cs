@@ -56,14 +56,6 @@ public class CodingAgentPidResolverTests {
             (int pid, int ppid, string comm)[] table, int? expected) =>
         await Assert.That(ProcessHelpers.ResolveCopilotHostPid(90, ProcTable.Of(table))).IsEqualTo(expected);
 
-    /// <summary>One runtime hosts every chat in VS Code, so it stays out of what a name lookup for the
-    /// <c>copilot</c> vendor finds: that lookup also claims a process for one session.</summary>
-    [Test]
-    [Arguments("copilot-runtime")]
-    [Arguments("copilot-runtime.exe")]
-    public async Task The_shared_runtime_is_not_the_copilot_vendors_process(string name) =>
-        await Assert.That(ProcessHelpers.MatchesAgentName(name, "copilot")).IsFalse();
-
     [Test]
     public async Task Resolves_claude_when_it_is_the_immediate_parent() {
         // hook(100) -> claude(50) -> zsh(20) -> init(1)

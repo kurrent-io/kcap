@@ -135,11 +135,13 @@ Subcommands for service (per-user; restarts the daemon if it crashes, starts it 
   uninstall --under DIR   Stop and remove every unit whose daemon binary is
                           inside DIR, and no other. The desktop app's
                           uninstaller runs this for its own folder.
-  repoint --from DIR      Windows: point every Scheduled Task whose daemon
-                          binary is inside DIR at this install's daemon,
-                          keeping the rest of its task. A running daemon
-                          restarts with its agents kept; a busy one stays on
-                          the old binary and the command exits 1. The desktop
+  repoint --from DIR      Point every launchd job (macOS) or Scheduled Task
+                          (Windows) whose daemon binary is inside DIR at this
+                          install's daemon, keeping the rest of its unit. A
+                          running daemon restarts with its agents kept; a busy
+                          one stays on the old binary and the command exits 3
+                          on macOS, 1 on Windows. On macOS a stopped daemon
+                          stays stopped, its job left unloaded. The desktop
                           app runs this before it removes a Kurrent Capacitor
                           install.
   start [--name N] [--verify]

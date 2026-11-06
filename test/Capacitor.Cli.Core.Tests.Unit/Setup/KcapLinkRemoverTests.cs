@@ -7,6 +7,8 @@ namespace Capacitor.Cli.Core.Tests.Unit.Setup;
 public class KcapLinkRemoverTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
+    [TempConfigRoot] public required TempConfigRoot Config { get; init; }
+
     string Binary(string name = "bin-kcap") {
         Tmp.CreateFile(name, "x");
 
@@ -90,5 +92,42 @@ public class KcapLinkRemoverTests {
         } finally {
             File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
+    }
+
+    [Test]
+    public async Task The_factory_finds_and_removes_an_adopted_link_and_prunes_it() {
+        var binary  = Binary();
+        var home    = new UserHome(Tmp.PathTo("home"));
+        var adopted = Tmp.CreateDir("npm-prefix/bin");
+        var link    = Path.Combine(adopted, "kcap");
+        File.CreateSymbolicLink(link, binary);
+        var inventory = new AdoptedLinkInventory(Config.Root);
+        inventory.Add(link);
+
+        var remover = KcapLinkRemover.For(home, Config.Root, binary);
+
+        await Assert.That(remover.Find()).IsEquivalentTo([link]);
+        await Assert.That(remover.Remove()).IsEmpty();
+        await Assert.That(new FileInfo(link).LinkTarget).IsNull();
+        await Assert.That(inventory.Links()).IsEmpty();
+    }
+
+    [Test]
+    public async Task The_factory_ignores_an_adopted_path_that_now_links_elsewhere() {
+        var binary  = Binary();
+        var other   = Binary("other");
+        var home    = new UserHome(Tmp.PathTo("home"));
+        var adopted = Tmp.CreateDir("npm-prefix/bin");
+        var link    = Path.Combine(adopted, "kcap");
+        File.CreateSymbolicLink(link, other);
+        var inventory = new AdoptedLinkInventory(Config.Root);
+        inventory.Add(link);
+
+        var remover = KcapLinkRemover.For(home, Config.Root, binary);
+
+        await Assert.That(remover.Find()).IsEmpty();
+        await Assert.That(remover.Remove()).IsEmpty();
+        await Assert.That(new FileInfo(link).LinkTarget).IsNotNull();
+        await Assert.That(inventory.Links()).IsEquivalentTo([link]);
     }
 }
