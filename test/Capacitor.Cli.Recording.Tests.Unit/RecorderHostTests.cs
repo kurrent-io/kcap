@@ -34,6 +34,7 @@ public class RecorderHostTests {
     readonly ConcurrentQueue<RecorderAttemptEnded> _ended = new();
     readonly ConcurrentDictionary<string, Func<string, Task<ClaudeCliResult?>>> _titles = new();
     readonly ConcurrentDictionary<string, Action> _handOffs = new();
+    readonly ConcurrentDictionary<string, Action<string>> _logHooks = new();
 
     public RecorderHostTests() => _time.Attempts = () => _transport.ConnectAttempts;
 
@@ -69,6 +70,7 @@ public class RecorderHostTests {
                 if (_logThrows.ContainsKey(source.Key)) throw new InvalidOperationException("the log is broken");
 
                 _log.Enqueue($"{source.Key}: {message}");
+                if (_logHooks.TryGetValue(source.Key, out var hook)) hook(message);
             }, () => {
                 if (_beatThrows.ContainsKey(source.Key)) throw new InvalidOperationException("the beat is broken");
 
@@ -1060,8 +1062,8 @@ public class RecorderHostTests {
         await Assert.That(_transport.Connects).IsEqualTo(1);
     }
 
-    /// <summary>A cancelled invocation can already be on the wire, so a connect that gave up says nothing about the
-    /// server. Detaching a key nothing registered is a no-op there.</summary>
+    /// <summary>A connect that fails has told nobody what the server did with it. Detaching a key nothing registered is
+    /// a no-op there.</summary>
     [Test]
     public async Task A_timed_out_connect_that_fails_late_is_detached_too() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
@@ -1105,9 +1107,150 @@ public class RecorderHostTests {
 
         landed.SetResult();
 
-        await Eventually(() => _log.Any(line => line.Contains("is being recorded again", StringComparison.Ordinal)), "the late connect to be left alone");
+        await Eventually(() => _log.Any(line => line.Contains("while it is being recorded", StringComparison.Ordinal)), "the late connect to be left alone");
         await Assert.That(_transport.Detached.Count).IsEqualTo(1);
         await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
+    /// <summary>A transport keeps a connect open until the server answers, so a stop must not wait for it: the server
+    /// holds this one, and the finish goes ahead with a fresh connect.</summary>
+    [Test]
+    public async Task A_stop_during_a_connect_the_server_holds_returns_at_once() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectHold = new TaskCompletionSource().Task;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectsHeld == 1, "the connect to reach the server");
+        _transport.ConnectHold = null;
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_connect_left_behind_by_a_stop_is_detached_when_it_lands() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var landed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.ConnectHold = landed.Task;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectsHeld == 1, "the connect to reach the server");
+        _transport.ConnectHold = null;
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+        await Assert.That(_transport.Detached.Count).IsEqualTo(1);
+
+        landed.SetResult();
+
+        await Eventually(() => _transport.Detached.Count == 2, "the late registration to go");
+    }
+
+    /// <summary>A reconnect's re-registration lands on the same connection a source that has since ended detached from.</summary>
+    [Test]
+    public async Task A_reconnect_left_behind_by_a_stop_is_detached_when_it_lands() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var landed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        _transport.ConnectHold = landed.Task;
+        var reconnecting = _transport.RaiseReconnectedAsync();
+        await Eventually(() => _transport.ConnectsHeld == 1, "the re-registration to reach the server");
+        _transport.ConnectHold = null;
+
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+        await reconnecting.WithinDeadlineAsync("the handler to give up");
+        await Assert.That(_transport.Detached.Count).IsEqualTo(1);
+
+        landed.SetResult();
+
+        await Eventually(() => _transport.Detached.Count == 2, "the late registration to go");
+    }
+
+    /// <summary>The same source is still draining over a later connect, and its own end detaches it after this landing.
+    /// A detach here would pull the registration out from under that drain.</summary>
+    [Test]
+    public async Task A_connect_that_lands_during_the_sources_own_drain_leaves_it_registered() {
+        var source   = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var landed   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var draining = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.ConnectHold = landed.Task;
+        _transport.OnDrainComplete = _ => {
+            entered.TrySetResult();
+
+            return draining.Task;
+        };
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectsHeld == 1, "the connect to reach the server");
+        _transport.ConnectHold = null;
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await entered.Task.WithinDeadlineAsync("the drain to reach its completion signal");
+
+        landed.SetResult();
+        await Eventually(() => _log.Any(line => line.Contains("while it is being recorded", StringComparison.Ordinal)), "the late connect to be left alone");
+        await Assert.That(_transport.Detached).IsEmpty();
+
+        draining.SetResult();
+        await finish.WithinDeadlineAsync("the finish");
+
+        await Assert.That(_transport.Detached).IsEquivalentTo([source.Key]);
+    }
+
+    [Test]
+    public async Task A_connect_cut_off_at_shutdown_that_lands_late_is_detached() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var landed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+        _transport.ConnectHold = landed.Task;
+
+        var stopping = host.StopAllAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+        await Eventually(() => _transport.ConnectsHeld == 1, "the final drain's connect");
+        await ElapseTheWaitForSends(TimeSpan.FromSeconds(8));
+        await stopping.WithinDeadlineAsync("the shutdown");
+        await Assert.That(_transport.Detached.Count).IsEqualTo(1);
+
+        landed.SetResult();
+
+        await Eventually(() => _transport.Detached.Count == 2, "the late registration to go");
+    }
+
+    /// <summary>The admission lock guards every add on the host, so nothing a transport or a logger does may run under
+    /// it. A transport can throw before its first await, which lands the failure's log there.</summary>
+    [Test]
+    public async Task A_late_detach_that_throws_logs_outside_the_admission_lock() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var other  = Source(Tmp.CreateFile("other.jsonl", $"{Prompt}\n"), "a2");
+        var landed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var logged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+        _transport.ConnectHold = landed.Task;
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => _transport.ConnectsHeld == 1, "the final drain's connect");
+        await Eventually(() => finish.IsCompleted, "the connect to time out", TranscriptRecorder.DrainOnceConnectBudget);
+
+        _transport.ConnectHold = null;
+        _transport.OnDetach = _ => throw new InvalidOperationException("the hub is down");
+        _logHooks[source.Key] = message => {
+            if (message.StartsWith("Detaching", StringComparison.Ordinal)) logged.TrySetResult(Task.Run(() => host.TryAdd(other)).Wait(TimeSpan.FromSeconds(5)));
+        };
+
+        landed.SetResult();
+
+        await Assert.That(await logged.Task.WithinDeadlineAsync("the failed detach's log")).IsTrue();
     }
 
     [Test]

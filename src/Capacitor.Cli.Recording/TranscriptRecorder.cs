@@ -77,6 +77,10 @@ public sealed class TranscriptRecorder(
     /// <summary>How a poll opens the transcript; null opens the file. A test counts the bytes a poll reads through it.</summary>
     internal Func<string, FileStream>? OpenTranscript { get; init; }
 
+    /// <summary>Told of a connect this recorder gave up on, on any path. It can still reach the server after the recorder
+    /// has gone, and its task completes when nothing is left to land.</summary>
+    internal Action<Task>? ConnectAbandoned { get; init; }
+
     /// <summary>The server has registered this recorder, so what it holds is the server's to resume.</summary>
     public bool Connected { get; private set; }
 
@@ -92,9 +96,6 @@ public sealed class TranscriptRecorder(
 
     /// <summary>The transcript went idle and the recorder ended its source.</summary>
     public bool EndedIdle { get; private set; }
-
-    /// <summary>A connect given up on, which can still reach the server after this recorder has gone.</summary>
-    internal Task? AbandonedConnect { get; private set; }
 
     /// <summary>A Copilot <c>session.shutdown</c> stayed the transcript's last line.</summary>
     public bool EndedOnCopilotShutdown { get; private set; }
@@ -441,17 +442,16 @@ public sealed class TranscriptRecorder(
         }
     }
 
-    async Task<int> ConnectAsync(CancellationToken stop, TimeSpan? budget) {
-        if (budget is not { } limit) return await transport.ConnectAsync(source, stop);
-
+    // A transport's task outlives a stop, so a stop has to end the wait here or nothing does.
+    async Task<int> ConnectAsync(CancellationToken stop, TimeSpan? budget = null) {
         using var abandon = CancellationTokenSource.CreateLinkedTokenSource(stop);
 
         var connect = transport.ConnectAsync(source, abandon.Token);
 
         try {
-            return await connect.WaitAsync(limit, time, stop);
+            return await (budget is { } limit ? connect.WaitAsync(limit, time, stop) : connect.WaitAsync(stop));
         } catch (Exception ex) when (ex is TimeoutException or OperationCanceledException && !connect.IsCompleted) {
-            AbandonedConnect = connect;
+            ConnectAbandoned?.Invoke(connect);
 
             // It may still fault later; observing it keeps that from surfacing as an unobserved exception.
             _ = connect.ContinueWith(static task => _ = task.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -513,7 +513,7 @@ public sealed class TranscriptRecorder(
             if (HasLostClaim()) return;
 
             var stop           = _stop.Token;
-            var serverPosition = await transport.ConnectAsync(source, stop);
+            var serverPosition = await ConnectAsync(stop);
 
             if (serverPosition < State.LinesProcessed) {
                 TryLog($"Server behind ({serverPosition} vs {State.LinesProcessed}), rewinding to resend gap");

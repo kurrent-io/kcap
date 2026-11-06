@@ -74,7 +74,7 @@ public sealed class RecorderHost {
 
         try {
             var context  = _contexts(source);
-            var recorder = Create(source, context);
+            var recorder = Create(source, context, context);
             entry.First = context;
             _ = Task.Run(() => RunAsync(source, entry, context, recorder));
         } catch {
@@ -150,8 +150,11 @@ public sealed class RecorderHost {
     }
 
     // A log or beat that throws, as the daemon's file log can, would otherwise fail the recorder at its first line.
-    TranscriptRecorder Create(RecordingSource source, RecorderContext context) =>
-        new(source, _transport, _stampers(source), _time, context with { Log = Guarded(context.Log), Beat = Beats(source, context.Beat) }, _claims) { OpenTranscript = _openTranscript };
+    TranscriptRecorder Create(RecordingSource source, RecorderContext first, RecorderContext context) =>
+        new(source, _transport, _stampers(source), _time, context with { Log = Guarded(context.Log), Beat = Beats(source, context.Beat) }, _claims) {
+            OpenTranscript   = _openTranscript,
+            ConnectAbandoned = connect => _ = DetachOnceLandedAsync(source, connect, first),
+        };
 
     // Guarded apart, because the heartbeat file and the claim fail apart: a backoff has to keep beating the claim, or a
     // hook would take a source this host is still retrying.
@@ -256,7 +259,7 @@ public sealed class RecorderHost {
 
                 try {
                     context  = _contexts(source);
-                    recorder = Create(source, context);
+                    recorder = Create(source, first, context);
                 } catch (Exception ex) {
                     Log(first, $"Recording {key} could not prepare an attempt, will retry: {ex.Message}");
                     recorder = null;
@@ -265,6 +268,7 @@ public sealed class RecorderHost {
             }
         } finally {
             // Started while the key is still refused and left to run, so a hang can't hold up whoever waits for the end.
+            entry.BeginDetach();
             _ = DetachAsync(source, first);
             Remove(key, entry);
         }
@@ -309,7 +313,7 @@ public sealed class RecorderHost {
 
         try {
             context  = _contexts(source);
-            recorder = Create(source, context);
+            recorder = Create(source, first, context);
             if (entry.Hurried) recorder.RequestStop();
 
             await recorder.DrainOnceAsync(entry.DrainToken);
@@ -319,31 +323,22 @@ public sealed class RecorderHost {
 
             MarkNeedsImport(source, first, $"final drain did not complete: {ex.Message}");
         } finally {
-            if (recorder?.AbandonedConnect is { } connect) _ = DetachOnceLandedAsync(source, entry, connect, first);
-
             recorder?.Dispose();
             ReportAttempt(source, first, recorder, context, true, failure);
         }
     }
 
-    // However the connect ended: a cancelled invocation can already be on the wire. A recorder that took the key back
-    // shares the registration, and the server's detach goes by key and connection, so it stays. Started under the lock
-    // that admits a key, so any recorder added after this look connects behind the detach.
-    async Task DetachOnceLandedAsync(RecordingSource source, Entry entry, Task connect, RecorderContext first) {
+    // However the connect ended, nothing of it is left to land. A recorder holding the key shares the registration, and
+    // the server's detach goes by key and connection, so it stays until that recorder's own end, which follows this.
+    async Task DetachOnceLandedAsync(RecordingSource source, Task connect, RecorderContext first) {
         try {
             await connect;
         } catch {
             // Its outcome changes nothing here.
         }
 
-        Task? detach = null;
-
-        lock (_admission) {
-            if (!_entries.TryGetValue(source.Key, out var holder) || holder == entry) detach = DetachAsync(source, first);
-        }
-
-        if (detach is not null) await detach;
-        else Log(first, $"A late connect of {source.Key} landed, and it is being recorded again, so it stays registered");
+        if (!await DetachAsync(source, first, () => !_entries.TryGetValue(source.Key, out var holder) || holder.Detaching))
+            Log(first, $"A late connect of {source.Key} landed while it is being recorded, so it stays registered");
     }
 
     // Never throws, or a broken owner would stop a retry. Retires the ack count where a watcher would, once no attempt
@@ -359,14 +354,26 @@ public sealed class RecorderHost {
         }
     }
 
-    async Task DetachAsync(RecordingSource source, RecorderContext first) {
+    // Started under the lock that admits a key, so a recorder added after this connects behind it. The catch stays
+    // outside that lock: a transport can throw before its first await, and a log can block.
+    async Task<bool> DetachAsync(RecordingSource source, RecorderContext first, Func<bool>? due = null) {
         try {
             using var budget = new CancellationTokenSource(DetachBudget, _time);
 
-            await _transport.DetachAsync(source, budget.Token);
+            Task detach;
+
+            lock (_admission) {
+                if (due?.Invoke() == false) return false;
+
+                detach = _transport.DetachAsync(source, budget.Token);
+            }
+
+            await detach;
         } catch (Exception ex) {
             Log(first, $"Detaching {source.Key} failed: {ex.Message}");
         }
+
+        return true;
     }
 
     void MarkNeedsImport(RecordingSource source, RecorderContext first, string reason) {
@@ -401,6 +408,7 @@ public sealed class RecorderHost {
         readonly TaskCompletionSource    _done  = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         bool _hurried;
+        bool _detaching;
 
         public RecordingSource Source { get; }
 
@@ -416,6 +424,9 @@ public sealed class RecorderHost {
         /// <summary>Whoever stopped this source will not wait long, so its final drain must not either.</summary>
         public bool Hurried => Volatile.Read(ref _hurried);
 
+        /// <summary>This source has ended and its detach is on its way, so a connect landing behind it needs its own.</summary>
+        public bool Detaching => Volatile.Read(ref _detaching);
+
         public Task Done => _done.Task;
 
         public Entry(RecordingSource source) {
@@ -423,6 +434,8 @@ public sealed class RecorderHost {
             Token      = _run.Token;
             DrainToken = _drain.Token;
         }
+
+        public void BeginDetach() => Volatile.Write(ref _detaching, true);
 
         public void CancelRun() {
             try {

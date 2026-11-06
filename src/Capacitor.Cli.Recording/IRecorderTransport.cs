@@ -7,7 +7,10 @@ namespace Capacitor.Cli.Recording;
 public interface IRecorderTransport {
     bool IsConnected { get; }
 
-    /// <summary>Registers the source and returns the line the server wants next.</summary>
+    /// <summary>Registers the source and returns the line the server wants next. The task completes once the server
+    /// has answered or the connection has gone, whatever <paramref name="ct"/> does: a call that has left this client
+    /// can still register, and a caller that gave up detaches only when this task says nothing is left to land.
+    /// <paramref name="ct"/> stops only what comes before the call leaves the client.</summary>
     Task<int> ConnectAsync(RecordingSource source, CancellationToken ct);
 
     /// <summary>Sends one batch. A Cursor batch returns the server's acknowledged next line, which can be short of

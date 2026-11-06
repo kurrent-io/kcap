@@ -133,6 +133,28 @@ public class KcapWatchHubTests {
         await Assert.That(Directory.Exists(spool) && Directory.EnumerateFiles(spool, "*", SearchOption.AllDirectories).Any()).IsFalse();
     }
 
+    /// <summary>The connect has left the client, so this is not a stop before connect: nobody can say nothing was
+    /// registered, and the watcher fails as it always has, without waiting for the server's answer.</summary>
+    [Test]
+    public async Task A_stop_while_the_server_holds_the_connect_fails_the_watcher() {
+        await using var hub        = await WatcherHubHost.StartAsync();
+        var             landed     = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var             transcript = Tmp.CreateFile("t.jsonl", User("alpha") + "\n" + Assistant("beta") + "\n");
+        hub.ConnectHold = _ => landed.Task;
+
+        await using var watcher = await StartWatcherAsync(hub.Url, NewSession(), transcript);
+
+        await hub.WaitForAsync(h => h.Connects.Count == 1, "the connect to reach the server");
+        watcher.SignalTerm();
+
+        try {
+            await Assert.That(await watcher.WaitForExitAsync("the watcher to exit")).IsEqualTo(1);
+            await Assert.That(hub.Drains).IsEmpty();
+        } finally {
+            landed.TrySetResult();
+        }
+    }
+
     [Test]
     public async Task A_dropped_connection_re_registers_and_carries_on() {
         await using var hub        = await WatcherHubHost.StartAsync();

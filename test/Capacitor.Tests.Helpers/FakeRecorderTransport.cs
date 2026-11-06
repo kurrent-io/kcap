@@ -22,6 +22,7 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
     int _connects;
     int _connectAttempts;
     int _connectFailures;
+    int _connectsHeld;
 
     public int DrainCompletes => Volatile.Read(ref _drainCompletes);
 
@@ -65,15 +66,23 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
     /// that is never cancelled does while its server is down.</summary>
     public bool ConnectHangs { get; set; }
 
-    /// <summary>Awaited inside <see cref="ConnectAsync"/>, ignoring its token, so a connect can land after whoever
-    /// made it gave up.</summary>
+    /// <summary>Awaited inside <see cref="ConnectAsync"/>, ignoring its token as the transport's contract says, so a
+    /// connect can land after whoever made it gave up.</summary>
     public Task? ConnectHold { get; set; }
+
+    /// <summary>How many connects have reached <see cref="ConnectHold"/>.</summary>
+    public int ConnectsHeld => Volatile.Read(ref _connectsHeld);
 
     public async Task<int> ConnectAsync(RecordingSource source, CancellationToken ct) {
         Interlocked.Increment(ref _connectAttempts);
         ct.ThrowIfCancellationRequested();
         if (ConnectHangs) await new TaskCompletionSource().Task;
-        if (ConnectHold is { } hold) await hold;
+
+        if (ConnectHold is { } hold) {
+            Interlocked.Increment(ref _connectsHeld);
+            await hold;
+        }
+
         if (Interlocked.Decrement(ref _connectFailures) >= 0) throw new InvalidOperationException("The hub is down.");
         Interlocked.Exchange(ref _connectFailures, 0);
         Require();
