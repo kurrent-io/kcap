@@ -708,16 +708,15 @@ public partial class WorktreeManager(
         // `reset --hard HEAD`, not `checkout -- .`: --no-checkout leaves the INDEX unpopulated too, so a
         // pathspec matches nothing. This is the step that materialises the tree, and therefore the step
         // the overrides have to guard.
-        await RunGit(worktreePath, GitTimeout, time,
-            [.. noHooks, .. NoSubmoduleRecursion(), .. overrides, .. ParallelCheckoutFor(OperatingSystem.IsWindows())],
+        await RunGit(worktreePath, CheckoutTimeout, time,
+            [.. noHooks, .. NoSubmoduleRecursion(), .. overrides, .. ParallelCheckout],
             "reset", "--hard", "HEAD");
     }
 
-    /// Windows only: its per-file write cost makes a serial checkout most of a launch's wait (7.5k files,
-    /// 9.1 s serial vs 2.4 s with a worker per core), while macOS and Linux keep git's default. Git older
+    /// A worker per core overlaps per-file write latency, which dominates on Windows and on a host
+    /// directory shared into a VM: 15k files took 182 s serial and 19 s parallel over virtiofs. Git older
     /// than 2.32 ignores the key.
-    internal static GitConfigOverride[] ParallelCheckoutFor(bool isWindows) =>
-        isWindows ? [new("checkout.workers", "0")] : [];
+    static readonly GitConfigOverride[] ParallelCheckout = [new("checkout.workers", "0")];
 
     /// <summary>
     /// The filter overrides for a context, LOGGED as a side effect.
@@ -1984,6 +1983,10 @@ public partial class WorktreeManager(
 
     /// <summary>Default timeout for local git operations (worktree add, init, commit, …).</summary>
     static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>Materialising the tree scales with the repository and the filesystem under it, so it gets
+    /// more room than <see cref="GitTimeout"/>.</summary>
+    static readonly TimeSpan CheckoutTimeout = TimeSpan.FromMinutes(5);
 
     /// <summary>Longer timeout for network git operations (fetch).</summary>
     static readonly TimeSpan FetchTimeout = TimeSpan.FromMinutes(2);
