@@ -115,6 +115,15 @@ public sealed class MarkdownView : ContentControl {
 
     internal bool IsSelecting => Content is MarkdownViewer && MarkViewSelection.IsSelecting(_viewer);
 
+    internal bool TryStartSelectionFromLeft(PointerPressedEventArgs e) {
+        if (Content is not MarkdownViewer) return false;
+        var point = e.GetPosition(this);
+        if (point.Y < 0 || point.Y >= Bounds.Height) return false;
+        if (!MarkViewSelection.TryStartFromLeft(_viewer, e)) return false;
+        _selectionHost?.UpdateSelection(this);
+        return true;
+    }
+
     internal void ExtendSelection(Point pointInView) {
         if (Content is MarkdownViewer) MarkViewSelection.Extend(_viewer, pointInView);
         _selectionHost?.UpdateSelection(this);

@@ -62,6 +62,7 @@ public partial class ChatTabView : UserControl {
         // Press and release both: a click's command runs on the release, in a later dispatcher turn
         // than the press, by which time a flag armed on the press alone has been released.
         ChatItems.AddHandler(PointerPressedEvent, OnReaderGesture, RoutingStrategies.Tunnel, handledEventsToo: true);
+        ChatItems.AddHandler(PointerPressedEvent, OnSelectionMarginPressed, RoutingStrategies.Bubble);
         ChatItems.AddHandler(PointerMovedEvent, OnSelectionDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(PointerMovedEvent, OnSelectionMove, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(PointerReleasedEvent, OnReaderGesture, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -487,6 +488,13 @@ public partial class ChatTabView : UserControl {
             if (PrimaryDown) _tailDeferred = true;
             else scroll.ScrollToEnd();
         }
+    }
+
+    void OnSelectionMarginPressed(object? sender, PointerPressedEventArgs e) {
+        if (e.Handled || OriginatesFromMarkdown(e)) return;
+        // Row padding is outside MarkdownView's event route, but shares its text line's Y.
+        foreach (var view in ChatItems.GetVisualDescendants().OfType<MarkdownView>())
+            if (view.IsEffectivelyVisible && view.TryStartSelectionFromLeft(e)) return;
     }
 
     void OnSelectionDrag(object? sender, PointerEventArgs e) {
