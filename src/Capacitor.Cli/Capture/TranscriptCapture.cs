@@ -16,17 +16,21 @@ internal static class TranscriptCapture {
             SecretPatterns? patterns = null) {
         var lines = new List<string>(rawLines.Count);
         var losses = new int[ReasonCount];
+        var held = false;
         foreach (var raw in rawLines) {
             if (lines.Count > 0 && stop()) break;
             var captured = SecretRedactor.RedactLineWithOutcome(raw, new RedactionBudget(time), patterns ?? SecretRedactor.WatcherPatterns);
             if (captured.Loss is { } reason) {
-                if (reason.IsTransient()) break;
+                if (reason.IsTransient()) {
+                    held = true;
+                    break;
+                }
                 losses[(int)reason]++;
             }
             lines.Add(Mark(captured).Line);
         }
         ReportLosses(losses, reportLoss);
-        return new(lines, lines.Count);
+        return new(lines, lines.Count, held);
     }
 
     /// <summary>
@@ -39,17 +43,21 @@ internal static class TranscriptCapture {
             Func<int, string, RedactionOutcome?> redacted, Action<RedactionLossReason, int> reportLoss) {
         var lines = new List<string>(rawLines.Count);
         var losses = new int[ReasonCount];
+        var held = false;
         for (var i = 0; i < rawLines.Count; i++) {
             var captured = redacted(lineNumbers[i], rawLines[i])
                         ?? SecretRedactor.RedactLineWithOutcome(rawLines[i], budget, SecretRedactor.WatcherPatterns);
             if (captured.Loss is { } reason) {
-                if (reason.IsTransient()) break;
+                if (reason.IsTransient()) {
+                    held = true;
+                    break;
+                }
                 losses[(int)reason]++;
             }
             lines.Add(Mark(captured).Line);
         }
         ReportLosses(losses, reportLoss);
-        return new(lines, lines.Count);
+        return new(lines, lines.Count, held);
     }
 
     internal static RedactionOutcome Encode(string rawLine, TimeProvider time, SecretPatterns? patterns = null) =>

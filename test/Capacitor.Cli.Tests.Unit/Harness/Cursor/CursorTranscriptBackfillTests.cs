@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
+using Capacitor.Cli.Capture;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Harness.Cursor;
 using Capacitor.Cli.Tests.Unit.Capture;
@@ -72,7 +73,40 @@ public class CursorTranscriptBackfillTests {
 
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
         await Assert.That(stats.Failed).IsFalse();
+        await Assert.That(stats.HeldLine).IsEqualTo(0);
         await Assert.That(posted).IsEqualTo(0);
+    }
+
+    /// <summary>A line sent after a held one makes the server drop the held one, so the drain ends at it
+    /// and says where.</summary>
+    [Test]
+    public async Task A_final_drain_posts_the_lines_before_a_held_line_and_reports_it() {
+        const string line = "{\"role\":\"assistant\",\"content\":\"hello\"}";
+        using var tmp = new TempDir();
+        var path = tmp.CreateFile("transcript.jsonl", string.Concat(Enumerable.Repeat(line + "\n", 3)));
+        var posted = new List<string>();
+        using var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent),
+            (_, body) => { posted.Add(body); return new HttpResponseMessage(HttpStatusCode.OK); });
+        using var client = new HttpClient(handler);
+        var redactionClock = new StallingRedactionClock();
+        redactionClock.StallOnReading(ReadingsOfALine(line) + MidFirstTry, TimeSpan.FromSeconds(1.2));
+
+        var stats = await CursorTranscriptBackfill.RunAsync(Markers, client, "http://s", NewSessionId(), path,
+            () => false, TimeProvider.System, CancellationToken.None, UnboundedPatterns, finalDrain: true, redactionClock: redactionClock);
+
+        await Assert.That(stats.HeldLine).IsEqualTo(1);
+        await Assert.That(stats.LinesPosted).IsEqualTo(1);
+        await Assert.That(posted.Select(body => JsonNode.Parse(body)!["line_numbers"]!.ToJsonString())).IsEquivalentTo(["[0]"]);
+    }
+
+    // The first try of a line has started and has yet to end.
+    const int MidFirstTry = 3;
+
+    static int ReadingsOfALine(string line) {
+        var clock = new StallingRedactionClock();
+        TranscriptCapture.EncodeUntilHeld([line], static () => false, clock, static (_, _) => { }, UnboundedPatterns);
+
+        return clock.Readings;
     }
 
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }

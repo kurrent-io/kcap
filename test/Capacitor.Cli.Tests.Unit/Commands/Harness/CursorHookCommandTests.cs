@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Tests.Unit.Capture;
 using Capacitor.Cli.Tests.Unit.SessionStartMemory;
 using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Core.Config;
@@ -251,6 +252,36 @@ public class CursorHookCommandTests {
         await Assert.That(transcriptIdx).IsGreaterThanOrEqualTo(0);
         await Assert.That(sessionEndIdx).IsGreaterThanOrEqualTo(0);
         await Assert.That(transcriptIdx).IsLessThan(sessionEndIdx);
+    }
+
+    /// <summary>Nothing reads the transcript after the session-end drain unless a watcher is still running,
+    /// so a line that drain held, and every line after it, is left to an import.</summary>
+    [Test, NotInParallel]
+    [Arguments(true, false, true)]
+    [Arguments(true, true, false)]
+    [Arguments(false, false, false)]
+    public async Task A_line_the_session_end_drain_held_is_flagged_for_import_when_no_watcher_will_send_it(
+            bool held, bool watcherRunning, bool flagged) {
+        var sid = Guid.NewGuid().ToString("N");
+        using var fx = new Fixture(Config.Root) { RedactionClock = held ? new SwitchableRedactionClock() : null };
+        await fx.WriteTranscript("""{"role":"user","message":{"content":[{"type":"text","text":"final prompt"}]}}""");
+        if (watcherRunning) StartWatcherRecord(sid);
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        await Assert.That(new TranscriptSpool(Config.Root, TimeProvider.System, Fixture.StubUrl).NeedsImport(sid)).IsEqualTo(flagged);
+        await Assert.That(capture.GetCapturedError().Contains($"kcap import --session {sid}")).IsEqualTo(flagged);
+        await Assert.That(fx.RouteOrder.Contains("transcript")).IsEqualTo(!held);
+        await Assert.That(fx.RouteOrder).Contains("session-end/cursor");
+    }
+
+    void StartWatcherRecord(string key) {
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Directory.CreateDirectory(paths.Directory);
+        File.WriteAllText(paths.PidFile(key), $"{Environment.ProcessId}\n");
+        WatcherHeartbeat.Touch(paths.StartedFile(key), DateTimeOffset.UtcNow);
     }
 
     [Test]
@@ -1063,11 +1094,13 @@ public class CursorHookCommandTests {
 
         public HostedAgent Hosted { get; init; } = HostedAgent.Terminal;
 
+        public TimeProvider? RedactionClock { get; init; }
+
         /// <summary>The checkout the hook acts on when a payload carries no workspace root.</summary>
         public string Workdir { get; init; } = AppContext.BaseDirectory;
 
         public Task<int> HandleAsync(string stdin) =>
-            new CursorHookCommand(Config, Profiles, new HookClock(Clock), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), router: new GitProviderRouter(), workdir: new WorkingDirectory(Workdir)).HandleCore(
+            new CursorHookCommand(Config, Profiles, new HookClock(Clock), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), router: new GitProviderRouter(), workdir: new WorkingDirectory(Workdir)) { RedactionClock = RedactionClock }.HandleCore(
                 Client,
                 stdin: new StringReader(stdin),
                 spool: Spool);

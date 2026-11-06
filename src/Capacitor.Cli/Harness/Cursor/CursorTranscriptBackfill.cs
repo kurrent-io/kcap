@@ -13,7 +13,8 @@ public static class CursorTranscriptBackfill {
     static readonly TimeSpan WatermarkTimeout = TimeSpan.FromMilliseconds(500);
     static readonly TimeSpan BatchPostTimeout = TimeSpan.FromMilliseconds(1500);
 
-    public readonly record struct Stats(int LinesPosted, bool Failed);
+    /// <param name="HeldLine">The line redaction ran out of time on, which stopped the drain there.</param>
+    public readonly record struct Stats(int LinesPosted, bool Failed, int? HeldLine = null);
 
     public static Task<Stats> RunAsync(
             CursorMarkers     markers,
@@ -39,8 +40,9 @@ public static class CursorTranscriptBackfill {
             TimeProvider      time,
             CancellationToken ct,
             SecretPatterns    patterns,
-            string?           agentId    = null,
-            bool              finalDrain = false
+            string?           agentId        = null,
+            bool              finalDrain     = false,
+            TimeProvider?     redactionClock = null
         ) {
         if (string.IsNullOrEmpty(transcriptPath) || !File.Exists(transcriptPath)) {
             return new Stats(0, false);
@@ -84,6 +86,7 @@ public static class CursorTranscriptBackfill {
 
         List<string> lines;
         List<int>    lineNumbers;
+        int?         heldLine;
 
         try {
             await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -92,17 +95,18 @@ public static class CursorTranscriptBackfill {
                 : WatchCommand.IncompleteFinalLinePolicy.Hold;
             var read = await WatchCommand.ReadNewCompleteLinesAsync(stream, resumeFrom, policy, ct);
 
-            var captured = TranscriptCapture.EncodeUntilHeld(read.Lines, budget, time,
+            var captured = TranscriptCapture.EncodeUntilHeld(read.Lines, budget, redactionClock ?? time,
                 (reason, count) => Console.Error.WriteLine($"Cursor capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"), patterns);
             lines       = captured.Lines;
             lineNumbers = read.LineNumbers.GetRange(0, captured.Consumed);
+            heldLine    = captured.Held ? read.LineNumbers[captured.Consumed] : null;
         } catch { return new(0, Failed: true); }
 
-        if (lines.Count == 0 || budget()) return new(0, Failed: false);
+        if (lines.Count == 0 || budget()) return new(0, Failed: false, heldLine);
 
         if (markers.IsQuarantined(sessionId)
          || markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)) {
-            return new Stats(0, false);
+            return new Stats(0, false, heldLine);
         }
 
         var batch = new TranscriptBatch {
@@ -118,16 +122,16 @@ public static class CursorTranscriptBackfill {
             foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
                 if ((!finalDrain || posted == 0) && budget() || markers.IsQuarantined(sessionId)
                     || markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound))
-                    return new Stats(posted, Failed: false);
+                    return new Stats(posted, Failed: false, heldLine);
                 var json = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
                 using var content = new StringContent(json, Encoding.UTF8, "application/json");
                 using var response = await client.PostOnceAsync($"{baseUrl}/hooks/transcript", content, time, BatchPostTimeout, ct);
-                if (!response.IsSuccessStatusCode) return new Stats(posted, Failed: true);
+                if (!response.IsSuccessStatusCode) return new Stats(posted, Failed: true, heldLine);
                 posted += chunk.Lines.Length;
             }
-            return new Stats(posted, Failed: false);
+            return new Stats(posted, Failed: false, heldLine);
         } catch {
-            return new Stats(posted, Failed: true);
+            return new Stats(posted, Failed: true, heldLine);
         }
     }
 }
