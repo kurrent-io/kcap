@@ -6,8 +6,9 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels.NextWork;
 
 /// <summary>The launcher's quick start: what the web dashboard would have the viewer do next (who waits on them, then
-/// the top picks from their own work), read from the same server snapshot and grouped by the same rules. It lists only
-/// what the viewer can start or act on from here; the full overview stays on the dashboard. Pressing a row fills the
+/// the top picks from their own work), and the rest of their work folded under it, read from the same server snapshot
+/// and grouped by the same rules. It lists only what the viewer can start from here; tracker chores, quiet items and
+/// the overview stay on the dashboard. Pressing a row fills the
 /// composer, so the launch is the composer's own; ▶ starts an agent through the server's next-work launch, which
 /// claims the loose end and attaches the work item as the web does. Shown while its experimental switch is on and
 /// the server has next work. While the pointer or focus is inside, a refreshed snapshot waits, so a row never moves
@@ -15,6 +16,9 @@ namespace Capacitor.App.ViewModels.NextWork;
 public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     /// <summary>Rows the list holds: everyone waiting on the viewer, then the picks, up to this many.</summary>
     public const int MaxRows = 6;
+
+    /// <summary>Rows "More to do" holds; past this the dashboard has the rest.</summary>
+    public const int MaxMoreRows = 20;
 
     readonly INextWorkApi _api;
     readonly TimeProvider _time;
@@ -45,7 +49,9 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     bool _failed;
     bool _mutating;
     IReadOnlyList<NextWorkCardViewModel> _cards = [];
-    int _more;
+    IReadOnlyList<NextWorkCardViewModel> _moreCards = [];
+    bool _moreExpanded;
+    int _elsewhere;
 
     public NextWorkBandViewModel(INextWorkApi api, TimeProvider time, NextWorkSeenStore? seen = null,
             Action<string>? openUrl = null, Action<string>? openSession = null, Action<string>? notify = null,
@@ -66,7 +72,8 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
         _localCheckout   = localCheckout;
         _preferredVendor = preferredVendor;
 
-        RefreshCommand = ReactiveCommand.CreateFromTask(RefreshAsync);
+        RefreshCommand    = ReactiveCommand.CreateFromTask(RefreshAsync);
+        ToggleMoreCommand = ReactiveCommand.Create(() => { MoreExpanded = !MoreExpanded; });
     }
 
     /// <summary>The list shows from the moment the switch is on, loading until its first read, so the launcher keeps
@@ -93,14 +100,40 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
 
     public IReadOnlyList<NextWorkCardViewModel> Cards { get => _cards; private set => this.RaiseAndSetIfChanged(ref _cards, value); }
 
-    public bool ShowEmpty => _loaded && _cards.Count == 0 && !_failed;
+    public bool ShowEmpty => _loaded && _cards.Count == 0 && _moreCards.Count == 0 && !_failed;
 
-    /// <summary>"3 more on the dashboard" when the viewer's own work runs past the list; null when it does not. The
-    /// window's Open dashboard leads there.</summary>
-    public string? MoreText => _more > 0 ? $"{_more} more on the dashboard" : null;
-    public bool HasMore => _more > 0;
+    /// <summary>The rest of the viewer's own work, under the picks, folded until asked for.</summary>
+    public IReadOnlyList<NextWorkCardViewModel> MoreCards {
+        get => _moreCards;
+        private set {
+            this.RaiseAndSetIfChanged(ref _moreCards, value);
+            this.RaisePropertyChanged(nameof(HasMoreCards));
+            this.RaisePropertyChanged(nameof(MoreToggleText));
+            this.RaisePropertyChanged(nameof(MoreListVisible));
+        }
+    }
 
-    public ReactiveCommand<Unit, Unit> RefreshCommand { get; }
+    public bool HasMoreCards => _moreCards.Count > 0;
+
+    /// <summary>Kept across refreshes, so a reload never folds a list the viewer opened.</summary>
+    public bool MoreExpanded {
+        get => _moreExpanded;
+        set {
+            this.RaiseAndSetIfChanged(ref _moreExpanded, value);
+            this.RaisePropertyChanged(nameof(MoreListVisible));
+        }
+    }
+
+    public bool MoreListVisible => _moreExpanded && HasMoreCards;
+    public string MoreToggleText => $"More to do · {_moreCards.Count}";
+
+    /// <summary>"9 more on the dashboard": what the launcher leaves out (tracker chores and quiet items); null when
+    /// nothing is. The window's Open dashboard leads there.</summary>
+    public string? ElsewhereText => _elsewhere > 0 ? $"{_elsewhere} more on the dashboard" : null;
+    public bool HasElsewhere => _elsewhere > 0;
+
+    public ReactiveCommand<Unit, Unit> RefreshCommand    { get; }
+    public ReactiveCommand<Unit, Unit> ToggleMoreCommand { get; }
 
     /// <summary>Refreshes on every signal; the caller delivers them on the UI thread.</summary>
     public void WatchRefreshes(IObservable<Unit> signals) {
@@ -201,16 +234,19 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
         IEnumerable<NextWorkFocusItem> all = [.. focus.Waiting, .. focus.Picks, .. focus.More, .. focus.Notes, .. focus.Quiet];
         var newKeys  = NextWorkLaneLogic.NewKeys(all.SelectMany(i => i.Folded.Prepend(i.Row)), _previousKeys);
 
-        var rows = focus.Waiting.Concat(focus.Picks).Take(MaxRows).ToList();
-        Cards = [.. rows.Select(i => {
+        NextWorkCardViewModel Card(NextWorkFocusItem i) {
             var card = new NextWorkCardViewModel(this, i, newKeys.Contains(i.Row.TargetKey) || i.Folded.Any(f => newKeys.Contains(f.TargetKey)),
                 snapshot.RepoNames, _canLaunch);
             card.IsFilled = string.Equals(i.Row.TargetKey, _filledKey, StringComparison.Ordinal);
             return card;
-        })];
-        _more = focus.Waiting.Count + focus.Picks.Count - rows.Count + focus.More.Count;
-        this.RaisePropertyChanged(nameof(MoreText));
-        this.RaisePropertyChanged(nameof(HasMore));
+        }
+
+        var next = focus.Waiting.Concat(focus.Picks).ToList();
+        Cards     = [.. next.Take(MaxRows).Select(Card)];
+        MoreCards = [.. next.Skip(MaxRows).Concat(focus.More).Take(MaxMoreRows).Select(Card)];
+        _elsewhere = focus.Notes.Count + focus.Quiet.Count + Math.Max(0, next.Count - MaxRows + focus.More.Count - MaxMoreRows);
+        this.RaisePropertyChanged(nameof(ElsewhereText));
+        this.RaisePropertyChanged(nameof(HasElsewhere));
     }
 
     // ---- row actions ------------------------------------------------------------------------------------------
@@ -218,7 +254,7 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     /// <summary>Marks the row whose goal the composer holds; null when the composer moved on from it.</summary>
     public void MarkFilled(string? key) {
         _filledKey = key;
-        foreach (var card in Cards) card.IsFilled = string.Equals(card.Key, key, StringComparison.Ordinal);
+        foreach (var card in Cards.Concat(MoreCards)) card.IsFilled = string.Equals(card.Key, key, StringComparison.Ordinal);
     }
 
     internal void Open(NextWorkCardViewModel card) {

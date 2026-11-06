@@ -126,6 +126,20 @@
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
         <Style Selector="Border.nwbChip.success > TextBlock"><Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" /></Style>
+        <Style Selector="Button.nwbFold">
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Margin" Value="0,2,0,0" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="Button.nwbFold TextBlock"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
+        <Style Selector="Button.nwbFold views|AppIcon"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
+        <Style Selector="TextBlock.nwbContext">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
         <Style Selector="Button.nwbIconAction">
             <Setter Property="Width" Value="26" />
             <Setter Property="Height" Value="26" />
@@ -146,14 +160,15 @@
           PointerEntered="OnPointerEntered" PointerExited="OnPointerExited"
           GotFocus="OnGotFocus" LostFocus="OnLostFocus"
           AutomationProperties.Name="Pick up next" AutomationProperties.LandmarkType="Region">
-        <!-- The window's own Open dashboard is the way to the rest, so the count of it is text, not another link. -->
+        <!-- The window's own Open dashboard is the way to what the launcher leaves out, so its count is text, not
+             another link. -->
         <StackPanel Orientation="Horizontal" Spacing="6" Margin="8,0,4,4">
             <!-- The header's letter spacing trails its last letter too; the negative margin takes it back, so the dot
                  sits midway between the words. -->
             <TextBlock Classes="nwbHeader" Text="PICK UP NEXT" Margin="0,0,-0.6,0" />
-            <TextBlock Text="·" FontSize="11.5" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" IsVisible="{Binding HasMore}" />
-            <TextBlock x:Name="BandMore" Text="{Binding MoreText}" FontSize="11.5"
-                       Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" IsVisible="{Binding HasMore}" />
+            <TextBlock Text="·" FontSize="11.5" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" IsVisible="{Binding HasElsewhere}" />
+            <TextBlock x:Name="BandElsewhere" Text="{Binding ElsewhereText}" FontSize="11.5"
+                       Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" IsVisible="{Binding HasElsewhere}" />
             <Panel VerticalAlignment="Center">
                 <views:AppIcon x:Name="BandLoading" Classes="kcapSpinning" Kind="LoaderCircle" Size="12" Foreground="{StaticResource KcapFaintBrush}"
                                IsVisible="{Binding IsLoading}" ToolTip.Tip="Loading suggestions…" />
@@ -176,6 +191,23 @@
                 <TextBlock x:Name="BandEmpty" Text="Nothing to pick up right now." FontSize="12" Margin="8,4"
                            Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding ShowEmpty}" />
                 <ItemsControl x:Name="BandRows" ItemsSource="{Binding Cards}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="nw:NextWorkCardViewModel">
+                            <views:NextWorkCardView />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- The rest of the viewer's own work, folded under the picks until asked for. -->
+                <Button x:Name="MoreToggle" Classes="kcapGhost nwbFold" Command="{Binding ToggleMoreCommand}" IsVisible="{Binding HasMoreCards}"
+                        AutomationProperties.Name="{Binding MoreToggleText}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !MoreExpanded}" />
+                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding MoreExpanded}" />
+                        <TextBlock Text="{Binding MoreToggleText}" FontSize="12" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <ItemsControl x:Name="MoreRows" ItemsSource="{Binding MoreCards}" IsVisible="{Binding MoreListVisible}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="nw:NextWorkCardViewModel">
                             <views:NextWorkCardView />

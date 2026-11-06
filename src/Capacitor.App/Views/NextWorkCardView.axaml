@@ -43,6 +43,11 @@
                             </ItemsControl>
                             <TextBlock x:Name="CardMeta" Classes="nwbMeta" Text="{Binding Meta}" ToolTip.Tip="{Binding Meta}" IsVisible="{Binding HasMeta}" />
                         </StackPanel>
+                        <StackPanel x:Name="CardContext" Orientation="Horizontal" Spacing="4" IsVisible="{Binding HasContext}"
+                                    ToolTip.Tip="Loose end noted against this item">
+                            <views:AppIcon Kind="CornerDownRight" Size="12" Foreground="{StaticResource KcapFaintBrush}" />
+                            <TextBlock Classes="nwbContext" Text="{Binding Context}" />
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
             </Button>
