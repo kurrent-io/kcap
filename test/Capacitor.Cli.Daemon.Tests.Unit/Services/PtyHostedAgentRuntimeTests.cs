@@ -1131,6 +1131,106 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    const string FirstMessagePasted = "\x1b[200~carry on\x1b[201~|\r";
+
+    /// <summary>A resumed agent has no launch prompt, so without the hold its first message would go
+    /// into a terminal still rewriting CR as LF, and sit unsent in the composer.</summary>
+    [Test]
+    public async Task Input_held_until_ready_waits_for_the_terminal_to_stop_cooking_input() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess { IsInputCooked = true };
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        runtime.HoldInputUntilReady();
+        _ = PumpAsync(runtime);
+        pty.Emit("banner");
+        var message = runtime.SendUserInputAsync("carry on");
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptMaxWait * 2);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        pty.IsInputCooked = false;
+        time.Advance(TimeSpan.FromMilliseconds(250));
+        await Task.Delay(100);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow + PtyHostedAgentRuntime.SingleSubmitDelay, () => message.IsCompleted);
+
+        await message.WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FirstMessagePasted);
+        pty.Exit();
+    }
+
+    /// <summary>A resumed Claude reports SessionStart once its composer is up; a quiet screen before
+    /// that may be its session picker, which the paste and its Enter would answer.</summary>
+    [Test]
+    public async Task Input_held_until_ready_waits_for_session_start() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false, awaitsSessionStart: true);
+
+        runtime.HoldInputUntilReady();
+        _ = PumpAsync(runtime);
+        pty.Emit("resume screen");
+        var message = runtime.SendUserInputAsync("carry on");
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptMaxWait + TimeSpan.FromSeconds(1));
+        await Assert.That(pty.Writes).IsEmpty();
+
+        runtime.NoteSessionStarted();
+        await StepAsync(time, TimeSpan.FromSeconds(3), () => message.IsCompleted);
+
+        await message.WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FirstMessagePasted);
+        pty.Exit();
+    }
+
+    /// <summary>Running out of time proves nothing about the terminal, so the message is refused, as a
+    /// launch prompt's follow-up is; and with no launch prompt there is no first message to report
+    /// unconfirmed.</summary>
+    [Test]
+    public async Task Input_held_too_long_for_session_start_is_refused_without_reading_as_an_unconfirmed_prompt() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false, awaitsSessionStart: true);
+
+        runtime.HoldInputUntilReady();
+        _ = PumpAsync(runtime);
+        pty.Emit("resume screen");
+        var message = runtime.SendUserInputAsync("carry on");
+
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait, () => message.IsCompleted);
+
+        var refusal = await Assert.That(async () => await message.WaitAsync(TimeSpan.FromSeconds(5))).Throws<IOException>();
+        await Assert.That(refusal!.Message).Contains("terminal");
+        await Assert.That(pty.Writes).IsEmpty();
+        await Assert.That(runtime.LaunchPromptUnconfirmed).IsFalse();
+        pty.Exit();
+    }
+
+    /// <summary>Only the first message waits: once the terminal has been seen ready, later ones go at once.</summary>
+    [Test]
+    public async Task Input_after_the_hold_is_not_held_again() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+
+        runtime.HoldInputUntilReady();
+        var pump = new CountingPump(runtime);
+        await pump.EmitAsync(pty, "banner");
+        var first = runtime.SendUserInputAsync("carry on");
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow + PtyHostedAgentRuntime.SingleSubmitDelay, () => first.IsCompleted);
+        await first.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await pump.EmitAsync(pty, "working");
+        var second = runtime.SendUserInputAsync("and test it");
+        await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay, () => second.IsCompleted);
+
+        await second.WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FirstMessagePasted + "|\x1b[200~and test it\x1b[201~|\r");
+        pty.Exit();
+    }
+
     [Test]
     public async Task A_held_launch_prompt_is_withdrawn_by_a_graceful_stop() {
         var pty     = new RecordingScriptedPtyProcess();
