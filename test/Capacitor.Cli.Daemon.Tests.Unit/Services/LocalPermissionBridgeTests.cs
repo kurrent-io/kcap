@@ -322,6 +322,59 @@ public class LocalPermissionBridgeTests {
     }
 
     [Test, NotInParallel(nameof(LocalPermissionBridgeTests))]
+    [Arguments("claude")]
+    [Arguments("codex")]
+    public async Task A_deny_with_a_message_reaches_the_agent(string vendor) {
+        var (bridge, _) = CreateBridge((_, _, _, _, _) =>
+            Task.FromResult(new PermissionDecision("deny", null, null, "Use the staging database"))
+        );
+
+        try {
+            await bridge.StartAsync(CancellationToken.None);
+
+            using var client   = CreateClient();
+            using var response = await client.PostAsync($"{bridge.BaseUrl}/{vendor}/permission-request",
+                JsonContent.Create(new { session_id = "abc", tool_name = "Bash" }));
+
+            using var doc      = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var       decision = doc.RootElement.GetProperty("hookSpecificOutput").GetProperty("decision");
+            await Assert.That(decision.GetProperty("behavior").GetString()).IsEqualTo("deny");
+            await Assert.That(decision.GetProperty("message").GetString()).IsEqualTo("Use the staging database");
+        } finally {
+            await bridge.DisposeAsync();
+        }
+    }
+
+    /// <summary>A server that predates the message field sends a decision without it; the push must still
+    /// bind and deny, and the agent must see no message key.</summary>
+    [Test, NotInParallel(nameof(LocalPermissionBridgeTests))]
+    [Arguments("claude")]
+    [Arguments("codex")]
+    public async Task An_older_server_decision_without_a_message_still_denies(string vendor) {
+        var options = new JsonSerializerOptions();
+        ServerConnection.ConfigureHubPayload(options);
+        var resolution = JsonSerializer.Deserialize<PermissionResolution>(
+            """{"request_id":"r1","decision":{"behavior":"deny","apply_permissions":null,"updated_input":null}}""", options);
+
+        var (bridge, _) = CreateBridge((_, _, _, _, _) => Task.FromResult(resolution.Decision));
+
+        try {
+            await bridge.StartAsync(CancellationToken.None);
+
+            using var client   = CreateClient();
+            using var response = await client.PostAsync($"{bridge.BaseUrl}/{vendor}/permission-request",
+                JsonContent.Create(new { session_id = "abc", tool_name = "Bash" }));
+
+            using var doc      = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var       decision = doc.RootElement.GetProperty("hookSpecificOutput").GetProperty("decision");
+            await Assert.That(decision.GetProperty("behavior").GetString()).IsEqualTo("deny");
+            await Assert.That(decision.TryGetProperty("message", out _)).IsFalse();
+        } finally {
+            await bridge.DisposeAsync();
+        }
+    }
+
+    [Test, NotInParallel(nameof(LocalPermissionBridgeTests))]
     public async Task ServerFailureFallsBackToDeny() {
         var (bridge, _) = CreateBridge((_, _, _, _, _) =>
             throw new InvalidOperationException("hub call broke")

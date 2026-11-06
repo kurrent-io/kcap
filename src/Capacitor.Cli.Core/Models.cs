@@ -1348,7 +1348,9 @@ partial class CapacitorJsonContext : JsonSerializerContext;
 public readonly record struct PermissionDecision(
         string       Behavior,
         JsonElement? ApplyPermissions,
-        JsonElement? UpdatedInput
+        JsonElement? UpdatedInput,
+        // The reason a person gave with a deny. Absent from a server that predates it.
+        string?      Message = null
     );
 
 /// <summary>
@@ -2357,7 +2359,10 @@ public readonly record struct DaemonConnect(
         bool                                        SupportsHandoffLaunch = false,
         // Accepts a LaunchAgentCommand.ResumeInPlace launch. False from a daemon predating it, which would
         // ignore the block and start an ordinary session.
-        bool                                        SupportsResumeInPlace = false
+        bool                                        SupportsResumeInPlace = false,
+        // Relays a deny's Message to the agent. False from a daemon predating it; the server then
+        // tells the person their reason was not delivered.
+        bool                                        SupportsDenyMessage = false
     );
 
 public sealed record UnattendedVendorCapability(
