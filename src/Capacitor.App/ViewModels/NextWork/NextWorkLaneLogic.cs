@@ -38,6 +38,31 @@ public static partial class NextWorkLaneLogic {
         };
     }
 
+    /// <summary>What a row is, in a word or two, leading its facts line: the icon alone does not say.</summary>
+    public static string KindLabel(NextWorkRow c) => c.TargetKind switch {
+        "pr" when c.Arm == "ReviewRequested"          => "Review requested",
+        "pr" when c.Arm == "ApprovedUnmerged"         => "Approved PR",
+        "pr"                                          => "Pull request",
+        "session" when c.Arm == "ResumeInterrupted"   => "Interrupted session",
+        "session"                                     => "Session",
+        "loose_end"                                   => "Loose end",
+        "work_item" when c.Arm == "BlocksOthers"      => "Blocking others",
+        _                                             => "Work item",
+    };
+
+    /// <summary>The icon's tooltip: what the kind is and, when the icon carries a dot, what the dot means.</summary>
+    public static string KindTip(NextWorkRow c) => c.TargetKind switch {
+        "pr" when c.Arm == "ReviewRequested"        => "Pull request waiting on your review",
+        "pr" when c.Arm == "ApprovedUnmerged"       => "Your pull request is approved and waiting to be merged",
+        "pr"                                        => "Pull request",
+        "session" when c.Arm == "ResumeInterrupted" => "A session that stopped before it finished, to resume",
+        "session"                                   => "Session",
+        "loose_end"                                 => "Loose end: a follow-up noted in an earlier session",
+        "work_item" when c.Arm == "BlocksOthers"    => "Work item that others are waiting on",
+        _ when c.Facets.IsBug                       => "Work item, a bug in the tracker",
+        _                                           => "Work item: tracked work of yours",
+    };
+
     /// <summary>What a row shows without being opened: the tracker priority and whether it is a bug.</summary>
     public static IReadOnlyList<string> RowMarks(NextWorkRow c) {
         var marks = new List<string>(2);

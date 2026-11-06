@@ -29,6 +29,8 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
         // A loose end's reason is its own text, the title already; its line says when it was noted instead.
         var because = ownEnd && NextWorkLaneLogic.BecauseIsLabel(row) ? null : NextWorkLaneLogic.WithoutAge(NextWorkLaneLogic.Reason(row));
         var age     = ownEnd ? NextWorkLaneLogic.NotedAgo(row) : NextWorkLaneLogic.Age(row);
+        KindLabel = NextWorkLaneLogic.KindLabel(row);
+        KindTip   = NextWorkLaneLogic.KindTip(row);
         Meta = string.Join(" · ", new[] { because, NextWorkLaneLogic.ShortRepo(repoNames, row.RepoHash), age }.Where(p => p is { Length: > 0 }));
 
         // The loose end an item carries is why it is worth picking up now; a loose end's own row is its title.
@@ -57,8 +59,14 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
     public IReadOnlyList<NextWorkChip> Marks        { get; }
     public bool                        CanWorkOn    { get; }
 
-    /// <summary>The reason, repository and age on one line under the title.</summary>
+    /// <summary>What the row is, leading the line under the title; the icon alone does not say.</summary>
+    public string KindLabel { get; }
+
+    /// <summary>The reason, repository and age, after the kind and any marks.</summary>
     public string Meta { get; }
+
+    /// <summary>The icon's tooltip: what the kind is.</summary>
+    public string KindTip { get; }
 
     /// <summary>The first loose end noted against the item, and how many more there are; null for a row without one.</summary>
     public string? Context { get; }

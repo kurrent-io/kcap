@@ -10,7 +10,7 @@
             <Button x:Name="CardRow" Classes="nwbRow" Classes.filled="{Binding IsFilled}" Command="{Binding FillCommand}" ToolTip.Tip="{Binding FillTip}"
                     AutomationProperties.Name="{Binding Label}" AutomationProperties.HelpText="{Binding FillTip}">
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                    <Panel VerticalAlignment="Top" Margin="0,1,0,0">
+                    <Panel VerticalAlignment="Top" Margin="0,1,0,0" Background="Transparent" ToolTip.Tip="{Binding KindTip}">
                         <Border Classes="nwbGlyph">
                             <views:AppIcon Classes="nwbTint" Classes.waiting="{Binding Glyph.TintWaiting}" Classes.done="{Binding Glyph.TintDone}"
                                            Classes.finish="{Binding Glyph.TintFinish}" Kind="{Binding Glyph.Icon}" Size="14" />
@@ -24,7 +24,9 @@
                             <Ellipse Classes="nwbNew" IsVisible="{Binding IsNew}" ToolTip.Tip="New since your last visit" />
                             <TextBlock Classes="nwbTitle" Text="{Binding Label}" />
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="6" ClipToBounds="True">
+                        <!-- Spaced like the text's own " · ", so every dot on the line sits the same way. -->
+                        <StackPanel Orientation="Horizontal" Spacing="4" ClipToBounds="True">
+                            <TextBlock x:Name="CardKind" Classes="nwbMeta" Text="{Binding KindLabel}" />
                             <Border Classes="nwbChip" Classes.warning="{Binding ArmChipWarns}" IsVisible="{Binding HasArmChip}">
                                 <TextBlock Text="{Binding ArmChip}" />
                             </Border>
@@ -41,6 +43,7 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                            <TextBlock Classes="nwbMeta" Text="·" IsVisible="{Binding HasMeta}" />
                             <TextBlock x:Name="CardMeta" Classes="nwbMeta" Text="{Binding Meta}" ToolTip.Tip="{Binding Meta}" IsVisible="{Binding HasMeta}" />
                         </StackPanel>
                         <StackPanel x:Name="CardContext" Orientation="Horizontal" Spacing="4" IsVisible="{Binding HasContext}"
