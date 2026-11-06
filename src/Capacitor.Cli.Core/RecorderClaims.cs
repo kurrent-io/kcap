@@ -45,7 +45,7 @@ public sealed class RecorderClaims(string directory, TimeProvider time) {
 
         try {
             Directory.CreateDirectory(directory);
-            AtomicFile.Replace(ClaimFile(key), $"{(isHosted ? Hosted : Terminal)}\n{daemonName}", OwnerOnly, followLink: false);
+            AtomicFile.Replace(ClaimFile(key), $"{(isHosted ? Hosted : Terminal)}\n{daemonName}", OwnerOnly, followLink: false, durable: true);
             Beat(key);
 
             return true;
@@ -74,8 +74,9 @@ public sealed class RecorderClaims(string directory, TimeProvider time) {
     }
 
     /// <summary>Whether the claim says its session is hosted. A claim that can't be read says it isn't: a stale hosted
-    /// claim is left for the daemon's catch-up, which a corrupt claim gives no reason to expect, while a hook taking a
-    /// hosted source costs at worst a row with no stamp.</summary>
+    /// claim is left for the daemon's catch-up, which a corrupt claim gives no reason to expect, and the session would
+    /// go unrecorded if it never comes. A hook taking a hosted source costs less: it stays on a watcher, unstamped for
+    /// the rest of its life but recorded.</summary>
     public bool IsHosted(string key) => Contents(key)?.IsHosted == true;
 
     internal string ClaimFile(string key) => Path.Combine(directory, $"{key}.claim");

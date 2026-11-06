@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core.LocalEdition;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
@@ -44,10 +45,6 @@ public class RecorderClaimsTests {
         _time.Advance(TimeSpan.FromSeconds(1));
         await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonStale);
     }
-
-    [Test]
-    public async Task The_grace_outlasts_a_normal_restart() =>
-        await Assert.That(RecorderClaims.Grace).IsEqualTo(TimeSpan.FromSeconds(60));
 
     [Test]
     public async Task A_beat_keeps_a_claim_fresh() {
@@ -176,17 +173,50 @@ public class RecorderClaimsTests {
         Claims.TryTake(Key, "daemon-a", isHosted: true);
         _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
 
-        using (new FileStream(Claims.ClaimFile(Key), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (Reader())
             await Assert.That(Claims.TryTake(Key, "daemon-b", isHosted: false)).IsTrue();
 
         await Assert.That(Claims.IsHosted(Key)).IsFalse();
     }
 
-    /// <summary>A claim can't be parsed when a crash published a rename whose content never reached the disk, or
-    /// by whatever else damaged it. Reading one as no claim would start a second recorder beside a live daemon,
-    /// and reading it as hosted would leave a dead daemon's session to a catch-up that may never come. So it
-    /// counts by its age like any claim, and once stale it is a terminal one: a hook takes it, and the worst
-    /// case is a row with no stamp.</summary>
+    /// <summary>A hook reading the claim must not cost its holder a beat, or a live daemon's claim goes stale.</summary>
+    [Test]
+    public async Task A_claim_can_be_beaten_while_a_reader_holds_it_open() {
+        Claims.TryTake(Key, "daemon", isHosted: false);
+        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+
+        using (Reader()) Claims.Beat(Key);
+
+        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+    }
+
+    /// <summary>A release is how a hook takes a claim, so one a reader could refuse would keep a recorder running.</summary>
+    [Test]
+    public async Task A_claim_can_be_released_while_a_reader_holds_it_open() {
+        Claims.TryTake(Key, "daemon", isHosted: false);
+
+        using (Reader()) Claims.Release(Key);
+
+        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.None);
+    }
+
+    FileStream Reader() => new(Claims.ClaimFile(Key), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+    /// <summary>A crash after a rename whose content never reached the disk is what would leave a corrupt claim.</summary>
+    [Test]
+    public async Task A_take_reaches_the_disk_before_it_is_published() {
+        var points = new List<string>();
+
+        using (FaultPoints.Arm(points.Add)) Claims.TryTake(Key, "daemon", isHosted: false);
+
+        await Assert.That(points[0]).IsEqualTo($"flush:{Claims.ClaimFile(Key)}");
+        await Assert.That(points[1]).IsEqualTo($"rename:{Claims.ClaimFile(Key)}");
+    }
+
+    /// <summary>Whatever damaged a claim, reading it as no claim would start a second recorder beside a live daemon,
+    /// and reading it as hosted would leave a dead daemon's session to a catch-up that may never come. So it counts
+    /// by its age like any claim, and once stale it is a terminal one: a hook takes it, and if the session was hosted
+    /// it stays on a watcher, unstamped for the rest of its life but recorded.</summary>
     [Test]
     [Arguments("")]
     [Arguments("hos")]

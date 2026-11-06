@@ -1,3 +1,4 @@
+using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
@@ -54,6 +55,18 @@ public class WatcherManagerClaimTests : IDisposable {
         await File.WriteAllTextAsync(Paths.PidFile(Key), $"{process.Pid}\n{PidIdentity.Capture(process.Pid)}");
 
         return process;
+    }
+
+    /// <summary>What a crashed watcher leaves: its pid file, naming a process that has gone, and its markers.</summary>
+    async Task LeaveDeadWatcher() {
+        using var watcher = DummyProcess.StartSleep(30);
+        var identity = PidIdentity.Capture(watcher.Pid);
+        watcher.Kill();
+        watcher.WaitForExit();
+
+        await File.WriteAllTextAsync(Paths.PidFile(Key), $"{watcher.Pid}\n{identity}");
+        WatcherHeartbeat.Touch(Paths.HeartbeatFile(Key), _time.GetUtcNow());
+        WatcherHeartbeat.Touch(Paths.StartedFile(Key), _time.GetUtcNow());
     }
 
     [Test]
@@ -166,6 +179,28 @@ public class WatcherManagerClaimTests : IDisposable {
         await Assert.That(Posts).IsEqualTo(0);
     }
 
+    /// <summary>The clock is the seam: the first read has already taken its stat when it asks the time, so the beat
+    /// lands between that read and the take with nothing left to chance. The daemon woke, so the source is its again.</summary>
+    [Test]
+    public async Task A_beat_that_lands_before_the_take_asks_the_daemon() {
+        StubServer();
+        var clock  = new WakingClock(_time.GetUtcNow());
+        var claims = new RecorderClaims(Paths.Directory, clock);
+        claims.TryTake(Key, "daemon", isHosted: false);
+        clock.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+        var watchers = new WatcherManager(
+            Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, _spawner, clock, _daemon) {
+            DrainCommits = new CommitObservation.Uncovered()
+        };
+        clock.OnNextLook = () => claims.Beat(Key);
+
+        await watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(_daemon.Asked).IsEquivalentTo([Key]);
+        await Assert.That(Posts).IsEqualTo(0);
+        await Assert.That(claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+    }
+
     /// <summary>Another hook holding the spawn lock is already taking this claim, or spawning over it.</summary>
     [Test]
     public async Task A_hook_that_loses_the_spawn_lock_leaves_the_drain_to_the_winner() {
@@ -233,12 +268,74 @@ public class WatcherManagerClaimTests : IDisposable {
         await Assert.That(await File.ReadAllTextAsync(Paths.PidFile(Key))).IsEqualTo(pidFile);
     }
 
+    /// <summary>A crashed watcher followed by a resume under the daemon. Nothing is left to signal, and the pid file
+    /// would otherwise read as a watcher that could not be stopped.</summary>
     [Test]
-    public async Task Cleanup_sweeps_a_watchers_files_and_leaves_a_claim() {
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_dead_watcher_beside_a_claim_is_swept(bool stale) {
         Claims.TryTake(Key, "daemon", isHosted: false);
+        await LeaveDeadWatcher();
+        if (stale) GoStale();
+        var claim = Claims.Read(Key);
 
-        Watchers.PurgeAuxiliaryFiles();
+        await Assert.That(await Watchers.KillWatcher(Key, TextWriter.Null)).IsFalse();
 
+        await Assert.That(File.Exists(Paths.PidFile(Key))).IsFalse();
+        await Assert.That(File.Exists(Paths.HeartbeatFile(Key))).IsFalse();
+        await Assert.That(File.Exists(Paths.StartedFile(Key))).IsFalse();
+        await Assert.That(Claims.Read(Key)).IsEqualTo(claim);
+    }
+
+    [Test]
+    public async Task A_pid_file_that_names_nothing_is_swept_beside_a_claim() {
+        Claims.TryTake(Key, "daemon", isHosted: false);
+        await File.WriteAllTextAsync(Paths.PidFile(Key), "not a pid");
+
+        await Watchers.KillWatcher(Key, TextWriter.Null);
+
+        await Assert.That(File.Exists(Paths.PidFile(Key))).IsFalse();
+    }
+
+    /// <summary>The pid is alive but its start token says it is another process, so the watcher it named is the dead
+    /// one. The sweep takes the file and leaves the process alone.</summary>
+    [Test]
+    public async Task A_recycled_pid_beside_a_claim_is_swept_without_a_signal() {
+        Claims.TryTake(Key, "daemon", isHosted: false);
+        using var original = DummyProcess.StartSleep(30);
+        using var recycled = DummyProcess.StartSleep(30);
+        var recycledIdentity = PidIdentity.Capture(recycled.Pid);
+        await File.WriteAllTextAsync(Paths.PidFile(Key), $"{recycled.Pid}\n{PidIdentity.Capture(original.Pid)}");
+
+        await Assert.That(await Watchers.KillWatcher(Key, TextWriter.Null)).IsFalse();
+
+        await Assert.That(File.Exists(Paths.PidFile(Key))).IsFalse();
+        await Assert.That(PidIdentity.IsGone(recycled.Pid, recycledIdentity)).IsFalse();
+    }
+
+    /// <summary>A hook holding the spawn lock may have taken the claim and be about to write this pid file.</summary>
+    [Test]
+    public async Task A_spawn_in_flight_keeps_its_pid_file_from_the_sweep() {
+        Claims.TryTake(Key, "daemon", isHosted: false);
+        await LeaveDeadWatcher();
+
+        using (new FileStream(Paths.SpawnLockFile(Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None))
+            await Watchers.KillWatcher(Key, TextWriter.Null);
+
+        await Assert.That(File.Exists(Paths.PidFile(Key))).IsTrue();
+    }
+
+    /// <summary>Cleanup's exit code is part of stopping the outgoing recorders, so a dead pid file must not fail it.</summary>
+    [Test]
+    public async Task Cleanup_sweeps_a_dead_watcher_beside_a_claim_and_keeps_the_claim() {
+        Claims.TryTake(Key, "daemon", isHosted: false);
+        await LeaveDeadWatcher();
+        await File.WriteAllTextAsync(Paths.SpawnLockFile(Key), "");
+
+        var exit = await new CleanupCommand(Watchers, new StandardStreams(TextWriter.Null, TextWriter.Null, TextReader.Null)).HandleCleanup();
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(Directory.GetFiles(Paths.Directory)).IsEquivalentTo([Claims.ClaimFile(Key)]);
         await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
     }
 
@@ -263,6 +360,27 @@ public class WatcherManagerClaimTests : IDisposable {
 
         await Assert.That(_spawner.Spawned).IsEmpty();
         await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonStale);
+    }
+
+    /// <summary>A watcher can't start with no server to reach, so taking the claim here would stop a daemon that was
+    /// only asleep and leave the source with no recorder.</summary>
+    [Test]
+    public async Task EnsureWatcherRunning_with_no_server_to_post_to_leaves_a_stale_claim_alone() {
+        Claims.TryTake(Key, "daemon", isHosted: false);
+        GoStale();
+
+        await Manager(Resolutions.None(Config.Root)).EnsureWatcherRunning(Key, NewTranscript(), agentId: "child");
+
+        await Assert.That(_spawner.Spawned).IsEmpty();
+        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonStale);
+    }
+
+    /// <summary>With no claim, the spawner stays the one that refuses and says why.</summary>
+    [Test]
+    public async Task EnsureWatcherRunning_with_no_server_and_no_claim_reaches_the_spawner_as_today() {
+        await Manager(Resolutions.None(Config.Root)).EnsureWatcherRunning(Key, NewTranscript(), agentId: "child");
+
+        await Assert.That(_spawner.Keys).IsEquivalentTo([Key]);
     }
 
     /// <summary>A daemon gone past the grace hands a terminal session to a watcher, and it stays there.</summary>
@@ -324,6 +442,19 @@ public class WatcherManagerClaimTests : IDisposable {
 
             _time.Advance(TimeSpan.FromSeconds(1));
             await Task.Delay(1);
+        }
+    }
+
+    /// <summary>Runs <see cref="OnNextLook"/> the next time something asks the time, then behaves.</summary>
+    sealed class WakingClock(DateTimeOffset start) : FakeTimeProvider(start) {
+        public Action? OnNextLook { get; set; }
+
+        public override DateTimeOffset GetUtcNow() {
+            var look = OnNextLook;
+            OnNextLook = null;
+            look?.Invoke();
+
+            return base.GetUtcNow();
         }
     }
 

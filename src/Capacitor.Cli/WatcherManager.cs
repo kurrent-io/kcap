@@ -86,12 +86,22 @@ public sealed partial class WatcherManager(
     /// heartbeat/started markers go only once no watcher can be left running, so a failed kill leaves
     /// them for a retry to find; see <see cref="DeleteHeartbeatFiles"/> for why the spawn lock is
     /// intentionally left behind here. A claim on <paramref name="key"/>, stale or not, means a daemon
-    /// is the recorder, and this never signals a daemon.
+    /// is the recorder, and this never signals a daemon: all it does then is clear a dead watcher's files.
     /// </summary>
     public async Task<bool> KillWatcher(string key, TextWriter? stderr = null) {
-        if (_claims.Read(key) is not RecorderClaimState.None) return false;
-
         var pidFile = paths.PidFile(key);
+
+        if (_claims.Read(key) is not RecorderClaimState.None) {
+            if (File.Exists(pidFile)) {
+                await WithSpawnLock(key, () => {
+                    SweepDeadWatcher(key);
+
+                    return Task.CompletedTask;
+                });
+            }
+
+            return false;
+        }
 
         if (!File.Exists(pidFile)) {
             // No live watcher, but sweep any orphaned heartbeat/started markers for this key.
@@ -115,6 +125,17 @@ public sealed partial class WatcherManager(
         }
 
         return killed;
+    }
+
+    /// <summary>Clears what a dead watcher left beside a claim, signalling nothing: its pid file would otherwise read
+    /// as a watcher that could not be stopped. Runs under the spawn lock, because a hook that has just taken the claim
+    /// writes a new pid file there.</summary>
+    void SweepDeadWatcher(string key) {
+        if (PidAlive(key)) return;
+
+        try { File.Delete(paths.PidFile(key)); } catch { /* best-effort */ }
+
+        DeleteHeartbeatFiles(key);
     }
 
     /// <summary>True once no watcher for <paramref name="key"/> can still be running: killed, or gone
@@ -348,7 +369,8 @@ public sealed partial class WatcherManager(
                 return;
             }
 
-            if (_claims.Read(key) is not RecorderClaimState.None && !TakeStaleClaim(key)) {
+            // A hook that can't post can't start a watcher, so taking the claim would leave the source with no recorder.
+            if (_claims.Read(key) is not RecorderClaimState.None && (!HookHttp.IsPostable(Url) || !TakeStaleClaim(key))) {
                 return;
             }
 
@@ -548,7 +570,13 @@ public sealed partial class WatcherManager(
 
         try {
             if (claim is RecorderClaimState.DaemonStale && !await TryTakeStaleClaimAsync(key)) {
-                await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: {key} changed hands; leaving it to its holder");
+                // A beat that landed first means the daemon woke, and the source is its to finish.
+                if (_claims.Read(key) is RecorderClaimState.DaemonFresh) {
+                    await AskDaemonToFinishAsync(key, sessionId);
+                } else {
+                    await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: {key} changed hands; leaving it to its holder");
+                }
+
                 return;
             }
 
