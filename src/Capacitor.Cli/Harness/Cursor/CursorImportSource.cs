@@ -7,6 +7,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Harness.Titles;
+using Capacitor.Cli.Recording.Harness.Titles;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
 
@@ -628,7 +629,7 @@ internal sealed class CursorImportSource : IImportSource {
         if (_titlePaths is not null) {
             try {
                 await ImportHarnessTitle.PostFromStoreAsync(
-                    HarnessTitleStores.Cursor(_titlePaths, transcriptPath),
+                    HarnessTitleStores.Cursor(_titlePaths, transcriptPath, CursorComposerTitle.ForTranscript(_titlePaths, transcriptPath)),
                     ctx.HttpClient, _time, ctx.BaseUrl, classification.SessionId, ctx.Progress, ct);
             } catch (OperationCanceledException) { }
         }

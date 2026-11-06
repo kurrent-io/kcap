@@ -1,15 +1,10 @@
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness;
-using Capacitor.Cli.Core.Harness.Antigravity;
 using Capacitor.Cli.Core.Harness.Copilot;
-using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Kiro;
-using Capacitor.Cli.Harness.Titles;
-using Capacitor.Cli.Tests.Unit.Harness.Antigravity;
-using Capacitor.Cli.Tests.Unit.Harness.Cursor;
-using TUnit.Core.Enums;
+using Capacitor.Cli.Recording.Harness.Titles;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Titles;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Titles;
 
 /// <summary>Each vendor's store is laid out as that vendor writes it under a home, and located only from the
 /// transcript path and session id the watcher itself is given — so a reader pointed at the wrong file fails here.</summary>
@@ -19,6 +14,8 @@ public class HarnessTitleStoresTests {
     const string Id = "0199a3b2-1c2d-7e8f-9a0b-1c2d3e4f5a6b";
 
     HarnessRegistry Harnesses => TestHarnesses.Under(Home);
+
+    static readonly FakeRecorderHost Host = new();
 
     static string Write(string path, string content) {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -31,7 +28,7 @@ public class HarnessTitleStoresTests {
         Home.CreateFile([".codex", "session_index.jsonl"], $$"""{"id":"{{Id}}","thread_name":"Codex name","updated_at":"2026-09-29T10:00:00Z"}""" + "\n");
         var transcript = Home.CreateFile([".codex", "sessions", "2026", "09", "29", $"rollout-2026-09-29T10-00-00-{Id}.jsonl"]);
 
-        var store = HarnessTitleStores.For("codex", null, Id.Replace("-", ""), transcript, Harnesses);
+        var store = HarnessTitleStores.For("codex", null, Id.Replace("-", ""), transcript, Harnesses, Host);
 
         await Assert.That(store!.Read()!.Title).IsEqualTo("Codex name");
     }
@@ -44,7 +41,7 @@ public class HarnessTitleStoresTests {
             Accounts = [new VendorAccount("b", HarnessId.Codex, AccountDirectory.Normalize(Home.PathTo(".codex-b")), "b", DateTimeOffset.UnixEpoch)]
         };
 
-        var store = HarnessTitleStores.For("codex", null, Id.Replace("-", ""), rollout, Harnesses, registry, Home);
+        var store = HarnessTitleStores.For("codex", null, Id.Replace("-", ""), rollout, Harnesses, Host, registry, Home);
 
         await Assert.That(store!.Read()!.Title).IsEqualTo("From B");
     }
@@ -57,7 +54,7 @@ public class HarnessTitleStoresTests {
             { "accounts": [ { "id": "x", "vendor": "Codex", "label": "x", "added_at": "2026-01-01T00:00:00Z" } ] }
             """);
 
-        var store = HarnessTitleStores.For("codex", null, Id.Replace("-", ""), transcript, Harnesses,
+        var store = HarnessTitleStores.For("codex", null, Id.Replace("-", ""), transcript, Harnesses, Host,
                                            new AccountStore(Path.GetDirectoryName(accounts)!).TryLoad(), Home);
 
         await Assert.That(store!.Read()!.Title).IsEqualTo("Codex name");
@@ -69,7 +66,7 @@ public class HarnessTitleStoresTests {
         Write(paths.WorkspaceYaml(paths.SessionStateDir, Id), "name: Copilot name\nuser_named: true\n");
         var transcript = Write(paths.EventsJsonl(paths.SessionStateDir, Id), "");
 
-        var store = HarnessTitleStores.For("copilot", null, Id, transcript, Harnesses);
+        var store = HarnessTitleStores.For("copilot", null, Id, transcript, Harnesses, Host);
 
         await Assert.That(store!.Read()!.Title).IsEqualTo("Copilot name");
     }
@@ -80,7 +77,7 @@ public class HarnessTitleStoresTests {
         Write(paths.SessionJson(Id), """{"title":"Kiro name"}""");
         var transcript = Write(paths.SessionJsonl(Id), "");
 
-        var store = HarnessTitleStores.For("kiro", null, Id, transcript, Harnesses);
+        var store = HarnessTitleStores.For("kiro", null, Id, transcript, Harnesses, Host);
 
         await Assert.That(store!.Read()!.Title).IsEqualTo("Kiro name");
     }
@@ -88,36 +85,18 @@ public class HarnessTitleStoresTests {
     string CursorTranscript() =>
         Home.CreateFile([".cursor", "projects", "Users-me-work", "agent-transcripts", Id, $"{Id}.jsonl"]);
 
-    // Windows keeps the IDE's store under the real Roaming AppData, which no test home can stand in for.
-    [Test, ExcludeOn(OS.Windows)]
-    public async Task Cursor_reads_the_chat_meta_json_first() {
+    [Test]
+    public async Task Cursor_keeps_its_chat_title_on_a_host_with_no_sqlite_reader() {
         Home.CreateFile([".cursor", "chats", "0164d96655f5a60b647a4bd178a34425", Id, "meta.json"], """{"title":"From meta"}""");
-        CursorComposerTitleTests.BuildStateDb(Write(Harnesses.Of<CursorHarness>().Paths.GlobalStateDb!, ""), Id, "From composer");
 
-        var store = HarnessTitleStores.For("cursor", null, Id, CursorTranscript(), Harnesses);
+        var store = HarnessTitleStores.For("cursor", null, Id, CursorTranscript(), Harnesses, Host);
 
         await Assert.That(store!.Read()!.Title).IsEqualTo("From meta");
     }
 
-    [Test, ExcludeOn(OS.Windows)]
-    public async Task Cursor_falls_back_to_the_ide_composer_record() {
-        CursorComposerTitleTests.BuildStateDb(Write(Harnesses.Of<CursorHarness>().Paths.GlobalStateDb!, ""), Id, "From composer");
-
-        var store = HarnessTitleStores.For("cursor", null, Id, CursorTranscript(), Harnesses);
-
-        await Assert.That(store!.Read()!.Title).IsEqualTo("From composer");
-    }
-
     [Test]
-    public async Task Antigravity_reads_the_roots_summary_db() {
-        const string conversationId = AntigravitySummaryTitleTests.ConversationId;
-        var paths = Harnesses.Of<AntigravityHarness>().Paths;
-        AntigravitySummaryTitleTests.BuildSummaryDb(Write(Path.Combine(paths.CliConfigRoot, "conversation_summaries.db"), ""), "Antigravity name");
-        var transcript = Write(paths.TranscriptFullPathUnder(paths.CliConfigRoot, conversationId), "");
-
-        var store = HarnessTitleStores.For("antigravity", null, conversationId.Replace("-", ""), transcript, Harnesses);
-
-        await Assert.That(store!.Read()!.Title).IsEqualTo("Antigravity name");
+    public async Task Antigravity_has_no_store_on_a_host_with_no_sqlite_reader() {
+        await Assert.That(HarnessTitleStores.For("antigravity", null, Id, Home.PathTo("t.jsonl"), Harnesses, Host)).IsNull();
     }
 
     [Test]
@@ -126,11 +105,11 @@ public class HarnessTitleStoresTests {
     [Arguments("gemini")]
     [Arguments("opencode")]
     public async Task Vendors_with_inline_titles_have_no_store(string vendor) {
-        await Assert.That(HarnessTitleStores.For(vendor, null, Id, Home.PathTo("t.jsonl"), Harnesses)).IsNull();
+        await Assert.That(HarnessTitleStores.For(vendor, null, Id, Home.PathTo("t.jsonl"), Harnesses, Host)).IsNull();
     }
 
     [Test]
     public async Task A_subagent_watcher_has_no_store() {
-        await Assert.That(HarnessTitleStores.For("codex", "agent-1", Id, Home.PathTo("t.jsonl"), Harnesses)).IsNull();
+        await Assert.That(HarnessTitleStores.For("codex", "agent-1", Id, Home.PathTo("t.jsonl"), Harnesses, Host)).IsNull();
     }
 }

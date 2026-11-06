@@ -29,7 +29,7 @@ using Capacitor.Cli.Recording.Harness.MistralVibe;
 using Capacitor.Cli.Recording.Harness.Muse;
 using Capacitor.Cli.Recording.Harness.OpenCode;
 using Capacitor.Cli.Harness.OpenCode;
-using Capacitor.Cli.Harness.Titles;
+using Capacitor.Cli.Recording.Harness.Titles;
 using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
@@ -652,7 +652,7 @@ class WatchCommand(
     public async Task PrepareAsync(WatchState state, CancellationToken ct) {
         var (sessionId, agentId, transcriptPath, vendor, cwd) = _source;
 
-        _titleStore = HarnessTitleStores.For(vendor, agentId, sessionId, transcriptPath, harnesses, accounts.TryLoad(), home);
+        _titleStore = HarnessTitleStores.For(vendor, agentId, sessionId, transcriptPath, harnesses, _host, accounts.TryLoad(), home);
         if (vendor == "codex" && CodexRolloutReadings.For(accounts, transcriptPath, home) is { } codexReadings) state.ObserveCodexReadings = lines => codexReadings.Observe(lines);
         if (_titleStore is not null) state.TitleTracker = new HarnessTitleTracker(_titleStore.RecordsChangeTime);
 
