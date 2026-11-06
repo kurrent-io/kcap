@@ -52,7 +52,6 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     IReadOnlyList<NextWorkCardViewModel> _moreCards = [];
     bool _moreExpanded;
     int _elsewhere;
-    string? _recentlyDone;
 
     public NextWorkBandViewModel(INextWorkApi api, TimeProvider time, NextWorkSeenStore? seen = null,
             Action<string>? openUrl = null, Action<string>? openSession = null, Action<string>? notify = null,
@@ -132,10 +131,6 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     /// nothing is. The window's Open dashboard leads there.</summary>
     public string? ElsewhereText => _elsewhere > 0 ? $"{_elsewhere} more on the dashboard" : null;
     public bool HasElsewhere => _elsewhere > 0;
-
-    /// <summary>"Recently done: 3 PRs merged · 1 item settled", from the targets the engine saw settle; null when none
-    /// did. The engine's own window, not a calendar week.</summary>
-    public string? RecentlyDoneText { get => _recentlyDone; private set => this.RaiseAndSetIfChanged(ref _recentlyDone, value); }
 
     public ReactiveCommand<Unit, Unit> RefreshCommand    { get; }
     public ReactiveCommand<Unit, Unit> ToggleMoreCommand { get; }
@@ -252,7 +247,6 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
         _elsewhere = focus.Notes.Count + focus.Quiet.Count + Math.Max(0, next.Count - MaxRows + focus.More.Count - MaxMoreRows);
         this.RaisePropertyChanged(nameof(ElsewhereText));
         this.RaisePropertyChanged(nameof(HasElsewhere));
-        RecentlyDoneText = NextWorkLaneLogic.RecentlyDone(snapshot) is { Count: > 0 } parts ? "Recently done: " + string.Join(" · ", parts) : null;
     }
 
     // ---- row actions ------------------------------------------------------------------------------------------
@@ -290,24 +284,25 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
 
         card.Busy = true;
         try {
-            string? goal = null;
+            string? context = null;
             NextWorkLaunchCheckoutDto? checkout = null;
             if (_canLaunch && NextWorkLaneLogic.IsLaunchable(row)) {
                 // A refusal for want of a checkout still carries the prompt: the viewer picks the repository.
                 var read = await _api.PrepareLaunchAsync(row.TargetKey, CancellationToken.None);
                 if (read is { Kind: NextWorkReadKind.Ready, Value: { } prep }) {
-                    goal = prep.Prompt is { Length: > 0 } prompt ? prompt : null;
+                    context = prep.Prompt is { Length: > 0 } prompt ? prompt : null;
                     checkout = prep.Refusal is null ? Preferred(prep.Checkouts) : null;
                 }
             }
 
-            goal ??= NextWorkLaunchText.Goal(row, card.Label, card.Href is { } href ? _api.Resolve(href) : null);
+            // The composer holds a goal a person reads; the server's prompt, written for the agent, goes with it.
+            var goal = context is not null ? card.Label : NextWorkLaunchText.Goal(row, card.Label, card.Href is { } href ? _api.Resolve(href) : null);
             var (machine, local, path) = checkout is { } c
                 ? (c.DaemonName, string.Equals(c.DaemonName, _localDaemon, StringComparison.Ordinal), c.RepoPath)
                 : (null, true, row.RepoHash is { } hash && _localCheckout is not null ? await _localCheckout(hash) : null);
             if (path is not null && machine is null) machine = _localDaemon;
 
-            await _fill(new(row.TargetKey, card.Label, goal, machine, local, path));
+            await _fill(new(row.TargetKey, card.Label, goal, machine, local, path, context));
             MarkFilled(row.TargetKey);
             if (path is null && row.RepoHash is not null)
                 _notify?.Invoke($"No checkout of {Repo(row)} is known on your machines: pick its repository before you start.");

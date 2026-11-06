@@ -417,6 +417,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// Raised after a band row filled the composer, so the view can draw the eye to it.
     public IObservable<Unit> ComposerFills => _composerFills;
 
+    /// The goal as typed, and under it the context the picked-up row carries: the agent reads both, the person only the
+    /// goal, and the goal's first line names the session.
+    string GoalToSend() => NextWorkSource?.Context is { Length: > 0 } context ? $"{Goal.TrimEnd()}\n\n{context}" : Goal;
+
     /// Drops the row's goal from the composer.
     public void ClearNextWorkSource() {
         if (NextWorkSource is null) return;
@@ -2041,7 +2045,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         // Captured before anything can await: an upload takes time the user can spend re-pointing
         // the launcher, and the files must reach the machine the composer was aimed at.
         var draft = new LaunchDraft(
-            SelectedMachine, RemoteMachineSelected, SelectedRepoPath, SelectedVendor, Goal, _goalEdits,
+            SelectedMachine, RemoteMachineSelected, SelectedRepoPath, SelectedVendor, GoalToSend(), _goalEdits,
             SelectedModel, SelectedEffort, PermissionModeFor(SelectedVendor, SelectedPermissionMode),
             CodexPostureFor(SelectedVendor, SelectedCodexSandbox, SelectedCodexApproval),
             Tray.Snapshot(), Tray.Generation,
