@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Core;
 /// server whose last reported version is known to handle it; a server not yet heard from is not.
 /// </summary>
 public static class LocalRepositorySupport {
-    // TODO(AI-5190): lower to the first kcap-server release that ships local-repository support, once it is cut.
+    // TODO(kcap-server#3023): lower to the first kcap-server release that ships local-repository support, once it is cut.
     // Until then no server qualifies, which keeps today's behaviour of sending no owner.
     public const string MinimumServerVersion = "1.5.0";
 
