@@ -179,6 +179,12 @@
                     </Button>
                 </Grid>
 
+                <TextBox x:Name="RailTitleFilter" Classes="kcapField clearButton" Margin="10,0,10,8" FontSize="13"
+                         DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
+                         IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}"
+                         Text="{Binding TitleFilter, Mode=TwoWay}" PlaceholderText="Filter by title"
+                         AutomationProperties.Name="Filter sessions by title" />
+
                 <!-- Scope and state are one tap each; grouping and sort open pickers. -->
                 <StackPanel x:Name="RailControls" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                             Margin="10,0,10,8" Spacing="6" IsVisible="{Binding FiltersOpen, FallbackValue=False}">
