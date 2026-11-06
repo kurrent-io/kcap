@@ -147,7 +147,7 @@ Finishing a source runs the recorder's own final drain for that key and touches 
 
 **Outages.** A longer outage moves a terminal session to a watcher, and it stays there until it ends. There is no takeover: steering doesn't need the daemon to be the recorder, and a line-position handoff between two recorders isn't worth its risk for a case this rare. An idle session with no hooks firing has nothing new to record, so its gap closes on restart.
 
-**Hub.** The daemon uses the same hub (`/hubs/sessions`) and the same transcript methods. `StopWatcher` is pushed to a connection with no session in its payload, which works only while a connection carries one session, so it needs to name the session in a way older watchers still accept.
+**Hub.** The daemon uses the same hub (`/hubs/sessions`) and the same transcript methods, over a connection of its own. `WatcherConnect` takes a connection out of the UI topics, and the daemon's main connection has joined its owner's topic, so recording on that connection would silently cut it off. `StopWatcher` is pushed to a connection with no session in its payload, which works only while a connection carries one session. A second argument won't do, because a SignalR client drops an invocation whose argument count doesn't match its handler, so an older watcher would never stop. The server pushes `StopSource(key, reason)` beside `StopWatcher` instead. An older watcher has no handler for it and ignores it, and the daemon handles only `StopSource`. A daemon needs a server that pushes it before it records.
 
 **Rollout.** Hosted Claude, then hosted Codex PTY, then terminal Claude, then the other vendors.
 
