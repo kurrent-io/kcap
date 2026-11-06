@@ -41,6 +41,16 @@ public class AdoptionConsumersTests {
         await Assert.That(Holder(install, [new(43, Path.Combine(Bundle, "Contents", "MacOS", "kcap"), null, Before)])).IsNull();
     }
 
+    /// <summary>A runtime is named only by its arguments; a native binary needs none to be told apart.</summary>
+    [Test]
+    public async Task A_runtime_whose_arguments_could_not_be_read_holds_it() {
+        var install = Npm();
+
+        await Assert.That(Holder(install, [new(44, "/opt/homebrew/bin/node", null, After)])).IsEqualTo("pid:44");
+        await Assert.That(Holder(install, [new(45, "/usr/bin/python3", null, After)])).IsEqualTo("pid:45");
+        await Assert.That(Holder(install, [new(46, "/usr/bin/login", null, Before)])).IsNull();
+    }
+
     [Test]
     public async Task A_harness_started_before_the_cutover_holds_it_and_one_after_does_not() {
         var install = Npm();

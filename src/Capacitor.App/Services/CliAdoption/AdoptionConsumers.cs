@@ -16,7 +16,7 @@ internal static class AdoptionConsumers {
         var cutover = Utc(cutoverUtc);
 
         foreach (var process in processes) {
-            if (RunsFrom(process, folders) || (Utc(process.StartedUtc) <= cutover && IsHarness(process, harnesses)))
+            if (Unnamed(process) || RunsFrom(process, folders) || (Utc(process.StartedUtc) <= cutover && IsHarness(process, harnesses)))
                 return $"pid:{process.Pid}";
         }
 
@@ -31,6 +31,11 @@ internal static class AdoptionConsumers {
 
     // A time left in local time compares by its wall clock against a UTC one; an unspecified kind is taken as UTC.
     static DateTime Utc(DateTime time) => time.Kind == DateTimeKind.Local ? time.ToUniversalTime() : time;
+
+    // Only its arguments name what a runtime runs, so one whose arguments could not be read may be the install's own
+    // script or a harness session.
+    static bool Unnamed(ProcessFact process) =>
+        process is { Executable: { } executable, Args: null } && ProcessFacts.ReadsArgs(executable);
 
     static bool RunsFrom(ProcessFact process, List<string> folders) =>
         Within(process.Executable, folders)
