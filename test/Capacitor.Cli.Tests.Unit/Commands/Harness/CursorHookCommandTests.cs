@@ -255,16 +255,26 @@ public class CursorHookCommandTests {
     }
 
     /// <summary>Nothing reads the transcript after the session-end drain unless a watcher is still running,
-    /// so a line that drain held, and every line after it, is left to an import.</summary>
+    /// so whatever that drain leaves unsent is left to an import.</summary>
     [Test, NotInParallel]
-    [Arguments(true, false, true)]
-    [Arguments(true, true, false)]
-    [Arguments(false, false, false)]
-    public async Task A_line_the_session_end_drain_held_is_flagged_for_import_when_no_watcher_will_send_it(
-            bool held, bool watcherRunning, bool flagged) {
-        var sid = Guid.NewGuid().ToString("N");
-        using var fx = new Fixture(Config.Root) { RedactionClock = held ? new SwitchableRedactionClock() : null };
-        await fx.WriteTranscript("""{"role":"user","message":{"content":[{"type":"text","text":"final prompt"}]}}""");
+    [Arguments(EndDrain.Held, false, true, true)]
+    [Arguments(EndDrain.Held, true, false, true)]
+    [Arguments(EndDrain.OutOfTime, false, true, false)]
+    [Arguments(EndDrain.PostFails, false, true, true)]
+    [Arguments(EndDrain.Complete, false, false, true)]
+    public async Task A_tail_the_session_end_drain_leaves_unsent_is_flagged_for_import_when_no_watcher_will_send_it(
+            EndDrain drain, bool watcherRunning, bool flagged, bool endAttempted) {
+        var sid   = Guid.NewGuid().ToString("N");
+        var clock = new JumpingFakeClock();
+        using var fx = new Fixture(Config.Root, drain == EndDrain.PostFails ? HttpStatusCode.InternalServerError : HttpStatusCode.OK) {
+            Clock         = clock,
+            WatermarkRead = () => {
+                if (drain == EndDrain.Held) clock.JumpOnReading(MidFirstTry, TimeSpan.FromSeconds(1.2));
+                // The line's redaction budget starts after the jump, so only the hook's runs out.
+                if (drain == EndDrain.OutOfTime) clock.JumpOnReading(1, CursorHookCommand.Ceiling - HookBudget.Safety);
+            }
+        };
+        await fx.WriteTranscript(TranscriptLine);
         if (watcherRunning) StartWatcherRecord(sid);
         using var capture = ConsoleOutput.StartErrorCapture("\n");
 
@@ -273,9 +283,15 @@ public class CursorHookCommandTests {
 
         await Assert.That(new TranscriptSpool(Config.Root, TimeProvider.System, Fixture.StubUrl).NeedsImport(sid)).IsEqualTo(flagged);
         await Assert.That(capture.GetCapturedError().Contains($"kcap import --session {sid}")).IsEqualTo(flagged);
-        await Assert.That(fx.RouteOrder.Contains("transcript")).IsEqualTo(!held);
-        await Assert.That(fx.RouteOrder).Contains("session-end/cursor");
+        await Assert.That(fx.RouteOrder.Contains("session-end/cursor")).IsEqualTo(endAttempted);
     }
+
+    public enum EndDrain { Complete, Held, OutOfTime, PostFails }
+
+    const string TranscriptLine = """{"role":"user","message":{"content":[{"type":"text","text":"final prompt"}]}}""";
+
+    // The first try of the line has started and has yet to end.
+    const int MidFirstTry = 3;
 
     void StartWatcherRecord(string key) {
         var paths = WatcherPaths.FromEnvironment(Config.Root);
@@ -1073,7 +1089,10 @@ public class CursorHookCommandTests {
 
                     // GET watermark — return 404 so transcript backfill is a no-op without
                     // tripping the fail-open path.
-                    if (req.Method == HttpMethod.Get) return new HttpResponseMessage(HttpStatusCode.NotFound);
+                    if (req.Method == HttpMethod.Get) {
+                        WatermarkRead?.Invoke();
+                        return new HttpResponseMessage(HttpStatusCode.NotFound);
+                    }
 
                     if (SpendOnPost > TimeSpan.Zero) Clock.Advance(SpendOnPost);
 
@@ -1090,17 +1109,18 @@ public class CursorHookCommandTests {
 
         /// <summary>The hook's one clock. Fake, so its budget expires only when a test advances
         /// this — no test here can lose its budget to a loaded runner's scheduling.</summary>
-        public FakeTimeProvider Clock { get; } = new();
+        public FakeTimeProvider Clock { get; init; } = new();
 
         public HostedAgent Hosted { get; init; } = HostedAgent.Terminal;
 
-        public TimeProvider? RedactionClock { get; init; }
+        /// <summary>Runs when the transcript watermark is read, just before the drain encodes.</summary>
+        public Action? WatermarkRead { get; init; }
 
         /// <summary>The checkout the hook acts on when a payload carries no workspace root.</summary>
         public string Workdir { get; init; } = AppContext.BaseDirectory;
 
         public Task<int> HandleAsync(string stdin) =>
-            new CursorHookCommand(Config, Profiles, new HookClock(Clock), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), router: new GitProviderRouter(), workdir: new WorkingDirectory(Workdir)) { RedactionClock = RedactionClock }.HandleCore(
+            new CursorHookCommand(Config, Profiles, new HookClock(Clock), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), router: new GitProviderRouter(), workdir: new WorkingDirectory(Workdir)).HandleCore(
                 Client,
                 stdin: new StringReader(stdin),
                 spool: Spool);

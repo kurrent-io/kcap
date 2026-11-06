@@ -32,9 +32,6 @@ public sealed class CursorHookCommand(
 
     string Url => profiles.Resolution.ServerUrl!;
 
-    /// <summary>The clock the session-end drain's redaction budget reads, when not the hook's own.</summary>
-    internal TimeProvider? RedactionClock { get; init; }
-
     /// <summary>
     /// <c>workspace_roots[0]</c>, or null when absent or not a string. Safe extract:
     /// <c>GetValue&lt;string&gt;</c> would throw and drop the whole hook through the outer catch.
@@ -523,12 +520,12 @@ public sealed class CursorHookCommand(
                 var drained = await CursorTranscriptBackfill.RunAsync(
                     _markers,
                     client, Url, sessionId!, transcriptPath,
-                    budget: BudgetExpired, clock.Time, ct, SecretRedactor.WatcherPatterns, finalDrain: true, redactionClock: RedactionClock);
+                    budget: BudgetExpired, clock.Time, ct, finalDrain: true);
 
-                // A running watcher is stopped at the end and retries a held line on its way out. Without
-                // one nothing reads it again, and no second try fits here: it can take about 1.4 s of the
-                // hook's 2 s, and overrunning spools the end instead of posting it.
-                if (drained.HeldLine is { } held && !watchers.IsWatcherAlive(sessionId!)) FlagForImport(sessionId!, held);
+                // A running watcher is stopped at the end and sends what is left on its way out. Without
+                // one nothing reads the transcript again. A line redaction held gets no second try here:
+                // it can take about 1.4 s of the hook's 2 s, and overrunning spools the end instead.
+                if (drained.FirstUnsentLine is { } unsent && !watchers.IsWatcherAlive(sessionId!)) FlagForImport(sessionId!, unsent);
             }
 
             if (BudgetExpired()) {
@@ -979,10 +976,10 @@ public sealed class CursorHookCommand(
         } catch { }
     }
 
-    void FlagForImport(string sessionId, int heldLine) {
+    void FlagForImport(string sessionId, int firstUnsent) {
         Console.Error.WriteLine(
-            $"Cursor final drain for {sessionId}: line {heldLine} could not be redacted in time; to send it and the rest, run: kcap import --session {sessionId}");
-        new TranscriptSpool(config, clock.Time, Url).MarkNeedsImport(sessionId, $"session end: redaction of line {heldLine} timed out");
+            $"Cursor final drain for {sessionId}: line {firstUnsent} and later were not sent; to send them, run: kcap import --session {sessionId}");
+        new TranscriptSpool(config, clock.Time, Url).MarkNeedsImport(sessionId, $"session end: line {firstUnsent} and later not sent");
     }
 
     /// <summary>True when the server took the post, false when a later drain should retry it, and null

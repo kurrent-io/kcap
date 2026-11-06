@@ -13,8 +13,9 @@ public static class CursorTranscriptBackfill {
     static readonly TimeSpan WatermarkTimeout = TimeSpan.FromMilliseconds(500);
     static readonly TimeSpan BatchPostTimeout = TimeSpan.FromMilliseconds(1500);
 
-    /// <param name="HeldLine">The line redaction ran out of time on, which stopped the drain there.</param>
-    public readonly record struct Stats(int LinesPosted, bool Failed, int? HeldLine = null);
+    /// <param name="FirstUnsentLine">The first line read and not posted, when a held line, the budget or a failed
+    /// post stopped the drain short; none for a quarantined session, which is dropped on purpose.</param>
+    public readonly record struct Stats(int LinesPosted, bool Failed, int? FirstUnsentLine = null);
 
     public static Task<Stats> RunAsync(
             CursorMarkers     markers,
@@ -40,9 +41,8 @@ public static class CursorTranscriptBackfill {
             TimeProvider      time,
             CancellationToken ct,
             SecretPatterns    patterns,
-            string?           agentId        = null,
-            bool              finalDrain     = false,
-            TimeProvider?     redactionClock = null
+            string?           agentId    = null,
+            bool              finalDrain = false
         ) {
         if (string.IsNullOrEmpty(transcriptPath) || !File.Exists(transcriptPath)) {
             return new Stats(0, false);
@@ -86,7 +86,7 @@ public static class CursorTranscriptBackfill {
 
         List<string> lines;
         List<int>    lineNumbers;
-        int?         heldLine;
+        List<int>    readNumbers;
 
         try {
             await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -95,18 +95,21 @@ public static class CursorTranscriptBackfill {
                 : WatchCommand.IncompleteFinalLinePolicy.Hold;
             var read = await WatchCommand.ReadNewCompleteLinesAsync(stream, resumeFrom, policy, ct);
 
-            var captured = TranscriptCapture.EncodeUntilHeld(read.Lines, budget, redactionClock ?? time,
+            var captured = TranscriptCapture.EncodeUntilHeld(read.Lines, budget, time,
                 (reason, count) => Console.Error.WriteLine($"Cursor capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"), patterns);
             lines       = captured.Lines;
             lineNumbers = read.LineNumbers.GetRange(0, captured.Consumed);
-            heldLine    = captured.Held ? read.LineNumbers[captured.Consumed] : null;
+            readNumbers = read.LineNumbers;
         } catch { return new(0, Failed: true); }
 
-        if (lines.Count == 0 || budget()) return new(0, Failed: false, heldLine);
+        int? FirstUnsent(int posted) => posted < readNumbers.Count ? readNumbers[posted] : null;
 
-        if (markers.IsQuarantined(sessionId)
-         || markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)) {
-            return new Stats(0, false, heldLine);
+        if (lines.Count == 0 || budget()) return new(0, Failed: false, FirstUnsent(0));
+
+        if (markers.IsQuarantined(sessionId)) return new Stats(0, false);
+
+        if (markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)) {
+            return new Stats(0, false, FirstUnsent(0));
         }
 
         var batch = new TranscriptBatch {
@@ -120,18 +123,19 @@ public static class CursorTranscriptBackfill {
         var posted = 0;
         try {
             foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                if ((!finalDrain || posted == 0) && budget() || markers.IsQuarantined(sessionId)
+                if (markers.IsQuarantined(sessionId)) return new Stats(posted, Failed: false);
+                if ((!finalDrain || posted == 0) && budget()
                     || markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound))
-                    return new Stats(posted, Failed: false, heldLine);
+                    return new Stats(posted, Failed: false, FirstUnsent(posted));
                 var json = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
                 using var content = new StringContent(json, Encoding.UTF8, "application/json");
                 using var response = await client.PostOnceAsync($"{baseUrl}/hooks/transcript", content, time, BatchPostTimeout, ct);
-                if (!response.IsSuccessStatusCode) return new Stats(posted, Failed: true, heldLine);
+                if (!response.IsSuccessStatusCode) return new Stats(posted, Failed: true, FirstUnsent(posted));
                 posted += chunk.Lines.Length;
             }
-            return new Stats(posted, Failed: false, heldLine);
+            return new Stats(posted, Failed: false, FirstUnsent(posted));
         } catch {
-            return new Stats(posted, Failed: true, heldLine);
+            return new Stats(posted, Failed: true, FirstUnsent(posted));
         }
     }
 }

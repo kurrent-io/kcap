@@ -14,9 +14,9 @@ public class CursorTranscriptBackfillTests {
         SecretRedactor.WatcherPatterns.WithMatchTimeout(Regex.InfiniteMatchTimeout);
 
     [Test]
-    [Arguments(false, 2)]
-    [Arguments(true, 3)]
-    public async Task Final_drain_finishes_started_chunks_after_the_soft_budget(bool finalDrain, int expectedLines) {
+    [Arguments(false, 2, 2)]
+    [Arguments(true, 3, null)]
+    public async Task Final_drain_finishes_started_chunks_after_the_soft_budget(bool finalDrain, int expectedLines, int? firstUnsent) {
         using var tmp = new TempDir();
         var line = "{\"role\":\"assistant\",\"content\":\"" + new string('x', 1_500_000) + "\"}";
         var path = tmp.CreateFile("large.jsonl", string.Join('\n', Enumerable.Repeat(line, 3)) + "\n");
@@ -28,6 +28,7 @@ public class CursorTranscriptBackfillTests {
             () => posted.Count > 0, Frozen, CancellationToken.None, UnboundedPatterns, finalDrain: finalDrain);
         await Assert.That(stats.LinesPosted).IsEqualTo(expectedLines);
         await Assert.That(stats.Failed).IsFalse();
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(firstUnsent);
     }
 
     [Test]
@@ -73,12 +74,12 @@ public class CursorTranscriptBackfillTests {
 
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
         await Assert.That(stats.Failed).IsFalse();
-        await Assert.That(stats.HeldLine).IsEqualTo(0);
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(0);
         await Assert.That(posted).IsEqualTo(0);
     }
 
     /// <summary>A line sent after a held one makes the server drop the held one, so the drain ends at it
-    /// and says where.</summary>
+    /// and says where it stopped.</summary>
     [Test]
     public async Task A_final_drain_posts_the_lines_before_a_held_line_and_reports_it() {
         const string line = "{\"role\":\"assistant\",\"content\":\"hello\"}";
@@ -92,9 +93,9 @@ public class CursorTranscriptBackfillTests {
         redactionClock.StallOnReading(ReadingsOfALine(line) + MidFirstTry, TimeSpan.FromSeconds(1.2));
 
         var stats = await CursorTranscriptBackfill.RunAsync(Markers, client, "http://s", NewSessionId(), path,
-            () => false, TimeProvider.System, CancellationToken.None, UnboundedPatterns, finalDrain: true, redactionClock: redactionClock);
+            () => false, redactionClock, CancellationToken.None, UnboundedPatterns, finalDrain: true);
 
-        await Assert.That(stats.HeldLine).IsEqualTo(1);
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(1);
         await Assert.That(stats.LinesPosted).IsEqualTo(1);
         await Assert.That(posted.Select(body => JsonNode.Parse(body)!["line_numbers"]!.ToJsonString())).IsEquivalentTo(["[0]"]);
     }
@@ -301,6 +302,7 @@ public class CursorTranscriptBackfillTests {
             transcriptPath: transcript, budget: () => false, time: TimeProvider.System, ct: CancellationToken.None);
 
         await Assert.That(stats.LinesPosted).IsEqualTo(2);
+        await Assert.That(stats.FirstUnsentLine).IsNull();
         await Assert.That(postedPath).IsEqualTo("/hooks/transcript");
 
         var node = JsonNode.Parse(postedBody!)!;
@@ -363,6 +365,7 @@ public class CursorTranscriptBackfillTests {
         // Budget already burnt before the batch POST — nothing posted, no failure.
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
         await Assert.That(stats.Failed).IsFalse();
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(0);
         await Assert.That(postCount).IsEqualTo(0);
     }
 
@@ -384,6 +387,7 @@ public class CursorTranscriptBackfillTests {
 
         await Assert.That(stats.LinesPosted).IsEqualTo(0);
         await Assert.That(stats.Failed).IsTrue();
+        await Assert.That(stats.FirstUnsentLine).IsEqualTo(0);
     }
 
     [Test]
