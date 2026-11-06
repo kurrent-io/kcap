@@ -77,6 +77,24 @@ public class ImportResumeLedgerTests : IDisposable {
         }
     }
 
+    /// <summary>The server hides the session from <c>last-line</c> for the read right after session-end, as its
+    /// projection does under a burst of imports; the hidden read must have been the import's own, or this proves nothing.</summary>
+    [Test]
+    public async Task a_watermark_hidden_right_after_the_import_is_still_recorded() {
+        WriteTranscript(CompletedSession);
+        _server.HiddenReadsAfterEnd = 1;
+
+        await Import();
+        await Assert.That(_server.HiddenReadsAfterEnd).IsEqualTo(0);
+        _server.ClearPosted();
+
+        var again = await Import();
+
+        await Assert.That(again).Contains("0 imported · 1 skipped");
+        await Assert.That(again).DoesNotContain("resuming");
+        await Assert.That(_server.Posted).IsEmpty();
+    }
+
     [Test]
     public async Task appended_lines_resume_from_the_first_line_never_sent() {
         var path = WriteTranscript(CompletedSession);

@@ -218,6 +218,31 @@ public class ImportVisibilityTests : IDisposable {
         await Assert.That(body["default_visibility"]?.GetValue<string>()).IsEqualTo("org_public");
     }
 
+    /// <summary>A standalone import to a hosted server, given no visibility, stamps none even when the profile holds one:
+    /// the server's own org-visibility policy decides an unstamped session, and a stamp would override it.</summary>
+    [Test]
+    public async Task HandleImport_standalone_to_a_hosted_server_leaves_visibility_to_the_server() {
+        _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(404));
+        StubAllHookEndpoints();
+
+        var projectsDir = Path.Combine(_tempDir, "claude-projects-profile");
+        WriteClaudeSession(projectsDir, "vis-chain-handle-profile");
+
+        var profiles = Resolutions.Of(new Profile { DefaultVisibility = "private" }, serverUrl: _server.Url!);
+        var exitCode = await new ImportCommand(Config.Root, profiles, Home, TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), router: new GitProviderRouter(), time: TimeProvider.System, console: new TestImportTerminal().Console).HandleImport(
+            filterCwd: null,
+            minLines: 1,
+            sources: [new ClaudeImportSource(Config.Root, projectsDir, router: new GitProviderRouter(), time: TimeProvider.System)],
+            scope: new ImportScope.All(),
+            skipConfirmation: true,
+            forcePrivate: false
+        );
+
+        await Assert.That(exitCode).IsEqualTo(0);
+        await Assert.That(SessionStartBody("claude")["default_visibility"]).IsNull();
+    }
+
     [Test]
     public async Task HandleImport_chain_forcePrivate_stamps_private_even_when_transcript_batch_fails_after_session_start() {
         // The scenario the stamp exists for: forcePrivate:true with a non-null defaultVisibility,
