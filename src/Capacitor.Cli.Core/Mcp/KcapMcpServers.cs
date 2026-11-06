@@ -1,14 +1,15 @@
 namespace Capacitor.Cli.Core.Mcp;
 
 /// <summary>One kcap MCP server, described semantically (no harness field names).
-/// <paramref name="AutoApprove"/> marks a server safe to run without a per-call prompt where the
-/// harness has a per-server trust knob (see <see cref="McpConfigShape.Trust"/>): every tool either
-/// reads, or writes only to the session's own kcap record, the destination the hooks already
-/// post to unprompted. kcap-flows launches a paid hosted agent; kcap-memory, kcap-pages
-/// and kcap-knowledge can change shared content or its audience, so they rely on each tool's
-/// annotations instead: a harness that reads them still runs the reads and additive writes
-/// unprompted and gates the destructive
-/// ones. <paramref name="ToolTimeout"/> is how long one of
+/// <paramref name="AutoApprove"/> marks a server safe to run without a per-call prompt, through the
+/// harness's per-server trust knob where it has one (see <see cref="McpConfigShape.Trust"/>) and
+/// through the PreToolUse hook in Claude's auto mode: every tool either reads, or writes kcap's own
+/// record of the work (sessions, plans, work items), the destination the hooks already post to
+/// unprompted. That record is shared, so a write like merging two work items reaches past this
+/// session and rests on the server's own refusals. kcap-flows launches a paid hosted agent;
+/// kcap-memory, kcap-pages and kcap-knowledge can change shared content or its audience, so they
+/// rely on each tool's annotations instead: a harness that reads them still runs the reads and
+/// additive writes unprompted and gates the destructive ones. <paramref name="ToolTimeout"/> is how long one of
 /// the server's tool calls may block; a harness with a per-server tool timeout has it written into
 /// the registration, so the harness never aborts a call the server itself bounds.</summary>
 public sealed record KcapMcpServer(string Name, string[] Args, bool NeedsProjectCwd, string? Description, bool AutoApprove = false, TimeSpan? ToolTimeout = null);
