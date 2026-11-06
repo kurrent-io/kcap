@@ -13,6 +13,7 @@ sealed class CwdRepository(
         ConfigRoot config, string cwd, GitProviderRouter router, TimeProvider time, CommandRunner? run = null) {
     readonly Lock             _lock = new();
     Task<RepositoryPayload?>? _detection;
+    string?                   _hash;
 
     /// <summary>Owner, name, host and branch of the checkout, or null outside one. A failed resolution is retried.</summary>
     public async ValueTask<RepositoryPayload?> GetAsync() {
@@ -26,12 +27,15 @@ sealed class CwdRepository(
         return await detection;
     }
 
-    /// <summary>The server-side repo hash of the checkout, or null when its origin names no owner.</summary>
-    public async ValueTask<string?> GetHashAsync() {
+    /// <summary>The hash the caller reads the checkout's repository by (<see cref="RepositoryHashes"/>), or null
+    /// outside one or when one with no remote cannot be resolved. A resolved hash is kept; a failed one is asked again.</summary>
+    public async ValueTask<string?> GetHashAsync(HttpClient client, string baseUrl) {
+        if (_hash is { } known) return known;
+
         var repo = await GetAsync();
 
-        return repo?.Owner is null || repo.RepoName is null
-            ? null
-            : RepoHashHelper.ComputeRepoHash(repo.Owner, repo.RepoName);
+        if (repo?.Owner is null || repo.RepoName is null) return null;
+
+        return _hash = await RepositoryHashes.ForAsync(client, baseUrl, repo.Owner, repo.RepoName);
     }
 }

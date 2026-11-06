@@ -65,7 +65,7 @@ sealed class McpAnalyticsServer(ConfigRoot config, ProfileContext profiles, Toke
 
             try {
                 var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync());
+                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync(client, baseUrl));
             } catch (Exception ex) {
                 await Console.Error.WriteLineAsync($"kcap mcp analytics: unexpected error handling tools/call: {ex}");
                 return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);

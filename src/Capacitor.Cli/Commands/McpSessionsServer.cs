@@ -91,7 +91,8 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
             return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
 
         try {
-            return await HandleToolCallAsync(callId, callRequest, await _client.GetAsync(), BaseUrl, await _repository.GetHashAsync());
+            var client = await _client.GetAsync();
+            return await HandleToolCallAsync(callId, callRequest, client, BaseUrl, await _repository.GetHashAsync(client, BaseUrl));
         } catch (Exception ex) {
             // The detail goes to stderr only: IO errors can carry local paths.
             await Console.Error.WriteLineAsync($"kcap mcp sessions: unexpected error handling tools/call: {ex}");

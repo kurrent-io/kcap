@@ -16,6 +16,9 @@ internal sealed class RepositoriesApi(ICapacitorHttpClient http, CapacitorServer
         return entries ?? [];
     }
 
+    public Task<string?> HashForAsync(string owner, string name, CancellationToken ct = default) =>
+        RepositoryHashes.ForAsync(async (url, token) => await SendAsync((c, t) => c.GetAsync(url, t), token), server.Url, owner, name, ct);
+
     public async Task<CurationResult> GetPromotedCurationAsync(string repoHash, int limit, CancellationToken ct = default) {
         using var response = await SendAsync(
             (c, token) => c.GetWithRetryAsync(

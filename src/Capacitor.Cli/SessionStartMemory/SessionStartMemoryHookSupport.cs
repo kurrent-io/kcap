@@ -32,7 +32,7 @@ internal static class SessionStartMemoryHookSupport {
             TimeProvider time,
             ISessionStartMemoryScopeResolver? scopeResolver = null,
             Action<string>? diagnostic = null) {
-        var resolver = scopeResolver ?? new SessionStartMemoryScopeResolver(router, config, workdir, time);
+        var resolver = scopeResolver ?? new SessionStartMemoryScopeResolver(router, config, workdir, time, client);
 
         var memory     = new SessionStartMemoryContextProvider(resolver, client, time);
         var guidelines = new SessionStartGuidelinesLane(client, time, diagnostic);

@@ -20,11 +20,15 @@ class RecapCommand(
             return 1;
         }
 
-        var hash = RepoHashHelper.ComputeRepoHash(repo.Owner, repo.RepoName);
-
         List<RepoRecapEntry> entries;
 
         try {
+            if (await repositoriesApi.HashForAsync(repo.Owner, repo.RepoName) is not { } hash) {
+                Console.Error.WriteLine(RepositoryHashes.Unresolved);
+
+                return 1;
+            }
+
             entries = await repositoriesApi.GetRecapsAsync(hash, limit);
         } catch (CapacitorApiException ex) {
             Console.Error.WriteLine(ex.Message);

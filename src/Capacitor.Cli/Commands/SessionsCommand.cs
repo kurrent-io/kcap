@@ -27,6 +27,9 @@ partial class SessionsCommand(
             return 1;
         }
 
+        var       baseUrl    = profiles.Resolution.ServerUrl!;
+        using var httpClient = await http.ForCommandAsync();
+
         string? repoHash;
         string  label;
 
@@ -44,15 +47,18 @@ partial class SessionsCommand(
                 return 1;
             }
 
-            repoHash = RepoHashHelper.ComputeRepoHash(repo.Owner, repo.RepoName);
+            repoHash = await RepositoryHashes.ForAsync(httpClient, baseUrl, repo.Owner, repo.RepoName);
             label    = LocalRepository.Label(repo.Owner, repo.RepoName);
+
+            if (repoHash is null) {
+                await Console.Error.WriteLineAsync(RepositoryHashes.Unresolved);
+
+                return 1;
+            }
         } else {
             repoHash = options.RepoHash!;
             label    = options.Repo;
         }
-
-        var       baseUrl    = profiles.Resolution.ServerUrl!;
-        using var httpClient = await http.ForCommandAsync();
 
         HttpResponseMessage resp;
 

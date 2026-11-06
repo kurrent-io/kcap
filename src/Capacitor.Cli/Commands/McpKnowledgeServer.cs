@@ -49,7 +49,7 @@ sealed class McpKnowledgeServer(ConfigRoot config, ProfileContext profiles, Toke
 
             try {
                 var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync());
+                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync(client, baseUrl));
             } catch (Exception ex) {
                 // The detail goes to stderr, not the client: an IO error's message can carry local paths.
                 await Console.Error.WriteLineAsync($"kcap mcp knowledge: unexpected error handling tools/call: {ex}");

@@ -101,7 +101,10 @@ class SkillsCommand(
             return Failed;
         }
 
-        var hash     = RepoHashHelper.ComputeRepoHash(repo.Owner, repo.RepoName);
+        if (await repositories.HashForAsync(repo.Owner, repo.RepoName) is not { } hash) {
+            await Console.Error.WriteLineAsync(RepositoryHashes.Unresolved);
+            return Failed;
+        }
         var repoHome = $"repo:{repo.Owner}/{repo.RepoName}";
 
         var adopted = Targets(legacy)
