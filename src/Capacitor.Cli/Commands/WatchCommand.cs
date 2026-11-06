@@ -288,6 +288,11 @@ partial class WatchCommand(
     /// </summary>
     internal static async Task<string> ReadFinalLineSharedAsync(string path) {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+        return await ReadFinalLineAsync(stream, path);
+    }
+
+    internal static async Task<string> ReadFinalLineAsync(FileStream stream, string path) {
         if (stream.Length > 0 && stream.ReadByte() is 0xFE or 0xFF or 0x00) return await File.ReadAllTextSharedAsync(path);
 
         var end   = stream.Length;

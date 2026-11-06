@@ -279,4 +279,45 @@ public class IndexedTranscriptReadTests {
         await Assert.That(done.Result.LineNumbers).IsEquivalentTo([1]);
         await AssertSame(reference.Result, done.Result, "completed multibyte line");
     }
+
+    // 10_000 lines of ~1 KB.
+    string TenMegabytes() => WriteLines(10_000, 1000);
+
+    [Test]
+    public async Task The_final_wait_reads_only_the_tail() {
+        var path = TenMegabytes();
+        await using var stream = new CountingFileStream(path);
+
+        var tail = await WatchCommand.ReadFinalLineAsync(stream, path);
+
+        await Assert.That(new FileInfo(path).Length).IsGreaterThan(10_000_000);
+        await Assert.That(WatchCommand.IsFinalLineComplete(tail)).IsTrue();
+        await Assert.That(stream.BytesRead).IsLessThan(2 * 64 * 1024);
+    }
+
+    [Test]
+    public async Task Spooling_the_tail_reads_only_the_tail() {
+        var path  = TenMegabytes();
+        var index = new TranscriptLineIndex();
+        var first = await Read(path, 0, Consume, index);
+
+        var again = await Read(path, first.Result.NextPosition, Consume, index);
+
+        await Assert.That(first.Result.NextPosition).IsEqualTo(10_000);
+        await Assert.That(again.Result.Lines).IsEmpty();
+        await Assert.That(again.BytesRead).IsLessThan(64 * 1024);
+    }
+
+    [Test]
+    public async Task A_resume_reads_the_file_once() {
+        var path  = TenMegabytes();
+        var index = new TranscriptLineIndex();
+
+        var first  = await Read(path, 9_990, Hold, index);
+        var second = await Read(path, first.Result.NextPosition, Hold, index);
+
+        await Assert.That(first.Result.LineNumbers).IsEquivalentTo(Enumerable.Range(9_990, 10).ToArray());
+        await Assert.That(first.BytesRead).IsGreaterThan(5_000_000);
+        await Assert.That(second.BytesRead).IsLessThan(64 * 1024);
+    }
 }
