@@ -8,6 +8,7 @@ using Avalonia.Controls.Notifications;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
@@ -219,6 +220,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         BindRefreshShortcuts();
         BindSearchShortcuts();
         BindSidebarShortcut();
+        BindFindShortcut();
         BindHistoryShortcuts();
         BindSettingsShortcut();
         KeepContentClearOfCaptionButtons();
@@ -294,6 +296,22 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         KeyBindings.Add(ShortcutLabels.UsesCommandKey
             ? new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Meta), Command = toggle }
             : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, toggle) });
+    }
+
+    // ⌘F on macOS; Ctrl+F elsewhere yields to a focused terminal, where it is a shell key.
+    void BindFindShortcut() {
+        var open = ReactiveCommand.Create(OpenFind);
+        KeyBindings.Add(ShortcutLabels.UsesCommandKey
+            ? new KeyBinding { Gesture = new KeyGesture(Key.F, KeyModifiers.Meta), Command = open }
+            : new KeyBinding { Gesture = new KeyGesture(Key.F, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, open) });
+    }
+
+    /// The chat holding focus, else the first one showing: a subagent pane opens beside its parent's.
+    void OpenFind() {
+        var focused = FocusManager?.GetFocusedElement() as Visual;
+        var chat = focused?.GetSelfAndVisualAncestors().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible)
+            ?? this.GetVisualDescendants().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible);
+        chat?.OpenFind();
     }
 
     // ⌘K everywhere on macOS. Off macOS Ctrl+K is a terminal key, so it yields to a focused terminal.

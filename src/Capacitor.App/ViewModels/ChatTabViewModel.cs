@@ -55,6 +55,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     // token it can ask without an ObjectDisposedException.
     readonly CancellationToken _lifetimeToken;
     readonly AvaloniaList<ChatItemViewModel> _items = new();
+    ChatFindViewModel? _find;
     readonly AvaloniaList<QueuedChatMessage> _queuedMessages = new();
     // Keep retired sends eligible for late echoes without letting them consume a later send's receipt.
     readonly List<(QueuedChatMessage Old, QueuedChatMessage Replacement)> _superseded = new();
@@ -131,6 +132,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     long? CurrentOffset => _lease?.Feed.CurrentOffset;
 
     public IAvaloniaReadOnlyList<ChatItemViewModel> Items => _items;
+    public ChatFindViewModel Find => _find ??= new(_items);
     public IAvaloniaReadOnlyList<QueuedChatMessage> QueuedMessages => _queuedMessages;
     public bool HasQueuedMessages => _queuedMessages.Count > 0;
     /// Unmatched server entries have no proven client identity.
