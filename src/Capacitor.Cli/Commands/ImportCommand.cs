@@ -2098,8 +2098,11 @@ class ImportCommand(
                     }
                 );
             }
-            await routedLedger.ConfirmAsync(httpClient, time, CancellationToken.None);
-            routedLedger.Save();
+            try {
+                await routedLedger.ConfirmAsync(httpClient, time, CancellationToken.None);
+            } finally {
+                routedLedger.Save();
+            }
         }
 
         await RecordImportedRepositoriesAsync(classifications, selectedIds, sessionCwds, display);
