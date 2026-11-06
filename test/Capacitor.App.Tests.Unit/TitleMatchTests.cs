@@ -1,3 +1,4 @@
+using System.Globalization;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Tests.Unit;
@@ -18,5 +19,18 @@ public class TitleMatchTests {
         await Assert.That(TitleMatch.Split("Title", "  ")).IsEquivalentTo(new[] { new SnippetRun("Title", false) });
         await Assert.That(TitleMatch.Split("Title", "zz")).IsEquivalentTo(new[] { new SnippetRun("Title", false) });
         await Assert.That(TitleMatch.Split(null, "zz")).IsEmpty();
+    }
+
+    [Test]
+    public async Task Case_folds_by_the_current_culture() {
+        var saved = CultureInfo.CurrentCulture;
+        try {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("tr-TR");
+            var runs = TitleMatch.Split("İzmir deploy", "izmir");
+
+            await Assert.That(runs).IsEquivalentTo(new[] { new SnippetRun("İzmir", true), new SnippetRun(" deploy", false) });
+        } finally {
+            CultureInfo.CurrentCulture = saved;
+        }
     }
 }

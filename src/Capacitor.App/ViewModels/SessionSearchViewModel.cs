@@ -17,6 +17,7 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
     readonly Func<SearchRequest, CancellationToken, Task<SearchFetch>> _search;
     readonly Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>> _open;
     readonly Func<IEnumerable<RailSessionViewModel>> _sidebar;
+    readonly Func<RailSessionViewModel, bool> _openSidebar;
     string? _viewerUserId;
     readonly TimeProvider _time;
     readonly IScheduler _scheduler;
@@ -46,11 +47,16 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
         IScheduler scheduler,
         Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>> open,
         Func<IEnumerable<RailSessionViewModel>>? sidebar = null,
+        Func<RailSessionViewModel, bool>? openSidebar = null,
         IObservable<string?>? viewerUserId = null,
         TimeSpan? debounce = null) {
         _search = search;
         _open = open;
         _sidebar = sidebar ?? (() => []);
+        _openSidebar = openSidebar ?? (row => {
+            row.OpenCommand.Execute().Subscribe();
+            return true;
+        });
         _time = time;
         _scheduler = scheduler;
         Hits = new ReadOnlyObservableCollection<SearchHitViewModel>(_hits);
@@ -169,9 +175,10 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
 
     public async Task OpenAsync(SearchHitViewModel hit) {
         CancelIntent();
-        if (hit.OpenSidebarRow is { } openRow) {
-            openRow.Execute().Subscribe();
-            ApplyOpen(SearchOpenOutcome.Opened, hit);
+        if (hit.Kind == SearchMode.Sidebar) {
+            // The hit keeps only the row's key: the rail may have rebuilt or dropped the row since.
+            var row = _sidebar().FirstOrDefault(r => r.Key == hit.SessionId);
+            ApplyOpen(row is not null && _openSidebar(row) ? SearchOpenOutcome.Opened : SearchOpenOutcome.Unavailable, hit);
             return;
         }
         var cts = new CancellationTokenSource();

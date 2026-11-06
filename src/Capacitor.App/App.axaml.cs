@@ -2323,6 +2323,7 @@ public partial class App : Application {
                 sessions.Identity.ObserveOn(RxSchedulers.MainThreadScheduler),
                 (lane?.SessionAccessChanged ?? Observable.Never<string>()).ObserveOn(RxSchedulers.MainThreadScheduler),
                 time, RxSchedulers.MainThreadScheduler, open, sidebar: () => rail.Groups.SelectMany(group => group.Sessions),
+                openSidebar: row => vm?.OpenSession(row.Id, row.IsServer ? AgentOrigin.Server : row.IsRemote ? AgentOrigin.Remote : AgentOrigin.Local) == true,
                 viewerUserId: sessions.ViewerUserId.ObserveOn(RxSchedulers.MainThreadScheduler));
         vm = new MainWindowViewModel(
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,

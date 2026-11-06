@@ -2,7 +2,8 @@ using System.Globalization;
 
 namespace Capacitor.App.ViewModels;
 
-/// Splits a title on every case-insensitive occurrence of the rail's title filter.
+/// Splits a title on every case-insensitive occurrence of a query, folding case by the user's own
+/// culture: a title is their language, so a Turkish user's "i" finds "İ".
 public static class TitleMatch {
     public static IReadOnlyList<SnippetRun> Split(string? text, string? filter) {
         if (string.IsNullOrEmpty(text)) return [];

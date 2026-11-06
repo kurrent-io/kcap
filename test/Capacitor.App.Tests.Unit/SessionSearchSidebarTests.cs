@@ -20,7 +20,7 @@ public class SessionSearchSidebarTests {
         public SessionSearchViewModel Vm { get; }
         public int Closed { get; private set; }
 
-        public Harness() {
+        public Harness(Func<RailSessionViewModel, bool>? openSidebar = null) {
             Rail = new SessionRailViewModel(Directory, _ => { }, _ => { }, TimeProvider.System, openServerSession: Opened.Add);
             Vm = new SessionSearchViewModel(
                 (request, _) => {
@@ -29,7 +29,7 @@ public class SessionSearchSidebarTests {
                 },
                 new Subject<SessionIdentity>(), new Subject<string>(), new FakeTimeProvider(), Scheduler,
                 (_, _, _) => Task.FromResult(SearchOpenOutcome.Opened),
-                sidebar: () => Rail.Groups.SelectMany(group => group.Sessions), viewerUserId: Viewer);
+                sidebar: () => Rail.Groups.SelectMany(group => group.Sessions), openSidebar, viewerUserId: Viewer);
             Vm.Closed.Subscribe(_ => Closed++);
         }
 
@@ -98,6 +98,40 @@ public class SessionSearchSidebarTests {
 
             await Assert.That(h.Opened).IsEquivalentTo(["a"]);
             await Assert.That(h.Closed).IsEqualTo(1);
+        });
+    }
+
+    /// A row gone from the rail since the hit was listed, or an open the window refuses, keeps the
+    /// page open with the reason instead of closing it on nothing.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_open_that_fails_keeps_the_page_open() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness();
+            h.Add("a", "Fix login");
+            h.Vm.Query = "login";
+            h.Directory.Rows.RemoveKey(h.Vm.Hits[0].SessionId);
+
+            await h.Vm.OpenHighlighted();
+
+            await Assert.That(h.Opened).IsEmpty();
+            await Assert.That(h.Closed).IsEqualTo(0);
+            await Assert.That(h.Vm.ListMessage).IsEqualTo("This session is no longer available");
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_refused_open_keeps_the_page_open() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness(openSidebar: _ => false);
+            h.Add("a", "Fix login");
+            h.Vm.Query = "login";
+
+            await h.Vm.OpenHighlighted();
+
+            await Assert.That(h.Closed).IsEqualTo(0);
+            await Assert.That(h.Vm.ListMessage).IsEqualTo("This session is no longer available");
         });
     }
 

@@ -27,8 +27,6 @@ public sealed class SearchHitViewModel : ReactiveObject {
     public AccessibilityView OwnerAvatarView => string.IsNullOrEmpty(OwnerName) ? AccessibilityView.Raw : AccessibilityView.Content;
     public required string WhenText { get; init; }
     public required PinPresentation Presentation { get; init; }
-    /// A sidebar hit opens its rail row the way a click on that row does.
-    public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit>? OpenSidebarRow { get; init; }
 
     public bool IsHighlighted { get => _isHighlighted; set => this.RaiseAndSetIfChanged(ref _isHighlighted, value); }
     public bool IsOpening { get => _isOpening; set => this.RaiseAndSetIfChanged(ref _isOpening, value); }
@@ -97,8 +95,7 @@ public sealed class SearchHitViewModel : ReactiveObject {
             WhenText = row.IsEnded
                 ? RelativeTime.Format(new DateTimeOffset(DateTime.SpecifyKind(row.LastActivityAt ?? row.CreatedAt, DateTimeKind.Utc)), now)
                 : "Live",
-            Presentation = new PinPresentation(null, null, null),
-            OpenSidebarRow = row.OpenCommand
+            Presentation = new PinPresentation(null, null, null)
         };
     }
 
