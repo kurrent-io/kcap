@@ -602,15 +602,28 @@ public class ClaudeChatRulesTests {
         await Assert.That(finished.Outcome).IsNull();
     }
 
-    /// A resumed Claude Code reports a background agent the previous process left running this way:
-    /// keyed by the agent id alone, with a status of its own.
+    /// A resumed Claude Code reports what the previous process left running, one task or many to a
+    /// notification. The report is a restart mark, since a resume need not write any other; the
+    /// orphan-summary id is a scan marker, not a task.
     [Test]
-    public async Task A_notification_for_an_agent_the_previous_process_left_running_finishes_it_as_stopped() {
-        var line = """{"type":"user","timestamp":"2026-10-22T13:42:55.148Z","origin":{"kind":"task-notification"},"promptSource":"system","message":{"role":"user","content":"<task-notification>\n<task-id>a9202cd3d93195cce</task-id>\n<output-file>/tmp/a9202cd3d93195cce.output</output-file>\n<status>stopped</status>\n<summary>Background agent \"Review Task 12 (spec + quality)\" didn't finish before the previous session ended</summary>\n<note>No completion record was found for it in the previous session.</note>\n</task-notification>"}}""";
-        var finished = (RunSignal.Finished)R(line).Runs.Single();
-        await Assert.That(finished.CallId).IsNull();
-        await Assert.That(finished.AgentId).IsEqualTo("a9202cd3d93195cce");
-        await Assert.That(finished.Outcome).IsEqualTo(RunOutcome.Stopped);
+    [Arguments("<task-id>a9202cd3d93195cce</task-id>\n<output-file>/tmp/a9202cd3d93195cce.output</output-file>\n<status>stopped</status>\n<summary>Background agent \"Review Task 12 (spec + quality)\" didn't finish before the previous session ended</summary>\n<note>No completion record was found for it in the previous session.</note>", "a9202cd3d93195cce")]
+    [Arguments("<task-id>b6pn0657h</task-id>\n<task-id>bjgjxvmn0</task-id>\n<task-id>bhr6650se</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>3 background shell command tasks didn't finish before the previous session ended. First 20 task ids: b6pn0657h, bjgjxvmn0, bhr6650se.</summary>\n<note>No completion record was found for them in the previous session. They have been marked stopped. Task ids in this notification beginning with \"__orphan_summary\" are internal scan markers, not tasks.</note>", "b6pn0657h,bjgjxvmn0,bhr6650se")]
+    public async Task A_report_of_work_the_previous_process_left_running_stops_it_and_marks_the_restart(string body, string ids) {
+        var text = $"<task-notification>\n{body}\n</task-notification>";
+        var runs = R($$$"""{"type":"user","timestamp":"2026-10-22T13:42:55.148Z","origin":{"kind":"task-notification"},"promptSource":"system","message":{"role":"user","content":"{{{text.Replace("\n", "\\n").Replace("\"", "\\\"")}}}"}}""").Runs;
+
+        var finished = runs.OfType<RunSignal.Finished>().ToList();
+        await Assert.That(finished.Select(f => f.AgentId!)).IsEquivalentTo(ids.Split(','));
+        await Assert.That(finished.All(f => f.CallId is null && f.Outcome == RunOutcome.Stopped)).IsTrue();
+        await Assert.That(runs.OfType<RunSignal.Restarted>().Single().At).IsEqualTo(new DateTimeOffset(2026, 10, 22, 13, 42, 55, 148, TimeSpan.Zero));
+    }
+
+    /// Any end can name several tasks, and each of them ends.
+    [Test]
+    public async Task A_notification_naming_several_tasks_ends_each_of_them() {
+        var runs = R(User("<task-notification>\n<task-id>b1</task-id>\n<task-id>b2</task-id>\n<status>killed</status>\n<summary>Background commands were stopped</summary>\n</task-notification>")).Runs;
+
+        await Assert.That(runs.Cast<RunSignal.Finished>().Select(f => f.AgentId!)).IsEquivalentTo(new[] { "b1", "b2" });
     }
 
     /// Claude Code reports a background agent that stopped with work of its own still running as

@@ -191,8 +191,11 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                 // Read past the reminders that open it, which can quote another task's tags.
                 var text = SystemInstructionParser.StripLeading(raw.Text ?? "");
                 var callId = Tag(TaskToolUseId(), text);
-                var agentId = Tag(TaskId(), text);
-                if (callId is null && agentId is null) return [];
+                var taskIds = TaskIds(text, out var orphanScan);
+                RunSignal[] restart = orphanScan || Tag(TaskSummary(), text)?.Contains(PreviousSessionEnded, StringComparison.OrdinalIgnoreCase) == true
+                    ? [new RunSignal.Restarted(evt.Timestamp)]
+                    : [];
+                if (callId is null && taskIds.Count == 0) return restart;
                 // A cut-off notification has no status and still says the run ended; a status
                 // that is not an end, such as running, says nothing.
                 RunOutcome? outcome;
@@ -201,14 +204,15 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                     // Claude Code reports an agent paused on background work of its own as completed
                     // too: the summary is what tells the pause from the end.
                     case "completed" when Tag(TaskSummary(), text)?.EndsWith(WaitingSummaryEnd, StringComparison.OrdinalIgnoreCase) == true:
-                        return [new RunSignal.Waiting(callId, agentId, evt.Timestamp)];
+                        return [new RunSignal.Waiting(callId, taskIds.FirstOrDefault(), evt.Timestamp)];
                     case "completed": outcome = RunOutcome.Done; break;
                     case "failed":    outcome = RunOutcome.Failed; break;
                     case "killed":    outcome = RunOutcome.Stopped; break;
                     case "stopped":   outcome = RunOutcome.Stopped; break;
-                    default:          return [];
+                    default:          return restart;
                 }
-                return [new RunSignal.Finished(callId, agentId, outcome, evt.Timestamp)];
+                if (taskIds.Count <= 1) return [..restart, new RunSignal.Finished(callId, taskIds.FirstOrDefault(), outcome, evt.Timestamp)];
+                return [..restart, ..taskIds.Select(id => new RunSignal.Finished(null, id, outcome, evt.Timestamp))];
             }
             default:
                 return [];
@@ -216,6 +220,25 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
     }
 
     const string WaitingSummaryEnd = " is waiting on its own background work";
+
+    // A resumed Claude Code reports what the previous process left unfinished, and that report marks
+    // the restart even when the resume wrote no hook record.
+    const string PreviousSessionEnded = "before the previous session ended";
+    const string OrphanScanMarker = "__orphan_summary";
+
+    /// The ids ahead of the result, which can quote tags of its own.
+    static List<string> TaskIds(string text, out bool orphanScan) {
+        var resultAt = text.IndexOf("<result>", StringComparison.Ordinal);
+        var head = resultAt < 0 ? text : text[..resultAt];
+        var ids = new List<string>();
+        orphanScan = false;
+        foreach (Match m in TaskId().Matches(head)) {
+            if (m.Groups[1].Value.Trim() is not { Length: > 0 } id) continue;
+            if (id.StartsWith(OrphanScanMarker, StringComparison.Ordinal)) orphanScan = true;
+            else ids.Add(id);
+        }
+        return ids;
+    }
 
     /// The server's events carry no origin_kind, so the text is the other way to know: how it opens
     /// once any reminders ahead of it are off.

@@ -645,9 +645,13 @@ public class SessionRunsTests {
         await Assert.That(Only(s).State).IsEqualTo(RunState.Failed);
     }
 
-    /// The records Claude writes for an agent caught paused by a restart, end to end through the chat's projection.
+    /// The records Claude writes for an agent caught paused by a restart, end to end through the chat's
+    /// projection. A resume can leave the hook record, or only the report of what the old process left
+    /// running, which need not name the paused agent.
     [Test]
-    public async Task A_transcript_with_a_paused_agent_stops_it_at_the_resume_hook() {
+    [Arguments("""{"type":"attachment","timestamp":"2026-09-17T11:39:00Z","attachment":{"type":"hook_success","hookName":"SessionStart:resume"}}""")]
+    [Arguments("""{"type":"user","timestamp":"2026-09-17T11:39:00Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>b7k2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>1 background shell command tasks didn't finish before the previous session ended. First 20 task ids: b7k2.</summary>\n<note>They have been marked stopped. Task ids in this notification beginning with \"__orphan_summary\" are internal scan markers, not tasks.</note>\n</task-notification>"}}""")]
+    public async Task A_transcript_with_a_paused_agent_stops_it_at_the_restart(string restart) {
         var chat = TranscriptChat.For("claude")!;
         var context = chat.CreateContext("a1", null);
         var s = new SessionRuns(Clock());
@@ -655,14 +659,16 @@ public class SessionRunsTests {
         foreach (var line in new[] {
             """{"type":"assistant","timestamp":"2026-09-17T10:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_A","name":"Agent","input":{"description":"Fix it","subagent_type":"general-purpose"}}]}}""",
             """{"type":"user","timestamp":"2026-09-17T10:00:01Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_A","content":"launched"}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a151b2d5ee7fd3108"}}""",
+            """{"type":"assistant","timestamp":"2026-09-17T10:01:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_B","name":"Bash","input":{"command":"sleep 600","description":"Wait","run_in_background":true}}]}}""",
+            """{"type":"user","timestamp":"2026-09-17T10:01:01Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_B","content":"Command running in background with ID: b7k2."}]},"toolUseResult":{"backgroundTaskId":"b7k2"}}""",
             """{"type":"user","timestamp":"2026-09-17T10:07:00Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>a151b2d5ee7fd3108</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Fix it\" is waiting on its own background work</summary>\n</task-notification>"}}""",
         }) s.Apply(chat.ProjectWithInputs(line, ++number, T0, context));
-        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
+        await Assert.That(s.RunningCount).IsEqualTo(2);
 
-        s.Apply(chat.ProjectWithInputs("""{"type":"attachment","timestamp":"2026-09-17T11:39:00Z","attachment":{"type":"hook_success","hookName":"SessionStart:resume"}}""", ++number, T0, context));
+        s.Apply(chat.ProjectWithInputs(restart, ++number, T0, context));
 
-        await Assert.That(Only(s).State).IsEqualTo(RunState.Stopped);
-        await Assert.That(Only(s).StateText).IsEqualTo("stopped · 1h 39m");
+        await Assert.That(s.Rows.Select(r => r.State)).IsEquivalentTo(new[] { RunState.Stopped, RunState.Stopped });
+        await Assert.That(s.Rows[0].StateText).IsEqualTo("stopped · 1h 39m");
     }
 
     /// The local feed names a launch from its meta file after the lines are folded, so on a reopen it
