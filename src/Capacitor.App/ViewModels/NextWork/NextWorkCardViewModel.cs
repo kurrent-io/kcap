@@ -34,6 +34,15 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
         Meta = string.Join(" · ", new[] { because, NextWorkLaneLogic.ShortRepo(repoNames, row.RepoHash), age }.Where(p => p is { Length: > 0 }));
 
         // The loose end an item carries is why it is worth picking up now; a loose end's own row is its title.
+        // What the server's prompt adds, said for a person: the prompt itself is written for the agent.
+        ContextSummary = ownEnd
+            ? "The agent also gets the session this loose end was noted in."
+            : item.Ends.Count switch {
+                0 => null,
+                1 => "The agent also gets the loose end noted against it and the session it came from.",
+                var n => $"The agent also gets the {n} loose ends noted against it and the sessions they came from.",
+            };
+
         if (!ownEnd && item.Ends.Count > 0) {
             var first = item.Ends[0].Text;
             Context = item.Ends.Count > 1 ? $"{first} · +{item.Ends.Count - 1} more" : first;
@@ -70,6 +79,9 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
 
     /// <summary>The first loose end noted against the item, and how many more there are; null for a row without one.</summary>
     public string? Context { get; }
+
+    /// <summary>What the agent gets beyond the task's line, for the composer chip's tooltip; null when nothing.</summary>
+    public string? ContextSummary { get; }
 
     public bool HasMeta          => Meta.Length > 0;
     public bool HasContext       => Context is not null;

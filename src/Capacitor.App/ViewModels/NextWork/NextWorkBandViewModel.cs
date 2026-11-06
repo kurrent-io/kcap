@@ -302,7 +302,7 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
                 : (null, true, row.RepoHash is { } hash && _localCheckout is not null ? await _localCheckout(hash) : null);
             if (path is not null && machine is null) machine = _localDaemon;
 
-            await _fill(new(row.TargetKey, card.Label, goal, machine, local, path, context));
+            await _fill(new(row.TargetKey, card.Label, goal, machine, local, path, context, context is null ? null : card.ContextSummary));
             MarkFilled(row.TargetKey);
             if (path is null && row.RepoHash is not null)
                 _notify?.Invoke($"No checkout of {Repo(row)} is known on your machines: pick its repository before you start.");

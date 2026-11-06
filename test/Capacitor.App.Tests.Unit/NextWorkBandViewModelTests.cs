@@ -129,6 +129,7 @@ public class NextWorkBandViewModelTests {
         await card.FillCommand.Execute().ToTask();
 
         await Assert.That(filled).IsEqualTo(new NextWorkFill("wi:a", "A-1 Fix it", "A-1 Fix it", "mbp", true, "/Users/m/p", "Work on A-1"));
+        await Assert.That(filled!.ContextSummary).IsNull();
         await Assert.That(card.IsFilled).IsTrue();
     }
 
@@ -200,6 +201,7 @@ public class NextWorkBandViewModelTests {
 
         await Assert.That(filled!.Goal).IsEqualTo("Document the replay window");
         await Assert.That(filled.Context).IsEqualTo("Close the replay loose end");
+        await Assert.That(filled.ContextSummary).IsEqualTo("The agent also gets the session this loose end was noted in.");
         await Assert.That(filled.RepoPath).IsNull();
     }
 
@@ -226,6 +228,7 @@ public class NextWorkBandViewModelTests {
         await band.RefreshAsync();
 
         await Assert.That(band.Cards.Single().Context).IsEqualTo("Add jitter to the retry backoff · +1 more");
+        await Assert.That(band.Cards.Single().ContextSummary).IsEqualTo("The agent also gets the 2 loose ends noted against it and the sessions they came from.");
     }
 
     [Test]
