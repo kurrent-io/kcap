@@ -370,6 +370,26 @@ public class CursorHookCommandTests {
         await Assert.That(hints).IsEqualTo(1);
     }
 
+    /// <summary>A short drain whose flag saying what it left cannot be written keeps the flag it put down first.</summary>
+    [Test, NotInParallel]
+    public async Task A_short_session_end_drain_keeps_its_first_flag_when_the_specific_one_cannot_be_written() {
+        var sid   = Guid.NewGuid().ToString("N");
+        var clock = new JumpingFakeClock();
+        using var fx = new Fixture(Config.Root) {
+            Clock         = clock,
+            WatermarkRead = () => clock.JumpOnReading(MidFirstTry, TimeSpan.FromSeconds(1.2))
+        };
+        await fx.WriteTranscript(TranscriptLine);
+        // A directory where the shared marker goes fails only that write.
+        var spoolDirectory = new TranscriptSpool(Config.Root, TimeProvider.System, Fixture.StubUrl).DirectoryPath;
+        Directory.CreateDirectory(Path.Combine(spoolDirectory, $"{sid}.needs-import"));
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        await Assert.That(NeedsImport(sid)).IsTrue();
+    }
+
     // A file where the spool directory goes fails every marker write.
     void BlockMarkers() => File.WriteAllText(Config.Root.Path(TranscriptSpool.DirectoryName), "");
 

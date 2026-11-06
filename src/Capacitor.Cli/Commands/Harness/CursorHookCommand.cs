@@ -535,8 +535,9 @@ public sealed class CursorHookCommand(
                 // running one may be disconnected with nothing on disk saying so: flag every tail left.
                 // A line redaction held gets no second try here: it can take about 1.4 s of the hook's
                 // 2 s, and overrunning spools the end instead.
-                if (drained.TailUnsent) FlagTailForImport(sessionId!, drained.FirstUnsentLine, hinted);
-                transcriptSpool.ClearNeedsImport(sessionId!, Environment.ProcessId);
+                // The provisional flag stays when the one saying what was left could not be written.
+                if (!drained.TailUnsent || FlagTailForImport(sessionId!, drained.FirstUnsentLine, hinted))
+                    transcriptSpool.ClearNeedsImport(sessionId!, Environment.ProcessId);
             }
 
             if (BudgetExpired()) {
@@ -987,12 +988,13 @@ public sealed class CursorHookCommand(
         } catch { }
     }
 
-    void FlagTailForImport(string sessionId, int? firstUnsent, bool hinted = false) {
+    bool FlagTailForImport(string sessionId, int? firstUnsent, bool hinted = false) {
         var (what, reason) = firstUnsent is { } line
             ? ($"line {line} and later were not sent", $"session end: line {line} and later not sent")
             : ("the transcript tail may not have been sent", "session end: transcript tail may not have been sent");
         if (!hinted) PrintImportHint(sessionId, what);
-        new TranscriptSpool(config, clock.Time, Url).MarkNeedsImport(sessionId, reason);
+
+        return new TranscriptSpool(config, clock.Time, Url).MarkNeedsImport(sessionId, reason);
     }
 
     static void PrintImportHint(string sessionId, string what) =>
