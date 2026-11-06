@@ -50,15 +50,20 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
     /// <summary>Awaited inside <see cref="DrainCompleteAsync"/> with its token, to hold a drain open.</summary>
     public Func<CancellationToken, Task>? OnDrainComplete { get; set; }
 
-    public Task<int> ConnectAsync(RecordingSource source, CancellationToken ct) {
+    /// <summary>Whether <see cref="ConnectAsync"/> never answers and ignores its token, as a hub retrying on a token
+    /// that is never cancelled does while its server is down.</summary>
+    public bool ConnectHangs { get; set; }
+
+    public async Task<int> ConnectAsync(RecordingSource source, CancellationToken ct) {
         Interlocked.Increment(ref _connectAttempts);
         ct.ThrowIfCancellationRequested();
+        if (ConnectHangs) await new TaskCompletionSource().Task;
         if (Interlocked.Decrement(ref _connectFailures) >= 0) throw new InvalidOperationException("The hub is down.");
         Interlocked.Exchange(ref _connectFailures, 0);
         Require();
         Interlocked.Increment(ref _connects);
 
-        return Task.FromResult(ResumeFrom);
+        return ResumeFrom;
     }
 
     public Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct) {

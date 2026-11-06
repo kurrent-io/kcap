@@ -57,6 +57,8 @@ public sealed class TranscriptRecorder(
     /// region the per-poll zone checks have moved past is still caught.</summary>
     internal const int CursorFullPrefixVerifyEveryNPolls = 60;
 
+    internal static readonly TimeSpan DrainOnceConnectBudget = TimeSpan.FromSeconds(30);
+
     static readonly TimeSpan DrainCompleteBudget = TimeSpan.FromSeconds(5);
 
     // Inside the 5s a stop request allows before the kill, so the spool append or the needs-import
@@ -105,6 +107,14 @@ public sealed class TranscriptRecorder(
     public void Dispose() {
         Unsubscribe();
         _stop.Dispose();
+
+        // A title still being generated belongs to this attempt, and a retry makes its own.
+        try {
+            _titleCts.Cancel();
+        } catch (ObjectDisposedException) {
+            // Disposed twice.
+        }
+
         _titleCts.Dispose();
         _cursorRewindGate?.Dispose();
     }
@@ -214,10 +224,12 @@ public sealed class TranscriptRecorder(
     }
 
     /// <summary>Registers, then makes the final drain, without tailing. For a source whose run never connected: the
-    /// server's cursor says what is left, and what cannot be sent is spooled as <see cref="FinishAsync"/> does.</summary>
+    /// server's cursor says what is left, and what cannot be sent is spooled as <see cref="FinishAsync"/> does.
+    /// Registering gets <see cref="DrainOnceConnectBudget"/>, then throws <see cref="TimeoutException"/>, because a
+    /// transport that retries until it connects would otherwise park the drain with nothing spooled or marked.</summary>
     public async Task DrainOnceAsync(CancellationToken ct) {
         Subscribe();
-        await ConnectAndSeedAsync(ct);
+        await ConnectAndSeedAsync(ct, DrainOnceConnectBudget);
         await FinishAsync(ct);
     }
 
@@ -343,7 +355,7 @@ public sealed class TranscriptRecorder(
 
     /// <summary>Registers with the server and rebuilds what the lines before its cursor fed. Shared by the tailing
     /// run and the single drain, so both start from the same state.</summary>
-    async Task ConnectAndSeedAsync(CancellationToken stop) {
+    async Task ConnectAndSeedAsync(CancellationToken stop, TimeSpan? connectBudget = null) {
         var sessionId = source.SessionId;
         var agentId   = source.AgentId;
         var vendor    = source.Vendor;
@@ -360,7 +372,7 @@ public sealed class TranscriptRecorder(
 
         log($"Watching {TranscriptPath} for session {sessionId}" + (agentId is not null ? $" agent {agentId}" : ""));
 
-        State.LinesProcessed = await transport.ConnectAsync(source, stop);
+        State.LinesProcessed = await ConnectAsync(stop, connectBudget);
         Connected            = true;
         // Lines the server already holds were flushed by an earlier watcher, so the tail is never held back.
         if (State.LinesProcessed > 0) State.ThresholdReached = true;
@@ -391,6 +403,20 @@ public sealed class TranscriptRecorder(
             if (ToolCallTracking.TracksCodexToolCalls(vendor)) replay.Add(ToolCallTracking.CodexWatcherStateReplay(State, isChildWatcher: agentId is not null));
             if (ToolCallTracking.TracksCopilotToolCalls(vendor, TranscriptPath, State.CopilotHostMissing)) replay.Add(new(WindowOnly: false, line => { ToolCallTracking.UpdateCopilotPendingToolCalls(State.PendingCopilotToolCalls, line); return false; }));
             await TranscriptReplay.ReplayAsync(TranscriptPath, State.LinesProcessed, replay, stop, log);
+        }
+    }
+
+    async Task<int> ConnectAsync(CancellationToken stop, TimeSpan? budget) {
+        if (budget is not { } limit) return await transport.ConnectAsync(source, stop);
+
+        using var abandon = CancellationTokenSource.CreateLinkedTokenSource(stop);
+
+        try {
+            return await transport.ConnectAsync(source, abandon.Token).WaitAsync(limit, time, stop);
+        } catch (TimeoutException) {
+            await abandon.CancelAsync();
+
+            throw;
         }
     }
 

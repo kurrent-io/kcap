@@ -141,6 +141,22 @@ public class TranscriptRecorderTests {
     }
 
     [Test]
+    public async Task Disposing_a_recorder_cancels_the_title_work_it_started() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        var recorder = Recorder(path);
+        using var stop = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(1);
+        await stop.CancelAsync();
+        await run;
+        var titles = recorder.State.TitleCancellation;
+        recorder.Dispose();
+
+        await Assert.That(titles.IsCancellationRequested).IsTrue();
+    }
+
+    [Test]
     public async Task A_reconnect_re_registers_and_rewinds_to_the_server() {
         var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n");
         using var recorder = Recorder(path);

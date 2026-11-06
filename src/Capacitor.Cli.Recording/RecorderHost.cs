@@ -97,7 +97,7 @@ public sealed class RecorderHost {
                             await recorder.RunAsync(token);
                             connected = recorder.Connected;
                         } catch (OperationCanceledException) when (token.IsCancellationRequested || recorder.Stopping.IsCancellationRequested) {
-                            // Stopped before it registered, which the watcher leaves undrained and the host does not.
+                            // Stopped before it connected: the watcher leaves that undrained, the host drains it.
                         } catch (Exception ex) {
                             failed    = true;
                             connected = recorder.Connected;
@@ -116,7 +116,7 @@ public sealed class RecorderHost {
                     }
                 }
 
-                // Nothing was finished: the run failed or was stopped before it registered.
+                // Nothing was finished: the run failed, or was stopped before it connected.
                 if (stopped) {
                     await DrainOnceAsync(source, first);
 
@@ -125,9 +125,7 @@ public sealed class RecorderHost {
 
                 if (connected && _time.GetElapsedTime(started) >= MaxRetryDelay) delay = FirstRetryDelay;
 
-                try {
-                    await Task.Delay(delay, _time, token);
-                } catch (OperationCanceledException) {
+                if (!await DelayWithBeatsAsync(delay, first, token)) {
                     await DrainOnceAsync(source, first);
 
                     return;
@@ -147,17 +145,36 @@ public sealed class RecorderHost {
         }
     }
 
+    // The backoff outlasts the heartbeat's staleness threshold, so one plain delay would make a healthy source look wedged.
+    async Task<bool> DelayWithBeatsAsync(TimeSpan total, RecorderContext first, CancellationToken ct) {
+        foreach (var slice in TranscriptRecorder.HeartbeatSlices(total, TranscriptRecorder.HeartbeatSlice)) {
+            try {
+                first.Beat();
+            } catch {
+                // A failing beat must not end the retry.
+            }
+
+            try {
+                await Task.Delay(slice, _time, ct);
+            } catch (OperationCanceledException) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     async Task FinishRecorderAsync(RecordingSource source, TranscriptRecorder recorder, RecorderContext first) {
         try {
             await recorder.FinishAsync(CancellationToken.None);
         } catch (Exception ex) {
             Log(first, $"Final drain of {source.Key} failed, marking it for import: {ex.Message}");
-            MarkNeedsImport(source, first, $"final drain failed: {ex.Message}");
+            MarkNeedsImport(source, first, $"final drain did not complete: {ex.Message}");
         }
     }
 
-    // One fresh recorder registers and drains, for a source that never connected. If it can't, the lines are the
-    // import's to recover, never dropped.
+    // One fresh recorder connects and drains, for a source whose run never connected. If that doesn't complete, the
+    // import recovers the lines; they are never dropped.
     async Task DrainOnceAsync(RecordingSource source, RecorderContext first) {
         TranscriptRecorder? recorder = null;
 
@@ -168,7 +185,7 @@ public sealed class RecorderHost {
         } catch (Exception ex) {
             Log(first, $"Final drain of {source.Key} failed, marking it for import: {ex.Message}");
 
-            MarkNeedsImport(source, first, $"final drain could not register: {ex.Message}");
+            MarkNeedsImport(source, first, $"final drain did not complete: {ex.Message}");
         } finally {
             recorder?.Dispose();
         }
@@ -176,7 +193,9 @@ public sealed class RecorderHost {
 
     void MarkNeedsImport(RecordingSource source, RecorderContext first, string reason) {
         try {
-            new TranscriptSpool(first.Server.Config, _time, first.Server.Url).MarkNeedsImport(source.SessionId, reason);
+            if (!new TranscriptSpool(first.Server.Config, _time, first.Server.Url).MarkNeedsImport(source.SessionId, reason)) {
+                Log(first, $"Could not mark {source.Key} for import: the marker was not written");
+            }
         } catch (Exception ex) {
             Log(first, $"Could not mark {source.Key} for import: {ex.Message}");
         }

@@ -15,13 +15,18 @@ public class RecorderHostTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     readonly FakeRecorderTransport _transport = new() { IsConnected = true };
-    readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 11, 5, 12, 0, 0, TimeSpan.Zero));
+    readonly RecordingTime _time = new(new DateTimeOffset(2026, 11, 5, 12, 0, 0, TimeSpan.Zero));
 
     readonly ConcurrentDictionary<string, int> _ticks = new();
     readonly ConcurrentDictionary<string, Func<Task>?> _beforeDrain = new();
     readonly ConcurrentDictionary<string, TimeProvider> _clocks = new();
     readonly ConcurrentDictionary<string, Func<Task>?> _prepare = new();
     readonly ConcurrentQueue<string> _log = new();
+    readonly ConcurrentDictionary<string, int> _beats = new();
+    readonly ConcurrentDictionary<string, Func<Task>?> _afterFinalDrain = new();
+    readonly ConcurrentDictionary<string, bool> _logThrows = new();
+
+    public RecorderHostTests() => _time.Attempts = () => _transport.ConnectAttempts;
 
     ConfigRoot Config => field ??= new(Tmp.CreateDir("config"));
 
@@ -38,6 +43,7 @@ public class RecorderHostTests {
             return new RecorderContext(
             new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)),
             new FakeRecorderHousekeeping {
+                OnAfterFinalDrain = () => _afterFinalDrain.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask,
                 OnPrepare = () => _prepare.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask,
                 BeforeDrain = () => {
                     _ticks.AddOrUpdate(source.Key, 1, (_, n) => n + 1);
@@ -45,7 +51,11 @@ public class RecorderHostTests {
                     return _beforeDrain.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask;
                 },
             },
-            _clocks.GetValueOrDefault(source.Key, _time), message => _log.Enqueue($"{source.Key}: {message}"), () => { });
+            _clocks.GetValueOrDefault(source.Key, _time), message => {
+                if (_logThrows.ContainsKey(source.Key)) throw new InvalidOperationException("the log is broken");
+
+                _log.Enqueue($"{source.Key}: {message}");
+            }, () => _beats.AddOrUpdate(source.Key, 1, (_, n) => n + 1));
         },
         _time, open);
 
@@ -262,6 +272,135 @@ public class RecorderHostTests {
     }
 
     [Test]
+    public async Task A_connect_that_never_returns_at_finish_is_marked_for_import() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        _transport.ConnectHangs = true;
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => _transport.ConnectAttempts == 2, "the final drain's connect");
+
+        await Eventually(() => finish.IsCompleted, "the connect to time out", TranscriptRecorder.DrainOnceConnectBudget);
+        await finish;
+
+        var spool = new TranscriptSpool(Config, _time, "http://127.0.0.1:1");
+        await Assert.That(spool.NeedsImport(source.SessionId)).IsTrue();
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    [Test]
+    public async Task Backoff_doubles_to_its_cap_and_resets_after_a_long_run() {
+        var capped = Source(Tmp.CreateFile("capped.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 100;
+        var host = NewHost();
+
+        host.TryAdd(capped);
+        await Eventually(() => _transport.ConnectAttempts == 8, "eight attempts", TimeSpan.FromSeconds(1));
+
+        var delays = Enumerable.Range(1, 7).Select(attempt => _time.Timers.Where(t => t.Attempts == attempt).Sum(t => t.Due.TotalSeconds)).ToList();
+        await Assert.That(delays.SequenceEqual([1.0, 2, 4, 8, 16, 30, 30])).IsTrue().Because(string.Join(",", delays));
+        await Assert.That(_time.Timers.Max(t => t.Due)).IsLessThanOrEqualTo(TranscriptRecorder.HeartbeatSlice);
+        await Assert.That(_beats[capped.Key]).IsGreaterThanOrEqualTo(7);
+    }
+
+    [Test]
+    public async Task A_long_run_resets_the_backoff() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 2;
+        var calls  = 0;
+        var firstAt = DateTimeOffset.MinValue;
+        var timersAtFailure = -1;
+        _beforeDrain[source.Key] = () => {
+            if (Interlocked.Increment(ref calls) == 1) {
+                firstAt = _time.GetUtcNow();
+            } else if (timersAtFailure < 0 && _time.GetUtcNow() - firstAt >= TimeSpan.FromSeconds(30)) {
+                timersAtFailure = _time.Timers.Count;
+
+                throw new InvalidOperationException("boom");
+            }
+
+            return Task.CompletedTask;
+        };
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => timersAtFailure >= 0 && _transport.ConnectAttempts == 4, "the failure and the next attempt", TimeSpan.FromSeconds(31));
+
+        var delay = _time.Timers.Skip(timersAtFailure).Where(t => t.Attempts == 3).Sum(t => t.Due.TotalSeconds);
+        await Assert.That(delay).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_failed_connected_recorder_is_drained_once_when_a_finish_arrives() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls   = 0;
+        _beforeDrain[source.Key] = async () => {
+            if (Interlocked.Increment(ref calls) != 2) return;
+
+            entered.SetResult();
+            await release.Task;
+
+            throw new InvalidOperationException("boom");
+        };
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 2, "its lines");
+        await Eventually(() => entered.Task.IsCompleted, "the recorder entering its second drain", TimeSpan.FromSeconds(1));
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        _transport.ResumeFrom = 2;
+        release.SetResult();
+        await finish.WithinDeadlineAsync("the finish");
+
+        await Assert.That(_transport.Connects).IsEqualTo(2);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task A_final_drain_that_fails_marks_the_source_for_import() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _afterFinalDrain[source.Key] = () => throw new InvalidOperationException("boom");
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        var spool = new TranscriptSpool(Config, _time, "http://127.0.0.1:1");
+        await Assert.That(spool.NeedsImport(source.SessionId)).IsTrue();
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_log_that_throws_does_not_reach_the_transports_other_subscribers() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.Connects == 1, "the source to register");
+        _logThrows[source.Key] = true;
+        var lastRan = 0;
+        _transport.StopRequested += (_, _) => Task.FromResult(Interlocked.Increment(ref lastRan));
+        _transport.Reconnected   += () => Task.FromResult(Interlocked.Increment(ref lastRan));
+
+        _transport.ConnectFailures = 1;
+        await _transport.RaiseReconnectedAsync();
+        await _transport.RaiseStopRequestedAsync(source.Key, "the server asked");
+
+        // A log that throws can also fail the recorder's own loop, so only the raises are pinned here.
+        await Assert.That(lastRan).IsEqualTo(2);
+
+        _logThrows.TryRemove(source.Key, out _);
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+    }
+
+    [Test]
     public async Task A_factory_that_throws_in_TryAdd_adds_nothing() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"));
         var host   = NewHost(factoryHook: kind => throw new InvalidOperationException($"no {kind}"));
@@ -412,12 +551,27 @@ public class RecorderHostTests {
 
         await Eventually(() => sources.All(source => Ticks(source.Key) >= ticksBefore[source.Key] + IdleTicks), "idle ticks", TimeSpan.FromSeconds(1));
 
-        // A read in flight when a count was taken can land on either side of it, so the window is off by at most one.
+        // A read in flight at either count can land on either side of it, so the window is off by up to two reads.
         var perTick = sources.Select(source => (double)(read[source.TranscriptPath] - bytesBefore[source.Key]) / (Ticks(source.Key) - ticksBefore[source.Key])).ToList();
 
         await Assert.That(new FileInfo(sources[1].TranscriptPath).Length).IsGreaterThan(90_000);
         await Assert.That(perTick.Max()).IsLessThan(PerTickBudget);
         await Assert.That(perTick.Min()).IsGreaterThan(TailCompare);
         await Assert.That(host.ActiveKeys.Count).IsEqualTo(Sources);
+    }
+
+    /// <summary>A fake clock that remembers the timers armed on it and how many connects had been tried by then.</summary>
+    sealed class RecordingTime(DateTimeOffset start) : FakeTimeProvider(start) {
+        readonly ConcurrentQueue<(int Attempts, TimeSpan Due)> _timers = new();
+
+        public Func<int> Attempts { get; set; } = () => 0;
+
+        public IReadOnlyList<(int Attempts, TimeSpan Due)> Timers => [.._timers];
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) {
+            _timers.Enqueue((Attempts(), dueTime));
+
+            return base.CreateTimer(callback, state, dueTime, period);
+        }
     }
 }

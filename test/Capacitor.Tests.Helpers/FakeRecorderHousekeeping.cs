@@ -32,7 +32,10 @@ public sealed class FakeRecorderHousekeeping : IRecorderHousekeeping {
 
     public Task AfterDrainAsync(WatchState state, string transcriptPath, IReadOnlyList<string> drained, CancellationToken ct) => Task.CompletedTask;
 
-    public Task AfterFinalDrainAsync(WatchState state, IReadOnlyList<string> drained, long shutdownStarted, CancellationToken ct) => Task.CompletedTask;
+    /// <summary>Awaited inside <see cref="AfterFinalDrainAsync"/>, so a test can make the final drain fail.</summary>
+    public Func<Task>? OnAfterFinalDrain { get; set; }
+
+    public Task AfterFinalDrainAsync(WatchState state, IReadOnlyList<string> drained, long shutdownStarted, CancellationToken ct) => OnAfterFinalDrain?.Invoke() ?? Task.CompletedTask;
 
     public IReadOnlyList<(long Idx, string Line)> ReadAntigravityUsage(string dbPath, long afterIdx, string? createdAt) => [];
 
