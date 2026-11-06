@@ -2353,8 +2353,10 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         && string.Equals(SelectedMachine, machine, StringComparison.Ordinal)
         && RemoteMachineSelected == remote;
 
+    /// A task picked since the launch is part of the composer too: restoring would put the failed launch's task back over it.
     bool IsRestorable(RetainedDraft retained) =>
-        retained.ClearedGoal && _goalEdits == retained.GoalEditsAfterClear
+        NextWorkSource is null
+        && retained.ClearedGoal && _goalEdits == retained.GoalEditsAfterClear
         && retained.ClearedTray && Tray.Generation == retained.TrayGenerationAfterClear
         && retained.Draft.Machine == SelectedMachine
         && retained.Draft.Remote == RemoteMachineSelected
