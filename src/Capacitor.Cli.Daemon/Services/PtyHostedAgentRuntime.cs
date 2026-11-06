@@ -222,15 +222,16 @@ internal sealed partial class PtyHostedAgentRuntime(
         try {
             bool settled;
 
-            // A dialog can open while the delivery waits for the lane, so it is checked again once the
-            // lane is held, and the wait starts over.
+            // A dialog can open, or the composer that turned bracketed paste on unmount, while the
+            // delivery waits for the lane, so both are checked again once it is held and the wait
+            // starts over.
             while (true) {
                 settled = await WaitForStartupToSettleAsync(_disposal.Token);
                 if (pty.HasExited) return LaunchPromptOutcome.AgentExited;
                 if (_stopRequested) return LaunchPromptOutcome.StopRequested;
 
                 await _lane.WaitAsync(_disposal.Token);
-                if (DialogGone is null) break;
+                if (DialogGone is null && !(settled && bracketedPasteMeansComposerUp && !_modes.IsBracketedPasteEnabled)) break;
 
                 _lane.Release();
             }
