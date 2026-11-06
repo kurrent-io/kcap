@@ -31,6 +31,12 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
         var age     = ownEnd ? NextWorkLaneLogic.NotedAgo(row) : NextWorkLaneLogic.Age(row);
         Meta = string.Join(" · ", new[] { because, NextWorkLaneLogic.ShortRepo(repoNames, row.RepoHash), age }.Where(p => p is { Length: > 0 }));
 
+        // The loose end an item carries is why it is worth picking up now; a loose end's own row is its title.
+        if (!ownEnd && item.Ends.Count > 0) {
+            var first = item.Ends[0].Text;
+            Context = item.Ends.Count > 1 ? $"{first} · +{item.Ends.Count - 1} more" : first;
+        }
+
         FillCommand    = ReactiveCommand.CreateFromTask(() => _band.FillAsync(this));
         StartCommand   = ReactiveCommand.CreateFromTask(() => _band.StartNowAsync(this));
         OpenCommand    = ReactiveCommand.Create(() => _band.Open(this));
@@ -54,7 +60,11 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
     /// <summary>The reason, repository and age on one line under the title.</summary>
     public string Meta { get; }
 
+    /// <summary>The first loose end noted against the item, and how many more there are; null for a row without one.</summary>
+    public string? Context { get; }
+
     public bool HasMeta          => Meta.Length > 0;
+    public bool HasContext       => Context is not null;
     public bool HasArmChip       => ArmChip is not null;
     public bool HasMarks         => Marks.Count > 0;
     public bool IsLooseEnd       => LooseEndId is not null;

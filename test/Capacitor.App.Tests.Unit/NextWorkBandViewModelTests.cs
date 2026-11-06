@@ -32,7 +32,7 @@ public class NextWorkBandViewModelTests {
     }
 
     [Test]
-    public async Task The_list_holds_who_waits_then_the_picks_and_leaves_the_overview_to_the_dashboard() {
+    public async Task The_list_holds_who_waits_then_the_picks_folds_the_rest_of_the_work_and_counts_the_chores_for_the_dashboard() {
         var band = Band(Api(
             Row("pr:1", "pr", "#1 Review", 1, 1),
             Row("wi:a", "work_item", "A-1 Fix it", 2, 2),
@@ -44,7 +44,10 @@ public class NextWorkBandViewModelTests {
         await band.RefreshAsync();
 
         await Assert.That(band.Cards.Select(c => c.Key)).IsEquivalentTo(["pr:1", "wi:a", "wi:b", "wi:c"]);
-        await Assert.That(band.MoreText).IsEqualTo("1 more on the dashboard");
+        await Assert.That(band.MoreCards.Select(c => c.Key)).IsEquivalentTo(["wi:d"]);
+        await Assert.That(band.MoreListVisible).IsFalse();
+        await Assert.That(band.MoreToggleText).IsEqualTo("More to do · 1");
+        await Assert.That(band.ElsewhereText).IsEqualTo("1 more on the dashboard");
         await Assert.That(band.Cards[1].Meta).IsEqualTo("payments-api · today");
     }
 
@@ -207,5 +210,30 @@ public class NextWorkBandViewModelTests {
         await band.Cards.Single().FillCommand.Execute().ToTask();
 
         await Assert.That(filled!.Goal).IsEqualTo("Document the replay window");
+    }
+
+    [Test]
+    public async Task An_item_shows_the_loose_end_noted_against_it_and_how_many_more() {
+        var api = new FakeNextWorkApi { Snapshot = new(NextWorkReadKind.Ready, new(Now, false, false, null, [
+            new("wi:a", "work_item", "a", "A-1 Fix it", null, "h1", "FinishYours", 2, "kept", null, 1, "Assigned to you", new(0, null, false, 0, 0), [
+                new("loose_end", "session", "sighted once", "Add jitter to the retry backoff", LooseEndId: "le1"),
+                new("loose_end", "session", "sighted once", "Cover the 503 path in the gateway tests", LooseEndId: "le2")]),
+        ])) };
+        var band = Band(api);
+        await band.RefreshAsync();
+
+        await Assert.That(band.Cards.Single().Context).IsEqualTo("Add jitter to the retry backoff · +1 more");
+    }
+
+    [Test]
+    public async Task An_opened_more_list_stays_open_across_a_refresh() {
+        var api = Api(Row("wi:a", "work_item", "A-1", 2, 1), Row("wi:b", "work_item", "B-2", 2, 2), Row("wi:c", "work_item", "C-3", 2, 3),
+            Row("wi:d", "work_item", "D-4", 2, 4));
+        var band = Band(api);
+        await band.RefreshAsync();
+        await band.ToggleMoreCommand.Execute().ToTask();
+        await band.RefreshAsync();
+
+        await Assert.That(band.MoreListVisible).IsTrue();
     }
 }
