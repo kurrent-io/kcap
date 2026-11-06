@@ -7,7 +7,7 @@ using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Harness.Antigravity;
 using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Harness.Cursor;
-using Capacitor.Cli.Harness.Kiro;
+using Capacitor.Cli.Recording.Harness.Kiro;
 
 namespace Capacitor.Cli.Harness.Titles;
 

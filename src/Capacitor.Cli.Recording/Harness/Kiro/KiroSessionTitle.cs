@@ -1,10 +1,10 @@
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.Http;
 
-namespace Capacitor.Cli.Harness.Kiro;
+namespace Capacitor.Cli.Recording.Harness.Kiro;
 
 /// <summary>Kiro's per-session <c>{id}.json</c> sidecar carries its own auto-generated <c>title</c> — the same
-/// file <see cref="KiroImportSource"/> reads for import. Kiro names every session on its own; there is no
+/// file <c>KiroImportSource</c> reads for import. Kiro names every session on its own; there is no
 /// user-rename signal to distinguish, so a title here always reads as <see cref="HarnessTitleKind.Auto"/>.</summary>
 public sealed class KiroSessionTitle(string sessionJsonPath) : IHarnessTitleStore {
     public bool RecordsChangeTime => false;

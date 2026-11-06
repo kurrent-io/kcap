@@ -1,7 +1,7 @@
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.Harness.Kiro;
+using Capacitor.Cli.Recording.Harness.Kiro;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Kiro;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Kiro;
 
 public class KiroSessionTitleTests {
     [TempDir] public required TempDir Tmp { get; init; }
