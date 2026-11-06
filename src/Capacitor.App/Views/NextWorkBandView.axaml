@@ -37,11 +37,12 @@
             <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
-        <!-- A row's own actions show where the viewer is: under the pointer, on keyboard focus, on the filled row. -->
+        <!-- A row's own actions show where the viewer is: under the pointer, on the picked row, while it works, or with
+             keyboard focus on the actions themselves. Not on the row's own focus, which a click leaves behind. -->
         <Style Selector="Grid.nwbRowHost StackPanel.nwbActs">
             <Setter Property="Opacity" Value="0" />
         </Style>
-        <Style Selector="Grid.nwbRowHost:pointerover StackPanel.nwbActs, Grid.nwbRowHost:focus-within StackPanel.nwbActs,
+        <Style Selector="Grid.nwbRowHost:pointerover StackPanel.nwbActs, Grid.nwbRowHost StackPanel.nwbActs:focus-within,
                          Grid.nwbRowHost.filled StackPanel.nwbActs, Grid.nwbRowHost.busy StackPanel.nwbActs">
             <Setter Property="Opacity" Value="1" />
         </Style>

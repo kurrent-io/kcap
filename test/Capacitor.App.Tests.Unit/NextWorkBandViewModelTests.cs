@@ -237,4 +237,17 @@ public class NextWorkBandViewModelTests {
 
         await Assert.That(band.MoreListVisible).IsTrue();
     }
+
+    [Test]
+    public async Task Snooze_holds_a_loose_end_until_nine_tomorrow() {
+        var api = Api(Row("le:x", "loose_end", "Document the replay window", 3, 1));
+        var band = Band(api);
+        await band.RefreshAsync();
+        var reads = api.SnapshotReads;
+
+        await band.Cards.Single().SnoozeCommand.Execute().ToTask();
+        await WorkspaceFixtures.WaitUntilAsync(() => api.SnapshotReads > reads, what: "the reload after snoozing");
+
+        await Assert.That(api.Calls).IsEquivalentTo(["defer x 2026-11-07T09:00:00.0000000+00:00"]);
+    }
 }

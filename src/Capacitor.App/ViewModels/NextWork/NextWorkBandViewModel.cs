@@ -381,18 +381,10 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     internal void CloseLooseEnd(string looseEndId) =>
         _ = MutateAsync(() => _api.CloseLooseEndAsync(looseEndId, CancellationToken.None), "Couldn't mark the loose end done.");
 
-    /// <summary><paramref name="choice"/> is <c>tomorrow</c>, <c>3days</c> or <c>nextweek</c>.</summary>
-    internal void Snooze(string looseEndId, string choice) {
-        var now  = _time.GetUtcNow();
-        var zone = _time.LocalTimeZone;
-        DateTimeOffset? until = choice switch {
-            "tomorrow" => NextWorkSnoozeTimes.Tomorrow(now, zone),
-            "3days"    => NextWorkSnoozeTimes.InThreeDays(now),
-            "nextweek" => NextWorkSnoozeTimes.NextWeek(now, zone),
-            _          => null,
-        };
-        if (until is not { } at) return;
-        _ = MutateAsync(() => _api.DeferLooseEndAsync(looseEndId, at, CancellationToken.None), "Couldn't snooze the loose end.");
+    /// <summary>Holds the loose end out until 09:00 tomorrow, the launcher's one "not today"; the web offers the rest.</summary>
+    internal void Snooze(string looseEndId) {
+        var until = NextWorkSnoozeTimes.Tomorrow(_time.GetUtcNow(), _time.LocalTimeZone);
+        _ = MutateAsync(() => _api.DeferLooseEndAsync(looseEndId, until, CancellationToken.None), "Couldn't snooze the loose end.");
     }
 
     /// <summary>One change at a time; each reruns the engine, so the list reloads after it. A pinned list applies the

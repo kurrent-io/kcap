@@ -67,20 +67,13 @@
                     <Button.Flyout>
                         <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
                             <StackPanel Spacing="2" Margin="6" MinWidth="190">
-                                <Button Classes="kcapGhost nwbMenuRow" Content="Start an agent now" Command="{Binding StartCommand}"
-                                        IsVisible="{Binding CanWorkOn}" Click="OnMenuItemClick" />
                                 <Button Classes="kcapGhost nwbMenuRow" Content="Open in browser" Command="{Binding OpenCommand}"
                                         IsVisible="{Binding CanOpenInBrowser}" Click="OnMenuItemClick" />
-                                <Border Height="1" Background="{StaticResource KcapBorderBrush}" Margin="4,3" IsVisible="{Binding IsLooseEnd}" />
                                 <Button Classes="kcapGhost nwbMenuRow" Content="Snooze until tomorrow" Command="{Binding SnoozeCommand}"
-                                        CommandParameter="tomorrow" IsVisible="{Binding IsLooseEnd}" Click="OnMenuItemClick" />
-                                <Button Classes="kcapGhost nwbMenuRow" Content="Snooze for 3 days" Command="{Binding SnoozeCommand}"
-                                        CommandParameter="3days" IsVisible="{Binding IsLooseEnd}" Click="OnMenuItemClick" />
-                                <Button Classes="kcapGhost nwbMenuRow" Content="Snooze until next week" Command="{Binding SnoozeCommand}"
-                                        CommandParameter="nextweek" IsVisible="{Binding IsLooseEnd}" Click="OnMenuItemClick" />
+                                        IsVisible="{Binding IsLooseEnd}" Click="OnMenuItemClick" />
                                 <Button Classes="kcapGhost nwbMenuRow" Content="Mark done" Command="{Binding DoneCommand}"
                                         IsVisible="{Binding IsLooseEnd}" Click="OnMenuItemClick" />
-                                <Border Height="1" Background="{StaticResource KcapBorderBrush}" Margin="4,3" />
+                                <Border Height="1" Background="{StaticResource KcapBorderBrush}" Margin="4,3" IsVisible="{Binding HasMenuActions}" />
                                 <Button Classes="kcapGhost nwbMenuRow" Content="Dismiss suggestion" Command="{Binding DismissCommand}"
                                         Click="OnMenuItemClick" />
                             </StackPanel>

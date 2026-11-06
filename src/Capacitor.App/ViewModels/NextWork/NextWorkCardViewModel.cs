@@ -42,7 +42,7 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
         OpenCommand    = ReactiveCommand.Create(() => _band.Open(this));
         DismissCommand = ReactiveCommand.Create(() => _band.Dismiss(this));
         DoneCommand    = ReactiveCommand.Create(() => { if (LooseEndId is { } id) _band.CloseLooseEnd(id); });
-        SnoozeCommand  = ReactiveCommand.Create<string>(choice => { if (LooseEndId is { } id) _band.Snooze(id, choice); });
+        SnoozeCommand  = ReactiveCommand.Create(() => { if (LooseEndId is { } id) _band.Snooze(id); });
     }
 
     public NextWorkRow                 Row          { get; }
@@ -70,6 +70,9 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
     public bool IsLooseEnd       => LooseEndId is not null;
     public bool CanOpenInBrowser => Href is not null;
 
+    /// <summary>The menu holds something above Dismiss, which a separator then sets apart.</summary>
+    public bool HasMenuActions   => CanOpenInBrowser || IsLooseEnd;
+
     public string FillTip => Row.TargetKind == "session" ? "Open this session" : "Put this in the composer";
 
     /// <summary>While its launch options are being read, for the fill or a start.</summary>
@@ -89,5 +92,5 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
     public ReactiveCommand<Unit, Unit>   OpenCommand    { get; }
     public ReactiveCommand<Unit, Unit>   DismissCommand { get; }
     public ReactiveCommand<Unit, Unit>   DoneCommand    { get; }
-    public ReactiveCommand<string, Unit> SnoozeCommand  { get; }
+    public ReactiveCommand<Unit, Unit>   SnoozeCommand  { get; }
 }
