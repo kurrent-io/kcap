@@ -817,15 +817,20 @@ public class SecretRedactorTests {
     }
 
     [Test]
-    public async Task RedactsLine_UrlUserinfo_StopsBeforeALaterFieldsAddress() {
-        var line = """
-            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"postgres://app:fieldPw@db.example.com,contact=alice@example.org","is_error":false}]}}
+    [Arguments(",")]
+    [Arguments(";")]
+    [Arguments("|")]
+    [Arguments("<")]
+    public async Task RedactsLine_UrlUserinfo_StopsBeforeALaterFieldsAddress(string separator) {
+        var tail = $"@db.example.com{separator}contact=alice@example.org";
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"postgres://app:fieldPw{{{tail}}}","is_error":false}]}}
             """.Trim();
 
         var result = SecretRedactor.RedactLine(line);
 
         await Assert.That(result).DoesNotContain("fieldPw");
-        await Assert.That(result).Contains("postgres://app:[REDACTED]@db.example.com,contact=alice@example.org");
+        await Assert.That(result).Contains("postgres://app:[REDACTED]" + tail);
     }
 
     // JSON text held in a string value, as a tool result often carries it: once the outer line is
