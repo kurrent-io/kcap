@@ -5060,8 +5060,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     LogSendInputDuplicateTaken(cmd.AgentId, dispatchId);
                     _ = _server.SendInputAckedAsync(dispatchId, cmd.AgentId);
 
-                    // Read after the ack goes out: a drop recorded before this read is reported again here,
-                    // one recorded after it by its own path, so a rejection always follows the repeat ack.
+                    // A drop recorded since the admit is reported again, in case its own report never arrived.
+                    // The server records a rejection whether or not an ack reached it first.
                     if (_dispatchedInputs.Peek(dispatchId, out var lost) == DispatchState.Dropped)
                         await ReportInputDroppedAsync(cmd, lost!);
                     return;

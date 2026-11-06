@@ -76,10 +76,11 @@ public class SendInputAckTests {
         await Assert.That(Count(runtime.SentInputs)).IsEqualTo(1);
     }
 
-    /// <summary>A write lost while a resend is being acknowledged again is reported after that acknowledgement,
-    /// so the server cannot take the repeat as the last word even if the first report never reached it.</summary>
+    /// <summary>A write lost while a resend is being acknowledged again is reported again by that resend, so
+    /// the loss reaches the server even if the first report never did; the server records a rejection
+    /// whatever acknowledgements it has seen.</summary>
     [Test]
-    public async Task A_write_lost_while_a_resend_is_acknowledged_is_reported_after_the_repeat_ack() {
+    public async Task A_write_lost_while_a_resend_is_acknowledged_is_reported_again_by_that_resend() {
         var server  = new CaptureServerConnection();
         var written = new TaskCompletionSource();
         var runtime = new FakeAcpRuntime { DispatchedWrite = written };
