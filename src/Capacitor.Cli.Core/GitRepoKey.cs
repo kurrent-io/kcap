@@ -15,17 +15,17 @@ public static class GitRepoKey {
     /// <summary>The key for any directory inside a checkout. A primary checkout, a linked worktree
     /// cut from it and a submodule each resolve to the repository that actually names them, so a
     /// list entry matches wherever the work is happening.</summary>
-    /// <param name="config">Where this machine's id lives, so a repository whose origin names no owner keys
-    /// by its <see cref="LocalRepository"/> identity, as hook detection does. Without it such a repository
-    /// is unplaceable.</param>
-    public static string? ForCheckout(string? path, ConfigRoot config) {
+    /// <summary>The key a session here reports to <paramref name="serverUrl"/> under: a repository whose origin
+    /// names no owner keys by its <see cref="LocalRepository"/> identity, as hook detection does, once that server
+    /// is known to store one, and is unplaceable otherwise.</summary>
+    public static string? ForCheckout(string? path, ConfigRoot config, string? serverUrl) {
         if (string.IsNullOrWhiteSpace(path) || GitRepository.FindRoot(path) is not { } root) return null;
 
         var url = ConfigPathFor(root) is { } configPath ? GitRemoteReader.ReadOriginUrlFromConfig(configPath) : null;
 
         if (GitUrlParser.ParseRemoteUrl(url) is { Owner: not null, RepoName: not null }) return ForCheckout(path);
 
-        return LocalRepository.Of(config, path) is { } local ? $"{local.Owner}/{local.Name}" : null;
+        return LocalRepositorySupport.IdentityFor(config, serverUrl, path) is { } local ? $"{local.Owner}/{local.Name}" : null;
     }
 
     public static string? ForCheckout(string? path) {

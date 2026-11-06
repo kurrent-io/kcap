@@ -182,8 +182,11 @@ static class RepositoryDetection {
                 host = remoteUrl is null ? null : RemoteMatcher.ExtractHost(remoteUrl);
 
                 // An origin that names no owner — none at all, or a path — is not a hosting service's, and its
-                // URL can be a private path, so neither leaves the machine.
-                if ((owner is null || repoName is null) && LocalRepository.Of(config, cwd) is { } local) {
+                // URL can be a private path, so neither leaves the machine. Only a server known to store a local
+                // identity is given one: an older one would link it to GitHub and ask GitHub about it.
+                if ((owner is null || repoName is null)
+                 && await LocalRepositorySupport.AcceptedEverywhereAsync(config, ProfileOverrides.FromEnvironment())
+                 && LocalRepository.Of(config, cwd) is { } local) {
                     (owner, repoName) = local;
                     remoteUrl         = null;
                     host              = null;

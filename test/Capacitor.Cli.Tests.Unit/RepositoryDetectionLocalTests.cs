@@ -1,19 +1,54 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Tests.Unit;
 
-/// <summary>A git repository kcap has no remote to name stores a repository and branch all the same; a
-/// folder outside git still stores neither, and a repository with a remote keeps its identity.</summary>
+/// <summary>A git repository kcap has no remote to name stores a repository and branch all the same, once the
+/// server it reports to is known to store one; a folder outside git still stores neither, and a repository with a
+/// remote keeps its identity.</summary>
 [ParallelLimiter<SubprocessLimit>]
 public class RepositoryDetectionLocalTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempDir]        public required TempDir        Tmp    { get; init; }
 
+    const string Server = "https://kcap.example";
+
+    [Before(Test)]
+    public Task ReportToAServerThatStoresLocalRepositories() => ReportTo(LocalRepositorySupport.MinimumServerVersion);
+
+    // A URL override in the environment is a server too, so it reports the same version: otherwise these tests
+    // would pass or fail by whether the shell running them sets one.
+    Task ReportTo(string? version) {
+        foreach (var server in new[] { Server, ProfileOverrides.FromEnvironment().Url }.OfType<string>()) {
+            ServerVersionStore.Forget(server, Config.Root);
+            if (version is not null) ServerVersionStore.Set(server, version, Config.Root, TimeProvider.System);
+        }
+
+        return ConfigMutator.MutateAsync(Config.Root, c => c with { Profiles = new() { ["p"] = new Profile { ServerUrl = Server } } });
+    }
+
     Task<RepositoryPayload?> Detect(string cwd, TimeProvider? time = null) =>
         RepositoryDetection.DetectRepositoryAsync(new GitProviderRouter(), Config.Root, cwd, time ?? TimeProvider.System);
+
+    // An older server would keep the identity as an ordinary repository and ask GitHub about it, so it is sent
+    // nothing new: no owner, as before.
+    [Test]
+    [Arguments("1.0.0")]
+    [Arguments(null)]
+    public async Task A_server_not_known_to_store_local_repositories_gets_no_owner(string? version) {
+        await ReportTo(version);
+        using var repo = GitRepo.CreateWithCommit();
+
+        var found = await Detect(repo.Path);
+
+        await Assert.That(found).IsNotNull();
+        await Assert.That(found!.Owner).IsNull();
+        await Assert.That(found.RepoName).IsNull();
+        await Assert.That(found.Branch).IsNotNull();
+    }
 
     [Test]
     public async Task A_repository_with_no_origin_has_a_local_identity_and_its_branch() {
