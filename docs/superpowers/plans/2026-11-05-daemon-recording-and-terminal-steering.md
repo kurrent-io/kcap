@@ -271,6 +271,8 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 ### Task 9: The daemon records hosted Claude
 
+Built in three reviewed parts: the server's wire additions first, then the recorder's readiness with no daemon reference, then the daemon itself, then `kcap disable` and the live check.
+
 **Files:**
 - Create: `src/Capacitor.Cli.Daemon/Services/DaemonRecorder.cs`, `src/Capacitor.Cli.Daemon/Services/ServerRecorderTransport.cs`
 - Modify: `src/Capacitor.Cli.Daemon/Capacitor.Cli.Daemon.csproj`, `Services/AgentOrchestrator.cs`, `Services/ServerConnection.cs`, `Services/LocalControlCapabilities.cs`, `src/Capacitor.Cli/WatcherManager.cs`
