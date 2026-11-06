@@ -13,6 +13,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
@@ -266,6 +267,30 @@ public partial class LauncherPaneView : UserControl {
         if (folder.TryGetLocalPath() is not { } path) return;
 
         await vm.SelectRepositoryAsync(path);
+    }
+
+    async void OnRequestRepositoryAccessClick(object? sender, RoutedEventArgs e) {
+        if (DataContext is not HomeViewModel vm ||
+            TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
+        if (sender is Control button) button.IsEnabled = false;
+        try {
+            await vm.RequestRepositoryAccessAsync(async path => {
+                var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions {
+                    Title = "Allow access to " + RepoLabel.Leaf(path),
+                    AllowMultiple = false,
+                    SuggestedStartLocation = await storage.TryGetFolderFromPathAsync(path),
+                });
+                if (folders is not [{ } folder]) return false;
+                using (folder) {
+                    return folder.TryGetLocalPath() is { } selected
+                        && PlatformPaths.Comparer.Equals(selected, path);
+                }
+            });
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: request repository access failed: {ex}");
+        } finally {
+            if (sender is Control control) control.IsEnabled = true;
+        }
     }
 
     void ShowRemotePathEntry(HomeViewModel vm, Control anchor) {
