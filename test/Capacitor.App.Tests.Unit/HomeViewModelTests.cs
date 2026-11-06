@@ -3418,6 +3418,8 @@ public class HomeViewModelTests {
     [Test]
     [Arguments("/srv/repo/.capacitor/worktrees/agent-1")]
     [Arguments("/srv/repo/.claude/worktrees/agent-1")]
+    [Arguments("/srv/repo/.capacitor/worktrees/agent-1/.claude/worktrees/agent-2")]
+    [Arguments("/srv/repo/.capacitor/worktrees/agent-1/src")]
     [NotInParallel("AvaloniaSession")]
     public async Task A_remote_session_in_an_agent_worktree_selects_the_repository_that_owns_it(string worktree) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
@@ -3431,6 +3433,25 @@ public class HomeViewModelTests {
             await vm.SelectRepositoryOfAsync(LocalRow(worktree) with { Origin = AgentOrigin.Remote, MachineBadge = "box", OwnerUserId = "u1" });
 
             await Assert.That(vm.SelectedRepoPath).IsEqualTo("/srv/repo");
+        });
+    }
+
+    /// A repository checked out in a subdirectory of an agent worktree owns the worktrees under it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_remote_session_in_a_repository_nested_in_an_agent_worktree_keeps_that_repository() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var daemon = new FakeDaemonClientService();
+            Connect(daemon);
+            var remote = new FakeRemoteAgents();
+            remote.DaemonsSubject.OnNext([Box("u1")]);
+            using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("app-state.json")), new RecordingLaunchClient(),
+                Known(), TimeProvider.System, daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
+
+            await vm.SelectRepositoryOfAsync(LocalRow("/srv/repo/.capacitor/worktrees/agent-1/vendor/lib/.claude/worktrees/agent-2") with {
+                Origin = AgentOrigin.Remote, MachineBadge = "box", OwnerUserId = "u1" });
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo("/srv/repo/.capacitor/worktrees/agent-1/vendor/lib");
         });
     }
 

@@ -1424,10 +1424,19 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             if (!Untouched()) return;
             bool OnMachine() => RemoteMachineSelected && string.Equals(SelectedMachine, machine, StringComparison.Ordinal);
             if (!OnMachine()) await SelectMachineAsync(machine, isLocal: false);
-            // A session started inside an agent worktree records that worktree; launching from it
-            // would nest the new worktree where removing the outer one deletes it.
-            if (OnMachine()) await SelectRepositoryAsync(GitRepository.AgentWorktreeOf(path)?.Owner ?? path);
+            if (OnMachine()) await SelectRepositoryAsync(OutermostOwner(path));
             return;
+        }
+
+        // A session started inside an agent worktree records that worktree; launching from it
+        // would nest the new worktree where removing the outer one deletes it. An owner that is
+        // itself an agent worktree's root unwraps again; a repository in a subdirectory of one stays.
+        static string OutermostOwner(string path) {
+            while (GitRepository.AgentWorktreeOf(path) is { } wt) {
+                path = wt.Owner;
+                if (GitRepository.AgentWorktreeOf(path) is not { } outer || outer.Worktree != path) break;
+            }
+            return path;
         }
 
         var root = await Task.Run(() => Directory.Exists(path) ? PlatformPaths.Normalize(GitRepository.ResolveMainRepoRoot(path)) : "");
