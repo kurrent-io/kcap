@@ -20,6 +20,7 @@ public sealed partial class WatcherManager(
 
     readonly IDaemonRecordingClient _daemonRecording = daemonRecording ?? NoDaemonRecording.Instance;
     readonly RecorderClaims         _claims          = new(paths.Directory, time);
+    readonly WatcherLiveness        _liveness        = new(paths, time);
 
     // The one URL this process resolved. No member takes one: a watcher spawned against a different
     // server than the hook that spawned it would stream a session nothing on this side can see.
@@ -41,7 +42,7 @@ public sealed partial class WatcherManager(
     /// Deletes the per-key heartbeat + started markers so they don't leak
     /// per-session the way the pid file never did. Deliberately does NOT touch the
     /// <c>{key}.spawnlock</c> file: <see cref="KillWatcher"/> can run from inside
-    /// <see cref="WithSpawnLock"/> (the wedged-watcher reap path), and unlinking a held lock
+    /// <see cref="WatcherLiveness.WithSpawnLock"/> (the wedged-watcher reap path), and unlinking a held lock
     /// file on POSIX lets a racing hook open a fresh inode with a non-conflicting flock —
     /// reopening the double-spawn hole (the same reason <c>DaemonLock</c> never unlinks its
     /// lock file). The spawn lock is swept by <see cref="PurgeAuxiliaryFiles"/> / <c>kcap cleanup</c>.
@@ -54,8 +55,8 @@ public sealed partial class WatcherManager(
     /// <summary>
     /// Removes every leftover per-key auxiliary file (<c>*.heartbeat</c>/<c>*.started</c>/
     /// <c>*.spawnlock</c>) in the watcher directory. Called by <c>kcap cleanup</c> after all
-    /// watchers are killed — the one place it is safe to unlink spawn-lock files, since cleanup
-    /// holds no spawn lock. Returns the number of files removed.
+    /// watchers are killed. A spawn lock goes only if it can be taken, since a daemon holds these
+    /// while cleanup runs; a held one waits for the next cleanup. Returns the number of files removed.
     /// </summary>
     public int PurgeAuxiliaryFiles() {
         var dir = paths.Directory;
@@ -66,7 +67,7 @@ public sealed partial class WatcherManager(
 
         var removed = 0;
 
-        foreach (var pattern in new[] { "*.heartbeat", "*.started", "*.spawnlock" }) {
+        foreach (var pattern in new[] { "*.heartbeat", "*.started" }) {
             foreach (var file in Directory.GetFiles(dir, pattern)) {
                 try {
                     File.Delete(file);
@@ -76,6 +77,8 @@ public sealed partial class WatcherManager(
                 }
             }
         }
+
+        removed += Directory.GetFiles(dir, "*.spawnlock").Count(WatcherLiveness.TryDeleteSpawnLock);
 
         return removed;
     }
@@ -93,7 +96,7 @@ public sealed partial class WatcherManager(
 
         if (_claims.Read(key) is not RecorderClaimState.None) {
             if (File.Exists(pidFile)) {
-                await WithSpawnLock(key, () => {
+                await _liveness.WithSpawnLock(key, () => {
                     SweepDeadWatcher(key);
 
                     return Task.CompletedTask;
@@ -201,7 +204,7 @@ public sealed partial class WatcherManager(
                 return (false, parsed);
             }
         } catch (Exception ex) {
-            if (pid is { } known && IsGone(known, token)) {
+            if (pid is { } known && WatcherLiveness.IsGone(known, token)) {
                 await stderr.WriteLineAsync($"Watcher {key} (PID {known}) exited while being killed");
 
                 return (false, known);
@@ -210,22 +213,6 @@ public sealed partial class WatcherManager(
             await stderr.WriteLineAsync($"Error killing watcher {key}: {ex.Message}; keeping its pid file");
 
             return (null, pid);
-        }
-    }
-
-    /// <summary>Conclusive only: the pid left the process table, or its start token names another
-    /// incarnation. A process whose identity cannot be compared counts as the watcher.</summary>
-    static bool IsGone(int pid, string token) {
-        if (token.Length > 0 && ProcessStartToken.Matches(pid, token) == false) return true;
-
-        try {
-            using var process = Process.GetProcessById(pid);
-
-            return process.HasExited;
-        } catch (ArgumentException) {
-            return true;
-        } catch {
-            return false;
         }
     }
 
@@ -271,77 +258,9 @@ public sealed partial class WatcherManager(
         }
     }
 
-    internal bool PidAlive(string key) => PidAlive(paths, key);
+    internal bool PidAlive(string key) => _liveness.PidAlive(key);
 
-    /// <summary>The pid file names a process that is still this watcher's incarnation, irrespective of
-    /// whether it's wedged. A pid file that exists but cannot be read counts as alive: reading it as
-    /// gone would let a spawn overwrite it and orphan the watcher it names.</summary>
-    internal static bool PidAlive(WatcherPaths paths, string key) {
-        string[] lines;
-
-        try {
-            lines = File.ReadAllLines(paths.PidFile(key));
-        } catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) {
-            return false;
-        } catch {
-            return true;
-        }
-
-        if (lines.Length == 0 || !int.TryParse(lines[0].Trim(), out var pid)) {
-            return false;
-        }
-
-        return !IsGone(pid, lines.Length > 1 ? lines[1].Trim() : "");
-    }
-
-    /// <summary>
-    /// True when the watcher's PID exists AND its heartbeat isn't stale (after the startup
-    /// grace) — i.e. the process is alive AND its main loop is provably still turning, not
-    /// wedged. <see cref="PidAlive(WatcherPaths, string)"/> alone can't tell a hung watcher from a healthy one.
-    /// </summary>
-    internal bool IsWatcherAlive(string key) {
-        if (!PidAlive(key)) {
-            return false;
-        }
-
-        var now       = time.GetUtcNow();
-        var lastBeat  = WatcherHeartbeat.Read(paths.HeartbeatFile(key));
-        // A missing started marker (shouldn't happen in practice — the spawner always
-        // writes it) falls back to "now", i.e. the freshest possible grace window rather
-        // than treating an unknown start time as long-past and immediately stale.
-        var startupAt = WatcherHeartbeat.Read(paths.StartedFile(key)) ?? now;
-
-        return !WatcherHeartbeat.IsStale(lastBeat, startupAt, now, WatcherHeartbeat.Grace, WatcherHeartbeat.Threshold);
-    }
-
-    /// <summary>
-    /// Runs <paramref name="body"/> while holding the per-key spawn lock. If another process
-    /// already holds it, returns immediately WITHOUT running <paramref name="body"/> — the current
-    /// holder is either already reaping + respawning this key, or about to, so there is nothing for
-    /// the loser to do but skip. Two concurrent hooks would otherwise double-spawn one key.
-    /// </summary>
-    internal async Task WithSpawnLock(string key, Func<Task> body) {
-        var watcherDir = paths.Directory;
-        Directory.CreateDirectory(watcherDir);
-
-        FileStream stream;
-
-        try {
-            // FileShare.None maps to flock(LOCK_EX) on POSIX and a real exclusive lock on
-            // Windows — the same cross-platform primitive DaemonLock uses. FileMode.OpenOrCreate
-            // keeps a stale lock file on disk from ever blocking acquisition; the kernel lock,
-            // not file presence, is what enforces exclusion.
-            stream = new FileStream(paths.SpawnLockFile(key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
-        } catch (IOException) {
-            return; // contended — the current holder wins; we skip rather than wait.
-        }
-
-        try {
-            await body();
-        } finally {
-            stream.Dispose();
-        }
-    }
+    internal bool IsWatcherAlive(string key) => _liveness.IsWatcherAlive(key);
 
     public async Task EnsureWatcherRunning(
             string  key,
@@ -364,7 +283,7 @@ public sealed partial class WatcherManager(
         // Both the reap of a wedged watcher and the spawn run under the per-key spawn lock: a
         // hook arriving between the reap's pid-file delete and the new pid file would otherwise
         // see "no pid" and spawn a second watcher.
-        await WithSpawnLock(key, async () => {
+        await _liveness.WithSpawnLock(key, async () => {
             if (IsWatcherAlive(key)) {
                 return;
             }
@@ -715,7 +634,7 @@ public sealed partial class WatcherManager(
     async Task<bool> TryTakeStaleClaimAsync(string key) {
         var taken = false;
 
-        await WithSpawnLock(key, () => {
+        await _liveness.WithSpawnLock(key, () => {
             taken = TakeStaleClaim(key);
 
             return Task.CompletedTask;

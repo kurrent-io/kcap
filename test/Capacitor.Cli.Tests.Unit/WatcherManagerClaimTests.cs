@@ -325,6 +325,19 @@ public class WatcherManagerClaimTests : IDisposable {
         await Assert.That(File.Exists(Paths.PidFile(Key))).IsTrue();
     }
 
+    /// <summary>A daemon takes these locks while cleanup runs. Unlinking a held one hands the next taker a fresh inode
+    /// that conflicts with nothing, and both go on to start a recorder.</summary>
+    [Test]
+    public async Task Cleanup_leaves_a_spawn_lock_someone_holds() {
+        using (new FileStream(Paths.SpawnLockFile(Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None)) {
+            await Assert.That(Watchers.PurgeAuxiliaryFiles()).IsEqualTo(0);
+            await Assert.That(File.Exists(Paths.SpawnLockFile(Key))).IsTrue();
+        }
+
+        await Assert.That(Watchers.PurgeAuxiliaryFiles()).IsEqualTo(1);
+        await Assert.That(File.Exists(Paths.SpawnLockFile(Key))).IsFalse();
+    }
+
     /// <summary>Cleanup's exit code is part of stopping the outgoing recorders, so a dead pid file must not fail it.</summary>
     [Test]
     public async Task Cleanup_sweeps_a_dead_watcher_beside_a_claim_and_keeps_the_claim() {
