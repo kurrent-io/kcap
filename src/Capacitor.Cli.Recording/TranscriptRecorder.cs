@@ -19,8 +19,11 @@ namespace Capacitor.Cli.Recording;
 /// file or exit code. <see cref="RunAsync"/> tails until stopped, and <see cref="FinishAsync"/> then
 /// makes the final drain.
 /// </summary>
+/// <param name="openTranscript">How a poll opens the transcript; null opens the file. A test counts the bytes a poll
+/// reads through it.</param>
 public sealed class TranscriptRecorder(
-        RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context) : IDisposable {
+        RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context,
+        Func<string, FileStream>? openTranscript = null) : IDisposable {
     readonly CursorMarkers  _markers       = new(context.Server.Config, time);
     readonly WatchAckCursor _ackCursor     = new(context.Server.Config);
     readonly TranscriptSpool _spool        = new(context.Server.Config, time, context.Server.Url);
@@ -385,19 +388,24 @@ public sealed class TranscriptRecorder(
         transport.Reconnected   -= OnReconnectedAsync;
     }
 
+    // A transport raises to a snapshot of its handlers, so one can run after this recorder is disposed. Neither
+    // handler may throw: the raiser awaits them in turn, and a throw would starve the recorders after it.
     Task OnStopRequestedAsync(string key, string reason) {
         if (key != source.Key) return Task.CompletedTask;
 
-        context.Log($"Received StopWatcher signal: {reason}");
-        RequestStop();
+        try {
+            context.Log($"Received StopWatcher signal: {reason}");
+            RequestStop();
+        } catch (ObjectDisposedException) {
+            // Already finished.
+        }
 
         return Task.CompletedTask;
     }
 
     async Task OnReconnectedAsync() {
-        var stop = _stop.Token;
-
         try {
+            var stop           = _stop.Token;
             var serverPosition = await transport.ConnectAsync(source, stop);
 
             if (serverPosition < State.LinesProcessed) {
@@ -412,6 +420,8 @@ public sealed class TranscriptRecorder(
                     _stop.Cancel();
                 }
             }
+        } catch (ObjectDisposedException) {
+            // Already finished.
         } catch (Exception ex) {
             context.Log($"Re-register after reconnect failed: {ex.Message}");
         }
@@ -704,7 +714,7 @@ public sealed class TranscriptRecorder(
             // its truncated prefix and advancing past it would drop the completed line for good. Large tool
             // results are slow to flush and get caught mid-write. The next drain re-reads it once complete.
             NewTranscriptLines drainRead;
-            await using (var stream = new FileStream(
+            await using (var stream = openTranscript?.Invoke(transcriptPath) ?? new FileStream(
                     transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
                 // Cursor captures the raw bytes this read decodes from, so the guard hashes exactly what
                 // produced the lines rather than a later read of a file that may have changed.

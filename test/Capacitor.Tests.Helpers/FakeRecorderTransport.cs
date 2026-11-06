@@ -17,9 +17,12 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
     /// <summary>What <see cref="SendBatchAsync"/> answers for a batch; by default the line after its last.</summary>
     public Func<TranscriptBatch, int> Ack { get; set; } = batch => batch.LineNumbers is { Length: > 0 } sent ? sent[^1] + 1 : 0;
 
-    public int DrainCompletes { get; private set; }
+    int _drainCompletes;
+    int _connects;
 
-    public int Connects { get; private set; }
+    public int DrainCompletes => Volatile.Read(ref _drainCompletes);
+
+    public int Connects => Volatile.Read(ref _connects);
 
     public IReadOnlyList<(string SessionId, string Title)> SentTitles { get; private set; } = [];
 
@@ -35,7 +38,7 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
 
     public Task<int> ConnectAsync(RecordingSource source, CancellationToken ct) {
         Require();
-        Connects++;
+        Interlocked.Increment(ref _connects);
 
         return Task.FromResult(ResumeFrom);
     }
@@ -64,14 +67,19 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
 
     public Task DrainCompleteAsync(RecordingSource source, CancellationToken ct) {
         Require();
-        DrainCompletes++;
+        Interlocked.Increment(ref _drainCompletes);
 
         return Task.CompletedTask;
     }
 
-    public Task RaiseStopRequestedAsync(string key, string reason) => StopRequested?.Invoke(key, reason) ?? Task.CompletedTask;
+    /// <summary>Awaits each handler in turn, as the hub transport does, so one that throws starves the rest.</summary>
+    public async Task RaiseStopRequestedAsync(string key, string reason) {
+        foreach (var handler in StopRequested?.GetInvocationList() ?? []) await ((Func<string, string, Task>)handler)(key, reason);
+    }
 
-    public Task RaiseReconnectedAsync() => Reconnected?.Invoke() ?? Task.CompletedTask;
+    public async Task RaiseReconnectedAsync() {
+        foreach (var handler in Reconnected?.GetInvocationList() ?? []) await ((Func<Task>)handler)();
+    }
 
     void Require() {
         if (!IsConnected) throw new InvalidOperationException("The transport is not connected.");
