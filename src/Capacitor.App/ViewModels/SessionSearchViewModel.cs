@@ -17,6 +17,7 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
     readonly Func<SearchRequest, CancellationToken, Task<SearchFetch>> _search;
     readonly Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>> _open;
     readonly Func<IEnumerable<RailSessionViewModel>> _sidebar;
+    string? _viewerUserId;
     readonly TimeProvider _time;
     readonly IScheduler _scheduler;
     readonly ObservableCollection<SearchHitViewModel> _hits = [];
@@ -45,6 +46,7 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
         IScheduler scheduler,
         Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>> open,
         Func<IEnumerable<RailSessionViewModel>>? sidebar = null,
+        IObservable<string?>? viewerUserId = null,
         TimeSpan? debounce = null) {
         _search = search;
         _open = open;
@@ -57,6 +59,7 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
             .Subscribe(_ => RunCurrent())
             .DisposeWith(_disposables);
         identity.Subscribe(OnIdentity).DisposeWith(_disposables);
+        viewerUserId?.Subscribe(id => _viewerUserId = id).DisposeWith(_disposables);
         accessChanged.Subscribe(_ => RunCurrent()).DisposeWith(_disposables);
     }
 
@@ -295,7 +298,7 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
         var now = _time.GetLocalNow();
         _hits.Clear();
         foreach (var row in _sidebar()) {
-            if (SearchHitViewModel.ForSidebar(row, query, now) is { } hit) _hits.Add(hit);
+            if (SearchHitViewModel.ForSidebar(row, query, now, _viewerUserId) is { } hit) _hits.Add(hit);
         }
         HighlightIndex = 0;
         if (_hits.Count > 0) SetState(SearchListState.Results);

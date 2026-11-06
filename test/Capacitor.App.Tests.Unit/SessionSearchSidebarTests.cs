@@ -2,6 +2,7 @@ using System.Reactive.Concurrency;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
+using Capacitor.Cli.Core.LocalIpc;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
 
@@ -14,6 +15,7 @@ public class SessionSearchSidebarTests {
         public List<string> Opened { get; } = [];
         public List<SearchRequest> Requests { get; } = [];
         public HistoricalScheduler Scheduler { get; } = new();
+        public BehaviorSubject<string?> Viewer { get; } = new(null);
         public SessionRailViewModel Rail { get; }
         public SessionSearchViewModel Vm { get; }
         public int Closed { get; private set; }
@@ -27,7 +29,7 @@ public class SessionSearchSidebarTests {
                 },
                 new Subject<SessionIdentity>(), new Subject<string>(), new FakeTimeProvider(), Scheduler,
                 (_, _, _) => Task.FromResult(SearchOpenOutcome.Opened),
-                sidebar: () => Rail.Groups.SelectMany(group => group.Sessions));
+                sidebar: () => Rail.Groups.SelectMany(group => group.Sessions), viewerUserId: Viewer);
             Vm.Closed.Subscribe(_ => Closed++);
         }
 
@@ -96,6 +98,31 @@ public class SessionSearchSidebarTests {
 
             await Assert.That(h.Opened).IsEquivalentTo(["a"]);
             await Assert.That(h.Closed).IsEqualTo(1);
+        });
+    }
+
+    /// The rail hides the viewer's own picture; the search rows show every owner, the viewer included.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Hits_show_the_owner_even_when_it_is_the_viewer_and_a_local_session_is_the_viewers() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var h = new Harness();
+            h.Viewer.OnNext("github:42");
+            h.Directory.Rows.AddOrUpdate(RemoteHost.ServerRow("mine") with {
+                Title = "Mine on the server", OwnerIsViewer = true, OwnerAvatarUrl = "https://example.test/me.png",
+            });
+            h.Directory.Rows.AddOrUpdate(AgentRow.FromLocal(new AgentStatusDto(
+                "a1", "agent", "claude", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null, Title: "Mine here"),
+                new RepoIdentity("repo:acme/app", "acme/app")));
+
+            h.Vm.Query = "mine";
+            var server = h.Vm.Hits.Single(hit => hit.TitleText == "Mine on the server");
+            var local = h.Vm.Hits.Single(hit => hit.TitleText == "Mine here");
+
+            await Assert.That(server.OwnerAvatarUrl).IsEqualTo("https://example.test/me.png");
+            await Assert.That(server.OwnerName).IsEqualTo("Alexey");
+            await Assert.That(server.OwnerInitials).IsNotNull();
+            await Assert.That(local.OwnerAvatarUrl).IsEqualTo("https://avatars.githubusercontent.com/u/42?v=4&s=64");
         });
     }
 

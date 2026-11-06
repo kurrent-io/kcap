@@ -65,7 +65,7 @@ public class SessionSearchViewSmokeTests {
         var runs = (title.Inlines ?? []).OfType<Run>().ToArray();
         var text = string.Concat(runs.Select(r => r.Text));
         var matched = runs.Single(r => r.Text == "auth");
-        var textBrush = (IBrush)Application.Current!.FindResource("KcapTextBrush")!;
+        var matchBrush = (IBrush)Application.Current!.FindResource("KcapInfoBrush")!;
         var rendered = string.Join('\n', host.Named<SessionSearchView>("SearchCover").GetVisualDescendants().OfType<TextBlock>()
             .Select(t => t.Inlines is { Count: > 0 } inlines ? string.Concat(inlines.OfType<Run>().Select(r => r.Text)) : t.Text ?? ""));
 
@@ -78,7 +78,7 @@ public class SessionSearchViewSmokeTests {
         await Assert.That(rendered).DoesNotContain('\u0003');
         await Assert.That(rendered).Contains("#42");
         await Assert.That((int)matched.FontWeight).IsGreaterThanOrEqualTo((int)FontWeight.SemiBold);
-        await Assert.That(matched.Foreground).IsSameReferenceAs(textBrush);
+        await Assert.That(matched.Foreground).IsSameReferenceAs(matchBrush);
         await Assert.That(runs.Where(r => r != matched).All(r => r.FontWeight < FontWeight.SemiBold)).IsTrue();
     });
 

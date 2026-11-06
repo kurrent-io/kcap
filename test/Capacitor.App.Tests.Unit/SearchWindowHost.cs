@@ -42,7 +42,7 @@ sealed class SearchWindowHost : IDisposable {
                     return Task.FromResult(new SearchFetch(Outcome, Outcome == ServerReadOutcome.Ok ? Response : null));
                 },
                 Sessions.Identity, Observable.Never<string>(), new FakeTimeProvider(), Scheduler, open,
-                sidebar: () => Rail.Groups.SelectMany(group => group.Sessions)),
+                sidebar: () => Rail.Groups.SelectMany(group => group.Sessions), viewerUserId: Sessions.ViewerUserId),
             sessions: Sessions);
         Window = new MainWindow { DataContext = Vm };
         Window.Show();

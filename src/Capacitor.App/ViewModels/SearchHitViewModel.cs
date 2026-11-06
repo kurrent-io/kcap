@@ -75,20 +75,25 @@ public sealed class SearchHitViewModel : ReactiveObject {
         };
     }
 
-    /// Null when the title does not contain the query; a blank query admits every row.
-    public static SearchHitViewModel? ForSidebar(RailSessionViewModel row, string query, DateTimeOffset now) {
+    /// Null when the title does not contain the query; a blank query admits every row. The owner
+    /// shows even when it is the viewer, as on the server tabs; a session on this machine carries
+    /// no owner, so it is the viewer's.
+    public static SearchHitViewModel? ForSidebar(RailSessionViewModel row, string query, DateTimeOffset now, string? viewerUserId = null) {
         var title = TitleMatch.Split(row.Primary, query);
         if (query.Length > 0 && !title.Any(run => run.Matched)) return null;
         if (title.Count == 0) title = [new SnippetRun(row.SessionAccessibleName, false)];
-        var owner = row.ShowsOwner ? row.OwnerName : null;
+        var source = row.Row;
+        var owner = string.IsNullOrWhiteSpace(source.OwnerName) ? null : source.OwnerName;
+        var ownerId = source.OwnerUserId
+            ?? (source.Origin is AgentOrigin.Local or AgentOrigin.Pending ? viewerUserId : null);
         return new SearchHitViewModel {
             SessionId = row.Key,
             Kind = SearchMode.Sidebar,
             Title = title,
             Caption = Join(row.RepoLabel, owner),
             OwnerName = owner,
-            OwnerInitials = row.ShowsOwner ? row.OwnerInitials : null,
-            OwnerAvatarUrl = row.ShowsOwner ? row.OwnerAvatarUrl : null,
+            OwnerInitials = RailSessionViewModel.Initials(owner),
+            OwnerAvatarUrl = string.IsNullOrEmpty(source.OwnerAvatarUrl) ? GitHubAvatar.UrlFor(ownerId) : source.OwnerAvatarUrl,
             WhenText = row.IsEnded
                 ? RelativeTime.Format(new DateTimeOffset(DateTime.SpecifyKind(row.LastActivityAt ?? row.CreatedAt, DateTimeKind.Utc)), now)
                 : "Live",
