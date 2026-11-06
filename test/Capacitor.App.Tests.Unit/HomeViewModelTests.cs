@@ -3359,6 +3359,55 @@ public class HomeViewModelTests {
         });
     }
 
+    static HomeViewModel BuildWithBox(string statePath, out FakeDaemonClientService daemon) {
+        daemon = new FakeDaemonClientService();
+        Connect(daemon);
+        var remote = new FakeRemoteAgents();
+        remote.DaemonsSubject.OnNext([Box("u1")]);
+        return new HomeViewModel(daemon, new AppStateStore(statePath), new RecordingLaunchClient(),
+            Known(), TimeProvider.System, daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Permission_mode_is_remembered_per_remote_repository_across_launchers() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var path = Tmp.PathTo("app-state.json");
+            using var vm = BuildWithBox(path, out _);
+
+            await vm.SelectMachineAsync("box", isLocal: false);
+            await vm.EnterRemoteRepositoryAsync("/srv/a");
+            await vm.ChoosePermissionModeAsync(ClaudePermissionModes.BypassPermissions);
+            await vm.EnterRemoteRepositoryAsync("/srv/A");
+            await Assert.That(vm.SelectedPermissionMode).IsEqualTo(HomeViewModel.DefaultPermissionMode);
+
+            await vm.EnterRemoteRepositoryAsync("/srv/a");
+            await Assert.That(vm.SelectedPermissionMode).IsEqualTo(ClaudePermissionModes.BypassPermissions);
+
+            using var fresh = BuildWithBox(path, out _);
+            await fresh.SelectMachineAsync("box", isLocal: false);
+            await fresh.EnterRemoteRepositoryAsync("/srv/a");
+            await Assert.That(fresh.SelectedPermissionMode).IsEqualTo(ClaudePermissionModes.BypassPermissions);
+        });
+    }
+
+    /// The same path on this machine and on a remote names two different repositories.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_remote_permission_mode_never_restores_for_the_same_local_path() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = BuildWithBox(Tmp.PathTo("app-state.json"), out var daemon);
+            await vm.SelectMachineAsync("box", isLocal: false);
+            await vm.EnterRemoteRepositoryAsync("/srv/a");
+            await vm.ChoosePermissionModeAsync(ClaudePermissionModes.BypassPermissions);
+
+            await vm.SelectMachineAsync(daemon.DaemonName, isLocal: true);
+            await vm.SelectRepositoryAsync("/srv/a");
+
+            await Assert.That(vm.SelectedPermissionMode).IsEqualTo(HomeViewModel.DefaultPermissionMode);
+        });
+    }
+
     static AgentRow LocalRow(string repoPath) =>
         AgentRow.FromLocal(WorkspaceFixtures.Agent("a1", "claude", false, repoPath), new RepoIdentity("path:" + repoPath, "repo"));
 

@@ -1395,14 +1395,36 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         await _state.UpdateAsync(s => s with { HarnessByRepo = WithEntry(s.HarnessByRepo, repoPath, vendor) });
     }
 
-    /// Same persistence rule as ChooseHarnessAsync.
+    /// Persisted per repository; a remote repository is keyed by its machine as well, since the
+    /// same path can exist on this machine and on each remote.
     public async Task ChoosePermissionModeAsync(string mode) {
         _permissionModeChoices++;
         SelectedPermissionMode = mode;
-        if (RemoteMachineSelected) return;
 
         var repoPath = SelectedRepoPath;
+        if (RemoteMachineSelected) {
+            var machine = SelectedMachine;
+            await _state.UpdateAsync(s => s with {
+                PermissionModeByRemoteRepo = WithRemoteEntry(s.PermissionModeByRemoteRepo, machine, repoPath, mode) });
+            return;
+        }
+
         await _state.UpdateAsync(s => s with { PermissionModeByRepo = WithEntry(s.PermissionModeByRepo, repoPath, mode) });
+    }
+
+    /// Restores the remote repository's remembered mode unless the machine, the repository or the
+    /// mode itself changed while the store loaded.
+    async Task RestoreRemotePermissionModeAsync() {
+        var (machine, repoPath, choices) = (SelectedMachine, SelectedRepoPath, _permissionModeChoices);
+        var saved = await _state.LoadAsync();
+        if (!RemoteMachineSelected || _permissionModeChoices != choices
+            || !string.Equals(SelectedMachine, machine, StringComparison.Ordinal)
+            || !string.Equals(SelectedRepoPath, repoPath, StringComparison.Ordinal)) return;
+
+        string? token = null;
+        if (saved.PermissionModeByRemoteRepo?.TryGetValue(machine, out var byRepo) == true)
+            byRepo.TryGetValue(repoPath, out token);
+        SelectedPermissionMode = KnownPermissionMode(token);
     }
 
     static string KnownPermissionMode(string? token) =>
@@ -1599,6 +1621,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         _remoteVendorOverride.OnNext(machine.SupportedVendors);
         SelectedRepoPath = machine.RepoPaths.FirstOrDefault() is { Length: > 0 } first ? first : ScratchRepoPath;
         RevalidateVendorAgainst(machine.SupportedVendors);
+        await RestoreRemotePermissionModeAsync();
     }
 
     /// Resets SelectedVendor to the first vendor Available in supportedVendors' Build() when the
@@ -1744,6 +1767,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             : PlatformPaths.Normalize(repoPath);
         if (RemoteMachineSelected) {
             RevalidateVendor(Harnesses);
+            await RestoreRemotePermissionModeAsync();
             return;
         }
 
@@ -2350,6 +2374,25 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
                     next[entry.Key] = entry.Value;
 
         next[normalized] = value;
+        return next;
+    }
+
+    /// Remote paths are stored and compared verbatim: this host's normalization and case rules are
+    /// not the remote machine's.
+    static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> WithRemoteEntry(
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? existing, string machine, string repoPath, string value) {
+        var next = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
+        if (existing is not null)
+            foreach (var entry in existing)
+                next[entry.Key] = entry.Value;
+
+        var byRepo = new Dictionary<string, string>(RemotePathComparer);
+        if (next.TryGetValue(machine, out var current))
+            foreach (var entry in current)
+                byRepo[entry.Key] = entry.Value;
+
+        byRepo[repoPath] = value;
+        next[machine] = byRepo;
         return next;
     }
 }
