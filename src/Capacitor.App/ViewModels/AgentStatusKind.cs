@@ -10,6 +10,7 @@ public enum AgentStatusKind {
     Resuming,
     Working,
     Idle,
+    Stale,
     Done,
     Other,
 }
