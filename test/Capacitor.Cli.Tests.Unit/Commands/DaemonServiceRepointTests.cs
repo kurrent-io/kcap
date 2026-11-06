@@ -148,6 +148,39 @@ public partial class DaemonServiceRepointTests {
         await Assert.That(launchctl.Bootstrapped).IsEquivalentTo([Bundle]);
     }
 
+    /// <summary>The caller deletes the folder after a clean run, so a unit kcap cannot read is a failure, not a pass.</summary>
+    [Test]
+    public async Task A_unit_that_cannot_be_read_fails_the_run() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        Directory.CreateDirectory(LaunchdUnit.AgentsDir(Home));
+        File.WriteAllText(PlistPath("npm"), "not a plist");
+        var launchctl = new FakeLaunchctl(Home);
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(launchctl).RepointFrom(Dir, Bundle);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(File.ReadAllText(PlistPath("npm"))).IsEqualTo("not a plist");
+        await Assert.That(console.GetCapturedError()).Contains("Daemon 'npm': its unit could not be read");
+    }
+
+    /// <summary>Only a unit known to be gone lets its preimage go: something else at the plist path may hide the
+    /// rewritten unit the preimage is there to undo.</summary>
+    [Test]
+    public async Task A_preimage_is_kept_while_its_unit_cannot_be_read() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        Directory.CreateDirectory(PlistPath("npm"));
+        File.WriteAllText(Preimage("npm"), LaunchdUnit.Plist(Spec("npm", OldDaemon)));
+        var launchctl = new FakeLaunchctl(Home);
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(launchctl).RepointFrom(Dir, Bundle);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(File.Exists(Preimage("npm"))).IsTrue();
+        await Assert.That(console.GetCapturedError()).Contains("the unit could not be read");
+    }
+
     /// <summary>A preimage outlives its unit when the plist is removed some other way than `service uninstall`.</summary>
     [Test]
     public async Task An_orphan_preimage_with_no_unit_is_dropped() {

@@ -957,6 +957,13 @@ sealed class DaemonServiceCommands(
             bool Owned() => File.Exists(preimage) || Within(launchd.UnitBinary(unit));
 
             try {
+                // The caller may delete dir on success, so a unit that cannot be read must not pass as unrelated.
+                if (!File.Exists(preimage) && launchd.UnitUnreadable(unit)) {
+                    await Console.Error.WriteLineAsync($"Daemon '{unit}': its unit could not be read, so kcap cannot tell whether it runs from {dir}.");
+                    failed = true;
+                    continue;
+                }
+
                 if (!Owned()) continue;
 
                 if ((HostsCaller ?? HostsCallerOf(store))(unit)) {

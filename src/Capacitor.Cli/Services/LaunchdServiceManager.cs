@@ -81,6 +81,12 @@ sealed partial class LaunchdServiceManager(
 
     public string? UnitBinary(string serviceId) => ReadBinaryPathSafe(LaunchdUnit.PlistPath(home, serviceId));
 
+    /// <summary>Whether a unit is on disk that names no daemon binary kcap can read.</summary>
+    public bool UnitUnreadable(string serviceId) {
+        var path = LaunchdUnit.PlistPath(home, serviceId);
+        return LaunchdUnit.TryReadPlist(path, out _) != LaunchdUnit.PlistRead.Absent && ReadBinaryPathSafe(path) is null;
+    }
+
     public ServiceQuery Query(string serviceId)                 => QueryCore(serviceId, null);
     public ServiceQuery Query(string serviceId, TimeSpan t)     => QueryCore(serviceId, t);
 
@@ -373,10 +379,13 @@ sealed partial class LaunchdServiceManager(
     string? SettlePreimage(string serviceId, string path, string preimagePath) {
         if (!File.Exists(preimagePath)) return null;
 
-        // A unit removed since has nothing to go back to.
-        if (!File.Exists(path)) {
-            File.Delete(preimagePath);
-            return null;
+        switch (LaunchdUnit.TryReadPlist(path, out _)) {
+            // A unit removed since has nothing to go back to.
+            case LaunchdUnit.PlistRead.Absent:
+                File.Delete(preimagePath);
+                return null;
+            case LaunchdUnit.PlistRead.Unreadable:
+                return "the unit could not be read, so it was not put back as it was before the reload";
         }
 
         var (label, stdout) = Probe(serviceId);
