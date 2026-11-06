@@ -298,6 +298,10 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - A server stop during a backoff has no subscriber. No lines are lost, because the next `WatcherConnect` redelivers it, but the server waits only 10 seconds for a drain against a backoff of up to 30, so the session end can overtake the tail, and a substantive line then reactivates an ended session (`CapacitorHub.cs:375`). Settle the order.
   - `ServerRecorderTransport` raises `Reconnected` to every recorder. Raise them with one handler's failure or hang isolated from the rest, because in turn, one stuck `WatcherConnect` stalls every later source's re-registration and N sources cost N round trips.
   - A send that hangs in a final drain has nothing to end it. A daemon shutdown needs a bound on `RecorderHost`, and it must spool rather than cut a drain short.
+  - `ServerRecorderTransport.ConnectAsync` must honour its token. A running connect that ignores it blocks both the finish and the import mark, because only a drain-once connect has a bound.
+  - A `WatcherConnect` that completes after its attempt was abandoned leaves a registration on the server until the connection drops, which on a daemon's connection is a long time. `StopAndDrainAsync` then waits out its 10 seconds for a source nobody is recording.
+  - An `IOException` in both the final read and the tail read in `TranscriptRecorder` returns normally with lines neither sent, spooled nor marked, and the host's mark isn't reached. `kcap watch` shares this. Close it before the daemon relies on `FinishAsync`, and log `MarkNeedsImport`'s false in `TranscriptRecorder` as `RecorderHost` does.
+  - `RecorderHost` guards a context's `Log` and `Beat`, but `RecorderHousekeeping` takes its own log delegate, so guard that one too.
 - [ ] **Verify:** the suites, then one real hosted Claude session on a VM, comparing its server transcript to today's watcher path.
 - [ ] **Commit:** `Record hosted Claude sessions in the daemon`
 
