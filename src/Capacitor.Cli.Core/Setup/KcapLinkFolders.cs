@@ -11,5 +11,5 @@ public static class KcapLinkFolders {
 
     /// <see cref="For"/> plus the folders of every link the adopted-link inventory records.
     public static IReadOnlyList<string> WithAdopted(UserHome home, ConfigRoot config) =>
-        [.. For(home).Concat(new AdoptedLinkInventory(config).Links().Select(l => Path.GetDirectoryName(l)!).Where(f => f.Length > 0)).Distinct(StringComparer.Ordinal)];
+        [.. For(home).Concat(new AdoptedLinkInventory(config).Links().Select(Path.GetDirectoryName).Where(f => !string.IsNullOrEmpty(f)).Select(f => f!)).Distinct(StringComparer.Ordinal)];
 }
