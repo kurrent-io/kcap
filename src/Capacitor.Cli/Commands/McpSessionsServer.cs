@@ -82,6 +82,12 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
     public void Dispose() => _client.Dispose();
 
     /// <summary>Never lets the stdio loop die on one bad request.</summary>
+    /// <summary>Whether the call's tool can read the working directory's repository, the only ones worth the lookup a
+    /// repository with no remote costs.</summary>
+    internal static bool ReadsTheCwdRepository(JsonObject callRequest) =>
+        (callRequest["params"] as JsonObject)?["name"] is JsonValue name && name.TryGetValue(out string? tool)
+     && tool is "search_sessions" or "list_repo_sessions" or "list_repo_plans" or EvalReportTool.ReportName or EvalReportTool.RunsName;
+
     internal async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
         if (callRequest["params"] is JsonObject callParams && callParams["name"] is JsonValue name
          && name.TryGetValue(out string? toolName) && toolName == ConnectionTool.Name)
@@ -92,7 +98,8 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
 
         try {
             var client = await _client.GetAsync();
-            return await HandleToolCallAsync(callId, callRequest, client, BaseUrl, await _repository.GetHashAsync(client, BaseUrl));
+            var cwdRepoHash = ReadsTheCwdRepository(callRequest) ? await _repository.GetHashAsync(client, BaseUrl) : null;
+            return await HandleToolCallAsync(callId, callRequest, client, BaseUrl, cwdRepoHash);
         } catch (Exception ex) {
             // The detail goes to stderr only: IO errors can carry local paths.
             await Console.Error.WriteLineAsync($"kcap mcp sessions: unexpected error handling tools/call: {ex}");

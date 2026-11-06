@@ -47,11 +47,18 @@ partial class SessionsCommand(
                 return 1;
             }
 
-            repoHash = await RepositoryHashes.ForAsync(httpClient, baseUrl, repo.Owner, repo.RepoName);
+            var reported = false;
+            repoHash = await RepositoryHashes.ForAsync(httpClient, baseUrl, repo.Owner, repo.RepoName, async response => {
+                if (await HttpClientExtensions.HandleUnauthorizedAsync(response)) reported = true;
+                else if (response.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)) {
+                    await Console.Error.WriteLineAsync($"The server could not resolve this repository ({(int)response.StatusCode}).");
+                    reported = true;
+                }
+            });
             label    = LocalRepository.Label(repo.Owner, repo.RepoName);
 
             if (repoHash is null) {
-                await Console.Error.WriteLineAsync(RepositoryHashes.Unresolved);
+                if (!reported) await Console.Error.WriteLineAsync(RepositoryHashes.Unresolved);
 
                 return 1;
             }

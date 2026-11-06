@@ -101,7 +101,14 @@ class SkillsCommand(
             return Failed;
         }
 
-        if (await repositories.HashForAsync(repo.Owner, repo.RepoName) is not { } hash) {
+        string? hash;
+        try {
+            hash = await repositories.HashForAsync(repo.Owner, repo.RepoName);
+        } catch (CapacitorApiException ex) {
+            await Console.Error.WriteLineAsync(ex.Message);
+            return Failed;
+        }
+        if (hash is null) {
             await Console.Error.WriteLineAsync(RepositoryHashes.Unresolved);
             return Failed;
         }

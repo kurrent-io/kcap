@@ -16,8 +16,15 @@ internal sealed class RepositoriesApi(ICapacitorHttpClient http, CapacitorServer
         return entries ?? [];
     }
 
+    /// <remarks>Null for a server too old to resolve one; a refused sign-in or a failed server throws, as every read
+    /// here does.</remarks>
     public Task<string?> HashForAsync(string owner, string name, CancellationToken ct = default) =>
-        RepositoryHashes.ForAsync(async (url, token) => await SendAsync((c, t) => c.GetAsync(url, t), token), server.Url, owner, name, ct);
+        RepositoryHashes.ForAsync(
+            async (url, token) => await SendAsync((c, t) => c.GetAsync(url, t), token), server.Url, owner, name,
+            async response => {
+                if (response.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)) throw await FailureAsync(response);
+            },
+            ct);
 
     public async Task<CurationResult> GetPromotedCurationAsync(string repoHash, int limit, CancellationToken ct = default) {
         using var response = await SendAsync(

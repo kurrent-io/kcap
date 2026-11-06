@@ -23,7 +23,7 @@ internal sealed class SessionStartMemoryScopeResolver(
                 // Half the budget at most, so the reads that need the hash keep time to run.
                 using var cap        = new CancellationTokenSource(Remaining() / 2, time);
                 using var resolveCap = CancellationTokenSource.CreateLinkedTokenSource(ct, cap.Token);
-                repoHash = await RepositoryHashes.ForAsync(await client(ct), baseUrl, repo.Owner, repo.RepoName, resolveCap.Token);
+                repoHash = await RepositoryHashes.ForAsync(await client(ct), baseUrl, repo.Owner, repo.RepoName, ct: resolveCap.Token);
             }
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;

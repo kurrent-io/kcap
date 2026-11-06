@@ -13,12 +13,17 @@ public static class RepositoryHashes {
     /// <summary>What a command says when the server could not name this repository with no remote.</summary>
     public const string Unresolved = "This repository has no remote, and the server could not resolve it; it may need updating.";
 
-    public static Task<string?> ForAsync(HttpClient client, string baseUrl, string owner, string name, CancellationToken ct = default) =>
-        ForAsync((url, token) => client.GetAsync(url, token), baseUrl, owner, name, ct);
+    public static Task<string?> ForAsync(
+            HttpClient client, string baseUrl, string owner, string name, Func<HttpResponseMessage, Task>? onFailure = null,
+            CancellationToken ct = default) =>
+        ForAsync((url, token) => client.GetAsync(url, token), baseUrl, owner, name, onFailure, ct);
 
     /// <param name="get">Sends a GET to the absolute URL it is given.</param>
+    /// <param name="onFailure">Sees a refused or failed lookup before it reads as unresolved, so a caller can tell an
+    /// older server's 404 from a sign-in it must renew or a server that failed.</param>
     public static async Task<string?> ForAsync(
             Func<string, CancellationToken, Task<HttpResponseMessage>> get, string baseUrl, string owner, string name,
+            Func<HttpResponseMessage, Task>? onFailure = null,
             CancellationToken ct = default) {
         if (!LocalRepository.IsLocal(owner)) return RepoHashHelper.ComputeRepoHash(owner, name);
 
@@ -26,7 +31,10 @@ public static class RepositoryHashes {
 
         try {
             using var response = await get(url, ct);
-            if (!response.IsSuccessStatusCode) return null;
+            if (!response.IsSuccessStatusCode) {
+                if (onFailure is not null) await onFailure(response);
+                return null;
+            }
 
             var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct));
 
