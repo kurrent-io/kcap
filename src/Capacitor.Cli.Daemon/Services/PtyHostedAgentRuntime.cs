@@ -84,6 +84,11 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// can wait this long, on the daemon's one sequential SignalR dispatch, before it is refused.</summary>
     internal static readonly TimeSpan LaunchPromptConfirmWait = TimeSpan.FromSeconds(20);
 
+    /// <summary>The same wait for a later message. The agent is up by then and its hooks report a
+    /// submitted turn within about two seconds, so this runs out only when the Enter was lost; one
+    /// that runs out early costs an Enter in an empty composer.</summary>
+    internal static readonly TimeSpan FollowUpConfirmWait = TimeSpan.FromSeconds(5);
+
     /// <summary>The PTY offers no exit event and the TUI can turn bracketed paste off again, so the
     /// launch prompt's waits are sliced and both re-read between slices.</summary>
     static readonly TimeSpan LaunchPromptPoll = TimeSpan.FromMilliseconds(250);
@@ -245,7 +250,7 @@ internal sealed partial class PtyHostedAgentRuntime(
 
             if (arrived is null) return settled ? LaunchPromptOutcome.Delivered : LaunchPromptOutcome.DeliveredAfterMaxWait;
 
-            var outcome = await ConfirmArrivalAsync(arrived, mayResubmit: static () => true);
+            var outcome = await ConfirmArrivalAsync(arrived, mayResubmit: static () => true, LaunchPromptConfirmWait);
             if (outcome != LaunchPromptOutcome.NotConfirmed) return outcome;
 
             lock (_arrivalGate) {
@@ -269,8 +274,8 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// holds: after the prompt arrived it would submit an empty turn, in a dialog it would pick an
     /// option, and behind someone's typing it would submit that too.
     /// </summary>
-    async Task<LaunchPromptOutcome> ConfirmArrivalAsync(Task arrived, Func<bool> mayResubmit) {
-        if (await ArrivesWithinAsync(arrived)) return LaunchPromptOutcome.Confirmed;
+    async Task<LaunchPromptOutcome> ConfirmArrivalAsync(Task arrived, Func<bool> mayResubmit, TimeSpan wait) {
+        if (await ArrivesWithinAsync(arrived, wait)) return LaunchPromptOutcome.Confirmed;
         if (Withdrawn() is { } early) return early;
 
         await _lane.WaitAsync(_disposal.Token);
@@ -286,7 +291,7 @@ internal sealed partial class PtyHostedAgentRuntime(
             ReleaseDeliveryLane();
         }
 
-        if (await ArrivesWithinAsync(arrived)) return LaunchPromptOutcome.ConfirmedAfterResubmit;
+        if (await ArrivesWithinAsync(arrived, wait)) return LaunchPromptOutcome.ConfirmedAfterResubmit;
         if (Withdrawn() is { } late) return late;
 
         return arrived.IsCompleted ? LaunchPromptOutcome.ConfirmedAfterResubmit : LaunchPromptOutcome.NotConfirmed;
@@ -295,16 +300,16 @@ internal sealed partial class PtyHostedAgentRuntime(
     LaunchPromptOutcome? Withdrawn() =>
         pty.HasExited ? LaunchPromptOutcome.AgentExited : _stopRequested ? LaunchPromptOutcome.StopRequested : null;
 
-    /// <summary>True once a turn is reported; false when <see cref="LaunchPromptConfirmWait"/> passes
+    /// <summary>True once a turn is reported; false when <paramref name="wait"/> passes
     /// first or the agent exits or is asked to stop. The wait starts over while a dialog shows: the
     /// prompt cannot start a turn until it is answered.</summary>
-    async Task<bool> ArrivesWithinAsync(Task arrived) {
+    async Task<bool> ArrivesWithinAsync(Task arrived, TimeSpan wait) {
         var started = time.GetTimestamp();
 
         while (!arrived.IsCompleted && !pty.HasExited && !_stopRequested) {
             if (DialogGone is not null) started = time.GetTimestamp();
 
-            var remaining = LaunchPromptConfirmWait - time.GetElapsedTime(started);
+            var remaining = wait - time.GetElapsedTime(started);
             if (remaining <= TimeSpan.Zero) return false;
 
             try {
@@ -505,7 +510,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     async Task<LaunchPromptOutcome> ConfirmFollowUpAsync(Task arrived, int delivery, int keystrokes) {
         try {
             var outcome = await ConfirmArrivalAsync(arrived, () =>
-                Volatile.Read(ref _deliveries) == delivery && Volatile.Read(ref _keystrokes) == keystrokes);
+                Volatile.Read(ref _deliveries) == delivery && Volatile.Read(ref _keystrokes) == keystrokes, FollowUpConfirmWait);
             if (outcome == LaunchPromptOutcome.NotConfirmed) LogFollowUpNotConfirmed(_logger, vendor);
             return outcome;
         } catch (OperationCanceledException) {

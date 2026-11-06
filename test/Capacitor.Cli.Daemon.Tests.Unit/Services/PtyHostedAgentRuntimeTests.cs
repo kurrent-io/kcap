@@ -919,7 +919,7 @@ public class PtyHostedAgentRuntimeTests {
         var time = new FakeTimeProvider();
         var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
 
-        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait - TimeSpan.FromSeconds(1));
+        await AdvanceAsync(time, PtyHostedAgentRuntime.FollowUpConfirmWait - TimeSpan.FromSeconds(1));
         await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FollowUpSubmitted);
 
         await StepAsync(time, TimeSpan.FromSeconds(2), () => pty.Writes.Count >= 5);
@@ -940,7 +940,7 @@ public class PtyHostedAgentRuntimeTests {
         var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
 
         await runtime.SendRawInputAsync([]);
-        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait + TimeSpan.FromSeconds(1), () => pty.Writes.Count(w => w == "\r") >= 3);
+        await StepAsync(time, PtyHostedAgentRuntime.FollowUpConfirmWait + TimeSpan.FromSeconds(1), () => pty.Writes.Count(w => w == "\r") >= 3);
 
         await Assert.That(pty.Writes.Count(w => w == "\r")).IsEqualTo(3);
         pty.Exit();
