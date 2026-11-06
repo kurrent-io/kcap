@@ -41,6 +41,21 @@ public class DispatchedInputLedgerTests {
         await Assert.That(reason).IsEqualTo("delivery_failed");
     }
 
+    /// <summary>A repeat acknowledgement racing the report of a lost write must not undo the drop.</summary>
+    [Test]
+    public async Task A_dropped_id_stays_dropped_when_marked_taken_again() {
+        var id = Guid.NewGuid();
+        _ledger.Admit(id, out _);
+        _ledger.MarkTaken(id);
+        _ledger.MarkDropped(id, "delivery_failed");
+        _ledger.MarkTaken(id);
+
+        var state = _ledger.Admit(id, out var reason);
+
+        await Assert.That(state).IsEqualTo(DispatchState.Dropped);
+        await Assert.That(reason).IsEqualTo("delivery_failed");
+    }
+
     [Test]
     public async Task A_settled_id_expires_once_the_window_passes_without_a_resend() {
         var id = Guid.NewGuid();

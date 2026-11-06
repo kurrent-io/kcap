@@ -5058,7 +5058,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     return;
                 case DispatchState.Taken:
                     LogSendInputDuplicateTaken(cmd.AgentId, dispatchId);
-                    AcknowledgeInput(cmd);
+                    _ = _server.SendInputAckedAsync(dispatchId, cmd.AgentId);
                     return;
                 case DispatchState.Dropped:
                     await ReportInputDroppedAsync(cmd, dropReason!);

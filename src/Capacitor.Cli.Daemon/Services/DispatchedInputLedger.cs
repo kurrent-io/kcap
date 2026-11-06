@@ -37,6 +37,7 @@ internal sealed class DispatchedInputLedger(TimeProvider time) {
         }
     }
 
+    /// <summary>Never undoes a drop: a write lost after the input was taken is final.</summary>
     public void MarkTaken(Guid dispatchId) => Settle(dispatchId, DispatchState.Taken, null);
 
     public void MarkDropped(Guid dispatchId, string reason) => Settle(dispatchId, DispatchState.Dropped, reason);
@@ -50,7 +51,8 @@ internal sealed class DispatchedInputLedger(TimeProvider time) {
         var now = time.GetUtcNow();
 
         lock (_gate)
-            if (_state.ContainsKey(dispatchId)) _state[dispatchId] = new(state, reason, now);
+            if (_state.TryGetValue(dispatchId, out var entry) && !(state == DispatchState.Taken && entry.State == DispatchState.Dropped))
+                _state[dispatchId] = new(state, reason, now);
     }
 
     void Prune(DateTimeOffset now) {
