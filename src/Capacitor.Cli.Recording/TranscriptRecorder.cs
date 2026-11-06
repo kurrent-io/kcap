@@ -94,7 +94,7 @@ public sealed class TranscriptRecorder(
     public bool EndedIdle { get; private set; }
 
     /// <summary>A connect given up on, which can still reach the server after this recorder has gone.</summary>
-    public Task? AbandonedConnect { get; private set; }
+    internal Task? AbandonedConnect { get; private set; }
 
     /// <summary>A Copilot <c>session.shutdown</c> stayed the transcript's last line.</summary>
     public bool EndedOnCopilotShutdown { get; private set; }
@@ -250,7 +250,8 @@ public sealed class TranscriptRecorder(
     }
 
     /// <summary>Makes the final drain, whatever stopped the loop, and tells the server it is done. Lines it could
-    /// not deliver go to the spool, because the process may exit right after.</summary>
+    /// not deliver go to the spool, because the process may exit right after. <paramref name="ct"/> cuts off what
+    /// depends on the server and on a title, a hung send above all, and the spool still gets what is left.</summary>
     public async Task FinishAsync(CancellationToken ct) {
         // A stop can end the loop before a tick saw the claim go.
         if (HasLostClaim()) {
@@ -297,12 +298,19 @@ public sealed class TranscriptRecorder(
 
             // Give the writer up to 2s to finish its last record. That is best-effort: the drain below re-decides
             // completeness on the exact bytes it consumes, so a line that resumed growing is still held.
-            await TranscriptReader.WaitForFinalLineCompletionAsync(TranscriptPath, time);
+            var lastLineComplete = await TranscriptReader.WaitForFinalLineCompletionAsync(TranscriptPath, time, ct: ct);
             FollowMovedTranscript();
 
-            var finalDrained = await DrainNewLinesGatedAsync(isFinalDrain: true, ct);
+            IReadOnlyList<string> finalDrained = [];
 
-            if (State.FinalDrainHeldIncompleteLine) {
+            try {
+                finalDrained = await DrainNewLinesGatedAsync(isFinalDrain: true, ct);
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                // Cut off behind a reconnect's rewind. The spool below takes the lines.
+            }
+
+            // A drain cut off before its read can't say, and the tail spool below leaves such a line out.
+            if (State.FinalDrainHeldIncompleteLine || (ct.IsCancellationRequested && !lastLineComplete)) {
                 // Keyed on the session even for a subagent: the spool and `kcap import` work at session level.
                 log("Final transcript line still incomplete at consume time; held back and flagging needs-import");
                 MarkForImport(_spool, "shutdown final drain: last transcript line never completed (no newline, unparseable)");
@@ -313,10 +321,14 @@ public sealed class TranscriptRecorder(
             // last chance to act before the process exits, and spooling keeps the tail for a later drain to replay.
             FollowMovedTranscript();
             await SpoolUndeliveredTranscriptTailAsync(
-                _spool, State.LinesProcessed, State.Commits, ct,
+                _spool, State.LinesProcessed, State.Commits, CancellationToken.None,
                 ShutdownTailRedactionDeadline - time.GetElapsedTime(shutdownStarted), State.LineOffsets);
 
-            await context.Housekeeping.AfterFinalDrainAsync(State, finalDrained, shutdownStarted, ct);
+            try {
+                await context.Housekeeping.AfterFinalDrainAsync(State, finalDrained, shutdownStarted, ct);
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                log("Final housekeeping cut off");
+            }
         }
 
         // The generated title goes out over this connection, so it is waited for before the close.
@@ -328,13 +340,13 @@ public sealed class TranscriptRecorder(
                 var titleBudget = ShutdownTitleBudget(connected, Volatile.Read(ref _stopRequested) == 1, time.GetElapsedTime(shutdownStarted));
                 log($"Waiting up to {Math.Max(0, titleBudget.TotalSeconds):F1}s for the generated title before closing the connection");
 
-                settled = await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, context.Beat);
+                settled = await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, context.Beat, ct);
                 if (!settled) await _titleCts.CancelAsync();
             }
 
             // A kill follows a stop request within seconds and a title takes longer, and a closed connection cannot
             // carry one at all, so another process finishes it over HTTP, as it does one that never reached the server.
-            if (!State.TitleGenerated && (Volatile.Read(ref _stopRequested) == 1 || !connected || !transport.IsConnected)) {
+            if (!State.TitleGenerated && (Volatile.Read(ref _stopRequested) == 1 || ct.IsCancellationRequested || !connected || !transport.IsConnected)) {
                 log($"Generated title {(settled ? "not sent" : "not ready")} before shutdown; handing it to a title generator");
                 context.Housekeeping.HandOffTitle(TranscriptPath);
             } else if (!settled) {
@@ -616,16 +628,18 @@ public sealed class TranscriptRecorder(
 
     /// <summary>Waits up to <paramref name="budget"/> for <paramref name="pending"/>, calling <paramref name="beat"/>
     /// before each heartbeat slice of the wait. False when it is still running at the end, for the caller to abandon.</summary>
-    internal static async Task<bool> AwaitPendingTitleAsync(Task? pending, TimeSpan budget, TimeProvider time, Action beat) {
+    internal static async Task<bool> AwaitPendingTitleAsync(Task? pending, TimeSpan budget, TimeProvider time, Action beat, CancellationToken ct = default) {
         if (pending is null || pending.IsCompleted) return true;
 
         foreach (var slice in HeartbeatSlices(budget, HeartbeatSlice)) {
             beat();
 
             try {
-                await pending.WaitAsync(slice, time);
+                await pending.WaitAsync(slice, time, ct);
             } catch (TimeoutException) when (!pending.IsCompleted) {
                 continue;
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                return pending.IsCompleted;
             } catch {
                 // the generation's own failure: it is over, which is all shutdown waits for
             }

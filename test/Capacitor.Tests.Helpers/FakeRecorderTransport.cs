@@ -82,11 +82,15 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
         return ResumeFrom;
     }
 
-    public Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct) {
+    /// <summary>Awaited inside <see cref="SendBatchAsync"/> with its token, before the batch counts as sent.</summary>
+    public Func<CancellationToken, Task>? OnSend { get; set; }
+
+    public async Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct) {
         Require();
+        if (OnSend is { } send) await send(ct);
         lock (_gate) _batches.Add(batch);
 
-        return Task.FromResult(Ack(batch));
+        return Ack(batch);
     }
 
     public Task SendTitleAsync(string sessionId, string title, CancellationToken ct) {

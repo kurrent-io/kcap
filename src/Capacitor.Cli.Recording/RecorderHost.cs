@@ -21,6 +21,9 @@ public sealed class RecorderHost {
     static readonly TimeSpan MaxRetryDelay   = TimeSpan.FromSeconds(30);
     static readonly TimeSpan DetachBudget    = TimeSpan.FromSeconds(5);
 
+    // Kept back from a shutdown's sends, at most half its bound: the tail's read, and redaction, whose floor is a second.
+    static readonly TimeSpan SpoolReserve = TimeSpan.FromSeconds(2);
+
     readonly IRecorderTransport _transport;
     readonly Func<RecordingSource, IRowStamper> _stampers;
     readonly Func<RecordingSource, RecorderContext> _contexts;
@@ -30,6 +33,7 @@ public sealed class RecorderHost {
     readonly Action<RecorderAttemptEnded>? _attemptEnded;
     readonly ConcurrentDictionary<string, Entry> _entries = new();
     readonly Lock _admission = new();
+    bool _stopping;
 
     public RecorderHost(
         IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time,
@@ -56,12 +60,12 @@ public sealed class RecorderHost {
     /// <summary>Starts recording <paramref name="source"/>. The first recorder, context and stamper are built here, so
     /// a factory that throws throws from this call and adds nothing; a later attempt's factory that throws is a failed
     /// attempt, logged to the first context's log.</summary>
-    /// <returns>False when its key is already being recorded.</returns>
+    /// <returns>False when its key is already being recorded, or this host is stopping.</returns>
     public bool TryAdd(RecordingSource source) {
-        var entry = new Entry();
+        var entry = new Entry(source);
 
         lock (_admission) {
-            if (!_entries.TryAdd(source.Key, entry)) {
+            if (_stopping || !_entries.TryAdd(source.Key, entry)) {
                 entry.Dispose();
 
                 return false;
@@ -71,6 +75,7 @@ public sealed class RecorderHost {
         try {
             var context  = _contexts(source);
             var recorder = Create(source, context);
+            entry.First = context;
             _ = Task.Run(() => RunAsync(source, entry, context, recorder));
         } catch {
             Remove(source.Key, entry);
@@ -79,6 +84,50 @@ public sealed class RecorderHost {
         }
 
         return true;
+    }
+
+    /// <summary>Finishes every source within <paramref name="bound"/>, for a host going away, and adds no more. A drain
+    /// still sending when the bound nears is cut off, and its recorder spools what it had left. A source still going at
+    /// the bound is stuck where no token reaches, so it is marked for import and left behind, in
+    /// <see cref="ActiveKeys"/>. Claims stay, because only the owner knows whether it is coming back.</summary>
+    /// <param name="ct">Brings the bound forward, for an owner out of time: what hasn't finished is cut and marked at
+    /// once, and this returns rather than throws.</param>
+    public async Task StopAllAsync(TimeSpan bound, CancellationToken ct) {
+        Entry[] entries;
+
+        lock (_admission) {
+            _stopping = true;
+            entries   = [.._entries.Values];
+        }
+
+        var started = _time.GetTimestamp();
+        var ended   = Task.WhenAll(entries.Select(entry => entry.Done));
+        var reserve = bound / 2 < SpoolReserve ? bound / 2 : SpoolReserve;
+
+        foreach (var entry in entries) entry.Hurry();
+
+        if (await EndsWithinAsync(ended, bound - reserve, ct)) return;
+
+        foreach (var entry in entries) entry.CutSends();
+
+        if (await EndsWithinAsync(ended, bound - _time.GetElapsedTime(started), ct)) return;
+
+        foreach (var entry in entries) {
+            if (entry.Done.IsCompleted || entry.First is not { } first) continue;
+
+            Log(first, $"Recording {entry.Source.Key} did not finish within the shutdown's bound, marking it for import");
+            MarkNeedsImport(entry.Source, first, "shutdown bound passed before the final drain finished");
+        }
+    }
+
+    async Task<bool> EndsWithinAsync(Task ended, TimeSpan limit, CancellationToken ct) {
+        try {
+            await ended.WaitAsync(limit > TimeSpan.Zero ? limit : TimeSpan.Zero, _time, ct);
+
+            return true;
+        } catch (Exception ex) when (ex is TimeoutException or OperationCanceledException) {
+            return false;
+        }
     }
 
     // A running recorder hears a stop itself. Between attempts none is listening, and the server's drain wait is
@@ -236,7 +285,7 @@ public sealed class RecorderHost {
         try {
             if (entry.Hurried) recorder.RequestStop();
 
-            await recorder.FinishAsync(CancellationToken.None);
+            await recorder.FinishAsync(entry.DrainToken);
 
             return null;
         } catch (Exception ex) {
@@ -259,7 +308,7 @@ public sealed class RecorderHost {
             recorder = Create(source, context);
             if (entry.Hurried) recorder.RequestStop();
 
-            await recorder.DrainOnceAsync(CancellationToken.None);
+            await recorder.DrainOnceAsync(entry.DrainToken);
         } catch (Exception ex) {
             failure = ex;
             Log(first, $"Final drain of {source.Key} failed, marking it for import: {ex.Message}");
@@ -283,19 +332,14 @@ public sealed class RecorderHost {
             // Its outcome changes nothing here.
         }
 
-        Task detach;
+        Task? detach = null;
 
         lock (_admission) {
-            if (_entries.TryGetValue(source.Key, out var holder) && holder != entry) {
-                Log(first, $"A late connect of {source.Key} landed, and it is being recorded again, so it stays registered");
-
-                return;
-            }
-
-            detach = DetachAsync(source, first);
+            if (!_entries.TryGetValue(source.Key, out var holder) || holder == entry) detach = DetachAsync(source, first);
         }
 
-        await detach;
+        if (detach is not null) await detach;
+        else Log(first, $"A late connect of {source.Key} landed, and it is being recorded again, so it stays registered");
     }
 
     // Never throws, or a broken owner would stop a retry. Retires the ack count where a watcher would, once no attempt
@@ -348,20 +392,33 @@ public sealed class RecorderHost {
     }
 
     sealed class Entry : IDisposable {
-        readonly CancellationTokenSource _run  = new();
-        readonly TaskCompletionSource    _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        readonly CancellationTokenSource _run   = new();
+        readonly CancellationTokenSource _drain = new();
+        readonly TaskCompletionSource    _done  = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         bool _hurried;
 
+        public RecordingSource Source { get; }
+
+        /// <summary>The first attempt's context, which outlives the attempts for logging. Null until it is built.</summary>
+        public RecorderContext? First { get; set; }
+
         /// <summary>Cancelled when the source is asked to finish.</summary>
         public CancellationToken Token { get; }
+
+        /// <summary>Cancelled only by a shutdown out of time: a final drain otherwise runs for as long as it needs.</summary>
+        public CancellationToken DrainToken { get; }
 
         /// <summary>Whoever stopped this source will not wait long, so its final drain must not either.</summary>
         public bool Hurried => Volatile.Read(ref _hurried);
 
         public Task Done => _done.Task;
 
-        public Entry() => Token = _run.Token;
+        public Entry(RecordingSource source) {
+            Source     = source;
+            Token      = _run.Token;
+            DrainToken = _drain.Token;
+        }
 
         public void CancelRun() {
             try {
@@ -383,11 +440,23 @@ public sealed class RecorderHost {
             }
         }
 
+        /// <summary>Off the caller's thread, for the reason <see cref="Hurry"/> is.</summary>
+        public void CutSends() {
+            try {
+                _ = _drain.CancelAsync();
+            } catch (ObjectDisposedException) {
+                // The source has ended.
+            }
+        }
+
         public void Complete() {
             _done.TrySetResult();
             Dispose();
         }
 
-        public void Dispose() => _run.Dispose();
+        public void Dispose() {
+            _run.Dispose();
+            _drain.Dispose();
+        }
     }
 }

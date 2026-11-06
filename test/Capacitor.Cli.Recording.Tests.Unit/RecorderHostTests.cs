@@ -97,6 +97,13 @@ public class RecorderHostTests {
         }
     }
 
+    /// <summary>Spends a shutdown's wait for its sends and not a moment of its bound: stepping the clock past this would
+    /// reach the bound however quickly a cut drain spools, and a test of the spool would be reading the bound's mark.</summary>
+    async Task ElapseTheWaitForSends(TimeSpan wait) {
+        await Eventually(() => _time.Timers.Any(timer => timer.Due == wait), "the wait for the sends");
+        _time.Advance(wait);
+    }
+
     /// <summary>Past the grace with the claim still fresh means a beat landed after the take, and the only source of
     /// one is the host's backoff: every connect fails, so no recorder ever reaches its loop.</summary>
     [Test]
@@ -743,7 +750,7 @@ public class RecorderHostTests {
         var host = NewHost();
 
         host.TryAdd(source);
-        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
         _transport.ConnectHangs = true;
         var finish = host.FinishAsync(source.Key, CancellationToken.None);
         await Eventually(() => _transport.ConnectAttempts == 2, "the final drain's connect");
@@ -756,6 +763,250 @@ public class RecorderHostTests {
         await Assert.That(host.ActiveKeys).IsEmpty();
     }
 
+    /// <summary>The clock stands still, so no bound elapses: a healthy shutdown takes as long as its drains.</summary>
+    [Test]
+    public async Task Shutdown_finishes_every_source_within_its_bound() {
+        var running   = Source(Tmp.CreateFile("running.jsonl", $"{Prompt}\n"), "a1");
+        var unsent    = Source(Tmp.CreateFile("unsent.jsonl", $"{Prompt}\n"), "a2");
+        var backedOff = Source(Tmp.CreateFile("backed-off.jsonl", $"{Prompt}\n"), "a3");
+        var host      = NewHost();
+
+        host.TryAdd(running);
+        host.TryAdd(unsent);
+        await Eventually(() => LinesSent(running.SessionId) == 1 && LinesSent(unsent.SessionId) == 1, "both first lines");
+        await File.AppendAllTextAsync(unsent.TranscriptPath, $"{Reply}\n");
+
+        _transport.ConnectFailures = 1;
+        host.TryAdd(backedOff);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+
+        await host.StopAllAsync(TimeSpan.FromSeconds(10), CancellationToken.None).WithinDeadlineAsync("the shutdown");
+
+        await Assert.That(host.ActiveKeys).IsEmpty();
+        await Assert.That(LinesSent(unsent.SessionId)).IsEqualTo(2);
+        await Assert.That(LinesSent(backedOff.SessionId)).IsEqualTo(1);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(3);
+        await Assert.That(_transport.Detached).IsEquivalentTo([running.Key, unsent.Key, backedOff.Key]);
+    }
+
+    [Test]
+    public async Task A_source_cannot_be_added_once_shutdown_has_begun() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+
+        await host.StopAllAsync(TimeSpan.FromSeconds(10), CancellationToken.None).WithinDeadlineAsync("the shutdown");
+
+        await Assert.That(host.TryAdd(source)).IsFalse();
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    /// <summary>A send honouring its token is cut off and its lines go to the spool. One that ignores its token leaves
+    /// the source stuck where nothing can reach it, so at the bound the host marks it and leaves it behind.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_send_that_hangs_at_shutdown_spools_or_marks_its_source(bool honoursItsToken) {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var host    = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+
+        _transport.OnSend = ct => {
+            entered.TrySetResult();
+
+            return honoursItsToken ? Task.Delay(Timeout.Infinite, ct) : new TaskCompletionSource().Task;
+        };
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+
+        var stopping = host.StopAllAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+        await entered.Task.WithinDeadlineAsync("the final drain's send");
+        await ElapseTheWaitForSends(TimeSpan.FromSeconds(8));
+
+        if (!honoursItsToken) {
+            await Eventually(() => _time.Timers.Any(timer => timer.Due == TimeSpan.FromSeconds(2)), "the wait for the spool");
+            _time.Advance(TimeSpan.FromSeconds(2));
+        }
+
+        await stopping.WithinDeadlineAsync("the shutdown");
+
+        var spool = new TranscriptSpool(Config, _time, "http://127.0.0.1:1");
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
+
+        if (honoursItsToken) {
+            await Assert.That(spool.HasBacklog(source.SessionId)).IsTrue();
+            await Assert.That(spool.NeedsImport(source.SessionId)).IsFalse();
+            await Assert.That(host.ActiveKeys).IsEmpty();
+        } else {
+            await Assert.That(spool.HasBacklog(source.SessionId)).IsFalse();
+            await Assert.That(spool.NeedsImport(source.SessionId)).IsTrue();
+        }
+    }
+
+    /// <summary>A finish already under way is what a shutdown overtakes: its drain has to take the same cut.</summary>
+    [Test]
+    public async Task A_shutdown_cuts_a_finish_that_is_hanging_in_a_send() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.OnSend = ct => {
+            entered.TrySetResult();
+
+            return Task.Delay(Timeout.Infinite, ct);
+        };
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await entered.Task.WithinDeadlineAsync("the final drain's send");
+
+        var stopping = host.StopAllAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+        await ElapseTheWaitForSends(TimeSpan.FromSeconds(8));
+        await stopping.WithinDeadlineAsync("the shutdown");
+        await finish.WithinDeadlineAsync("the finish");
+
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").HasBacklog(source.SessionId)).IsTrue();
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    /// <summary>No server cursor means no way to tell what to spool, so it is the mark that keeps these lines.</summary>
+    [Test]
+    public async Task A_connect_that_hangs_at_shutdown_marks_its_source() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+        _transport.ConnectHangs = true;
+
+        var stopping = host.StopAllAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+        await Eventually(() => _transport.ConnectAttempts == 2, "the final drain's connect");
+        await ElapseTheWaitForSends(TimeSpan.FromSeconds(8));
+        await stopping.WithinDeadlineAsync("the shutdown");
+
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    /// <summary>The token brings the bound forward: what hasn't finished is cut and marked there and then, because a
+    /// caller that cancels isn't going to wait for a spool.</summary>
+    [Test]
+    public async Task Cancelling_a_shutdown_marks_what_it_could_not_finish() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var host    = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        _transport.OnSend = _ => {
+            entered.TrySetResult();
+
+            return new TaskCompletionSource().Task;
+        };
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+
+        using var cancel = new CancellationTokenSource();
+        var stopping = host.StopAllAsync(TimeSpan.FromMinutes(10), cancel.Token);
+        await entered.Task.WithinDeadlineAsync("the final drain's send");
+        await cancel.CancelAsync();
+        await stopping.WithinDeadlineAsync("the shutdown");
+
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
+    }
+
+    /// <summary>A shutdown's drain has no time for a title: it goes to whatever outlives the host, and the drain ends
+    /// inside the bound.</summary>
+    [Test]
+    public async Task A_title_still_generating_at_shutdown_is_handed_off() {
+        var source     = new RecordingSource(Guid.NewGuid().ToString("N"), null, Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "claude", null);
+        var generating = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handed     = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blocked    = new TaskCompletionSource<ClaudeCliResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _titles[source.Key] = _ => {
+            generating.TrySetResult();
+
+            return blocked.Task;
+        };
+        _handOffs[source.Key] = () => handed.TrySetResult();
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 2, "its lines");
+
+        var stopping = host.StopAllAsync(TimeSpan.FromSeconds(4), CancellationToken.None);
+        await generating.Task.WithinDeadlineAsync("the title to start");
+        await ElapseTheWaitForSends(TimeSpan.FromSeconds(2));
+        await stopping.WithinDeadlineAsync("the shutdown");
+
+        await Assert.That(handed.Task.IsCompleted).IsTrue();
+        await Assert.That(host.ActiveKeys).IsEmpty();
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsFalse();
+    }
+
+    /// <summary>The recorder is held until the shutdown's second wait has begun, so its drain starts already cut and
+    /// never reads, and the tail spool leaves an incomplete line out. The bound hasn't passed: the mark is the drain's.</summary>
+    [Test]
+    public async Task A_line_still_incomplete_when_a_drain_starts_cut_off_marks_the_source() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{{\"type\":\"assistant"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeDrain[source.Key] = () => {
+            if (LinesSent(source.SessionId) == 0) return Task.CompletedTask;
+
+            entered.TrySetResult();
+
+            return release.Task;
+        };
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => entered.Task.IsCompleted, "the recorder held in its second tick", TimeSpan.FromSeconds(1));
+
+        var stopping = host.StopAllAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+        await ElapseTheWaitForSends(TimeSpan.FromSeconds(8));
+        await Eventually(() => _time.Timers.Any(timer => timer.Due == TimeSpan.FromSeconds(2)), "the wait for the spool");
+
+        release.SetResult();
+        await stopping.WithinDeadlineAsync("the shutdown");
+
+        await Assert.That(host.ActiveKeys).IsEmpty();
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
+    }
+
+    /// <summary>What the final drain's housekeeping does with a cut token must not read as a failed drain: the lines are
+    /// safe by then, and a false mark sends someone to an import with nothing in it.</summary>
+    [Test]
+    public async Task Housekeeping_cut_off_at_shutdown_does_not_mark_a_source_that_spooled() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var host    = NewHost();
+        _afterFinalDrain[source.Key] = () => throw new OperationCanceledException();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+
+        _transport.OnSend = ct => {
+            entered.TrySetResult();
+
+            return Task.Delay(Timeout.Infinite, ct);
+        };
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+
+        var stopping = host.StopAllAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+        await entered.Task.WithinDeadlineAsync("the final drain's send");
+        await ElapseTheWaitForSends(TimeSpan.FromSeconds(8));
+        await stopping.WithinDeadlineAsync("the shutdown");
+
+        var spool = new TranscriptSpool(Config, _time, "http://127.0.0.1:1");
+        await Assert.That(spool.HasBacklog(source.SessionId)).IsTrue();
+        await Assert.That(spool.NeedsImport(source.SessionId)).IsFalse();
+    }
+
     /// <summary>On a daemon's connection a registration nobody detaches stays until the connection drops, and a session
     /// end then waits out the server's 10 seconds for a source nobody is recording.</summary>
     [Test]
@@ -766,7 +1017,7 @@ public class RecorderHostTests {
         var host = NewHost();
 
         host.TryAdd(source);
-        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
         _transport.ConnectHold = landed.Task;
         var finish = host.FinishAsync(source.Key, CancellationToken.None);
         await Eventually(() => _transport.ConnectAttempts == 2, "the final drain's connect");
@@ -789,7 +1040,7 @@ public class RecorderHostTests {
         var host = NewHost();
 
         host.TryAdd(source);
-        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
         _transport.ConnectHold = landed.Task;
         var finish = host.FinishAsync(source.Key, CancellationToken.None);
         await Eventually(() => _transport.ConnectAttempts == 2, "the final drain's connect");
@@ -811,7 +1062,7 @@ public class RecorderHostTests {
         var host = NewHost();
 
         host.TryAdd(source);
-        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
         _transport.ConnectHold = landed.Task;
         var finish = host.FinishAsync(source.Key, CancellationToken.None);
         await Eventually(() => _transport.ConnectAttempts == 2, "the final drain's connect");
