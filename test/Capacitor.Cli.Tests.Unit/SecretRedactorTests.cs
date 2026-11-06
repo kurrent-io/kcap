@@ -803,6 +803,8 @@ public class SecretRedactorTests {
     [Arguments("redis+ssl://" + "sslPw46" + "@cache.example.com:6380", "sslPw46", "redis+ssl://[REDACTED]@cache.example.com")]
     [Arguments("redis+tls://" + "alpha@beta" + "@cache.example.com:6380", "beta", "redis+tls://[REDACTED]@cache.example.com")]
     [Arguments("postgres://app:" + "p@ss@word" + "@db.example.com/app", "ss@word", "postgres://app:[REDACTED]@db.example.com")]
+    [Arguments("postgres://app:" + "alpha@beta;gamma" + "@db.example.com/app", "beta;gamma", "postgres://app:[REDACTED]@db.example.com")]
+    [Arguments("postgres://app:" + "alpha@beta,gamma" + "@db.example.com/app", "beta,gamma", "postgres://app:[REDACTED]@db.example.com")]
     public async Task RedactsLine_UrlUserinfo_AnyScheme(string text, string secret, string kept) {
         var line = $$$"""
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{text}}}","is_error":false}]}}
