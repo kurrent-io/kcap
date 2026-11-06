@@ -31,6 +31,10 @@ public enum ChatTabPhase { Waiting, Reading, Missing, Unavailable, Failed }
 /// under a stale generation and is discarded.
 public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
+    /// How long a send may go unechoed while the agent is not working before Enter is pressed once
+    /// more, and again before the row says the agent has not picked it up. Outlasts the echo of a
+    /// prompt the agent took; running over costs only an Enter in an empty composer.
+    internal static readonly TimeSpan PickupWait = TimeSpan.FromSeconds(5);
     /// First retry gap after a failed withdraw; each further one doubles it.
     internal static readonly TimeSpan WithdrawRetryDelay = TimeSpan.FromSeconds(2);
     internal const int MaxWithdrawRetries = 3;
@@ -1525,6 +1529,39 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         return outcome;
     }
 
+    bool _resubmitting;
+
+    /// An idle agent that has not echoed a send may have taken its Enter as a newline, as a large
+    /// paste still arriving does: Enter is pressed once more, then the row is marked not picked up
+    /// rather than left waiting. The clock runs only while the agent is not working, so a send
+    /// queued behind a turn waits for that turn first.
+    void CheckPickup() {
+        var idle = !_ended && _status == "Running" && !SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents)
+            && !HasTerminalMenu && !IsReadOnlyParticipant && _input.CanResubmit && _sending is null;
+        var now = _time.GetTimestamp();
+        var resubmit = false;
+        foreach (var queued in _queuedMessages) {
+            if (queued.IsForeign || queued.Acknowledged || queued.IsUnconfirmed || queued.IsServerHeld || queued.IsNotPickedUp) continue;
+            if (!idle) { queued.IdleSince = null; continue; }
+            if (queued.IdleSince is not { } since) { queued.IdleSince = now; continue; }
+            if (_time.GetElapsedTime(since, now) < PickupWait) continue;
+            if (queued.Resubmitted) { queued.MarkNotPickedUp(); continue; }
+            queued.Resubmitted = true;
+            queued.IdleSince = now;
+            // Files go through the daemon, which presses its own Enter, not this paste's.
+            resubmit |= queued.AttachmentIds.Count == 0;
+        }
+        if (resubmit && !_resubmitting) _ = ResubmitAsync();
+    }
+
+    async Task ResubmitAsync() {
+        _resubmitting = true;
+        try { await _input.ResubmitAsync(_lifetimeToken); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { LogOnce($"resubmit: {ex.Message}"); }
+        finally { _resubmitting = false; }
+    }
+
     void ConfirmDelivery(QueuedChatMessage queued) {
         if (ReferenceEquals(queued, _lastSent)) _input.ConfirmLastSend();
         ClearSentDraft(queued);
@@ -1559,6 +1596,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }
         if (_lifetimeToken.IsCancellationRequested) return;
         RefreshActivityNote();
+        CheckPickup();
         _runs.Tick();
         if (_lease is not { } lease) return;
         if (lease.Feed is RemoteTranscriptFeed && Volatile.Read(ref lease.Pending) == 0) return;
