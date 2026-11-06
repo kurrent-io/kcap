@@ -53,6 +53,30 @@ public class TranscriptSpoolTests {
         await Assert.That(spool.NeedsImport(Sid)).IsTrue();
     }
 
+    [Test, NotInParallel]
+    public async Task A_hook_hears_of_a_marker_it_could_not_write_on_stderr() {
+        using var tmp    = new TempDir();
+        using var stderr = ConsoleOutput.StartErrorCapture();
+        var blocked = tmp.CreateFile("blocked", "");
+
+        await Assert.That(new TranscriptSpool(blocked, TimeProvider.System).MarkNeedsImport(Sid, "why")).IsFalse();
+
+        await Assert.That(stderr.GetCapturedError()).Contains("failed to write needs-import marker");
+    }
+
+    [Test, NotInParallel]
+    public async Task A_recorder_hears_of_a_marker_it_could_not_write_in_its_own_log_and_not_on_stderr() {
+        using var tmp    = new TempDir();
+        using var stderr = ConsoleOutput.StartErrorCapture();
+        var blocked = tmp.CreateFile("blocked", "");
+        var logged  = new List<string>();
+
+        await Assert.That(new TranscriptSpool(blocked, TimeProvider.System) { FailureLog = logged.Add }.MarkNeedsImport(Sid, "why")).IsFalse();
+
+        await Assert.That(logged.Single()).Contains("failed to write needs-import marker");
+        await Assert.That(stderr.GetCapturedError()).IsEmpty();
+    }
+
     /// <summary>
     /// The key must stay filename-safe: it becomes the basename, and the drain parses the prefix
     /// before the first dot. Anything carrying a separator is still rejected.

@@ -229,7 +229,9 @@ public sealed class RecorderHost {
 
     void MarkNeedsImport(RecordingSource source, RecorderContext first, string reason) {
         try {
-            if (!new TranscriptSpool(first.Server.Config, _time, first.Server.Url).MarkNeedsImport(source.SessionId, reason)) {
+            var spool = new TranscriptSpool(first.Server.Config, _time, first.Server.Url) { FailureLog = message => Log(first, message) };
+
+            if (!spool.MarkNeedsImport(source.SessionId, reason)) {
                 Log(first, $"Could not mark {source.Key} for import: the marker was not written");
             }
         } catch (Exception ex) {

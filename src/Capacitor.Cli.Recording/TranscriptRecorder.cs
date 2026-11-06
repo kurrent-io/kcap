@@ -23,9 +23,9 @@ namespace Capacitor.Cli.Recording;
 public sealed class TranscriptRecorder(
         RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context,
         RecorderClaims? claims = null) : IDisposable {
-    readonly CursorMarkers  _markers       = new(context.Server.Config, time);
+    readonly CursorMarkers  _markers       = new(context.Server.Config, time) { FailureLog = context.Log };
     readonly WatchAckCursor _ackCursor     = new(context.Server.Config);
-    readonly TranscriptSpool _spool        = new(context.Server.Config, time, context.Server.Url);
+    readonly TranscriptSpool _spool        = new(context.Server.Config, time, context.Server.Url) { FailureLog = context.Log };
     readonly Lock           _ackCursorGate = new();
     int _ackCursorWritten = -1;
 

@@ -57,6 +57,10 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     static readonly Regex LegacyGuidKey = LegacyGuidKeyRegex();
     static int seqCounter;
 
+    /// <summary>Hears of a marker that could not be written; null writes to stderr, as a hook wants. A recorder may
+    /// share its process with others, so it passes its own log.</summary>
+    public Action<string>? FailureLog { get; init; }
+
     /// <summary>The directory where spool files are stored.</summary>
     internal string DirectoryPath => partition.DirectoryPath;
 
@@ -93,8 +97,8 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
 
     /// <summary>
     /// Records a needs-import marker for the session. Returns <c>true</c> if the marker was
-    /// persisted; <c>false</c> (and logs to stderr) if it could not be written — the caller must
-    /// not assume a marker exists just because it asked for one.
+    /// persisted; <c>false</c> (and tells <see cref="FailureLog"/>) if it could not be written — the
+    /// caller must not assume a marker exists just because it asked for one.
     /// </summary>
     public bool MarkNeedsImport(string sessionId, string reason) {
         var p = MarkerPathFor(sessionId);
@@ -104,9 +108,14 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
             File.WriteAllText(p, $"{time.GetUtcNow():O} {reason}\n");
             return true;
         } catch (Exception ex) {
-            Console.Error.WriteLine($"[kcap] transcript spool: failed to write needs-import marker for {sessionId}: {ex.Message}");
+            ReportFailure($"[kcap] transcript spool: failed to write needs-import marker for {sessionId}: {ex.Message}");
             return false;
         }
+    }
+
+    void ReportFailure(string message) {
+        if (FailureLog is { } log) log(message);
+        else Console.Error.WriteLine(message);
     }
 
     public bool NeedsImport(string sessionId) {

@@ -613,6 +613,34 @@ public class RecorderHostTests {
         await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
     }
 
+    /// <summary>The spool's directory is a file here, so no marker can be written. A host runs many recorders in
+    /// a process whose stderr is nobody's, and the only sign of a lost marker has to reach this source's log.</summary>
+    [Test]
+    public async Task A_recorder_reports_a_failed_marker_write_to_its_own_log() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{{\"type\":\"assistant"), "a1");
+        Tmp.CreateFile("config/transcript-spool", "");
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its whole line");
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_log.Any(line => line.Contains("failed to write needs-import marker", StringComparison.Ordinal))).IsTrue();
+    }
+
+    [Test]
+    public async Task A_recorder_reports_a_failed_quarantine_to_its_own_log() {
+        var source = new RecordingSource(Guid.NewGuid().ToString("N"), null, Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "cursor", null);
+        Tmp.CreateFile("config/cursor-quarantine", "");
+        _transport.ResumeFrom = 99;
+        var host = NewHost();
+
+        host.TryAdd(source);
+
+        await Eventually(() => _log.Any(line => line.Contains("cursor_quarantine_marker_write_failed", StringComparison.Ordinal)), "the failed write in its log");
+    }
+
     [Test]
     public async Task A_factory_that_throws_in_TryAdd_adds_nothing() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"));
