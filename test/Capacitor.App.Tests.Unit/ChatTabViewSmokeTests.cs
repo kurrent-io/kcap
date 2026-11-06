@@ -13,6 +13,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -694,6 +695,41 @@ public class ChatTabViewSmokeTests {
                 await host.AppendAndTickAsync(path, 10);
                 host.Settle();
                 await Assert.That(host.AtBottom()).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_drag_from_a_messages_left_margin_selects_text(bool user, bool rowPadding) {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var line = user ? UserLine.Replace("hello", "hello world")
+                    : """{"type":"assistant","message":{"content":[{"type":"text","text":"hello world"}]}}""";
+                var path = Tmp.CreateFile("margin-selection.jsonl", [line]);
+                await host.LoadAsync(path);
+                var markdown = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.Text == "hello world");
+                PresentAndLocate(host, markdown);
+                var block = MarkdownViewHarness.Paragraphs(markdown).Single();
+                var first = block.TextLayout.HitTestTextPosition(0);
+                var last = block.TextLayout.HitTestTextPosition(10);
+                var start = block.TranslatePoint(new Point(-8, first.Height / 2), host.Window)!.Value;
+                if (rowPadding) start = new Point(host.Scroll.TranslatePoint(new Point(4, 0), host.Window)!.Value.X, start.Y);
+                var end = block.TranslatePoint(new Point(last.X, last.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(start);
+                host.Window.MouseDown(start, MouseButton.Left);
+                host.Window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+                host.Window.MouseUp(end, MouseButton.Left);
+                host.Settle();
+                await Assert.That(markdown.HasSelection).IsTrue();
+                await Assert.That(markdown.IsSelecting).IsFalse();
+                await markdown.CopySelectionAsync();
+                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("hello worl");
             } finally { await host.CloseAsync(); }
         });
     }
