@@ -15,16 +15,16 @@ public static class ClaudePluginHooks {
             return true;
         }
 
-        if (manifest?["hooks"] is not JsonObject events) return true;
+        if (manifest is not JsonObject root || root["hooks"] is not JsonObject events) return true;
 
         foreach (var (_, groups) in events) {
             if (groups is not JsonArray groupList) return true;
 
             foreach (var group in groupList) {
-                if (group?["hooks"] is not JsonArray hooks) return true;
+                if (group is not JsonObject g || g["hooks"] is not JsonArray hooks) return true;
 
                 foreach (var hook in hooks)
-                    if (hook?["args"] is not JsonArray) return true;
+                    if (hook is not JsonObject h || h["args"] is not JsonArray) return true;
             }
         }
 

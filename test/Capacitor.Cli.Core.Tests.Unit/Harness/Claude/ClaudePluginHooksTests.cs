@@ -37,4 +37,15 @@ public class ClaudePluginHooksTests {
 
         await Assert.That(ClaudePluginHooks.StartThroughShell(Tmp.PathTo("plugin"))).IsTrue();
     }
+
+    /// <summary>Valid JSON of the wrong shape must not throw: a string index on an array does.</summary>
+    [Test]
+    [Arguments("[]")]
+    [Arguments("""{"hooks":{"PreToolUse":[[]]}}""")]
+    [Arguments("""{"hooks":{"PreToolUse":[{"hooks":[[]]}]}}""")]
+    public async Task A_manifest_of_the_wrong_shape_counts_as_shell_form(string json) {
+        Tmp.CreateFile(["plugin", "hooks", "hooks.json"], json);
+
+        await Assert.That(ClaudePluginHooks.StartThroughShell(Tmp.PathTo("plugin"))).IsTrue();
+    }
 }
