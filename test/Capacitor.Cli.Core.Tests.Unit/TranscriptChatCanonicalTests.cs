@@ -38,17 +38,34 @@ public class TranscriptChatCanonicalTests {
     public async Task A_vendor_without_the_rule_reads_a_resumed_session_start_as_nothing() =>
         await Assert.That(TranscriptChat.Project(SessionStart("Resume"), rules: null).Runs).IsEmpty();
 
+    const string OrphanReport = "<task-notification>\n<task-id>b7k2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>1 background shell command tasks didn't finish before the previous session ended.</summary>\n<note>No completion record was found for them in the previous session.</note>\n</task-notification>";
+
+    static CanonicalEvent StoredReport(string? promptSource) {
+        var message = new UserMessageReceived { Content = OrphanReport };
+        if (promptSource is not null) {
+            var slug = new Struct();
+            slug.Fields[ClaudeCodeExtension.PromptSource] = Value.ForString(promptSource);
+            message.Extensions[ClaudeCodeExtension.Slug] = slug;
+        }
+        return Event(CanonicalEventTypes.UserMessageReceived, message);
+    }
+
     /// A resume can reach the server with no session start, and the report of what the old process
-    /// left running is then its only mark.
+    /// left running is then its only mark. A stored event may carry no origin, so the report's own
+    /// shape decides.
     [Test]
-    public async Task A_stored_report_of_work_the_previous_process_left_running_is_a_restart() {
-        var evt = Event(CanonicalEventTypes.UserMessageReceived, new UserMessageReceived {
-            Content = "<task-notification>\n<task-id>b7k2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>1 background shell command tasks didn't finish before the previous session ended.</summary>\n</task-notification>",
-        });
+    [Arguments(null)]
+    [Arguments("system")]
+    public async Task A_stored_report_of_work_the_previous_process_left_running_reopens_the_session(string? promptSource) {
+        var evt = StoredReport(promptSource);
         var runs = TranscriptChat.Project(evt, ClaudeChatRules.Instance).Runs;
-        await Assert.That(runs.OfType<RunSignal.Restarted>().Single().At).IsEqualTo(evt.Timestamp);
+        await Assert.That(runs.OfType<RunSignal.Reopened>().Single().At).IsEqualTo(evt.Timestamp);
         await Assert.That(runs.OfType<RunSignal.Finished>().Single().AgentId).IsEqualTo("b7k2");
     }
+
+    [Test]
+    public async Task A_stored_report_the_user_typed_reopens_nothing() =>
+        await Assert.That(TranscriptChat.Project(StoredReport("typed"), ClaudeChatRules.Instance).Runs.Where(r => r is RunSignal.Reopened or RunSignal.Restarted)).IsEmpty();
 
     [Test]
     public async Task A_user_message_is_one_row_and_one_submitted_input_without_rules() {

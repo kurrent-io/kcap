@@ -191,11 +191,10 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                 // Read past the reminders that open it, which can quote another task's tags.
                 var text = SystemInstructionParser.StripLeading(raw.Text ?? "");
                 var callId = Tag(TaskToolUseId(), text);
-                var taskIds = TaskIds(text, out var orphanScan);
-                RunSignal[] restart = orphanScan || Tag(TaskSummary(), text)?.Contains(PreviousSessionEnded, StringComparison.OrdinalIgnoreCase) == true
-                    ? [new RunSignal.Restarted(evt.Timestamp)]
-                    : [];
-                if (callId is null && taskIds.Count == 0) return restart;
+                var head = Head(text);
+                var taskIds = TaskIds(head);
+                RunSignal[] reopened = IsLeftoverReport(slug, text, head) ? [new RunSignal.Reopened(evt.Timestamp)] : [];
+                if (callId is null && taskIds.Count == 0) return reopened;
                 // A cut-off notification has no status and still says the run ended; a status
                 // that is not an end, such as running, says nothing.
                 RunOutcome? outcome;
@@ -209,10 +208,10 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                     case "failed":    outcome = RunOutcome.Failed; break;
                     case "killed":    outcome = RunOutcome.Stopped; break;
                     case "stopped":   outcome = RunOutcome.Stopped; break;
-                    default:          return restart;
+                    default:          return reopened;
                 }
-                if (taskIds.Count <= 1) return [..restart, new RunSignal.Finished(callId, taskIds.FirstOrDefault(), outcome, evt.Timestamp)];
-                return [..restart, ..taskIds.Select(id => new RunSignal.Finished(null, id, outcome, evt.Timestamp))];
+                if (taskIds.Count <= 1) return [..reopened, new RunSignal.Finished(callId, taskIds.FirstOrDefault(), outcome, evt.Timestamp)];
+                return [..reopened, ..taskIds.Select(id => new RunSignal.Finished(null, id, outcome, evt.Timestamp))];
             }
             default:
                 return [];
@@ -221,24 +220,35 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
 
     const string WaitingSummaryEnd = " is waiting on its own background work";
 
-    // A resumed Claude Code reports what the previous process left unfinished, and that report marks
-    // the restart even when the resume wrote no hook record.
     const string PreviousSessionEnded = "before the previous session ended";
+    const string NoCompletionRecord = "No completion record was found";
     const string OrphanScanMarker = "__orphan_summary";
+    const string NotificationClose = "</task-notification>";
 
-    /// The ids ahead of the result, which can quote tags of its own.
-    static List<string> TaskIds(string text, out bool orphanScan) {
-        var resultAt = text.IndexOf("<result>", StringComparison.Ordinal);
-        var head = resultAt < 0 ? text : text[..resultAt];
+    /// The notification's own tags: a result can quote anything, tags included.
+    static string Head(string text) {
+        var end = text.IndexOf("<result>", StringComparison.Ordinal);
+        if (end < 0) end = text.IndexOf(NotificationClose, StringComparison.Ordinal);
+        return end < 0 ? text : text[..end];
+    }
+
+    static List<string> TaskIds(string head) {
         var ids = new List<string>();
-        orphanScan = false;
-        foreach (Match m in TaskId().Matches(head)) {
-            if (m.Groups[1].Value.Trim() is not { Length: > 0 } id) continue;
-            if (id.StartsWith(OrphanScanMarker, StringComparison.Ordinal)) orphanScan = true;
-            else ids.Add(id);
-        }
+        foreach (Match m in TaskId().Matches(head))
+            if (m.Groups[1].Value.Trim() is { Length: > 0 } id && !id.StartsWith(OrphanScanMarker, StringComparison.Ordinal)) ids.Add(id);
         return ids;
     }
+
+    /// A resumed Claude Code reports what the previous process left unfinished, which shows the process
+    /// came back even when the resume wrote no hook record. Only its whole shape counts, since a summary
+    /// quotes a command's text; a stored event can carry no origin, so a bare paste of a report reads as one.
+    static bool IsLeftoverReport(Struct? slug, string text, string head) =>
+        SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) is (null or "task-notification")
+        && SchemaExtensions.Text(slug, ClaudeCodeExtension.PromptSource) is (null or "system")
+        && text.AsSpan().TrimEnd().EndsWith(NotificationClose, StringComparison.Ordinal)
+        && string.Equals(Tag(TaskStatus(), head), "stopped", StringComparison.OrdinalIgnoreCase)
+        && Tag(TaskSummary(), head)?.Contains(PreviousSessionEnded, StringComparison.Ordinal) == true
+        && Tag(TaskNote(), head)?.StartsWith(NoCompletionRecord, StringComparison.Ordinal) == true;
 
     /// The server's events carry no origin_kind, so the text is the other way to know: how it opens
     /// once any reminders ahead of it are off.
@@ -446,6 +456,9 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
 
     [GeneratedRegex(@"<task-id>(.*?)(?:</task-id>|$)", RegexOptions.Singleline)]
     private static partial Regex TaskId();
+
+    [GeneratedRegex(@"<note>(.*?)(?:</note>|$)", RegexOptions.Singleline)]
+    private static partial Regex TaskNote();
 
     [GeneratedRegex(@"<tool-use-id>(.*?)(?:</tool-use-id>|$)", RegexOptions.Singleline)]
     private static partial Regex TaskToolUseId();
