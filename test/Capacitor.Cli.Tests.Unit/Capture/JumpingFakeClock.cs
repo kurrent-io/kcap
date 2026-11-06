@@ -4,17 +4,24 @@ namespace Capacitor.Cli.Tests.Unit.Capture;
 
 /// <summary>A fake clock that also jumps once, on a chosen reading of its timestamp.</summary>
 sealed class JumpingFakeClock : FakeTimeProvider {
-    int      _readingsLeft;
-    TimeSpan _jump;
+    // The hook's deadline and its drain read the clock concurrently, so counting a reading and making
+    // the jump it triggers happen as one step.
+    readonly Lock _gate = new();
+    int           _readingsLeft;
+    TimeSpan      _jump;
 
     /// <summary>Jumps by <paramref name="jump"/> on the given reading from now, counting from one.</summary>
     public void JumpOnReading(int reading, TimeSpan jump) {
-        _readingsLeft = reading;
-        _jump         = jump;
+        lock (_gate) {
+            _readingsLeft = reading;
+            _jump         = jump;
+        }
     }
 
     public override long GetTimestamp() {
-        if (_readingsLeft > 0 && --_readingsLeft == 0) Advance(_jump);
+        lock (_gate) {
+            if (_readingsLeft > 0 && --_readingsLeft == 0) Advance(_jump);
+        }
 
         return base.GetTimestamp();
     }
