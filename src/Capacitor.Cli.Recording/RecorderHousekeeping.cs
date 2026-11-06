@@ -77,7 +77,7 @@ public sealed class RecorderHousekeeping(
 
     string Url => profiles.Resolution.ServerUrl!;
 
-    /// <summary>The child sources this recorder started, which its host has to stop when the recorder is done.</summary>
+    /// <inheritdoc/>
     public IReadOnlyCollection<string> SpawnedChildKeys => _spawnedChildWatcherKeys;
 
     /// <summary>The end a Muse SessionEnd hook handed over, for the host to post after the final drain.</summary>

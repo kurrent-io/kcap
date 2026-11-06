@@ -13,6 +13,7 @@ namespace Capacitor.Cli.Recording;
 /// where it stands, undrained and unretried, because it is no longer this host's. Taking and releasing a claim stay
 /// with the host's owner: only it can tell a session that ended from a restart that must keep the source owned.
 /// A source that ends on any path detaches from the transport, best-effort, because its connection may outlive it.
+/// The owner hears how each attempt ended on the source's own loop, so it must not wait there for that source.
 /// </summary>
 public sealed class RecorderHost {
     static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(1);
@@ -25,22 +26,24 @@ public sealed class RecorderHost {
     readonly TimeProvider _time;
     readonly Func<string, FileStream>? _openTranscript;
     readonly RecorderClaims? _claims;
+    readonly Action<RecorderAttemptEnded>? _attemptEnded;
     readonly ConcurrentDictionary<string, Entry> _entries = new();
 
     public RecorderHost(
         IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time,
-        RecorderClaims? claims = null)
-        : this(transport, stampers, contexts, time, null, claims) { }
+        RecorderClaims? claims = null, Action<RecorderAttemptEnded>? attemptEnded = null)
+        : this(transport, stampers, contexts, time, null, claims, attemptEnded) { }
 
     internal RecorderHost(
         IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time,
-        Func<string, FileStream>? openTranscript, RecorderClaims? claims = null) {
+        Func<string, FileStream>? openTranscript, RecorderClaims? claims = null, Action<RecorderAttemptEnded>? attemptEnded = null) {
         _transport      = transport;
         _stampers       = stampers;
         _contexts       = contexts;
         _time           = time;
         _openTranscript = openTranscript;
         _claims         = claims;
+        _attemptEnded   = attemptEnded;
     }
 
     /// <summary>The keys of the sources being recorded now, those between attempts included.</summary>
@@ -119,9 +122,10 @@ public sealed class RecorderHost {
 
     // Never throws, and always leaves the dictionary, whatever a recorder did.
     async Task RunAsync(RecordingSource source, Entry entry, RecorderContext first, TranscriptRecorder? recorder) {
-        var key   = source.Key;
-        var delay = FirstRetryDelay;
-        var token = entry.Token;
+        var key     = source.Key;
+        var delay   = FirstRetryDelay;
+        var token   = entry.Token;
+        var context = first;
 
         try {
             while (true) {
@@ -130,31 +134,38 @@ public sealed class RecorderHost {
                 var stopped   = token.IsCancellationRequested;
 
                 if (recorder is not null) {
-                    try {
-                        var failed = false;
+                    Exception? failure = null;
+                    var        ended   = false;
 
+                    try {
                         try {
                             await recorder.RunAsync(token);
                             connected = recorder.Connected;
                         } catch (OperationCanceledException) when (token.IsCancellationRequested || recorder.Stopping.IsCancellationRequested) {
                             // Stopped before it connected: the watcher leaves that undrained, the host drains it.
                         } catch (Exception ex) {
-                            failed    = true;
+                            failure   = ex;
                             connected = recorder.Connected;
                             Log(first, $"Recording {key} failed, will retry: {ex.Message}");
                         }
 
                         stopped = token.IsCancellationRequested || recorder.Stopping.IsCancellationRequested;
 
-                        if (recorder.LostClaim) return;
+                        if (recorder.LostClaim) {
+                            ended = true;
 
-                        if (!failed && connected) {
-                            await FinishRecorderAsync(source, recorder, first);
+                            return;
+                        }
+
+                        if (failure is null && connected) {
+                            ended   = true;
+                            failure = await FinishRecorderAsync(source, recorder, first);
 
                             return;
                         }
                     } finally {
                         recorder.Dispose();
+                        ReportAttempt(source, first, recorder, context, ended, failure);
                     }
                 }
 
@@ -176,10 +187,12 @@ public sealed class RecorderHost {
                 delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, MaxRetryDelay.TotalSeconds));
 
                 try {
-                    recorder = Create(source, _contexts(source));
+                    context  = _contexts(source);
+                    recorder = Create(source, context);
                 } catch (Exception ex) {
                     Log(first, $"Recording {key} could not prepare an attempt, will retry: {ex.Message}");
                     recorder = null;
+                    ReportAttempt(source, first, null, null, false, ex);
                 }
             }
         } finally {
@@ -204,12 +217,16 @@ public sealed class RecorderHost {
         return true;
     }
 
-    async Task FinishRecorderAsync(RecordingSource source, TranscriptRecorder recorder, RecorderContext first) {
+    async Task<Exception?> FinishRecorderAsync(RecordingSource source, TranscriptRecorder recorder, RecorderContext first) {
         try {
             await recorder.FinishAsync(CancellationToken.None);
+
+            return null;
         } catch (Exception ex) {
             Log(first, $"Final drain of {source.Key} failed, marking it for import: {ex.Message}");
             MarkNeedsImport(source, first, $"final drain did not complete: {ex.Message}");
+
+            return ex;
         }
     }
 
@@ -217,17 +234,34 @@ public sealed class RecorderHost {
     // import recovers the lines; they are never dropped.
     async Task DrainOnceAsync(RecordingSource source, RecorderContext first) {
         TranscriptRecorder? recorder = null;
+        RecorderContext?    context  = null;
+        Exception?          failure  = null;
 
         try {
-            var context = _contexts(source);
+            context  = _contexts(source);
             recorder = Create(source, context);
             await recorder.DrainOnceAsync(CancellationToken.None);
         } catch (Exception ex) {
+            failure = ex;
             Log(first, $"Final drain of {source.Key} failed, marking it for import: {ex.Message}");
 
             MarkNeedsImport(source, first, $"final drain did not complete: {ex.Message}");
         } finally {
             recorder?.Dispose();
+            ReportAttempt(source, first, recorder, context, true, failure);
+        }
+    }
+
+    // Never throws, or a broken owner would stop a retry. Retires the ack count where a watcher would, once no attempt
+    // follows. A lost claim leaves it: the hook that took the source has a recorder of its own, and the count is its.
+    void ReportAttempt(RecordingSource source, RecorderContext first, TranscriptRecorder? recorder, RecorderContext? context, bool sourceEnded, Exception? failure) {
+        try {
+            if (sourceEnded && recorder is { LostClaim: false }) recorder.RetireAckCursor();
+
+            _attemptEnded?.Invoke(new RecorderAttemptEnded(
+                source, sourceEnded, recorder?.LostClaim == true, recorder?.EndedIdle == true, context is null ? [] : [..context.Housekeeping.SpawnedChildKeys], failure));
+        } catch (Exception ex) {
+            Log(first, $"Telling the owner how an attempt at {source.Key} ended failed: {ex.Message}");
         }
     }
 

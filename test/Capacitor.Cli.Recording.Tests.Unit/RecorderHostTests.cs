@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.Time.Testing;
 using System.Diagnostics;
@@ -28,6 +29,8 @@ public class RecorderHostTests {
     readonly ConcurrentDictionary<string, Func<Task>?> _afterFinalDrain = new();
     readonly ConcurrentDictionary<string, bool> _logThrows = new();
     readonly ConcurrentDictionary<string, bool> _beatThrows = new();
+    readonly ConcurrentQueue<IReadOnlyCollection<string>> _attemptChildren = new();
+    readonly ConcurrentQueue<RecorderAttemptEnded> _ended = new();
 
     public RecorderHostTests() => _time.Attempts = () => _transport.ConnectAttempts;
 
@@ -35,7 +38,7 @@ public class RecorderHostTests {
 
     RecorderClaims Claims => field ??= new(Tmp.CreateDir("watchers"), _time);
 
-    RecorderHost NewHost(Func<string, FileStream>? open = null, Action<string>? factoryHook = null, RecorderClaims? claims = null) => new(
+    RecorderHost NewHost(Func<string, FileStream>? open = null, Action<string>? factoryHook = null, RecorderClaims? claims = null, Action<RecorderAttemptEnded>? attemptEnded = null) => new(
         _transport,
         _ => {
             factoryHook?.Invoke("stamper");
@@ -48,6 +51,7 @@ public class RecorderHostTests {
             return new RecorderContext(
             new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)),
             new FakeRecorderHousekeeping {
+                SpawnedChildKeys = _attemptChildren.TryDequeue(out var children) ? children : [],
                 OnAfterFinalDrain = () => _afterFinalDrain.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask,
                 OnPrepare = () => _prepare.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask,
                 BeforeDrain = () => {
@@ -66,7 +70,7 @@ public class RecorderHostTests {
                 _beats.AddOrUpdate(source.Key, 1, (_, n) => n + 1);
             });
         },
-        _time, open, claims);
+        _time, open, claims, attemptEnded ?? _ended.Enqueue);
 
     static RecordingSource Source(string path, string? agentId = null, string? sessionId = null) =>
         new(sessionId ?? Guid.NewGuid().ToString("N"), agentId, path, "claude", null);
@@ -343,6 +347,196 @@ public class RecorderHostTests {
         _transport.OnDetach = null;
         await Assert.That(host.TryAdd(source)).IsTrue();
         await Eventually(() => _transport.Connects == 2, "the source to record again");
+    }
+
+    /// <summary>The host disposes each attempt's recorder, so this is all its owner gets of it, and the next attempt
+    /// has no idea what the failed one started.</summary>
+    [Test]
+    public async Task The_owner_hears_of_every_attempt_ending() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var thrown = 0;
+        _attemptChildren.Enqueue(["started-by-the-failed-attempt"]);
+        _attemptChildren.Enqueue(["started-by-the-last-attempt"]);
+        _beforeDrain[source.Key] = () => Interlocked.Increment(ref thrown) == 1 ? throw new InvalidOperationException("boom") : Task.CompletedTask;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the retry's line", TimeSpan.FromSeconds(1));
+        await Assert.That(_ended.Count).IsEqualTo(1);
+
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        var attempts = _ended.ToArray();
+        await Assert.That(attempts.Length).IsEqualTo(2);
+
+        await Assert.That(attempts[0].Source).IsEqualTo(source);
+        await Assert.That(attempts[0].SourceEnded).IsFalse();
+        await Assert.That(attempts[0].Failure?.Message).IsEqualTo("boom");
+        await Assert.That(attempts[0].SpawnedChildKeys).IsEquivalentTo(["started-by-the-failed-attempt"]);
+
+        await Assert.That(attempts[1].SourceEnded).IsTrue();
+        await Assert.That(attempts[1].Failure).IsNull();
+        await Assert.That(attempts[1].SpawnedChildKeys).IsEquivalentTo(["started-by-the-last-attempt"]);
+        await Assert.That(attempts[1].LostClaim).IsFalse();
+        await Assert.That(attempts[1].EndedIdle).IsFalse();
+    }
+
+    [Test]
+    public async Task The_owner_hears_a_source_went_idle() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "a1");
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        await Eventually(() => host.ActiveKeys.Count == 0, "the idle end", TimeSpan.FromHours(7));
+
+        var ended = _ended.Single();
+        await Assert.That(ended.EndedIdle).IsTrue();
+        await Assert.That(ended.SourceEnded).IsTrue();
+    }
+
+    [Test]
+    public async Task The_owner_hears_a_source_lost_its_claim() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        Claims.Release(source.Key);
+        await Eventually(() => host.ActiveKeys.Count == 0, "the source to leave", TimeSpan.FromSeconds(1));
+
+        var ended = _ended.Single();
+        await Assert.That(ended.LostClaim).IsTrue();
+        await Assert.That(ended.SourceEnded).IsTrue();
+    }
+
+    [Test]
+    public async Task The_owner_hears_a_final_drain_failed() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _afterFinalDrain[source.Key] = () => throw new InvalidOperationException("boom");
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        var ended = _ended.Single();
+        await Assert.That(ended.Failure?.Message).IsEqualTo("boom");
+        await Assert.That(ended.SourceEnded).IsTrue();
+    }
+
+    [Test]
+    public async Task The_owner_hears_of_an_attempt_that_could_not_be_prepared() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var contexts = 0;
+        var host = NewHost(factoryHook: kind => {
+            if (kind == "context" && Interlocked.Increment(ref contexts) == 2) throw new InvalidOperationException("no context");
+        });
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the source to record past the failed factory", TimeSpan.FromSeconds(1));
+
+        var attempts = _ended.ToArray();
+        await Assert.That(attempts.Length).IsEqualTo(2);
+        await Assert.That(attempts[0].Failure?.Message).IsEqualTo("The hub is down.");
+        await Assert.That(attempts[1].Failure?.Message).IsEqualTo("no context");
+        await Assert.That(attempts[1].SourceEnded).IsFalse();
+    }
+
+    /// <summary>The first attempt never connected, so the host drains with a fresh recorder, and that is an attempt too.</summary>
+    [Test]
+    public async Task The_owner_hears_of_the_drain_a_finish_makes_during_a_backoff() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        var attempts = _ended.ToArray();
+        await Assert.That(attempts.Length).IsEqualTo(2);
+        await Assert.That(attempts[0].SourceEnded).IsFalse();
+        await Assert.That(attempts[1].SourceEnded).IsTrue();
+        await Assert.That(attempts[1].Failure).IsNull();
+    }
+
+    [Test]
+    public async Task The_owner_hears_of_a_drain_that_could_not_connect() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 100;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        var last = _ended.ToArray()[^1];
+        await Assert.That(last.SourceEnded).IsTrue();
+        await Assert.That(last.Failure?.Message).IsEqualTo("The hub is down.");
+    }
+
+    [Test]
+    public async Task An_owner_that_throws_harms_nothing() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var host = NewHost(attemptEnded: _ => throw new InvalidOperationException("the owner is broken"));
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the retry's line", TimeSpan.FromSeconds(1));
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+        await Assert.That(_transport.Detached).IsEquivalentTo([source.Key]);
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_finished_codex_source_retires_its_ack_count() {
+        var source = new RecordingSource(Guid.NewGuid().ToString("N"), null, Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "codex", null);
+        var cursor = new WatchAckCursor(Config);
+        _transport.ResumeFrom = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => cursor.TryRead(source.SessionId) == 1, "the published count");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(cursor.TryRead(source.SessionId)).IsNull();
+    }
+
+    /// <summary>The hook that took the source has a recorder of its own now, and the count is that recorder's.</summary>
+    [Test]
+    public async Task A_codex_source_that_lost_its_claim_leaves_the_ack_count() {
+        var source = new RecordingSource(Guid.NewGuid().ToString("N"), null, Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "codex", null);
+        var cursor = new WatchAckCursor(Config);
+        _transport.ResumeFrom = 1;
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(() => cursor.TryRead(source.SessionId) == 1, "the published count");
+        Claims.Release(source.Key);
+        await Eventually(() => host.ActiveKeys.Count == 0, "the source to leave", TimeSpan.FromSeconds(1));
+
+        await Assert.That(cursor.TryRead(source.SessionId)).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_failed_attempt_leaves_the_ack_count_for_the_next() {
+        var source = new RecordingSource(Guid.NewGuid().ToString("N"), null, Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "codex", null);
+        var cursor = new WatchAckCursor(Config);
+        var thrown = 0;
+        _transport.ResumeFrom = 1;
+        _beforeDrain[source.Key] = () => Interlocked.Increment(ref thrown) == 1 ? throw new InvalidOperationException("boom") : Task.CompletedTask;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+
+        await Assert.That(cursor.TryRead(source.SessionId)).IsEqualTo(1);
     }
 
     [Test]

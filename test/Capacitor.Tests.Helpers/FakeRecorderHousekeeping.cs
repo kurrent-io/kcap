@@ -10,6 +10,8 @@ public sealed class FakeRecorderHousekeeping : IRecorderHousekeeping {
 
     public int Connected { get; private set; }
 
+    public IReadOnlyCollection<string> SpawnedChildKeys { get; set; } = [];
+
     /// <summary>Awaited inside <see cref="BeforeDrainAsync"/>, which ignores its token as repository detection
     /// does, so a test can hold the recorder in a call a stop can't interrupt.</summary>
     public Func<Task>? BeforeDrain { get; set; }
