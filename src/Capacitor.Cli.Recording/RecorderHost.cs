@@ -210,10 +210,14 @@ public sealed class RecorderHost {
                         } catch (Exception ex) {
                             failure   = ex;
                             connected = recorder.Connected;
-                            Log(first, $"Recording {key} failed, will retry: {ex.Message}");
                         }
 
                         stopped = token.IsCancellationRequested || recorder.Stopping.IsCancellationRequested;
+
+                        if (failure is not null) {
+                            var next = recorder.LostClaim ? "lost its claim, so it ends here" : stopped ? "is stopping, so it drains once" : "will retry";
+                            Log(first, $"Recording {key} failed and {next}: {failure.Message}");
+                        }
 
                         if (recorder.LostClaim) {
                             ended = true;

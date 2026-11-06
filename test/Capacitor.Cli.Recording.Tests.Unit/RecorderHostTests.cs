@@ -604,6 +604,36 @@ public class RecorderHostTests {
         await Eventually(() => LinesSent(healthy.SessionId) == 2 && LinesSent(failing.SessionId) == 1, "both sources to record", TimeSpan.FromSeconds(1));
     }
 
+    /// <summary>The reconnect is what reads the claim here, while the tick that is about to fail is held.</summary>
+    [Test]
+    public async Task A_failed_attempt_that_lost_its_claim_does_not_say_it_will_retry() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls   = 0;
+        _beforeDrain[source.Key] = async () => {
+            if (Interlocked.Increment(ref calls) != 2) return;
+
+            entered.SetResult();
+            await release.Task;
+
+            throw new InvalidOperationException("boom");
+        };
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(() => entered.Task.IsCompleted, "the recorder entering its second tick", TimeSpan.FromSeconds(1));
+        Claims.Release(source.Key);
+        await _transport.RaiseReconnectedAsync();
+        release.SetResult();
+        await Eventually(() => host.ActiveKeys.Count == 0, "the source to leave");
+
+        var failure = _log.Single(line => line.Contains("boom", StringComparison.Ordinal));
+        await Assert.That(failure).Contains("lost its claim");
+        await Assert.That(failure).DoesNotContain("retry");
+    }
+
     [Test]
     public async Task A_failed_source_is_recorded_again_after_a_backoff() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
@@ -1234,6 +1264,10 @@ public class RecorderHostTests {
         await Eventually(() => host.ActiveKeys.Count == 0, "the stopped source to leave without a backoff");
         await Assert.That(_transport.Connects).IsEqualTo(2);
         await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+
+        var failure = _log.Single(line => line.Contains("boom", StringComparison.Ordinal));
+        await Assert.That(failure).Contains("drains once");
+        await Assert.That(failure).DoesNotContain("retry");
     }
 
     /// <summary>An exclusive holder makes every shared open fail with an IOException, as a failing disk would. Neither
