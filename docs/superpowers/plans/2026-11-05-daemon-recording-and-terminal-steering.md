@@ -418,6 +418,7 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
 **Interfaces:**
 - Produces, as hub methods: `Task<bool> ConfirmInputHandover(Guid dispatchId, string agentId)`, `Task ReportInputLink(Guid dispatchId, string agentId, string sessionId, Guid rowUuid)`, `Task ReportInputUnconfirmed(Guid dispatchId, string agentId, string reason)`. Rejection uses the existing `SendInputRejected`.
 - Applies only to agents with `RuntimeTransport == "mod"`, from a constant this task adds and Task 18 registers with. Hosted agents are untouched.
+- Rejection reasons, as constants beside the transport value: `"stopped"` and `"command"`. Task 21 turns them into copy.
 
 - [ ] **Tests, one for each row of the spec's transitions table:**
   - `A_handover_is_confirmed_for_a_held_dispatch`.
@@ -436,7 +437,11 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
   - `The_matcher_skips_a_dispatch_held_for_the_mod`: identical typed text arrives first and takes the owner fallback, and the dispatch stays pending.
   - `A_flush_at_session_end_skips_with_the_mod_and_unconfirmed`: no undelivered message is appended for a dispatch that might still land.
   - `An_unconfirmed_row_is_cleared_when_the_process_exits`, and the dispatch stays Unconfirmed on its stream.
-- [ ] **Implement:** add no table. The stream is the source of truth: `ConfirmInputHandover` and the barrier decide by reading `HostedAgentInput-{agentId}` and appending at an expected version, so a handover can't race a rejection through projection lag. Add nullable `delivery_state` and `linked_row_uuid` to `hosted_agent_pending_dispatches`, with no rebuild. A non-null `delivery_state` keeps a row away from the FIFO matcher and from `PendingDispatchFlusher`, and hosted dispatches leave both columns null. Claude's first event id for a row is the row's uuid, so a link arriving first sets `linked_row_uuid`, and the row then writes the `dispatched` attribution and deletes the pending row. A row arriving first takes the owner fallback, and the link then updates that attribution row by `event_id` to `dispatched` with its dispatch id. The sender is the owner in both orders.
+  - `A_link_is_found_by_dispatch_id_alone`: the link names a session the dispatch was never sent to, and arrives before the replacement agent attaches.
+  - `A_row_in_a_later_session_attributes_in_both_orders`.
+  - `A_message_starting_with_a_slash_is_refused_before_reservation`: leading spaces and newlines count, and a hosted agent still takes it.
+  - `A_stopped_rejection_keeps_its_reason`.
+- [ ] **Implement:** add no table. The stream is the source of truth: `ConfirmInputHandover` and the barrier decide by reading `HostedAgentInput-{agentId}` and appending at an expected version, so a handover can't race a rejection through projection lag. Add nullable `delivery_state` and `linked_row_uuid` to `hosted_agent_pending_dispatches`, with no rebuild. A non-null `delivery_state` keeps a row away from the FIFO matcher and from `PendingDispatchFlusher`, and hosted dispatches leave both columns null. Claude's first event id for a row is the row's uuid, so a link arriving first sets `linked_row_uuid`, and the row then writes the `dispatched` attribution and deletes the pending row. A row arriving first takes the owner fallback, and the link then updates that attribution row by `event_id` to `dispatched` with its dispatch id. The sender is the owner in both orders. Match a row to `linked_row_uuid` by uuid alone, because the row can land in a later session.
 - [ ] **Verify:** the class, plus the existing `HostedAgentInputProjector` and `PendingDispatchFlusher` tests.
 - [ ] **Commit:** `Track delivery states for attached agents`
 
@@ -447,7 +452,7 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
 - Test: `test/Capacitor.Server.Tests.Agents/AttachedAgentTests.cs`
 
 **Interfaces:**
-- Produces: `RuntimeTransport` value `"mod"`, and a trailing `string? ReplacesAgentId` on `AgentRegisteredArgs`. Attached agent ids are derived from the session id, so they're stable across daemon restarts.
+- Produces: `RuntimeTransport` value `"mod"`, and trailing `string? ReplacesAgentId` and `string? ProcessKey` on `AgentRegisteredArgs`. Attached agent ids are derived from the session id, so they're stable across daemon restarts. The process key tells a second process from the same one attaching again.
 
 - [ ] **Tests:**
   - `An_attached_agent_takes_input_from_its_owner_only`: a teammate with Full, an input right and a grant is refused.
@@ -457,6 +462,8 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
   - `A_replacement_agent_inherits_the_barrier`.
   - `A_replacement_with_nothing_outstanding_takes_input_at_once`.
   - `A_second_process_on_one_session_is_refused` (Review Focus 5).
+  - `The_same_process_attaching_again_is_accepted`: after a module reload and after a daemon restart.
+  - `A_second_process_attaches_once_the_first_has_lapsed`.
 - [ ] **Implement:** the expected-transport check accepts `"mod"` for a registration with no launch, which is why it sits behind the daemon's `steering/1` capability.
 - [ ] **Verify:** the class.
 - [ ] **Commit:** `Register attached terminal agents with owner-only input`
@@ -469,7 +476,7 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
 - Test: `test/Capacitor.Cli.Daemon.Tests.Unit/Services/SteeringEndpointTests.cs`, `Harness/Claude/ModAttachedAgentRuntimeTests.cs`, `Services/LaunchConsentStoreTests.cs`
 
 **Interfaces:**
-- Produces: routes on a new owner-only socket, `DaemonStore.SteeringSocketPath(name)`: `POST /attach`, `POST /next`, `POST /link`, `POST /undelivered`, `POST /detach`. Capability `steering/1`. A `steering` field on the consent document, `"on"` or `"off"`. A CLI command `kcap daemon steering-socket` that prints the socket for the current profile, or nothing when off, and `kcap daemon steering on|off`.
+- Produces: routes on a new owner-only socket, `DaemonStore.SteeringSocketPath(name)`: `POST /attach`, which carries the process key, `POST /next`, `POST /link`, `POST /undelivered`, `POST /detach`. Capability `steering/1`, not advertised on Windows. A `steering` field on the consent document, `"on"` or `"off"`. A CLI command `kcap daemon steering-socket` that prints the socket for the current profile, or nothing when off, and `kcap daemon steering on|off`.
 
 - [ ] **Tests:**
   - `Stop_touches_nothing_in_the_process`: no signal is sent to the attached pid.
@@ -484,6 +491,8 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
   - `A_switch_off_daemon_refuses_attach`.
   - `A_session_on_a_fallback_watcher_can_still_attach`.
   - `A_malformed_request_is_refused_without_harming_the_daemon`.
+  - `Attach_passes_the_process_key_to_the_server`.
+  - `Steering_is_refused_on_windows`: `kcap daemon steering on` says why, and the capability isn't advertised.
 - [ ] **Implement:** a minimal HTTP/1.1 reader over `UnixDomainSocketEndPoint`, because `HttpListener` can't bind a Unix socket. Keep it AOT-clean. No token: the socket's mode is the authentication.
 - [ ] **Verify:** the suites and the AOT publish check.
 - [ ] **Commit:** `Add the daemon's steering endpoint and attached runtime`
@@ -501,16 +510,21 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
 - [ ] **Tests (`claude plugin test`):**
   - `It_stays_inert_with_no_socket`.
   - `It_submits_one_dispatch_at_a_time_from_a_timer`.
+  - `It_asks_for_a_dispatch_only_when_no_turn_is_running`, including after a reload mid-turn.
   - `It_links_a_row_only_when_its_text_matches`.
   - `A_row_with_nothing_outstanding_is_reported_unmatched`.
   - `A_drop_reports_rejected`.
+  - `A_refused_submit_reports_rejected`.
+  - `A_drop_after_an_aborted_turn_reports_stopped`, and input since the abort clears it.
   - `Idle_with_no_row_after_grace_reports_undelivered_and_never_resubmits`.
-  - `The_outstanding_dispatch_survives_a_reload`.
-  - `Session_end_on_clear_attaches_a_replacement_naming_the_old_agent`.
+  - `The_outstanding_dispatch_survives_a_reload_and_a_session_change`.
+  - `Entries_are_keyed_by_process_and_stale_keys_are_removed`.
+  - `Session_end_on_clear_attaches_a_replacement_naming_the_old_agent`, with the new id taken from `classic.SessionStart`.
+  - `A_refused_attach_retries_until_the_first_process_has_gone`.
   - `An_unreported_link_is_retried_after_the_daemon_returns`.
   - `A_remote_message_shows_a_notice_at_the_terminal`.
   - `A_failing_hook_passes_the_row_through`.
-- [ ] **Implement:** every hook has a `.catch` that passes through. Nothing in this plugin can reach recording. Keep the outstanding dispatch wherever G1 showed it survives both a reload and a session change.
+- [ ] **Implement:** every hook has a `.catch` that passes through. Nothing in this plugin can reach recording. Keep the outstanding dispatch, any unreported link and the running-turn flag in `$.store`, because a module variable dies on reload and `$.state` dies on `/clear` and resume. The process key is the pid plus its start time: `$.process.run(['sh','-c','echo $PPID'])` gives Claude's pid, since `$.env.get('CLAUDE_PID')` is unset in a module, and `ps -o lstart= -p <pid>` the start time. Track a running turn from `turn.start` and `turn.complete`, and don't parse the engine's reason text. Helpers are closures in `session.start`, because a mod can't bind or pass `$`. Grace is 10 seconds: a late link corrects a false alarm, so it only has to outlast a normal landing.
 - [ ] **Verify:** `claude plugin validate kcap/steering`, `claude plugin test kcap/steering`, and `tsc -p kcap/steering`.
 - [ ] **Commit:** `Add the kcap-steering mod`
 
@@ -529,10 +543,11 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
   - `Turning_steering_on_installs_and_enables_the_plugin_once`.
   - `Turning_steering_off_leaves_the_plugin_installed`.
   - `An_attached_agent_does_not_read_as_hosted_in_the_rail`.
-  - `Each_state_shows_its_copy`, with the spec's exact strings: "Waiting for the turn to end", "Delivered", "Not delivered, send again", "Delivery unknown, check the session before sending again".
+  - `Each_state_shows_its_copy`, with the spec's exact strings: "Waiting for the turn to end", "Delivered", "Not delivered, send again", "Delivery unknown, check the session before sending again", "Not delivered, the session was stopped at the terminal", "Not delivered, commands can only be run at the terminal".
+  - `Setup_does_not_offer_steering_on_windows`.
   - `A_session_waiting_for_approval_shows_that_it_is_waiting_at_the_terminal`.
 - [ ] **Implement:** the install is a settings write through `ClaudePluginWriter`, once per machine. Stop on an attached agent reads as disconnecting steering, and never as stopping the agent.
-- [ ] **Verify:** the suites, then one end-to-end run on a VM: start `claude` in a terminal, send from the web, and watch the row land with the sender's name.
+- [ ] **Verify:** the suites, then one end-to-end run on a macOS VM and one on Linux, each with kcap's own plugin and hooks loaded, which the proof didn't have: start `claude` in a terminal, send from the web, and watch the row land with the sender's name. If `socketPath` fails on Linux, Linux waits for its own transport as Windows does.
 - [ ] **Commit:** `Offer steering in setup and show delivery states`
 
 ---
@@ -547,7 +562,7 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
 
 | Gate | After | If it fails |
 |---|---|---|
-| G1, steering proof | Task 3 | Milestone 6 stops. Milestones 3 to 5 go ahead |
+| G1, steering proof | Task 3 | Passed on macOS on 2026-11-06. The spec records the results. Windows and Linux `socketPath` stay open |
 | G2, stamp proof | Task 10 | The match rule narrows, or Tasks 11 to 13 stop and go back to the owner |
 
-Milestones 3 to 5 and Milestone 6 can run side by side once G1 passes. Milestone 6 needs nothing from Milestones 3 to 5.
+Milestones 3 to 5 and Milestone 6 can run side by side. Milestone 6 needs nothing from Milestones 3 to 5.
