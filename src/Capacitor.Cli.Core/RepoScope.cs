@@ -16,12 +16,18 @@ public static class RepoScope {
     /// the list excludes.
     /// </summary>
     public static bool IsOutOfScope(
-            string? repoKey, IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) {
-        if (IsOutsideAllowlist(repoKey, allowedRepos)) return true;
+            string? repoKey, IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) =>
+        IsOutOfScope(repoKey, repoKey, allowedRepos, excludedRepos);
 
-        return repoKey is not null
+    /// <summary>The same, with the deny list matched against <paramref name="excludeKey"/>, which can name a repository
+    /// the session reports none for.</summary>
+    public static bool IsOutOfScope(
+            string? allowKey, string? excludeKey, IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) {
+        if (IsOutsideAllowlist(allowKey, allowedRepos)) return true;
+
+        return excludeKey is not null
             && excludedRepos is { Count: > 0 }
-            && Names(excludedRepos, repoKey);
+            && Names(excludedRepos, excludeKey);
     }
 
     /// <summary>

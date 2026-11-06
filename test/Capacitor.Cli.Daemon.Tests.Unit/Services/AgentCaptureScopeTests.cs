@@ -105,13 +105,15 @@ public class AgentCaptureScopeTests {
     }
 
     // Reporting to a server not known to store it, the launch's session would carry no repository, so the
-    // folder entry cannot admit it.
+    // folder entry cannot admit it; the session is still captured, so the entry still excludes it.
     [Test]
-    public async Task For_a_server_not_known_to_store_local_repositories_the_folder_entry_admits_nothing() {
+    public async Task For_a_server_not_known_to_store_local_repositories_the_folder_entry_admits_nothing_and_still_excludes() {
         using var repo = GitRepo.Create();
         var entry = LocalRepository.FolderEntryPrefix + Path.GetFileName(repo.Path);
 
         await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(allowedRepos: [entry]), Home, Config.Root, "https://never-seen.example"))
+            .IsTrue();
+        await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(excludedRepos: [entry]), Home, Config.Root, "https://never-seen.example"))
             .IsTrue();
     }
 

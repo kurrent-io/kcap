@@ -18,14 +18,21 @@ public static class GitRepoKey {
     /// <summary>The key a session here reports to <paramref name="serverUrl"/> under: a repository whose origin
     /// names no owner keys by its <see cref="LocalRepository"/> identity, as hook detection does, once that server
     /// is known to store one, and is unplaceable otherwise.</summary>
-    public static string? ForCheckout(string? path, ConfigRoot config, string? serverUrl) {
+    public static string? ForCheckout(string? path, ConfigRoot config, string? serverUrl) =>
+        ForCheckout(path, dir => LocalRepositorySupport.IdentityFor(config, serverUrl, dir));
+
+    /// <summary>The key a deny list is matched against: a repository with no remote keys by its local identity
+    /// whatever the server stores, since a session that reports no repository is still captured.</summary>
+    public static string? ForExclusion(string? path, ConfigRoot config) => ForCheckout(path, dir => LocalRepository.Of(config, dir));
+
+    static string? ForCheckout(string? path, Func<string, (string Owner, string Name)?> local) {
         if (string.IsNullOrWhiteSpace(path) || GitRepository.FindRoot(path) is not { } root) return null;
 
         var url = ConfigPathFor(root) is { } configPath ? GitRemoteReader.ReadOriginUrlFromConfig(configPath) : null;
 
         if (GitUrlParser.ParseRemoteUrl(url) is { Owner: not null, RepoName: not null }) return ForCheckout(path);
 
-        return LocalRepositorySupport.IdentityFor(config, serverUrl, path) is { } local ? $"{local.Owner}/{local.Name}" : null;
+        return local(path) is { } identity ? $"{identity.Owner}/{identity.Name}" : null;
     }
 
     public static string? ForCheckout(string? path) {

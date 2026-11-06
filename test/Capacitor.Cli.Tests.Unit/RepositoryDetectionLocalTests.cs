@@ -162,4 +162,16 @@ public class RepositoryDetectionLocalTests {
         await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, null, [entry], TimeProvider.System)).IsTrue();
         await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, ["acme/widgets"], null, TimeProvider.System)).IsTrue();
     }
+
+    // Its session is still captured, only without a repository, so the folder entry admits nothing but still excludes.
+    [Test]
+    public async Task For_a_server_not_known_to_store_local_repositories_a_folder_entry_still_excludes() {
+        await ReportTo("1.0.0");
+        using var repo = GitRepo.Create();
+        var body  = JsonSerializer.Serialize(new Dictionary<string, string> { ["cwd"] = repo.Path });
+        var entry = $"local~/{Path.GetFileName(repo.Path)}";
+
+        await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, [entry], null, TimeProvider.System)).IsTrue();
+        await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, null, [entry], TimeProvider.System)).IsTrue();
+    }
 }

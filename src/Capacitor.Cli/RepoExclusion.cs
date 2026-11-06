@@ -31,7 +31,10 @@ static class RepoExclusion {
 
         var key = await ResolveKeyAsync(router, config, body, time, budget);
 
-        return RepoScope.IsOutOfScope(key, allowedRepos, excludedRepos);
+        // A repository with no remote the server is not sent is still captured, so a deny list still names it.
+        var excludeKey = key is null && hasDenylist && Cwd(body) is { } cwd ? GitRepoKey.ForExclusion(cwd, config) : key;
+
+        return RepoScope.IsOutOfScope(key, excludeKey, allowedRepos, excludedRepos);
     }
 
     /// <summary>
@@ -41,6 +44,14 @@ static class RepoExclusion {
     /// </summary>
     public static bool IsOutsideAllowlist(string? repoKey, IReadOnlyList<string>? allowedRepos)
         => RepoScope.IsOutsideAllowlist(repoKey, allowedRepos);
+
+    static string? Cwd(string body) {
+        try {
+            return JsonNode.Parse(body)?["cwd"]?.GetValue<string>();
+        } catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) {
+            return null;
+        }
+    }
 
     /// <summary><c>owner/repo</c> for the session, or null when it cannot be determined.</summary>
     static async Task<string?> ResolveKeyAsync(
