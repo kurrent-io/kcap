@@ -283,7 +283,7 @@ public partial class LauncherPaneView : UserControl {
                 if (folders is not [{ } folder]) return false;
                 using (folder) {
                     return folder.TryGetLocalPath() is { } selected
-                        && PlatformPaths.Comparer.Equals(selected, path);
+                        && await Task.Run(() => IsSameRepositoryFolder(selected, path));
                 }
             });
         } catch (Exception ex) {
@@ -292,6 +292,11 @@ public partial class LauncherPaneView : UserControl {
             if (sender is Control control) control.IsEnabled = true;
         }
     }
+
+    // NSOpenPanel can return /tmp for a repository selected through /private/tmp (or a
+    // resolved target for another symlink). Compare physical folders without changing the draft.
+    internal static bool IsSameRepositoryFolder(string selected, string repository) =>
+        PlatformPaths.Comparer.Equals(CanonicalPath.Resolve(selected), CanonicalPath.Resolve(repository));
 
     void ShowRemotePathEntry(HomeViewModel vm, Control anchor) {
         var input = new TextBox { PlaceholderText = "/path/to/repository", MinWidth = 320 };
