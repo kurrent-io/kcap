@@ -563,7 +563,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
 
     void RefreshActivityNote() {
         var inTurn = SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
-        var working = inTurn && !HasPendingCards;
+        var working = inTurn && !HasPendingCards && !HasTerminalMenu;
         if (!inTurn) {
             _workingSince = null;
             _worked = TimeSpan.Zero;
