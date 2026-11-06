@@ -432,8 +432,16 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>Every input acknowledgement, in call order.</summary>
     public List<(Guid DispatchId, string AgentId)> InputAcks { get; } = [];
 
+    /// <summary>Runs inside each acknowledgement, after it is recorded, with its 1-based number.</summary>
+    public Action<int>? OnInputAcked { get; set; }
+
     public override Task SendInputAckedAsync(Guid dispatchId, string agentId) {
-        lock (InputAcks) InputAcks.Add((dispatchId, agentId));
+        int count;
+        lock (InputAcks) {
+            InputAcks.Add((dispatchId, agentId));
+            count = InputAcks.Count;
+        }
+        OnInputAcked?.Invoke(count);
 
         return Task.CompletedTask;
     }

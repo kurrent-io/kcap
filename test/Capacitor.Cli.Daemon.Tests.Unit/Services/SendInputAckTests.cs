@@ -76,6 +76,32 @@ public class SendInputAckTests {
         await Assert.That(Count(runtime.SentInputs)).IsEqualTo(1);
     }
 
+    /// <summary>A write lost while a resend is being acknowledged again is reported after that acknowledgement,
+    /// so the server cannot take the repeat as the last word even if the first report never reached it.</summary>
+    [Test]
+    public async Task A_write_lost_while_a_resend_is_acknowledged_is_reported_after_the_repeat_ack() {
+        var server  = new CaptureServerConnection();
+        var written = new TaskCompletionSource();
+        var runtime = new FakeAcpRuntime { DispatchedWrite = written };
+        await using var orch = Build(server);
+        var agent = AgentOrchestratorHarness.SeedAcpAgent(orch, "ack-race", runtime);
+        var cmd   = new SendInputCommand(agent.Id, "lost in the race", null, Guid.NewGuid());
+        var rejectionsAtRepeatAck = -1;
+        server.OnInputAcked = n => {
+            if (n != 2) return;
+            written.SetException(new InvalidOperationException("session ended while this input was pending delivery"));
+            rejectionsAtRepeatAck = Count(server.InputRejections);
+        };
+
+        await orch.HandleSendInputForTest(cmd);
+        await orch.HandleSendInputForTest(cmd);
+        await Until(() => Count(server.InputRejections) > rejectionsAtRepeatAck);
+
+        await Assert.That(rejectionsAtRepeatAck).IsEqualTo(1);
+        await Assert.That(server.InputRejections.Skip(rejectionsAtRepeatAck))
+            .IsEquivalentTo([(cmd.DispatchId!.Value, agent.Id, AgentOrchestrator.SendInputDropReason.DeliveryFailed)]);
+    }
+
     [Test]
     public async Task A_delivered_input_is_acknowledged_and_a_resend_is_acknowledged_again_without_typing_it_twice() {
         var server = new CaptureServerConnection();

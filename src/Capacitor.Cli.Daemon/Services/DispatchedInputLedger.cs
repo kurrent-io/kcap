@@ -37,6 +37,21 @@ internal sealed class DispatchedInputLedger(TimeProvider time) {
         }
     }
 
+    /// <summary>What became of the dispatch, without counting this as a copy arriving.</summary>
+    public DispatchState Peek(Guid dispatchId, out string? dropReason) {
+        lock (_gate) {
+            if (_state.TryGetValue(dispatchId, out var entry)) {
+                dropReason = entry.DropReason;
+
+                return entry.State;
+            }
+        }
+
+        dropReason = null;
+
+        return DispatchState.New;
+    }
+
     /// <summary>Never undoes a drop: a write lost after the input was taken is final.</summary>
     public void MarkTaken(Guid dispatchId) => Settle(dispatchId, DispatchState.Taken, null);
 
