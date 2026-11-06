@@ -32,6 +32,11 @@ running notes file that every PR edits.
   clamp, and its support is conjunctive — macOS/ARM64 and `sandbox-exec` and a brokerable token, or
   the capability is not advertised. Containment is proven by a real process run under the profile,
   never by a model-layer refusal.
+- **kcap's own tools skip Claude's auto-mode classifier, and only there.** A plugin cannot ship
+  permission rules and the classifier ignores MCP annotations, so the `PreToolUse` seam answers
+  `allow` for the `AutoApprove` servers and for read tools, when `permission_mode` is `auto` and no
+  rule decided the call, in rendered sessions too. Manual stays the user's control, and a bare
+  `mcp__kcap-*` never matches because a repository's `.mcp.json` can claim that name.
 - **The daemon never looks for a credential.** No keychain read, prompt, cache, persistence or
   default command: it forwards what the operator exported, or runs the one command they configured,
   and only when a borrowed launch needs it. Availability is configuration presence, never execution

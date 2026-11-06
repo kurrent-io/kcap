@@ -57,7 +57,10 @@ internal sealed class ClaudePolicySeam(ConfigRoot config, TimeProvider time, Hoo
         var mode     = renderedAgent ? EvaluationMode.TightenOnly : EvaluationMode.Full;
         var fields   = ReadFields(payload);
         var snapshot = LoadSnapshot(sessionId, fields.Cwd);
-        if (snapshot.IsEmpty) return 0;
+        if (snapshot.IsEmpty) {
+            AnswerTrustedTool(fields, stdout);
+            return 0;
+        }
         var ctx = Build(fields, sessionId, PolicySeams.ClaudePreToolUse, snapshot, mode);
 
         var journal = new PolicyDecisionJournal(config);
@@ -102,7 +105,16 @@ internal sealed class ClaudePolicySeam(ConfigRoot config, TimeProvider time, Hoo
                 break;
         }
 
+        if (outcome == PolicyOutcome.None) AnswerTrustedTool(fields, stdout);
+
         return 0;
+    }
+
+    /// <summary>Sits below every rule and outside the policy record: no rule decided the call, so it
+    /// stays a pass-through there. A rendered session gets it too, or its classifier keeps refusing.</summary>
+    static void AnswerTrustedTool(SeamFields fields, TextWriter stdout) {
+        if (ClaudeKcapToolTrust.Covers(fields.ToolName, fields.PermissionMode))
+            stdout.Write(BuildPreToolUseDecision("allow", ClaudeKcapToolTrust.Reason));
     }
 
     /// <summary>
