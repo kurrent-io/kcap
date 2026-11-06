@@ -12,6 +12,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.WorkItems;
 using Capacitor.Models.Transcripts.Harness.Claude;
+using Lucide.Avalonia;
 using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
@@ -1146,6 +1147,44 @@ public class ChatTabViewModelTests {
             note.Toggle();
             await Assert.That(note.IsExpanded).IsTrue();
             await Assert.That(note.HeaderLabel).IsEqualTo(SystemNoteItem.TaskNotificationLabel);
+            await h.TeardownAsync();
+        });
+    }
+
+    /// Another session's message reads as an agent's, open under its sender's name, with none of its envelope left.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_message_from_another_session_renders_as_an_open_agent_note_under_its_sender() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            var path = Tmp.CreateFile("t.jsonl", [
+                """{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from=\"uds:/tmp/cc-socks/71031.sock\" from-name=\"quiet-cow-d1\" from-mode=\"prompting\">\nOne more symptom.\n\n- `declare_work_item` refuses the new name\n</cross-session-message>","isMeta":true,"origin":{"kind":"peer","name":"quiet-cow-d1"}}}""",
+            ]);
+            await h.PushAsync(Dto(path));
+
+            var note = (SystemNoteItem)h.Chat.Items.Single();
+            await Assert.That(note.Text).IsEqualTo("One more symptom.\n\n- `declare_work_item` refuses the new name");
+            await Assert.That(note.HeaderLabel).IsEqualTo("Message from quiet-cow-d1");
+            await Assert.That(note.IconKind).IsEqualTo(LucideIconKind.BotMessageSquare);
+            await Assert.That(note.IsExpanded).IsTrue();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// The agent's icon is for agents: a trigger with no session behind it stays a plain note.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_ci_event_stays_a_plain_note() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            var path = Tmp.CreateFile("t.jsonl", [
+                """{"type":"user","message":{"content":"<ci-monitor-event>Check `build` failed.</ci-monitor-event>"}}""",
+            ]);
+            await h.PushAsync(Dto(path));
+
+            var note = (SystemNoteItem)h.Chat.Items.Single();
+            await Assert.That(note.HeaderLabel).IsEqualTo("CI event");
+            await Assert.That(note.IconKind).IsEqualTo(LucideIconKind.StickyNote);
             await h.TeardownAsync();
         });
     }

@@ -9,6 +9,7 @@ using System.Reactive.Subjects;
 using Avalonia.Collections;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.Views;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Handoff;
@@ -1734,9 +1735,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                             ChatDisplayKind.TaskNotification => SystemNoteItem.TaskNotificationLabel,
                             ChatDisplayKind.CompactSummary   => SystemNoteItem.CompactSummaryLabel,
                             ChatDisplayKind.Interrupted      => SystemNoteItem.InterruptedLabel,
-                            ChatDisplayKind.Trigger          => e.ToolName is { Length: > 0 } trigger ? trigger : SystemNoteItem.NoteLabel,
+                            ChatDisplayKind.Trigger or ChatDisplayKind.PeerSession => e.ToolName is { Length: > 0 } trigger ? trigger : SystemNoteItem.NoteLabel,
                             _                                => SystemNoteItem.NoteLabel,
-                        }));
+                        }, e.ToolKind == ChatDisplayKind.PeerSession ? ToolCategoryIcons.AgentMessageIcon : null));
                         break;
                     case AcpEventKind.ToolCall: {
                         cursor.OpenShell = null;
