@@ -35,6 +35,20 @@ public class ClaudeCliRunnerEnvelopeTests {
     }
 
     [Test]
+    public async Task A_plain_text_authentication_failure_is_not_signed_in() {
+        const string stdout = "Failed to authenticate: OAuth session expired and could not be refreshed";
+
+        await Assert.That(ClaudeCliRunner.ClassifyFailure(stdout, nonZeroExit: true).Failure).IsEqualTo(ClaudeCliFailure.NotSignedIn);
+    }
+
+    [Test]
+    public async Task Envelope_text_naming_authentication_is_not_enough_on_its_own() {
+        const string envelope = """{"type":"result","is_error":true,"result":"Failed to authenticate the webhook payload"}""";
+
+        await Assert.That(ClaudeCliRunner.ClassifyFailure(envelope, nonZeroExit: true).Failure).IsEqualTo(ClaudeCliFailure.ProcessFailure);
+    }
+
+    [Test]
     public async Task Usage_limit_envelope_is_spend_budget() {
         const string envelope = """{"type":"result","is_error":true,"result":"Claude AI usage limit reached|1793480400"}""";
 
