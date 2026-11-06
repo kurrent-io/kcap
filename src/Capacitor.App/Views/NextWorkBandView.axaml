@@ -25,7 +25,8 @@
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
         <Style Selector="Button.nwbRow:pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                         Button.nwbRow:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                         Button.nwbRow:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                         Grid.nwbRowHost.menuOpen Button.nwbRow /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
@@ -43,7 +44,8 @@
             <Setter Property="Opacity" Value="0" />
         </Style>
         <Style Selector="Grid.nwbRowHost:pointerover StackPanel.nwbActs, Grid.nwbRowHost StackPanel.nwbActs:focus-within,
-                         Grid.nwbRowHost.filled StackPanel.nwbActs, Grid.nwbRowHost.busy StackPanel.nwbActs">
+                         Grid.nwbRowHost.filled StackPanel.nwbActs, Grid.nwbRowHost.busy StackPanel.nwbActs,
+                         Grid.nwbRowHost.menuOpen StackPanel.nwbActs">
             <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Border.nwbGlyph">

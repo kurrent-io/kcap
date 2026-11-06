@@ -6,7 +6,7 @@
              x:DataType="nw:NextWorkCardViewModel">
     <!-- Styled by NextWorkBandView, the only view that hosts it. The row itself is the button: pressing it fills the
          composer. ▶ and the menu show on hover, keyboard focus or the row the composer holds. -->
-        <Grid Classes="nwbRowHost" Classes.filled="{Binding IsFilled}" Classes.busy="{Binding Busy}">
+        <Grid x:Name="RowHost" Classes="nwbRowHost" Classes.filled="{Binding IsFilled}" Classes.busy="{Binding Busy}">
             <Button x:Name="CardRow" Classes="nwbRow" Classes.filled="{Binding IsFilled}" Command="{Binding FillCommand}" ToolTip.Tip="{Binding FillTip}"
                     AutomationProperties.Name="{Binding Label}" AutomationProperties.HelpText="{Binding FillTip}">
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
@@ -68,7 +68,8 @@
                         AutomationProperties.Name="{Binding Label, StringFormat='More actions for {0}'}">
                     <views:AppIcon Kind="Ellipsis" Size="16" />
                     <Button.Flyout>
-                        <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
+                        <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel"
+                                Opened="OnMenuOpened" Closed="OnMenuClosed">
                             <StackPanel Spacing="2" Margin="6" MinWidth="190">
                                 <Button Classes="kcapGhost nwbMenuRow" Content="Open in browser" Command="{Binding OpenCommand}"
                                         IsVisible="{Binding CanOpenInBrowser}" Click="OnMenuItemClick" />
