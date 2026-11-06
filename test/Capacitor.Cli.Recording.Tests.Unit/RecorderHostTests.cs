@@ -613,6 +613,44 @@ public class RecorderHostTests {
         await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
     }
 
+    /// <summary>An exclusive holder makes every shared open fail with an IOException, as a failing disk would. Neither
+    /// read can say what is left, so only a mark stands between those lines and silence.</summary>
+    [Test]
+    public async Task A_final_read_that_fails_twice_marks_the_source_for_import() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+
+        using var unreadable = new FileStream(source.TranscriptPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
+
+        var spool = new TranscriptSpool(Config, _time, "http://127.0.0.1:1");
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
+        await Assert.That(spool.HasBacklog(source.SessionId)).IsFalse();
+        await Assert.That(spool.NeedsImport(source.SessionId)).IsTrue();
+    }
+
+    /// <summary>The same two failures, reached past a third: the read that decides whether anything needs sending.</summary>
+    [Test]
+    public async Task A_read_that_fails_below_the_threshold_marks_the_source_for_import() {
+        var source = Source(Tmp.CreateFile("t.jsonl", "{\"type\":\"system\"}\n"));
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => Ticks(source.Key) >= 1, "the first tick");
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Prompt}\n{Reply}\n");
+
+        using var unreadable = new FileStream(source.TranscriptPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
+
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsTrue();
+    }
+
     /// <summary>The spool's directory is a file here, so no marker can be written. A host runs many recorders in
     /// a process whose stderr is nobody's, and the only sign of a lost marker has to reach this source's log.</summary>
     [Test]
@@ -627,6 +665,7 @@ public class RecorderHostTests {
         await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
 
         await Assert.That(_log.Any(line => line.Contains("failed to write needs-import marker", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(_log.Any(line => line.Contains($"Could not mark {source.Key} for import", StringComparison.Ordinal))).IsTrue();
     }
 
     [Test]

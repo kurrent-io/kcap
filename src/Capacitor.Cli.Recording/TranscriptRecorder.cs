@@ -302,7 +302,7 @@ public sealed class TranscriptRecorder(
             if (State.FinalDrainHeldIncompleteLine) {
                 // Keyed on the session even for a subagent: the spool and `kcap import` work at session level.
                 log("Final transcript line still incomplete at consume time; held back and flagging needs-import");
-                _spool.MarkNeedsImport(source.SessionId, "shutdown final drain: last transcript line never completed (no newline, unparseable)");
+                MarkForImport(_spool, "shutdown final drain: last transcript line never completed (no newline, unparseable)");
             }
 
             // The cursor only moves past lines the server confirmed, and a failed send can leave the connection
@@ -1313,9 +1313,11 @@ public sealed class TranscriptRecorder(
             tail = await TranscriptReader.ReadNewCompleteLinesAsync(
                 stream, linesProcessed, IncompleteFinalLinePolicy.ConsumeIfComplete, ct, lineOffsets: lineOffsets);
         } catch (IOException ex) {
+            // Nothing is left that could say what the final drain missed, and a mark is the only way those lines survive.
             log($"Shutdown-tail spool: failed to read transcript for {sessionId}: {ex.Message}");
+            MarkForImport(transcriptSpool, $"shutdown tail: transcript could not be read: {ex.Message}");
 
-            return null;
+            return TranscriptSpool.AppendResult.MarkedNeedsImport;
         }
 
         commits = commits.Collect();
@@ -1353,7 +1355,7 @@ public sealed class TranscriptRecorder(
 
         if (result == TranscriptSpool.AppendResult.Appended && unredacted is { } line) {
             log($"Line {line} of {sessionId} still cannot be redacted in time; spooled the {batch.Lines.Length} line(s) before it");
-            transcriptSpool.MarkNeedsImport(sessionId, $"shutdown tail: redaction of line {line} timed out");
+            MarkForImport(transcriptSpool, $"shutdown tail: redaction of line {line} timed out");
             HeldLine.ReleaseBelow(line + 1);
             if (redacted.Consumed > 0) stamper.Acknowledged(line - 1);
 
@@ -1376,6 +1378,10 @@ public sealed class TranscriptRecorder(
         }
 
         return result;
+    }
+
+    void MarkForImport(TranscriptSpool spool, string reason) {
+        if (!spool.MarkNeedsImport(source.SessionId, reason)) context.Log($"Could not mark {source.Key} for import: the marker was not written");
     }
 
     /// <summary>
