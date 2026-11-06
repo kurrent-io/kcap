@@ -59,6 +59,28 @@ public sealed class ClaudeHookCommand(
     /// <see cref="HookBudget.Safety"/>; must match the session-start timeout in <c>kcap/hooks/hooks.json</c>.</summary>
     internal static readonly TimeSpan SessionStartCeiling = TimeSpan.FromSeconds(9);
 
+    /// <summary>Tells the hosting daemon the session started, for a launch prompt that may be held on
+    /// it. Program runs this ahead of the claim and the spool drain, which can spend the whole hook
+    /// budget and would then drop the notice.</summary>
+    public async Task RelaySessionStartAsync(string body) {
+        if (hosted.AgentId is null) return;
+
+        string? sessionId, cwd;
+        try {
+            var node = JsonNode.Parse(body);
+            if (node?["hook_event_name"]?.GetValue<string>() is not { } ev || ToKebab(ev) != "session-start") return;
+
+            sessionId = node["session_id"]?.GetValue<string>()?.Replace("-", "");
+            cwd       = node["cwd"]?.GetValue<string>();
+        } catch {
+            return;
+        }
+
+        if (ClaudeHelperRun.IsHelperRun(sessionId, cwd)) return;
+
+        await DaemonBridgeRelay.NotifySessionStartedAsync(hosted, "claude", sessionId, cwd, clock.Budget(Ceiling("session-start")));
+    }
+
     public Task<string> PrepareForDrain(string body) =>
         ClaudeSessionStartClaim.PrepareAsync(body, config,
             () => ProcessHelpers.GetCodingAgentPid("claude", allowFallback: false),

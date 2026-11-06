@@ -992,6 +992,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _server.FindRepoForRemoteHandler      =  HandleFindRepoForRemote;
         _permissionBridge.AttributeHandler    =  HandleAttributePermission;
         _permissionBridge.InputWaitHandler    =  HandleInputWait;
+        _permissionBridge.SessionStartHandler =  HandleSessionStart;
         _permissionBridge.ToolSettledHandler  =  HandleToolSettled;
         _permissionBridge.SubagentHandler     =  HandleSubagent;
         _server.ProbeBorrowSourceHandler      =  HandleProbeBorrowSource;
@@ -1262,11 +1263,28 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         if (unconfirmed) _statusNotifier.Pulse();
     }
 
+    /// The bridge's attributed notice that a hosted agent's session started. An id the daemon does
+    /// not hold (torn down since the hook fired) is dropped.
+    void HandleSessionStart(string agentId) {
+        if (_agents.TryGetValue(agentId, out var agent)) NoteSessionStarted(agent);
+    }
+
+    void NoteSessionStarted(AgentInstance agent) {
+        var unconfirmed = agent.Runtime.LaunchPromptUnconfirmed;
+        agent.Runtime.NoteSessionStarted();
+        if (unconfirmed) _statusNotifier.Pulse();
+    }
+
+    internal Task WatchLaunchPromptForTest(AgentInstance agent) => WatchLaunchPromptAsync(agent);
+
     /// Republishes the agent once its launch prompt is found unconfirmed, so its chat can say so.
     async Task WatchLaunchPromptAsync(AgentInstance agent) {
         if (agent.Runtime.LaunchPromptDelivery is not { } delivery) return;
 
         try {
+            if (agent.Runtime.LaunchPromptOverdue is { } overdue
+             && await Task.WhenAny(overdue, delivery).ConfigureAwait(false) == overdue) _statusNotifier.Pulse();
+
             if (await delivery.ConfigureAwait(false) == LaunchPromptOutcome.NotConfirmed) _statusNotifier.Pulse();
         } catch (Exception) {
             // The runtime factory logs a faulted delivery.
@@ -2456,6 +2474,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             WorktreeInfo? worktree = null, WorkLocation work = WorkLocation.OwnedWorktree,
             string vendor = "codex",
             string? borrowedSnapshotSource = null,
+            bool bridgedSinceStart = false,
             IHostedAgentRuntime? runtime = null) {
         var agent = new AgentInstance(
             id, prompt, model, null, "/repo", vendor,
@@ -2470,7 +2489,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             InactivityBoundSeconds = inactivityBoundSeconds,
             ActivityClock = activityClock ?? CreateActivityClock(),
             Work = work,
-            BorrowedSnapshotSource = borrowedSnapshotSource
+            BorrowedSnapshotSource = borrowedSnapshotSource,
+            BridgedSinceStart = bridgedSinceStart
         };
         agent.Status = status;
         if (lastOutputAt is { } lo) agent.LastOutputAt = lo;
@@ -6346,6 +6366,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     agent.SessionId ??= winner.SessionId;
                     agent.VendorSession ??= winner.SessionId;
                     agent.TranscriptPath = winner.Path;
+                    // Claude's transcript opens with SessionStart's own record, which a kcap on PATH
+                    // too old to send the notice still produces. A resumed one predates the spawn.
+                    if (agent.BridgedSinceStart) NoteSessionStarted(agent);
                     UpdateLedgerSession(agent);
                     StartContinuationTakeover(agent);
                     StartHandoffTakeover(agent);

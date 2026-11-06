@@ -999,6 +999,8 @@ switch (command) {
         if (args.Contains("--claude") && args.Contains("--plan-edit")) {
             return await Run<ClaudeHookCommand>().HandlePlanEdit(new StringReader(claudeHookBody!));
         }
+        if (args.Contains("--claude")) await Run<ClaudeHookCommand>().RelaySessionStartAsync(claudeHookBody!);
+
         if (args.Contains("--claude") && baseUrl is not null) {
             claudeHookBody = await Run<ClaudeHookCommand>().PrepareForDrain(claudeHookBody!);
             HookTiming.Mark("session-claim");

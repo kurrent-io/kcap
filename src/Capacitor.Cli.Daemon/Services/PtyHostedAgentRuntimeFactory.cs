@@ -141,10 +141,10 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
         // Tell the spawned Claude's permission-request hook where to find this daemon's local
         // SignalR bridge. Bypasses Cloudflare's HTTP timeout on the server's
         // /hooks/permission-request long-poll. CLI falls back to KCAP_URL if this var is absent
-        // (e.g. older CLI builds). Its turn hooks relay through it too, which is what confirms the
-        // launch prompt arrived.
-        var hooksReachDaemon = !ctx.IsPrivate && !string.IsNullOrEmpty(ctx.DaemonBridgeUrl);
-        if (hooksReachDaemon) {
+        // (e.g. older CLI builds). Its turn and session-start hooks relay through it too, which is
+        // what paces and confirms the launch prompt.
+        var bridged = !ctx.IsPrivate && !string.IsNullOrEmpty(ctx.DaemonBridgeUrl);
+        if (bridged) {
             env[HostedAgent.BridgeUrlVar] = ctx.DaemonBridgeUrl!;
         }
 
@@ -159,10 +159,13 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
         // Read before the spawn so a throw cannot orphan the PTY. Gates the multi-CR submit spray; see
         // PtyHostedAgentRuntime.SubmitAsync.
         var disablesApprovalPrompts = launcher.DisablesApprovalPrompts(launcherCtx);
+        var hooksReachDaemon        = bridged && launcher.HooksWired(launcherCtx);
 
         var pty     = ptyFactory.Spawn(launcher.CliPath, args, ctx.Worktree.Path, env, ctx.Cols, ctx.Rows, removeEnv);
         var runtime = new PtyHostedAgentRuntime(ctx.Vendor, pty, time, disablesApprovalPrompts, logger,
-            readyOnBracketedPaste: OperatingSystem.IsWindows(), confirmsLaunchPrompt: hooksReachDaemon);
+            readyOnBracketedPaste: OperatingSystem.IsWindows(),
+            awaitsSessionStart: hooksReachDaemon && launcher.SessionStartMeansComposerUp,
+            confirmsLaunchPrompt: hooksReachDaemon);
 
         if (launchPrompt is not null) {
             runtime.DeliverLaunchPrompt(launchPrompt);
@@ -187,6 +190,9 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
         LaunchPromptOutcome outcome;
 
         try {
+            if (runtime.LaunchPromptOverdue is { } overdue
+             && await Task.WhenAny(overdue, submitted, delivery).ConfigureAwait(false) == overdue) LogLaunchPromptHeld(agentId, confirm);
+
             await Task.WhenAny(submitted, delivery).ConfigureAwait(false);
 
             if (submitted.IsCompletedSuccessfully) {
@@ -227,6 +233,9 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId}'s launch prompt was not seen to arrive: no turn was reported within {Seconds}s of either Enter, and it may be sitting unsent in the composer")]
     partial void LogLaunchPromptNotConfirmed(string agentId, double seconds);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} has not reported SessionStart after {Seconds}s, so its launch prompt stays held: it may be waiting for input in its terminal")]
+    partial void LogLaunchPromptHeld(string agentId, double seconds);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} never settled ready for input; its launch prompt was pasted after {Seconds}s")]
     partial void LogLaunchPromptPastedBlind(string agentId, double seconds);

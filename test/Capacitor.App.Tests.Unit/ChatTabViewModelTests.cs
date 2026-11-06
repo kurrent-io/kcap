@@ -3655,6 +3655,36 @@ public class ChatTabViewModelTests {
         });
     }
 
+    /// A resumed chat opens with its history, which hides the empty-chat note, so the warning takes
+    /// the activity row: a prompt held there would otherwise leave no sign at all.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_chat_with_history_says_when_the_first_message_may_not_have_been_sent() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            try {
+                var dto = Dto(Tmp.CreateFile("resumed.jsonl", [UserLine, AssistantLine]));
+                await h.PushAsync(dto with { Status = "Running", LaunchPromptUnconfirmed = true });
+                await WaitUntilAsync(() => h.Chat.Items.Count > 0, what: "the resumed history");
+
+                await Assert.That(h.Chat.PhaseNote).IsEmpty();
+                await Assert.That(h.Chat.ShowsActivityNote).IsTrue();
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo(ChatTabViewModel.LaunchPromptUnconfirmedNote);
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsFalse();
+
+                h.Chat.ShowTerminal = () => { };
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsTrue();
+                await Assert.That(h.Chat.ShowsTerminalOffer).IsFalse();
+
+                await h.PushAsync(dto with { Status = "Running", LaunchPromptUnconfirmed = false });
+
+                await Assert.That(h.Chat.ShowsActivityNote).IsFalse();
+                await Assert.That(h.Chat.ActivityNote).IsEmpty();
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsFalse();
+            } finally { await h.TeardownAsync(); }
+        });
+    }
+
     /// An empty chat can mean the agent is held at a prompt only its terminal shows, so it points
     /// there, unless the agent has no terminal or the dialog card already does.
     [Test]

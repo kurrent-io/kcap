@@ -74,6 +74,16 @@ internal interface IHostedAgentLauncher {
     /// </summary>
     IReviewerModelResolver? ReviewerModelResolver => null;
 
+    /// <summary>Whether this launch's hooks can fire at all. False leaves the launch prompt to the
+    /// output checks: no hook would report a turn or a session start, so waiting on one would only
+    /// strand the prompt or send a stray Enter.</summary>
+    bool HooksWired(LauncherContext ctx) => true;
+
+    /// <summary>Whether the vendor fires SessionStart only once its composer is up, ahead of any
+    /// input. True holds the launch prompt for that hook with no time limit, so a vendor that fires it
+    /// on the first turn must stay false: the paste would wait for a hook that waits for the paste.</summary>
+    bool SessionStartMeansComposerUp => false;
+
     /// <summary>
     /// Per-vendor preparation BEFORE the PTY is spawned. Implementations:
     ///   • Overlay vendor-specific settings dir from source repo into worktree

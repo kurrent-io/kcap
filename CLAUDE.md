@@ -109,6 +109,17 @@ running notes file that every PR edits.
   contains its pattern. The PTY launch spawns the agent without its prompt and pastes it into the
   composer once startup output has settled, so the real prompt is the agent's first message; only
   a slash command stays inline, because the agent runs one only as the literal first message.
+- **A Claude launch prompt waits for SessionStart with no time limit.** A first-run screen fires no
+  hook and reads as a settled composer, so a paste or a retry Enter on a timer answers it and the
+  prompt is lost. With hooks wired only SessionStart, a relayed turn or a fresh agent's transcript
+  releases the hold; a timeout that falls back to pasting undoes this. An enabled plugin with no
+  install record counts as wired, because Claude installs it on the first start, the one this exists
+  for, and the project's settings outrank the account's. Do not add more guesses about whether Claude
+  will load a plugin: what kcap cannot see counts as wired, because a wrong hold shows its warning and
+  the terminal, while a wrong paste loses the prompt silently. A follow-up is refused once the hold is overdue rather than parked on it: server input runs
+  on the daemon's one sequential SignalR dispatch, so it would stall every other agent's stop and
+  launch. Codex stays on the output checks, since nothing shows it fires SessionStart ahead of the
+  first input, and if it fires on the first turn a hold deadlocks
 - **The daemon's state directory is owner-only on Windows too, and securing it never blocks a
   boot.** `OwnerOnlyDirectory` gives it a protected DACL (the user and SYSTEM) at every start, so
   what is inside stops inheriting from a relocated `KCAP_DAEMONS_DIR`. A failure warns and boots:

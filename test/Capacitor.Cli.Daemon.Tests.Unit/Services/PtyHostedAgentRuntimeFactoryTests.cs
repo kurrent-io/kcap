@@ -1,11 +1,14 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Commands;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Daemon.Harness.Claude;
+using Capacitor.Cli.Daemon.Harness.Codex;
 using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
@@ -217,6 +220,13 @@ public class PtyHostedAgentRuntimeFactoryTests {
 
     static readonly string LongPrompt = new('d', CommandLinePrompt.ArgumentBudget + 1);
 
+    /// A kcap plugin enabled and not yet installed, as on a machine that has never started Claude.
+    void WireKcapPlugin() {
+        var settings = TestHarnesses.Under(Home).Of<ClaudeHarness>().Paths.UserSettings;
+        Directory.CreateDirectory(Path.GetDirectoryName(settings)!);
+        File.WriteAllText(settings, """{ "enabledPlugins": { "kcap@kcap": true } }""");
+    }
+
     (PtyHostedAgentRuntimeFactory Factory, SpyPtyProcessFactory Pty, RecordingScriptedPtyProcess Process) NewPasteFactory() {
         var config   = new DaemonConfig { ClaudePath = "claude", ServerUrl = "", CapacitorPath = "kcap" };
         var launcher = new ClaudeLauncher(config, TestHarnesses.Under(Home), NullLogger<ClaudeLauncher>.Instance);
@@ -302,6 +312,7 @@ public class PtyHostedAgentRuntimeFactoryTests {
     /// relayed, and the daemon log shows both the paste and the confirmation.</summary>
     [Test]
     public async Task A_launch_whose_hooks_reach_the_daemon_logs_its_prompt_confirmed() {
+        WireKcapPlugin();
         var config   = new DaemonConfig { ClaudePath = "claude", ServerUrl = "", CapacitorPath = "kcap" };
         var launcher = new ClaudeLauncher(config, TestHarnesses.Under(Home), NullLogger<ClaudeLauncher>.Instance);
         var process  = new RecordingScriptedPtyProcess();
@@ -314,6 +325,7 @@ public class PtyHostedAgentRuntimeFactoryTests {
         try {
             _ = PumpAsync(start.Runtime);
             process.Emit("\x1b[?2004hwelcome banner");
+            start.Runtime.NoteSessionStarted();
             await WaitForWritesAsync(process, 2);
             start.Runtime.NoteTurnRelayed();
 
@@ -334,6 +346,7 @@ public class PtyHostedAgentRuntimeFactoryTests {
     /// waiting for one would only send a stray Enter and a false warning.</summary>
     [Test]
     public async Task A_private_launch_does_not_wait_to_see_its_prompt_arrive() {
+        WireKcapPlugin();
         var (factory, _, process) = NewPasteFactory();
         var start = await factory.StartAsync(
             BuildClaudeLaunchContext(null) with { IsPrivate = true, DaemonBridgeUrl = "http://127.0.0.1:9" }, CancellationToken.None);
@@ -350,6 +363,123 @@ public class PtyHostedAgentRuntimeFactoryTests {
             process.Exit();
             await start.Runtime.DisposeAsync();
         }
+    }
+
+    /// <summary>A machine signed in but never started: the plugin is enabled with no install record
+    /// yet, and a first-run screen sits where the composer will be.</summary>
+    [Test]
+    public async Task A_claude_launch_with_hooks_holds_its_prompt_for_session_start() {
+        WireKcapPlugin();
+        var (factory, _, process) = NewPasteFactory();
+        var start = await factory.StartAsync(
+            BuildClaudeLaunchContext(null) with { DaemonBridgeUrl = "http://127.0.0.1:9" }, CancellationToken.None);
+
+        try {
+            _ = PumpAsync(start.Runtime);
+            process.Emit("\x1b[?2004hfirst-run screen");
+            await Task.Delay(PtyHostedAgentRuntime.LaunchPromptQuietWindow * 2);
+
+            await Assert.That(process.Writes).IsEmpty();
+
+            start.Runtime.NoteSessionStarted();
+            await WaitForWritesAsync(process, 2);
+
+            await Assert.That(process.Writes.Count).IsEqualTo(2);
+        } finally {
+            process.Exit();
+            await start.Runtime.DisposeAsync();
+        }
+    }
+
+    /// <summary>A project-scoped install lives in the repository's settings.local.json, which the
+    /// launch copies into the worktree, so the account's own settings say nothing about it.</summary>
+    [Test]
+    public async Task A_claude_launch_with_a_project_scoped_plugin_holds_its_prompt_for_session_start() {
+        var (factory, _, process) = NewPasteFactory();
+        var ctx = BuildClaudeLaunchContext(null) with { DaemonBridgeUrl = "http://127.0.0.1:9" };
+        Tmp.CreateFile("repo/.claude/settings.local.json", """{ "enabledPlugins": { "kcap@kcap": true } }""");
+
+        var start = await factory.StartAsync(ctx, CancellationToken.None);
+
+        try {
+            _ = PumpAsync(start.Runtime);
+            process.Emit("\x1b[?2004hfirst-run screen");
+            await Task.Delay(PtyHostedAgentRuntime.LaunchPromptQuietWindow * 2);
+
+            await Assert.That(process.Writes).IsEmpty();
+        } finally {
+            process.Exit();
+            await start.Runtime.DisposeAsync();
+        }
+    }
+
+    /// <summary>With no plugin no hook ever fires, whatever the bridge says: a hold would strand the
+    /// prompt and a retry Enter would land on whatever is on screen.</summary>
+    [Test]
+    public async Task A_claude_launch_without_the_plugin_stays_on_the_output_checks_and_sends_no_retry() {
+        var (factory, _, process) = NewPasteFactory();
+        var start = await factory.StartAsync(
+            BuildClaudeLaunchContext(null) with { DaemonBridgeUrl = "http://127.0.0.1:9" }, CancellationToken.None);
+
+        try {
+            _ = PumpAsync(start.Runtime);
+            process.Emit("\x1b[?2004hwelcome banner");
+
+            var outcome = await start.Runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(10));
+
+            await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.Delivered);
+            await Assert.That(process.Writes.Count).IsEqualTo(2);
+        } finally {
+            process.Exit();
+            await start.Runtime.DisposeAsync();
+        }
+    }
+
+    /// <summary>Nothing shows Codex fires SessionStart ahead of the first input. If it fires on the
+    /// first turn, a hold would wait for a hook that waits for the paste, so this stays off until
+    /// someone proves otherwise.</summary>
+    [Test]
+    public async Task Only_claude_holds_its_prompt_for_session_start() {
+        var config = new DaemonConfig { ClaudePath = "claude", CodexPath = "codex", ServerUrl = "", CapacitorPath = "kcap" };
+        IHostedAgentLauncher claude = new ClaudeLauncher(config, TestHarnesses.Under(Home), NullLogger<ClaudeLauncher>.Instance);
+        IHostedAgentLauncher codex  = new CodexLauncher(config, TestHarnesses.Under(Home), NullLogger<CodexLauncher>.Instance);
+
+        await Assert.That(claude.SessionStartMeansComposerUp).IsTrue();
+        await Assert.That(codex.SessionStartMeansComposerUp).IsFalse();
+    }
+
+    /// <summary>A hold has no time limit, so the daemon log has to say why an agent sits idle.</summary>
+    [Test]
+    public async Task A_launch_prompt_held_too_long_is_logged() {
+        WireKcapPlugin();
+        var time     = new FakeTimeProvider();
+        var config   = new DaemonConfig { ClaudePath = "claude", ServerUrl = "", CapacitorPath = "kcap" };
+        var launcher = new ClaudeLauncher(config, TestHarnesses.Under(Home), NullLogger<ClaudeLauncher>.Instance);
+        var process  = new RecordingScriptedPtyProcess();
+        var logger   = new CapturingLogger<PtyHostedAgentRuntimeFactory>();
+        var factory  = new PtyHostedAgentRuntimeFactory(launcher, new SpyPtyProcessFactory(process), logger, time, Home);
+
+        var start = await factory.StartAsync(
+            BuildClaudeLaunchContext(null) with { DaemonBridgeUrl = "http://127.0.0.1:9" }, CancellationToken.None);
+
+        try {
+            for (var i = 0; i < 100 && !start.Runtime.LaunchPromptUnconfirmed; i++) {
+                time.Advance(TimeSpan.FromMilliseconds(250));
+                await Task.Delay(10);
+            }
+
+            await WaitUntilAsync(() => WarningLines(logger).Length >= 1);
+
+            await Assert.That(WarningLines(logger).Single()).Contains("SessionStart");
+            await Assert.That(process.Writes).IsEmpty();
+        } finally {
+            process.Exit();
+            await start.Runtime.DisposeAsync();
+        }
+    }
+
+    static string[] WarningLines(CapturingLogger<PtyHostedAgentRuntimeFactory> logger) {
+        lock (logger.Entries) return [.. logger.Entries.Where(e => e.Level == LogLevel.Warning).Select(e => e.Message)];
     }
 
     static string[] InformationLines(CapturingLogger<PtyHostedAgentRuntimeFactory> logger) {

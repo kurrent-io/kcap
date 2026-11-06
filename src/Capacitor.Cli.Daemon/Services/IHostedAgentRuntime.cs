@@ -66,6 +66,9 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// causes.</summary>
     void NoteTurnRelayed() { }
 
+    /// <summary>The agent's SessionStart hook ran, so a launch prompt held for it can go.</summary>
+    void NoteSessionStarted() { }
+
     /// <summary>Sends one more submit Enter for input already in a terminal composer. False when nothing
     /// was written: no composer, a dialog that would take the Enter, a stop, the agent gone, or
     /// <paramref name="isCurrent"/> false once the input lane is held, because a newer input owns the
@@ -75,8 +78,13 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// <summary>The launch prompt pasted after spawn, or null when nothing is pasted.</summary>
     Task<LaunchPromptOutcome>? LaunchPromptDelivery => null;
 
-    /// <summary>The launch prompt was not seen to arrive, and no turn has been relayed since.</summary>
+    /// <summary>The launch prompt was not seen to arrive, or is still held for SessionStart past the
+    /// time a start should take, and no turn has been relayed since.</summary>
     bool LaunchPromptUnconfirmed => false;
+
+    /// <summary>Completes when a launch prompt held for SessionStart has waited past the time a start
+    /// should take. Null for a prompt that is not held.</summary>
+    Task? LaunchPromptOverdue => null;
 
     /// <summary>
     /// Terminal byte stream consumed by the orchestrator read loop. PTY runtimes yield real

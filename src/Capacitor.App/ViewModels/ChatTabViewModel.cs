@@ -233,6 +233,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// the empty chat's note points there, unless the terminal-menu card already does.
     public bool ShowsTerminalOffer => ShowTerminal is not null && PhaseNote.Length > 0 && !_ended && !ShowsTerminalMenu;
 
+    /// The empty-chat offer sits over the messages, so a chat with history has this one beside the
+    /// activity row's warning instead.
+    public bool ShowsActivityTerminalOffer => ShowTerminal is not null && LaunchPromptUnsent && !ShowsTerminalMenu;
+
+    bool LaunchPromptUnsent => _launchPromptUnconfirmed && !_ended && _items.Count > 0;
+
     void RaisePhaseNote() {
         this.RaisePropertyChanged(nameof(PhaseNote));
         this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
@@ -370,6 +376,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         private set {
             this.RaiseAndSetIfChanged(ref _showsTerminalMenu, value);
             this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
+            this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
         }
     }
 
@@ -574,14 +581,19 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             _worked += _time.GetElapsedTime(pausedAt);
             _workingSince = null;
         }
+        // History hides the empty-chat note, so a launch prompt that has not gone says so here.
+        var unsent = LaunchPromptUnsent;
         ActivityNote = _failureNote is { } failure && Phase != ChatTabPhase.Failed
             ? FailureNote(failure)
-            : _status == "Starting"
-                ? VendorLabel.Length > 0 ? $"Starting {VendorLabel}…" : "Starting…"
-                : working && _workingSince is { } since
-                    ? WorkingNote(_worked + _time.GetElapsedTime(since)) : "";
-        ShowsActivityNote = _failureNote is not null && Phase != ChatTabPhase.Failed && ActivityNote.Length > 0;
+            : unsent
+                ? LaunchPromptUnconfirmedNote
+                : _status == "Starting"
+                    ? VendorLabel.Length > 0 ? $"Starting {VendorLabel}…" : "Starting…"
+                    : working && _workingSince is { } since
+                        ? WorkingNote(_worked + _time.GetElapsedTime(since)) : "";
+        ShowsActivityNote = (unsent || (_failureNote is not null && Phase != ChatTabPhase.Failed)) && ActivityNote.Length > 0;
         ShowsLiveNote = !ShowsActivityNote && ActivityNote.Length > 0;
+        this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
         RefreshAgentStatus();
         RefreshQueuedSend();
     }
@@ -799,6 +811,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             if (empty == (_items.Count == 0)) return;
             empty = _items.Count == 0;
             RaisePhaseNote();
+            RefreshActivityNote();
         };
         ShowTerminalCommand = ReactiveCommand.Create(() => ShowTerminal?.Invoke());
         _disposables.Add(ShowTerminalCommand);
@@ -1129,6 +1142,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         if (_launchPromptUnconfirmed != (info.LaunchPromptUnconfirmed == true)) {
             _launchPromptUnconfirmed = info.LaunchPromptUnconfirmed == true;
             RaisePhaseNote();
+            RefreshActivityNote();
         }
         _waitsOnUser = info.WaitsOnUser;
         if (info.Ended)
