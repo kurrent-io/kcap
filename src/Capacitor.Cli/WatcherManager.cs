@@ -55,8 +55,8 @@ public sealed partial class WatcherManager(
     /// <summary>
     /// Removes every leftover per-key auxiliary file (<c>*.heartbeat</c>/<c>*.started</c>/
     /// <c>*.spawnlock</c>) in the watcher directory. Called by <c>kcap cleanup</c> after all
-    /// watchers are killed. A spawn lock goes only if it can be taken, since a daemon holds these
-    /// while cleanup runs; a held one waits for the next cleanup. Returns the number of files removed.
+    /// watchers are killed. A spawn lock goes only if it can be taken, since another process can hold
+    /// one while cleanup runs; a held one waits for the next cleanup. Returns the number of files removed.
     /// </summary>
     public int PurgeAuxiliaryFiles() {
         var dir = paths.Directory;

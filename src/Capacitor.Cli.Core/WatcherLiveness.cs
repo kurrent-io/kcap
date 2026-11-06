@@ -3,9 +3,8 @@ using System.Diagnostics;
 namespace Capacitor.Cli.Core;
 
 /// <summary>
-/// Whether a watcher holds a key, and the per-key spawn lock that makes acting on the answer safe. Everything that
-/// starts a recorder for a key looks here, in whichever process it runs: a hook through <c>WatcherManager</c>, and a
-/// daemon taking a claim, which holds this lock with the live-watcher check inside it as a hook's spawn does.
+/// Whether a watcher holds a key, and the per-key spawn lock that makes acting on the answer safe: whichever process
+/// starts a recorder for a key holds the lock with the live-watcher check inside it.
 /// </summary>
 public sealed class WatcherLiveness(WatcherPaths paths, TimeProvider time) {
     public bool PidAlive(string key) => PidAlive(paths, key);

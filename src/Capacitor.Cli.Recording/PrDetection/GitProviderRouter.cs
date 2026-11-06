@@ -12,7 +12,7 @@ internal enum GitProviderKind { GitHub, GitLab, Unknown }
 ///
 /// <para>Injected, never constructed at a call site: one per process is what makes remembering
 /// worth anything. A recorder re-detects every 60s for as long as it runs, so a custom host would
-/// otherwise pay for that probe on every refresh. A daemon runs for weeks, so an answer expires, and
+/// otherwise pay for that probe on every refresh. A process can run for weeks, so an answer expires, and
 /// a probe that failed says nothing about the host, so its GitLab is a guess kept for a few refreshes.</para>
 ///
 /// <para>Public because <c>kcap</c> injects it across the assembly boundary; everything it does

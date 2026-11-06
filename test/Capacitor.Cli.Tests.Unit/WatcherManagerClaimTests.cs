@@ -325,8 +325,8 @@ public class WatcherManagerClaimTests : IDisposable {
         await Assert.That(File.Exists(Paths.PidFile(Key))).IsTrue();
     }
 
-    /// <summary>A daemon takes these locks while cleanup runs. Unlinking a held one hands the next taker a fresh inode
-    /// that conflicts with nothing, and both go on to start a recorder.</summary>
+    /// <summary>Another process can hold these while cleanup runs. Unlinking a held one hands the next taker a fresh
+    /// inode that conflicts with nothing, and both go on to start a recorder.</summary>
     [Test]
     public async Task Cleanup_leaves_a_spawn_lock_someone_holds() {
         using (new FileStream(Paths.SpawnLockFile(Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None)) {

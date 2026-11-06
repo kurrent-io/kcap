@@ -4,8 +4,8 @@ using Capacitor.Cli.Recording.PrDetection;
 namespace Capacitor.Cli.Recording;
 
 /// <summary>
-/// Whether kcap's git hook files a session's commits. The host says what only it can know: which process's claim
-/// names the session, and the command its install wrote, which a daemon can't read off its own binary.
+/// Whether kcap's git hook files a session's commits. The host says what only it can know: whether the session is
+/// claimed, and the command the hook has to name, which a process other than kcap can't read off its own binary.
 /// </summary>
 public static class GitHookProbe {
     public const string Name = "kcap";
