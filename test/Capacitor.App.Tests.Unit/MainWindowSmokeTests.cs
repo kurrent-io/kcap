@@ -1039,6 +1039,32 @@ public class MainWindowSmokeTests {
         });
     }
 
+    /// The row template reaches the rail's filter through the view, and the title keeps its whole
+    /// text in Text while the match renders as its own run.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Title_filter_highlights_the_match_in_the_rows_it_keeps() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var seen = await AvaloniaSession.DispatchAsync(() => {
+                var (vm, window) = RailWindow();
+                vm.Rail!.TitleFilter = "FLAKY";
+                Dispatcher.UIThread.RunJobs();
+
+                var title = RailRow(window, "Fix the flaky test").GetVisualDescendants().OfType<TextBlock>()
+                    .First(t => t.Classes.Contains("rowTitle"));
+                var runs = title.Inlines?.OfType<Run>().Select(r => (r.Text, r.FontWeight)).ToArray() ?? [];
+                var siblingShown = window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Leave this one alone");
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+                return (runs, siblingShown);
+            });
+            await Assert.That(seen.runs).IsEquivalentTo(new (string?, FontWeight)[] {
+                ("Fix the ", FontWeight.Normal), ("flaky", FontWeight.SemiBold), (" test", FontWeight.Normal)
+            });
+            await Assert.That(seen.siblingShown).IsFalse();
+        });
+    }
+
     /// A selected row must read as selected next to a hovered one: hover paints the raised surface
     /// brush, so the selection needs its own background and a heavier title, not a leading edge
     /// that would inset that row past its siblings.

@@ -523,7 +523,8 @@
                                                                     </StackPanel>
                                                                 </ToolTip.Tip>
                                                                 <StackPanel Spacing="3">
-                                                                    <TextBlock Text="{Binding Primary}" FontSize="14.5" LineHeight="20"
+                                                                    <TextBlock views:TitleMatchText.Text="{Binding Primary}" FontSize="14.5" LineHeight="20"
+                                                                               views:TitleMatchText.Filter="{Binding $parent[views:SessionRailView].((vm:MainWindowViewModel)DataContext).Rail.TitleFilter, FallbackValue={x:Null}}"
                                                                                Classes="rowTitle" IsVisible="{Binding HasTitle}"
                                                                                Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
                                                                     <!-- Reserve the measured PR link width so machine and age never paint beneath its hit target. -->
