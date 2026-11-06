@@ -162,7 +162,8 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Files:**
 - Create: `src/Capacitor.Cli.Recording/Capacitor.Cli.Recording.csproj`, `test/Capacitor.Cli.Recording.Tests.Unit/`
-- Move: `src/Capacitor.Cli/Capture/*` to `src/Capacitor.Cli.Recording/Capture/`, `src/Capacitor.Cli/Commands/TranscriptBatchBuffer.cs` to `src/Capacitor.Cli.Recording/`, with their tests
+- Move: `src/Capacitor.Cli/Capture/*` to `src/Capacitor.Cli.Recording/Capture/`, and `src/Capacitor.Cli/Commands/TranscriptBatchBuffer.cs`, `src/Capacitor.Cli/SecretRedactor.cs` and `src/Capacitor.Cli/SecretPatterns.cs` to `src/Capacitor.Cli.Recording/`, with their tests. `Capture` and the redactor depend on each other, so they move together
+- Move: the shared part of `test/Capacitor.Cli.Tests.Unit/WatcherPatternWarmup.cs` to `test/Capacitor.Tests.Helpers/`, because both test assemblies redact and each needs its own `[Before(Assembly)]` hook
 - Modify: `src/Capacitor.Cli/Capacitor.Cli.csproj`, `Capacitor.slnx`
 
 **Interfaces:**
