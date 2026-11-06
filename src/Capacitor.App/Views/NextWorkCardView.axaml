@@ -62,11 +62,11 @@
                 <Button x:Name="CardStart" Classes="kcapGhost nwbIconAction" Command="{Binding StartCommand}" IsVisible="{Binding CanWorkOn}"
                         ToolTip.Tip="Start an agent on this now, on this machine"
                         AutomationProperties.Name="{Binding Label, StringFormat='Start an agent on: {0}'}">
-                    <views:AppIcon Kind="Play" Size="14" />
+                    <views:AppIcon Kind="Play" Size="16" />
                 </Button>
                 <Button x:Name="CardMore" Classes="kcapGhost nwbIconAction" ToolTip.Tip="More"
                         AutomationProperties.Name="{Binding Label, StringFormat='More actions for {0}'}">
-                    <views:AppIcon Kind="Ellipsis" Size="14" />
+                    <views:AppIcon Kind="Ellipsis" Size="16" />
                     <Button.Flyout>
                         <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
                             <StackPanel Spacing="2" Margin="6" MinWidth="190">

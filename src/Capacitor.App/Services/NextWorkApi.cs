@@ -8,7 +8,8 @@ using Capacitor.Remote.Models;
 
 namespace Capacitor.App.Services;
 
-/// Each call leases its client, so a token the hub refreshed is what HTTP sends too.
+/// Each call leases its client, so a token the hub refreshed is what HTTP sends too. The protected-read lane refuses
+/// redirects: the prompt a prepare returns is sent to an agent, so no hop may substitute another origin's.
 public sealed class NextWorkApi(ICapacitorHttpClient? http, ProfileContext? profiles) : INextWorkApi {
     static RemoteModelsJsonContext Json => RemoteModelsJsonContext.Default;
 
@@ -55,7 +56,7 @@ public sealed class NextWorkApi(ICapacitorHttpClient? http, ProfileContext? prof
             CancellationToken ct) where T : class {
         if (http is null || string.IsNullOrEmpty(profiles?.Resolution.ServerUrl)) return NextWorkRead<T>.SignedOut;
         try {
-            var (client, status, _, _) = await http.ForWaitAsync(ct).ConfigureAwait(false);
+            var (client, status, _, _) = await http.ForProtectedReadAsync(ct).ConfigureAwait(false);
             using (client) {
                 if (status is not (AuthStatus.Ok or AuthStatus.NoAuthRequired)) return NextWorkRead<T>.SignedOut;
                 using var response = await send(client).ConfigureAwait(false);
