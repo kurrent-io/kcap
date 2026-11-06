@@ -20,7 +20,6 @@ using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.RepoEvidence;
-using Capacitor.Cli.Harness.Antigravity;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Gemini;
@@ -45,10 +44,9 @@ class WatchCommand(
 
     // RunWatch sets these once: a WatchCommand hosts one recorder, and what its housekeeping keeps
     // between ticks lives here until that recorder is done.
-    RecordingSource _source      = null!;
-    Action          _beat        = null!;
-    Action          _stop        = null!;
-    Action          _onConnected = null!;
+    RecordingSource _source = null!;
+    Action          _beat   = null!;
+    IRecorderHost   _host   = null!;
     bool            _skipTitle;
     int?            _parentPid;
 
@@ -334,12 +332,13 @@ class WatchCommand(
         var wedgedCeilingExit = 0;
         // set when Kiro Crew is finished with a session its still-running kiro-cli process hosts.
         var crewFinished = 0;
+        var armDeadParentOnConnect = false;
 
         _source    = new RecordingSource(sessionId, agentId, transcriptPath, vendor, cwd);
         _skipTitle = skipTitle;
         _parentPid = parentPid;
         _beat      = TouchHeartbeat;
-        _stop      = cts.Cancel;
+        _host      = new WatchRecorderHost(config, profiles, harnesses, http, watchers, time, ArmProcessWatches, cts.Cancel);
 
         var hubConnection = BuildHubConnection($"{Url}/hubs/sessions");
         var transport     = new HubRecorderTransport(hubConnection, _source.Key, TouchHeartbeat, message => Log(time, message), time);
@@ -421,8 +420,6 @@ class WatchCommand(
             }, cts.Token);
         }
 
-        var armDeadParentOnConnect = false;
-
         switch (DecideParentWatchdog(parentPid, ProcessHelpers.IsProcessAlive)) {
             case ParentWatchdog.NoParentPid:
                 Log(time, "No parent pid supplied; parent-exit watchdog disabled (session-end relies on the agent's own hook)");
@@ -492,7 +489,7 @@ class WatchCommand(
 
         // A recorder connects inside RunAsync, and these are armed only once it has: a cancel before then
         // skips the final drain and end post.
-        _onConnected = () => {
+        void ArmProcessWatches() {
             if (armDeadParentOnConnect) ArmParentMonitor(parentPid!.Value);
 
             // Crew keeps one kiro-cli process for a whole chat and its in-process sub-agents, so the
@@ -521,7 +518,7 @@ class WatchCommand(
                     }
                 }, cts.Token);
             }
-        };
+        }
 
         hubConnection.Reconnecting += ex => {
             Log(time, $"SignalR reconnecting: {ex?.Message}");
@@ -665,7 +662,7 @@ class WatchCommand(
             state.LastRepoDetection = time.GetUtcNow();
         }
 
-        state.Commits           = await GitHook.ObservationAsync(config, sessionId, agentId, cwd, time);
+        state.Commits           = await _host.ObserveCommitsAsync(sessionId, agentId, cwd);
         state.LastCoverageCheck = time.GetUtcNow();
 
         if (vendor == "claude" && agentId is null) {
@@ -695,7 +692,7 @@ class WatchCommand(
         }
     }
 
-    public void OnConnected() => _onConnected();
+    public void OnConnected() => _host.ArmProcessWatches();
 
     // Vibe replaces journal segments as it publishes, so a refresh can race a file away; the next drain
     // retries it.
@@ -723,7 +720,7 @@ class WatchCommand(
         }
 
         if (state.Commits is not CommitObservation.Uncovered && time.GetUtcNow() - state.LastCoverageCheck > TimeSpan.FromSeconds(60)) {
-            state.Commits           = state.Commits.Rechecked(await GitHook.CoversAsync(config, sessionId, cwd, time));
+            state.Commits           = state.Commits.Rechecked(await _host.CoversCommitsAsync(sessionId, cwd));
             state.LastCoverageCheck = time.GetUtcNow();
         }
 
@@ -793,7 +790,7 @@ class WatchCommand(
             if (ClaimHandedMuseEnd(sessionId) is { } handed) {
                 Log(time, "Muse SessionEnd hook handed its session-end to this watcher; draining and posting it");
                 _museEndRequest = handed;
-                _stop();
+                _host.StopRun();
             }
         }
 
@@ -843,12 +840,12 @@ class WatchCommand(
     }
 
     public IReadOnlyList<(long Idx, string Line)> ReadAntigravityUsage(string dbPath, long afterIdx, string? createdAt) =>
-        AntigravityGenMetadataDb.ReadUsageLines(dbPath, afterIdx, createdAt);
+        _host.ReadAntigravityUsage(dbPath, afterIdx, createdAt);
 
     public Task<ClaudeCliResult?> GenerateTitleAsync(string userText, string? assistantText, CancellationToken ct) =>
         TitleGeneration.GenerateAsync(userText, assistantText, time, m => Log(time, m), profiles.Resolution.Profile, harnesses, _source.Vendor, ct);
 
-    public void HandOffTitle(string transcriptPath) => watchers.SpawnTitleGenerator(_source.SessionId, _source.Vendor, transcriptPath);
+    public void HandOffTitle(string transcriptPath) => _host.HandOffTitle(_source.SessionId, _source.Vendor, transcriptPath);
 
     /// <summary>
     /// Gemini fires no subagent hooks, so the parent watcher discovers nested subagent
