@@ -1787,6 +1787,13 @@ public class ChatTabViewModelTests {
         public override string Hint => "scripted";
         public override bool CanAttach => CanAttachValue;
         public override string? AttachHint => CanAttachValue ? null : "attachments need the daemon updated";
+        public bool CanResubmitValue;
+        public int Resubmits;
+        public override bool CanResubmit => CanResubmitValue;
+        public override Task<bool> ResubmitAsync(CancellationToken ct) {
+            Resubmits++;
+            return Task.FromResult(true);
+        }
         public override Task<ChatSendOutcome> SendAsync(string text, IReadOnlyList<string> attachmentIds, CancellationToken ct) {
             Sends.Add((text, attachmentIds, ct));
             Pending = new TaskCompletionSource<ChatSendOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2057,6 +2064,63 @@ public class ChatTabViewModelTests {
             await Assert.That(h.Chat.RecallNewer()).IsTrue();
             await Assert.That(h.Chat.ComposerText).IsEqualTo("");
             await Assert.That(h.Chat.RecallNewer()).IsFalse();
+            await h.TeardownAsync();
+        });
+    }
+
+    static async Task TickForAsync(Harness h, TimeSpan span) {
+        for (var waited = TimeSpan.Zero; waited <= span; waited += ChatTabViewModel.PollInterval) await h.TickAsync();
+    }
+
+    /// An idle agent that never echoes a send may have taken its Enter as a newline, as it does for
+    /// a large paste still arriving: Enter is pressed once more, then the row says it was not picked
+    /// up instead of waiting for a confirmation that will not come.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_unechoed_send_to_an_idle_agent_is_resubmitted_once_then_reads_not_picked_up() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
+            await Assert.That(queued.IsNotPickedUp).IsFalse();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(queued.IsNotPickedUp).IsTrue();
+            await Assert.That(queued.PickupNote).IsEqualTo(QueuedChatMessage.NotPickedUpNote);
+            await Assert.That(queued.CanSendNow).IsTrue();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 3);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
+            await h.TeardownAsync();
+        });
+    }
+
+    /// A send made mid-turn waits in the agent's own queue until the turn ends, so the clock runs
+    /// only while the agent is not working.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_queued_behind_a_turn_is_not_resubmitted_while_the_agent_works() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = false });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
+            await Assert.That(input.Resubmits).IsEqualTo(0);
+            await Assert.That(queued.PickupNote).IsEqualTo(QueuedChatMessage.AwaitingPickupNote);
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
             await h.TeardownAsync();
         });
     }

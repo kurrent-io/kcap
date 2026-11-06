@@ -898,6 +898,56 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    const string FollowUpSubmitted = PastedAndSubmitted + "|\x1b[200~and test it\x1b[201~|\r";
+
+    static async Task<(PtyHostedAgentRuntime Runtime, RecordingScriptedPtyProcess Pty)> SubmittedConfirmingFollowUpAsync(FakeTimeProvider time) {
+        var (runtime, pty) = await SubmittedConfirmingLaunchAsync(time);
+        runtime.NoteTurnRelayed();
+        await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var send = runtime.SendUserInputAsync("and test it");
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted);
+        await send;
+
+        return (runtime, pty);
+    }
+
+    /// <summary>A message the agent took no turn for is submitted once more: a large paste can still be
+    /// arriving when the first Enter lands, which then becomes a newline in it.</summary>
+    [Test]
+    public async Task A_message_no_turn_followed_is_submitted_once_more() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait - TimeSpan.FromSeconds(1));
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FollowUpSubmitted);
+
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => pty.Writes.Count >= 5);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FollowUpSubmitted + "|\r");
+
+        runtime.NoteTurnRelayed();
+        var outcome = await runtime.FollowUpConfirmation!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.ConfirmedAfterResubmit);
+        pty.Exit();
+    }
+
+    /// <summary>A key typed at the agent after the message may sit in its composer, and a second Enter
+    /// would submit it, so none follows.</summary>
+    [Test]
+    public async Task A_message_gets_no_second_enter_once_someone_types_at_the_agent() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
+
+        await runtime.SendRawInputAsync("x"u8.ToArray());
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait * 2, () => runtime.FollowUpConfirmation!.IsCompleted);
+        var outcome = await runtime.FollowUpConfirmation!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.NotConfirmed);
+        await Assert.That(pty.Writes.Count(w => w == "\r")).IsEqualTo(2);
+        pty.Exit();
+    }
+
     /// <summary>Holds raw writes until released, so a test can keep the input lane busy.</summary>
     sealed class GatedRawPty : IPtyProcess {
         readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
