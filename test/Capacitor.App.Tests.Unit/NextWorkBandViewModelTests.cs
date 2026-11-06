@@ -47,7 +47,6 @@ public class NextWorkBandViewModelTests {
         await Assert.That(band.MoreCards.Select(c => c.Key)).IsEquivalentTo(["wi:d"]);
         await Assert.That(band.MoreListVisible).IsFalse();
         await Assert.That(band.MoreToggleText).IsEqualTo("More to do (1)");
-        await Assert.That(band.RecentlyDoneText).IsEqualTo("Recently done: 1 PR merged");
         await Assert.That(band.ElsewhereText).IsEqualTo("1 more on the dashboard");
         await Assert.That(band.Cards[1].Meta).IsEqualTo("payments-api · today");
     }
@@ -116,7 +115,7 @@ public class NextWorkBandViewModelTests {
     }
 
     [Test]
-    public async Task Pressing_a_work_item_fills_the_composer_with_the_servers_prompt_in_this_machines_checkout() {
+    public async Task Pressing_a_work_item_fills_its_title_with_the_servers_prompt_as_context_in_this_machines_checkout() {
         var api = Api(Row("wi:a", "work_item", "A-1 Fix it", 2, 1));
         api.Preparation = new(NextWorkReadKind.Ready, Prep(new NextWorkLaunchCheckoutDto("studio", "/srv/p", ["claude"], "u"),
             new NextWorkLaunchCheckoutDto("mbp", "/Users/m/p", ["claude"], "u")));
@@ -127,7 +126,7 @@ public class NextWorkBandViewModelTests {
 
         await card.FillCommand.Execute().ToTask();
 
-        await Assert.That(filled).IsEqualTo(new NextWorkFill("wi:a", "A-1 Fix it", "Work on A-1", "mbp", true, "/Users/m/p"));
+        await Assert.That(filled).IsEqualTo(new NextWorkFill("wi:a", "A-1 Fix it", "A-1 Fix it", "mbp", true, "/Users/m/p", "Work on A-1"));
         await Assert.That(card.IsFilled).IsTrue();
     }
 
@@ -197,7 +196,8 @@ public class NextWorkBandViewModelTests {
 
         await band.Cards.Single().FillCommand.Execute().ToTask();
 
-        await Assert.That(filled!.Goal).IsEqualTo("Close the replay loose end");
+        await Assert.That(filled!.Goal).IsEqualTo("Document the replay window");
+        await Assert.That(filled.Context).IsEqualTo("Close the replay loose end");
         await Assert.That(filled.RepoPath).IsNull();
     }
 

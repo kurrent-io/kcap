@@ -55,7 +55,7 @@
 
     <!-- The top gap sits outside the scroller, so scrolled notices clip short of the toolbar above. -->
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0">
-    <views:LauncherLayoutPanel Margin="24,0,24,24" Gap="20">
+    <views:LauncherLayoutPanel Margin="24,0,24,24" Gap="20" ListMinHeight="200">
         <StackPanel x:Name="LauncherNotices" VerticalAlignment="Top" HorizontalAlignment="Stretch" MaxWidth="680" Spacing="8">
             <Border x:Name="UpdateBanner" Classes="notice" IsVisible="{Binding Notices.ShowUpdate}">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
@@ -259,8 +259,9 @@
                     <Border x:Name="GoalCard" Classes="attachTarget" Background="{StaticResource KcapSurfaceBrush}"
                             BorderThickness="1" CornerRadius="12" Padding="14">
                         <StackPanel Spacing="12">
-                            <!-- The band row whose goal this is: the goal is the prompt the server built for it. -->
+                            <!-- The band row this goal came from; its context, the prompt the server built for it, is added at launch. -->
                             <Border x:Name="NextWorkSourceChip" HorizontalAlignment="Left" CornerRadius="999" Padding="10,3,4,3"
+                                    ToolTip.Tip="{Binding NextWorkSource.Context, FallbackValue={x:Null}, StringFormat='The agent also gets this context from kcap:&#10;&#10;{0}'}"
                                     Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
                                     IsVisible="{Binding NextWorkSource, Converter={x:Static ObjectConverters.IsNotNull}}">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -283,7 +284,7 @@
                                      AutomationProperties.Name="Session goal"
                                      PlaceholderText="What should we build? Type a goal or paste an issue, PR, or work-item URL…"
                                      Background="Transparent" Foreground="{StaticResource KcapTextBrush}"
-                                     BorderThickness="0" MinHeight="72" MaxHeight="220" TextWrapping="Wrap"
+                                     BorderThickness="0" MinHeight="72" MaxHeight="180" TextWrapping="Wrap"
                                      VerticalContentAlignment="Top" AcceptsReturn="True" />
 
                             <!-- Machine before repo, since picking a machine resets the repo to one of its own. Both

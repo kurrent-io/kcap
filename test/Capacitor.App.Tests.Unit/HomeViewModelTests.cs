@@ -82,6 +82,22 @@ public class HomeViewModelTests {
         });
     }
 
+    /// A goal picked up from the next-work list reads as its title in the composer; the agent gets the server's prompt
+    /// under it, and a launch that sends it clears the chip with the goal.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_picked_up_goal_sends_its_context_under_the_goal_and_the_launch_clears_both() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, Tmp.Path, "Recorded context"));
+            await vm.StartCommand.Execute();
+
+            await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\nRecorded context");
+            await Assert.That(vm.Goal).IsEqualTo("");
+            await Assert.That(vm.NextWorkSource).IsNull();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Folder_access_recovery_preserves_the_draft_and_clears_only_after_access() {
