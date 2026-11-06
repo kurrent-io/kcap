@@ -19,7 +19,6 @@ using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Harness.Kiro;
 using Capacitor.Cli.Core.Harness.Muse;
-using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.RepoEvidence;
 using Capacitor.Cli.Harness.Claude;
@@ -28,6 +27,7 @@ using Capacitor.Cli.Harness.Gemini;
 using Capacitor.Cli.Harness.Grok;
 using Capacitor.Cli.Recording.Harness.MistralVibe;
 using Capacitor.Cli.Recording.Harness.Muse;
+using Capacitor.Cli.Recording.Harness.OpenCode;
 using Capacitor.Cli.Harness.OpenCode;
 using Capacitor.Cli.Harness.Titles;
 using Capacitor.Cli.Recording.PrDetection;
@@ -780,7 +780,7 @@ class WatchCommand(
         if (agentId is null && vendor == "gemini") {
             await GeminiSubagentScan.ScanGeminiSubagents(_scans, sessionId, transcriptPath, _seenSubagents, _spawnedChildWatcherKeys, ct);
         } else if (agentId is null && vendor == "opencode") {
-            await ScanOpenCodeSubagents(sessionId, transcriptPath, _seenSubagents, _spawnedChildWatcherKeys, ct);
+            await OpenCodeSubagentScan.ScanOpenCodeSubagents(_scans, sessionId, transcriptPath, _seenSubagents, _spawnedChildWatcherKeys, ct);
         } else if (agentId is null && vendor == "codex") {
             await CodexSubagentScan.ScanCodexSubagents(_scans, sessionId, transcriptPath, _seenSubagents, _codexRuledOutRollouts,
                 _codexRolloutMtimes, _spawnedChildWatcherKeys, ct);
@@ -853,71 +853,6 @@ class WatchCommand(
         TitleGeneration.GenerateAsync(userText, assistantText, time, m => Log(time, m), profiles.Resolution.Profile, harnesses, _source.Vendor, ct);
 
     public void HandOffTitle(string transcriptPath) => _host.HandOffTitle(_source.SessionId, _source.Vendor, transcriptPath);
-
-    /// <summary>
-    /// OpenCode fires no subagent hooks; its subagents live in its SQLite db, so the kcap
-    /// plugin fetches each child session via the SDK and writes its <c>{info,parts}</c> JSONL
-    /// into <c>&lt;cacheDir&gt;/&lt;parentSid&gt;/&lt;childSid&gt;.jsonl</c>. The parent watcher discovers
-    /// those files (mirroring <see cref="GeminiSubagentScan.ScanGeminiSubagents"/>): on first sight it registers
-    /// the subagent (<c>subagent-start</c>, fail-closed) then spawns a detached child watcher
-    /// that streams it with the canonical agentId (= childSid) → <c>AgentSubsession-*</c>, which
-    /// lines up with the agentId the server surfaced from the parent's <c>task</c> tool call.
-    /// Idempotent across ticks via <paramref name="seen"/>; deterministic server-side lifecycle
-    /// ids make re-registration safe.
-    /// </summary>
-    async Task ScanOpenCodeSubagents(
-            string              sessionId,
-            string              transcriptPath,
-            HashSet<string>     seen,
-            ICollection<string> spawnedChildKeys,
-            CancellationToken   ct
-        ) {
-        IReadOnlyList<string> subFiles;
-        try {
-            subFiles = OpenCodeSubagentDiscovery.EnumerateSubagentFiles(transcriptPath);
-        } catch {
-            return; // discovery is best-effort — never break the main drain loop
-        }
-
-        if (subFiles.Count == 0) return;
-
-        foreach (var subFile in subFiles) {
-            if (ct.IsCancellationRequested) return;
-            if (!seen.Add(subFile)) continue; // already registered + spawned
-
-            var childId   = Path.GetFileNameWithoutExtension(subFile);
-            var agentId   = OpenCodeSubagentDiscovery.CanonicalAgentId(childId);
-            var agentType = OpenCodeSubagentDiscovery.ResolveAgentType(subFile);
-
-            // Fail-closed: register the subagent (→ SubagentStarted) before its child watcher
-            // streams content. On POST failure, drop from `seen` so the next tick retries.
-            if (!await PostOpenCodeSubagentStartAsync(sessionId, agentId, agentType, subFile, ct)) {
-                seen.Remove(subFile);
-                continue;
-            }
-
-            await watchers.EnsureWatcherRunning(key: $"{sessionId}-{agentId}", transcriptPath: subFile,
-                agentId: agentId, sessionIdOverride: sessionId, vendor: "opencode");
-            spawnedChildKeys.Add($"{sessionId}-{agentId}");
-
-            Log(time, $"OpenCode subagent {agentId} ({agentType}) registered + child watcher spawned");
-        }
-    }
-
-    async Task<bool> PostOpenCodeSubagentStartAsync(
-        string sessionId, string agentId, string agentType, string subFile, CancellationToken ct
-    ) {
-        try {
-            using var client  = await http.ForBackgroundAsync(ct);
-            var       payload = OpenCodeSubagentDiscovery.BuildStartPayload(sessionId, agentId, agentType, subFile);
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp    = await client.PostWithRetryAsync($"{Url}/hooks/subagent-start", content, time, ct: ct);
-
-            return resp.IsSuccessStatusCode;
-        } catch {
-            return false;
-        }
-    }
 
     /// <summary>
     /// The first probe waits for a root rather than spending its minute on none, since a short session can
