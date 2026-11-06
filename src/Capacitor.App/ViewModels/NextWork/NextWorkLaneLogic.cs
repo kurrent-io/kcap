@@ -166,6 +166,36 @@ public static partial class NextWorkLaneLogic {
             :                            $"{(int)delta.TotalDays}d ago";
     }
 
+    /// <summary>What settled lately, as the web's "Already done" counts it: one bucket per target, the strongest reason
+    /// winning, so a merged PR whose review request was also cleared is one PR merged. A target another arm still
+    /// keeps is not done.</summary>
+    public static IReadOnlyList<string> RecentlyDone(NextWorkSnapshot snapshot) {
+        var kept = snapshot.Candidates.Where(c => c.Kept).Select(c => c.TargetKey).ToHashSet(StringComparer.Ordinal);
+        var buckets = snapshot.Candidates
+            .Where(c => c.Disconfirmed && c.DisconfirmedReason is not null && !kept.Contains(c.TargetKey))
+            .GroupBy(c => c.TargetKey, StringComparer.Ordinal)
+            .Select(g => g.Select(c => DoneBucket(c.DisconfirmedReason)).Min())
+            .ToList();
+
+        int Of(int bucket) => buckets.Count(b => b == bucket);
+        var parts = new List<string>(4);
+        if (Of(0) is var merged and > 0)    parts.Add(Plural(merged, "PR merged", "PRs merged"));
+        if (Of(1) is var settled and > 0)   parts.Add(Plural(settled, "item settled", "items settled"));
+        if (Of(2) is var withdrawn and > 0) parts.Add(Plural(withdrawn, "review request withdrawn", "review requests withdrawn"));
+        if (Of(3) is var ended and > 0)     parts.Add(Plural(ended, "session wrapped up", "sessions wrapped up"));
+        return parts;
+    }
+
+    static int DoneBucket(string? reason) => reason switch {
+        "pr_merged"                                                                                                    => 0,
+        "item_settled" or "subject_settled" or "tracker_state_terminal" or "blocked_item_settled" or "loose_end_closed" => 1,
+        "review_request_withdrawn"                                                                                     => 2,
+        "session_ended"                                                                                                => 3,
+        _                                                                                                              => int.MaxValue,
+    };
+
+    static string Plural(int n, string one, string many) => $"{n} {(n == 1 ? one : many)}";
+
     public static IReadOnlySet<string> NewKeys(IEnumerable<NextWorkRow> rows, IReadOnlySet<string>? previous) =>
         previous is null
             ? FrozenSet<string>.Empty

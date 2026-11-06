@@ -46,7 +46,8 @@ public class NextWorkBandViewModelTests {
         await Assert.That(band.Cards.Select(c => c.Key)).IsEquivalentTo(["pr:1", "wi:a", "wi:b", "wi:c"]);
         await Assert.That(band.MoreCards.Select(c => c.Key)).IsEquivalentTo(["wi:d"]);
         await Assert.That(band.MoreListVisible).IsFalse();
-        await Assert.That(band.MoreToggleText).IsEqualTo("More to do · 1");
+        await Assert.That(band.MoreToggleText).IsEqualTo("More to do (1)");
+        await Assert.That(band.RecentlyDoneText).IsEqualTo("Recently done: 1 PR merged");
         await Assert.That(band.ElsewhereText).IsEqualTo("1 more on the dashboard");
         await Assert.That(band.Cards[1].Meta).IsEqualTo("payments-api · today");
     }
