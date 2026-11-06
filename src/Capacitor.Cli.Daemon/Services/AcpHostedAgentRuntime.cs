@@ -1229,6 +1229,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// whose <c>stopReason</c> never arrives cannot pin <see cref="DisposeAsync"/>.
     /// </summary>
     async Task RunTurnWorkerAsync(CancellationToken ct) {
+        PendingTurn? current = null;
+
         try {
             while (true) {
                 PendingTurn turn;
@@ -1246,6 +1248,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     if (!_pendingTurns.Reader.TryRead(out turn!))
                         continue;
                 }
+
+                current = turn;
 
                 if (Volatile.Read(ref _turnsHeld) is { } turnsHeld) {
                     try {
@@ -1294,6 +1298,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             // normal shutdown — see this method's remarks.
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP: prompt-turn worker ended unexpectedly.");
+        } finally {
+            // Nothing sends a turn once the worker is gone; one already written ignores this.
+            var undelivered = new InvalidOperationException("ACP session ended while this input was pending delivery.");
+            current?.Written?.TrySetException(undelivered);
+            _heldTurn?.Written?.TrySetException(undelivered);
         }
     }
 
@@ -1509,9 +1518,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         return EnqueueTurn(text, acknowledgeWrite: true);
     }
 
-    public Task SendDispatchedInputAsync(string text, Guid dispatchId, bool waitForWrite) {
+    public Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) {
         RequireSessionId();
-        return EnqueueTurn(text, acknowledgeWrite: waitForWrite, dispatchId);
+        return InputAdmission.Of(EnqueueTurn(text, acknowledgeWrite: true, dispatchId));
     }
 
     public async Task WaitForTurnIdleAsync(CancellationToken ct) {

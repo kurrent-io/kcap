@@ -110,11 +110,17 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// <see cref="SendUserInputAsync"/>, carried by the task from this method.</summary>
     Task SendUserInputAndWaitForWriteAsync(string text) => SendUserInputAsync(text);
 
-    /// <summary>Input a server dispatch delivered. A runtime that records the user message it sends stamps
-    /// the dispatch on it, so a viewer of its journal can ask the server who sent the message; the rest
-    /// send it as any other input.</summary>
-    Task SendDispatchedInputAsync(string text, Guid dispatchId, bool waitForWrite) =>
-        waitForWrite ? SendUserInputAndWaitForWriteAsync(text) : SendUserInputAsync(text);
+    /// <summary>Input a server dispatch delivered. Completes once the runtime has taken the input, failing
+    /// with <see cref="InputNotAdmittedException"/> when it will not; the task it yields completes once the
+    /// input is written, and faults if it never will be. Input queued behind an active turn is taken long
+    /// before it is written, and only the write may be acknowledged to the server. A runtime that records
+    /// the user message it sends stamps the dispatch on it, so a viewer of its journal can ask the server
+    /// who sent the message.</summary>
+    async Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) {
+        await SendUserInputAsync(text).ConfigureAwait(false);
+
+        return Task.CompletedTask;
+    }
 
     /// <summary>Wait until any prior structured prompt turn has received its terminal response.
     /// PTY runtimes have no structured turn boundary and use the completed default.</summary>

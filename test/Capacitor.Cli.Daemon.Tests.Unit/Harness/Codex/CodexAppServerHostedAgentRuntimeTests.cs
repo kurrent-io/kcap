@@ -386,9 +386,9 @@ public class CodexAppServerHostedAgentRuntimeTests {
         await runtime.StartAsync(CancellationToken.None).WaitAsync(HangGuard);
         Guid first = Guid.NewGuid(), second = Guid.NewGuid();
 
-        await runtime.SendDispatchedInputAsync("same", first, waitForWrite: false).WaitAsync(HangGuard);
+        await runtime.SendDispatchedInputAsync("same", first).WaitAsync(HangGuard);
         await runtime.SendUserInputAsync("again").WaitAsync(HangGuard);
-        await runtime.SendDispatchedInputAsync("again", second, waitForWrite: false).WaitAsync(HangGuard);
+        await runtime.SendDispatchedInputAsync("again", second).WaitAsync(HangGuard);
         await fake.ReleaseUserMessagesAsync();
 
         var users = new List<AcpEventEnvelope>();

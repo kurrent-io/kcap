@@ -5038,6 +5038,23 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _ = _server.SendInputAckedAsync(dispatchId, cmd.AgentId);
     }
 
+    /// <summary>Not awaited by the delivery path: input queued behind an active turn is written only once
+    /// that turn ends. Until then the dispatch stays in flight, so a resend is ignored rather than typed.</summary>
+    async Task AcknowledgeOnceWrittenAsync(SendInputCommand cmd, string vendor, Task? written) {
+        if (written is not null) {
+            try {
+                await written.ConfigureAwait(false);
+            } catch (Exception ex) {
+                LogSendInputDeliveryFailed(ex, cmd.AgentId, vendor, SendInputDropReason.DeliveryFailed);
+                await ReportInputDroppedAsync(cmd, SendInputDropReason.DeliveryFailed);
+
+                return;
+            }
+        }
+
+        AcknowledgeInput(cmd);
+    }
+
     async Task HandleSendInput(SendInputCommand cmd) {
         if (cmd.DispatchId is { } dispatchId) {
             switch (_dispatchedInputs.Admit(dispatchId, out var dropReason)) {
@@ -5094,7 +5111,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         var outcome = await DeliverInputAsync(agent, text, attachmentIds, dispatchId);
 
-        if (outcome.Kind is InputDeliveryKind.Delivered or InputDeliveryKind.QuitRequested) AcknowledgeInput(cmd);
+        if (outcome.Kind is InputDeliveryKind.QuitRequested) AcknowledgeInput(cmd);
+        if (outcome.Kind is InputDeliveryKind.Delivered) _ = AcknowledgeOnceWrittenAsync(cmd, agent.Runtime.Vendor, outcome.Written);
 
         switch (outcome.Kind) {
             case InputDeliveryKind.QuitRequested:
@@ -5276,12 +5294,14 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 // Sampled before the write: a turn can end while the delivery is still in flight, and
                 // that wait is newer than the one this input answers.
                 var waitGeneration = agent.ActivityClock.WaitGeneration;
+                var written        = Task.CompletedTask;
 
                 try {
                     // PTY runtimes use bracketed paste; ACP runtimes send a structured prompt.
-                    if (dispatchId is { } dispatch)
-                        await agent.Runtime.SendDispatchedInputAsync(message, dispatch, waitForWrite: agent.BorrowedSnapshotSource is not null);
-                    else if (agent.BorrowedSnapshotSource is not null)
+                    if (dispatchId is { } dispatch) {
+                        written = await agent.Runtime.SendDispatchedInputAsync(message, dispatch);
+                        if (agent.BorrowedSnapshotSource is not null) await written;
+                    } else if (agent.BorrowedSnapshotSource is not null)
                         await agent.Runtime.SendUserInputAndWaitForWriteAsync(message);
                     else
                         await agent.Runtime.SendUserInputAsync(message);
@@ -5322,7 +5342,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
                 LogSendInputDelivered(agent.Id, agent.Runtime.Vendor, message.Length);
 
-                return InputDeliveryOutcome.Delivered;
+                return InputDeliveryOutcome.Delivered with { Written = written };
             } catch {
                 batch?.Rollback();
 

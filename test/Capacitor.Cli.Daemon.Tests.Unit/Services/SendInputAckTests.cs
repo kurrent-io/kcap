@@ -14,6 +14,76 @@ public class SendInputAckTests {
 
     static int Typed(RecordingPtyProcess pty, string text) => pty.Writes.Count(w => w.Contains(text, StringComparison.Ordinal));
 
+    static int Count<T>(List<T> list) {
+        lock (list) return list.Count;
+    }
+
+    static async Task Until(Func<bool> condition) {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(10);
+    }
+
+    /// <summary>Delivery returns once the runtime has queued the input, but the acknowledgement waits for
+    /// the write: a daemon that dies with the input still queued must leave the server resending it.</summary>
+    [Test]
+    public async Task An_input_queued_behind_a_turn_is_acknowledged_only_once_written() {
+        var server  = new CaptureServerConnection();
+        var written = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var orch = Build(server);
+        var agent = AgentOrchestratorHarness.SeedAcpAgent(orch, "ack-queued", new FakeAcpRuntime { DispatchedWrite = written });
+        var cmd   = new SendInputCommand(agent.Id, "queued", null, Guid.NewGuid());
+
+        await orch.HandleSendInputForTest(cmd).WaitAsync(TimeSpan.FromSeconds(10));
+        await Task.Delay(50);
+        await Assert.That(Count(server.InputAcks)).IsEqualTo(0);
+
+        written.SetResult();
+        await Until(() => Count(server.InputAcks) > 0);
+
+        await Assert.That(server.InputAcks).IsEquivalentTo([(cmd.DispatchId!.Value, agent.Id)]);
+    }
+
+    [Test]
+    public async Task A_resend_while_the_first_copy_is_queued_is_neither_typed_nor_acknowledged() {
+        var server  = new CaptureServerConnection();
+        var written = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runtime = new FakeAcpRuntime { DispatchedWrite = written };
+        await using var orch = Build(server);
+        var agent = AgentOrchestratorHarness.SeedAcpAgent(orch, "ack-queued-resend", runtime);
+        var cmd   = new SendInputCommand(agent.Id, "queued once", null, Guid.NewGuid());
+
+        await orch.HandleSendInputForTest(cmd);
+        await orch.HandleSendInputForTest(cmd);
+        await Task.Delay(50);
+
+        await Assert.That(Count(runtime.SentInputs)).IsEqualTo(1);
+        await Assert.That(Count(server.InputAcks)).IsEqualTo(0);
+    }
+
+    /// <summary>A queued input the runtime never writes is reported dropped, so a resend is refused rather
+    /// than typed into the runtime that already lost it.</summary>
+    [Test]
+    public async Task A_queued_input_whose_write_fails_is_reported_dropped_and_never_acknowledged() {
+        var server  = new CaptureServerConnection();
+        var written = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runtime = new FakeAcpRuntime { DispatchedWrite = written };
+        await using var orch = Build(server);
+        var agent = AgentOrchestratorHarness.SeedAcpAgent(orch, "ack-queued-fails", runtime);
+        var cmd   = new SendInputCommand(agent.Id, "never written", null, Guid.NewGuid());
+
+        await orch.HandleSendInputForTest(cmd);
+        written.SetException(new InvalidOperationException("session ended while this input was pending delivery"));
+        await Until(() => Count(server.InputRejections) > 0);
+        await orch.HandleSendInputForTest(cmd);
+
+        await Assert.That(server.InputRejections).IsEquivalentTo([
+            (cmd.DispatchId!.Value, agent.Id, AgentOrchestrator.SendInputDropReason.DeliveryFailed),
+            (cmd.DispatchId!.Value, agent.Id, AgentOrchestrator.SendInputDropReason.DeliveryFailed)
+        ]);
+        await Assert.That(Count(runtime.SentInputs)).IsEqualTo(1);
+        await Assert.That(server.InputAcks).IsEmpty();
+    }
+
     [Test]
     public async Task A_delivered_input_is_acknowledged_and_a_resend_is_acknowledged_again_without_typing_it_twice() {
         var server = new CaptureServerConnection();
