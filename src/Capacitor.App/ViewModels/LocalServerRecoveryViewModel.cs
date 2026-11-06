@@ -111,11 +111,12 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
 
         StartCommand = ReactiveCommand.CreateFromTask(async () => { await StartAsync(); },
             this.WhenAnyValue(x => x.IsStarting, x => x.Condition, (starting, condition) => !starting && StartPossible(condition)));
-        this.WhenAnyValue(x => x.Visible, x => x.IsStarting, x => x.Reading, (_, _, _) => Unit.Default)
+        this.WhenAnyValue(x => x.Visible, x => x.IsStarting, x => x.Reading, x => x.Message, (_, _, _, _) => Unit.Default)
             .Subscribe(_ => {
                 this.RaisePropertyChanged(nameof(StartOffered));
                 this.RaisePropertyChanged(nameof(Headline));
                 this.RaisePropertyChanged(nameof(Body));
+                this.RaisePropertyChanged(nameof(Failed));
             })
             .DisposeWith(_disposables);
     }
@@ -200,6 +201,9 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
         get => _message;
         private set => this.RaiseAndSetIfChanged(ref _message, value);
     }
+
+    /// A start that failed, or an installation missing its server's files, which only a reinstall lets run.
+    public bool Failed => Message is not null || Condition == LocalServerCondition.FilesMissing;
 
     public ReactiveCommand<Unit, Unit> StartCommand { get; }
 
