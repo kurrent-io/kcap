@@ -142,7 +142,7 @@ sealed class SecretPatterns {
             return value.Contains('=');
         if (regex == AuthHeaderRegex || regex == JsonKeySecretRegex || regex == YamlStyleSecretRegex)
             return value.Contains(':');
-        if (regex == UrlUserinfoRegex) return value.Contains('@');
+        if (regex == UrlUserinfoRegex) return value.Contains('@') && value.Contains("://", StringComparison.Ordinal);
         if (regex == LabeledSecretRegex) return value.IndexOfAny(' ', '\t') >= 0;
         return true;
     }

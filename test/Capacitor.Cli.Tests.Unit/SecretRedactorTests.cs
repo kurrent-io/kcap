@@ -89,6 +89,10 @@ public class SecretRedactorTests {
     public async Task IsSecretKey_recognises_a_secret_key_and_passes_an_innocuous_one() {
         await Assert.That(SecretRedactor.IsSecretKey("api_key")).IsTrue();
         await Assert.That(SecretRedactor.IsSecretKey("note")).IsFalse();
+        await Assert.That(SecretRedactor.IsSecretKey("DOC_INTEL_KEY")).IsTrue();
+        await Assert.That(SecretRedactor.IsSecretKey("DB_PASS")).IsTrue();
+        await Assert.That(SecretRedactor.IsSecretKey("primary_key")).IsFalse();
+        await Assert.That(SecretRedactor.IsSecretKey("MONKEY_BUSINESS")).IsFalse();
     }
 
     [Test]
@@ -375,6 +379,38 @@ public class SecretRedactorTests {
 
         await Assert.That(result).DoesNotContain(secret);
         await Assert.That(result).Contains("[REDACTED]");
+    }
+
+    [Test]
+    [Arguments("SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiJ9.role", "eyJhbGciOiJIUzI1NiJ9.role")]
+    [Arguments("DOC_INTEL_KEY=0123456789abcdef0123", "0123456789abcdef0123")]
+    [Arguments("REVENUECAT_IOS_KEY=appl_AbCdEf123456", "appl_AbCdEf123456")]
+    [Arguments("VMKEY=vmk-55aa66bb77cc", "vmk-55aa66bb77cc")]
+    [Arguments("DB_PASS=correct-horse-battery", "correct-horse-battery")]
+    [Arguments("ADMINPASS=Adm1nP4ssw0rd", "Adm1nP4ssw0rd")]
+    public async Task RedactsLine_EnvVar_UppercaseNameEndingInKeyOrPass(string kv, string secret) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{kv}}}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).DoesNotContain(secret);
+        await Assert.That(result).Contains("[REDACTED]");
+    }
+
+    [Test]
+    [Arguments("primary_key=user_id")]
+    [Arguments("sort_key=created_at")]
+    [Arguments("ssh_Key=id_ed25519")]
+    public async Task DoesNotRedact_EnvVar_LowercaseOrMixedCaseKeySuffix(string kv) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{kv}}}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).IsEqualTo(line);
     }
 
     [Test]
@@ -733,6 +769,38 @@ public class SecretRedactorTests {
 
         await Assert.That(result).DoesNotContain("ghp_abcdef1234567890ABCDEF");
         await Assert.That(result).Contains("https://alice:[REDACTED]@github.com");
+    }
+
+    [Test]
+    [Arguments("postgresql://postgres.abcdefghijklmnop:s3cr3t-Pw_9@aws-0-eu-west-1.pooler.supabase.com:5432/postgres", "s3cr3t-Pw_9", "postgresql://postgres.abcdefghijklmnop:[REDACTED]@aws-0-eu-west-1.pooler.supabase.com")]
+    [Arguments("DATABASE_URL=postgres://app:hunter2hunter2@db.internal:5432/app", "hunter2hunter2", "postgres://app:[REDACTED]@db.internal")]
+    [Arguments("mysql://root:rootpass123@127.0.0.1/shop", "rootpass123", "mysql://root:[REDACTED]@127.0.0.1")]
+    [Arguments("mongodb+srv://svc:m0ng0Pa55@cluster0.example.net/db", "m0ng0Pa55", "mongodb+srv://svc:[REDACTED]@cluster0.example.net")]
+    [Arguments("rediss://default:r3disPw@cache.example.com:6380", "r3disPw", "rediss://default:[REDACTED]@cache.example.com")]
+    [Arguments("amqps://guest:rabbitPw77@mq.example.com/vhost", "rabbitPw77", "amqps://guest:[REDACTED]@mq.example.com")]
+    public async Task RedactsLine_UrlUserinfo_AnyScheme(string text, string secret, string kept) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{text}}}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).DoesNotContain(secret);
+        await Assert.That(result).Contains(kept);
+    }
+
+    [Test]
+    [Arguments("ssh://git@github.com/org/repo.git")]
+    [Arguments("https://example.com:8080/users/a@b")]
+    [Arguments("reach me at alice:team@example.com")]
+    public async Task DoesNotRedact_UrlWithoutUserinfoPassword(string text) {
+        var line = $$$"""
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{text}}}","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).IsEqualTo(line);
     }
 
     // labeled secrets with no colon separator (e.g. `hcloud:token  <value>`)
