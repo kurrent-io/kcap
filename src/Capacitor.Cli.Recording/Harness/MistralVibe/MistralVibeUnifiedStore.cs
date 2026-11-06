@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 
-namespace Capacitor.Cli.Harness.MistralVibe;
+namespace Capacitor.Cli.Recording.Harness.MistralVibe;
 
 /// <summary>
 /// Reads Mistral Vibe's unified-harness session store — a <c>unified/&lt;session-id&gt;/</c> directory
@@ -23,7 +23,7 @@ namespace Capacitor.Cli.Harness.MistralVibe;
 /// entries are yielded: the projection keys records on the entry id, so an in-progress version
 /// recorded first would shadow the finished one.</para>
 /// </summary>
-internal static class MistralVibeUnifiedStore {
+public static class MistralVibeUnifiedStore {
     static readonly HashSet<string> TranscriptEntryTypes = new(StringComparer.Ordinal) { "message", "reasoning", "effect" };
 
     /// <summary>Whether <paramref name="dir"/> is a unified session directory rather than a legacy

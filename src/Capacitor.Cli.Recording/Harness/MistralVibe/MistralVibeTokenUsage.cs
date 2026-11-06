@@ -1,9 +1,9 @@
 using System.Text.Json;
 
-namespace Capacitor.Cli.Harness.MistralVibe;
+namespace Capacitor.Cli.Recording.Harness.MistralVibe;
 
 /// <summary>Vibe's token counts. Its <c>inputTokens</c> includes the cached ones.</summary>
-internal sealed record MistralVibeTokenUsage(long InputTokens, long OutputTokens, long CachedInputTokens) {
+public sealed record MistralVibeTokenUsage(long InputTokens, long OutputTokens, long CachedInputTokens) {
     public static readonly MistralVibeTokenUsage Zero = new(0, 0, 0);
 
     public bool Exceeds(MistralVibeTokenUsage other) =>

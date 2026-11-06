@@ -1,6 +1,6 @@
-using Capacitor.Cli.Harness.MistralVibe;
+using Capacitor.Cli.Recording.Harness.MistralVibe;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.MistralVibe;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.MistralVibe;
 
 public class MistralVibeUsageStampTests {
     const string User      = """{"type":"message","id":"u","role":"user","content":[{"type":"text","text":"go"}]}""";

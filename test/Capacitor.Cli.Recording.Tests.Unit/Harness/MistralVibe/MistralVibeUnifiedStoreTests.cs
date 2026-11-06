@@ -1,6 +1,6 @@
-using Capacitor.Cli.Harness.MistralVibe;
+using Capacitor.Cli.Recording.Harness.MistralVibe;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.MistralVibe;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.MistralVibe;
 
 public class MistralVibeUnifiedStoreTests {
     [TempDir] public required TempDir Tmp { get; init; }
@@ -203,11 +203,28 @@ public class MistralVibeUnifiedStoreTests {
         await Assert.That(File.ReadAllLines(live).Length).IsEqualTo(1);
 
         File.AppendAllLines(Tmp.PathTo("s/journal/0000000000000002.jsonl"), [Delta(3, Replace("m2", Message("m2", "assistant", "done")))]);
-        MistralVibeLiveTranscript.Refresh(live);
+        MistralVibeLiveTranscript.Refresh(live, []);
 
         var lines = File.ReadAllLines(live);
         await Assert.That(lines.Length).IsEqualTo(2);
         await Assert.That(lines[1]).Contains("done");
+    }
+
+    /// <summary>One process hosts many recorders, so what one has seen of a store can't stop another reading it.</summary>
+    [Test]
+    public async Task Each_recorder_keeps_its_own_record_of_the_store() {
+        var live = Tmp.PathTo("live/s.jsonl");
+        PublishInline("s", Message("m1", "user", "go"));
+        Tmp.CreateFile("s/journal/0000000000000002.jsonl", new[] {
+            Delta(2, Append("""{"type":"effect","id":"effect-s","generationStatus":"completed","detail":{"kind":"subagent","toolName":"subagent.spawn","childSessionId":"child-abc123","input":{"task":"look","agent":"explore"}},"state":{"status":"completed","outputText":""}}""")),
+        });
+        MistralVibeLiveTranscript.Follow(Tmp.PathTo("s"), live, model: null);
+
+        Dictionary<string, (long Size, long Ticks)> mine = [], another = [];
+
+        await Assert.That(MistralVibeLiveTranscript.Refresh(live, mine).Count).IsEqualTo(1);
+        await Assert.That(MistralVibeLiveTranscript.Refresh(live, mine)).IsEmpty();
+        await Assert.That(MistralVibeLiveTranscript.Refresh(live, another).Count).IsEqualTo(1);
     }
 
     [Test]

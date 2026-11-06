@@ -1,9 +1,8 @@
-using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 
-namespace Capacitor.Cli.Harness.MistralVibe;
+namespace Capacitor.Cli.Recording.Harness.MistralVibe;
 
 /// <summary>
 /// The append-only JSONL file the watcher tails for a unified Vibe session. Vibe hands hooks the
@@ -18,13 +17,11 @@ namespace Capacitor.Cli.Harness.MistralVibe;
 /// the session: a resumed session appends to it, so the server's line positions and the last usage
 /// stamp still hold even when Vibe has rewritten its history in between.
 /// </remarks>
-internal static class MistralVibeLiveTranscript {
+public static class MistralVibeLiveTranscript {
     public static string PathFor(ConfigRoot config, string sessionId) =>
         config.Path("mistral-vibe", $"{sessionId}.jsonl");
 
     static string SourceFileFor(string transcriptPath) => transcriptPath + ".source";
-
-    static readonly ConcurrentDictionary<string, (long Size, long Ticks)> LastSynced = new(StringComparer.Ordinal);
 
     /// <summary>Records which store, and which configured model, the copy follows, then syncs it.</summary>
     public static void Follow(string sessionDir, string transcriptPath, string? model) {
@@ -49,16 +46,17 @@ internal static class MistralVibeLiveTranscript {
 
     /// <summary>Brings the copy up to date when its store has changed since the last sync, and
     /// returns the subagents that store has spawned; empty when nothing changed.</summary>
-    public static IReadOnlyList<MistralVibeSubagent> Refresh(string transcriptPath) {
+    /// <param name="lastSynced">What the caller last synced, by transcript. It belongs to one recorder.</param>
+    public static IReadOnlyList<MistralVibeSubagent> Refresh(string transcriptPath, Dictionary<string, (long Size, long Ticks)> lastSynced) {
         if (SourceOf(transcriptPath) is not { } source || !Directory.Exists(source.SessionDir)) return [];
 
         var signature = StoreSignature(source.SessionDir);
-        if (LastSynced.TryGetValue(transcriptPath, out var seen) && seen == signature) return [];
+        if (lastSynced.TryGetValue(transcriptPath, out var seen) && seen == signature) return [];
 
         var session = Sync(source.SessionDir, transcriptPath, source.Model);
         if (session is null) return [];
 
-        LastSynced[transcriptPath] = signature;
+        lastSynced[transcriptPath] = signature;
         return session.Subagents;
     }
 

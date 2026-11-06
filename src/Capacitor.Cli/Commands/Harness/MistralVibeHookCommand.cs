@@ -6,6 +6,7 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.MistralVibe;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.MistralVibe;
+using Capacitor.Cli.Recording.Harness.MistralVibe;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
 

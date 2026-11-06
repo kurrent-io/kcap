@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 
-namespace Capacitor.Cli.Harness.MistralVibe;
+namespace Capacitor.Cli.Recording.Harness.MistralVibe;
 
 /// <summary>
 /// Carries Vibe's token usage onto the transcript. Vibe keeps only a running total for the session,
@@ -10,7 +10,7 @@ namespace Capacitor.Cli.Harness.MistralVibe;
 /// the running total alongside so the next stamp knows where this one left off. Whatever the
 /// cadence of syncs, the stamps add up to Vibe's own total.
 /// </summary>
-internal static class MistralVibeUsageStamp {
+public static class MistralVibeUsageStamp {
     public const string Key = "kcapUsage";
 
     public static IReadOnlyList<string> Apply(

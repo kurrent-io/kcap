@@ -26,7 +26,7 @@ using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Gemini;
 using Capacitor.Cli.Harness.Grok;
-using Capacitor.Cli.Harness.MistralVibe;
+using Capacitor.Cli.Recording.Harness.MistralVibe;
 using Capacitor.Cli.Harness.Muse;
 using Capacitor.Cli.Harness.OpenCode;
 using Capacitor.Cli.Harness.Titles;
@@ -58,6 +58,9 @@ class WatchCommand(
     readonly List<MistralVibeSubagent> _vibeSubagents = [];
     readonly GrokSubagentTracker       _grokSubagents = new();
     readonly MuseChildWatchers         _museChildren  = new();
+
+    // What each refresh last read of a Vibe store, so an unchanged store costs a stat and not a sync.
+    readonly Dictionary<string, (long Size, long Ticks)> _vibeLastSynced = new(StringComparer.Ordinal);
 
     // Gemini fires no subagent hooks, so the parent discovers nested subagent transcripts itself and
     // spawns a child watcher per subagent. Tracks the files already registered and spawned, so each is
@@ -703,7 +706,7 @@ class WatchCommand(
     public void RefreshTranscript(string transcriptPath) {
         if (_source.Vendor != "mistral-vibe") return;
 
-        try { _vibeSubagents.AddRange(MistralVibeLiveTranscript.Refresh(transcriptPath)); }
+        try { _vibeSubagents.AddRange(MistralVibeLiveTranscript.Refresh(transcriptPath, _vibeLastSynced)); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
@@ -784,7 +787,7 @@ class WatchCommand(
         } else if (agentId is null && vendor == "antigravity") {
             await AntigravitySubagentLinks.ScanAntigravitySubagentLinks(_scans, sessionId, drained, state.PostedSubagentLinks, ct);
         } else if (agentId is null && vendor == "mistral-vibe") {
-            await ScanMistralVibeSubagents(sessionId, transcriptPath, _vibeSubagents, _seenSubagents, _spawnedChildWatcherKeys, ct);
+            await MistralVibeSubagentScan.ScanMistralVibeSubagents(_scans, sessionId, transcriptPath, _vibeSubagents, _seenSubagents, _spawnedChildWatcherKeys, ct);
         } else if (agentId is null && vendor == "grok") {
             await GrokSubagentScan.ScanGrokSubagents(_scans, sessionId, transcriptPath, drained, _grokSubagents, _spawnedChildWatcherKeys, ct);
         } else if (agentId is null && vendor == "muse") {
@@ -850,53 +853,6 @@ class WatchCommand(
         TitleGeneration.GenerateAsync(userText, assistantText, time, m => Log(time, m), profiles.Resolution.Profile, harnesses, _source.Vendor, ct);
 
     public void HandOffTitle(string transcriptPath) => _host.HandOffTitle(_source.SessionId, _source.Vendor, transcriptPath);
-
-    /// <summary>
-    /// Vibe fires no hooks for a subagent; the child runs in its own <c>child-&lt;hex&gt;</c> store
-    /// beside the parent's, named only by the parent's <c>subagent.spawn</c> effect. The parent
-    /// watcher registers each one (<c>subagent-start</c>, fail-closed), keeps a copy of its store, and
-    /// spawns a child watcher to stream that copy. A child whose store is not there yet, or whose
-    /// registration failed, is retried on the next tick.
-    /// </summary>
-    async Task ScanMistralVibeSubagents(
-            string                    sessionId,
-            string                    transcriptPath,
-            List<MistralVibeSubagent> found,
-            HashSet<string>           seen,
-            ICollection<string>       spawnedChildKeys,
-            CancellationToken         ct
-        ) {
-        if (found.Count == 0 || MistralVibeLiveTranscript.SourceOf(transcriptPath) is not { } source) return;
-        if (Path.GetDirectoryName(source.SessionDir) is not { } storeRoot) return;
-
-        // Every refresh re-reports each spawn the store holds, so one child arrives many times.
-        var pending = found.DistinctBy(s => s.ChildSessionId, StringComparer.Ordinal).ToList();
-        found.Clear();
-
-        foreach (var subagent in pending) {
-            if (ct.IsCancellationRequested) return;
-            if (subagent.AgentId is not { } agentId || seen.Contains(agentId)) continue;
-
-            var childDir = Path.Combine(storeRoot, subagent.ChildSessionId);
-            if (!Directory.Exists(childDir)) { found.Add(subagent); continue; }
-
-            var key       = $"{sessionId}-{agentId}";
-            var childCopy = MistralVibeLiveTranscript.PathFor(config, key);
-            MistralVibeLiveTranscript.Follow(childDir, childCopy, source.Model);
-
-            if (!await _scans.PostSubagentStartAsync(sessionId, agentId, subagent.AgentType ?? "subagent", childCopy, ct)) {
-                found.Add(subagent);
-                continue;
-            }
-
-            seen.Add(agentId);
-            await watchers.EnsureWatcherRunning(key: key, transcriptPath: childCopy,
-                agentId: agentId, sessionIdOverride: sessionId, vendor: "mistral-vibe");
-            spawnedChildKeys.Add(key);
-
-            Log(time, $"Mistral Vibe subagent {agentId} registered + child watcher spawned");
-        }
-    }
 
     /// <summary>
     /// A Muse child writes its own <c>subagent/&lt;id&gt;/session.jsonl</c> beside the parent's log; the
