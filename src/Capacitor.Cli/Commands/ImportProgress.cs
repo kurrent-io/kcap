@@ -1,3 +1,4 @@
+using Capacitor.Cli.Recording;
 namespace Capacitor.Cli.Commands;
 
 /// <summary>

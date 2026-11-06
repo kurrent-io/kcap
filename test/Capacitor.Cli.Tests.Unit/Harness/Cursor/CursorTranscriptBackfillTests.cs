@@ -1,9 +1,9 @@
+using Capacitor.Cli.Recording;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Harness.Cursor;
-using Capacitor.Cli.Tests.Unit.Capture;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;

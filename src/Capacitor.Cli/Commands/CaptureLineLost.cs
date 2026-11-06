@@ -1,4 +1,4 @@
-using Capacitor.Cli.Capture;
+using Capacitor.Cli.Recording.Capture;
 
 namespace Capacitor.Cli.Commands;
 

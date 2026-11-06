@@ -1,7 +1,7 @@
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.PrDetection;
-using Capacitor.Cli.Tests.Unit.Capture;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Time.Testing;
 

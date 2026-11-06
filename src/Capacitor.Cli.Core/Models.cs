@@ -13,7 +13,7 @@ using Capacitor.Cli.Core.Telemetry;
 
 namespace Capacitor.Cli.Core;
 
-record TranscriptBatch {
+public record TranscriptBatch {
     [JsonPropertyName("session_id")]
     public required string SessionId { get; init; }
 
@@ -79,7 +79,7 @@ public record RecapEntry(
         DateTimeOffset Timestamp
     );
 
-record RepositoryPayload {
+public record RepositoryPayload {
     [JsonPropertyName("user_name")]
     public string? UserName { get; init; }
 

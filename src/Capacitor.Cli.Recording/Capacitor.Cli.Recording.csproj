@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <IsAotCompatible>true</IsAotCompatible>
+        <IsTrimmable>true</IsTrimmable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="Capacitor.Cli.Recording.Tests.Unit" />
+        <InternalsVisibleTo Include="Capacitor.Cli.Tests.Unit" />
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\Capacitor.Cli.Core\Capacitor.Cli.Core.csproj" />
+        <ProjectReference Include="..\Capacitor.Models.Transcripts\Capacitor.Models.Transcripts.csproj" />
+    </ItemGroup>
+    <ItemGroup>
+        <Using Include="Capacitor.Models.Transcripts" />
+    </ItemGroup>
+</Project>
