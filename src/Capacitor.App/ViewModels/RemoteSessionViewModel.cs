@@ -265,7 +265,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     void RaiseConnectionNotice() {
         this.RaisePropertyChanged(nameof(ConnectionNotice));
         this.RaisePropertyChanged(nameof(HasConnectionNotice));
-        if (Chat is not null) Chat.HasWorkspaceNotice = HasAccessNotice;
+        if (Chat is not null) Chat.WorkspaceNotice = ConnectionNotice;
         if (WorkContext is not null) WorkContext.HasWorkspaceNotice = HasConnectionNotice;
     }
 

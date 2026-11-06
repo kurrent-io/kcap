@@ -222,17 +222,24 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }
     }
 
-    bool _hasWorkspaceNotice;
-    /// The workspace owns connection feedback; do not compete with its banner in empty chat.
-    public bool HasWorkspaceNotice {
-        get => _hasWorkspaceNotice;
+    SessionConnectionPresentation? _workspaceNotice;
+    public SessionConnectionPresentation? WorkspaceNotice {
+        get => _workspaceNotice;
         set {
-            if (_hasWorkspaceNotice == value) return;
-            this.RaiseAndSetIfChanged(ref _hasWorkspaceNotice, value);
+            this.RaiseAndSetIfChanged(ref _workspaceNotice, value);
             RaisePhaseNote();
             this.RaisePropertyChanged(nameof(ComposerHint));
         }
     }
+    public bool HasWorkspaceNotice => WorkspaceNotice is not null;
+    public bool HasMessages => _items.Count > 0;
+    public bool ShowsConnectionBanner => HasWorkspaceNotice && HasMessages;
+    public bool ShowsEmptyState => EmptyState is not null;
+    public SessionConnectionPresentation? EmptyState => HasMessages ? null : WorkspaceNotice ??
+        (PhaseNote.Length == 0 ? null : new SessionConnectionPresentation(PhaseNote,
+            ShowsTerminalOffer ? "The agent may be waiting for input in Terminal." : "",
+            Phase is ChatTabPhase.Waiting or ChatTabPhase.Reading && !_launchPromptUnconfirmed,
+            "Open Terminal", ShowsTerminalOffer ? ShowTerminalCommand : null));
 
     /// A working agent's chat is never empty for long, so an empty one is still waiting, read or not,
     /// until the session ends.
@@ -262,6 +269,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     void RaisePhaseNote() {
         this.RaisePropertyChanged(nameof(PhaseNote));
         this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
+        this.RaisePropertyChanged(nameof(HasWorkspaceNotice));
+        this.RaisePropertyChanged(nameof(HasMessages));
+        this.RaisePropertyChanged(nameof(ShowsConnectionBanner));
+        this.RaisePropertyChanged(nameof(EmptyState));
+        this.RaisePropertyChanged(nameof(ShowsEmptyState));
     }
 
     /// The chips staged for the next prompt. A send clears the ones it carried, never the tray.

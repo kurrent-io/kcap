@@ -61,8 +61,11 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.View.FindControl<WorkContextView>("WorkContextHost")!.IsEffectivelyVisible).IsTrue();
                 await Assert.That(host.Vm.Chat.PhaseNote).IsEmpty();
                 await Assert.That(host.Vm.Chat.ShowsTerminalOffer).IsFalse();
+                var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "Starting session…" && t.IsEffectivelyVisible);
+                await Assert.That(title.TranslatePoint(new Point(0, 0), host.Window)!.Value.Y).IsGreaterThan(180);
+                var action = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Open Terminal"));
+                await Assert.That(action.Classes.Contains("kcapPrimary")).IsTrue();
                 CaptureLoading(host, "session-starting");
-                await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Starting session…")).IsTrue();
             } finally { await host.Vm.TeardownAsync(); }
             return true;
         });
@@ -126,6 +129,8 @@ public class RemoteSessionViewSmokeTests {
                 CaptureLoading(host, "work-context-loading");
                 gate.SetResult(Capacitor.Cli.Core.WorkItems.WorkContextRead.Of(Capacitor.Cli.Core.WorkItems.WorkContextReadKind.Unreachable));
                 await host.SettleUntilAsync(() => host.Vm.WorkContext.ShowsRetry, "context failure");
+                await Assert.That(host.View.GetVisualDescendants().OfType<SessionConnectionNotice>()
+                    .Any(n => n.IsEffectivelyVisible && n.DataContext is SessionConnectionPresentation { Title: "Waiting for chat…" })).IsTrue();
                 CaptureLoading(host, "work-context-failed");
                 source.Enqueue(Capacitor.Cli.Core.WorkItems.WorkContextRead.Of(Capacitor.Cli.Core.WorkItems.WorkContextReadKind.Ready));
                 await host.Vm.WorkContext.RefreshCommand.Execute();

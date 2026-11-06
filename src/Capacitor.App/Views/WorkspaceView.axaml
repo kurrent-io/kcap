@@ -62,8 +62,14 @@
         <!-- Content: the terminal control (real resize wiring lives inside TerminalControl itself,
              see WorkspaceView.axaml.cs header comment) plus one state banner at a time, layered
              over it. -->
-        <views:SessionConnectionNotice x:Name="ConnectionBanner" Grid.Row="1" DataContext="{Binding ConnectionNotice}"
-                IsVisible="{Binding $parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).HasConnectionNotice}" />
+        <views:SessionConnectionNotice x:Name="ConnectionBanner" Grid.Row="1" IsCompact="True" DataContext="{Binding ConnectionNotice}">
+            <views:SessionConnectionNotice.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                    <Binding Path="$parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).HasConnectionNotice" />
+                    <Binding Path="!$parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).IsChatActive" />
+                </MultiBinding>
+            </views:SessionConnectionNotice.IsVisible>
+        </views:SessionConnectionNotice>
         <Grid Grid.Row="2">
             <!-- FontFamily MUST be set: the control's default is "Cascadia Mono", which only
                  exists on Windows — elsewhere it silently falls back to ESTIMATED cell metrics
@@ -175,7 +181,6 @@
                  stage line is the only sign the launch is alive during a handshake that can run
                  for many seconds. -->
             <views:SessionConnectionNotice x:Name="StartingPanel" DataContext="{Binding StartingNotice}"
-                    VerticalAlignment="Top"
                     IsVisible="{Binding $parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).ShowsStartingNotice}" />
         </Grid>
     </Grid>
