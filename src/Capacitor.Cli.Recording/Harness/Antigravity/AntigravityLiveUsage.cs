@@ -1,10 +1,45 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.Antigravity;
 
 namespace Capacitor.Cli.Recording.Harness.Antigravity;
 
 /// <summary>What a recorder reads from Antigravity transcript steps as they arrive.</summary>
-public static class AntigravityLiveUsage {
+internal static class AntigravityLiveUsage {
+    // Synthetic USAGE line numbers live in a high band so they never collide with real
+    // transcript line numbers (which start at 0). The server derives the USAGE event id
+    // from line CONTENT (which carries gen_row), so the line number is only an ordering
+    // hint — a stable, non-colliding value keeps re-sends idempotent.
+    const long AntigravityUsageLineBase = 1_000_000_000L;
+
+    /// <summary>
+    /// Appends synthetic USAGE lines for gen_metadata rows past the committed watermark, and
+    /// returns the max row idx staged (-1 if none). It does NOT advance the watermark — the
+    /// caller commits it only after the batch send succeeds, so a failed send re-reads the
+    /// rows next drain. The db is the sibling of the transcript (its path carries the real
+    /// conversation id, even when the session id is the canonical dashless form).
+    /// </summary>
+    internal static long AppendAntigravityUsageLines(
+            WatchState state, List<string> newLines, List<int> newLineNumbers, string transcriptPath, string? createdAt,
+            Func<string, long, string?, IReadOnlyList<(long Idx, string Line)>> readUsage, Action<string> log) {
+        var maxIdx = -1L;
+        try {
+            if (AntigravityPaths.ConversationDbFromTranscript(transcriptPath) is not { } dbPath) return -1L;
+            var rows = readUsage(dbPath, state.LastAntigravityGenIdx, createdAt);
+
+            foreach (var (idx, line) in rows) {
+                newLines.Add(line);
+                newLineNumbers.Add((int)(AntigravityUsageLineBase + idx));
+                if (idx > maxIdx) maxIdx = idx;
+            }
+        } catch (Exception ex) {
+            // Cost is always best-effort — never let a db read break the drain.
+            log($"Antigravity usage poll failed: {ex.Message}");
+        }
+        return maxIdx;
+    }
+
+
     /// <summary>
     /// Subagent-orchestration tool calls whose result arrives ASYNCHRONOUSLY via a separate
     /// conversation (the child reports back through <c>brain/&lt;parent&gt;/.system_generated/
@@ -26,7 +61,7 @@ public static class AntigravityLiveUsage {
     /// malformed lines are ignored — so the count reflects whether a (possibly long-running)
     /// tool is awaiting its in-transcript result.
     /// </summary>
-    public static void UpdateAntigravityPendingToolCalls(WatchState state, string line) {
+    internal static void UpdateAntigravityPendingToolCalls(WatchState state, string line) {
         try {
             using var doc  = JsonDocument.Parse(line);
             var       root = doc.RootElement;
@@ -47,7 +82,7 @@ public static class AntigravityLiveUsage {
         }
     }
 
-    public static string? TryGetAntigravityCreatedAt(string line) {
+    internal static string? TryGetAntigravityCreatedAt(string line) {
         try {
             using var doc = JsonDocument.Parse(line);
             return doc.RootElement.ValueKind == JsonValueKind.Object ? doc.RootElement.Str("created_at") : null;

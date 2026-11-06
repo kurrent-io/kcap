@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Recording;
 
 /// <summary>Which tool calls are awaiting their result, per vendor. A tool running writes nothing to the
 /// transcript, so idle-end must not read its silence as an idle agent.</summary>
-public static class ToolCallTracking {
+internal static class ToolCallTracking {
 
     /// <summary>
     /// Which watchers feed <see cref="UpdateCodexPendingToolCalls"/>. It reads raw drain lines, which are
@@ -14,17 +14,17 @@ public static class ToolCallTracking {
     /// it can never match. Not gated on role: a collab child needs it to know when to post its stop.
     /// </summary>
 
-    public static bool TracksCodexToolCalls(string vendor) => vendor == "codex";
+    internal static bool TracksCodexToolCalls(string vendor) => vendor == "codex";
 
     /// <summary>Only a VS Code Local session idle-ends, and raw drain lines are unbounded, so nothing else parses them here.</summary>
-    public static bool TracksCopilotToolCalls(string vendor, string transcriptPath, bool hostMissing) =>
+    internal static bool TracksCopilotToolCalls(string vendor, string transcriptPath, bool hostMissing) =>
         vendor == "copilot" && (hostMissing || CopilotPaths.IsVsCodeLocalTranscript(transcriptPath));
 
     /// <summary>A Local session has no parent process to end it, so a tool that never reports back, such as
     /// one running when VS Code quits, would keep it open and its watcher running for good without a ceiling.</summary>
-    public static readonly TimeSpan CopilotToolCeiling = TimeSpan.FromHours(4);
+    internal static readonly TimeSpan CopilotToolCeiling = TimeSpan.FromHours(4);
 
-    public static bool CopilotToolInFlight(WatchState state, DateTimeOffset now) =>
+    internal static bool CopilotToolInFlight(WatchState state, DateTimeOffset now) =>
         state.PendingCopilotToolCalls.Count > 0 && now - state.LastActivityAt < CopilotToolCeiling;
 
     /// <summary>
@@ -32,7 +32,7 @@ public static class ToolCallTracking {
     /// lines are ignored, so this is safe on any transcript line.
     /// </summary>
 
-    public static void UpdateCopilotPendingToolCalls(HashSet<string> pending, string line) {
+    internal static void UpdateCopilotPendingToolCalls(HashSet<string> pending, string line) {
         try {
             using var doc  = JsonDocument.Parse(line);
             var       root = doc.RootElement;
@@ -56,7 +56,7 @@ public static class ToolCallTracking {
     /// matching <c>_output</c> variant. Malformed lines are ignored, so this is safe on any transcript line.
     /// </summary>
 
-    public static void UpdateCodexPendingToolCalls(HashSet<string> pending, string line) {
+    internal static void UpdateCodexPendingToolCalls(HashSet<string> pending, string line) {
         try {
             using var doc  = JsonDocument.Parse(line);
             var       root = doc.RootElement;
@@ -93,7 +93,7 @@ public static class ToolCallTracking {
     /// calls has no in-flight suppression and would end a live subagent mid-build.
     /// </summary>
 
-    public static bool TracksClaudeToolCalls(string vendor, bool isSessionWatcher) =>
+    internal static bool TracksClaudeToolCalls(string vendor, bool isSessionWatcher) =>
         vendor == "claude" && !isSessionWatcher;
 
     /// <summary>
@@ -102,7 +102,7 @@ public static class ToolCallTracking {
     /// ceiling would treat a live subagent as idle.
     /// </summary>
 
-    public static TranscriptReplayConsumer ClaudePendingToolCallsReplay(HashSet<string> pending) =>
+    internal static TranscriptReplayConsumer ClaudePendingToolCallsReplay(HashSet<string> pending) =>
         new(WindowOnly: true, line => {
             UpdateClaudePendingToolCalls(pending, line);
             return false;
@@ -114,7 +114,7 @@ public static class ToolCallTracking {
     /// <c>type</c>, since the blocks are what carry the ids.
     /// </summary>
 
-    public static void UpdateClaudePendingToolCalls(HashSet<string> pending, string line) {
+    internal static void UpdateClaudePendingToolCalls(HashSet<string> pending, string line) {
         try {
             using var doc = JsonDocument.Parse(line);
 
@@ -142,7 +142,7 @@ public static class ToolCallTracking {
     /// session watcher would read <c>toolInFlight</c> false and idle-end a live session. Turn state is
     /// child-only: nothing else re-delivers the acknowledged <c>task_complete</c> that arms the live stop.
     /// </summary>
-    public static TranscriptReplayConsumer CodexWatcherStateReplay(WatchState state, bool isChildWatcher) =>
+    internal static TranscriptReplayConsumer CodexWatcherStateReplay(WatchState state, bool isChildWatcher) =>
         new(WindowOnly: true, line => {
             UpdateCodexPendingToolCalls(state.PendingCodexToolCalls, line);
             if (isChildWatcher) state.CodexSubagentTurn.Observe(line);

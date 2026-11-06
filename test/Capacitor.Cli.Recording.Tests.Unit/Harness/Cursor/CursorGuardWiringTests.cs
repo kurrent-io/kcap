@@ -1,26 +1,19 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
-using Microsoft.AspNetCore.SignalR.Client;
-using Capacitor.Cli.PrDetection;
 using Capacitor.Cli.Recording.Harness.Cursor;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Cursor;
 
 /// <summary>
 /// regression tests for the Cursor runtime rewrite-guard WIRING inside
-/// <see cref="WatchCommand.DrainNewLines"/> (as distinct from <c>CursorRewriteGuardTests</c>,
+/// <see cref="TranscriptRecorder.DrainNewLines"/> (as distinct from <c>CursorRewriteGuardTests</c>,
 /// which pins the guard's own pure hash-comparison logic in isolation). Both scenarios here trip
-/// the guard and return BEFORE <c>DrainNewLines</c> ever touches its <see cref="HubConnection"/>
-/// argument, so an unconnected/never-started connection is sufficient — no live SignalR server
+/// the guard and return BEFORE <c>DrainNewLines</c> ever touches its transport, so an unconnected/never-started connection is sufficient — no live SignalR server
 /// needed (mirrors the constraint <c>Integration.CursorTailingWatcherTests</c>'s class doc
 /// already states for this project).
 /// </summary>
 public class CursorGuardWiringTests {
-    [TempHome] public required TempHome Home { get; init; }
-
-    WatchCommand? _watch;
-    WatchCommand Watch => _watch ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home);
+    TestRecorders Recorders => field ??= new(Config.Root);
 
     CursorMarkers Markers => new(Config.Root, TimeProvider.System);
 
@@ -28,15 +21,10 @@ public class CursorGuardWiringTests {
 
     static string NewSessionId() => Guid.NewGuid().ToString("N");
 
-    static HubConnection UnconnectedHub() =>
-        new HubConnectionBuilder().WithUrl("http://127.0.0.1:1/hubs/sessions").Build();
-
     [Test]
     public async Task DrainNewLines_trips_on_a_shrink_even_though_the_previous_code_only_checked_growth() {
-        // Before the fix, the guard block was gated entirely behind
-        // `cursorGuardNewLength > cursorGuardOldOffset` — a file that SHRINKS below the last
-        // checkpoint skipped the whole zone check (including the prior-zone re-hash) and sailed
-        // through undetected.
+        // A file that SHRINKS below the last checkpoint has to reach the zone checks, or a shrink
+        // would sail through undetected for want of anything new to read.
         var sid  = NewSessionId();
         using var tmp = new TempDir();
         var transcriptPath = tmp.PathTo("t.jsonl");
@@ -46,10 +34,9 @@ public class CursorGuardWiringTests {
         var state = new WatchState { CursorByteOffset = 100 }; // a checkpoint from a much longer prior file
 
         var tripped = false;
-        await using var hub = UnconnectedHub();
 
-        var result = await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        var result = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => tripped = true);
 
         await Assert.That(tripped).IsTrue();
@@ -61,11 +48,9 @@ public class CursorGuardWiringTests {
 
     [Test]
     public async Task DrainNewLines_wires_the_periodic_full_prefix_rehash_and_trips_on_a_stale_seed_mismatch() {
-        // CursorRewriteGuard.VerifyFullPrefix existed (D0) but nothing ever called it. Drive
-        // DrainNewLines's poll counter to exactly the Nth poll (CursorFullPrefixVerifyEveryNPolls)
-        // with a pre-seeded (deliberately wrong) prefix sample, so the wired-in periodic check —
-        // not the two-zone checks, which pass trivially on a first/no-checkpoint poll — is what
-        // must catch the mismatch.
+        // Drive DrainNewLines's poll counter to exactly the Nth poll (CursorFullPrefixVerifyEveryNPolls)
+        // with a pre-seeded (deliberately wrong) prefix sample, so the periodic check, not the two-zone
+        // checks, which pass trivially on a first/no-checkpoint poll, is what must catch the mismatch.
         var sid  = NewSessionId();
         using var tmp = new TempDir();
         var transcriptPath = tmp.PathTo("t.jsonl");
@@ -78,14 +63,13 @@ public class CursorGuardWiringTests {
         await Assert.That(guard.VerifyFullPrefix(wrongSeed, "WRONGX"u8)).IsTrue(); // seeds, doesn't validate
 
         var state = new WatchState {
-            CursorGuardPollCount = WatchCommand.CursorFullPrefixVerifyEveryNPolls - 1, // this poll lands on N
+            CursorGuardPollCount = TranscriptRecorder.CursorFullPrefixVerifyEveryNPolls - 1, // this poll lands on N
         };
 
         var tripped = false;
-        await using var hub = UnconnectedHub();
 
-        var result = await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        var result = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => tripped = true);
 
         await Assert.That(tripped).IsTrue();
@@ -108,51 +92,44 @@ public class CursorGuardWiringTests {
         await Assert.That(guard.VerifyFullPrefix(wrongSeed, "WRONGX"u8)).IsTrue();
 
         var state = new WatchState {
-            CursorGuardPollCount = WatchCommand.CursorFullPrefixVerifyEveryNPolls - 2, // one short of N
+            CursorGuardPollCount = TranscriptRecorder.CursorFullPrefixVerifyEveryNPolls - 2, // one short of N
         };
 
         var tripped = false;
-        await using var hub = UnconnectedHub();
 
         // Below threshold (only 3 lines, all buffered) — the call returns without ever
-        // reaching the hub regardless, so this stays offline-safe.
-        await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        // reaching the transport regardless, so this stays offline-safe.
+        await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => tripped = true);
 
         await Assert.That(tripped).IsFalse();
         await Assert.That(Markers.IsQuarantined(sid)).IsFalse();
     }
 
-    // VerifyFullPrefix's only production call site (the periodic cadence
-    // check) used to seed lazily on its OWN first invocation, which — before this fix — never
-    // happened until poll N (CursorFullPrefixVerifyEveryNPolls). The two OTHER full-prefix tests
-    // above manually pre-seed the guard via a direct guard.VerifyFullPrefix(...) call to isolate
-    // the cadence itself, which is exactly why they do NOT cover this production seeding gap: a
-    // same-length rewrite of an already-checkpointed MIDDLE region landing anywhere in polls
-    // 1..N-1 had no real baseline to be caught against, and poll N would just seed the
-    // ALREADY-rewritten file as if it were the original, valid one. This test drives a REAL
-    // poll 1 (seeding from the file's actual, un-rewritten content via DrainNewLines itself,
-    // never manually pre-seeding the guard), rewrites the file afterward, then fast-forwards to
-    // poll N and confirms the rewrite is still caught.
+    // The two OTHER full-prefix tests above pre-seed the guard by hand to isolate the cadence, so they
+    // cannot show the real baseline exists: a same-length rewrite of an already-checkpointed MIDDLE
+    // region landing in polls 1..N-1 needs one to be caught against, or poll N would seed the
+    // ALREADY-rewritten file as if it were the original. This test drives a REAL poll 1 (seeding from
+    // the file's actual content via DrainNewLines itself), rewrites the file afterward, then
+    // fast-forwards to poll N and confirms the rewrite is still caught.
     [Test]
     public async Task DrainNewLines_seeds_the_full_prefix_sample_on_the_real_first_poll_and_catches_a_mid_region_rewrite_at_the_cadence_poll() {
         var sid = NewSessionId();
         using var tmp = new TempDir();
         var transcriptPath = tmp.PathTo("t.jsonl");
         // Below WatchState.TranscriptThreshold (10) so every poll returns before ever
-        // touching the unconnected hub.
+        // touching the unconnected transport.
         await File.WriteAllTextAsync(transcriptPath, "line1\nline2\nline3\n");
 
         var guard = new CursorRewriteGuard(Config.Root, sid, TimeProvider.System);
         var state = new WatchState();
 
         var trippedOnFirstPoll = false;
-        await using var hub = UnconnectedHub();
 
         // Poll 1 — the REAL production seed (no manual guard.VerifyFullPrefix call anywhere).
-        await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => trippedOnFirstPoll = true);
 
         await Assert.That(trippedOnFirstPoll).IsFalse();
@@ -167,11 +144,11 @@ public class CursorGuardWiringTests {
 
         // Fast-forward to one poll before the cadence — mirrors the existing cadence tests'
         // technique of setting CursorGuardPollCount directly rather than looping 58 real polls.
-        state.CursorGuardPollCount = WatchCommand.CursorFullPrefixVerifyEveryNPolls - 1;
+        state.CursorGuardPollCount = TranscriptRecorder.CursorFullPrefixVerifyEveryNPolls - 1;
 
         var tripped = false;
-        var result = await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        var result = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => tripped = true);
 
         await Assert.That(tripped).IsTrue();
@@ -217,10 +194,9 @@ public class CursorGuardWiringTests {
         await File.WriteAllTextAsync(transcriptPath, padding + "\nXEPT\nnew\n");
 
         var tripped = false;
-        await using var hub = UnconnectedHub();
 
-        var result = await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        var result = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => tripped = true);
 
         await Assert.That(tripped).IsTrue();
@@ -254,28 +230,23 @@ public class CursorGuardWiringTests {
             CursorGuardPollCount = 5, // non-cadence poll, same as above
         };
 
-        await using var hub = UnconnectedHub();
-
         // agentId is null and ThresholdReached is true, so the send path is reached — the
-        // unconnected hub makes SendTranscriptBatchAcked fail, which DrainNewLines treats as a
+        // unconnected transport makes SendTranscriptBatchAcked fail, which DrainNewLines treats as a
         // retryable send failure (logs, doesn't advance state) rather than a crash. The lines
         // returned are what matters here: correctness of the bounded decode.
-        var result = await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        var result = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => { });
 
         await Assert.That(result).IsEquivalentTo(new[] { "{}" });
         await Assert.That(Markers.IsQuarantined(sid)).IsFalse();
     }
 
-    // a poll that reads ONLY blank/whitespace lines
-    // (newLines.Count == 0, but the line frontier still advanced past them) must move
-    // CursorByteOffset in LOCKSTEP with LinesProcessed. Before the fix, only LinesProcessed
-    // advanced here, leaving CursorByteOffset (and the guard's own checkpoint) pointed at the OLD
-    // byte boundary — the NEXT poll's bounded decoder then re-read those SAME already-"processed"
-    // blank bytes (its read starts from CursorByteOffset) but seeded its line numbering from the
-    // ALREADY-ADVANCED LinesProcessed, so a truly idle poll (nothing new on disk at all) kept
-    // re-"discovering" the same blank lines and re-inflating LinesProcessed forever.
+    // a poll that reads ONLY blank/whitespace lines (newLines.Count == 0, but the line frontier still
+    // advanced past them) must move CursorByteOffset in LOCKSTEP with LinesProcessed. Left at the OLD
+    // boundary, the NEXT poll's bounded decoder would re-read those blank bytes (its read starts from
+    // CursorByteOffset) but number them from the ALREADY-ADVANCED LinesProcessed, so a truly idle poll
+    // would keep re-"discovering" the same blank lines and inflating LinesProcessed forever.
     [Test]
     public async Task DrainNewLines_keeps_byte_and_line_frontier_in_lockstep_across_a_blank_only_poll_so_the_next_idle_poll_re_decodes_nothing() {
         var sid = NewSessionId();
@@ -283,7 +254,7 @@ public class CursorGuardWiringTests {
         var transcriptPath = tmp.PathTo("t.jsonl");
         // Two real (non-blank) lines already "delivered" by a prior poll — seeded directly
         // (mirrors the existing bounded-read tests' pattern) to establish a clean baseline
-        // without needing a live hub round trip.
+        // without needing a live transport round trip.
         await File.WriteAllTextAsync(transcriptPath, "a\nb\n");
 
         var guard = new CursorRewriteGuard(Config.Root, sid, TimeProvider.System);
@@ -294,14 +265,12 @@ public class CursorGuardWiringTests {
             ThresholdReached = true,
         };
 
-        await using var hub = UnconnectedHub();
-
         // Append TWO blank/whitespace-only lines — complete (newline-terminated), so the
         // decoder must consume them, but nothing a real agent would ever emit as content.
         await File.AppendAllTextAsync(transcriptPath, "\n   \n"); // 5 bytes: "\n" then "   \n"
 
-        var pollA = await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        var pollA = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => { });
 
         await Assert.That(pollA).IsEmpty(); // both new lines are blank — nothing to send
@@ -313,14 +282,11 @@ public class CursorGuardWiringTests {
         await Assert.That(state.LinesProcessed).IsEqualTo(4);
         await Assert.That(state.CursorByteOffset).IsEqualTo(9L);
 
-        // Poll B: a genuinely idle poll — NOTHING new appended since poll A. Before the fix,
-        // CursorByteOffset would have stayed at 4 (the OLD offset), so this poll would re-read
-        // and re-"discover" the SAME two blank lines all over again, numbered starting from the
-        // now-inflated LinesProcessed (4) and pushing it to 6 — repeating forever on every
-        // subsequent idle poll. With the fix, CursorByteOffset already sits at the TRUE EOF (9),
-        // so there is nothing left to decode — neither frontier moves again.
-        var pollB = await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        // Poll B: a genuinely idle poll — NOTHING new appended since poll A. CursorByteOffset already
+        // sits at the TRUE EOF (9), so there is nothing left to decode and neither frontier moves again.
+        // Stuck at 4, this poll would re-read the same two blank lines and push LinesProcessed to 6.
+        var pollB = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => { });
 
         await Assert.That(pollB).IsEmpty();
@@ -329,13 +295,10 @@ public class CursorGuardWiringTests {
         await Assert.That(Markers.IsQuarantined(sid)).IsFalse();
     }
 
-    // CursorGuardPollCount (the full-prefix cadence counter)
-    // must only be committed once the guarded read it fed actually completes. Before the fix, the
-    // counter incremented UNCONDITIONALLY before opening the file — a transient IOException on that
-    // open/read (e.g. a concurrent writer briefly holding an exclusive lock) still "used up" the
-    // cadence slot even though VerifyFullPrefix was never reached, so the NEXT successful poll saw a
-    // cadence value one past due and silently skipped the full-prefix baseline it was supposed to
-    // perform, recreating the polls-1..N-1 history-rewrite blind window the cadence exists to close.
+    // CursorGuardPollCount (the full-prefix cadence counter) must only be committed once the guarded
+    // read it fed actually completes. A transient IOException on that open/read must not use up the
+    // cadence slot: the NEXT successful poll would see a value one past due and skip the full-prefix
+    // baseline, opening the polls-1..N-1 history-rewrite blind window the cadence exists to close.
     [Test]
     public async Task DrainNewLines_does_not_consume_the_full_prefix_cadence_when_the_guarded_read_fails() {
         var sid = NewSessionId();
@@ -346,14 +309,12 @@ public class CursorGuardWiringTests {
         var guard = new CursorRewriteGuard(Config.Root, sid, TimeProvider.System);
         var state = new WatchState(); // CursorGuardPollCount starts at 0 — this poll is poll 1 (full-prefix-due)
 
-        await using var hub = UnconnectedHub();
-
         // Force the guarded read to throw IOException for the duration of this one poll only,
         // by holding an exclusive lock (FileShare.None denies DrainNewLines's own
         // FileShare.ReadWrite open — verified to throw System.IO.IOException on this platform).
         await using (new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.None)) {
-            var failedResult = await Watch.DrainNewLines(
-                hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+            var failedResult = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+                state, CancellationToken.None,
                 cursorGuard: guard, onCursorRewriteDetected: () => { });
 
             await Assert.That(failedResult).IsEmpty();
@@ -365,23 +326,19 @@ public class CursorGuardWiringTests {
         // The NEXT (successful) poll must still be treated as poll 1 — i.e. it must still be
         // the one that performs the full-prefix baseline seed, not skip it as if some earlier
         // poll (the failed one) had already used up that slot.
-        await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => { });
 
         await Assert.That(state.CursorGuardPollCount).IsEqualTo(1);
         await Assert.That(Markers.IsQuarantined(sid)).IsFalse();
     }
 
-    // the SAME byte/line-lockstep the
-    // finding-#1 blank-only early-return got must also hold on the OTHER path that advances
-    // LinesProcessed past blank lines without an acked send: the "repo-only batch failed" catch
-    // branch. That branch is only reached when a repo change was pending (repoToSend != null) AND
-    // newLines.Count == 0 (any lines read this poll were blank/whitespace), and the repo-only RPC
-    // threw. Before the fix it advanced LinesProcessed alone, so — exactly like the pre-#1-fix
-    // early return — CursorByteOffset/checkpoint lagged and the next poll re-decoded the same blank
-    // bytes under an inflated line number. This mirrors the finding-#1 test with a pending repo
-    // change and an RPC that fails (the unconnected hub).
+    // the byte/line lockstep must also hold on the OTHER path that advances LinesProcessed past blank
+    // lines without an acked send: the "repo-only batch failed" catch branch. That branch is reached
+    // only when a repo change was pending (repoToSend != null) AND newLines.Count == 0 (any lines read
+    // this poll were blank/whitespace), and the repo-only RPC threw. This mirrors the blank-only test
+    // with a pending repo change and an RPC that fails (the unconnected transport).
     [Test]
     public async Task DrainNewLines_keeps_frontiers_in_lockstep_across_a_blank_only_poll_whose_repo_only_send_fails() {
         var sid = NewSessionId();
@@ -403,13 +360,11 @@ public class CursorGuardWiringTests {
             Repository       = new RepositoryPayload { Owner = "acme", RepoName = "widgets" },
         };
 
-        await using var hub = UnconnectedHub(); // every send RPC throws (never connected)
-
         // Append TWO blank/whitespace-only lines.
         await File.AppendAllTextAsync(transcriptPath, "\n   \n"); // 5 bytes → EOF at 9
 
-        var pollA = await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        var pollA = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => { });
 
         await Assert.That(pollA).IsEmpty(); // both new lines blank — nothing sent; the repo-only RPC threw
@@ -423,13 +378,11 @@ public class CursorGuardWiringTests {
         // (it retries on a later cycle) — this must NOT re-inflate the line frontier.
         await Assert.That(state.LastSentRepository).IsNull();
 
-        // Poll B: genuinely idle — nothing appended since poll A. The repo change is still
-        // pending, so this poll again reaches (and fails) the repo-only send; but with the byte
-        // frontier already at the true EOF (9), there is nothing left to decode, so neither
-        // frontier moves again. Before the fix, CursorByteOffset stuck at 4 would have re-read
-        // the same two blank lines and pushed LinesProcessed to 6.
-        var pollB = await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        // Poll B: genuinely idle — nothing appended since poll A. The repo change is still pending, so
+        // this poll again reaches (and fails) the repo-only send; but with the byte frontier already at
+        // the true EOF (9), there is nothing left to decode, so neither frontier moves again.
+        var pollB = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => { });
 
         await Assert.That(pollB).IsEmpty();

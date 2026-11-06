@@ -10,7 +10,7 @@ namespace Capacitor.Cli.Recording.Harness.Kiro;
 /// turn's line. So a recorder emits a synthetic <c>KiroUsageBackfilled</c> line per turn anchor, which the
 /// server folds into a backfill event keyed on the anchor.
 /// </summary>
-public static class KiroLiveUsage {
+internal static class KiroLiveUsage {
 
     // A high band clear of real line numbers and of Antigravity's synthetic USAGE band.
 
@@ -21,7 +21,7 @@ public static class KiroLiveUsage {
     /// turn anchor (the turn's final <c>message_id</c>). <paramref name="contextPct"/> is omitted
     /// when absent, mirroring <see cref="KiroUsage.EnrichLine"/>'s optional-field handling.
     /// </summary>
-    public static string BuildKiroUsageBackfillLine(string anchor, double credits, double? contextPct) {
+    internal static string BuildKiroUsageBackfillLine(string anchor, double credits, double? contextPct) {
         var data = new JsonObject {
             ["message_id"] = anchor,
             ["credits"]    = credits,
@@ -42,7 +42,7 @@ public static class KiroLiveUsage {
     /// the count staged, 0 on a missing or malformed sidecar. Never throws: usage is best-effort.
     /// </summary>
 
-    public static long AppendKiroUsageBackfillLines(WatchState state, List<string> newLines, List<int> newLineNumbers, string transcriptPath, Action<string> log) {
+    internal static long AppendKiroUsageBackfillLines(WatchState state, List<string> newLines, List<int> newLineNumbers, string transcriptPath, Action<string> log) {
         state.KiroUsagePendingAnchors.Clear();
         var staged = 0L;
         try {
@@ -78,7 +78,7 @@ public static class KiroLiveUsage {
     /// drops a line.
     /// </summary>
 
-    public static List<string> EnrichKiroContextUsage(List<string> lines, string transcriptPath, OnceLog? warnings = null) {
+    internal static List<string> EnrichKiroContextUsage(List<string> lines, string transcriptPath, OnceLog? warnings = null) {
         // Nothing to enrich unless the batch has an AssistantMessage line — skip the file read entirely.
         if (!lines.Any(static l => l.Contains("AssistantMessage", StringComparison.Ordinal))) return lines;
         try {

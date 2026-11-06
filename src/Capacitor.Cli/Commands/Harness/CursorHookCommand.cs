@@ -855,7 +855,7 @@ public sealed class CursorHookCommand(
     /// in <see cref="HandleSubagentChildEventAsync"/>.
     ///
     /// Quarantine is keyed on <paramref name="parentSessionId"/>, not the child: the runtime
-    /// rewrite guard (<see cref="CursorRewriteGuard"/>) and <c>WatchCommand.RunWatch</c> both
+    /// rewrite guard (<see cref="CursorRewriteGuard"/>) and <c>TranscriptRecorder</c> both
     /// construct their guard/quarantine identity from the watcher process's own
     /// <c>sessionId</c> argument, which — for a child watcher spawned with
     /// <c>sessionIdOverride: parentSessionId</c> — resolves to the PARENT id

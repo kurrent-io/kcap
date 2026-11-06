@@ -297,7 +297,7 @@ public class LiveWatchHardeningAcceptanceTests {
         await Assert.That(wedged).IsTrue();
 
         // Healthy/reconnecting: past the grace, but the heartbeat was touched just before the
-        // threshold would lapse (mirrors WatchCommand.HeartbeatSlices keeping every connect-retry
+        // threshold would lapse (mirrors TranscriptRecorder.HeartbeatSlices keeping every connect-retry
         // chunk under the threshold) → never reads stale.
         var reconnecting = WatcherHeartbeat.IsStale(
             lastBeat: start.AddSeconds(89), startupAt: start, now: start.AddSeconds(90),

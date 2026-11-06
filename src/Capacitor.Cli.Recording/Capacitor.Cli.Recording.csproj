@@ -8,6 +8,7 @@
     <ItemGroup>
         <InternalsVisibleTo Include="Capacitor.Cli.Recording.Tests.Unit" />
         <InternalsVisibleTo Include="Capacitor.Cli.Tests.Unit" />
+        <InternalsVisibleTo Include="Capacitor.Cli.Tests.Integration" />
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\Capacitor.Cli.Core\Capacitor.Cli.Core.csproj" />

@@ -1,8 +1,6 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.RepoEvidence;
-using Capacitor.Cli.Recording;
 
-namespace Capacitor.Cli.Tests.Unit.Commands;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 /// <summary>One read of the lines before a resume cursor feeds every consumer: a full one every line, a
 /// windowed one the last lines only, none anything from the cursor on, which the drain delivers.</summary>
@@ -66,7 +64,7 @@ public class TranscriptReplayTests {
         ]);
         var roots = new SecondaryRepoRoots(dir => dir.StartsWith("/h/dev/", StringComparison.Ordinal) ? string.Join('/', dir.Split('/').Take(4)) : null, primaryRoot: "/h/dev/main");
 
-        await TranscriptReplay.ReplayAsync(path, upToLine: 2, [WatchCommand.SecondaryRootsReplay(roots, "claude")], CancellationToken.None, _ => { });
+        await TranscriptReplay.ReplayAsync(path, upToLine: 2, [TranscriptRecorder.SecondaryRootsReplay(roots, "claude")], CancellationToken.None, _ => { });
 
         await Assert.That(roots.Roots).IsEquivalentTo(["/h/dev/cli-wt"]);
     }

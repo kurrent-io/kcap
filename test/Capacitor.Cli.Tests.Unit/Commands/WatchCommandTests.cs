@@ -3,62 +3,6 @@ using Capacitor.Cli.Core;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
-public class RepoPayloadChangedTests {
-    static RepositoryPayload MakePayload(
-            string owner    = "o",
-            string repo     = "r",
-            string branch   = "main",
-            int?   prNumber = 1,
-            string prUrl    = "u",
-            string prTitle  = "t"
-        ) => new() { Owner = owner, RepoName = repo, Branch = branch, PrNumber = prNumber, PrUrl = prUrl, PrTitle = prTitle };
-
-    [Test]
-    public async Task NullCurrent_ReturnsFalse() =>
-        await Assert.That(WatchCommand.RepoPayloadChanged(null, MakePayload())).IsFalse();
-
-    [Test]
-    public async Task NullLastSent_ReturnsTrue() =>
-        await Assert.That(WatchCommand.RepoPayloadChanged(MakePayload(), null)).IsTrue();
-
-    [Test]
-    public async Task BothNull_ReturnsFalse() =>
-        await Assert.That(WatchCommand.RepoPayloadChanged(null, null)).IsFalse();
-
-    [Test]
-    public async Task SameValues_ReturnsFalse() =>
-        await Assert.That(WatchCommand.RepoPayloadChanged(MakePayload(), MakePayload())).IsFalse();
-
-    [Test]
-    [Arguments("Owner")]
-    [Arguments("RepoName")]
-    [Arguments("Branch")]
-    [Arguments("PrNumber")]
-    [Arguments("PrUrl")]
-    [Arguments("PrTitle")]
-    public async Task DifferentField_ReturnsTrue(string field) {
-        var a = MakePayload();
-
-        var b = field switch {
-            "Owner"    => a with { Owner = "x" },
-            "RepoName" => a with { RepoName = "x" },
-            "Branch"   => a with { Branch = "x" },
-            "PrNumber" => a with { PrNumber = 99 },
-            "PrUrl"    => a with { PrUrl = "x" },
-            "PrTitle"  => a with { PrTitle = "x" },
-            _          => a
-        };
-        await Assert.That(WatchCommand.RepoPayloadChanged(a, b)).IsTrue();
-    }
-
-    [Test]
-    public async Task NonComparedFields_DoNotTriggerChange() {
-        var a = MakePayload() with { UserName = "alice" };
-        var b = MakePayload() with { UserName = "bob" };
-        await Assert.That(WatchCommand.RepoPayloadChanged(a, b)).IsFalse();
-    }
-}
-
 public class CountFileLinesTests {
     [Test]
     [Arguments("line1\nline2\nline3\n", 3)]
@@ -286,21 +230,6 @@ public class WatchCommandTests {
 
         await Assert.That(ack.NextLineNumber).IsEqualTo(7);
     }
-
-    // Cursor's own sessionStart hook posts (and spawns this very watcher)
-    // before any transcript line is ever read, exactly like Antigravity — so the generic
-    // below-threshold buffer must not apply to it either.
-    [Test]
-    [Arguments("antigravity", true)]
-    [Arguments("cursor",      true)]
-    [Arguments("mistral-vibe", true)]
-    [Arguments("grok",        true)]
-    [Arguments("muse",        true)]
-    [Arguments("codex",       false)]
-    [Arguments("claude",      false)]
-    [Arguments("gemini",      false)]
-    public async Task SkipsThresholdBuffering_matches_only_the_vendors_that_pre_commit_the_session(string vendor, bool expected) =>
-        await Assert.That(WatchCommand.SkipsThresholdBuffering(vendor)).IsEqualTo(expected);
 }
 
 // Claude's in-flight guard for the subagent idle ceiling. Shapes below are taken verbatim from a

@@ -57,6 +57,10 @@ public record TranscriptBatch {
     public bool MoreFollows { get; init; }
 }
 
+/// <summary>Who wrote a transcript line, when the recorder can place it: the dispatch that produced it, or a person
+/// at the terminal.</summary>
+public sealed record LineStamp(int LineNumber, Guid? DispatchId, bool IsLocal);
+
 public record ErrorEntry(
         string         SessionId,
         string?        SessionSlug,
@@ -213,7 +217,7 @@ public class WatchState {
     public bool FinalDrainHeldIncompleteLine { get; set; }
 
     // Last time new transcript content was observed on the rollout file, driving the Codex
-    // idle-timeout fallback (see WatchCommand.ShouldEndOnIdle). Set when the watcher starts and
+    // idle-timeout fallback (see IdleEnd.ShouldEndOnIdle). Set when the watcher starts and
     // advanced in DrainNewLines, so a zero value means the watcher has not started yet.
     public DateTimeOffset LastActivityAt { get; set; }
 
@@ -309,7 +313,7 @@ public class WatchState {
     public TranscriptLineIndex LineOffsets { get; } = new();
 
     // poll counter driving the periodic full-prefix re-hash cadence
-    // (WatchCommand.CursorFullPrefixVerifyEveryNPolls). Incremented once per poll for vendor ==
+    // (TranscriptRecorder.CursorFullPrefixVerifyEveryNPolls). Incremented once per poll for vendor ==
     // "cursor" only; a plain counter (not wall-clock time) so the cadence is exact regardless of
     // how long any individual poll takes.
     public int CursorGuardPollCount { get; set; }

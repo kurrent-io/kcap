@@ -15,7 +15,7 @@ public static class TranscriptReader {
     /// write can pause mid-record for longer than any bounded wait.
     /// </summary>
 
-    public static bool IsFinalLineComplete(string fileText) {
+    internal static bool IsFinalLineComplete(string fileText) {
         if (fileText.Length == 0 || fileText[^1] == '\n') return true;
 
         var lastNl = fileText.LastIndexOf('\n');
@@ -34,13 +34,13 @@ public static class TranscriptReader {
     /// UTF-32 file is read whole, since its newline is not a lone <c>0x0A</c> byte.
     /// </summary>
 
-    public static async Task<string> ReadFinalLineSharedAsync(string path) {
+    internal static async Task<string> ReadFinalLineSharedAsync(string path) {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
         return await ReadFinalLineAsync(stream, path);
     }
 
-    public static async Task<string> ReadFinalLineAsync(FileStream stream, string path) {
+    internal static async Task<string> ReadFinalLineAsync(FileStream stream, string path) {
         if (stream.Length > 0 && stream.ReadByte() is 0xFE or 0xFF or 0x00) return await File.ReadAllTextSharedAsync(path);
 
         var end   = stream.Length;
@@ -72,7 +72,7 @@ public static class TranscriptReader {
     /// agent flushes its last records (see <see cref="SharedFileText"/>).
     /// </summary>
 
-    public static async Task<bool> WaitForFinalLineCompletionAsync(
+    internal static async Task<bool> WaitForFinalLineCompletionAsync(
             string path, TimeProvider time, int attempts = 4, int delayMs = 500) {
         for (var i = 0; i < attempts; i++) {
             try {
@@ -98,7 +98,7 @@ public static class TranscriptReader {
     /// but still advance the position.
     /// </summary>
 
-    public static NewTranscriptLines SplitNewCompleteLines(
+    internal static NewTranscriptLines SplitNewCompleteLines(
             string                    fileText,
             int                       linesProcessed,
             IncompleteFinalLinePolicy policy = IncompleteFinalLinePolicy.Hold
@@ -129,7 +129,7 @@ public static class TranscriptReader {
     /// it, and returns the bytes read.
     /// </summary>
 
-    public static async Task<int> ReadFullyAsync(FileStream stream, byte[] buffer, CancellationToken ct) {
+    internal static async Task<int> ReadFullyAsync(FileStream stream, byte[] buffer, CancellationToken ct) {
         var total = 0;
 
         while (total < buffer.Length) {
@@ -147,7 +147,7 @@ public static class TranscriptReader {
     /// fewer lines than it was sent, so a checkpoint must not assume the whole range was delivered.
     /// </summary>
 
-    public static long ByteOffsetForAckedLines(ReadOnlySpan<byte> range, long rangeStartOffset, int ackedLineCount) {
+    internal static long ByteOffsetForAckedLines(ReadOnlySpan<byte> range, long rangeStartOffset, int ackedLineCount) {
         if (ackedLineCount <= 0) return rangeStartOffset;
 
         var seen = 0;
@@ -177,7 +177,7 @@ public static class TranscriptReader {
     /// record is read and sent again, which the server dedupes by its event ids.
     /// </remarks>
 
-    public static async Task<(long ByteOffset, int LineNumber)?> ResolveByteOffsetForLineAsync(string transcriptPath, int lineNumber, CancellationToken ct) {
+    internal static async Task<(long ByteOffset, int LineNumber)?> ResolveByteOffsetForLineAsync(string transcriptPath, int lineNumber, CancellationToken ct) {
         if (lineNumber <= 0) return (0, lineNumber);
         if (!File.Exists(transcriptPath)) return null;
 

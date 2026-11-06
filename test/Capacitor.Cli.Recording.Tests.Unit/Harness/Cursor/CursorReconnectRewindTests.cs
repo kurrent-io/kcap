@@ -1,28 +1,18 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
-using Microsoft.AspNetCore.SignalR.Client;
-using Capacitor.Cli.PrDetection;
-using Capacitor.Cli.Recording;
 using Capacitor.Cli.Recording.Harness.Cursor;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Cursor;
 
 /// <summary>
-/// a reconnect that discovers the server's acknowledged line frontier is
-/// behind the watcher's own <see cref="WatchState.LinesProcessed"/> must rewind the Cursor byte
-/// guard's checkpoint ATOMICALLY with the line cursor. Before the fix, only
-/// <see cref="WatchState.LinesProcessed"/> rewound — <see cref="WatchState.CursorByteOffset"/> and
-/// the guard's own checkpoint stayed at the LATER acked offset, so the next drain resent the
-/// replayed line gap but started new-range verification past the bytes that gap actually
-/// occupies. <see cref="WatchCommand.ApplyReconnectRewindAsync"/> is the extracted, directly
-/// testable version of the fix (pulled out of <c>RunWatch</c>'s <c>Reconnected</c> handler, which
-/// itself can't be driven without a live SignalR reconnect).
+/// a reconnect that discovers the server's acknowledged line frontier is behind the watcher's own
+/// <see cref="WatchState.LinesProcessed"/> must rewind the Cursor byte guard's checkpoint ATOMICALLY
+/// with the line cursor, or the next drain resends the replayed line gap but starts new-range
+/// verification past the bytes that gap occupies. <see cref="TranscriptRecorder.ApplyReconnectRewindAsync"/>
+/// is tested directly, since a reconnect itself needs a live transport.
 /// </summary>
 public class CursorReconnectRewindTests {
-    [TempHome] public required TempHome Home { get; init; }
-
-    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home);
+    TestRecorders Recorders => field ??= new(Config.Root);
 
     CursorMarkers Markers => new(Config.Root, TimeProvider.System);
 
@@ -49,10 +39,9 @@ public class CursorReconnectRewindTests {
         await Assert.That(negative!.Value.LineNumber).IsEqualTo(-1);
     }
 
-    // a missing file with a POSITIVE requested line number is
-    // exactly "fewer lines on disk than requested" (zero, in this case) — the caller must quarantine
-    // rather than clamp to a byte offset of 0, which used to look like a perfectly valid (if empty)
-    // resume baseline.
+    // a missing file with a POSITIVE requested line number is exactly "fewer lines on disk than
+    // requested" (zero, in this case) — the caller must quarantine rather than take a byte offset of 0
+    // as a valid resume baseline.
     [Test]
     public async Task ResolveByteOffsetForLineAsync_returns_null_when_the_file_is_missing_and_a_line_is_requested() {
         using var missingDir = TempDir.WithPathTo("kcap-reconnect-missing.jsonl", out var missing);
@@ -66,9 +55,8 @@ public class CursorReconnectRewindTests {
         // Deliberately uneven line lengths so a naive "count * avg-length" guess would be wrong.
         await File.WriteAllTextAsync(path, "a\nbbbb\ncc\n"); // offsets: line0 ends at 2, line1 ends at 7, line2 ends at 10
 
-        // unchanged mid-file case — the returned pair's LineNumber is
-        // always the requested lineNumber unchanged; only the r5 unterminated-final-record case
-        // (covered below) rewinds it.
+        // unchanged mid-file case — the returned pair's LineNumber is always the requested lineNumber
+        // unchanged; only the unterminated-final-record case (covered below) rewinds it.
         var r1 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 1, CancellationToken.None);
         await Assert.That(r1!.Value.ByteOffset).IsEqualTo(2L);
         await Assert.That(r1!.Value.LineNumber).IsEqualTo(1);
@@ -82,9 +70,8 @@ public class CursorReconnectRewindTests {
         await Assert.That(r3!.Value.LineNumber).IsEqualTo(3);
     }
 
-    // the pre-fix behaviour silently clamped to EOF here; this
-    // is exactly the truncated-transcript scenario the fix closes, so the method must now signal
-    // "cannot resolve exactly" (null) instead of handing back a bogus baseline offset.
+    // the truncated-transcript scenario: the method signals "cannot resolve exactly" (null) rather
+    // than handing back a bogus baseline offset clamped to EOF.
     [Test]
     public async Task ResolveByteOffsetForLineAsync_returns_null_when_the_file_has_fewer_lines_than_requested() {
         using var tmp = new TempDir();
@@ -94,22 +81,17 @@ public class CursorReconnectRewindTests {
         await Assert.That(await TranscriptReader.ResolveByteOffsetForLineAsync(path, 5, CancellationToken.None)).IsNull();
     }
 
-    // a COMPLETE final record with no trailing newline yet must resolve,
-    // not quarantine. This is exactly what the watcher's own shutdown final drain
-    // (IncompleteFinalLinePolicy.ConsumeIfComplete) and historical import's StreamReader-based
-    // splitting both send as the last line of a file. Before this fix, the round-4 guard treated
-    // "fewer newline-terminated lines than requested" as an unconditional shortfall, so a later
-    // watcher restart resuming at that same final line (server frontier == local line count) would
-    // permanently quarantine an otherwise-healthy, append-only session.
+    // a COMPLETE final record with no trailing newline yet must resolve, not quarantine. This is exactly
+    // what the watcher's own shutdown final drain (IncompleteFinalLinePolicy.ConsumeIfComplete) and
+    // historical import's StreamReader-based splitting both send as the last line of a file, so a later
+    // watcher resuming at that same final line (server frontier == local line count) must not quarantine
+    // an otherwise-healthy, append-only session.
     //
-    // the r5 fix originally resolved this case at EOF, unchanged
-    // LineNumber. That seeded CursorByteOffset exactly where Cursor's OWN later-arriving
-    // terminator for this SAME already-acked record lands; when it arrived, the bounded reader
-    // (seeding its own line index from LinesProcessed, left at the record's line number) misread
-    // the terminator as closing a phantom empty line, permanently shifting every following line's
-    // number by one. The fix REWINDS instead: the pair now points at the record's own START
-    // (identical to line 1's END below) with LineNumber one less — the record is re-read/re-sent
-    // next poll, harmlessly deduped by the server's source-ack frontier.
+    // It resolves to the record's own START (identical to line 1's END below) with LineNumber one less,
+    // not to EOF. Cursor's own terminator for this SAME already-acked record lands later, and a cursor
+    // at EOF would misread it as closing a phantom empty line, shifting every following line's number
+    // by one for good. The record is re-read and re-sent next poll, deduped by the server's source-ack
+    // frontier.
     [Test]
     public async Task ResolveByteOffsetForLineAsync_rewinds_a_complete_unterminated_final_line_to_its_start() {
         using var tmp = new TempDir();
@@ -142,10 +124,10 @@ public class CursorReconnectRewindTests {
         await Assert.That(await TranscriptReader.ResolveByteOffsetForLineAsync(path, 2, CancellationToken.None)).IsNull();
     }
 
-    // review fix (r4, finding #5), preserved under r5 — a request for a line further beyond
-    // the local file than "the final unterminated record" is a genuine shortfall (truncation/rewrite)
-    // and must still quarantine, never resolve. (No trailing content at all here — both requested
-    // lines are already accounted for by the two newlines, and line 5 is nowhere close.)
+    // a request for a line further beyond the local file than "the final unterminated record" is a
+    // genuine shortfall (truncation/rewrite) and must quarantine, never resolve. (No trailing content at
+    // all here — both requested lines are already accounted for by the two newlines, and line 5 is
+    // nowhere close.)
     [Test]
     public async Task ResolveByteOffsetForLineAsync_still_returns_null_when_the_request_is_genuinely_beyond_eof() {
         using var tmp = new TempDir();
@@ -179,13 +161,12 @@ public class CursorReconnectRewindTests {
         await Assert.That(Markers.IsQuarantined(sid)).IsFalse();
     }
 
-    // ---- review fix (r3, finding #2) — WatchCommand.SeedCursorByteOffsetAsync ----
+    // ---- TranscriptRecorder.SeedCursorByteOffsetAsync ----
     //
-    // Shared by ApplyReconnectRewindAsync (already covered above) and RunWatch's INITIAL
-    // WatcherConnect registration, which — before this fix — left CursorByteOffset at its default
-    // (0) after resuming at server line N: the ack-to-byte mapping then measured acked lines
-    // relative to N but counted their bytes from 0, so a full ack of M resumed lines checkpointed
-    // at file offset M instead of N's TRUE offset plus M.
+    // Shared by ApplyReconnectRewindAsync (already covered above) and the initial WatcherConnect
+    // registration. Left at its default (0) after resuming at server line N, CursorByteOffset would
+    // have the ack-to-byte mapping measure acked lines relative to N but count their bytes from 0, so a
+    // full ack of M resumed lines would checkpoint at file offset M instead of N's TRUE offset plus M.
 
     [Test]
     public async Task SeedCursorByteOffsetAsync_seeds_the_true_byte_offset_of_the_resumed_line() {
@@ -196,13 +177,12 @@ public class CursorReconnectRewindTests {
 
         var sid   = NewSessionId();
         var guard = new CursorRewriteGuard(Config.Root, sid, TimeProvider.System);
-        // A fresh watcher process resuming at server line 2 — CursorByteOffset starts at its
-        // default (0), exactly as WatchState leaves it before this fix's seeding runs.
+        // A fresh watcher process resuming at server line 2 — CursorByteOffset starts at its default (0).
         var state = new WatchState { LinesProcessed = 2 };
         await Assert.That(state.CursorByteOffset).IsEqualTo(0L);
 
-        var ok = await Watch.SeedCursorByteOffsetAsync(
-            state, lineNumber: 2, sid, vendor: "cursor", transcriptPath, guard, CancellationToken.None);
+        var ok = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").SeedCursorByteOffsetAsync(
+            state, lineNumber: 2, guard, CancellationToken.None);
 
         await Assert.That(ok).IsTrue();
         // The TRUE byte offset of line 2 ("a\nbbbb\n" = 7 bytes) — not the default 0, and not
@@ -213,21 +193,18 @@ public class CursorReconnectRewindTests {
         await Assert.That(Markers.IsQuarantined(sid)).IsFalse();
     }
 
-    // reproduces the actual failure scenario: a final drain
-    // (IncompleteFinalLinePolicy.ConsumeIfComplete) sends a complete but unterminated final record,
-    // the watcher exits (idle), and a LATER hook restarts the watcher with the server resuming it at
-    // that exact same final line (server frontier == local line count, file STILL lacks the trailing
-    // newline). SeedCursorByteOffsetAsync must seed a valid byte offset and NOT quarantine.
+    // the failure scenario: a final drain (IncompleteFinalLinePolicy.ConsumeIfComplete) sends a complete
+    // but unterminated final record, the watcher exits (idle), and a LATER hook restarts the watcher with
+    // the server resuming it at that exact same final line (server frontier == local line count, file
+    // STILL lacks the trailing newline). SeedCursorByteOffsetAsync must seed a valid byte offset and NOT
+    // quarantine.
     //
-    // reproduces the P1 finding this seeds against: the r5 fix seeded
-    // CursorByteOffset at EOF while leaving LinesProcessed at the (already-acked) final record's own
-    // line number. That put the byte cursor exactly where Cursor's OWN later-arriving terminator
-    // for this SAME record lands; when it arrived, the bounded reader — seeding its line index from
-    // LinesProcessed — misread the terminator as a phantom empty line and shifted every subsequent
-    // line's number by one, permanently. The fix REWINDS: CursorByteOffset seeds to the record's own
-    // START (byte 8, right after line 1's newline) and LinesProcessed rewinds to 1 (the record is
-    // NOT yet counted as processed — it will be re-read/re-sent next poll, harmlessly deduped by the
-    // server's source-ack frontier).
+    // A cursor seeded at EOF would sit exactly where Cursor's OWN later-arriving terminator for this SAME
+    // record lands, and the bounded reader would misread that terminator as a phantom empty line and
+    // shift every subsequent line's number by one for good. So CursorByteOffset seeds to the record's own
+    // START (byte 8, right after line 1's newline) and LinesProcessed rewinds to 1: the record is NOT yet
+    // counted as processed, and is re-read and re-sent next poll, deduped by the server's source-ack
+    // frontier.
     [Test]
     public async Task SeedCursorByteOffsetAsync_rewinds_a_final_drains_complete_unterminated_line_instead_of_seeding_at_eof() {
         using var tmp = new TempDir();
@@ -242,8 +219,8 @@ public class CursorReconnectRewindTests {
             // watcher's shutdown drain already sent and the server already acknowledged.
             var state = new WatchState { LinesProcessed = 2 };
 
-            var ok = await Watch.SeedCursorByteOffsetAsync(
-                state, lineNumber: 2, sid, vendor: "cursor", transcriptPath, guard, CancellationToken.None);
+            var ok = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").SeedCursorByteOffsetAsync(
+                state, lineNumber: 2, guard, CancellationToken.None);
 
             await Assert.That(ok).IsTrue();
             await Assert.That(state.CursorByteOffset).IsEqualTo(8L); // rewound to the record's own start, NOT EOF (15)
@@ -257,15 +234,14 @@ public class CursorReconnectRewindTests {
 
     [Test]
     public async Task SeedCursorByteOffsetAsync_is_a_byte_only_no_op_for_non_cursor_vendors() {
-        // SeedCursorByteOffsetAsync now sets state.LinesProcessed for
-        // EVERY vendor (previously only its callers did) — the "no-op" is byte-side only.
+        // SeedCursorByteOffsetAsync sets state.LinesProcessed for EVERY vendor — the "no-op" is byte-side only.
         using var tmp = new TempDir();
         var transcriptPath = tmp.PathTo("t.jsonl");
         await File.WriteAllTextAsync(transcriptPath, "a\nbbbb\ncc\n");
 
         var state = new WatchState { LinesProcessed = 0, CursorByteOffset = 999 };
-        var ok = await Watch.SeedCursorByteOffsetAsync(
-            state, lineNumber: 2, NewSessionId(), vendor: "codex", transcriptPath, cursorGuard: null, CancellationToken.None);
+        var ok = await Recorders.For(NewSessionId(), transcriptPath, null, vendor: "codex").SeedCursorByteOffsetAsync(
+            state, lineNumber: 2, cursorGuard: null, CancellationToken.None);
 
         await Assert.That(ok).IsTrue();
         await Assert.That(state.CursorByteOffset).IsEqualTo(999L); // untouched — no guard to keep in sync
@@ -275,7 +251,7 @@ public class CursorReconnectRewindTests {
     [Test]
     public async Task InitialResume_seeded_offset_composed_with_ByteOffsetForAckedLines_checkpoints_at_N_plus_M_not_M() {
         // End-to-end regression for the actual production consequence, composed from the two pure
-        // functions DrainNewLines itself calls (no live hub needed — see the class doc on why a
+        // functions DrainNewLines itself calls (no live transport needed — see the class doc on why a
         // real ack round trip isn't unit-testable here).
         using var tmp = new TempDir();
         var transcriptPath = tmp.PathTo("t.jsonl");
@@ -286,8 +262,8 @@ public class CursorReconnectRewindTests {
         // sent/acked by a PRIOR watcher instance).
         var state = new WatchState { LinesProcessed = 2 };
 
-        await Watch.SeedCursorByteOffsetAsync(
-            state, lineNumber: 2, NewSessionId(), vendor: "cursor", transcriptPath, guard, CancellationToken.None);
+        await Recorders.For(NewSessionId(), transcriptPath, null, vendor: "cursor").SeedCursorByteOffsetAsync(
+            state, lineNumber: 2, guard, CancellationToken.None);
         await Assert.That(state.CursorByteOffset).IsEqualTo(7L);
 
         // The watcher's next poll fully acks the M=3 remaining lines (2, 3, 4) — mirrors
@@ -297,9 +273,8 @@ public class CursorReconnectRewindTests {
         var ackedByteOffset = TranscriptReader.ByteOffsetForAckedLines(
             remainingRange, rangeStartOffset: state.CursorByteOffset, ackedLineCount: 3);
 
-        // N's offset (7) + M's bytes (14) = 21 — the TRUE end-of-file offset. The pre-fix bug
-        // (CursorByteOffset left at 0, so the ack maps M's bytes as if counted from byte 0)
-        // would have produced 14 instead.
+        // N's offset (7) + M's bytes (14) = 21 — the TRUE end-of-file offset. CursorByteOffset left at 0
+        // (the ack mapping M's bytes as if counted from byte 0) would produce 14 instead.
         await Assert.That(ackedByteOffset).IsEqualTo(21L);
         await Assert.That(ackedByteOffset).IsNotEqualTo(14L);
     }
@@ -320,8 +295,8 @@ public class CursorReconnectRewindTests {
 
             // Server claims line 5 was already acknowledged — beyond what this (truncated) local
             // file can produce.
-            var ok = await Watch.SeedCursorByteOffsetAsync(
-                state, lineNumber: 5, sid, vendor: "cursor", transcriptPath, guard, CancellationToken.None);
+            var ok = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").SeedCursorByteOffsetAsync(
+                state, lineNumber: 5, guard, CancellationToken.None);
 
             await Assert.That(ok).IsFalse();
             await Assert.That(Markers.IsQuarantined(sid)).IsTrue();
@@ -332,7 +307,7 @@ public class CursorReconnectRewindTests {
         }
     }
 
-    // ---- WatchCommand.ApplyReconnectRewindAsync — the atomic composition ----
+    // ---- TranscriptRecorder.ApplyReconnectRewindAsync — the atomic composition ----
 
     [Test]
     public async Task ApplyReconnectRewindAsync_rewinds_the_byte_checkpoint_to_the_true_offset_of_the_server_frontier() {
@@ -348,7 +323,7 @@ public class CursorReconnectRewindTests {
         var state = new WatchState { LinesProcessed = 4, CursorByteOffset = 15 };
 
         // Reconnect discovers the server only actually has the first 2 lines (offset 7).
-        var ok = await Watch.ApplyReconnectRewindAsync(state, serverPosition: 2, sid, vendor: "cursor", transcriptPath, guard, CancellationToken.None);
+        var ok = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").ApplyReconnectRewindAsync(state, serverPosition: 2, guard, CancellationToken.None);
 
         await Assert.That(ok).IsTrue();
         await Assert.That(state.LinesProcessed).IsEqualTo(2);
@@ -369,7 +344,7 @@ public class CursorReconnectRewindTests {
 
         var state = new WatchState { LinesProcessed = 4, CursorByteOffset = 999 }; // never meaningful for non-cursor
 
-        var ok = await Watch.ApplyReconnectRewindAsync(state, serverPosition: 1, NewSessionId(), vendor: "codex", transcriptPath, cursorGuard: null, CancellationToken.None);
+        var ok = await Recorders.For(NewSessionId(), transcriptPath, null, vendor: "codex").ApplyReconnectRewindAsync(state, serverPosition: 1, cursorGuard: null, CancellationToken.None);
 
         await Assert.That(ok).IsTrue();
         await Assert.That(state.LinesProcessed).IsEqualTo(1);
@@ -378,15 +353,12 @@ public class CursorReconnectRewindTests {
 
     [Test]
     public async Task ApplyReconnectRewindAsync_keeps_the_replayed_region_under_prior_zone_protection_after_a_later_checkpoint() {
-        // End-to-end regression for the actual production consequence: BEFORE the fix, the guard's
-        // checkpoint stayed at the LATER (stale, too-far-ahead) offset after a rewind, so a FUTURE
-        // checkpoint re-established post-rewind would still only ever prior-zone-protect the
-        // trailing bytes ending at whatever offset the LATEST send reached — the replayed gap
-        // itself (bytes 7..10 below) would never again fall inside that trailing window once the
-        // file grows past it, becoming a permanent blind spot. With the fix, the checkpoint
-        // correctly rewinds to the TRUE (small) offset, so a checkpoint re-established from there
-        // still covers the replayed region's own trailing bytes — and a same-length in-place
-        // rewrite of it is caught on the very next poll.
+        // End-to-end for the production consequence: a checkpoint left at the LATER (too-far-ahead) offset
+        // after a rewind would only ever prior-zone-protect the trailing bytes ending at whatever offset the
+        // LATEST send reached, so the replayed gap itself (bytes 7..10 below) would never again fall inside
+        // that trailing window once the file grows past it. The checkpoint rewinds to the TRUE (small) offset,
+        // so a checkpoint re-established from there covers the replayed region's own trailing bytes, and a
+        // same-length in-place rewrite of it is caught on the very next poll.
         var sid = NewSessionId();
         using var tmp = new TempDir();
         var transcriptPath = tmp.PathTo("t.jsonl");
@@ -399,7 +371,7 @@ public class CursorReconnectRewindTests {
         var state = new WatchState { LinesProcessed = 4, CursorByteOffset = 15 };
 
         // Reconnect: the server only actually has the first 2 lines (byte offset 7).
-        await Watch.ApplyReconnectRewindAsync(state, serverPosition: 2, sid, vendor: "cursor", transcriptPath, guard, CancellationToken.None);
+        await Recorders.For(sid, transcriptPath, null, vendor: "cursor").ApplyReconnectRewindAsync(state, serverPosition: 2, guard, CancellationToken.None);
         await Assert.That(state.CursorByteOffset).IsEqualTo(7L);
 
         // The replayed line ("cc\n", offset 7..10) is resent and acked — a checkpoint is
@@ -413,10 +385,9 @@ public class CursorReconnectRewindTests {
         await File.WriteAllTextAsync(transcriptPath, "a\nbbbb\nXX\ndddd\n");
 
         var tripped = false;
-        await using var hub = new HubConnectionBuilder().WithUrl("http://127.0.0.1:1/hubs/sessions").Build();
 
-        var result = await Watch.DrainNewLines(
-            hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        var result = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").DrainNewLines(
+            state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => tripped = true);
 
         await Assert.That(tripped).IsTrue();
@@ -424,16 +395,13 @@ public class CursorReconnectRewindTests {
         await Assert.That(result).IsEmpty();
     }
 
-    // ---- review fix (r3, finding #1) — GatedApplyReconnectRewindAsync/GatedDrainNewLinesAsync ----
+    // ---- GatedApplyReconnectRewindAsync/GatedDrainNewLinesAsync ----
     //
-    // RunWatch's own cursorRewindGate/Reconnected handler can't be driven without a live SignalR
-    // reconnect (same constraint CursorGuardWiringTests' class doc states), so these tests drive
-    // the extracted gate-composition helpers directly — the SAME SemaphoreSlim(1, 1) instance
-    // RunWatch constructs and passes to both call sites. A SemaphoreSlim(1, 1) enforces exclusivity
-    // unconditionally, so rather than chase a timing-dependent race, these tests prove the
-    // EXCLUSION property deterministically: while one gated operation holds the gate, the other
-    // cannot even START running (its Task stays incomplete), so it is architecturally impossible
-    // for a drain to observe a half-applied rewind (or vice versa).
+    // These drive the gate-composition helpers directly, with the SAME SemaphoreSlim(1, 1) instance the
+    // recorder passes to both call sites. A SemaphoreSlim(1, 1) enforces exclusivity unconditionally, so
+    // rather than chase a timing-dependent race, these tests prove the EXCLUSION property
+    // deterministically: while one gated operation holds the gate, the other cannot even START running
+    // (its Task stays incomplete), so a drain cannot observe a half-applied rewind (or vice versa).
 
     [Test]
     public async Task GatedDrainNewLinesAsync_cannot_run_while_the_gate_is_held_by_a_reconnect_rewind() {
@@ -451,10 +419,8 @@ public class CursorReconnectRewindTests {
         // applied any of its three writes).
         await gate.WaitAsync();
 
-        await using var hub = new HubConnectionBuilder().WithUrl("http://127.0.0.1:1/hubs/sessions").Build();
-
-        var drainTask = Watch.GatedDrainNewLinesAsync(
-            gate, hub, sid, transcriptPath, agentId: null, state, vendor: "cursor", CancellationToken.None,
+        var drainTask = Recorders.For(sid, transcriptPath, null, vendor: "cursor").GatedDrainNewLinesAsync(
+            gate, state, CancellationToken.None,
             cursorGuard: guard, onCursorRewriteDetected: () => { });
 
         // Give the (incorrectly ungated) case every chance to complete — it must NOT, because
@@ -486,8 +452,8 @@ public class CursorReconnectRewindTests {
         // Simulate an in-flight drain (standing in for GatedDrainNewLinesAsync mid-ack).
         await gate.WaitAsync();
 
-        var rewindTask = Watch.GatedApplyReconnectRewindAsync(
-            gate, state, serverPosition: 2, sid, vendor: "cursor", transcriptPath, guard, CancellationToken.None);
+        var rewindTask = Recorders.For(sid, transcriptPath, null, vendor: "cursor").GatedApplyReconnectRewindAsync(
+            gate, state, serverPosition: 2, guard, CancellationToken.None);
 
         await Task.Delay(50);
         await Assert.That(rewindTask.IsCompleted).IsFalse();
@@ -514,19 +480,16 @@ public class CursorReconnectRewindTests {
         await File.WriteAllTextAsync(transcriptPath, "a\nb\n");
 
         var state = new WatchState { LinesProcessed = 2, CursorByteOffset = 999 };
-        var rewound = await Watch.GatedApplyReconnectRewindAsync(
-            gate: null, state, serverPosition: 1, NewSessionId(), vendor: "codex", transcriptPath, cursorGuard: null, CancellationToken.None);
+        var rewound = await Recorders.For(NewSessionId(), transcriptPath, null, vendor: "codex").GatedApplyReconnectRewindAsync(
+            gate: null, state, serverPosition: 1, cursorGuard: null, CancellationToken.None);
         await Assert.That(rewound).IsTrue();
         await Assert.That(state.LinesProcessed).IsEqualTo(1);
-
-        await using var hub = new HubConnectionBuilder().WithUrl("http://127.0.0.1:1/hubs/sessions").Build();
-        var result = await Watch.GatedDrainNewLinesAsync(
-            gate: null, hub, "sid", transcriptPath, agentId: null, new WatchState { ThresholdReached = true },
-            vendor: "codex", CancellationToken.None);
+        var result = await Recorders.For("sid", transcriptPath, null, vendor: "codex").GatedDrainNewLinesAsync(
+            gate: null, new WatchState { ThresholdReached = true }, CancellationToken.None);
         await Assert.That(result).IsNotNull();
     }
 
-    // ---- review fix (r4, finding #5) — GatedApplyReconnectRewindAsync propagates a refused rewind ----
+    // ---- GatedApplyReconnectRewindAsync propagates a refused rewind ----
 
     [Test]
     public async Task GatedApplyReconnectRewindAsync_returns_false_and_leaves_state_untouched_when_the_server_frontier_exceeds_local_lines() {
@@ -539,8 +502,8 @@ public class CursorReconnectRewindTests {
         var state = new WatchState { LinesProcessed = 2, CursorByteOffset = 7 };
 
         // The server claims line 9 — far beyond the local (truncated) file's 2 lines.
-        var rewound = await Watch.GatedApplyReconnectRewindAsync(
-            gate: null, state, serverPosition: 9, sid, vendor: "cursor", transcriptPath, guard, CancellationToken.None);
+        var rewound = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").GatedApplyReconnectRewindAsync(
+            gate: null, state, serverPosition: 9, guard, CancellationToken.None);
 
         await Assert.That(rewound).IsFalse();
         await Assert.That(Markers.IsQuarantined(sid)).IsTrue();

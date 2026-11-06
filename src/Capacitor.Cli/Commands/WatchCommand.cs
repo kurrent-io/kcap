@@ -3,15 +3,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Recording.Capture;
-using Capacitor.Cli.Recording.Harness.Cursor;
-using static Capacitor.Cli.Recording.IdleEnd;
-using static Capacitor.Cli.Recording.ToolCallTracking;
-using static Capacitor.Cli.Recording.TranscriptLineText;
-using static Capacitor.Cli.Recording.TranscriptReader;
-using static Capacitor.Cli.Recording.Harness.Antigravity.AntigravityLiveUsage;
-using static Capacitor.Cli.Recording.Harness.Copilot.CopilotShutdown;
-using static Capacitor.Cli.Recording.Harness.Kiro.KiroLiveUsage;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
@@ -22,7 +13,6 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Antigravity;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
-using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Harness.Kiro;
@@ -50,46 +40,50 @@ namespace Capacitor.Cli.Commands;
 class WatchCommand(
         ConfigRoot config, ProfileContext profiles, HarnessRegistry harnesses,
         ICapacitorHttpClient http, ICredentialSource credentials, WatcherManager watchers,
-        GitProviderRouter router, TimeProvider time, AccountStore accounts, UserHome home) {
-    readonly CursorMarkers  _markers  = new(config, time);
-    readonly WatcherPaths   _paths    = WatcherPaths.FromEnvironment(config);
-    readonly Dictionary<(string, string?), HeldLineRedaction> _heldLines = [];
-    readonly WatchAckCursor _ackCursor = new(config);
-    readonly OnceLog _parseErrors  = new(message => Log(time, message));
-    readonly OnceLog _kiroWarnings = new(message => Log(time, message));
-    readonly Lock   _ackCursorGate = new();
-    int _ackCursorWritten = -1;
+        GitProviderRouter router, TimeProvider time, AccountStore accounts, UserHome home) : IRecorderVendor {
+    readonly WatcherPaths _paths = WatcherPaths.FromEnvironment(config);
 
-    /// The Codex hook declares only the turns the server acknowledged, so the root watcher publishes its count
-    /// whenever it moves, rewinds included. Reconnect and drain both publish, so the count is read and written under
-    /// one lock: a count read earlier can never land after a newer one.
-    internal void PublishAckedLines(string sessionId, string? agentId, string vendor, WatchState state) {
-        if (agentId is not null || vendor != "codex") return;
+    // RunWatch sets these once: a WatchCommand hosts one recorder, and what its housekeeping keeps
+    // between ticks lives here until that recorder is done.
+    RecordingSource _source      = null!;
+    Action          _beat        = null!;
+    Action          _stop        = null!;
+    Action          _onConnected = null!;
+    bool            _skipTitle;
+    int?            _parentPid;
 
-        lock (_ackCursorGate) {
-            var count = state.LinesProcessed;
-            if (count == _ackCursorWritten) return;
-            if (_ackCursor.Write(sessionId, count)) _ackCursorWritten = count;
-        }
-    }
+    IHarnessTitleStore? _titleStore;
 
-    internal void RetireAckCursor(string sessionId, string? agentId, string vendor) {
-        if (agentId is null && vendor == "codex") _ackCursor.Delete(sessionId);
-    }
+    readonly List<MistralVibeSubagent> _vibeSubagents = [];
+    readonly GrokSubagentTracker       _grokSubagents = new();
+    readonly MuseChildWatchers         _museChildren  = new();
 
-    /// <summary>The clock redaction budgets read, when not <c>time</c>.</summary>
-    internal TimeProvider? RedactionClock { get; init; }
+    // Gemini fires no subagent hooks, so the parent discovers nested subagent transcripts itself and
+    // spawns a child watcher per subagent. Tracks the files already registered and spawned, so each is
+    // handled exactly once across ticks.
+    readonly HashSet<string> _seenSubagents = new(StringComparer.Ordinal);
 
-    internal HeldLineRedaction HeldLineFor(string sessionId, string? agentId) {
-        lock (_heldLines) {
-            if (!_heldLines.TryGetValue((sessionId, agentId), out var held)) {
-                held = new(new HeldLineStore(config, sessionId, agentId), time, RedactionClock ?? time, message => Log(time, message));
-                _heldLines[(sessionId, agentId)] = held;
-            }
+    // Rollouts in the shared Codex sessions tree whose header proved they are not this session's
+    // subagents. Keeps the per-tick scan to one header read per new file; a mid-write header is never
+    // cached, so it is retried.
+    readonly HashSet<string> _codexRuledOutRollouts = new(StringComparer.Ordinal);
 
-            return held;
-        }
-    }
+    // The last mtime ChildRolloutAdvanced fired for, per child rollout: backs the re-ensure that
+    // respawns a reaped child watcher when its subagent re-engages.
+    readonly Dictionary<string, DateTime> _codexRolloutMtimes = new(StringComparer.Ordinal);
+
+    // The parent is the only process that knows these exist, so its teardown must stop them.
+    readonly HashSet<string> _spawnedChildWatcherKeys = new(StringComparer.Ordinal);
+
+    // The end the Muse SessionEnd hook handed over, posted after the final drain in place of the
+    // parent-exit synthesis.
+    MuseSessionEndRequest? _museEndRequest;
+
+    // Idle grace between a Codex collab child's task_complete and its live subagent-stop post. The
+    // agent type is read lazily from the child rollout's own header, once.
+    TimeSpan       _codexSubagentStopGrace;
+    string?        _codexChildAgentType;
+    DateTimeOffset _codexStopNextAttemptAt = DateTimeOffset.MinValue;
 
     string Url => profiles.Resolution.ServerUrl!;
 
@@ -269,43 +263,6 @@ class WatchCommand(
             ? TimeSpan.FromMinutes(minutes)
             : DefaultParentDeadCeiling;
 
-    /// <summary>
-    /// Maximum single wait between heartbeat touches. Comfortably below the
-    /// <c>WatcherHeartbeat.Threshold</c> so no chunked wait can ever look stale, and matches the
-    /// main loop's disconnected-branch poll cadence.
-    /// </summary>
-    internal static readonly TimeSpan HeartbeatSlice = TimeSpan.FromSeconds(5);
-
-    /// <summary>
-    /// cadence for the periodic full-prefix re-hash
-    /// (<see cref="CursorRewriteGuard.VerifyFullPrefix"/>), the coarser-grained safety net beyond
-    /// the per-poll two-zone checks: every Nth poll (~1s cadence — roughly once a minute), the
-    /// whole file is re-read from byte 0 and its prefix hash compared to the last sample, so a
-    /// rewrite entirely inside an already-checkpointed-and-forgotten middle region can still be
-    /// caught even though the two-zone checks never look there.
-    /// </summary>
-    internal const int CursorFullPrefixVerifyEveryNPolls = 60;
-
-    /// <summary>
-    /// Splits a total wait into consecutive chunks of at most <paramref name="maxSlice"/> so the
-    /// caller can refresh the heartbeat between each — keeping a reconnecting-but-alive watcher
-    /// from ever crossing the staleness threshold while it waits out a long connect-retry backoff.
-    /// Pure so the "no chunk exceeds the slice" guarantee is unit-testable without spawning a
-    /// watcher or a real server. A non-positive total yields no chunks.
-    /// </summary>
-    internal static IReadOnlyList<TimeSpan> HeartbeatSlices(TimeSpan total, TimeSpan maxSlice) {
-        var slices    = new List<TimeSpan>();
-        var remaining = total;
-
-        while (remaining > TimeSpan.Zero) {
-            var chunk = remaining < maxSlice ? remaining : maxSlice;
-            slices.Add(chunk);
-            remaining -= chunk;
-        }
-
-        return slices;
-    }
-
     public async Task<int> RunWatch(
             string  sessionId,
             string  transcriptPath,
@@ -334,11 +291,9 @@ class WatchCommand(
         Console.SetOut(logWriter);
         Console.SetError(logWriter);
 
-        // Task 9: `logKey` is already the same `{sessionId}` / `{sessionId}-{agentId}`
-        // key WatcherManager uses for the pid file, so it doubles as the heartbeat key. Touch
-        // once here (startup) and then every main-loop iteration below so a hook-side
-        // staleness probe can distinguish a wedged (hung-but-alive) watcher from a healthy
-        // one — a PID-only liveness check can't tell the difference.
+        // logKey is the same key WatcherManager uses for the pid file, so it doubles as the heartbeat
+        // key. A hook-side staleness probe reads it to tell a wedged watcher from a healthy one, which
+        // a pid-only liveness check can't.
         var heartbeatPath = watchers.GetHeartbeatFilePath(logKey);
 
         void TouchHeartbeat() {
@@ -365,28 +320,6 @@ class WatchCommand(
         if (vendor == "claude" && agentId is null)
             _ = Task.Run(() => ClaudeJudgeWarmup.RunAsync(config, sessionId, transcriptPath, cwd, time, cts.Token));
 
-        var shutdownRequestedAt = 0L;
-        using var shutdownStamp = cts.Token.Register(() => Interlocked.CompareExchange(ref shutdownRequestedAt, time.GetTimestamp(), 0));
-
-        // A cancellable delay that keeps the heartbeat fresh across long waits. The connect-retry
-        // backoff grows to 30s — longer than the ~20s staleness threshold — so a single Task.Delay
-        // would let the heartbeat go stale mid-wait and get a healthy-but-reconnecting watcher
-        // falsely reaped. Chunk the wait into ≤5s slices (the same cadence as the main loop's
-        // disconnected branch), touching before each slice. Returns false if cancelled.
-        async Task<bool> DelayWithHeartbeatAsync(TimeSpan total) {
-            foreach (var chunk in HeartbeatSlices(total, HeartbeatSlice)) {
-                TouchHeartbeat();
-
-                try {
-                    await Task.Delay(chunk, time, cts.Token);
-                } catch (OperationCanceledException) {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
         // Tracks whether shutdown was triggered by the parent coding-agent process
         // dying without firing session-end. When true (1), the watcher takes over the
         // server's session-end POST (which the parent normally fires) so the read
@@ -401,9 +334,27 @@ class WatchCommand(
         var wedgedCeilingExit = 0;
         // set when Kiro Crew is finished with a session its still-running kiro-cli process hosts.
         var crewFinished = 0;
-        // set by a stop request, whose sender waits only seconds (a kill 5s later, or the server's drain wait);
-        // nothing waits on any other exit.
-        var stopRequested = 0;
+
+        _source    = new RecordingSource(sessionId, agentId, transcriptPath, vendor, cwd);
+        _skipTitle = skipTitle;
+        _parentPid = parentPid;
+        _beat      = TouchHeartbeat;
+        _stop      = cts.Cancel;
+
+        var hubConnection = BuildHubConnection($"{Url}/hubs/sessions");
+        var transport     = new HubRecorderTransport(hubConnection, _source.Key, TouchHeartbeat, message => Log(time, message), time);
+
+        using var recorder = new TranscriptRecorder(_source, transport, new NoStamps(), time, new RecorderContext(
+            new CapacitorServer(Url, config, profiles), this, time, message => Log(time, message), TouchHeartbeat));
+
+        var state = recorder.State;
+
+        // A stop request's sender waits only seconds (a kill 5s later, or the server's drain wait); nothing
+        // waits on any other exit.
+        void StopRequested() {
+            recorder.RequestStop();
+            cts.Cancel();
+        }
 
         // Handle SIGTERM/SIGINT for graceful shutdown.
         //
@@ -419,18 +370,15 @@ class WatchCommand(
         // loop notices cts and the drain / session-end POST never run.
         Console.CancelKeyPress += (_, e) => {
             e.Cancel = true;
-            Interlocked.Exchange(ref stopRequested, 1);
-            cts.Cancel();
+            StopRequested();
         };
         using var sigtermReg = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => {
-            Interlocked.Exchange(ref stopRequested, 1);
-            cts.Cancel();
+            StopRequested();
             ctx.Cancel = true;
         });
         using var stopRequest = WatcherStopSignal.Listen(Environment.ProcessId, () => {
             Log(time, "Stop requested; shutting down watcher");
-            Interlocked.Exchange(ref stopRequested, 1);
-            cts.Cancel();
+            StopRequested();
         });
 
         // SIGHUP defense-in-depth: setsid above should prevent the kernel from
@@ -445,50 +393,10 @@ class WatchCommand(
             ctx.Cancel = true;
         });
 
-        // declared before the parent-watchdog block so the staged parent-dead recovery
-        // task can read state.LastActivityAt as its no-progress clock.
-        var state = new WatchState();
-        state.LastActivityAt = time.GetUtcNow();
-        using var titleCts = new CancellationTokenSource();
-        state.TitleCancellation = titleCts.Token;
-
-        var titleStore = HarnessTitleStores.For(vendor, agentId, sessionId, transcriptPath, harnesses, accounts.TryLoad(), home);
-        if (vendor == "codex" && CodexRolloutReadings.For(accounts, transcriptPath, home) is { } codexReadings) state.ObserveCodexReadings = lines => codexReadings.Observe(lines);
-        if (titleStore is not null) state.TitleTracker = new HarnessTitleTracker(titleStore.RecordsChangeTime);
-
-        // Task 11 (D0) — one runtime rewrite-guard instance for this watcher's whole
-        // lifetime (its checkpoint/pending-range state is meant to persist poll-to-poll). Null
-        // for every non-Cursor vendor — DrainNewLines only exercises guard/ack logic when both
-        // vendor == "cursor" AND this is non-null.
-        var cursorGuard = vendor == "cursor" ? new CursorRewriteGuard(config, sessionId, time) : null;
-
-        // serializes a reconnect-discovered rewind
-        // (ApplyReconnectRewindAsync, run from the Reconnected handler) against DrainNewLines'
-        // own guard/state mutations (main loop + final drain). Both mutate WatchState's
-        // CursorByteOffset/LinesProcessed and CursorRewriteGuard's checkpoint; without this a
-        // rewind's three writes (byte offset, checkpoint reset, line cursor) could interleave with
-        // a concurrently-running drain — the SignalR client can fire Reconnected on a background
-        // task while the main loop is mid-DrainNewLines — re-creating the exact byte/line-frontier
-        // divergence review fix #2 (r2) closed. Only ever contended for Cursor (the only vendor
-        // with a guard/rewind interplay); null — and never awaited — for every other vendor.
-        var cursorRewindGate = vendor == "cursor" ? new SemaphoreSlim(1, 1) : null;
-
-        // Task 11 (D0) — a rewrite trip discards the unsent batch (DrainNewLines already
-        // returned without advancing state) and quarantines the session (the guard itself writes
-        // the marker); this just triggers the same clean-exit path StopWatcher uses.
-        void OnCursorRewriteDetected() {
-            Log(time, "cursor_transcript_rewrite_detected: discarding unsent batch and exiting (session quarantined)");
-            cts.Cancel();
-        }
-
-        // Task 8: the dedicated undelivered-transcript-tail spool, shared by the final-drain
-        // needs-import marker below and the shutdown-during-outage tail spool.
-        var transcriptSpool = new TranscriptSpool(config, time, Url);
-
         // Watch the spawning coding-agent process. If it dies without firing
         // session-end (crash, force-kill, IDE-detach), self-terminate within ~5s and
         // POST session-end instead of orphaning. Crucially, the cases where we DON'T
-        // monitor are now logged: a silently-skipped watchdog is exactly the failure
+        // monitor are logged: a silently-skipped watchdog is exactly the failure
         // that left sessions stuck "active" with the watcher still connected — the
         // resolved parent PID was already dead at startup and nothing recorded it.
         // Local so both the initial Monitor case and the recovery re-arm start the identical poll.
@@ -582,156 +490,43 @@ class WatchCommand(
                 break;
         }
 
+        // A recorder connects inside RunAsync, and these are armed only once it has: a cancel before then
+        // skips the final drain and end post.
+        _onConnected = () => {
+            if (armDeadParentOnConnect) ArmParentMonitor(parentPid!.Value);
 
-        // These vendors stream from the first line, and their session watchers are eligible for the
-        // idle ceiling from the start (ShouldEndOnIdle requires ThresholdReached). A no-op for child watchers.
-        if (SkipsThresholdBuffering(vendor)) state.ThresholdReached = true;
-        state.StartedAt          = time.GetUtcNow();
-        state.CopilotHostMissing = vendor == "copilot" && agentId is null && parentPid is null;
-        var idleTimeout = ResolveIdleWindow(vendor, isSessionWatcher: agentId is null, Environment.GetEnvironmentVariable);
-        var idleExit = false;
-        var copilotShutdownExit = false;
+            // Crew keeps one kiro-cli process for a whole chat and its in-process sub-agents, so the
+            // parent-pid watchdog alone would leave a finished sub-agent or a replaced chat session open.
+            if (WatchesCrewEnd(vendor, agentId, harnesses.Of<KiroHarness>().Crew.IsPresent())) {
+                var crewEnd = new KiroCrewSessionEndWatch(harnesses.Of<KiroHarness>().Crew, harnesses.Of<KiroHarness>().Paths.SessionsDir, sessionId, time);
 
-        // Idle grace between a Codex collab child's task_complete and its live
-        // subagent-stop POST (codex child watchers only — see the loop's stop check). The
-        // agent type is read lazily from the child rollout's own header, once.
-        var     codexSubagentStopGrace   = CodexSubagentTurnTracker.ResolveStopGrace(Environment.GetEnvironmentVariable("KCAP_CODEX_SUBAGENT_IDLE_MINUTES"));
-        string? codexChildAgentType      = null;
-        var     codexStopNextAttemptAt   = DateTimeOffset.MinValue;
+                // Checks once at once, so the session's chat is learned before Crew can drop it.
+                _ = Task.Run(async () => {
+                    for (var first = true; !cts.Token.IsCancellationRequested; first = false) {
+                        if (!first) {
+                            try {
+                                await Task.Delay(TimeSpan.FromSeconds(5), time, cts.Token);
+                            } catch (OperationCanceledException) {
+                                return;
+                            }
+                        }
 
-        if (skipTitle) {
-            state.TitleGenerated = true;
-        }
+                        if (crewEnd.IsFinished()) {
+                            Log(time, "Kiro Crew is finished with this session; shutting down watcher");
+                            Interlocked.Exchange(ref crewFinished, 1);
+                            cts.Cancel();
 
-        // Detect repository info upfront if cwd is provided (session watchers only, not agents)
-        if (cwd is not null) {
-            state.Repository        = await RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time);
-            state.LastRepoDetection = time.GetUtcNow();
-        }
-
-        state.Commits           = await GitHook.ObservationAsync(config, sessionId, agentId, cwd, time);
-        state.LastCoverageCheck = time.GetUtcNow();
-
-        if (vendor == "claude" && agentId is null) {
-            state.SecondaryRoots    = new SecondaryRepoRoots(GitRepository.FindRoot, cwd is null ? null : GitRepository.FindRoot(cwd));
-            state.SubagentCheckouts = new ClaudeSubagentCheckouts(transcriptPath);
-        }
-
-        // No cwd-derived repo (launched outside any checkout, or no cwd at all): fall back to
-        // scanning the transcript's own tool-use paths for a git root. Session-watcher only
-        // (agentId is null), matching the scope of the cwd-based detection above — a subagent
-        // watcher is always spawned with cwd: null too and has never had its own repo detection.
-        if (vendor == "claude" && agentId is null && (cwd is null || GitRepository.FindRoot(cwd) is null)) {
-            state.EvidenceScanner = new RepoEvidenceScanner<RepositoryPayload>(
-                GitRepository.FindRoot, root => RepositoryDetection.DetectRepositoryAsync(router, config, root, time),
-                p => p.Owner is not null && p.RepoName is not null);
-
-            try {
-                foreach (var line in File.ReadLinesShared(transcriptPath)) {
-                    if (await state.EvidenceScanner.OnLineAsync(vendor, line) is { } repo) {
-                        ApplyEvidenceRepo(state, repo);
-
-                        break;
+                            return;
+                        }
                     }
-                }
-            } catch {
-                // fail-open: this one-shot prefix scan is best-effort and must never block startup
+                }, cts.Token);
             }
-        }
-
-        Log(time, $"Watching {transcriptPath} for session {sessionId}" + (agentId is not null ? $" agent {agentId}" : ""));
-
-        var hubConnection = BuildHubConnection($"{Url}/hubs/sessions");
-
-        // runs DrainNewLines under cursorRewindGate when one
-        // exists, so it can never observe a half-applied reconnect rewind (see cursorRewindGate's
-        // declaration above). Thin wrapper over the directly-testable GatedDrainNewLinesAsync (see
-        // its doc — RunWatch itself can't be driven without a live SignalR reconnect).
-        var vibeSubagents = new List<MistralVibeSubagent>();
-        var grokSubagents = new GrokSubagentTracker();
-
-        Task<IReadOnlyList<string>> DrainNewLinesGatedAsync(bool isFinalDrainLocal, CancellationToken drainCt) {
-            // Vibe replaces journal segments as it publishes, so a refresh can race a file away;
-            // the next drain retries it.
-            if (vendor == "mistral-vibe") {
-                try { vibeSubagents.AddRange(MistralVibeLiveTranscript.Refresh(transcriptPath)); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-            }
-
-            return GatedDrainNewLinesAsync(
-                cursorRewindGate, hubConnection, sessionId, transcriptPath, agentId, state, vendor, drainCt,
-                isFinalDrain: isFinalDrainLocal, cursorGuard: cursorGuard, onCursorRewriteDetected: OnCursorRewriteDetected);
-        }
-
-        // Every later read of transcriptPath, the final drain and the session end included, sees the new path. A
-        // moved file keeps its lines, so the drain carries on from the line it had reached. A missing file this
-        // watcher has never seen, at line 0, is one Claude has not written yet. The cursor alone cannot tell:
-        // it stays at 0 while lines are buffered below the threshold.
-        var transcriptSeen = false;
-
-        void FollowMovedTranscript() {
-            if (vendor != "claude") return;
-
-            if (File.Exists(transcriptPath)) {
-                transcriptSeen = true;
-
-                return;
-            }
-
-            if ((!transcriptSeen && state.LinesProcessed == 0) || ClaudeTranscriptMove.Find(transcriptPath) is not { } moved) return;
-
-            Log(time, $"Transcript moved to {moved}; following it");
-            transcriptPath = moved;
-        }
-
-        // Register StopWatcher handler — server sends this to tell us to shut down
-        hubConnection.On<string>(
-            "StopWatcher",
-            reason => {
-                Log(time, $"Received StopWatcher signal: {reason}");
-                Interlocked.Exchange(ref stopRequested, 1);
-                cts.Cancel();
-            }
-        );
+        };
 
         hubConnection.Reconnecting += ex => {
             Log(time, $"SignalR reconnecting: {ex?.Message}");
 
             return Task.CompletedTask;
-        };
-
-        hubConnection.Reconnected += async connectionId => {
-            Log(time, $"SignalR reconnected: {connectionId}");
-
-            // Re-register with server and check if it's behind us (gap recovery)
-            try {
-                var serverPosition = await hubConnection.InvokeAsync<int>("WatcherConnect", sessionId, agentId, cancellationToken: cts.Token);
-
-                if (serverPosition < state.LinesProcessed) {
-                    Log(time, $"Server behind ({serverPosition} vs {state.LinesProcessed}), rewinding to resend gap");
-
-                    // hold cursorRewindGate for the whole
-                    // rewind so a concurrently-running DrainNewLines (main loop or final drain)
-                    // can never interleave with it (see cursorRewindGate's declaration above).
-                    // Thin wrapper over the directly-testable GatedApplyReconnectRewindAsync.
-                    var rewound = await GatedApplyReconnectRewindAsync(
-                        cursorRewindGate, state, serverPosition, sessionId, vendor, transcriptPath, cursorGuard, cts.Token);
-                    PublishAckedLines(sessionId, agentId, vendor, state);
-
-                    if (!rewound) {
-                        // the server's frontier couldn't be
-                        // resolved to an exact local byte offset (the local transcript has fewer
-                        // lines than the server acknowledged — truncated/replaced while this watcher
-                        // was disconnected). SeedCursorByteOffsetAsync already quarantined the
-                        // session rather than seed a bogus baseline; exit the same way a runtime
-                        // rewrite detection does — neither the byte nor the line frontier moved.
-                        Log(time, "cursor_transcript_rewrite_detected: reconnect frontier beyond local transcript — quarantined, exiting");
-                        cts.Cancel();
-                    }
-                }
-            } catch (Exception ex) {
-                Log(time, $"Re-register after reconnect failed: {ex.Message}");
-            }
         };
 
         hubConnection.Closed += ex => {
@@ -741,40 +536,9 @@ class WatchCommand(
             return Task.CompletedTask;
         };
 
-        // Connect with retry — server may not be up yet.
-        // Retry indefinitely with exponential backoff (cap 30s).
-        // The watcher is lightweight when idle and the session will end via session-end hook.
-        var connectRetryDelay = TimeSpan.FromSeconds(1);
-
-        while (!cts.Token.IsCancellationRequested) {
-            // Task 9: touch every connect-retry iteration too. A server outage at
-            // startup (backoff up to 30s) that lasts longer than grace+threshold (~50s) is a
-            // healthy-but-reconnecting watcher, NOT a wedged one — without a heartbeat here
-            // the hook probe would judge it stale and reap+respawn it repeatedly for the
-            // whole outage. Staleness must mean "the loop is wedged", not "the server is down".
-            TouchHeartbeat();
-
-            try {
-                await hubConnection.StartAsync(cts.Token);
-
-                break;
-            } catch (OperationCanceledException) {
-                // SIGTERM/SIGINT during connect — exit gracefully
-                break;
-            } catch (Exception ex) {
-                Log(time, $"SignalR connect failed, retrying in {connectRetryDelay.TotalSeconds}s: {ex.Message}");
-
-                // Heartbeat-aware wait: the backoff caps at 30s > the staleness threshold, so a
-                // plain Task.Delay here would falsely mark a reconnecting watcher stale.
-                if (!await DelayWithHeartbeatAsync(connectRetryDelay)) {
-                    break;
-                }
-
-                connectRetryDelay = TimeSpan.FromSeconds(Math.Min(connectRetryDelay.TotalSeconds * 2, 30));
-            }
-        }
-
-        if (cts.Token.IsCancellationRequested) {
+        try {
+            await recorder.RunAsync(cts.Token);
+        } catch (OperationCanceledException) when (transport.StoppedBeforeConnect) {
             await hubConnection.DisposeAsync();
 
             // A watcher stopped before it connected is still the one the Muse hook may have handed an
@@ -794,313 +558,8 @@ class WatchCommand(
             return 0;
         }
 
-        // Register with server and get resume position
-        state.LinesProcessed = await hubConnection.InvokeAsync<int>("WatcherConnect", sessionId, agentId, cts.Token);
-        // Lines the server already holds were flushed by an earlier watcher, so the tail is never held back.
-        if (state.LinesProcessed > 0) state.ThresholdReached = true;
-        PublishAckedLines(sessionId, agentId, vendor, state);
-        Log(time, $"Connected via SignalR, resuming from line {state.LinesProcessed}");
-        TouchHeartbeat();
-
-        // A resumed session can be told a path its transcript has already left; the seed and replay read it next.
-        FollowMovedTranscript();
-
-        // Armed only once connected: a cancel before then skips the final drain and end POST. The same holds below.
-        if (armDeadParentOnConnect) ArmParentMonitor(parentPid!.Value);
-
-        // Crew keeps one kiro-cli process for a whole chat and its in-process sub-agents, so the
-        // parent-pid watchdog alone would leave a finished sub-agent or a replaced chat session open.
-        if (WatchesCrewEnd(vendor, agentId, harnesses.Of<KiroHarness>().Crew.IsPresent())) {
-            var crewEnd = new KiroCrewSessionEndWatch(harnesses.Of<KiroHarness>().Crew, harnesses.Of<KiroHarness>().Paths.SessionsDir, sessionId, time);
-
-            // Checks once at once, so the session's chat is learned before Crew can drop it.
-            _ = Task.Run(async () => {
-                for (var first = true; !cts.Token.IsCancellationRequested; first = false) {
-                    if (!first) {
-                        try {
-                            await Task.Delay(TimeSpan.FromSeconds(5), time, cts.Token);
-                        } catch (OperationCanceledException) {
-                            return;
-                        }
-                    }
-
-                    if (crewEnd.IsFinished()) {
-                        Log(time, "Kiro Crew is finished with this session; shutting down watcher");
-                        Interlocked.Exchange(ref crewFinished, 1);
-                        cts.Cancel();
-
-                        return;
-                    }
-                }
-            }, cts.Token);
-        }
-
-        // seed the Cursor byte frontier to the TRUE byte
-        // offset of the resumed line on this INITIAL registration too, not only on a later
-        // reconnect rewind (ApplyReconnectRewindAsync already does this for reconnects, via the
-        // SAME SeedCursorByteOffsetAsync helper — see below). Without this, a watcher resuming at
-        // server line N left CursorByteOffset at its default (0): the ack-to-byte mapping
-        // (ByteOffsetForAckedLines) then measures acked lines relative to N but counts their bytes
-        // from 0, so a full ack of M resumed lines checkpointed at file offset M instead of N's
-        // true offset plus M — a permanent, silent line/byte-frontier misalignment that made the
-        // guard re-scan/re-hash old history forever.
-        //
-        // this resumed line number N is the server's own
-        // acknowledged frontier, which can legitimately exceed the local transcript's line count
-        // when it was truncated/replaced while this watcher was offline (e.g. across a restart).
-        // SeedCursorByteOffsetAsync quarantines the session and returns false in that case rather
-        // than seed a bogus (clamped-to-EOF) baseline; exit the same way a runtime rewrite
-        // detection does — the loop below never runs against a state that never resolved.
-        if (!await SeedCursorByteOffsetAsync(state, state.LinesProcessed, sessionId, vendor, transcriptPath, cursorGuard, cts.Token)) {
-            Log(time, "cursor_transcript_rewrite_detected: initial resume frontier beyond local transcript — quarantined, exiting");
-            cts.Cancel();
-        }
-
-        // Resumed mid-session: rebuild what the lines before the cursor would have fed, such as a tool
-        // that opened before it, which idle-end would otherwise mistake for an idle agent. At line 0 the
-        // drain delivers the whole file and feeds every consumer itself.
-        if (state.LinesProcessed > 0) {
-            var replay = new List<TranscriptReplayConsumer>();
-            if (state.SecondaryRoots is { } secondaryRoots) replay.Add(SecondaryRootsReplay(secondaryRoots, vendor));
-            if (vendor == "claude") replay.Add(CreatedPullRequestsReplay(state));
-            if (TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ClaudePendingToolCallsReplay(state.PendingClaudeToolCalls));
-            if (TracksCodexToolCalls(vendor)) replay.Add(CodexWatcherStateReplay(state, isChildWatcher: agentId is not null));
-            if (TracksCopilotToolCalls(vendor, transcriptPath, state.CopilotHostMissing)) replay.Add(new(WindowOnly: false, line => { UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line); return false; }));
-            await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, replay, cts.Token, message => Log(time, message));
-        }
-
-        // Gemini fires no subagent hooks, so the parent watcher discovers nested subagent
-        // transcripts itself and spawns a child watcher per subagent. Tracks the
-        // files already registered + spawned so each is handled exactly once across ticks.
-        var seenSubagents = new HashSet<string>(StringComparer.Ordinal);
-
-        // Codex-only sibling cache: rollouts in the shared sessions tree whose header proved
-        // they are NOT this session's subagents (top-level sessions, other parents' children).
-        // Keeps the per-tick scan to one header read per NEW file; a mid-write header is
-        // deliberately never cached so it is retried (see CodexSubagentDiscovery).
-        var codexRuledOutRollouts = new HashSet<string>(StringComparer.Ordinal);
-
-        // Codex-only: last mtime ChildRolloutAdvanced fired for, per child rollout — backs the
-        // re-ensure gate that respawns a reaped child watcher when its subagent re-engages.
-        var codexRolloutMtimes = new Dictionary<string, DateTime>(StringComparer.Ordinal);
-
-        // Every child watcher key this session watcher spawned (#550) — the parent is the only
-        // process that knows they exist, so its teardown must stop them.
-        var spawnedChildWatcherKeys = new HashSet<string>(StringComparer.Ordinal);
-
-        var museChildren = new MuseChildWatchers();
-
-        // The end the Muse SessionEnd hook handed over, posted after the final drain in place of the
-        // parent-exit synthesis.
-        MuseSessionEndRequest? museEndRequest = null;
-
-        try {
-            while (!cts.Token.IsCancellationRequested) {
-                // Task 9: touch every iteration — including no-content drains and
-                // while disconnected/reconnecting below — so staleness unambiguously means
-                // the loop itself is wedged, not merely idle or mid-reconnect.
-                TouchHeartbeat();
-
-                // Skip work while disconnected — SignalR auto-reconnect handles recovery.
-                // No point re-reading the file or attempting sends that will fail.
-                if (hubConnection.State != HubConnectionState.Connected) {
-                    // Freeze the idle clock: record when we went offline so the reconnect path can
-                    // subtract the outage from the idle measure.
-                    state.DisconnectedSince ??= time.GetUtcNow();
-
-                    try {
-                        await Task.Delay(TimeSpan.FromSeconds(5), time, cts.Token);
-                    } catch (OperationCanceledException) {
-                        break;
-                    }
-
-                    continue;
-                }
-
-                // Reconnected (or never disconnected): fold any accrued outage into the disconnected
-                // accumulator so the idle measure ignores it. DisconnectedSince is only ever set while
-                // disconnected, so this runs exactly once per outage.
-                if (state.DisconnectedSince is { } since) {
-                    state.AccumulatedDisconnected += time.GetUtcNow() - since;
-                    state.DisconnectedSince        = null;
-                }
-
-                // Periodically refresh repository info (every 60s)
-                if (cwd is not null && time.GetUtcNow() - state.LastRepoDetection > TimeSpan.FromSeconds(60)) {
-                    var detected = await RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time);
-
-                    // An evidence-derived repo may only be replaced by another real detection,
-                    // never cleared back to null by a launch-cwd probe that still finds nothing.
-                    if (ShouldReplaceRepository(detected, state.RepositoryFromEvidence)) {
-                        state.Repository = detected;
-                    }
-
-                    state.LastRepoDetection = time.GetUtcNow();
-                }
-
-                if (state.Commits is not CommitObservation.Uncovered && time.GetUtcNow() - state.LastCoverageCheck > TimeSpan.FromSeconds(60)) {
-                    state.Commits           = state.Commits.Rechecked(await GitHook.CoversAsync(config, sessionId, cwd, time));
-                    state.LastCoverageCheck = time.GetUtcNow();
-                }
-
-                if (time.GetUtcNow() - state.LastSubagentCheckoutScan >= SubagentCheckoutScanGap) {
-                    ObserveSubagentCheckouts(state, time);
-                    state.LastSubagentCheckoutScan = time.GetUtcNow();
-                }
-
-                if (SecondaryProbeDue(state, time.GetUtcNow())) {
-                    await LinkSecondaryPullRequestsAsync(state, sessionId, SecondaryProbeBudget, cts.Token, TouchHeartbeat);
-                    state.LastSecondaryProbe = time.GetUtcNow();
-                }
-
-                if (state.PendingCreatedPullRequests.Count > 0 && time.GetUtcNow() >= state.NextCreatedPullRequestLink) {
-                    await LinkCreatedPullRequestsAsync(state, sessionId, SecondaryProbeBudget, cts.Token, lastChance: false, TouchHeartbeat);
-                    // Only a PR left pending waits; one created after a clean pass goes at once.
-                    state.NextCreatedPullRequestLink = state.PendingCreatedPullRequests.Count > 0 ? time.GetUtcNow() + TimeSpan.FromSeconds(60) : default;
-                }
-
-                // Before the first drain, so a transcript title line can be judged by the time LLM titling is due.
-                if (agentId is null && TranscriptTitleLines.MayNeedHarnessTitles(vendor) && state.ServerRecordsHarnessTitles is null
-                 && time.GetUtcNow() - state.LastHarnessTitleProbe >= HarnessTitleRetryGap) {
-                    state.LastHarnessTitleProbe      = time.GetUtcNow();
-                    state.ServerRecordsHarnessTitles = await ProbeHarnessTitlesAsync(cts.Token, TouchHeartbeat);
-                }
-
-                // Read once before the first drain, so a store title the server records latches HarnessTitleSeen
-                // before that drain can trigger LLM titling.
-                if (titleStore is not null && state.LastHarnessTitleRead == default) {
-                    state.LastHarnessTitleRead = time.GetUtcNow();
-                    await PostHarnessTitleAsync(titleStore, sessionId, state, cts.Token, TouchHeartbeat);
-                }
-
-                FollowMovedTranscript();
-
-                // gated so this can never interleave with a
-                // concurrently-running reconnect rewind (see cursorRewindGate's declaration above).
-                var drained = await DrainNewLinesGatedAsync(isFinalDrainLocal: false, cts.Token);
-
-                // Also polled on its own cadence: some stores (Cursor's meta.json, Antigravity's sqlite row) change
-                // while the transcript stays idle.
-                if (titleStore is not null && (drained.Count > 0 || time.GetUtcNow() - state.LastHarnessTitleRead >= HarnessTitleRetryGap)) {
-                    state.LastHarnessTitleRead = time.GetUtcNow();
-                    await PostHarnessTitleAsync(titleStore, sessionId, state, cts.Token, TouchHeartbeat);
-                }
-
-                // Live subagent discovery: only the parent (agentId == null) watcher scans;
-                // child subagent watchers (agentId != null) just stream their file. Gemini
-                // scans its native nested chat files; OpenCode scans the nested dir the
-                // kcap plugin writes child {info,parts} into; Codex scans the shared
-                // sessions tree for collab subagent rollouts whose session_meta names this
-                // session as parent_thread_id (Codex 0.146+ multi-agent v2); Antigravity
-                // links subagents from the parent transcript's INVOKE_SUBAGENT steps — the
-                // spawn-time signal — drained this tick (nesting only, subagents are
-                // captured standalone already).
-                if (agentId is null && vendor == "gemini") {
-                    await ScanGeminiSubagents(sessionId, transcriptPath, seenSubagents, spawnedChildWatcherKeys, cts.Token);
-                } else if (agentId is null && vendor == "opencode") {
-                    await ScanOpenCodeSubagents(sessionId, transcriptPath, seenSubagents, spawnedChildWatcherKeys, cts.Token);
-                } else if (agentId is null && vendor == "codex") {
-                    await ScanCodexSubagents(sessionId, transcriptPath, seenSubagents, codexRuledOutRollouts,
-                        codexRolloutMtimes, spawnedChildWatcherKeys, cts.Token);
-                } else if (agentId is null && vendor == "antigravity") {
-                    await ScanAntigravitySubagentLinks(sessionId, drained, state.PostedSubagentLinks, cts.Token);
-                } else if (agentId is null && vendor == "mistral-vibe") {
-                    await ScanMistralVibeSubagents(sessionId, transcriptPath, vibeSubagents, seenSubagents, spawnedChildWatcherKeys, cts.Token);
-                } else if (agentId is null && vendor == "grok") {
-                    await ScanGrokSubagents(sessionId, transcriptPath, drained, grokSubagents, spawnedChildWatcherKeys, cts.Token);
-                } else if (agentId is null && vendor == "muse") {
-                    await ScanMuseSubagents(sessionId, transcriptPath, seenSubagents, museChildren, spawnedChildWatcherKeys, cts.Token);
-                    await StopFinishedMuseChildren(sessionId, transcriptPath, drained, museChildren);
-
-                    if (ClaimHandedMuseEnd(sessionId) is { } handed) {
-                        Log(time, "Muse SessionEnd hook handed its session-end to this watcher; draining and posting it");
-                        museEndRequest = handed;
-                        cts.Cancel();
-                    }
-                }
-
-                // A Codex collab CHILD posts its own subagent-stop once its rollout's
-                // last turn completed (task_complete, no tool call in flight) and the grace
-                // window elapsed — without this, the parent's session-end teardown is the only
-                // stop, so a finished child's chat card spins for the parent's whole lifetime.
-                // One-shot: the server dedupes lifecycle events per (session, agent), so the
-                // tracker latches after the first successful POST; a failed POST retries on the
-                // CodexSubagentStopRetryInterval cadence (never every 1s tick), and the
-                // parent-end teardown remains the backstop either way. The child keeps
-                // streaming after the stop — appends are not lifecycle-gated, so a re-engaged
-                // child's content still lands in its subsession.
-                if (agentId is not null && vendor == "codex"
-                 && time.GetUtcNow() >= codexStopNextAttemptAt
-                 && state.CodexSubagentTurn.ShouldPostStop(
-                        state.PendingCodexToolCalls.Count, state.LastActivityAt,
-                        time.GetUtcNow(), codexSubagentStopGrace)) {
-                    codexChildAgentType ??= ResolveCodexChildAgentType(transcriptPath);
-
-                    if (await PostCodexSubagentStopAsync(sessionId, agentId, codexChildAgentType, transcriptPath, cts.Token)) {
-                        state.CodexSubagentTurn.StopPosted = true;
-                        Log(time, $"Codex subagent {agentId} ({codexChildAgentType}) turn complete + idle "
-                          + $"{codexSubagentStopGrace.TotalMinutes:F0}m; posted subagent-stop");
-                    } else {
-                        codexStopNextAttemptAt = time.GetUtcNow() + CodexSubagentStopRetryInterval;
-                    }
-                }
-
-                // the Cursor idle clock must be the LATER of transcript
-                // activity AND the hook heartbeat mtime. Keyed on the CHILD's own session id for
-                // a child watcher (agentId), matching how CursorHookCommand actually writes the
-                // heartbeat (each hook touches its OWN raw session_id, never remapped to the
-                // parent) — not the RunWatch `sessionId` parameter, which for a child watcher is
-                // the PARENT id.
-                var cursorIdleClockAt = ResolveCursorIdleClock(
-                    vendor, state.LastActivityAt,
-                    vendor == "cursor" ? WatcherHeartbeat.Read(_markers.HeartbeatPath(agentId ?? sessionId)) : null);
-
-                if (ShouldEndOnIdle(
-                        vendor,
-                        isSessionWatcher: agentId is null,
-                        state.ThresholdReached,
-                        cursorIdleClockAt,
-                        time.GetUtcNow(),
-                        idleTimeout,
-                        // A tool awaiting its result suppresses idle-end: Codex tracks call_ids,
-                        // Antigravity counts PLANNER_RESPONSE calls vs result steps, Claude tracks
-                        // tool_use ids awaiting their tool_result, Copilot Local tracks toolCallIds.
-                        toolInFlight: vendor switch {
-                            "antigravity" => state.PendingAntigravityToolCalls > 0,
-                            "claude"      => state.PendingClaudeToolCalls.Count > 0,
-                            "copilot"     => CopilotToolInFlight(state, time.GetUtcNow()),
-                            _             => state.PendingCodexToolCalls.Count > 0,
-                        },
-                        disconnectedSinceActivity: state.AccumulatedDisconnected,
-                        noEndSignal: vendor == "copilot" && (state.CopilotHostMissing || Capacitor.Cli.Core.Harness.Copilot.CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)))) {
-                    Log(time, $"{vendor} transcript idle for >{idleTimeout.TotalMinutes:F0}m; ending session (idle_timeout)");
-                    idleExit = true;
-                    cts.Cancel();
-
-                    break;
-                }
-
-                if (CopilotShutdownSettled(state.CopilotShutdownSeenAt, time.GetUtcNow())) {
-                    Log(time, $"session.shutdown still the transcript's last line after {CopilotShutdownGrace.TotalSeconds:0}s; ending session (session_shutdown)");
-                    copilotShutdownExit = true;
-                    cts.Cancel();
-
-                    break;
-                }
-
-                try {
-                    await Task.Delay(TimeSpan.FromSeconds(1), time, cts.Token);
-                } catch (OperationCanceledException) {
-                    break;
-                }
-            }
-        } catch (OperationCanceledException) {
-            // Expected
-        }
-
-        // The kill grace runs from the stop request, not from the loop noticing it: an await the
-        // loop was in when the request arrived has already spent some of it.
-        var shutdownStarted = Volatile.Read(ref shutdownRequestedAt) is var requestedAt and not 0 ? requestedAt : time.GetTimestamp();
+        // The recorder can stop itself, and what cts drives has no reason to outlive it.
+        await cts.CancelAsync();
 
         // The Kiro hook posted session-start before this watcher spawned, so a session Crew finished
         // below the buffering threshold still sends its lines and its end rather than staying open.
@@ -1110,140 +569,16 @@ class WatchCommand(
             state.BufferedLineNumbers.Clear();
         }
 
-        // A held line stops the buffer short of the threshold however long the session is, so it
-        // must not read as a short session whose lines are dropped.
-        if (agentId is null && !state.ThresholdReached && HeldLineFor(sessionId, null).Held is not null) {
-            state.ThresholdReached = true;
-            state.BufferedLines.Clear();
-            state.BufferedLineNumbers.Clear();
-        }
+        await recorder.FinishAsync(CancellationToken.None);
 
-        FollowMovedTranscript();
+        transcriptPath = recorder.TranscriptPath;
 
-        // The turn may have landed after the last poll, so the unsent lines are read again here.
-        if (agentId is null && !state.ThresholdReached && UnsentLinesHoldRealTurn(transcriptPath, state.LinesProcessed, vendor, _parseErrors)) {
-            Log(time, "Session ended below the buffering threshold with a real turn; draining it");
-            state.ThresholdReached = true;
-            state.BufferedLines.Clear();
-            state.BufferedLineNumbers.Clear();
-
-            if (state is { InitialTitleSent: false, FirstUserText: not null }) {
-                state.InitialTitleSent = true;
-                _                      = SendInitialTitleAsync(hubConnection, sessionId, TruncateForTitle(state.FirstUserText, 80), time);
-            }
-        }
-
-        if (agentId is null && !state.ThresholdReached) {
-            // No turn means no lines to send. The session still ends: below, or through the vendor's own end hook.
-            Log(time, $"Session ended with no real turn ({state.BufferedLines.Count} line(s) buffered); not sending its lines");
-        } else {
-            Log(time, "Draining remaining lines...");
-
-            // Shutdown completion signal: the outage/idle-timeout final drain used
-            // to disable the half-written-line holdback unconditionally, which could consume a line
-            // the agent was still mid-write on. Instead:
-            //   1. Bounded-wait (≤2s) to give the writer a chance to finish the final record — a
-            //      trailing newline OR a parseable last line, NOT length-stability alone, since a
-            //      large write can pause mid-record past the window. This is best-effort ONLY.
-            //   2. Run the final drain with ConsumeIfComplete: the completeness decision is re-made
-            //      on the EXACT bytes consumed, so a line that resumed growing into an incomplete
-            //      record after the wait is still held, never sent-and-advanced (no TOCTOU).
-            // If the final line was held back at consume time, flag the session needs-import so
-            // `kcap import` can recover the tail rather than dropping a truncated line.
-            await WaitForFinalLineCompletionAsync(transcriptPath, time);
-            FollowMovedTranscript();
-
-            // gated for the same reason as the main loop's
-            // drain call above (a reconnect right at shutdown is unlikely but not impossible).
-            var finalDrained = await DrainNewLinesGatedAsync(isFinalDrainLocal: true, CancellationToken.None);
-
-            if (state.FinalDrainHeldIncompleteLine) {
-                // Keyed on the canonical server sessionId (not agentId) even for a subagent
-                // watcher — TranscriptSpool/LifecycleSpoolDrain's session-id space is the server's,
-                // and `kcap import`/session-needs-import operate at the session level.
-                Log(time, "Final transcript line still incomplete at consume time; held back and flagging needs-import");
-                transcriptSpool.MarkNeedsImport(sessionId, "shutdown final drain: last transcript line never completed (no newline, unparseable)");
-            }
-
-            // Task 8: shutdown-during-outage. DrainNewLines above only advances
-            // state.LinesProcessed past lines the hub actually CONFIRMED — a failed final-drain send
-            // (hub down, OR a HubException while the connection stays Connected — the generic catch
-            // below does not change connection state) leaves LinesProcessed unchanged, so any lines
-            // between there and EOF are undelivered and this is the LAST chance to act (the process
-            // exits right after). Run UNCONDITIONALLY — never gate on connection state: it is a cheap
-            // no-op when nothing is undelivered (position already == EOF). Spool the tail into the
-            // dedicated TranscriptSpool so the global drain (task 3) replays it after recovery,
-            // instead of silently dropping it.
-            FollowMovedTranscript();
-            await SpoolUndeliveredTranscriptTailAsync(
-                transcriptSpool, transcriptPath, sessionId, agentId, vendor, state.LinesProcessed, state.Commits, CancellationToken.None,
-                ShutdownTailRedactionDeadline - time.GetElapsedTime(shutdownStarted), state.LineOffsets);
-
-            // One last subagent-link scan on the way out — the parent may have emitted an
-            // INVOKE_SUBAGENT step after the main loop's last tick but before exit, and this is
-            // the watcher's final chance to link it.
-            if (agentId is null && vendor == "antigravity") {
-                await ScanAntigravitySubagentLinks(sessionId, finalDrained, state.PostedSubagentLinks, CancellationToken.None);
-            }
-
-            // A store the transcript does not carry can change after the loop's last read; this is its last chance.
-            if (titleStore is not null) {
-                await PostHarnessTitleAsync(titleStore, sessionId, state, CancellationToken.None, TouchHeartbeat,
-                    FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted));
-            }
-
-            // A PR is usually opened in the session's last turn, after the previous 60s probe.
-            await LinkCreatedPullRequestsAsync(state, sessionId,
-                FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, lastChance: true, TouchHeartbeat);
-            ObserveSubagentCheckouts(state, time, final: true);
-            await LinkSecondaryPullRequestsAsync(state, sessionId,
-                FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), CancellationToken.None, TouchHeartbeat);
-        }
-
-        // The generated title goes out over this connection, so it is waited for before the close.
-        if (state is { PendingTitle: { } pendingTitle, TitleGenerated: false }) {
-            // Read once: a connection reconnecting now can be back by the hand-off check, too late for a title that failed.
-            var connected = hubConnection.State == HubConnectionState.Connected;
-            var settled   = pendingTitle.IsCompleted;
-            if (!settled) {
-                var titleBudget = ShutdownTitleBudget(connected, Volatile.Read(ref stopRequested) == 1, time.GetElapsedTime(shutdownStarted));
-                Log(time, $"Waiting up to {Math.Max(0, titleBudget.TotalSeconds):F1}s for the generated title before closing the connection");
-
-                settled = await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, TouchHeartbeat);
-                if (!settled) await titleCts.CancelAsync();
-            }
-
-            // A kill follows a stop request within seconds and a title takes longer, and a closed connection cannot
-            // carry one at all, so another process finishes it over HTTP, as it does one that never reached the server.
-            if (!state.TitleGenerated && (Volatile.Read(ref stopRequested) == 1 || !connected || hubConnection.State != HubConnectionState.Connected)) {
-                Log(time, $"Generated title {(settled ? "not sent" : "not ready")} before shutdown; handing it to a title generator");
-                watchers.SpawnTitleGenerator(sessionId, vendor, transcriptPath);
-            } else if (!settled) {
-                Log(time, "Generated title not ready before shutdown; abandoning it");
-            }
-        }
-
-        // Signal drain complete to server.
-        // cts.Token is already cancelled by the time we reach here (that's the path
-        // that exits the main loop), so passing it would throw OperationCanceledException
-        // before the call lands. Use a fresh short-lived token so the server actually
-        // hears the drain-complete signal and can release StopAndDrainAsync waiters.
-        try {
-            if (hubConnection.State == HubConnectionState.Connected) {
-                using var drainCompleteCts = new CancellationTokenSource(TimeSpan.FromSeconds(5), time);
-                await hubConnection.InvokeAsync("WatcherDrainComplete", sessionId, agentId, cancellationToken: drainCompleteCts.Token);
-                Log(time, "Drain complete signaled to server");
-            }
-        } catch (Exception ex) {
-            Log(time, $"Failed to signal drain complete: {ex.Message}");
-        }
-
-        // #550: stop spawned child watchers on every parent exit path — SIGTERM-first, so each
-        // runs its final drain before the session-end POST below. A SIGKILLed parent skips this;
-        // that orphan case is what the codex-child reap ceiling backstops.
-        if (spawnedChildWatcherKeys.Count > 0) {
-            Log(time, $"Stopping {spawnedChildWatcherKeys.Count} spawned child watcher(s)");
-            await watchers.KillWatchers(spawnedChildWatcherKeys);
+        // Stop spawned child watchers on every parent exit path, SIGTERM-first, so each runs its final
+        // drain before the session-end post below. A SIGKILLed parent skips this, and the codex-child
+        // reap ceiling backstops that orphan.
+        if (_spawnedChildWatcherKeys.Count > 0) {
+            Log(time, $"Stopping {_spawnedChildWatcherKeys.Count} spawned child watcher(s)");
+            await watchers.KillWatchers(_spawnedChildWatcherKeys);
         }
 
         Log(time, $"Done. {state.LinesProcessed} total lines processed.");
@@ -1261,24 +596,19 @@ class WatchCommand(
             parentExited:  Volatile.Read(ref parentExited)      == 1,
             crewFinished:  Volatile.Read(ref crewFinished)      == 1,
             wedgedCeiling: Volatile.Read(ref wedgedCeilingExit) == 1,
-            idle:          idleExit,
+            idle:          recorder.EndedIdle,
             // Read again: a resume can land after the grace ran out, and the final drain does not always run.
-            copilotShutdown: copilotShutdownExit && !CopilotFinalizeDrainCommand.MovedPastShutdown(transcriptPath));
+            copilotShutdown: recorder.EndedOnCopilotShutdown && !CopilotFinalizeDrainCommand.MovedPastShutdown(transcriptPath));
 
-        // Task 11 (D1): Cursor's idle-ceiling exit must NOT synthesize session-end here —
-        // unlike Codex/Antigravity, end synthesis for Cursor has exactly one owner (the
-        // sessionEnd hook, or the server-side lease-gated sweep as a backstop). The watcher only
-        // exits and final-drains; posting here would race/duplicate whichever of those two
-        // eventually fires. Cursor's other exit paths (StopWatcher, parent-exit) are unaffected —
-        // this skip is scoped to idleExit specifically.
-        var cursorSuppressesEndPost = CursorSuppressesEndPost(vendor, idleExit);
+        // Cursor's idle-ceiling exit must not synthesize a session end: end synthesis has one owner, the
+        // sessionEnd hook or the server's lease-gated sweep, and posting here would race whichever fires.
+        // The watcher only exits and final-drains. Its other exit paths post as usual.
+        var cursorSuppressesEndPost = CursorSuppressesEndPost(vendor, recorder.EndedIdle);
 
-        // Belt-and-suspenders: normally a no-op by now — the final drain above (inside
-        // DrainNewLines's isFinalDrain branch) already promoted and applied any read fallback as
-        // part of the same batch that reaches the server on a clean exit. This only still matters
-        // if that branch didn't run at all (e.g. the final drain found the transcript file gone).
+        // Normally a no-op: the final drain already promoted any read fallback in the batch that reached the
+        // server. This matters only if that drain didn't run, for instance when the transcript was gone.
         if (state.EvidenceScanner is { } scanner && await scanner.PromoteReadFallbackAsync() is { } fallbackRepo) {
-            ApplyEvidenceRepo(state, fallbackRepo);
+            TranscriptRecorder.ApplyEvidenceRepo(state, fallbackRepo);
         }
 
         // Graceful exit: retire this incarnation's pid file so no later teardown/cleanup can act
@@ -1287,11 +617,11 @@ class WatchCommand(
         // so an end written after this look finds none and gets a watcher of its own.
         watchers.RemoveOwnPidFile(
             agentId is null ? sessionId : $"{sessionId}-{agentId}", Environment.ProcessId);
-        RetireAckCursor(sessionId, agentId, vendor);
+        recorder.RetireAckCursor();
 
-        if (TakesHandedMuseEnd(vendor, agentId)) museEndRequest ??= ClaimHandedMuseEnd(sessionId);
+        if (TakesHandedMuseEnd(vendor, agentId)) _museEndRequest ??= ClaimHandedMuseEnd(sessionId);
 
-        if (museEndRequest is { } handedEnd) {
+        if (_museEndRequest is { } handedEnd) {
             await SettleHandedEndsAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, handedEnd);
         } else if (PostsOwnSessionEnd(endReason, agentId, cursorSuppressesEndPost)) {
             // A resumed session's hooks claim its new process; the end of the one this watcher followed
@@ -1317,6 +647,211 @@ class WatchCommand(
 
         return 0;
     }
+
+    public async Task PrepareAsync(WatchState state, CancellationToken ct) {
+        var (sessionId, agentId, transcriptPath, vendor, cwd) = _source;
+
+        _titleStore = HarnessTitleStores.For(vendor, agentId, sessionId, transcriptPath, harnesses, accounts.TryLoad(), home);
+        if (vendor == "codex" && CodexRolloutReadings.For(accounts, transcriptPath, home) is { } codexReadings) state.ObserveCodexReadings = lines => codexReadings.Observe(lines);
+        if (_titleStore is not null) state.TitleTracker = new HarnessTitleTracker(_titleStore.RecordsChangeTime);
+
+        state.CopilotHostMissing = vendor == "copilot" && agentId is null && _parentPid is null;
+        _codexSubagentStopGrace  = CodexSubagentTurnTracker.ResolveStopGrace(Environment.GetEnvironmentVariable("KCAP_CODEX_SUBAGENT_IDLE_MINUTES"));
+
+        if (_skipTitle) {
+            state.TitleGenerated = true;
+        }
+
+        // Detect repository info upfront if cwd is provided (session watchers only, not agents)
+        if (cwd is not null) {
+            state.Repository        = await RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time);
+            state.LastRepoDetection = time.GetUtcNow();
+        }
+
+        state.Commits           = await GitHook.ObservationAsync(config, sessionId, agentId, cwd, time);
+        state.LastCoverageCheck = time.GetUtcNow();
+
+        if (vendor == "claude" && agentId is null) {
+            state.SecondaryRoots    = new SecondaryRepoRoots(GitRepository.FindRoot, cwd is null ? null : GitRepository.FindRoot(cwd));
+            state.SubagentCheckouts = new ClaudeSubagentCheckouts(transcriptPath);
+        }
+
+        // No cwd-derived repo (launched outside any checkout, or no cwd at all): fall back to scanning the
+        // transcript's own tool-use paths for a git root. Session watchers only, matching the cwd detection
+        // above: a subagent watcher is always spawned with no cwd and never had its own repo detection.
+        if (vendor == "claude" && agentId is null && (cwd is null || GitRepository.FindRoot(cwd) is null)) {
+            state.EvidenceScanner = new RepoEvidenceScanner<RepositoryPayload>(
+                GitRepository.FindRoot, root => RepositoryDetection.DetectRepositoryAsync(router, config, root, time),
+                p => p.Owner is not null && p.RepoName is not null);
+
+            try {
+                foreach (var line in File.ReadLinesShared(transcriptPath)) {
+                    if (await state.EvidenceScanner.OnLineAsync(vendor, line) is { } repo) {
+                        TranscriptRecorder.ApplyEvidenceRepo(state, repo);
+
+                        break;
+                    }
+                }
+            } catch {
+                // fail-open: this one-shot prefix scan is best-effort and must never block startup
+            }
+        }
+    }
+
+    public void OnConnected() => _onConnected();
+
+    // Vibe replaces journal segments as it publishes, so a refresh can race a file away; the next drain
+    // retries it.
+    public void RefreshTranscript(string transcriptPath) {
+        if (_source.Vendor != "mistral-vibe") return;
+
+        try { _vibeSubagents.AddRange(MistralVibeLiveTranscript.Refresh(transcriptPath)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    public async Task BeforeDrainAsync(WatchState state, CancellationToken ct) {
+        var (sessionId, agentId, _, vendor, cwd) = _source;
+
+        // Periodically refresh repository info (every 60s)
+        if (cwd is not null && time.GetUtcNow() - state.LastRepoDetection > TimeSpan.FromSeconds(60)) {
+            var detected = await RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time);
+
+            // An evidence-derived repo may only be replaced by another real detection,
+            // never cleared back to null by a launch-cwd probe that still finds nothing.
+            if (ShouldReplaceRepository(detected, state.RepositoryFromEvidence)) {
+                state.Repository = detected;
+            }
+
+            state.LastRepoDetection = time.GetUtcNow();
+        }
+
+        if (state.Commits is not CommitObservation.Uncovered && time.GetUtcNow() - state.LastCoverageCheck > TimeSpan.FromSeconds(60)) {
+            state.Commits           = state.Commits.Rechecked(await GitHook.CoversAsync(config, sessionId, cwd, time));
+            state.LastCoverageCheck = time.GetUtcNow();
+        }
+
+        if (time.GetUtcNow() - state.LastSubagentCheckoutScan >= SubagentCheckoutScanGap) {
+            ObserveSubagentCheckouts(state, time);
+            state.LastSubagentCheckoutScan = time.GetUtcNow();
+        }
+
+        if (SecondaryProbeDue(state, time.GetUtcNow())) {
+            await LinkSecondaryPullRequestsAsync(state, sessionId, SecondaryProbeBudget, ct, _beat);
+            state.LastSecondaryProbe = time.GetUtcNow();
+        }
+
+        if (state.PendingCreatedPullRequests.Count > 0 && time.GetUtcNow() >= state.NextCreatedPullRequestLink) {
+            await LinkCreatedPullRequestsAsync(state, sessionId, SecondaryProbeBudget, ct, lastChance: false, _beat);
+            // Only a PR left pending waits; one created after a clean pass goes at once.
+            state.NextCreatedPullRequestLink = state.PendingCreatedPullRequests.Count > 0 ? time.GetUtcNow() + TimeSpan.FromSeconds(60) : default;
+        }
+
+        // Before the first drain, so a transcript title line can be judged by the time LLM titling is due.
+        if (agentId is null && TranscriptTitleLines.MayNeedHarnessTitles(vendor) && state.ServerRecordsHarnessTitles is null
+         && time.GetUtcNow() - state.LastHarnessTitleProbe >= HarnessTitleRetryGap) {
+            state.LastHarnessTitleProbe      = time.GetUtcNow();
+            state.ServerRecordsHarnessTitles = await ProbeHarnessTitlesAsync(ct, _beat);
+        }
+
+        // Read once before the first drain, so a store title the server records latches HarnessTitleSeen
+        // before that drain can trigger LLM titling.
+        if (_titleStore is not null && state.LastHarnessTitleRead == default) {
+            state.LastHarnessTitleRead = time.GetUtcNow();
+            await PostHarnessTitleAsync(_titleStore, sessionId, state, ct, _beat);
+        }
+    }
+
+    public async Task AfterDrainAsync(WatchState state, string transcriptPath, IReadOnlyList<string> drained, CancellationToken ct) {
+        var (sessionId, agentId, _, vendor, _) = _source;
+
+        // Also polled on its own cadence: some stores (Cursor's meta.json, Antigravity's sqlite row) change
+        // while the transcript stays idle.
+        if (_titleStore is not null && (drained.Count > 0 || time.GetUtcNow() - state.LastHarnessTitleRead >= HarnessTitleRetryGap)) {
+            state.LastHarnessTitleRead = time.GetUtcNow();
+            await PostHarnessTitleAsync(_titleStore, sessionId, state, ct, _beat);
+        }
+
+        // Live subagent discovery: only the parent watcher scans; child watchers just stream their file.
+        // Gemini scans its native nested chat files; OpenCode scans the nested dir the kcap plugin writes
+        // child {info,parts} into; Codex scans the shared sessions tree for collab rollouts whose
+        // session_meta names this session as parent_thread_id; Antigravity links subagents from the
+        // INVOKE_SUBAGENT steps drained this tick, nesting only, since subagents are captured standalone.
+        if (agentId is null && vendor == "gemini") {
+            await ScanGeminiSubagents(sessionId, transcriptPath, _seenSubagents, _spawnedChildWatcherKeys, ct);
+        } else if (agentId is null && vendor == "opencode") {
+            await ScanOpenCodeSubagents(sessionId, transcriptPath, _seenSubagents, _spawnedChildWatcherKeys, ct);
+        } else if (agentId is null && vendor == "codex") {
+            await ScanCodexSubagents(sessionId, transcriptPath, _seenSubagents, _codexRuledOutRollouts,
+                _codexRolloutMtimes, _spawnedChildWatcherKeys, ct);
+        } else if (agentId is null && vendor == "antigravity") {
+            await ScanAntigravitySubagentLinks(sessionId, drained, state.PostedSubagentLinks, ct);
+        } else if (agentId is null && vendor == "mistral-vibe") {
+            await ScanMistralVibeSubagents(sessionId, transcriptPath, _vibeSubagents, _seenSubagents, _spawnedChildWatcherKeys, ct);
+        } else if (agentId is null && vendor == "grok") {
+            await ScanGrokSubagents(sessionId, transcriptPath, drained, _grokSubagents, _spawnedChildWatcherKeys, ct);
+        } else if (agentId is null && vendor == "muse") {
+            await ScanMuseSubagents(sessionId, transcriptPath, _seenSubagents, _museChildren, _spawnedChildWatcherKeys, ct);
+            await StopFinishedMuseChildren(sessionId, transcriptPath, drained, _museChildren);
+
+            if (ClaimHandedMuseEnd(sessionId) is { } handed) {
+                Log(time, "Muse SessionEnd hook handed its session-end to this watcher; draining and posting it");
+                _museEndRequest = handed;
+                _stop();
+            }
+        }
+
+        // A Codex collab child posts its own subagent-stop once its rollout's last turn completed and the
+        // grace elapsed; otherwise the parent's end is the only stop, and a finished child's card spins for
+        // the parent's whole lifetime. The server dedupes lifecycle events, so the tracker latches after the
+        // first success, and a failed post retries on its own interval. The child keeps streaming after the
+        // stop, since appends are not lifecycle-gated.
+        if (agentId is not null && vendor == "codex"
+         && time.GetUtcNow() >= _codexStopNextAttemptAt
+         && state.CodexSubagentTurn.ShouldPostStop(
+                state.PendingCodexToolCalls.Count, state.LastActivityAt,
+                time.GetUtcNow(), _codexSubagentStopGrace)) {
+            _codexChildAgentType ??= ResolveCodexChildAgentType(transcriptPath);
+
+            if (await PostCodexSubagentStopAsync(sessionId, agentId, _codexChildAgentType, transcriptPath, ct)) {
+                state.CodexSubagentTurn.StopPosted = true;
+                Log(time, $"Codex subagent {agentId} ({_codexChildAgentType}) turn complete + idle "
+                  + $"{_codexSubagentStopGrace.TotalMinutes:F0}m; posted subagent-stop");
+            } else {
+                _codexStopNextAttemptAt = time.GetUtcNow() + CodexSubagentStopRetryInterval;
+            }
+        }
+    }
+
+    public async Task AfterFinalDrainAsync(WatchState state, IReadOnlyList<string> drained, long shutdownStarted, CancellationToken ct) {
+        var (sessionId, agentId, _, vendor, _) = _source;
+
+        // The parent may have emitted an INVOKE_SUBAGENT step after the loop's last tick, and this is the
+        // last chance to link it.
+        if (agentId is null && vendor == "antigravity") {
+            await ScanAntigravitySubagentLinks(sessionId, drained, state.PostedSubagentLinks, ct);
+        }
+
+        // A store the transcript does not carry can change after the loop's last read; this is its last chance.
+        if (_titleStore is not null) {
+            await PostHarnessTitleAsync(_titleStore, sessionId, state, ct, _beat,
+                FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted));
+        }
+
+        // A PR is usually opened in the session's last turn, after the previous 60s probe.
+        await LinkCreatedPullRequestsAsync(state, sessionId,
+            FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), ct, lastChance: true, _beat);
+        ObserveSubagentCheckouts(state, time, final: true);
+        await LinkSecondaryPullRequestsAsync(state, sessionId,
+            FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), ct, _beat);
+    }
+
+    public IReadOnlyList<(long Idx, string Line)> ReadAntigravityUsage(string dbPath, long afterIdx, string? createdAt) =>
+        AntigravityGenMetadataDb.ReadUsageLines(dbPath, afterIdx, createdAt);
+
+    public Task<ClaudeCliResult?> GenerateTitleAsync(string userText, string? assistantText, CancellationToken ct) =>
+        TitleGeneration.GenerateAsync(userText, assistantText, time, m => Log(time, m), profiles.Resolution.Profile, harnesses, _source.Vendor, ct);
+
+    public void HandOffTitle(string transcriptPath) => watchers.SpawnTitleGenerator(_source.SessionId, _source.Vendor, transcriptPath);
 
     /// <summary>
     /// Gemini fires no subagent hooks, so the parent watcher discovers nested subagent
@@ -1837,15 +1372,6 @@ class WatchCommand(
     internal static bool SecondaryProbeDue(WatchState state, DateTimeOffset now) =>
         state.SecondaryRoots is { Roots.Count: > 0 } && now - state.LastSecondaryProbe > TimeSpan.FromSeconds(60);
 
-    /// <summary>
-    /// A checkout mutated before the restart, which a resumed watcher's drain never shows its roots.
-    /// </summary>
-    internal static TranscriptReplayConsumer SecondaryRootsReplay(SecondaryRepoRoots roots, string vendor) =>
-        new(WindowOnly: false, line => {
-            roots.OnLine(vendor, line);
-            return roots.IsFull;
-        });
-
     static readonly TimeSpan SubagentCheckoutScanGap = TimeSpan.FromSeconds(10);
 
     internal static void ObserveSubagentCheckouts(WatchState state, TimeProvider time, bool final = false) {
@@ -1855,23 +1381,6 @@ class WatchCommand(
         subagentCheckouts.FeedInto(secondaryRoots, final);
         if (secondaryRoots.Roots.Count > knownRoots) Log(time, $"Probing secondary checkouts for a PR: {string.Join(", ", secondaryRoots.Roots)}");
     }
-
-    internal static void ObserveCreatedPullRequest(WatchState state, string line) {
-        if (CreatedPullRequests.FromClaudeLine(line) is not { } pr) return;
-        if (state.LinkedPullRequests.Contains((pr.Owner, pr.RepoName, pr.Number)) || state.PendingCreatedPullRequests.Contains(pr)) return;
-
-        state.PendingCreatedPullRequests.Add(pr);
-    }
-
-    /// <summary>
-    /// A PR created before a restart: the watcher keeps no record of what it linked, and the server
-    /// takes a PR it already has as a no-op.
-    /// </summary>
-    internal static TranscriptReplayConsumer CreatedPullRequestsReplay(WatchState state) =>
-        new(WindowOnly: false, line => {
-            ObserveCreatedPullRequest(state, line);
-            return false;
-        });
 
     /// <summary>
     /// Whitelist of vendor values accepted by the server's session-end route.
@@ -1905,13 +1414,6 @@ class WatchCommand(
     /// </summary>
     internal static bool PostsOwnSessionEnd([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? endReason, string? agentId, bool cursorSuppressesEndPost) =>
         endReason is not null && agentId is null && !cursorSuppressesEndPost;
-
-    /// <summary>
-    /// Vendors whose watcher sends from the first line instead of holding lines back until a real turn.
-    /// Their start hook (or Antigravity's pre-spawn POST) registers the session before the watcher reads
-    /// anything. See <see cref="RunWatch"/>'s call site.
-    /// </summary>
-    internal static bool SkipsThresholdBuffering(string vendor) => vendor is "antigravity" or "cursor" or "mistral-vibe" or "grok" or "muse";
 
     /// <summary>A Copilot watcher's parent was found by name, so it being gone means the agent has stopped, not
     /// that a hook returned. Waiting for a re-resolve could not help: nothing above a watcher names the agent.</summary>
@@ -2245,797 +1747,6 @@ class WatchCommand(
         return false;
     }
 
-    // review fix #2/#3 — internal (not private) so the Cursor rewrite-guard wiring
-    // (shrink detection, the periodic full-prefix cadence, and the acked-byte-offset checkpoint)
-    // is directly regression-testable: every path exercised by those tests trips the guard and
-    // returns BEFORE ever touching `hubConnection`, so an unconnected/never-started HubConnection
-    // instance is sufficient — no live SignalR server needed.
-    internal async Task<IReadOnlyList<string>> DrainNewLines(
-            HubConnection      hubConnection,
-            string             sessionId,
-            string             transcriptPath,
-            string?            agentId,
-            WatchState         state,
-            string             vendor,
-            CancellationToken  ct,
-            bool               isFinalDrain            = false,
-            CursorRewriteGuard? cursorGuard             = null,
-            Action?            onCursorRewriteDetected = null
-        ) {
-        try {
-            if (!File.Exists(transcriptPath)) {
-                return [];
-            }
-
-            // Task 11 (D1) — a Cursor session already given up on (quarantined by the
-            // runtime rewrite guard) must never have more transcript lines delivered by the
-            // watcher either; and while an ordering-sensitive hook's side-effect barrier is
-            // pending, HOLD delivery entirely this poll (retry next tick) rather than risk
-            // normalizing a transcript line ahead of the attachment it depends on (the watcher's
-            // half of the barrier Task 8 introduced and Task 10 wired into the backfill).
-            if (vendor == "cursor") {
-                if (_markers.IsQuarantined(sessionId)) {
-                    return [];
-                }
-
-                if (_markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)) {
-                    return [];
-                }
-            }
-
-            // Task 11 (D0/D3) — the runtime two-zone rewrite guard (Task 7) verifies the
-            // byte range this poll is about to send hasn't been rewritten underneath the watcher.
-            // Record the new range's hash NOW (right after the line-based read snapshot below) and
-            // re-verify the SAME range, freshly re-read from disk, immediately before send below —
-            // a rewrite racing between the two reads is exactly what VerifyNewRange/VerifyPriorZone
-            // are built to catch. A trip discards the unsent batch and quarantines the session (the
-            // guard does that itself); the caller (RunWatch) exits via onCursorRewriteDetected.
-            var cursorGuardOldOffset    = state.CursorByteOffset;
-            var priorLineCursorForGuard = state.LinesProcessed;
-
-            // decide BEFORE reading whether this poll needs
-            // the (rare, amortized) periodic full-prefix re-hash, which genuinely needs the whole
-            // file, or can use a BOUNDED read starting near the guard's own prior-tail zone. Moved
-            // ahead of the read (previously decided only after) so ReadNewCompleteLinesAsync can be
-            // told where to start — an idle poll with nothing new then allocates ~nothing instead
-            // of a file-sized buffer every second, which the previous unconditional whole-file
-            // `captureRawBytes` read did even for large, mostly-unchanged Cursor transcripts.
-            var cursorFullPrefixPollNow  = false;
-            var cursorBoundedReadFrom    = 0L;
-            var cursorGuardPollCountPeek = 0;
-
-            if (vendor == "cursor" && cursorGuard is not null) {
-                // Periodic full-prefix re-hash: CursorRewriteGuard.VerifyFullPrefix existed (D0)
-                // but was never called from anywhere until review fix #2 wired it in on the Nth
-                // poll. Review fix #3 seeds it on the very FIRST poll too (not only lazily via the
-                // guard's own first call, which without this never happens before poll N) — without
-                // an early seed, a mid-region rewrite landing anywhere in polls 1..N-1 has no
-                // baseline to be caught against until poll N seeds the ALREADY-rewritten file as if
-                // it were the original, valid one. Every Nth poll after that still compares.
-                //
-                // PEEK the would-be next count for this
-                // poll's cadence decision WITHOUT committing it to state yet. The old code
-                // incremented state.CursorGuardPollCount right here, unconditionally — if the
-                // guarded read below then hit a transient IOException (caught by this method's
-                // outer catch), the counter was already advanced even though VerifyFullPrefix was
-                // never reached for this poll, so the NEXT successful poll saw a cadence value one
-                // past due and silently skipped the full-prefix baseline it was supposed to
-                // perform — recreating the polls-1..N-1 blind window this cadence exists to close.
-                // The counter is committed (see below, right after the read actually succeeds)
-                // ONLY once the read this decision fed has actually completed.
-                cursorGuardPollCountPeek = state.CursorGuardPollCount + 1;
-                cursorFullPrefixPollNow = cursorGuardPollCountPeek == 1
-                    || cursorGuardPollCountPeek % CursorFullPrefixVerifyEveryNPolls == 0;
-
-                if (!cursorFullPrefixPollNow) {
-                    cursorBoundedReadFrom = Math.Max(0, cursorGuardOldOffset - cursorGuard.TrailingBytes);
-                }
-            }
-
-            // Read only newline-TERMINATED lines. A final line still being written by the agent
-            // (no trailing '\n' yet) is held back — sending its truncated prefix and advancing the
-            // position past it permanently drops the completed line (dropped Read results;
-            // large tool_result lines are slow to flush and get caught mid-write). The next drain
-            // re-reads it once complete.
-            NewTranscriptLines drainRead;
-            await using (var stream = new FileStream(
-                    transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
-                // Shutdown final drain: consume an unterminated final line only if
-                // the exact bytes read parse as a complete JSON record (re-validated at consume time,
-                // so no TOCTOU with the bounded pre-wait); a still-growing/unparseable tail is held.
-                // Every live drain always holds an unterminated final line.
-                //
-                // Cursor additionally captures the raw byte buffer this
-                // read decodes from (captureRawBytes), so the rewrite guard below can hash the
-                // EXACT bytes that produced `newLines` instead of a separately reopened read.
-                // rawBytesReadFrom/newRangeByteOffset bound
-                // that capture instead of always reading the whole file (see above).
-                drainRead = await ReadNewCompleteLinesAsync(
-                    stream, state.LinesProcessed,
-                    isFinalDrain ? IncompleteFinalLinePolicy.ConsumeIfComplete : IncompleteFinalLinePolicy.Hold,
-                    ct, captureRawBytes: vendor == "cursor",
-                    rawBytesReadFrom: cursorBoundedReadFrom,
-                    newRangeByteOffset: vendor == "cursor" ? cursorGuardOldOffset : null,
-                    lineOffsets: state.LineOffsets);
-            }
-
-            // commit the cadence counter now that the guarded
-            // read above actually completed without throwing. A failure never reaches this line, so
-            // the next poll re-peeks from the SAME starting count — if THIS poll was full-prefix-due
-            // but failed before reading, the next successful poll is still due (nothing was skipped).
-            if (vendor == "cursor" && cursorGuard is not null) {
-                state.CursorGuardPollCount = cursorGuardPollCountPeek;
-            }
-
-            // Surface whether the final drain held back an incomplete (unterminated/unparseable)
-            // final line so the shutdown path can flag the session needs-import instead of dropping
-            // a truncated tail. Only meaningful for the final drain; live drains hold routinely.
-            if (isFinalDrain) {
-                state.FinalDrainHeldIncompleteLine = drainRead.HeldIncompleteFinalLine;
-            }
-
-            // cursorGuardNewLength is the SAME capped byte length
-            // ReadNewCompleteLinesAsync sampled while building drainRead above
-            // (drainRead.SnapshotByteLength), NOT a fresh FileInfo.Length re-sample. Re-sampling
-            // here raced an append between that line-based read and this call: any bytes appended
-            // in that window would be hashed/checkpointed below as part of "the batch just sent"
-            // even though drainRead (and therefore newLines/newLineNumbers) never saw them — a
-            // silent, permanent skip on the next poll, since the guard's next prior-zone start
-            // would already be past them.
-            var cursorGuardNewLength   = drainRead.SnapshotByteLength;
-            var cursorGuardSnapshot    = drainRead.SnapshotBytes;
-            var cursorGuardSnapshotAt  = drainRead.SnapshotStartOffset;
-            byte[]? cursorGuardVerifiedRange = null;
-
-            if (vendor == "cursor" && cursorGuard is not null && cursorGuardSnapshot is not null) {
-                // every hash below is derived from cursorGuardSnapshot, the
-                // raw byte buffer ReadNewCompleteLinesAsync captured during the SAME capped read
-                // that decoded drainRead.Lines (above) — never from a separate file reopen. The
-                // previous wiring reopened the file HERE to hash the prior zone and record the new
-                // range, which left a TOCTOU window: a rewrite landing between the decode read and
-                // this reopen produced a hash for a snapshot the batch never actually came from,
-                // and the later pre-send VerifyNewRange re-read (still a genuine fresh reopen,
-                // right before the RPC — unchanged below) would then agree with THIS hash (both
-                // saw the same, but stale, later snapshot) and never trip.
-                //
-                // A shrink must trip the guard even though nothing "new" was read — VerifyNotShrunk
-                // owns writing the quarantine marker itself (mirroring every other Verify* method).
-                if (!cursorGuard.VerifyNotShrunk(cursorGuardNewLength, cursorGuardOldOffset)) {
-                    onCursorRewriteDetected?.Invoke();
-                    return [];
-                }
-
-                // Prior-zone check runs unconditionally (independent of growth): an in-place
-                // rewrite of already-checkpointed bytes that doesn't change the file's length is
-                // caught here even when cursorGuardNewLength == cursorGuardOldOffset. A single
-                // check suffices now — there is no separate "before/after" read of this snapshot to
-                // race against (it was captured once, atomically, above). cursorGuardSnapshotAt
-                // (review fix r3 #3) is non-zero on a bounded (non-full-prefix) poll — HashPriorZone
-                // clips its window to whatever the snapshot actually covers.
-                if (!cursorGuard.VerifyPriorZone(cursorGuard.HashPriorZone(cursorGuardSnapshot, cursorGuardSnapshotAt))) {
-                    onCursorRewriteDetected?.Invoke();
-                    return [];
-                }
-
-                if (cursorGuardNewLength > cursorGuardOldOffset) {
-                    var rangeLength = (int)(cursorGuardNewLength - cursorGuardOldOffset);
-                    var rangeBytes  = cursorGuardSnapshot.AsSpan((int)(cursorGuardOldOffset - cursorGuardSnapshotAt), rangeLength);
-                    cursorGuard.RecordNewRangeRead(cursorGuardOldOffset, rangeLength, rangeBytes);
-                }
-
-                // Periodic full-prefix re-hash — cadence decided up front (cursorFullPrefixPollNow)
-                // so the expensive whole-file read/hash only ever happens on its own cadence; a
-                // bounded (non-cadence) poll's snapshot never starts at byte 0, so it could never
-                // correctly feed VerifyFullPrefix anyway.
-                if (cursorFullPrefixPollNow) {
-                    var sample = new CursorAppendOnlyProbe.Sample(
-                        cursorGuardSnapshot.Length, CursorAppendOnlyProbe.Sha256Hex(cursorGuardSnapshot));
-
-                    if (!cursorGuard.VerifyFullPrefix(sample, cursorGuardSnapshot)) {
-                        onCursorRewriteDetected?.Invoke();
-                        return [];
-                    }
-                }
-            }
-
-            // Cut the read itself at a held line: the raw-line consumers below must see what follows
-            // it once, on the poll that delivers it.
-            var captured = HeldLineFor(sessionId, agentId).Capture(drainRead.Lines, drainRead.LineNumbers,
-                (reason, count) => Log(time, $"Capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"));
-            if (captured.Consumed < drainRead.Lines.Count) {
-                drainRead = drainRead with {
-                    Lines        = drainRead.Lines.GetRange(0, captured.Consumed),
-                    LineNumbers  = drainRead.LineNumbers.GetRange(0, captured.Consumed),
-                    NextPosition = drainRead.LineNumbers[captured.Consumed]
-                };
-            }
-
-            var newLineNumbers = drainRead.LineNumbers;
-            var newLines       = captured.Lines;
-            // The server drops a line numbered at or below one it took, so a shorter file never
-            // lowers the cursor; only a reconnect rewind does. kcap import repairs lines written
-            // below it.
-            var linesRead = Math.Max(drainRead.NextPosition, state.LinesProcessed);
-
-            if (drainRead.NextPosition < state.LinesProcessed) {
-                if (!state.ShrinkLogged) {
-                    state.ShrinkLogged = true;
-                    Log(time, $"Transcript is shorter than the line cursor ({drainRead.NextPosition} < {state.LinesProcessed}); keeping the cursor, lines below it are not sent");
-                }
-            } else {
-                state.ShrinkLogged = false;
-            }
-
-            state.Commits = state.Commits.Collect();
-
-            // Track Antigravity in-flight tool calls + the latest step timestamp from this
-            // drain's transcript lines (BEFORE appending USAGE lines, which aren't transcript
-            // steps). The created_at anchors USAGE recency; the pending-call count suppresses a
-            // premature idle session-end while a long command runs (no line between call/result).
-            if (vendor == "antigravity") {
-                foreach (var l in newLines) {
-                    UpdateAntigravityPendingToolCalls(state, l);
-                    if (TryGetAntigravityCreatedAt(l) is { } ca) state.LastAntigravityCreatedAt = ca;
-                }
-            }
-
-            // Antigravity keeps per-generation tokens/model in the sibling conversation .db
-            // (derived from the transcript path — the session id here is the canonical dashless
-            // form, but the transcript path carries the real conversation id), not the JSONL;
-            // poll for newly-appended gen_metadata rows and stream them as synthetic USAGE
-            // lines (server → AntigravityUsageBackfilledEvent). Only outside the below-threshold
-            // buffering phase (a session watcher that hasn't reached threshold buffers without
-            // sending — injecting there would either dupe on re-read or be lost on a flush
-            // failure); subagent watchers (agentId != null) never buffer. The gen watermark
-            // advances only after a successful send (below), so a failed batch re-reads the rows.
-            var antigravityGenMax = -1L;
-            if (vendor == "antigravity" && (agentId is not null || state.ThresholdReached)) {
-                antigravityGenMax = AppendAntigravityUsageLines(state, newLines, newLineNumbers, transcriptPath, state.LastAntigravityCreatedAt, time);
-            }
-
-            // Task 10: Kiro's per-turn credits/context% live in the sibling {id}.json, not
-            // the .jsonl (see KiroUsage docs) — by the time Kiro flushes that sidecar, a live drain
-            // has usually already sent the anchor's AssistantMessage line, so import-style inline
-            // enrichment can't reach it. Backfill it instead as a synthetic KiroUsageBackfilled line
-            // (server Task 12 folds these into a backfill event, keyed on the anchor). Same
-            // buffering/agentId gating as the Antigravity block above; staged anchors are committed
-            // into state.KiroUsageEmittedAnchors only after a successful send (below), so a failed
-            // batch re-reads and re-stages the same anchors next drain.
-            if (vendor == "kiro" && (agentId is not null || state.ThresholdReached)) {
-                AppendKiroUsageBackfillLines(state, newLines, newLineNumbers, transcriptPath, message => Log(time, message));
-            }
-
-            if (newLines.Count > 0) {
-                state.LastActivityAt          = time.GetUtcNow();
-                // New activity restarts the idle measure, so discard disconnected time accrued
-                // before it (draining only happens while connected, so DisconnectedSince is null).
-                state.AccumulatedDisconnected = TimeSpan.Zero;
-            }
-
-            // Codex tool calls in flight, from RAW drainRead.Lines: an oversized
-            // function_call_output redacts to a placeholder with no call_id, stranding it and
-            // pinning toolInFlight true forever (#528). Never gated on title phase or threshold.
-            if (TracksCodexToolCalls(vendor)) {
-                foreach (var line in drainRead.Lines) {
-                    UpdateCodexPendingToolCalls(state.PendingCodexToolCalls, line);
-                }
-            }
-
-            if (TracksCopilotToolCalls(vendor, transcriptPath, state.CopilotHostMissing)) {
-                foreach (var line in drainRead.Lines) {
-                    UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line);
-                }
-            }
-
-            if (TracksCopilotShutdown(vendor, agentId, transcriptPath)) {
-                state.CopilotShutdownSeenAt = CopilotShutdownAfter(state.CopilotShutdownSeenAt, drainRead.Lines, time.GetUtcNow(), state.StartedAt);
-            }
-
-            state.ObserveCodexReadings?.Invoke(drainRead.Lines);
-
-            // Capture-loss markers have no tool IDs; local completion tracking needs raw lines.
-            if (TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) {
-                foreach (var line in drainRead.Lines) {
-                    UpdateClaudePendingToolCalls(state.PendingClaudeToolCalls, line);
-                }
-            }
-
-            // Secondary checkouts, from raw lines and ahead of the threshold buffering below: a
-            // mutation in a session's first lines must register before the buffer flushes, and an
-            // oversized Write redacts to a placeholder with no path. Only paths are read.
-            if (state.SecondaryRoots is { } secondaryRoots) {
-                var knownRoots = secondaryRoots.Roots.Count;
-                foreach (var line in drainRead.Lines) secondaryRoots.OnLine(vendor, line);
-                if (secondaryRoots.Roots.Count > knownRoots) Log(time, $"Probing secondary checkouts for a PR: {string.Join(", ", secondaryRoots.Roots)}");
-            }
-
-            if (vendor == "claude") {
-                foreach (var line in drainRead.Lines) ObserveCreatedPullRequest(state, line);
-            }
-
-            // A Codex collab CHILD watcher additionally folds its own rollout's turn state
-            // (task_complete vs renewed activity) so the polling loop can post a live
-            // subagent-stop once the child is done + idle. Raw lines here too, in the other
-            // direction: a redacted response_item reads as no activity, so a re-engaged child
-            // would be reported stopped while working. The resume replay must fold raw lines too.
-            if (vendor == "codex" && agentId is not null) {
-                foreach (var line in drainRead.Lines) {
-                    state.CodexSubagentTurn.Observe(line);
-                }
-            }
-
-            // Capture first user text (needed for title generation)
-            if (state is { TitleGenerated: false, FirstUserText: null } && agentId is null) {
-                // If we resumed from a later position, scan from the beginning of the file
-                if (state is { LinesProcessed: > 0, FullFileScanDone: false }) {
-                    Log(time, "Scanning full file for first user text (resumed from later position)");
-
-                    try {
-                        await using var scanStream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                        using var       scanReader = new StreamReader(scanStream);
-
-                        while (await scanReader.ReadLineAsync(ct) is { } scanLine) {
-                            if (string.IsNullOrWhiteSpace(scanLine)) {
-                                continue;
-                            }
-
-                            var userText = TryExtractUserText(scanLine, vendor, _parseErrors);
-
-                            if (userText is null) {
-                                continue;
-                            }
-
-                            SetFirstUserText(state, userText, message => Log(time, message));
-
-                            if (state.FirstUserText is not null) {
-                                break;
-                            }
-                        }
-
-                        state.FullFileScanDone = true;
-                    } catch (Exception ex) {
-                        Log(time, $"Full file scan for user text failed: {ex.Message}");
-                    }
-                }
-
-                // Also check new lines (normal path)
-                if (state.FirstUserText is null && newLines.Count > 0) {
-                    foreach (var userText in newLines.Select(line => TryExtractUserText(line, vendor, _parseErrors)).OfType<string>()) {
-                        SetFirstUserText(state, userText, message => Log(time, message));
-
-                        if (state.FirstUserText is not null) {
-                            break;
-                        }
-                    }
-                }
-
-                if (state.FirstUserText is not null) {
-                    Log(time, $"First user text captured ({state.FirstUserText.Length} chars)");
-                }
-
-                // Send truncated user text as the initial title immediately
-                // (deferred until threshold is reached for session watchers)
-                if (state is { InitialTitleSent: false, FirstUserText: not null, ThresholdReached: true } && agentId is null) {
-                    state.InitialTitleSent = true;
-                    _                      = SendInitialTitleAsync(hubConnection, sessionId, TruncateForTitle(state.FirstUserText, 80), time);
-                }
-            }
-
-            // Count events and capture assistant context for LLM title generation
-            if (state is { TitleGenerated: false } && agentId is null && newLines.Count > 0) {
-                foreach (var line in newLines) {
-                    if (IsEvent(line, vendor)) {
-                        state.EventCount++;
-                    }
-
-                    if (state.FirstAssistantText is null) {
-                        var assistantText = TryExtractAssistantText(line, vendor);
-
-                        if (assistantText is not null) {
-                            state.FirstAssistantText = assistantText.Length > 300 ? assistantText[..300] : assistantText;
-                            Log(time, $"First assistant text captured ({state.FirstAssistantText.Length} chars)");
-                        }
-                    }
-
-                    if (!state.HarnessTitleSeen) ObserveTitleLine(state, vendor, sessionId, line);
-                }
-            }
-
-            if (ShouldGenerateLlmTitle(state, agentId)) {
-                Log(time, $"Triggering LLM title generation (attempt {state.TitleAttempts + 1}/5, events: {state.EventCount})");
-                state.TitleInFlight = true;
-                state.TitleAttempts++;
-                state.PendingTitle  = GenerateTitleAsync(hubConnection, sessionId, state, vendor);
-            }
-
-            switch (agentId) {
-                // ── Buffering for session watchers ──────────────────────────────
-                // A session nobody took a turn in sends no lines (e.g. one that only ran
-                // <local-command-caveat> commands). The cursor stays put while buffering, so every
-                // poll re-reads all the unsent lines: the buffer is replaced, never appended to, or
-                // it would fill with copies. Subagent watchers (agentId != null) never buffer.
-                case null when !state.ThresholdReached && newLines.Count > 0: {
-                    var previouslyBuffered = state.BufferedLines.Count;
-                    state.BufferedLines.Clear();
-                    state.BufferedLines.AddRange(newLines);
-                    state.BufferedLineNumbers.Clear();
-                    state.BufferedLineNumbers.AddRange(newLineNumbers);
-                    state.LinesReadAhead = linesRead;
-
-                    if (!ShouldFlushBuffer(state.BufferedLines, vendor, _parseErrors)) {
-                        if (state.BufferedLines.Count != previouslyBuffered) {
-                            Log(time, $"Buffering {state.BufferedLines.Count}/{WatchState.TranscriptThreshold} line(s) until a real turn");
-                        }
-
-                        return newLines;
-                    }
-
-                    Log(time, $"Flushing {state.BufferedLines.Count} buffered line(s)");
-                    state.ThresholdReached = true;
-                    state.BufferedLines.Clear();
-                    state.BufferedLineNumbers.Clear();
-
-                    // Send the initial title now that we're flushing
-                    if (state is { InitialTitleSent: false, FirstUserText: not null }) {
-                        state.InitialTitleSent = true;
-                        _                      = SendInitialTitleAsync(hubConnection, sessionId, TruncateForTitle(state.FirstUserText, 80), time);
-                    }
-
-                    break;
-                }
-                case null when !state.ThresholdReached:
-                    // No new content lines while buffering — track file position
-                    state.LinesReadAhead = linesRead;
-
-                    return newLines;
-            }
-
-            // Stamp Kiro's live context-% onto AssistantMessage lines at flush so it's present on the
-            // first send — it can't be backfilled (the server dedupes Kiro events by canonical id).
-            // Best-effort; rationale in the design spec.
-            if (vendor == "kiro" && newLines.Count > 0) {
-                newLines = EnrichKiroContextUsage(newLines, transcriptPath, _kiroWarnings);
-            }
-
-            // Evidence-based repo detection for a session launched outside any repo — extracted
-            // to ApplyEvidenceScanAsync so the final-drain fallback delivery (the actual send
-            // path, not just the promotion) is directly unit-testable with a fake scanner.
-            await ApplyEvidenceScanAsync(state, vendor, newLines, isFinalDrain);
-
-            // Only include repository info when it has changed since last send
-            var repoToSend = RepoPayloadChanged(state.Repository, state.LastSentRepository)
-                ? state.Repository
-                : null;
-
-            // keep the
-            // BYTE frontier in lockstep with the LINE frontier on EVERY path that advances
-            // state.LinesProcessed past blank/whitespace-only lines WITHOUT a send that returns an
-            // ack. Before this, such a poll (newLines.Count == 0, but linesRead — the new
-            // NextPosition — > priorLineCursorForGuard, the position this poll STARTED from) advanced
-            // ONLY state.LinesProcessed, leaving state.CursorByteOffset and the guard's own checkpoint
-            // at the OLD byte boundary. The NEXT poll's bounded decoder then re-reads those SAME
-            // already-"processed" blank bytes (its read starts from CursorByteOffset) but seeds its
-            // base line number from the ALREADY-ADVANCED LinesProcessed (ReadNewCompleteLinesAsync's
-            // newRangeByteOffset branch derives lineIndex from `linesProcessed`) — so an idle poll
-            // re-inflates LinesProcessed every time, and the next REAL line is sent under a wrong
-            // line number with its ack mapped to the wrong byte offset. This mirrors the ack path's
-            // own ByteOffsetForAckedLines + Checkpoint composition (same helper, same guard-checkpoint
-            // discipline) — cursorGuardSnapshot is this poll's already-captured/verified read, so no
-            // extra I/O. A local function so the two call sites (the "no content, no repo change"
-            // early return AND the repo-only-send-failed catch branch) stay byte-for-byte identical.
-            void AdvanceCursorBlankByteFrontierInLockstep() {
-                if (vendor != "cursor" || cursorGuard is null || cursorGuardSnapshot is null
-                 || linesRead <= priorLineCursorForGuard || cursorGuardNewLength <= cursorGuardOldOffset) {
-                    return;
-                }
-
-                var blankLineCount     = linesRead - priorLineCursorForGuard;
-                var rangeLength        = (int)(cursorGuardNewLength - cursorGuardOldOffset);
-                var rangeBytes         = cursorGuardSnapshot.AsSpan((int)(cursorGuardOldOffset - cursorGuardSnapshotAt), rangeLength);
-                var advancedByteOffset = ByteOffsetForAckedLines(rangeBytes, cursorGuardOldOffset, blankLineCount);
-
-                state.CursorByteOffset = advancedByteOffset;
-
-                var trailingLength = (int)Math.Min(cursorGuard.TrailingBytes, advancedByteOffset);
-                var trailingHash   = trailingLength <= 0
-                    ? CursorAppendOnlyProbe.Sha256Hex(ReadOnlySpan<byte>.Empty)
-                    : CursorAppendOnlyProbe.Sha256Hex(
-                          cursorGuardSnapshot.AsSpan((int)(advancedByteOffset - trailingLength - cursorGuardSnapshotAt), trailingLength));
-
-                cursorGuard.Checkpoint(advancedByteOffset, trailingHash);
-            }
-
-            // A commit filed with no line after it, such as a subagent's under its parent, still goes now.
-            if (newLines.Count == 0 && repoToSend is null && state.Commits.Pending is not { Length: > 0 }) {
-                // advance the byte frontier together with the
-                // line frontier (see AdvanceCursorBlankByteFrontierInLockstep above).
-                AdvanceCursorBlankByteFrontierInLockstep();
-
-                // Nothing to send — safe to advance past blank/whitespace lines
-                state.LinesProcessed = linesRead;
-
-                return newLines;
-            }
-
-            try {
-                // Task 11 (D0) — pre-send re-verify: re-read the SAME byte range fresh
-                // from disk immediately before this call and compare to the hash recorded above.
-                // A rewrite racing between the read (above) and this send is exactly what this
-                // last check catches; a length shrink or hash mismatch discards the unsent batch
-                // (never advances state) and hands off to the caller's exit path.
-                if (vendor == "cursor" && cursorGuard is not null && cursorGuardNewLength > cursorGuardOldOffset) {
-                    var rangeLength = (int)(cursorGuardNewLength - cursorGuardOldOffset);
-                    var rangeBuffer = new byte[rangeLength];
-
-                    await using (var verifyStream = new FileStream(
-                            transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
-                        verifyStream.Position = cursorGuardOldOffset;
-                        var rangeRead = await ReadFullyAsync(verifyStream, rangeBuffer, ct);
-
-                        if (!cursorGuard.VerifyNewRange(rangeBuffer.AsSpan(0, rangeRead), cursorGuardOldOffset, rangeLength)) {
-                            onCursorRewriteDetected?.Invoke();
-
-                            return newLines;
-                        }
-                    }
-
-                    // this is the freshest, just-re-verified copy of the
-                    // exact bytes about to be sent; stash it so the checkpoint logic below can map
-                    // the server's acked LINE count to a precise byte offset within it, instead of
-                    // assuming the whole range was delivered.
-                    cursorGuardVerifiedRange = rangeBuffer;
-                }
-
-                // SignalR dispatch binds by arity; the record payload keeps additive fields compatible.
-                var batch = new TranscriptBatch {
-                    SessionId       = sessionId,
-                    AgentId         = agentId,
-                    Lines           = newLines.ToArray(),
-                    LineNumbers     = newLineNumbers.ToArray(),
-                    Repository      = repoToSend,
-                    Vendor          = vendor,
-                    ObservedCommits = state.Commits.Pending,
-                };
-
-                int? cursorAckNextLine = null;
-
-                foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                    if (vendor == "cursor") {
-                        // A barrier can appear between chunks, after the initial admission check.
-                        if (_markers.IsQuarantined(sessionId)
-                         || _markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)) {
-                            return newLines;
-                        }
-
-                        var ack = await hubConnection.InvokeAsync<TranscriptBatchAck>("SendTranscriptBatchAcked", chunk, ct);
-                        cursorAckNextLine = ack.NextLineNumber;
-                        if (chunk.LineNumbers!.Length > 0 && ack.NextLineNumber <= chunk.LineNumbers[^1]) break;
-                    } else {
-                        await hubConnection.InvokeAsync("SendTranscriptBatch2", chunk, ct);
-                    }
-                }
-
-                if (newLines.Count > 0) {
-                    Log(time, cursorAckNextLine is { } nextLine
-                        ? $"Sent {newLines.Count} line(s) via SignalR (acked next-line {nextLine})"
-                        : $"Sent {newLines.Count} line(s) via SignalR");
-                }
-
-                if (repoToSend is not null) {
-                    Log(time, "Sent updated repository info via SignalR");
-                }
-
-                // Only advance position after successful send — if send fails,
-                // the next drain cycle will re-read and resend the same lines.
-                // KurrentDB event IDs are deterministic (from transcript UUIDs),
-                // so re-sending is idempotent. Cursor's local cursor is the server's ACKED
-                // frontier, not the raw line count sent — a retry-blocked or persist-blocked
-                // line re-delivers next poll and an ignored (no-event) line still advances past.
-                state.LinesProcessed = cursorAckNextLine ?? linesRead;
-                state.Commits = state.Commits.Delivered(batch.ObservedCommits);
-
-                if (cursorAckNextLine is not null) {
-                    // checkpoint only the bytes the ack actually covers.
-                    // A partially-disposed batch (D3's "halt-at-the-gap" policy) acks fewer lines
-                    // than were sent; the previous code advanced CursorByteOffset to the full
-                    // capped snapshot length regardless, silently checkpointing the unacked tail
-                    // as if it had been delivered — those bytes would never be re-sent, yet the
-                    // server never durably disposed of them. Map the acked LINE count (an absolute
-                    // frontier, same numbering as priorLineCursorForGuard) to a byte offset within
-                    // the freshly-verified range; fall back to the full snapshot length only when
-                    // nothing grew this poll (cursorGuardVerifiedRange is null exactly then, and
-                    // cursorGuardNewLength == cursorGuardOldOffset in that case anyway).
-                    var ackedLineCount  = cursorAckNextLine.Value - priorLineCursorForGuard;
-                    var ackedByteOffset = cursorGuardVerifiedRange is { } verifiedRange
-                        ? ByteOffsetForAckedLines(verifiedRange, cursorGuardOldOffset, ackedLineCount)
-                        : cursorGuardNewLength;
-
-                    state.CursorByteOffset = ackedByteOffset;
-
-                    if (cursorGuard is not null) {
-                        // derive the checkpoint's trailing hash from
-                        // cursorGuardSnapshot, the bytes captured during THIS poll's single capped
-                        // read (already re-verified against fresh disk re-reads at both the guard
-                        // check above and the pre-send VerifyNewRange step), instead of reopening
-                        // the file again here. The previous wiring re-read mutable disk bytes AFTER
-                        // the RPC had already returned — a rewrite landing while the ack was in
-                        // flight would be blessed as the new checkpoint baseline instead of caught
-                        // (this is the same TOCTOU class review fix #1 closes for the read side).
-                        // cursorGuardSnapshot may now start at
-                        // cursorGuardSnapshotAt (a bounded, non-zero offset) rather than always byte
-                        // 0; the slice below is relative to the snapshot buffer, so subtract it.
-                        var trailingLength = (int)Math.Min(cursorGuard.TrailingBytes, ackedByteOffset);
-                        var trailingHash   = trailingLength <= 0 || cursorGuardSnapshot is null
-                            ? CursorAppendOnlyProbe.Sha256Hex(ReadOnlySpan<byte>.Empty)
-                            : CursorAppendOnlyProbe.Sha256Hex(
-                                  cursorGuardSnapshot.AsSpan((int)(ackedByteOffset - trailingLength - cursorGuardSnapshotAt), trailingLength));
-
-                        cursorGuard.Checkpoint(ackedByteOffset, trailingHash);
-                    }
-                }
-
-                // Commit the Antigravity gen_metadata watermark ONLY now (after the batch
-                // carrying its USAGE lines landed); a failed send above leaves it unchanged
-                // so the rows re-read next drain instead of being skipped forever.
-                if (antigravityGenMax > state.LastAntigravityGenIdx)
-                    state.LastAntigravityGenIdx = antigravityGenMax;
-
-                // Commit the Kiro usage-backfill anchors ONLY now (after the batch carrying their
-                // synthetic lines landed); a failed send above leaves KiroUsageEmittedAnchors
-                // unchanged so AppendKiroUsageBackfillLines re-stages the same anchors next drain
-                // instead of losing them.
-                foreach (var anchor in state.KiroUsagePendingAnchors)
-                    state.KiroUsageEmittedAnchors.Add(anchor);
-
-                if (repoToSend is not null) {
-                    state.LastSentRepository = repoToSend;
-                }
-            } catch (Exception ex) when (ex is not OperationCanceledException) {
-                if (newLines.Count > 0) {
-                    Log(time, $"SendTranscriptBatch failed, will retry from line {state.LinesProcessed}: {ex.Message}");
-                } else {
-                    // Repo-only batch failed — no transcript lines at risk, so advance
-                    // position and defer retry to the next 60s repo detection cycle.
-                    //
-                    // this branch reaches the send path only because a
-                    // repo change was pending (repoToSend != null); newLines.Count == 0 here means
-                    // any lines this poll DID read were blank/whitespace-only. Advancing
-                    // LinesProcessed alone would leave CursorByteOffset/checkpoint behind exactly as
-                    // the "no content, no repo change" early return did before finding #1's fix — so
-                    // advance the byte frontier in the SAME lockstep, via the shared helper, before
-                    // moving the line cursor. (No ack came back — the send threw — so this is the
-                    // blank-line path, not the acked path; the helper maps the consumed blank-line
-                    // count to its true byte offset and re-checkpoints from the same snapshot.)
-                    AdvanceCursorBlankByteFrontierInLockstep();
-
-                    state.LinesProcessed    = linesRead;
-                    state.LastRepoDetection = time.GetUtcNow();
-                    Log(time, $"Repo info send failed, will retry in 60s: {ex.Message}");
-                }
-            }
-
-            return newLines;
-        } catch (IOException ex) {
-            Log(time, $"Error reading file: {ex.Message}");
-        } catch (OperationCanceledException) {
-            // Expected during shutdown
-        }
-
-        return [];
-    }
-
-    internal static string BuildTranscriptSpoolBatch(
-            string                sessionId,
-            string?               agentId,
-            string                vendor,
-            IReadOnlyList<string> lines,
-            IReadOnlyList<int>    lineNumbers,
-            ObservedCommit[]?     observedCommits,
-            bool                  moreFollows = false
-        ) => JsonSerializer.Serialize(
-            new TranscriptBatch {
-                SessionId       = sessionId,
-                AgentId         = agentId,
-                Lines           = lines.ToArray(),
-                LineNumbers     = lineNumbers.ToArray(),
-                Vendor          = vendor,
-                ObservedCommits = observedCommits,
-                MoreFollows     = moreFollows,
-            },
-            CapacitorJsonContext.Default.TranscriptBatch);
-
-    /// <summary>Spool only records beyond the acknowledged source frontier.</summary>
-    internal async Task<TranscriptSpool.AppendResult?> SpoolUndeliveredTranscriptTailAsync(
-            TranscriptSpool      transcriptSpool,
-            string               transcriptPath,
-            string               sessionId,
-            string?              agentId,
-            string               vendor,
-            int                  linesProcessed,
-            CommitObservation    commits,
-            CancellationToken    ct,
-            TimeSpan?            redactionLimit = null,
-            TranscriptLineIndex? lineOffsets    = null
-        ) {
-        if (!File.Exists(transcriptPath)) return null;
-
-        // A quarantined source must not escape through spool replay.
-        if (vendor == "cursor" && _markers.IsQuarantined(sessionId)) {
-            Log(time, $"Cursor session {sessionId} is quarantined; skipping shutdown-tail spool "
-              + "(no line-number path may keep feeding a corrupted cursor)");
-
-            return null;
-        }
-
-        NewTranscriptLines tail;
-        try {
-            await using var stream = new FileStream(
-                transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            tail = await ReadNewCompleteLinesAsync(
-                stream, linesProcessed, IncompleteFinalLinePolicy.ConsumeIfComplete, ct, lineOffsets: lineOffsets);
-        } catch (IOException ex) {
-            Log(time, $"Shutdown-tail spool: failed to read transcript for {sessionId}: {ex.Message}");
-
-            return null;
-        }
-
-        commits = commits.Collect();
-
-        if (tail.Lines.Count == 0 && commits.Pending is not { Length: > 0 }) return null;
-
-        var limit    = redactionLimit is { } l && l > MinShutdownTailRedaction ? l : MinShutdownTailRedaction;
-        var redacted = TranscriptCapture.EncodeTail(tail.Lines, tail.LineNumbers, new RedactionBudget(RedactionClock ?? time, limit),
-            HeldLineFor(sessionId, agentId).Redacted,
-            (reason, count) => Log(time, $"Shutdown capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"));
-        var unredacted = redacted.Consumed < tail.Lines.Count ? tail.LineNumbers[redacted.Consumed] : (int?)null;
-        var batch = new TranscriptBatch {
-            SessionId = sessionId, AgentId = agentId, Vendor = vendor,
-            Lines = [..redacted.Lines], LineNumbers = [..tail.LineNumbers.Take(redacted.Consumed)], ObservedCommits = commits.Pending
-        };
-        var result = TranscriptSpool.AppendResult.Appended;
-        if (batch.Lines.Length > 0 || commits.Pending is { Length: > 0 }) {
-            // A chunk with more to follow leaves its later commits to the next, and an import carries no commits, so it
-            // spools only with room left for them on their own.
-            var commitsOnly = commits.Pending is { Length: > 0 } pending ? BuildTranscriptSpoolBatch(sessionId, agentId, vendor, [], [], pending) : null;
-            var spooled     = false;
-            foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                result = transcriptSpool.Append(sessionId,
-                    BuildTranscriptSpoolBatch(sessionId, agentId, vendor, chunk.Lines, chunk.LineNumbers!, chunk.ObservedCommits, chunk.MoreFollows),
-                    chunk.MoreFollows ? commitsOnly : null);
-                if (result != TranscriptSpool.AppendResult.Appended) {
-                    if (spooled && commitsOnly is not null && transcriptSpool.Append(sessionId, commitsOnly) != TranscriptSpool.AppendResult.Appended)
-                        Log(time, $"Commits of {sessionId} could not be spooled at shutdown; they are sent again when its watcher resumes");
-                    break;
-                }
-                spooled = true;
-            }
-        }
-
-        if (result == TranscriptSpool.AppendResult.Appended && unredacted is { } line) {
-            Log(time, $"Line {line} of {sessionId} still cannot be redacted in time; spooled the {batch.Lines.Length} line(s) before it");
-            transcriptSpool.MarkNeedsImport(sessionId, $"shutdown tail: redaction of line {line} timed out");
-            HeldLineFor(sessionId, agentId).ReleaseBelow(line + 1);
-
-            return TranscriptSpool.AppendResult.MarkedNeedsImport;
-        }
-
-        switch (result) {
-            case TranscriptSpool.AppendResult.Appended:
-                HeldLineFor(sessionId, agentId).ReleaseBelow(tail.NextPosition);
-                Log(time, $"Spooled {tail.Lines.Count} undelivered transcript line(s) at shutdown for "
-                  + $"{sessionId} — will replay on the next global drain");
-
-                break;
-            case TranscriptSpool.AppendResult.MarkedNeedsImport:
-                Log(time, $"Undelivered transcript tail for {sessionId} could not be spooled (cap exhausted "
-                  + "or write failed); session flagged needs-import — recover via `kcap import`");
-
-                break;
-        }
-
-        return result;
-    }
-
     /// <summary>The first prompt and first reply a title is generated from, read the way the watch loop reads them,
     /// for a generator that runs after the watcher is gone.</summary>
     internal static (string? UserText, string? AssistantText) ReadTitleContext(string transcriptPath, string vendor, TimeProvider time) {
@@ -3048,44 +1759,13 @@ class WatchCommand(
         while (reader.ReadLine() is { } line && (state.FirstUserText is null || state.FirstAssistantText is null)) {
             if (string.IsNullOrWhiteSpace(line)) continue;
 
-            if (state.FirstUserText is null && TryExtractUserText(line, vendor, parseErrors) is { } userText) SetFirstUserText(state, userText, message => Log(time, message));
+            if (state.FirstUserText is null && TranscriptLineText.TryExtractUserText(line, vendor, parseErrors) is { } userText) TranscriptLineText.SetFirstUserText(state, userText, message => Log(time, message));
 
-            if (state.FirstAssistantText is null && TryExtractAssistantText(line, vendor) is { } assistantText)
+            if (state.FirstAssistantText is null && TranscriptLineText.TryExtractAssistantText(line, vendor) is { } assistantText)
                 state.FirstAssistantText = assistantText.Length > 300 ? assistantText[..300] : assistantText;
         }
 
         return (state.FirstUserText, state.FirstAssistantText);
-    }
-
-    // Synthetic USAGE line numbers live in a high band so they never collide with real
-    // transcript line numbers (which start at 0). The server derives the USAGE event id
-    // from line CONTENT (which carries gen_row), so the line number is only an ordering
-    // hint — a stable, non-colliding value keeps re-sends idempotent.
-    const long AntigravityUsageLineBase = 1_000_000_000L;
-
-    /// <summary>
-    /// Appends synthetic USAGE lines for gen_metadata rows past the committed watermark, and
-    /// returns the max row idx staged (-1 if none). It does NOT advance the watermark — the
-    /// caller commits it only after the batch send succeeds, so a failed send re-reads the
-    /// rows next drain. The db is the sibling of the transcript (its path carries the real
-    /// conversation id, even when the session id is the canonical dashless form).
-    /// </summary>
-    static long AppendAntigravityUsageLines(WatchState state, List<string> newLines, List<int> newLineNumbers, string transcriptPath, string? createdAt, TimeProvider time) {
-        var maxIdx = -1L;
-        try {
-            if (AntigravityPaths.ConversationDbFromTranscript(transcriptPath) is not { } dbPath) return -1L;
-            var rows = AntigravityGenMetadataDb.ReadUsageLines(dbPath, state.LastAntigravityGenIdx, createdAt);
-
-            foreach (var (idx, line) in rows) {
-                newLines.Add(line);
-                newLineNumbers.Add((int)(AntigravityUsageLineBase + idx));
-                if (idx > maxIdx) maxIdx = idx;
-            }
-        } catch (Exception ex) {
-            // Cost is always best-effort — never let a db read break the drain.
-            Log(time, $"Antigravity usage poll failed: {ex.Message}");
-        }
-        return maxIdx;
     }
 
     /// <summary>
@@ -3147,120 +1827,11 @@ class WatchCommand(
         }
     }
 
-    async Task GenerateTitleAsync(HubConnection hubConnection, string sessionId, WatchState state, string vendor) {
-        try {
-            var result = await TitleGeneration.GenerateAsync(
-                state.FirstUserText!, state.FirstAssistantText, time, m => Log(time, m), profiles.Resolution.Profile,
-                harnesses, vendor, state.TitleCancellation);
-
-            if (result is null) {
-                Log(time, $"Title generation attempt {state.TitleAttempts}/5 returned no usable result (CLI failure, refusal-like output, or empty title)");
-                state.TitleInFlight = false;
-
-                return;
-            }
-
-            Log(time, $"Title usage: model={result.Model} input={result.InputTokens} output={result.OutputTokens} cost=${result.CostUsd:F4}");
-
-            await PostTitleAsync(
-                hubConnection,
-                sessionId,
-                result.Result,
-                result.Model,
-                result.InputTokens,
-                result.OutputTokens,
-                result.CacheReadTokens,
-                result.CacheWriteTokens,
-                state
-            , time);
-        } catch (Exception ex) {
-            Log(time, $"Title generation failed: {ex.Message}");
-            state.TitleInFlight = false;
-        }
-    }
-
-    static async Task SendInitialTitleAsync(HubConnection hubConnection, string sessionId, string title, TimeProvider time) {
-        try {
-            await hubConnection.InvokeAsync("SendTitle", sessionId, title, null, 0L, 0L, 0L, 0L);
-            Log(time, $"Initial title sent: {title}");
-        } catch (Exception ex) {
-            Log(time, $"Initial title send failed: {ex.Message}");
-        }
-    }
-
-    static async Task PostTitleAsync(
-            HubConnection hubConnection,
-            string        sessionId,
-            string        title,
-            string?       model,
-            long          inputTokens,
-            long          outputTokens,
-            long          cacheReadTokens,
-            long          cacheWriteTokens,
-            WatchState    state
-        , TimeProvider time) {
-        try {
-            await hubConnection.InvokeAsync("UpdateTitle", sessionId, title, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
-            Log(time, $"LLM title generated: {title}");
-            state.TitleGenerated = true;
-        } catch (Exception ex) {
-            Log(time, $"LLM title send failed: {ex.Message}");
-        }
-
-        state.TitleInFlight = false;
-    }
-
-    internal static bool RepoPayloadChanged(RepositoryPayload? current, RepositoryPayload? lastSent) {
-        if (current is null) {
-            return false;
-        }
-
-        if (lastSent is null) {
-            return true;
-        }
-
-        return current.Owner  != lastSent.Owner
-         || current.RepoName  != lastSent.RepoName
-         || current.Branch    != lastSent.Branch
-         || current.PrNumber  != lastSent.PrNumber
-         || current.PrUrl     != lastSent.PrUrl
-         || current.PrTitle   != lastSent.PrTitle
-         || current.PrHeadRef != lastSent.PrHeadRef;
-    }
-
     // An evidence-derived repo (from RepoEvidenceScanner, for a session launched outside any
     // checkout) has no cwd to re-probe, so a periodic cwd-based refresh finding nothing must
     // never be allowed to clear it back to null.
     internal static bool ShouldReplaceRepository(RepositoryPayload? detected, bool repositoryFromEvidence) =>
         detected is not null || !repositoryFromEvidence;
-
-    // Shared by every EvidenceScanner call site — the scanner already resolved and validated
-    // completeness (RepoEvidenceScanner's isComplete), so this just records the result.
-    static void ApplyEvidenceRepo(WatchState state, RepositoryPayload repo) {
-        state.Repository             = repo;
-        state.RepositoryFromEvidence = true;
-    }
-
-    // Extracted out of DrainNewLines so the final-drain fallback DELIVERY (not just
-    // RepoEvidenceScanner's own promotion, which was already covered) is unit-testable with a
-    // fake scanner and no HubConnection: a caller can assert state.Repository directly after
-    // isFinalDrain: true, and that a non-final drain leaves it untouched. No-op when
-    // state.EvidenceScanner is null (every non-Claude / already-in-repo session) or already Done.
-    internal static async Task ApplyEvidenceScanAsync(WatchState state, string vendor, IReadOnlyList<string> newLines, bool isFinalDrain) {
-        if (state.EvidenceScanner is not { Done: false } scanner) return;
-
-        foreach (var line in newLines) {
-            if (await scanner.OnLineAsync(vendor, line) is { } repo) {
-                ApplyEvidenceRepo(state, repo);
-
-                return;
-            }
-        }
-
-        if (isFinalDrain && await scanner.PromoteReadFallbackAsync() is { } fallback) {
-            ApplyEvidenceRepo(state, fallback);
-        }
-    }
 
     /// <summary>
     /// Probes every checkout the agent mutated outside its launch cwd and links each PR found
@@ -3421,64 +1992,8 @@ class WatchCommand(
     // the PR probe share this much of it, leaving the rest for the drain-complete signal.
     static readonly TimeSpan FinalSecondaryProbeDeadline = TimeSpan.FromSeconds(3);
 
-    // Inside the 5s a stop request allows before the kill, so the spool append or the needs-import
-    // marker is written before the process can be killed.
-    static readonly TimeSpan ShutdownTailRedactionDeadline = TimeSpan.FromSeconds(4);
-    static readonly TimeSpan MinShutdownTailRedaction = TimeSpan.FromSeconds(1);
-
     // A value the server has not settled is re-sent no sooner than this, however often the transcript drains.
     internal static readonly TimeSpan HarnessTitleRetryGap = TimeSpan.FromSeconds(30);
-
-    /// <summary>A harness-native title the server is known to record suppresses LLM titling for good. A transcript
-    /// title only a server with harness titles records suppresses it only once the server is known to have them: an
-    /// unanswered probe must not cost an older server its only title, and on a newer one the harness title outranks
-    /// a generated title anyway. Generation starts at the first assistant reply, or after five events when none has
-    /// carried text: a one-shot run ends with fewer than five, and its title has to be under way before it exits.</summary>
-    internal static bool ShouldGenerateLlmTitle(WatchState state, string? agentId) =>
-        state is { TitleGenerated: false, TitleInFlight: false, TitleAttempts: < 5, ThresholdReached: true, HarnessTitleSeen: false, FirstUserText: not null }
-     && (state.FirstAssistantText is not null || state.EventCount >= 5)
-     && agentId is null
-     && !(state.InlineHarnessTitleSeen && state.ServerRecordsHarnessTitles == true);
-
-    // From the stop request, which a kill follows 5s later; the rest covers the drain-complete signal and the close.
-    static readonly TimeSpan ShutdownTitleDeadline = TimeSpan.FromSeconds(4);
-
-    // Nothing kills the watcher on any other exit; the title CLI's own timeout (15s claude, 30s codex) ends it first.
-    static readonly TimeSpan UnhurriedShutdownTitleDeadline = TimeSpan.FromSeconds(30);
-
-    /// <summary>How long shutdown waits for a title still generating, from the time already spent since shutdown began.
-    /// Nothing at all once the connection is gone, since the title could not be sent.</summary>
-    internal static TimeSpan ShutdownTitleBudget(bool connected, bool stopRequested, TimeSpan sinceShutdown) =>
-        connected ? (stopRequested ? ShutdownTitleDeadline : UnhurriedShutdownTitleDeadline) - sinceShutdown : TimeSpan.Zero;
-
-    /// <summary>Waits up to <paramref name="budget"/> for <paramref name="pending"/>, calling <paramref name="beat"/>
-    /// before each heartbeat slice of the wait. False when it is still running at the end, for the caller to abandon.</summary>
-    internal static async Task<bool> AwaitPendingTitleAsync(Task? pending, TimeSpan budget, TimeProvider time, Action beat) {
-        if (pending is null || pending.IsCompleted) return true;
-
-        foreach (var slice in HeartbeatSlices(budget, HeartbeatSlice)) {
-            beat();
-
-            try {
-                await pending.WaitAsync(slice, time);
-            } catch (TimeoutException) when (!pending.IsCompleted) {
-                continue;
-            } catch {
-                // the generation's own failure: it is over, which is all shutdown waits for
-            }
-
-            return true;
-        }
-
-        return pending.IsCompleted;
-    }
-
-    internal static void ObserveTitleLine(WatchState state, string vendor, string sessionId, string line) {
-        switch (TranscriptTitleLines.Classify(vendor, sessionId, line)) {
-            case TranscriptTitleLineKind.RecordedByEveryServer:     state.HarnessTitleSeen       = true; break;
-            case TranscriptTitleLineKind.RecordedWithHarnessTitles: state.InlineHarnessTitleSeen = true; break;
-        }
-    }
 
     /// <summary>
     /// Reads the store and sends what the tracker says is owed. Only a post the server took through
@@ -3650,238 +2165,8 @@ class WatchCommand(
         }
     }
 
-    static string TruncateForTitle(string text, int maxLength) {
-        // Take first line only, then truncate
-        var firstLine  = text.AsSpan();
-        var newlineIdx = firstLine.IndexOfAny('\r', '\n');
-
-        if (newlineIdx >= 0) {
-            firstLine = firstLine[..newlineIdx];
-        }
-
-        if (firstLine.Length <= maxLength) {
-            return firstLine.ToString().Trim();
-        }
-
-        // Find last word boundary before maxLength
-        var truncated = firstLine[..maxLength];
-        var lastSpace = truncated.LastIndexOf(' ');
-
-        if (lastSpace > maxLength / 2) {
-            truncated = truncated[..lastSpace];
-        }
-
-        return $"{truncated.ToString().Trim()}...";
-    }
-
     static void Log(TimeProvider time, string message) =>
         Console.Error.WriteLine($"[{time.GetLocalNow():HH:mm:ss.fff}] [watch] {message}");
-
-    /// <summary>
-    /// applies a reconnect-discovered rewind (the server's acknowledged
-    /// line frontier, <paramref name="serverPosition"/>, is behind <paramref name="state"/>'s own
-    /// <see cref="WatchState.LinesProcessed"/>) atomically: for Cursor, resolves and rewinds
-    /// <see cref="WatchState.CursorByteOffset"/> to the TRUE byte offset of
-    /// <paramref name="serverPosition"/> and resets the guard's checkpoint BEFORE the line cursor
-    /// itself moves, so no intermediate state is ever observed where the line cursor has rewound
-    /// but the byte guard has not (or vice versa). Extracted out of <see cref="RunWatch"/>'s
-    /// <c>Reconnected</c> handler so the atomicity is unit-testable without a live SignalR
-    /// reconnect. A no-op byte-side rewind for every non-Cursor vendor (no guard to keep in sync).
-    ///
-    /// <para>
-    /// returns false, WITHOUT touching
-    /// <see cref="WatchState.LinesProcessed"/> or <see cref="WatchState.CursorByteOffset"/> at all,
-    /// when <paramref name="serverPosition"/> cannot be resolved to an exact local byte offset (the
-    /// session has already been quarantined by <see cref="SeedCursorByteOffsetAsync"/> in that case).
-    /// The caller (RunWatch's <c>Reconnected</c> handler) must treat false the same way it treats a
-    /// runtime rewrite detection — discard and exit — rather than proceed with a rewind that never
-    /// actually happened.
-    /// </para>
-    ///
-    /// <para>
-    /// <see cref="WatchState.LinesProcessed"/> is no longer set to
-    /// <paramref name="serverPosition"/> unconditionally here; <see cref="SeedCursorByteOffsetAsync"/>
-    /// now owns that assignment (for every vendor) so it can substitute a REWOUND line count for
-    /// the r5 complete-unterminated-final-record case, keeping it in lockstep with the byte offset
-    /// it seeds in the same call. See that method's doc for why.
-    /// </para>
-    /// </summary>
-    internal async Task<bool> ApplyReconnectRewindAsync(
-            WatchState          state,
-            int                 serverPosition,
-            string              sessionId,
-            string              vendor,
-            string              transcriptPath,
-            CursorRewriteGuard? cursorGuard,
-            CancellationToken   ct
-        ) {
-        // shares the byte-side seed with RunWatch's INITIAL
-        // WatcherConnect registration (see SeedCursorByteOffsetAsync's own doc) so both paths that
-        // resume at a server-given line number map it to the true byte offset identically.
-        //
-        // SeedCursorByteOffsetAsync now sets state.LinesProcessed itself
-        // (possibly rewound), so this no longer duplicates that assignment afterward.
-        return await SeedCursorByteOffsetAsync(state, serverPosition, sessionId, vendor, transcriptPath, cursorGuard, ct);
-    }
-
-    /// <summary>
-    /// resolves <paramref name="lineNumber"/> to its TRUE
-    /// byte offset in <paramref name="transcriptPath"/> and seeds <see cref="WatchState.CursorByteOffset"/>
-    /// with it, resetting the guard's checkpoint so the two-zone checks start clean from that
-    /// offset (exactly as if this were the guard's very first poll). A no-op byte-side seed for
-    /// every non-Cursor vendor (no guard to keep in sync) — but see r6 below, which now also owns
-    /// <see cref="WatchState.LinesProcessed"/> for every vendor, not just Cursor.
-    ///
-    /// Shared by two call sites that both resume the watcher at a server-given line number and
-    /// must keep the byte/line frontier aligned from the very first poll: <see cref="ApplyReconnectRewindAsync"/>
-    /// (a reconnect discovers the server is behind the client) and RunWatch's INITIAL
-    /// <c>WatcherConnect</c> registration (the server resumes the watcher at line N on a fresh
-    /// process start — e.g. after a restart). Before this fix, only the reconnect path seeded the
-    /// byte offset; the initial-registration path left <see cref="WatchState.CursorByteOffset"/> at
-    /// its default (0) while <see cref="WatchState.LinesProcessed"/> was already N, so the
-    /// ack-to-byte mapping (<see cref="ByteOffsetForAckedLines"/>) measured acked lines relative to
-    /// N but counted their bytes from 0 — a permanent, silent line/byte-frontier misalignment.
-    ///
-    /// <para>
-    /// <paramref name="lineNumber"/> is the server's own
-    /// acknowledged frontier, so it is normally exactly resolvable; when it is NOT (fewer local
-    /// lines exist than the server claims — a transcript truncated/replaced while the watcher was
-    /// offline), seeding CursorByteOffset to a clamped EOF offset would establish the rewrite
-    /// guard's baseline against the wrong (truncated) file while the line cursor still advanced to
-    /// N — exactly the rewrite the guard exists to catch, let through by the seed path itself.
-    /// Returns false and quarantines <paramref name="sessionId"/> via <see cref="CursorMarkers.Quarantine"/>
-    /// in that case, WITHOUT touching <see cref="WatchState.CursorByteOffset"/> or the guard's
-    /// checkpoint — callers must not advance <see cref="WatchState.LinesProcessed"/> either.
-    /// </para>
-    ///
-    /// <para>
-    /// <see cref="ResolveByteOffsetForLineAsync"/> now returns a
-    /// (byte offset, line number) PAIR rather than a bare byte offset, because the r5
-    /// complete-unterminated-final-record case resolves to a REWOUND pair (the record's own start,
-    /// paired with <paramref name="lineNumber"/> - 1) instead of EOF paired with
-    /// <paramref name="lineNumber"/> unchanged — see that method's doc for the full rationale (a
-    /// terminator Cursor appends for this SAME already-acked record later would otherwise be
-    /// misread as a phantom empty line, permanently shifting every following line's number by
-    /// one). This method now assigns BOTH halves of that pair to <see cref="WatchState.CursorByteOffset"/>
-    /// and <see cref="WatchState.LinesProcessed"/> together, for every vendor — including
-    /// non-Cursor, which previously relied on both call sites to separately set
-    /// <see cref="WatchState.LinesProcessed"/> themselves (now removed; see
-    /// <see cref="ApplyReconnectRewindAsync"/>) — so the pair is assigned atomically from one
-    /// source of truth instead of the byte offset and line count being written by two different
-    /// call paths that could disagree.
-    /// </para>
-    /// </summary>
-    internal async Task<bool> SeedCursorByteOffsetAsync(
-            WatchState          state,
-            int                 lineNumber,
-            string              sessionId,
-            string              vendor,
-            string              transcriptPath,
-            CursorRewriteGuard? cursorGuard,
-            CancellationToken   ct
-        ) {
-        if (vendor != "cursor" || cursorGuard is null) {
-            state.LinesProcessed = lineNumber;
-            return true;
-        }
-
-        var resolved = await ResolveByteOffsetForLineAsync(transcriptPath, lineNumber, ct);
-
-        if (resolved is null) {
-            _markers.Quarantine(
-                sessionId,
-                $"cursor_transcript_rewrite_detected: session {sessionId} zone=resume_frontier — "
-              + $"server-acknowledged line {lineNumber} exceeds the local transcript's line count");
-
-            return false;
-        }
-
-        state.CursorByteOffset = resolved.Value.ByteOffset;
-        state.LinesProcessed   = resolved.Value.LineNumber;
-        cursorGuard.ResetCheckpoint();
-
-        return true;
-    }
-
-    /// <summary>
-    /// runs <see cref="ApplyReconnectRewindAsync"/> under
-    /// <paramref name="gate"/> (RunWatch's <c>cursorRewindGate</c> — null for every non-Cursor
-    /// vendor) so it can never interleave with a concurrently-running <see cref="DrainNewLines"/>
-    /// (see <see cref="GatedDrainNewLinesAsync"/>, held under the SAME gate instance). Both mutate
-    /// <see cref="WatchState.CursorByteOffset"/>/<see cref="WatchState.LinesProcessed"/> and the
-    /// guard's checkpoint; without a shared mutual-exclusion gate, a rewind's three writes (byte
-    /// offset, checkpoint reset, line cursor) could land in the middle of a drain that already
-    /// snapshotted the PRE-rewind offsets — re-creating the byte/line-frontier divergence review
-    /// fix #2 (r2) closed, just via a different interleaving. Extracted as a standalone testable
-    /// method (rather than inlined in RunWatch's Reconnected handler) so the gate composition
-    /// itself — not just <see cref="ApplyReconnectRewindAsync"/>'s own atomicity — is directly
-    /// unit-testable without a live SignalR reconnect.
-    ///
-    /// Returns false (review fix r4, finding #5) when the rewind could not resolve the
-    /// server's frontier exactly and quarantined the session instead — the caller must exit the
-    /// same way it would for a runtime rewrite detection.
-    /// </summary>
-    internal async Task<bool> GatedApplyReconnectRewindAsync(
-            SemaphoreSlim?      gate,
-            WatchState          state,
-            int                 serverPosition,
-            string              sessionId,
-            string              vendor,
-            string              transcriptPath,
-            CursorRewriteGuard? cursorGuard,
-            CancellationToken   ct
-        ) {
-        if (gate is null) {
-            return await ApplyReconnectRewindAsync(state, serverPosition, sessionId, vendor, transcriptPath, cursorGuard, ct);
-        }
-
-        await gate.WaitAsync(ct);
-        try {
-            return await ApplyReconnectRewindAsync(state, serverPosition, sessionId, vendor, transcriptPath, cursorGuard, ct);
-        } finally {
-            gate.Release();
-        }
-    }
-
-    /// <summary>
-    /// runs <see cref="DrainNewLines"/> under
-    /// <paramref name="gate"/> (RunWatch's <c>cursorRewindGate</c> — null for every non-Cursor
-    /// vendor), the exact counterpart to <see cref="GatedApplyReconnectRewindAsync"/>: the SAME
-    /// gate instance serializes both, so a drain can never observe a half-applied reconnect
-    /// rewind (or vice versa — a rewind can never observe/clobber a half-applied drain ack).
-    /// </summary>
-    internal async Task<IReadOnlyList<string>> GatedDrainNewLinesAsync(
-            SemaphoreSlim?      gate,
-            HubConnection       hubConnection,
-            string              sessionId,
-            string              transcriptPath,
-            string?             agentId,
-            WatchState          state,
-            string              vendor,
-            CancellationToken   ct,
-            bool                isFinalDrain            = false,
-            CursorRewriteGuard? cursorGuard             = null,
-            Action?             onCursorRewriteDetected = null
-        ) {
-        if (gate is null) {
-            var drained = await DrainNewLines(
-                hubConnection, sessionId, transcriptPath, agentId, state, vendor, ct,
-                isFinalDrain: isFinalDrain, cursorGuard: cursorGuard, onCursorRewriteDetected: onCursorRewriteDetected);
-            PublishAckedLines(sessionId, agentId, vendor, state);
-            return drained;
-        }
-
-        await gate.WaitAsync(ct);
-        try {
-            var drained = await DrainNewLines(
-                hubConnection, sessionId, transcriptPath, agentId, state, vendor, ct,
-                isFinalDrain: isFinalDrain, cursorGuard: cursorGuard, onCursorRewriteDetected: onCursorRewriteDetected);
-            PublishAckedLines(sessionId, agentId, vendor, state);
-            return drained;
-        } finally {
-            gate.Release();
-        }
-    }
 
     public static int CountFileLines(string path) {
         try {

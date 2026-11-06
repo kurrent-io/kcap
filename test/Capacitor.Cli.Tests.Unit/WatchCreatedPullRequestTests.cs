@@ -3,6 +3,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.RepoEvidence;
 using Capacitor.Cli.PrDetection;
 using TUnit.Assertions.Enums;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Tests.Unit;
 
@@ -28,8 +29,8 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task Every_created_pr_is_posted_with_its_title_and_head() {
         var state = new WatchState();
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1917));
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1918));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1918));
         var posted = new List<RepositoryPayload>();
 
         await Link(state, Describes, (pr, _) => { posted.Add(pr); return Task.FromResult(true); });
@@ -44,7 +45,7 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task A_pr_gh_cannot_describe_waits_for_a_later_pass() {
         var state = new WatchState();
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
         var posted = 0;
 
         await Link(state, (_, _) => throw new InvalidOperationException("gh missing"), (_, _) => { posted++; return Task.FromResult(true); });
@@ -56,7 +57,7 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task On_the_last_chance_a_pr_gh_cannot_describe_is_linked_by_its_url() {
         var state = new WatchState();
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
         var posted = new List<RepositoryPayload>();
 
         await Link(state, (_, _) => throw new InvalidOperationException("gh missing"), (pr, _) => { posted.Add(pr); return Task.FromResult(true); }, lastChance: true);
@@ -69,7 +70,7 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task A_hung_lookup_leaves_the_last_chance_time_to_post() {
         var state = new WatchState();
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
         var posted = 0;
 
         await Link(state, Hangs, (_, token) => { token.ThrowIfCancellationRequested(); posted++; return Task.FromResult(true); },
@@ -83,8 +84,8 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task A_pr_that_runs_out_the_pass_moves_behind_the_rest() {
         var state = new WatchState();
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1917));
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1918));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1918));
 
         await Link(state, Describes, async (pr, token) => {
             if (pr.PrNumber == 1917) await Task.Delay(Timeout.Infinite, token);
@@ -97,7 +98,7 @@ public class WatchCreatedPullRequestTests {
     [Test]
     public async Task A_rejected_post_stays_pending_for_the_next_pass() {
         var state = new WatchState();
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
 
         await Link(state, Describes, (_, _) => Task.FromResult(false));
 
@@ -110,9 +111,9 @@ public class WatchCreatedPullRequestTests {
     public async Task A_pr_already_linked_is_neither_queued_nor_posted_again() {
         var state = new WatchState();
         state.LinkedPullRequests.Add(("kurrent-io", "kcap-cli", 1917));
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1917));
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1918));
-        WatchCommand.ObserveCreatedPullRequest(state, CreatedLine(1918));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1917));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1918));
+        TranscriptRecorder.ObserveCreatedPullRequest(state, CreatedLine(1918));
 
         await Assert.That(state.PendingCreatedPullRequests).IsEquivalentTo([Created(1918)]);
     }

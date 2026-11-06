@@ -5,7 +5,7 @@ using Capacitor.Cli.Core.Config;
 
 namespace Capacitor.Cli.Core.Harness.Claude;
 
-record ClaudeCliResult(
+public record ClaudeCliResult(
         string  Result,
         string? Model,
         long    InputTokens,

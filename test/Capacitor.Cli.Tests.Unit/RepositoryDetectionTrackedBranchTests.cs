@@ -1,6 +1,6 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.PrDetection;
 using Microsoft.Extensions.Time.Testing;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Tests.Unit;
 
@@ -94,6 +94,6 @@ public class RepositoryDetectionTrackedBranchTests {
 
         await Assert.That(before!.PrNumber).IsNull();
         await Assert.That(after!.PrNumber).IsEqualTo(874);
-        await Assert.That(WatchCommand.RepoPayloadChanged(after, before)).IsTrue();
+        await Assert.That(TranscriptRecorder.RepoPayloadChanged(after, before)).IsTrue();
     }
 }

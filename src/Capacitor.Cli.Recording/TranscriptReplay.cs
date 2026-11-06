@@ -7,12 +7,12 @@ namespace Capacitor.Cli.Recording;
 /// Opened for sharing, because the agent is still writing the file, and fail-open: losing a rebuild beats
 /// failing a recorder's startup.
 /// </summary>
-public static class TranscriptReplay {
+internal static class TranscriptReplay {
     /// How far back a windowed consumer looks. An unfinished tool sits at the tail, since nothing is written
     /// after its call until the result arrives, so anything older is settled and only costs startup time.
-    public const int WindowLines = 512;
+    internal const int WindowLines = 512;
 
-    public static async Task ReplayAsync(
+    internal static async Task ReplayAsync(
             string transcriptPath, int upToLine, IReadOnlyList<TranscriptReplayConsumer> consumers, CancellationToken ct, Action<string> log) {
         if (ct.IsCancellationRequested || upToLine <= 0 || consumers.Count == 0) return;
 

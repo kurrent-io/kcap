@@ -8,6 +8,7 @@ using TUnit.Assertions.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Tests.Unit;
 
@@ -164,8 +165,8 @@ public class WatchHarnessTitleTests {
         await Poll(store, legacy, oldServer, TimeProvider.System);
 
         await Assert.That(oldServer.LogEntries.Count(e => e.RequestMessage.Path == "/hooks/set-title")).IsEqualTo(1);
-        await Assert.That(WatchCommand.ShouldGenerateLlmTitle(recorded, agentId: null)).IsFalse();
-        await Assert.That(WatchCommand.ShouldGenerateLlmTitle(legacy, agentId: null)).IsTrue();
+        await Assert.That(TranscriptRecorder.ShouldGenerateLlmTitle(recorded, agentId: null)).IsFalse();
+        await Assert.That(TranscriptRecorder.ShouldGenerateLlmTitle(legacy, agentId: null)).IsTrue();
     }
 
     [Test]
@@ -177,7 +178,7 @@ public class WatchHarnessTitleTests {
 
         await Poll(store, state, server, TimeProvider.System);
 
-        await Assert.That(WatchCommand.ShouldGenerateLlmTitle(state, agentId: null)).IsTrue();
+        await Assert.That(TranscriptRecorder.ShouldGenerateLlmTitle(state, agentId: null)).IsTrue();
     }
 
     const string CustomTitle = """{"type":"custom-title","customTitle":"Mine","sessionId":"s"}""";
@@ -185,7 +186,7 @@ public class WatchHarnessTitleTests {
 
     static WatchState AfterLine(string vendor, string line, bool? serverRecordsHarnessTitles) {
         var state = ReadyForLlmTitle(new WatchState { ServerRecordsHarnessTitles = serverRecordsHarnessTitles });
-        WatchCommand.ObserveTitleLine(state, vendor, "s", line);
+        TranscriptRecorder.ObserveTitleLine(state, vendor, "s", line);
         return state;
     }
 
@@ -197,8 +198,8 @@ public class WatchHarnessTitleTests {
     [Arguments("gemini", """{"$set":{"summary":"x"}}""")]
     [Arguments("opencode", """{"type":"session_title","title":"x"}""")]
     public async Task A_title_line_only_a_newer_server_records_suppresses_llm_titling_only_there(string vendor, string line) {
-        await Assert.That(WatchCommand.ShouldGenerateLlmTitle(AfterLine(vendor, line, serverRecordsHarnessTitles: false), agentId: null)).IsTrue();
-        await Assert.That(WatchCommand.ShouldGenerateLlmTitle(AfterLine(vendor, line, serverRecordsHarnessTitles: true), agentId: null)).IsFalse();
+        await Assert.That(TranscriptRecorder.ShouldGenerateLlmTitle(AfterLine(vendor, line, serverRecordsHarnessTitles: false), agentId: null)).IsTrue();
+        await Assert.That(TranscriptRecorder.ShouldGenerateLlmTitle(AfterLine(vendor, line, serverRecordsHarnessTitles: true), agentId: null)).IsFalse();
     }
 
     /// <summary>An older server whose first probe is inconclusive still gets a generated title: the watcher may never
@@ -211,7 +212,7 @@ public class WatchHarnessTitleTests {
         var probed = await HarnessTitleClient.ServerRecordsHarnessTitlesAsync(client, TimeProvider.System, server.Url!, TimeSpan.FromSeconds(5), default);
 
         await Assert.That(probed).IsNull();
-        await Assert.That(WatchCommand.ShouldGenerateLlmTitle(AfterLine("claude", CustomTitle, probed), agentId: null)).IsTrue();
+        await Assert.That(TranscriptRecorder.ShouldGenerateLlmTitle(AfterLine("claude", CustomTitle, probed), agentId: null)).IsTrue();
     }
 
     [Test]
@@ -219,7 +220,7 @@ public class WatchHarnessTitleTests {
     [Arguments(true)]
     [Arguments(null)]
     public async Task A_claude_ai_title_suppresses_llm_titling_on_every_server(bool? serverRecordsHarnessTitles) =>
-        await Assert.That(WatchCommand.ShouldGenerateLlmTitle(AfterLine("claude", AiTitle, serverRecordsHarnessTitles), agentId: null)).IsFalse();
+        await Assert.That(TranscriptRecorder.ShouldGenerateLlmTitle(AfterLine("claude", AiTitle, serverRecordsHarnessTitles), agentId: null)).IsFalse();
 
     /// <summary>The shutdown read gets whatever is left of the kill grace; with none left it reads and sends nothing
     /// rather than run past the kill.</summary>
@@ -379,12 +380,12 @@ public class WatchHarnessTitleTests {
 
     [Test]
     public async Task A_legacy_claude_summary_does_not_suppress_llm_titling_while_the_probe_is_inconclusive() =>
-        await Assert.That(WatchCommand.ShouldGenerateLlmTitle(
+        await Assert.That(TranscriptRecorder.ShouldGenerateLlmTitle(
             AfterLine("claude", """{"type":"summary","summary":"Legacy","leafUuid":"u"}""", serverRecordsHarnessTitles: null), agentId: null)).IsTrue();
 
     /// <summary>A summary copied in from another session names that session, so no server records it for this one.</summary>
     [Test]
     public async Task A_foreign_legacy_claude_summary_never_suppresses_llm_titling() =>
-        await Assert.That(WatchCommand.ShouldGenerateLlmTitle(
+        await Assert.That(TranscriptRecorder.ShouldGenerateLlmTitle(
             AfterLine("claude", """{"type":"summary","summary":"Legacy","sessionId":"other"}""", serverRecordsHarnessTitles: true), agentId: null)).IsTrue();
 }

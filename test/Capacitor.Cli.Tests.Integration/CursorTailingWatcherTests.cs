@@ -46,7 +46,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// </summary>
 [NotInParallel] // KCAP_WATCHER_DIR is process-global, and other classes pin it too.
 public class CursorTailingWatcherTests {
-    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home);
+    TestRecorders Recorders => field ??= new(Config.Root);
 
     CursorMarkers Markers => new(Config.Root, TimeProvider.System);
 
@@ -249,7 +249,7 @@ public class CursorTailingWatcherTests {
     /// kept resending from the stale offset.
     ///
     /// This composes the same two pure seams the rest of this class uses instead of a live
-    /// SignalR round trip: <see cref="WatchCommand.SeedCursorByteOffsetAsync"/> (the resume) and
+    /// SignalR round trip: <see cref="TranscriptRecorder.SeedCursorByteOffsetAsync"/> (the resume) and
     /// <see cref="TranscriptReader.ReadNewCompleteLinesAsync"/> (the next poll's bounded read), fed
     /// from the SAME <c>WatchState</c> fields <c>RunWatch</c>/<c>DrainNewLines</c> thread between
     /// them in production.
@@ -269,8 +269,8 @@ public class CursorTailingWatcherTests {
             // acked — line 0 and the unterminated line 1).
             var state = new WatchState { LinesProcessed = 2 };
 
-            var seeded = await Watch.SeedCursorByteOffsetAsync(
-                state, lineNumber: 2, sessionId, vendor: "cursor", transcriptPath, guard, CancellationToken.None);
+            var seeded = await Recorders.For(sessionId, transcriptPath, null, vendor: "cursor").SeedCursorByteOffsetAsync(
+                state, lineNumber: 2, guard, CancellationToken.None);
 
             await Assert.That(seeded).IsTrue();
             await Assert.That(Markers.IsQuarantined(sessionId)).IsFalse();

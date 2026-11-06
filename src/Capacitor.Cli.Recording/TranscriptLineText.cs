@@ -18,7 +18,7 @@ public static partial class TranscriptLineText {
     /// session headers are not turns, so a session holding only those sends no lines.
     /// </summary>
 
-    public static bool IsRealTurnLine(string line, string vendor, OnceLog? parseErrors = null) =>
+    internal static bool IsRealTurnLine(string line, string vendor, OnceLog? parseErrors = null) =>
         vendor == "gemini"
             ? GeminiLines.IsImportRelevantLine(line)
             : TryExtractAssistantText(line, vendor) is not null
@@ -44,14 +44,14 @@ public static partial class TranscriptLineText {
 
     /// <summary>Whether a session watcher's held-back lines go to the server: once they hold a real turn, or
     /// reach <see cref="WatchState.TranscriptThreshold"/> whatever they hold.</summary>
-    public static bool ShouldFlushBuffer(IReadOnlyList<string> buffered, string vendor, OnceLog? parseErrors = null) =>
+    internal static bool ShouldFlushBuffer(IReadOnlyList<string> buffered, string vendor, OnceLog? parseErrors = null) =>
         buffered.Count >= WatchState.TranscriptThreshold || buffered.Any(line => IsRealTurnLine(line, vendor, parseErrors));
 
     /// <summary>
     /// Whether the transcript from <paramref name="fromLine"/> on holds a real turn. Read at shutdown, so a
     /// turn written after the last poll still counts; a transcript that was never written holds none.
     /// </summary>
-    public static bool UnsentLinesHoldRealTurn(string transcriptPath, int fromLine, string vendor, OnceLog? parseErrors = null) {
+    internal static bool UnsentLinesHoldRealTurn(string transcriptPath, int fromLine, string vendor, OnceLog? parseErrors = null) {
         try {
             return File.ReadLinesShared(transcriptPath).Skip(fromLine)
                 .Any(line => !string.IsNullOrWhiteSpace(line) && IsRealTurnLine(line, vendor, parseErrors));
@@ -136,7 +136,7 @@ public static partial class TranscriptLineText {
         }
     }
 
-    public static bool IsEvent(string line, string vendor = "claude") {
+    internal static bool IsEvent(string line, string vendor = "claude") {
         try {
             using var doc  = JsonDocument.Parse(line);
             var       root = doc.RootElement;

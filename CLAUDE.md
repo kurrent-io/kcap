@@ -6,6 +6,7 @@
 
 - `src/Capacitor.Models.Transcripts/Harness/<Vendor>/` — transcript projections to canonical events, the one place a vendor's transcript format is read.
 - `src/Capacitor.Cli.Core/Harness/<Vendor>/` — paths, hook parsers/installers, CLI runners, chat display rules.
+- `src/Capacitor.Cli.Recording/Harness/<Vendor>/` — what the transcript recorder calls for a vendor: line helpers, live usage lines, the Cursor rewrite guard.
 - `src/Capacitor.Cli.Daemon/Harness/<Vendor>/` — launchers, runtimes, reviewer capabilities, posture policies; one directory per vendor covering what used to be split between `Services/` and `Acp/`.
 - `src/Capacitor.Cli/Commands/Harness/` — command entry points, flat (`<Vendor>HookCommand` and friends).
 - `src/Capacitor.Cli/Harness/<Vendor>/` — everything else per vendor: import sources, subagent teardowns, correlators, ledgers.

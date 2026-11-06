@@ -492,10 +492,9 @@ internal sealed class AntigravityImportSource : IImportSource {
     }
 
     // Synthetic USAGE line numbers live in a high band so they never collide with real transcript
-    // line numbers (which start at 0). MUST match the live path's WatchCommand.
-    // AntigravityUsageLineBase AND the server's SessionWriter.AntigravityUsageLineBase — all
-    // three are pinned to the same literal (grepped: WatchCommand.cs:1692,
-    // SessionWriter.TranscriptPipeline.cs:21) since the server derives the USAGE event id from
+    // line numbers (which start at 0). MUST match the live path's
+    // AntigravityLiveUsage.AntigravityUsageLineBase AND the server's
+    // SessionWriter.AntigravityUsageLineBase: the server derives the USAGE event id from
     // line CONTENT (gen_row), not the line number, so the number is only a non-colliding
     // ordering hint.
     const long AntigravityUsageLineBase = 1_000_000_000L;

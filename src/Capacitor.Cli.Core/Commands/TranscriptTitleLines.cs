@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Core.Commands;
 /// <summary>Whether a transcript line carries the harness's own title, for vendors whose title lives inline in the
 /// transcript rather than in a separate store the watcher polls, and which servers record it. Each vendor's reader
 /// recognizes only what the server's own extractors record.</summary>
-internal static class TranscriptTitleLines {
+public static class TranscriptTitleLines {
     /// <param name="sessionId">The watched session: a Claude title line copied in from another session (a resume carries
     /// its history) is not recorded for this one.</param>
     public static TranscriptTitleLineKind Classify(string vendor, string sessionId, string line) => vendor switch {

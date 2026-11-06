@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Capacitor.Cli.Core;
@@ -23,6 +24,27 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
 
     public TranscriptSpool(string dir, TimeProvider time, long capBytes = DefaultCapBytes)
         : this(SpoolPartition.Standalone(dir), time, capBytes) { }
+
+    /// <summary>One spool line: a batch as the drain replays it.</summary>
+    public static string BuildTranscriptSpoolBatch(
+            string                sessionId,
+            string?               agentId,
+            string                vendor,
+            IReadOnlyList<string> lines,
+            IReadOnlyList<int>    lineNumbers,
+            ObservedCommit[]?     observedCommits,
+            bool                  moreFollows = false
+        ) => JsonSerializer.Serialize(
+            new TranscriptBatch {
+                SessionId       = sessionId,
+                AgentId         = agentId,
+                Lines           = lines.ToArray(),
+                LineNumbers     = lineNumbers.ToArray(),
+                Vendor          = vendor,
+                ObservedCommits = observedCommits,
+                MoreFollows     = moreFollows,
+            },
+            CapacitorJsonContext.Default.TranscriptBatch);
 
     /// <summary>Outcome of an <see cref="Append"/> call.</summary>
     public enum AppendResult {

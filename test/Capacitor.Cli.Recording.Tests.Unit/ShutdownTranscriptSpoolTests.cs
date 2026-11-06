@@ -1,10 +1,7 @@
-using Capacitor.Cli.Recording;
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
-using Capacitor.Cli.PrDetection;
 
-namespace Capacitor.Cli.Tests.Unit.Commands;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 /// <summary>
 /// Undelivered shutdown tails must remain replayable after an outage.
@@ -17,7 +14,7 @@ public class ShutdownTranscriptSpoolTests {
         var path = tmp.CreateFile("source.jsonl", "{}\n" + raw + "\n");
         var spool = new TranscriptSpool(tmp.PathTo("spool"), time: TimeProvider.System);
 
-        await Watch.SpoolUndeliveredTranscriptTailAsync(spool, path, Sid, null, "claude", 1, new CommitObservation.Uncovered(), CancellationToken.None);
+        await Recorders.For(Sid, path, null, "claude").SpoolUndeliveredTranscriptTailAsync(spool, 1, new CommitObservation.Uncovered(), CancellationToken.None);
 
         var replay = new List<string>();
         await spool.DrainAsync(Sid, body => { replay.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
@@ -30,9 +27,7 @@ public class ShutdownTranscriptSpoolTests {
         await Assert.That(line.Contains("ghp_", StringComparison.Ordinal)).IsFalse();
     }
 
-    [TempHome] public required TempHome Home { get; init; }
-
-    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home);
+    TestRecorders Recorders => field ??= new(Config.Root);
 
     CursorMarkers Markers => new(Config.Root, TimeProvider.System);
 
@@ -42,7 +37,7 @@ public class ShutdownTranscriptSpoolTests {
 
     [Test]
     public async Task build_batch_serializes_lines_and_vendor() {
-        var json = WatchCommand.BuildTranscriptSpoolBatch(Sid, null, "kiro", ["{\"k\":1}"], [7], null);
+        var json = TranscriptSpool.BuildTranscriptSpoolBatch(Sid, null, "kiro", ["{\"k\":1}"], [7], null);
         var node = System.Text.Json.Nodes.JsonNode.Parse(json)!;
         await Assert.That(node["session_id"]!.GetValue<string>()).IsEqualTo(Sid);
         await Assert.That(node["vendor"]!.GetValue<string>()).IsEqualTo("kiro");
@@ -56,8 +51,8 @@ public class ShutdownTranscriptSpoolTests {
     /// </summary>
     [Test]
     public async Task build_batch_carries_observed_commits_only_when_observing() {
-        var observing = System.Text.Json.Nodes.JsonNode.Parse(WatchCommand.BuildTranscriptSpoolBatch(Sid, null, "claude", ["{\"k\":1}"], [0], [], moreFollows: true))!;
-        var not       = System.Text.Json.Nodes.JsonNode.Parse(WatchCommand.BuildTranscriptSpoolBatch(Sid, null, "claude", ["{\"k\":1}"], [0], null))!;
+        var observing = System.Text.Json.Nodes.JsonNode.Parse(TranscriptSpool.BuildTranscriptSpoolBatch(Sid, null, "claude", ["{\"k\":1}"], [0], [], moreFollows: true))!;
+        var not       = System.Text.Json.Nodes.JsonNode.Parse(TranscriptSpool.BuildTranscriptSpoolBatch(Sid, null, "claude", ["{\"k\":1}"], [0], null))!;
 
         await Assert.That(observing["observed_commits"]!.AsArray().Count).IsEqualTo(0);
         await Assert.That(observing["more_follows"]!.GetValue<bool>()).IsTrue();
@@ -67,7 +62,7 @@ public class ShutdownTranscriptSpoolTests {
 
     [Test]
     public async Task build_batch_includes_agent_id_when_present() {
-        var json = WatchCommand.BuildTranscriptSpoolBatch(Sid, "agent-1", "codex", ["{\"k\":1}"], [0], null);
+        var json = TranscriptSpool.BuildTranscriptSpoolBatch(Sid, "agent-1", "codex", ["{\"k\":1}"], [0], null);
         var node = System.Text.Json.Nodes.JsonNode.Parse(json)!;
         await Assert.That(node["agent_id"]!.GetValue<string>()).IsEqualTo("agent-1");
     }
@@ -77,7 +72,7 @@ public class ShutdownTranscriptSpoolTests {
         using var tmp = new TempDir();
         var dir = tmp.PathTo("shut");
         var tx    = new TranscriptSpool(dir, time: TimeProvider.System);
-        var batch = WatchCommand.BuildTranscriptSpoolBatch(Sid, null, "kiro", ["{\"k\":1}"], [0], null);
+        var batch = TranscriptSpool.BuildTranscriptSpoolBatch(Sid, null, "kiro", ["{\"k\":1}"], [0], null);
         var r     = tx.Append(Sid, batch);
         await Assert.That(r).IsEqualTo(TranscriptSpool.AppendResult.Appended);
         await Assert.That(tx.HasBacklog(Sid)).IsTrue();
@@ -86,7 +81,7 @@ public class ShutdownTranscriptSpoolTests {
     /// <summary>
     /// Full shutdown-during-outage path: a transcript file has lines beyond
     /// <c>state.LinesProcessed</c> (never confirmed sent because the hub was down), and
-    /// <see cref="WatchCommand.SpoolUndeliveredTranscriptTailAsync"/> reads exactly that tail and
+    /// <see cref="TranscriptRecorder.SpoolUndeliveredTranscriptTailAsync"/> reads exactly that tail and
     /// spools it — never touching lines already confirmed delivered.
     /// </summary>
     [Test]
@@ -101,8 +96,8 @@ public class ShutdownTranscriptSpoolTests {
             "{\"line\":0}\n{\"line\":1}\n{\"line\":2}\n{\"line\":3}\n");
 
         var spool  = new TranscriptSpool(spoolDir, time: TimeProvider.System);
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, transcriptPath, Sid, agentId: null, vendor: "kiro", linesProcessed: 2, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
+        var result = await Recorders.For(Sid, transcriptPath, null, vendor: "kiro").SpoolUndeliveredTranscriptTailAsync(
+            spool, linesProcessed: 2, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.Appended);
         await Assert.That(spool.HasBacklog(Sid)).IsTrue();
@@ -132,8 +127,8 @@ public class ShutdownTranscriptSpoolTests {
 
         var spool  = new TranscriptSpool(spoolDir, time: TimeProvider.System);
         // LinesProcessed already at EOF — the final drain sent everything before the hub went down.
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, transcriptPath, Sid, agentId: null, vendor: "kiro", linesProcessed: 2, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
+        var result = await Recorders.For(Sid, transcriptPath, null, vendor: "kiro").SpoolUndeliveredTranscriptTailAsync(
+            spool, linesProcessed: 2, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
 
         await Assert.That(result).IsNull();
         await Assert.That(spool.HasBacklog(Sid)).IsFalse();
@@ -152,8 +147,8 @@ public class ShutdownTranscriptSpoolTests {
         commits.Append(new ObservedCommit { Sha = "aaa", Message = "Fix watcher" });
 
         var spool  = new TranscriptSpool(spoolDir, time: TimeProvider.System);
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, transcriptPath, Sid, agentId: null, vendor: "claude", linesProcessed: 1, commits: new CommitObservation.Covered(commits), ct: CancellationToken.None);
+        var result = await Recorders.For(Sid, transcriptPath, null, vendor: "claude").SpoolUndeliveredTranscriptTailAsync(
+            spool, linesProcessed: 1, commits: new CommitObservation.Covered(commits), ct: CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.Appended);
     }
@@ -169,8 +164,8 @@ public class ShutdownTranscriptSpoolTests {
         commits.Append(new ObservedCommit { Sha = "aaa", Message = "Fix watcher" });
 
         var spool  = new TranscriptSpool(tmp.PathTo("shut-cut-spool"), capBytes: 4096, time: TimeProvider.System);
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, transcriptPath, Sid, agentId: null, vendor: "claude", linesProcessed: 0, commits: new CommitObservation.Covered(commits), ct: CancellationToken.None);
+        var result = await Recorders.For(Sid, transcriptPath, null, vendor: "claude").SpoolUndeliveredTranscriptTailAsync(
+            spool, linesProcessed: 0, commits: new CommitObservation.Covered(commits), ct: CancellationToken.None);
 
         var replay = new List<System.Text.Json.Nodes.JsonNode>();
         await spool.DrainAsync(Sid, body => { replay.Add(System.Text.Json.Nodes.JsonNode.Parse(body)!); return Task.FromResult(DrainOutcome.Delivered); },
@@ -197,8 +192,8 @@ public class ShutdownTranscriptSpoolTests {
         await File.WriteAllTextAsync(transcriptPath, bigLine + "\n");
 
         var spool  = new TranscriptSpool(spoolDir, capBytes: 64, time: TimeProvider.System); // tiny cap — the batch can't fit
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, transcriptPath, Sid, agentId: null, vendor: "kiro", linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
+        var result = await Recorders.For(Sid, transcriptPath, null, vendor: "kiro").SpoolUndeliveredTranscriptTailAsync(
+            spool, linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.MarkedNeedsImport);
         await Assert.That(spool.NeedsImport(Sid)).IsTrue();
@@ -224,8 +219,8 @@ public class ShutdownTranscriptSpoolTests {
         Markers.Quarantine(sid, "rewrite detected");
 
         var spool  = new TranscriptSpool(spoolDir, time: TimeProvider.System);
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, transcriptPath, sid, agentId: null, vendor: "cursor", linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
+        var result = await Recorders.For(sid, transcriptPath, null, vendor: "cursor").SpoolUndeliveredTranscriptTailAsync(
+            spool, linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
 
         await Assert.That(result).IsNull();
         await Assert.That(spool.HasBacklog(sid)).IsFalse();
@@ -246,8 +241,8 @@ public class ShutdownTranscriptSpoolTests {
         await File.WriteAllTextAsync(transcriptPath, "{\"line\":0}\n");
 
         var spool  = new TranscriptSpool(spoolDir, time: TimeProvider.System);
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, transcriptPath, Sid, agentId: null, vendor: "kiro", linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
+        var result = await Recorders.For(Sid, transcriptPath, null, vendor: "kiro").SpoolUndeliveredTranscriptTailAsync(
+            spool, linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.Appended);
         await Assert.That(spool.HasBacklog(Sid)).IsTrue();
@@ -258,20 +253,18 @@ public class ShutdownTranscriptSpoolTests {
         using var tmp = new TempDir();
         var spoolDir = tmp.PathTo("shut-missing-spool");
         var spool  = new TranscriptSpool(spoolDir, time: TimeProvider.System);
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, "/tmp/kcap-nonexistent-" + Guid.NewGuid(), Sid, agentId: null, vendor: "kiro",
-            linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
+        var result = await Recorders.For(Sid, "/tmp/kcap-nonexistent-" + Guid.NewGuid(), null, vendor: "kiro").SpoolUndeliveredTranscriptTailAsync(
+            spool, linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
 
         await Assert.That(result).IsNull();
     }
 
     /// <summary>
-    /// Review fix 1: the spool must fire whenever the tail is undelivered, NOT only when the hub is
-    /// disconnected. A HubException thrown by SendTranscriptBatch2 leaves the connection Connected
-    /// but the batch undelivered — so DrainNewLines does not advance state.LinesProcessed. The helper
-    /// itself never consults connection state: it spools purely on "LinesProcessed &lt; EOF", which is
-    /// exactly what that scenario produces. This test pins that state-agnostic behaviour so the
-    /// unconditional call site can never regress back to a connection-state gate that drops the tail.
+    /// The spool must fire whenever the tail is undelivered, NOT only when the transport is disconnected.
+    /// A failed send can leave the connection up with the batch undelivered, so DrainNewLines does not
+    /// advance state.LinesProcessed. The helper itself never consults connection state: it spools purely
+    /// on "LinesProcessed &lt; EOF", which is exactly what that scenario produces. This pins that
+    /// state-agnostic behaviour, so a connection-state gate at the call site can't drop the tail.
     /// </summary>
     [Test]
     public async Task undelivered_tail_spooled_even_though_connection_stayed_up() {
@@ -284,8 +277,8 @@ public class ShutdownTranscriptSpoolTests {
         await File.WriteAllTextAsync(transcriptPath, "{\"line\":0}\n");
 
         var spool  = new TranscriptSpool(spoolDir, time: TimeProvider.System);
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, transcriptPath, Sid, agentId: null, vendor: "kiro", linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
+        var result = await Recorders.For(Sid, transcriptPath, null, vendor: "kiro").SpoolUndeliveredTranscriptTailAsync(
+            spool, linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.Appended);
         await Assert.That(spool.HasBacklog(Sid)).IsTrue();
@@ -301,8 +294,8 @@ public class ShutdownTranscriptSpoolTests {
         await File.WriteAllTextAsync(transcriptPath, "{\"token\":\"" + secret + "\"}\n");
 
         var spool  = new TranscriptSpool(spoolDir, time: TimeProvider.System);
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, transcriptPath, Sid, agentId: null, vendor: "kiro", linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
+        var result = await Recorders.For(Sid, transcriptPath, null, vendor: "kiro").SpoolUndeliveredTranscriptTailAsync(
+            spool, linesProcessed: 0, commits: new CommitObservation.Uncovered(), ct: CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.Appended);
 

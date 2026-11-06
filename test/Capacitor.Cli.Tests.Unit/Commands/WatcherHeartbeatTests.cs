@@ -1,4 +1,3 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
@@ -69,48 +68,5 @@ public class WatcherHeartbeatTests {
         var read = WatcherHeartbeat.Read(p);
         await Assert.That(read).IsNotNull();
         await Assert.That((read!.Value - second).Duration()).IsLessThan(TimeSpan.FromSeconds(1));
-    }
-
-    // --- Connect-retry / reconnect heartbeat freshness ---
-    // The connect-retry backoff grows to 30s, longer than the 20s staleness threshold. The wait
-    // is chunked via HeartbeatSlices so the heartbeat is refreshed between slices; if any single
-    // chunk could exceed the threshold, a healthy-but-reconnecting watcher would be falsely reaped.
-
-    [Test]
-    public async Task heartbeat_slices_never_exceed_the_max_slice() {
-        // The worst case: a full 30s backoff wait. Every chunk must stay under the staleness
-        // threshold so a reconnecting watcher can never look wedged.
-        var slices = WatchCommand.HeartbeatSlices(TimeSpan.FromSeconds(30), WatchCommand.HeartbeatSlice);
-
-        await Assert.That(slices.Count).IsGreaterThan(1);
-        foreach (var s in slices) {
-            await Assert.That(s).IsLessThanOrEqualTo(WatchCommand.HeartbeatSlice);
-            await Assert.That(s).IsLessThan(WatcherHeartbeat.Threshold);
-        }
-    }
-
-    [Test]
-    public async Task heartbeat_slices_sum_to_the_total_wait() {
-        var total  = TimeSpan.FromSeconds(23);
-        var slices = WatchCommand.HeartbeatSlices(total, WatchCommand.HeartbeatSlice);
-
-        var sum = TimeSpan.Zero;
-        foreach (var s in slices) sum += s;
-
-        await Assert.That(sum).IsEqualTo(total);
-    }
-
-    [Test]
-    public async Task heartbeat_slices_short_wait_is_a_single_chunk() {
-        var slices = WatchCommand.HeartbeatSlices(TimeSpan.FromSeconds(3), WatchCommand.HeartbeatSlice);
-
-        await Assert.That(slices.Count).IsEqualTo(1);
-        await Assert.That(slices[0]).IsEqualTo(TimeSpan.FromSeconds(3));
-    }
-
-    [Test]
-    public async Task heartbeat_slices_non_positive_total_yields_no_chunks() {
-        await Assert.That(WatchCommand.HeartbeatSlices(TimeSpan.Zero, WatchCommand.HeartbeatSlice).Count).IsEqualTo(0);
-        await Assert.That(WatchCommand.HeartbeatSlices(TimeSpan.FromSeconds(-5), WatchCommand.HeartbeatSlice).Count).IsEqualTo(0);
     }
 }

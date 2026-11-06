@@ -1,10 +1,6 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
-using Capacitor.Cli.PrDetection;
-using Microsoft.AspNetCore.SignalR.Client;
-using Capacitor.Cli.Recording;
 
-namespace Capacitor.Cli.Tests.Unit.Commands;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 /// <summary>
 /// A live session watcher holds its lines back until they contain a real turn or reach the threshold.
@@ -13,28 +9,30 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// </summary>
 public class ShortLiveSessionTests {
     const string PiHeader        = """{"type":"session","version":3,"id":"0f9c3a52-3f1e-4b8a-9a77-6b1e2f0c4d11","cwd":"/w"}""";
+
     const string PiModelChange   = """{"type":"model_change","provider":"anthropic","modelId":"m"}""";
+
     const string PiThinking      = """{"type":"thinking_level_change","thinkingLevel":"off"}""";
+
     const string PiPrompt        = """{"type":"message","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}""";
+
     const string OpenCodePrompt  = """{"info":{"role":"user"},"parts":[{"type":"text","text":"fix the bug"}]}""";
+
     const string OpenCodeReply   = """{"info":{"role":"assistant"},"parts":[{"type":"text","text":"Fixed."}]}""";
+
     const string OpenCodeToolRun = """{"info":{"role":"assistant"},"parts":[{"type":"tool","tool":"read"}]}""";
 
-    [TempHome] public required TempHome Home { get; init; }
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempDir] public required TempDir Tmp { get; init; }
 
-    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home);
+    TestRecorders Recorders => field ??= new(Config.Root);
 
     static readonly string Sid = Guid.NewGuid().ToString("N");
-
-    static HubConnection UnconnectedHub() => new HubConnectionBuilder().WithUrl("http://127.0.0.1:1/hubs/sessions").Build();
 
     static string Lines(params string[] lines) => string.Join("\n", lines) + "\n";
 
     async Task<IReadOnlyList<string>> Drain(string path, string vendor, WatchState state) {
-        await using var hub = UnconnectedHub();
-        return await Watch.DrainNewLines(hub, Sid, path, agentId: null, state, vendor, CancellationToken.None);
+        return await Recorders.For(Sid, path, null, vendor).DrainNewLines(state, CancellationToken.None);
     }
 
     [Test]
@@ -154,15 +152,5 @@ public class ShortLiveSessionTests {
         var path = Tmp.CreateFile("t.jsonl", Lines(PiPrompt, PiModelChange));
 
         await Assert.That(TranscriptLineText.UnsentLinesHoldRealTurn(path, 1, "pi")).IsFalse();
-    }
-
-    [Test]
-    [Arguments("parent_exited", null, false, true)]
-    [Arguments("idle_timeout", null, false, true)]
-    [Arguments("parent_exited", "agent-1", false, false)]
-    [Arguments(null, null, false, false)]
-    [Arguments("idle_timeout", null, true, false)]
-    public async Task The_watcher_ends_its_session_whatever_the_session_holds(string? endReason, string? agentId, bool cursorSuppresses, bool expected) {
-        await Assert.That(WatchCommand.PostsOwnSessionEnd(endReason, agentId, cursorSuppresses)).IsEqualTo(expected);
     }
 }

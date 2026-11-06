@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Recording;
 
 /// <summary>When a recorder ends its source because the transcript went quiet.</summary>
-public static class IdleEnd {
+internal static class IdleEnd {
 
     /// <summary>
     /// Codex has no session-end hook and the desktop app's single long-lived
@@ -13,14 +13,14 @@ public static class IdleEnd {
     /// Stop hook per turn that re-spawns the watcher and the read model
     /// reactivates the session, so a resumed conversation comes back to life.
     /// </summary>
-    public static readonly TimeSpan DefaultCodexIdleTimeout = TimeSpan.FromMinutes(60);
+    internal static readonly TimeSpan DefaultCodexIdleTimeout = TimeSpan.FromMinutes(60);
 
     /// <summary>
     /// Resolves the Codex idle timeout from KCAP_CODEX_IDLE_MINUTES, falling back
     /// to <see cref="DefaultCodexIdleTimeout"/> for unset/blank/non-numeric/
     /// non-positive values. Pure so the parsing is unit-testable.
     /// </summary>
-    public static TimeSpan ResolveCodexIdleTimeout(string? envValue) =>
+    internal static TimeSpan ResolveCodexIdleTimeout(string? envValue) =>
         int.TryParse(envValue, out var minutes) && minutes > 0
             ? TimeSpan.FromMinutes(minutes)
             : DefaultCodexIdleTimeout;
@@ -30,14 +30,14 @@ public static class IdleEnd {
     /// fallback too, on its own knob (default 60 minutes).
     /// </summary>
 
-    public static readonly TimeSpan DefaultCursorIdleCeiling = TimeSpan.FromMinutes(60);
+    internal static readonly TimeSpan DefaultCursorIdleCeiling = TimeSpan.FromMinutes(60);
 
     /// <summary>
     /// Resolves the Cursor idle ceiling from KCAP_CURSOR_IDLE_CEILING_MINUTES, falling back to
     /// <see cref="DefaultCursorIdleCeiling"/> for unset/blank/non-numeric/non-positive values.
     /// </summary>
 
-    public static TimeSpan ResolveCursorIdleCeiling(string? envValue) =>
+    internal static TimeSpan ResolveCursorIdleCeiling(string? envValue) =>
         int.TryParse(envValue, out var minutes) && minutes > 0
             ? TimeSpan.FromMinutes(minutes)
             : DefaultCursorIdleCeiling;
@@ -51,14 +51,14 @@ public static class IdleEnd {
     /// end-of-conversation detector: a child watcher posts no session-end, so reaping late costs
     /// nothing while reaping a LIVE subagent drops the rest of its transcript.
     /// </summary>
-    public static readonly TimeSpan DefaultClaudeSubagentIdleCeiling = TimeSpan.FromHours(6);
+    internal static readonly TimeSpan DefaultClaudeSubagentIdleCeiling = TimeSpan.FromHours(6);
 
     /// <summary>
     /// Resolves the Claude subagent idle ceiling from KCAP_CLAUDE_SUBAGENT_IDLE_MINUTES, falling
     /// back to <see cref="DefaultClaudeSubagentIdleCeiling"/> for unset/blank/non-numeric/
     /// non-positive values. Pure so the parsing is unit-testable.
     /// </summary>
-    public static TimeSpan ResolveClaudeSubagentIdleCeiling(string? envValue) =>
+    internal static TimeSpan ResolveClaudeSubagentIdleCeiling(string? envValue) =>
         int.TryParse(envValue, out var minutes) && minutes > 0
             ? TimeSpan.FromMinutes(minutes)
             : DefaultClaudeSubagentIdleCeiling;
@@ -70,7 +70,7 @@ public static class IdleEnd {
     /// the rest of its transcript.
     /// </summary>
 
-    public static readonly TimeSpan DefaultCodexSubagentReapCeiling = TimeSpan.FromHours(6);
+    internal static readonly TimeSpan DefaultCodexSubagentReapCeiling = TimeSpan.FromHours(6);
 
     /// <summary>
     /// Resolves the Codex subagent reap ceiling from KCAP_CODEX_SUBAGENT_REAP_MINUTES — its own
@@ -78,7 +78,7 @@ public static class IdleEnd {
     /// Falls back to <see cref="DefaultCodexSubagentReapCeiling"/> for unset/blank/non-numeric/
     /// non-positive values. Pure so the parsing is unit-testable.
     /// </summary>
-    public static TimeSpan ResolveCodexSubagentReapCeiling(string? envValue) =>
+    internal static TimeSpan ResolveCodexSubagentReapCeiling(string? envValue) =>
         int.TryParse(envValue, out var minutes) && minutes > 0
             ? TimeSpan.FromMinutes(minutes)
             : DefaultCodexSubagentReapCeiling;
@@ -89,7 +89,7 @@ public static class IdleEnd {
     /// conversation-idle window.
     /// </summary>
 
-    public static TimeSpan ResolveIdleWindow(string vendor, bool isSessionWatcher, Func<string, string?> env) =>
+    internal static TimeSpan ResolveIdleWindow(string vendor, bool isSessionWatcher, Func<string, string?> env) =>
         vendor switch {
             "antigravity"                     => ResolveCodexIdleTimeout(env("KCAP_ANTIGRAVITY_IDLE_MINUTES")),
             "cursor"                          => ResolveCursorIdleCeiling(env("KCAP_CURSOR_IDLE_CEILING_MINUTES")),
@@ -109,7 +109,7 @@ public static class IdleEnd {
     /// sessionEnd hook or the server's lease-gated sweep.</para>
     /// </summary>
 
-    public static bool ShouldEndOnIdle(
+    internal static bool ShouldEndOnIdle(
             string         vendor,
             bool           isSessionWatcher,
             bool           thresholdReached,
@@ -162,7 +162,7 @@ public static class IdleEnd {
     /// not idle-exit. For every other vendor the caller passes no heartbeat.
     /// </summary>
 
-    public static DateTimeOffset ResolveCursorIdleClock(
+    internal static DateTimeOffset ResolveCursorIdleClock(
             string          vendor,
             DateTimeOffset  lastActivityAt,
             DateTimeOffset? hookHeartbeatAt

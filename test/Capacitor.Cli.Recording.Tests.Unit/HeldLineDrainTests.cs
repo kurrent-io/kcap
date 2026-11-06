@@ -1,11 +1,7 @@
-using Capacitor.Cli.Recording;
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
-using Capacitor.Cli.PrDetection;
-using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Capacitor.Cli.Tests.Unit.Commands;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 /// <summary>
 /// A line whose redaction runs out of time holds the drain at its own line number, so the server,
@@ -17,25 +13,19 @@ public class HeldLineDrainTests {
     const string Third  = "{\"c\":3}";
     const string Held   = "{\"text\":\"key " + Secret + "\"}";
 
-    [TempHome] public required TempHome Home { get; init; }
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempDir] public required TempDir Tmp { get; init; }
 
     readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero));
     readonly SwitchableRedactionClock _clock = new() { Exhausted = false };
 
-    WatchCommand Watch => field ??= new(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(), TestWatchers.For(Config.Root, Resolutions.None(Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), _time, TestAccounts.None, Home) {
-        RedactionClock = _clock
-    };
+    TestRecorders Recorders => field ??= new(Config.Root, _time, _clock);
 
     static readonly string Sid = Guid.NewGuid().ToString("N");
 
-    static HubConnection UnconnectedHub() => new HubConnectionBuilder().WithUrl("http://127.0.0.1:1/hubs/sessions").Build();
-
     async Task<(IReadOnlyList<string> Lines, WatchState State)> Drain(string path, string? agentId, int from) {
         var state = new WatchState { LinesProcessed = from, ThresholdReached = agentId is not null };
-        await using var hub = UnconnectedHub();
-        var lines = await Watch.DrainNewLines(hub, Sid, path, agentId, state, "claude", CancellationToken.None);
+        var lines = await Recorders.For(Sid, path, agentId, "claude").DrainNewLines(state, CancellationToken.None);
         return (lines, state);
     }
 
@@ -67,7 +57,7 @@ public class HeldLineDrainTests {
         await Assert.That(lines.Count).IsEqualTo(0);
         await Assert.That(state.BufferedLines.Count).IsEqualTo(0);
         await Assert.That(state.LinesReadAhead).IsEqualTo(1);
-        await Assert.That(Watch.HeldLineFor(Sid, null).Held!.LineNumber).IsEqualTo(1);
+        await Assert.That(Recorders.For(Sid, path, null, "claude").HeldLine.Held!.LineNumber).IsEqualTo(1);
     }
 
     [Test]
@@ -109,8 +99,8 @@ public class HeldLineDrainTests {
         _clock.Exhausted = false;
         var spool = new TranscriptSpool(Tmp.PathTo("spool"), _time);
 
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, path, Sid, null, "claude", 1, new CommitObservation.Uncovered(), CancellationToken.None);
+        var result = await Recorders.For(Sid, path, null, "claude").SpoolUndeliveredTranscriptTailAsync(
+            spool, 1, new CommitObservation.Uncovered(), CancellationToken.None);
 
         var replay = new List<string>();
         await spool.DrainAsync(Sid, body => { replay.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
@@ -119,7 +109,7 @@ public class HeldLineDrainTests {
         await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.Appended);
         await Assert.That(batch["line_numbers"]!.AsArray().Select(n => n!.GetValue<int>())).IsEquivalentTo([1, 2]);
         await Assert.That(replay.Single()).DoesNotContain(Secret);
-        await Assert.That(Watch.HeldLineFor(Sid, null).Held).IsNull();
+        await Assert.That(Recorders.For(Sid, path, null, "claude").HeldLine.Held).IsNull();
     }
 
     [Test]
@@ -129,12 +119,12 @@ public class HeldLineDrainTests {
         await Drain(path, null, 1);
         var spool = new TranscriptSpool(Tmp.PathTo("spool"), _time);
 
-        var result = await Watch.SpoolUndeliveredTranscriptTailAsync(
-            spool, path, Sid, null, "claude", 1, new CommitObservation.Uncovered(), CancellationToken.None);
+        var result = await Recorders.For(Sid, path, null, "claude").SpoolUndeliveredTranscriptTailAsync(
+            spool, 1, new CommitObservation.Uncovered(), CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.MarkedNeedsImport);
         await Assert.That(spool.NeedsImport(Sid)).IsTrue();
         await Assert.That(spool.HasBacklog(Sid)).IsFalse();
-        await Assert.That(Watch.HeldLineFor(Sid, null).Held).IsNull();
+        await Assert.That(Recorders.For(Sid, path, null, "claude").HeldLine.Held).IsNull();
     }
 }
