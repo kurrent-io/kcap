@@ -17,4 +17,7 @@
     <ItemGroup>
         <Using Include="Capacitor.Models.Transcripts" />
     </ItemGroup>
+    <ItemGroup>
+        <AdditionalFiles Include="..\Capacitor.Cli.Daemon\BannedSymbols.Daemon.txt" Visible="false" />
+    </ItemGroup>
 </Project>

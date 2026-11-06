@@ -332,7 +332,7 @@ static class RepositoryDetection {
             // Timed out or failed — kill the child (and its tree) so a slow git/gh probe doesn't
             // outlive the hook and accumulate across repeated invocations. Disposing alone only
             // releases handles; it does not stop the process.
-            try { if (process is { HasExited: false }) process.Kill(entireProcessTree: true); } catch { }
+            try { if (process is { HasExited: false }) ProcessTree.Kill(process); } catch { }
             return null;
         } finally {
             process?.Dispose();
