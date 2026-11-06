@@ -355,13 +355,16 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public const string TitleEnvVar = "KCAP_APP_TITLE";
 
-    // Names the instance, so several running side by side can be told apart. Drawn by the app only
-    // where the window paints into its title bar; elsewhere the window manager draws the title.
+    // Names the instance, so several running side by side can be told apart. Where the window paints
+    // into its title bar the app draws it centred and Title stays empty, because Windows still draws
+    // a non-empty Title at the top left; elsewhere the window manager draws Title.
     void ShowInstanceTitle() {
         if (Environment.GetEnvironmentVariable(TitleEnvVar) is not { } raw || raw.Trim() is not { Length: > 0 } title) return;
-        Title = title;
         InstanceTitle.Text = title;
-        InstanceTitle.Bind(IsVisibleProperty, this.GetObservable(IsExtendedIntoWindowDecorationsProperty));
+        this.GetObservable(IsExtendedIntoWindowDecorationsProperty).Subscribe(extended => {
+            InstanceTitle.IsVisible = extended;
+            Title = extended ? "" : title;
+        });
     }
 
     // Windows draws its caption buttons over the top-right of the extended client area, so the
