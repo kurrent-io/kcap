@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Claude;
 
@@ -61,6 +62,24 @@ public class ClaudePluginRecordsTests {
         var root = JsonNode.Parse(File.ReadAllText(Markets))!;
         await Assert.That(root["kurrent"]!["installLocation"]!.GetValue<string>()).IsEqualTo(New);
         await Assert.That(root["kapacitor"]!["source"]!["path"]!.GetValue<string>()).IsEqualTo(New);
+    }
+
+    /// <summary>The marketplace names the folder through a link, as an nvm <c>current</c> path does, and the record
+    /// names the resolved folder; a child whose name starts with two dots is still a child.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_record_under_another_spelling_of_the_old_folder_moves_with_its_suffix() {
+        Tmp.CreateDir("v22", "kcap", "..cache");
+        File.CreateSymbolicLink(Tmp.PathTo("current"), Tmp.PathTo("v22"));
+        var record = Path.Combine(Tmp.GetResolvedPath(Path.Combine("v22", "kcap")), "..cache");
+        Tmp.CreateFile("plugins/known_marketplaces.json", "{" + Market("kcap", Tmp.PathTo("current", "kcap")) + "}");
+        Tmp.CreateFile("plugins/installed_plugins.json",
+            $$$"""{"version":2,"plugins":{"kcap@kcap":[{"scope":"user","installPath":{{{JsonValue.Create(record).ToJsonString()}}}}]}}""");
+
+        var result = ClaudePluginRecords.Repoint(Tmp.Path, New);
+
+        await Assert.That(result).IsEqualTo(SettingsEdit.Changed);
+        var plugins = JsonNode.Parse(File.ReadAllText(Installed))!["plugins"]!;
+        await Assert.That(plugins["kcap@kcap"]![0]!["installPath"]!.GetValue<string>()).IsEqualTo(Path.Combine(New, "..cache"));
     }
 
     [Test]

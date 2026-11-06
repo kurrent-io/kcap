@@ -73,9 +73,9 @@ public static class ClaudePluginRecords {
         foreach (var folder in oldFolders) {
             if (!CanonicalPath.IsWithin(installPath, folder)) continue;
 
-            var relative = Path.GetRelativePath(folder, installPath);
-            if (relative == ".") return pluginPath;
-            if (!relative.StartsWith("..", StringComparison.Ordinal)) return Path.Combine(pluginPath, relative);
+            // From the resolved paths the containment check used: two spellings of one tree give a `..` suffix.
+            var relative = Path.GetRelativePath(CanonicalPath.Resolve(folder), CanonicalPath.Resolve(installPath));
+            return relative == "." ? pluginPath : Path.Combine(pluginPath, relative);
         }
 
         return null;
