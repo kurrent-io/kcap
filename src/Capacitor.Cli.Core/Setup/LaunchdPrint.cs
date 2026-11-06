@@ -63,6 +63,14 @@ public static class LaunchdPrint {
         return programArguments?.Name == "array" ? programArguments.Elements("string").FirstOrDefault()?.Value : null;
     }
 
+    /// <summary>The label a plist declares, which launchd loads it under whatever the file is called; null when it
+    /// declares none. Walked as <see cref="Binary"/> is.</summary>
+    public static string? Label(string plistXml) {
+        var topDict = XDocument.Parse(plistXml).Root?.Element("dict");
+        var label   = topDict is null ? null : TopLevelValue(topDict, "Label");
+        return label?.Name == "string" ? label.Value : null;
+    }
+
     /// <summary>
     /// The environment baked into a plist — the dict paired with the top-level
     /// <c>EnvironmentVariables</c> key, walked strictly (see <see cref="KeyedElements"/>). Empty

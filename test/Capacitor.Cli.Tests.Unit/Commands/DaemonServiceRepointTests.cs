@@ -201,6 +201,56 @@ public partial class DaemonServiceRepointTests {
         await Assert.That(console.GetCapturedOutput()).Contains($"Daemon 'npm': now runs {Bundle}; it restarted");
     }
 
+    /// <summary>launchd loads a plist under the label inside it, so a probe by the file's name would miss the job.</summary>
+    [Test]
+    public async Task A_plist_declaring_another_label_fails_the_run() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        Directory.CreateDirectory(LaunchdUnit.AgentsDir(Home));
+        File.WriteAllText(PlistPath("npm"), LaunchdUnit.Plist(Spec("copied", OldDaemon)));
+        var before    = File.ReadAllText(PlistPath("npm"));
+        var launchctl = new FakeLaunchctl(Home);
+        launchctl.Load("copied", OldDaemon);
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(launchctl).RepointFrom(Dir, Bundle);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(File.ReadAllText(PlistPath("npm"))).IsEqualTo(before);
+        await Assert.That(console.GetCapturedError()).Contains($"its plist does not declare the label {LaunchdUnit.Label("npm")}");
+    }
+
+    /// <summary>A plist rewritten while its job kept running leaves launchd on the old program until a reload.</summary>
+    [Test]
+    public async Task A_job_still_running_from_dir_under_a_rewritten_plist_is_reloaded() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        Install("npm", Bundle);
+        var launchctl = new FakeLaunchctl(Home);
+        launchctl.Load("npm", OldDaemon);
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(launchctl).RepointFrom(Dir, Bundle);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(launchctl.Bootstrapped).IsEquivalentTo([Bundle]);
+        await Assert.That(launchctl.Program("npm")).IsEqualTo(Bundle);
+        await Assert.That(launchctl.IsRunning("npm")).IsTrue();
+    }
+
+    [Test]
+    public async Task A_job_whose_program_launchd_does_not_show_fails_the_run_when_its_plist_is_elsewhere() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        Install("brew", Brew);
+        var launchctl = new FakeLaunchctl(Home) { HidesProgram = true };
+        launchctl.Load("brew", Brew);
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(launchctl).RepointFrom(Dir, Bundle);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(launchctl.Verbs).DoesNotContain("bootout");
+        await Assert.That(console.GetCapturedError()).Contains("Daemon 'brew': launchd does not show the program its job runs");
+    }
+
     /// <summary>Only a unit known to be gone lets its preimage go: something else at the plist path may hide the
     /// rewritten unit the preimage is there to undo.</summary>
     [Test]
@@ -271,6 +321,7 @@ public partial class DaemonServiceRepointTests {
         await Assert.That(File.ReadAllText(foreign)).IsEqualTo(foreignBefore);
         await Assert.That(launchctl.Program("brew")).IsEqualTo(Brew);
         await Assert.That(launchctl.Calls.Select(c => string.Join(' ', c)).ToArray()).IsEquivalentTo([
+            $"print gui/{getuid()}/{LaunchdUnit.Label("brew")}",
             $"print {label}", $"bootout {label}", $"bootstrap gui/{getuid()} {PlistPath("npm")}", $"print {label}",
         ]);
     }

@@ -87,6 +87,27 @@ sealed partial class LaunchdServiceManager(
         return LaunchdUnit.TryReadPlist(path, out _) != LaunchdUnit.PlistRead.Absent && ReadBinaryPathSafe(path) is null;
     }
 
+    /// <summary>Whether the unit's plist declares the label its file name stands for. launchd loads it under the label
+    /// inside, so with any other every call kcap makes by name misses the job.</summary>
+    public bool DeclaresOwnLabel(string serviceId) {
+        try {
+            return LaunchdPrint.Label(File.ReadAllText(LaunchdUnit.PlistPath(home, serviceId))) == LaunchdUnit.Label(serviceId);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException or InvalidDataException) {
+            return false;
+        }
+    }
+
+    /// <summary>The job launchd holds under the unit's label and the program it runs, which the plist on disk does
+    /// not have to match; the program is null when no job is loaded or launchd shows none.</summary>
+    public (LabelProbe Label, string? Program) LoadedJob(string serviceId) {
+        try {
+            var (label, stdout) = Probe(serviceId);
+            return (label, label == LabelProbe.Loaded ? LaunchdPrint.LoadedProgram(stdout) : null);
+        } catch (Exception ex) when (Contained(ex)) {
+            return (LabelProbe.Unknown, null);
+        }
+    }
+
     public ServiceQuery Query(string serviceId)                 => QueryCore(serviceId, null);
     public ServiceQuery Query(string serviceId, TimeSpan t)     => QueryCore(serviceId, t);
 

@@ -953,22 +953,36 @@ sealed class DaemonServiceCommands(
         foreach (var unit in units.Union(store.RepointPreimageNames())) {
             var preimage = store.RepointPreimagePath(unit);
             bool Within(string? binary) => binary is not null && CanonicalPath.IsWithin(binary, dir);
-            // A preimage marks a run cut short with the plist already rewritten.
-            bool Owned() => File.Exists(preimage) || Within(launchd.UnitBinary(unit));
-            // The caller may delete dir on success, so a unit that cannot be read must not pass as unrelated.
-            async Task<bool> UnreadableAsync() {
-                if (File.Exists(preimage) || !launchd.UnitUnreadable(unit)) return false;
-                await Console.Error.WriteLineAsync($"Daemon '{unit}': its unit could not be read, so kcap cannot tell whether it runs from {dir}.");
-                return true;
+
+            // Whether the unit runs from dir; null once it has said why kcap cannot tell. A preimage marks a run cut short
+            // with the plist already rewritten, and launchd runs the program it loaded whatever the plist now says. The
+            // caller may delete dir on success, so nothing kcap cannot read passes as unrelated.
+            async Task<bool?> OwnedAsync() {
+                if (File.Exists(preimage)) return true;
+
+                var unknown = launchd.UnitUnreadable(unit) ? "its unit could not be read"
+                    : File.Exists(launchd.UnitPath(unit)) && !launchd.DeclaresOwnLabel(unit) ? $"its plist does not declare the label {LaunchdUnit.Label(unit)}"
+                    : null;
+                if (unknown is null) {
+                    if (Within(launchd.UnitBinary(unit))) return true;
+
+                    var job = launchd.LoadedJob(unit);
+                    if (Within(job.Program)) return true;
+                    if (job is { Label: LabelProbe.Absent } or { Program: not null }) return false;
+
+                    unknown = job.Label == LabelProbe.Unknown ? "launchd's state for its job could not be read" : "launchd does not show the program its job runs";
+                }
+
+                await Console.Error.WriteLineAsync($"Daemon '{unit}': {unknown}, so kcap cannot tell whether it runs from {dir}.");
+                return null;
             }
 
             try {
-                if (await UnreadableAsync()) {
+                if (await OwnedAsync() is not { } owned) {
                     failed = true;
                     continue;
                 }
-
-                if (!Owned()) continue;
+                if (!owned) continue;
 
                 if ((HostsCaller ?? HostsCallerOf(store))(unit)) {
                     await Console.Error.WriteLineAsync(HostedCaller.Refusal(unit, $"`kcap daemon service repoint --from {dir}`"));
@@ -984,11 +998,11 @@ sealed class DaemonServiceCommands(
                 }
 
                 // An install holding the lock may have repointed the unit already, or changed it since the first read.
-                if (await UnreadableAsync()) {
+                if (await OwnedAsync() is not { } stillOwned) {
                     failed = true;
                     continue;
                 }
-                if (!Owned()) continue;
+                if (!stillOwned) continue;
 
                 ReloadStop? stop    = null;
                 var         started = time.GetTimestamp();
