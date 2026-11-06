@@ -593,7 +593,8 @@ public sealed class StatusCommand(
 
     internal static string CodexUntrustedLine() =>
         $"{HarnessRegistry.LabelOf(HarnessId.Codex)}: kcap's hooks are installed, not trusted — Codex records nothing until you trust them. "
-      + "`codex exec` never asks: run `codex` once and accept the prompt (or trust them in /hooks), or use Settings → Hooks in the Codex app";
+      + "Run `kcap plugin install --codex` to have Codex trust them; `codex exec` never asks, so otherwise run `codex` once "
+      + "and accept the prompt (or trust them in /hooks), or use Settings > Hooks in the Codex app";
 
     /// <summary>The <c>hooks_trust</c> value of <c>kcap status --json</c>: null when there is no answer.</summary>
     internal static string? HooksTrustToken(CodexHooksTrust trust) => trust switch {

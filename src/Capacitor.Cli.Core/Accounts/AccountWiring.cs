@@ -10,13 +10,15 @@ public static class AccountWiring {
     const string NetworkStep          = "network";
     const string StatusLineStep       = "statusline";
     const string StatusLineBackupStep = "statusline backup";
+    const string HookTrustStep        = "hook trust";
 
     public static bool Succeeded(IReadOnlyList<WiringStep> steps) => steps.All(s => s.Succeeded);
 
     /// <summary>A failed sandbox-network step is a warning: the account still records. So is a status line
-    /// removed without a backup to restore, since there is nothing left to retry.</summary>
+    /// removed without a backup to restore, since there is nothing left to retry, and hook trust left behind,
+    /// which names hooks that are gone.</summary>
     public static bool HasFatalFailure(IReadOnlyList<WiringStep> steps) =>
-        steps.Any(s => !s.Succeeded && s.Name is not (NetworkStep or StatusLineBackupStep));
+        steps.Any(s => !s.Succeeded && s.Name is not (NetworkStep or StatusLineBackupStep or HookTrustStep));
 
     public static string FailureSummary(IReadOnlyList<WiringStep> steps) =>
         string.Join(", ", steps.Where(s => !s.Succeeded).Select(s => $"{s.Name}: {s.Detail}"));
@@ -156,6 +158,7 @@ public static class AccountWiring {
             Step("hooks", CodexHooksWriter.Remove(paths.UserHooksJson)),
             Step("mcp", CodexConfigToml.UnregisterKcapMcpServers(paths.ConfigToml)),
             Step(NetworkStep, CodexConfigToml.RestoreNetworkAccess(paths.ConfigToml, [])),
+            Step(HookTrustStep, CodexConfigToml.ReleaseHookTrust(paths.ConfigToml)),
         ];
         CodexConfigToml.DeleteEmptyOwnershipLedger(paths.ConfigToml);
 
