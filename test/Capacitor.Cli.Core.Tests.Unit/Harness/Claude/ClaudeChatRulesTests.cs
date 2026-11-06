@@ -751,6 +751,22 @@ public class ClaudeChatRulesTests {
         await Assert.That(note.Text).IsEqualTo("PR 3022 has a th");
     }
 
+    /// Claude Code escapes a frame's own tag inside it, so the other frame's tag is the one a message can quote.
+    [Test]
+    [Arguments("what does `</ci-monitor-event>` close?")]
+    [Arguments("the `<ci-monitor-event>` frame is unchanged")]
+    public async Task A_message_from_another_session_can_quote_a_ci_frames_tag(string words) {
+        var note = R(User($"<cross-session-message from=\"uds:/tmp/cc.sock\" from-name=\"quiet-cow-d1\">\n{words}\n</cross-session-message>")).Envelopes.Single();
+        await Assert.That(note.ToolName).IsEqualTo("Message from quiet-cow-d1");
+        await Assert.That(note.Text).IsEqualTo(words);
+    }
+
+    [Test]
+    public async Task Two_frames_in_one_message_stay_as_they_arrived() {
+        const string content = "<ci-monitor-event>failed</ci-monitor-event>\n<ci-monitor-event>passed</ci-monitor-event>";
+        await Assert.That(R(User(content)).Envelopes.Single().Text).IsEqualTo(content);
+    }
+
     /// Other attributes can sit ahead of the name, and a frame without one still says where the message came from.
     [Test]
     [Arguments("<cross-session-message from=\"uds:/tmp/cc.sock\" from-session=\"s1\" hop-chain=\"a,b\" from-name=\"still-jar-57\">\nHi\n</cross-session-message>", "Message from still-jar-57")]
