@@ -297,8 +297,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Select(n => n > 0 ? $"{n} more live sessions · narrow the scope" : null)
             .ToProperty(this, x => x.LiveNotShownText, initialValue: null).DisposeWith(_disposables);
-        ShowMoreCommand = ReactiveCommand.CreateFromTask(
-            () => sessions?.ShowMoreAsync() ?? Task.CompletedTask, endedPaging.Select(p => p.Visible && p.Page.CanShowMore)).DisposeWith(_disposables);
+        ShowMoreCommand = ReactiveCommand.CreateFromObservable(
+            ShowMore, endedPaging.Select(p => p.Visible && p.Page.CanShowMore)).DisposeWith(_disposables);
 
         // The lane names the viewer after the rail has opened in the last user's shape; a read that
         // fails keeps the shape already showing.
@@ -338,6 +338,19 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .DistinctUntilChanged()
             .ToProperty(this, x => x.IsEmpty, initialValue: _groupsSource.Count == 0)
             .DisposeWith(_disposables);
+    }
+
+    IObservable<Unit> ShowMore() {
+        var loaded = _directory.Rows.Keys.ToHashSet(StringComparer.Ordinal);
+        return Observable.FromAsync(() => _sessions?.ShowMoreAsync() ?? Task.CompletedTask)
+            // The directory queues its rows before the read completes; reveal them on the UI thread
+            // after those changes reach the groups. Background refreshes keep the user's folds.
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
+            .Do(_ => {
+                if (_disposables.IsDisposed) return;
+                foreach (var group in Groups.Where(g => g.Sessions.Any(s => s is { IsServer: true, IsEnded: true } && !loaded.Contains(s.Key))))
+                    group.Expand();
+            });
     }
 
     /// Another user's remembered shape, or this user's set now that the lane has named them: applied
