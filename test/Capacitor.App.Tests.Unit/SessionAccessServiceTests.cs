@@ -174,28 +174,37 @@ public class SessionAccessServiceTests {
     /// from another thread, cannot stall every other lease.
     [Test]
     public async Task A_blocked_observer_holds_no_lock_the_service_needs() {
+        var limit = TimeSpan.FromSeconds(30);
         using var h = new Harness();
         using var lease = h.Service.Acquire("s1");
         using var entered = new ManualResetEventSlim();
         using var resume = new ManualResetEventSlim();
+        using var left = new ManualResetEventSlim();
         using var watch = lease.State.Subscribe(s => {
             if (s != SessionAccessState.Established) return;
             entered.Set();
             resume.Wait();
+            left.Set();
         });
         // Delivery can land on the thread that connects, and the observer blocks whichever thread it runs on.
         var connect = Task.Run(() => h.Connect());
-        await Task.Run(entered.Wait).WaitAsync(TimeSpan.FromSeconds(30));
 
-        var other = await Task.Run(() => {
-            using var l = h.Service.Acquire("s2");
-            h.Service.RecheckDenied("s1");
-            return l.SessionId;
-        }).WaitAsync(TimeSpan.FromSeconds(30));
-        resume.Set();
-        await connect.WaitAsync(TimeSpan.FromSeconds(30));
+        try {
+            await Assert.That(await Task.Run(() => entered.Wait(limit))).IsTrue();
 
-        await Assert.That(other).IsEqualTo("s2");
+            var other = await Task.Run(() => {
+                using var l = h.Service.Acquire("s2");
+                h.Service.RecheckDenied("s1");
+                return l.SessionId;
+            }).WaitAsync(limit);
+
+            await Assert.That(other).IsEqualTo("s2");
+        } finally {
+            // A failure has to free the observer too, or the cleanup below parks behind it and the suite hangs.
+            resume.Set();
+            await Task.Run(() => left.Wait(entered.IsSet ? limit : TimeSpan.Zero));
+            await connect.WaitAsync(limit);
+        }
     }
 
     /// A throwing observer must not wedge delivery: a later refusal still reaches the lease.
