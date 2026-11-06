@@ -808,6 +808,8 @@ public class SecretRedactorTests {
     [Test]
     [Arguments("ssh://git@github.com/org/repo.git")]
     [Arguments("https://example.com:8080/users/a@b")]
+    [Arguments("postgres://example.com:8080?email=a@b")]
+    [Arguments("https://example.com:8080#section@anchor")]
     [Arguments("reach me at alice:team@example.com")]
     public async Task DoesNotRedact_UrlWithoutUserinfoPassword(string text) {
         var line = $$$"""
