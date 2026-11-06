@@ -228,6 +228,7 @@ internal sealed partial class PtyHostedAgentRuntime(
 
             _deliveryHoldsLane = true;
             Task? arrived = null;
+            var keystrokes = Volatile.Read(ref _keystrokes);
 
             try {
                 if (_stopRequested) return LaunchPromptOutcome.StopRequested;
@@ -250,7 +251,7 @@ internal sealed partial class PtyHostedAgentRuntime(
 
             if (arrived is null) return settled ? LaunchPromptOutcome.Delivered : LaunchPromptOutcome.DeliveredAfterMaxWait;
 
-            var outcome = await ConfirmArrivalAsync(arrived, mayResubmit: static () => true, LaunchPromptConfirmWait);
+            var outcome = await ConfirmArrivalAsync(arrived, () => Volatile.Read(ref _keystrokes) == keystrokes, LaunchPromptConfirmWait);
             if (outcome != LaunchPromptOutcome.NotConfirmed) return outcome;
 
             lock (_arrivalGate) {
@@ -278,7 +279,9 @@ internal sealed partial class PtyHostedAgentRuntime(
         if (await ArrivesWithinAsync(arrived, wait)) return LaunchPromptOutcome.Confirmed;
         if (Withdrawn() is { } early) return early;
 
-        await _lane.WaitAsync(_disposal.Token);
+        // A write parked in the lane would otherwise hold the verdict as well as the Enter.
+        if (!await _lane.WaitAsync(ResubmitLaneWait, _disposal.Token))
+            return arrived.IsCompleted ? LaunchPromptOutcome.Confirmed : LaunchPromptOutcome.NotConfirmed;
         _deliveryHoldsLane = true;
 
         try {
@@ -547,7 +550,7 @@ internal sealed partial class PtyHostedAgentRuntime(
         await _lane.WaitAsync();
 
         try {
-            if (data.Length > 0) Interlocked.Increment(ref _keystrokes);
+            if (data.Length > 0 && !TerminalReply.IsOnlyReplies(data)) Interlocked.Increment(ref _keystrokes);
             await pty.WriteAsync(data);
         } finally {
             _lane.Release();
