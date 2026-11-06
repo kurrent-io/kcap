@@ -1,7 +1,7 @@
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 /// <summary>
 /// The probe and the PR/MR detector share one ceiling: the detector runs within what the probe LEFT

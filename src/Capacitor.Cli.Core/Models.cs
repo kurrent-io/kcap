@@ -118,32 +118,6 @@ public record RepositoryPayload {
     public string? PrHeadRef { get; init; }
 }
 
-record GitCacheEntry {
-    [JsonPropertyName("user_name")]
-    public string? UserName { get; init; }
-
-    [JsonPropertyName("user_email")]
-    public string? UserEmail { get; init; }
-
-    [JsonPropertyName("remote_url")]
-    public string? RemoteUrl { get; init; }
-
-    [JsonPropertyName("host")]
-    public string? Host { get; init; }
-
-    [JsonPropertyName("schema_version")]
-    public int SchemaVersion { get; init; }
-
-    [JsonPropertyName("owner")]
-    public string? Owner { get; init; }
-
-    [JsonPropertyName("repo_name")]
-    public string? RepoName { get; init; }
-
-    [JsonPropertyName("cached_at")]
-    public DateTimeOffset CachedAt { get; init; }
-}
-
 public class WatchState {
     public int                LinesProcessed     { get; set; }
     public RepositoryPayload? Repository         { get; set; }
@@ -839,7 +813,7 @@ class SessionMetadata {
     public string?         GitBranch      { get; set; }
 }
 
-static partial class GitUrlParser {
+public static partial class GitUrlParser {
     public static (string? Owner, string? RepoName) ParseRemoteUrl(string? url) {
         if (url is null) {
             return (null, null);
@@ -1128,7 +1102,6 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(WorkItems.ViewerIdentityDto))]
 [JsonSerializable(typeof(WorkItems.WorkItemErrorDto))]
 [JsonSerializable(typeof(RepositoryPayload))]
-[JsonSerializable(typeof(GitCacheEntry))]
 [JsonSerializable(typeof(TranscriptBatch))]
 [JsonSerializable(typeof(SessionTitlePayload))]
 [JsonSerializable(typeof(HarnessTitleHook))]

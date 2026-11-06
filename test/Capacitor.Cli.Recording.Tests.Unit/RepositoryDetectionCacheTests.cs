@@ -1,8 +1,7 @@
 using System.Text.Json;
-using Capacitor.Cli.Core;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 public class RepositoryDetectionCacheTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
@@ -11,7 +10,7 @@ public class RepositoryDetectionCacheTests {
     public async Task GitCacheEntry_without_schema_version_deserializes_as_stale() {
         // A pre-upgrade entry (no schema_version, no host) must be treated as stale.
         const string legacy = """{"owner":"o","repo_name":"r","cached_at":"2020-01-01T00:00:00+00:00"}""";
-        var entry = JsonSerializer.Deserialize(legacy, CapacitorJsonContext.Default.GitCacheEntry);
+        var entry = JsonSerializer.Deserialize(legacy, RepositoryCacheJsonContext.Default.GitCacheEntry);
         await Assert.That(entry!.SchemaVersion).IsEqualTo(0);        // absent → default 0
         await Assert.That(entry.SchemaVersion == RepositoryDetection.CacheSchemaVersion).IsFalse();
     }
@@ -21,7 +20,7 @@ public class RepositoryDetectionCacheTests {
         // v2 pre-dates multi-segment owner parsing; a nested repo cached under
         // v2 has owner=null and must be re-derived, not served stale, after the bump.
         const string v2 = """{"schema_version":2,"host":"gitlab.com","owner":null,"repo_name":null,"cached_at":"2020-01-01T00:00:00+00:00"}""";
-        var entry = JsonSerializer.Deserialize(v2, CapacitorJsonContext.Default.GitCacheEntry);
+        var entry = JsonSerializer.Deserialize(v2, RepositoryCacheJsonContext.Default.GitCacheEntry);
         await Assert.That(entry!.SchemaVersion).IsEqualTo(2);
         await Assert.That(entry.SchemaVersion == RepositoryDetection.CacheSchemaVersion).IsFalse();
     }
@@ -46,8 +45,8 @@ public class RepositoryDetectionCacheTests {
             Owner = "group", RepoName = "project", Host = "gitlab.com",
             SchemaVersion = RepositoryDetection.CacheSchemaVersion, CachedAt = DateTimeOffset.UnixEpoch
         };
-        var json = JsonSerializer.Serialize(entry, CapacitorJsonContext.Default.GitCacheEntry);
-        var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.GitCacheEntry);
+        var json = JsonSerializer.Serialize(entry, RepositoryCacheJsonContext.Default.GitCacheEntry);
+        var back = JsonSerializer.Deserialize(json, RepositoryCacheJsonContext.Default.GitCacheEntry);
         await Assert.That(back!.Host).IsEqualTo("gitlab.com");
         await Assert.That(back.SchemaVersion).IsEqualTo(RepositoryDetection.CacheSchemaVersion);
     }

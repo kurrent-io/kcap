@@ -8,7 +8,8 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Titles;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Harness.Copilot;
 

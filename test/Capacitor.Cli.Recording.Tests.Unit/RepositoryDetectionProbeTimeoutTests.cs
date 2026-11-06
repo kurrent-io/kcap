@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Time.Testing;
 using TUnit.Core.Enums;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 public class RepositoryDetectionProbeTimeoutTests {
     [TempDir] public required TempDir Tmp { get; init; }

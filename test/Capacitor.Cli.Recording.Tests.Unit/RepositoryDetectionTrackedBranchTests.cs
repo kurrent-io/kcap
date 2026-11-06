@@ -1,8 +1,7 @@
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
-using Capacitor.Cli.Recording;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 /// <summary>
 /// A branch pushed under another name (<c>git push origin HEAD:refs/heads/remote-name</c>, then

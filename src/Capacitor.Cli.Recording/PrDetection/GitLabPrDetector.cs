@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 
-namespace Capacitor.Cli.PrDetection;
+namespace Capacitor.Cli.Recording.PrDetection;
 
 /// <summary>
 /// GitLab MR detection via `glab api` (raw JSON passthrough using glab's own auth —

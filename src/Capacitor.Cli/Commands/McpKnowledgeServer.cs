@@ -8,7 +8,7 @@ using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Telemetry;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Commands;
 

@@ -1,6 +1,6 @@
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 /// <summary>
 /// The Claude hook path passes <c>detectPullRequest: false</c> so a live

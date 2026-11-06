@@ -19,7 +19,7 @@ using WireMock.Server;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Plans;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands.Harness;
 

@@ -1,14 +1,14 @@
 using System.Text.Json.Nodes;
 
-namespace Capacitor.Cli.PrDetection;
+namespace Capacitor.Cli.Recording.PrDetection;
 
 /// <summary>Spawns a CLI and returns trimmed stdout, or null on failure/timeout.</summary>
-internal delegate Task<string?> CommandRunner(string cmd, string arguments, string cwd, TimeSpan timeout);
+public delegate Task<string?> CommandRunner(string cmd, string arguments, string cwd, TimeSpan timeout);
 
-internal sealed record PrInfo(int Number, string? Title, string? Url, string? HeadRef);
+public sealed record PrInfo(int Number, string? Title, string? Url, string? HeadRef);
 
 /// <summary>GitHub / GitHub Enterprise detection via `gh` (auto-targets the remote's host).</summary>
-internal static class GitHubPrDetector {
+public static class GitHubPrDetector {
     const string Fields = "number,title,url,headRefName";
 
     public static async Task<PrInfo?> DetectAsync(string cwd, TimeSpan cap, CommandRunner run) =>

@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
 
-namespace Capacitor.Cli.PrDetection;
+namespace Capacitor.Cli.Recording.PrDetection;
 
 internal enum GitProviderKind { GitHub, GitLab, Unknown }
 
@@ -14,8 +14,8 @@ internal enum GitProviderKind { GitHub, GitLab, Unknown }
 /// worth anything. The watcher re-detects every 60s for as long as it runs, so a custom host would
 /// otherwise pay for that probe on every refresh.</para>
 ///
-/// <para>Public only because two hook commands are, and a public constructor cannot take a less
-/// accessible parameter; everything it does stays internal.</para>
+/// <para>Public because <c>kcap</c> injects it across the assembly boundary; everything it does
+/// stays internal.</para>
 /// </summary>
 public sealed class GitProviderRouter {
     readonly ConcurrentDictionary<string, GitProviderKind> _memo = new(StringComparer.OrdinalIgnoreCase);

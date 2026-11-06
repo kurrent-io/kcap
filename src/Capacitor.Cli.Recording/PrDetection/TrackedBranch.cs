@@ -1,7 +1,7 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 
-namespace Capacitor.Cli.PrDetection;
+namespace Capacitor.Cli.Recording.PrDetection;
 
 /// <summary>
 /// The remote branch the current branch tracks, when it goes by another name in the session's own

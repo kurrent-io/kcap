@@ -2,7 +2,7 @@ using System.Text.Json;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 

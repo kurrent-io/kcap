@@ -1,6 +1,6 @@
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
-namespace Capacitor.Cli.Tests.Unit.PrDetection;
+namespace Capacitor.Cli.Recording.Tests.Unit.PrDetection;
 
 public class GitLabPrDetectorTests {
     const string TwoOpenMrs = """

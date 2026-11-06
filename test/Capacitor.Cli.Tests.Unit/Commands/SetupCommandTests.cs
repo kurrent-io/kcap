@@ -14,7 +14,7 @@ using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Setup;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Spectre.Console;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;

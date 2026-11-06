@@ -1,7 +1,7 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.RepoEvidence;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using TUnit.Assertions.Enums;
 using Capacitor.Cli.Recording;
 

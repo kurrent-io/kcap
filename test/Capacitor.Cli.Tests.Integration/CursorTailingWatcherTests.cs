@@ -5,7 +5,7 @@ using Capacitor.Cli.Core.Harness.Cursor;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
 using Capacitor.Cli.Recording.Harness.Cursor;
 

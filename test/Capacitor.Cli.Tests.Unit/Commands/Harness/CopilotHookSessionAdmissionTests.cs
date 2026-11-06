@@ -3,7 +3,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Copilot;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using WireMock.Server;
 
 namespace Capacitor.Cli.Tests.Unit.Commands.Harness;

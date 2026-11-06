@@ -29,7 +29,7 @@ using Capacitor.Cli.Harness.MistralVibe;
 using Capacitor.Cli.Harness.Muse;
 using Capacitor.Cli.Harness.OpenCode;
 using Capacitor.Cli.Harness.Titles;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 

@@ -44,7 +44,8 @@ using Profile = Capacitor.Cli.Core.Config.Profile;
 
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Commands;
 

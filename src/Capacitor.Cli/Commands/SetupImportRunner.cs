@@ -4,7 +4,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Commands;
 

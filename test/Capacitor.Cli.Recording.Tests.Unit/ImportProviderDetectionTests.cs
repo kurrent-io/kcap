@@ -1,6 +1,6 @@
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 /// <summary>
 /// Import discards PR/MR fields on every path, so running the live `gh pr view` / `glab api`

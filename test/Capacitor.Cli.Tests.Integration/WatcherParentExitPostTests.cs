@@ -5,7 +5,7 @@ using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
 using Microsoft.Extensions.Time.Testing;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
 namespace Capacitor.Cli.Tests.Integration;
 

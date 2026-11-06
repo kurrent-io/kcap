@@ -18,7 +18,8 @@ using Capacitor.Cli.Core.LocalEdition;
 using Microsoft.Extensions.DependencyInjection;
 using ReviewCommand = Capacitor.Cli.Commands.ReviewCommand;
 using WatchCommand = Capacitor.Cli.Commands.WatchCommand;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording;
 
 HookTiming.Begin(args, Environment.GetEnvironmentVariable);
 

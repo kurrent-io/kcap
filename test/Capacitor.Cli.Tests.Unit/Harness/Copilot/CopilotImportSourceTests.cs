@@ -5,7 +5,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Harness.Copilot;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Tests.Unit.Commands;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;

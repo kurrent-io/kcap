@@ -7,7 +7,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Setup;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;

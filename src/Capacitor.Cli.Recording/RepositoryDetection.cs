@@ -5,18 +5,18 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
-using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.PrDetection;
 
-namespace Capacitor.Cli;
+namespace Capacitor.Cli.Recording;
 
-static class RepositoryDetection {
+public static class RepositoryDetection {
     // Bump whenever the cached shape/derivation changes so stale entries are ignored.
     // v2: added Host + provider-aware parsing.
     // v3: multi-segment owner parsing (nested GitLab groups) — v2 entries for
     //     nested repos have owner=null and must re-derive.
     internal const int CacheSchemaVersion = 3;
 
-    internal static CommandRunner DefaultRunner(TimeProvider time) =>
+    public static CommandRunner DefaultRunner(TimeProvider time) =>
         (cmd, arguments, cwd, timeout) => RunCommandAsync(cmd, arguments, cwd, time, timeout);
 
     public static async Task<string> EnrichWithRepositoryInfo(
@@ -133,7 +133,7 @@ static class RepositoryDetection {
         run ??= DefaultRunner(time);
         try {
             // Bound the git/gh probes by the remaining hook budget so a slow repo never
-            // overruns the deadline. When no budget is set, keep the historical 5s/2s caps.
+            // overruns the deadline. With no budget, the caps are 5s and 2s.
             var started = time.GetTimestamp();
             var gitCap = budget is { } b
                 ? TimeSpan.FromSeconds(Math.Min(5, Math.Max(0, b.TotalSeconds)))
@@ -212,8 +212,8 @@ static class RepositoryDetection {
                 ghCap = TimeSpan.FromSeconds(Math.Min(2, Math.Max(0, remainingBudget.TotalSeconds)));
             }
 
-            // Effective provider budget: the post-git remainder when the caller passed a budget
-            // (only ClaudeHookCommand does), else the historical 2s cap. Covers probe + detector.
+            // Effective provider budget: the post-git remainder when the caller passed a budget,
+            // else the 2s cap. Covers probe + detector.
             var providerCap = ghCap;
 
             // Import passes detectPullRequest:false: it discards PR fields, so the round-trip is
@@ -354,7 +354,7 @@ static class RepositoryDetection {
             }
 
             var json  = File.ReadAllText(path);
-            var entry = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.GitCacheEntry);
+            var entry = JsonSerializer.Deserialize(json, RepositoryCacheJsonContext.Default.GitCacheEntry);
 
             if (entry is null || entry.SchemaVersion != CacheSchemaVersion) {
                 return null;
@@ -372,7 +372,7 @@ static class RepositoryDetection {
             var path = GetCachePath(config, cwd);
             var dir  = Path.GetDirectoryName(path)!;
             Directory.CreateDirectory(dir);
-            File.WriteAllText(path, JsonSerializer.Serialize(entry, CapacitorJsonContext.Default.GitCacheEntry));
+            File.WriteAllText(path, JsonSerializer.Serialize(entry, RepositoryCacheJsonContext.Default.GitCacheEntry));
         } catch {
             // Cache write failure is non-critical
         }
@@ -394,7 +394,7 @@ static class RepositoryDetection {
 
             var json = File.ReadAllText(path);
 
-            return JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.RepositoryPayload);
+            return JsonSerializer.Deserialize(json, RepositoryCacheJsonContext.Default.RepositoryPayload);
         } catch {
             return null;
         }
@@ -421,7 +421,7 @@ static class RepositoryDetection {
             var path = GetLastEmittedPath(config, cwd);
             var dir  = Path.GetDirectoryName(path)!;
             Directory.CreateDirectory(dir);
-            File.WriteAllText(path, JsonSerializer.Serialize(payload, CapacitorJsonContext.Default.RepositoryPayload));
+            File.WriteAllText(path, JsonSerializer.Serialize(payload, RepositoryCacheJsonContext.Default.RepositoryPayload));
         } catch {
             // Cache write failure is non-critical
         }

@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 
-namespace Capacitor.Cli.PrDetection;
+namespace Capacitor.Cli.Recording.PrDetection;
 
 /// <summary>
 /// Gate for a value interpolated into a <see cref="CommandRunner"/> argument string. No shell is
