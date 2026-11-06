@@ -1,3 +1,4 @@
+using System.Security;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
@@ -73,10 +74,11 @@ internal static class AdoptionConsumers {
         if (parts.Length >= 4 && parts[^3].Equals("versions", StringComparison.OrdinalIgnoreCase)) yield return parts[^4];
     }
 
-    // kcap's JSON writers escape non-ASCII, so a path holding any appears in a file only in its escaped form.
+    // kcap's JSON writers escape non-ASCII, so a path holding any appears in a file only in its escaped form; a plist
+    // is XML, which escapes `&`, `<` and `>`.
     static List<string> Needles(IEnumerable<string> folders) =>
         [.. folders.SelectMany(f => new[] { f, CanonicalPath.Resolve(f) })
-            .SelectMany(p => new[] { p, JsonEncodedText.Encode(p).Value })
+            .SelectMany(p => new[] { p, JsonEncodedText.Encode(p).Value, SecurityElement.Escape(p) })
             .Where(p => p.Length > 0)
             .Distinct(StringComparer.Ordinal)];
 

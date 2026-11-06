@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security;
 using System.Text.Json.Nodes;
 using Capacitor.App.Services.CliAdoption;
 using Capacitor.App.Services.Update;
@@ -49,6 +50,16 @@ public class AdoptionConsumersTests {
         await Assert.That(Holder(install, [new(44, "/opt/homebrew/bin/node", null, After)])).IsEqualTo("pid:44");
         await Assert.That(Holder(install, [new(45, "/usr/bin/python3", null, After)])).IsEqualTo("pid:45");
         await Assert.That(Holder(install, [new(46, "/usr/bin/login", null, Before)])).IsNull();
+    }
+
+    [Test]
+    public async Task A_plist_naming_the_install_through_xml_escapes_holds_it() {
+        var install = Npm("a&b");
+        var plist   = $"<plist><dict><key>Program</key><string>{SecurityElement.Escape(install.CliBinary)}</string></dict></plist>";
+
+        await Assert.That(plist).DoesNotContain(install.Root);
+        await Assert.That(Holder(install, sites: [new("/h/Library/LaunchAgents/com.example.agent.plist", plist, true)]))
+            .IsEqualTo("site:/h/Library/LaunchAgents/com.example.agent.plist");
     }
 
     [Test]
