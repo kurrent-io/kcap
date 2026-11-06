@@ -64,14 +64,31 @@ public class AsideRetirementTests {
         await Assert.That(Directory.GetFileSystemEntries(root).Select(p => Path.GetFileName(p)!).ToArray()).IsEquivalentTo(["keep.txt"]);
     }
 
+    /// <summary>What was renamed may be a tree that replaced the one checked before the rename, so it is never
+    /// deleted unchecked: it goes back for the next retirement to check.</summary>
     [Test]
-    public async Task A_crash_right_after_a_rename_is_finished_on_the_next_launch() {
+    public async Task A_crash_right_after_a_rename_puts_the_unchecked_entry_back() {
         var config = Config();
         var launcher = Package("kcap", "@kurrent/kcap");
         var crashing = new AsideRetirement(config, Record, step => { if (step == AsideRetirement.Renamed) throw new IOException("crash"); });
 
         await Assert.That(() => crashing.Retire(launcher, _ => true)).Throws<IOException>();
         await Assert.That(Directory.Exists(launcher)).IsFalse();
+
+        var unfinished = new AsideRetirement(config, Record).FinishInterrupted();
+
+        await Assert.That(unfinished).IsEmpty();
+        await Assert.That(Directory.GetFileSystemEntries(Path.GetDirectoryName(launcher)!)).IsEquivalentTo([launcher]);
+        await Assert.That(File.Exists(config.Path(Record))).IsFalse();
+    }
+
+    [Test]
+    public async Task A_crash_after_the_check_is_finished_on_the_next_launch() {
+        var config = Config();
+        var launcher = Package("kcap", "@kurrent/kcap");
+        var crashing = new AsideRetirement(config, Record, step => { if (step == AsideRetirement.Checked) throw new IOException("crash"); });
+
+        await Assert.That(() => crashing.Retire(launcher, _ => true)).Throws<IOException>();
         await Assert.That(Directory.GetDirectories(Path.GetDirectoryName(launcher)!).Length).IsEqualTo(1);
 
         new AsideRetirement(config, Record).FinishInterrupted();
@@ -80,12 +97,28 @@ public class AsideRetirementTests {
         await Assert.That(File.Exists(config.Path(Record))).IsFalse();
     }
 
+    /// <summary>With both names taken nothing can go back, and nothing unchecked is deleted: the aside stays recorded.</summary>
+    [Test]
+    public async Task An_unchecked_aside_whose_original_came_back_is_kept() {
+        var config = Config();
+        var launcher = Package("kcap", "@kurrent/kcap");
+        var crashing = new AsideRetirement(config, Record, step => { if (step == AsideRetirement.Renamed) throw new IOException("crash"); });
+        await Assert.That(() => crashing.Retire(launcher, _ => true)).Throws<IOException>();
+        Package("kcap", "@kurrent/kcap");
+
+        var unfinished = new AsideRetirement(config, Record).FinishInterrupted();
+
+        await Assert.That(unfinished).IsEquivalentTo([launcher]);
+        await Assert.That(Directory.GetDirectories(Path.GetDirectoryName(launcher)!).Length).IsEqualTo(2);
+        await Assert.That(File.Exists(config.Path(Record))).IsTrue();
+    }
+
     [Test]
     public async Task A_crash_between_two_npm_package_moves_is_finished_on_the_next_launch() {
         var config = Config();
         var launcher = Package("kcap", "@kurrent/kcap");
         var platform = Package("kcap-darwin-arm64", "@kurrent/kcap-darwin-arm64");
-        var crashing = new AsideRetirement(config, Record, step => { if (step == AsideRetirement.Renamed) throw new IOException("crash"); });
+        var crashing = new AsideRetirement(config, Record, step => { if (step == AsideRetirement.Checked) throw new IOException("crash"); });
         await Assert.That(() => crashing.Retire(launcher, _ => true)).Throws<IOException>();
 
         var next = new AsideRetirement(config, Record);

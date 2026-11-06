@@ -5,15 +5,19 @@ namespace Capacitor.App.Services;
 
 /// <summary>
 /// Deletes a file, link or directory so a crash at any point leaves something the next launch can finish: the
-/// aside name is recorded before the rename, the renamed entry is re-verified, and only then deleted. A record
-/// naming an aside that never came to exist means the rename never happened.
+/// aside name is recorded before the rename, the renamed entry is re-verified and marked so, and only then deleted.
+/// A record naming an aside that never came to exist means the rename never happened.
 /// </summary>
 internal sealed class AsideRetirement(ConfigRoot config, string recordName, Action<string>? step = null) {
-    internal const string Renamed = "renamed";
+    internal const string Renamed = "renamed", Checked = "checked";
     const string Suffix = ".retired-";
     const string Directory_ = "d", Link = "l", File_ = "f";
 
-    sealed record Planned(string Original, string Aside, string Kind);
+    // Planned: only the name is recorded, for whoever renames it (the privileged helper checks its own). Unchecked:
+    // renamed here, not yet re-verified, so what it holds may be a tree that replaced the one checked earlier.
+    const string PlannedState = "planned", UncheckedState = "unchecked", CheckedState = "checked";
+
+    sealed record Planned(string Original, string Aside, string Kind, string State);
 
     /// <summary>Records the aside name for <paramref name="entry"/> without renaming it.</summary>
     public AsideEntry Plan(string entry) {
@@ -22,7 +26,7 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
         using var guard = config.AcquireLock(recordName);
         var planned = Read();
         if (planned.Find(p => p.Original == original) is { } existing) return new AsideEntry(existing.Original, existing.Aside);
-        var added = new Planned(original, original + Suffix + Guid.NewGuid().ToString("N"), KindOf(original));
+        var added = new Planned(original, original + Suffix + Guid.NewGuid().ToString("N"), KindOf(original), PlannedState);
         Write([.. planned, added]);
         return new AsideEntry(added.Original, added.Aside);
     }
@@ -34,6 +38,7 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
         if (Exists(plan.Original)) {
             var kind = Recorded(plan.Original)?.Kind ?? KindOf(plan.Original);
             if (Exists(plan.Aside)) throw new IOException($"{plan.Aside} is already in the way.");
+            Mark(plan.Original, UncheckedState);
             Move(plan.Original, plan.Aside, kind);
             step?.Invoke(Renamed);
         }
@@ -46,19 +51,27 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
             Forget(plan.Original);
             return false;
         }
+        Mark(plan.Original, CheckedState);
+        step?.Invoke(Checked);
         DeleteAside(plan.Original, plan.Aside, Recorded(plan.Original)?.Kind ?? KindOf(plan.Aside));
         Forget(plan.Original);
         return true;
     }
 
-    /// <summary>Deletes every recorded aside that passes the guards; records whose rename never happened are dropped.
-    /// Returns the originals whose aside could not be deleted: they stay recorded for the next call.</summary>
+    /// <summary>Deletes every recorded aside that passes the guards, except one renamed here and never re-verified,
+    /// which goes back to its original name for the next retirement to check; records whose rename never happened are
+    /// dropped. Returns the originals whose aside could not be settled: they stay recorded for the next call.</summary>
     public IReadOnlyList<string> FinishInterrupted() {
         var unfinished = new List<string>();
         foreach (var planned in Snapshot()) {
             try {
-                if (Exists(planned.Aside) && IsOwnAside(planned.Original, planned.Aside, planned.Kind == Link))
-                    DeleteAside(planned.Original, planned.Aside, planned.Kind);
+                if (Exists(planned.Aside) && IsOwnAside(planned.Original, planned.Aside, planned.Kind == Link)) {
+                    if (planned.State != UncheckedState) DeleteAside(planned.Original, planned.Aside, planned.Kind);
+                    else if (Exists(planned.Original)) {
+                        unfinished.Add(planned.Original);
+                        continue;
+                    } else Move(planned.Aside, planned.Original, planned.Kind);
+                }
                 Forget(planned.Original);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 unfinished.Add(planned.Original);
@@ -98,6 +111,11 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
 
     Planned? Recorded(string original) => Snapshot().Find(p => p.Original == original);
 
+    void Mark(string original, string state) {
+        using var guard = config.AcquireLock(recordName);
+        Write(Read().Select(p => p.Original == original ? p with { State = state } : p));
+    }
+
     List<Planned> Snapshot() {
         using var guard = config.AcquireLock(recordName);
         return Read();
@@ -118,16 +136,17 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
             return [];
         }
         var planned = new List<Planned>();
-        for (var i = 0; i + 2 < lines.Length; i += 3) {
+        for (var i = 0; i + 3 < lines.Length; i += 4) {
             if (!Path.IsPathFullyQualified(lines[i]) || !Path.IsPathFullyQualified(lines[i + 1])
-                    || lines[i + 2] is not (Directory_ or Link or File_)) continue;
-            planned.Add(new Planned(lines[i], lines[i + 1], lines[i + 2]));
+                    || lines[i + 2] is not (Directory_ or Link or File_)
+                    || lines[i + 3] is not (PlannedState or UncheckedState or CheckedState)) continue;
+            planned.Add(new Planned(lines[i], lines[i + 1], lines[i + 2], lines[i + 3]));
         }
         return planned;
     }
 
     void Write(IEnumerable<Planned> planned) =>
         AtomicFile.Replace(config.Path(recordName),
-            string.Concat(planned.Select(p => p.Original + "\n" + p.Aside + "\n" + p.Kind + "\n")),
+            string.Concat(planned.Select(p => p.Original + "\n" + p.Aside + "\n" + p.Kind + "\n" + p.State + "\n")),
             mode: UnixFileMode.UserRead | UnixFileMode.UserWrite, followLink: false, durable: true);
 }
