@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Mcp;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli;
 
@@ -16,7 +17,7 @@ sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = 
 
     static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(3);
 
-    const string Section = $"hook.{GitHook.Name}";
+    const string Section = $"hook.{GitHookProbe.Name}";
 
     public bool Install() => Install(out _);
 
@@ -42,21 +43,14 @@ sealed class GitHookInstaller(UserHome home, Func<string?>? resolveBinaryPath = 
 
     public bool IsInstalled() => Entry() is not null;
 
-    /// <summary>
-    /// The hook's command for <paramref name="binary"/>. git runs it through sh: single-quoted, with
-    /// forward slashes for Git for Windows.
-    /// </summary>
-    public static string CommandFor(string binary) =>
-        $"'{binary.Replace('\\', '/').Replace("'", "'\\''")}' git-hook";
-
     // The native binary rather than the npm launcher on PATH, which adds half a second to every commit
     // on the machine.
-    string Command() => CommandFor(KcapBinaryCommand.Resolve(resolveBinaryPath));
+    string Command() => GitHookProbe.CommandFor(KcapBinaryCommand.Resolve(resolveBinaryPath));
 
     string Expected() =>
         string.Join('\n', [$"{Section}.command {Command()}", ..Events.Select(hookEvent => $"{Section}.event {hookEvent}")]);
 
-    string? Entry() => Git("--get-regexp", $@"^hook\.{GitHook.Name}\.(command|event)$");
+    string? Entry() => Git("--get-regexp", $@"^hook\.{GitHookProbe.Name}\.(command|event)$");
 
     bool Write() {
         const string events = $"{Section}.event";

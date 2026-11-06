@@ -68,12 +68,4 @@ public class GitHookTests {
         await Hook("0");
         await Assert.That(Filed().Single().Sha).IsEqualTo(Repo.Head);
     }
-
-    [Test]
-    [Arguments("kcap", true)]
-    [Arguments("husky\nkcap\n", true)]
-    [Arguments("disabled\tkcap", false)]
-    [Arguments(null, false)]
-    public async Task Only_an_enabled_kcap_entry_counts_as_listed(string? hookList, bool listed) =>
-        await Assert.That(GitHook.ListedIn(hookList)).IsEqualTo(listed);
 }
