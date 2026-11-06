@@ -10,9 +10,28 @@
         <StackPanel Spacing="8">
             <!-- Where the new session would start. -->
             <StackPanel x:Name="HandoffStrip" Spacing="6" IsVisible="{Binding IsStripOpen}">
-                <TextBlock x:Name="HandoffStripLabel" Text="{Binding StripLabel}" FontSize="12.5" TextWrapping="Wrap"
-                           Foreground="{StaticResource KcapMutedBrush}"
-                           IsVisible="{Binding StripLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="0,0,0,4"
+                      IsVisible="{Binding StripLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <views:AppIcon Kind="GitBranch" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
+                                   Foreground="{StaticResource KcapMutedBrush}" />
+                    <StackPanel Grid.Column="1" Spacing="3">
+                        <TextBlock Text="New session in a fresh worktree" FontSize="13" FontWeight="SemiBold"
+                                   TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
+                        <TextBlock x:Name="HandoffStripLabel" Text="{Binding StripSummary}" FontSize="12" LineHeight="17"
+                                   TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
+                    </StackPanel>
+                    <Button Grid.Column="2" Classes="kcapGhost" Width="24" Height="24" Padding="0"
+                            VerticalAlignment="Top" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                            AutomationProperties.Name="Starting point details" ToolTip.Tip="Starting point details">
+                        <views:AppIcon Kind="Info" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                        <Button.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel">
+                                <TextBlock Text="{Binding StripLabel}" MaxWidth="340" TextWrapping="Wrap" Margin="12,10"
+                                           Foreground="{StaticResource KcapTextBrush}" FontSize="12.5" LineHeight="18" />
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                </Grid>
                 <views:LaunchChipsView x:Name="HandoffChips" DataContext="{Binding Choices}" />
             </StackPanel>
 
