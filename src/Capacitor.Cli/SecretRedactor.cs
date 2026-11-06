@@ -271,7 +271,9 @@ public static partial class SecretRedactor {
     [GeneratedRegex(
         // Redis-family clients read a colon-free userinfo as the password, in every scheme variant
         // (rediss, redis+tls, redis-sentinel, valkey); elsewhere a bare userinfo is only a username.
-        """((?<![A-Za-z0-9+.\-])(?:[A-Za-z][A-Za-z0-9+.\-]*://[^:/?#\s"\\@]*:|(?:redis|valkey)[A-Za-z0-9+.\-]*://))([^@\s"\\/?#]+)(@)""",
+        // The password runs to the authority's last @, since clients accept one unencoded, and JSON
+        // text held in a string can escape the delimiters as \/ and \u0040.
+        """((?<![A-Za-z0-9+.\-])(?:[A-Za-z][A-Za-z0-9+.\-]*:(?:\\?/){2}[^:/?#\s"\\@]*:|(?:redis|valkey)[A-Za-z0-9+.\-]*:(?:\\?/){2}))((?:[^\s"\\/?#]|\\u0040)+)(@|\\u0040)""",
         RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100
     )]
     private static partial Regex UrlUserinfoRx();
