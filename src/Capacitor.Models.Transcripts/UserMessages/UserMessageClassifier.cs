@@ -167,10 +167,7 @@ public static class UserMessageClassifier {
             return true;
         }
 
-        // Another session talking: the bare frame, or the frame behind the harness's own preamble line, which
-        // ends at its colon, and ahead of its guidance to the model; words of the person's own after the colon
-        // are not the preamble.
-        if (WholeFrame.Is(TriggerFrame.WithoutPeerGuidance(AfterPeerPreamble(clean)), PeerFrame, "</cross-session-message>")) {
+        if (WholeFrame.Is(TriggerFrame.WithoutPeerDelivery(clean), PeerFrame, "</cross-session-message>")) {
             label = PeerSession;
             return true;
         }
@@ -178,18 +175,7 @@ public static class UserMessageClassifier {
         return false;
     }
 
-    const string PeerPreamble = "Another Claude session sent a message";
-    const string PeerSessionPreamble = "A peer session sent a message";
     const string PeerFrame = "<cross-session-message";
-
-    static string AfterPeerPreamble(string clean) {
-        if (!clean.StartsWith(PeerPreamble, StringComparison.Ordinal) && !clean.StartsWith(PeerSessionPreamble, StringComparison.Ordinal)) return clean;
-
-        var colon = clean.IndexOf(':');
-        var line = clean.IndexOf('\n');
-
-        return colon < 0 || (line >= 0 && colon > line) ? clean : clean[(colon + 1)..];
-    }
 
     static string? HarnessLabel(string text) => UserPromptDisplay.IsHarnessPayload(text, out var label) ? label : null;
 
