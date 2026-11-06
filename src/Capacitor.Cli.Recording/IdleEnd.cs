@@ -29,14 +29,12 @@ internal static class IdleEnd {
     /// Cursor has no shell hook that reliably signals a conversation's end, so an idle transcript is its
     /// fallback too, on its own knob (default 60 minutes).
     /// </summary>
-
     internal static readonly TimeSpan DefaultCursorIdleCeiling = TimeSpan.FromMinutes(60);
 
     /// <summary>
     /// Resolves the Cursor idle ceiling from KCAP_CURSOR_IDLE_CEILING_MINUTES, falling back to
     /// <see cref="DefaultCursorIdleCeiling"/> for unset/blank/non-numeric/non-positive values.
     /// </summary>
-
     internal static TimeSpan ResolveCursorIdleCeiling(string? envValue) =>
         int.TryParse(envValue, out var minutes) && minutes > 0
             ? TimeSpan.FromMinutes(minutes)
@@ -69,7 +67,6 @@ internal static class IdleEnd {
     /// <see cref="DefaultClaudeSubagentIdleCeiling"/>: reaping late costs nothing, and reaping a live subagent drops
     /// the rest of its transcript.
     /// </summary>
-
     internal static readonly TimeSpan DefaultCodexSubagentReapCeiling = TimeSpan.FromHours(6);
 
     /// <summary>
@@ -88,7 +85,6 @@ internal static class IdleEnd {
     /// The role argument exists for Claude, whose child watchers get the subagent backstop rather than a
     /// conversation-idle window.
     /// </summary>
-
     internal static TimeSpan ResolveIdleWindow(string vendor, bool isSessionWatcher, Func<string, string?> env) =>
         vendor switch {
             "antigravity"                     => ResolveCodexIdleTimeout(env("KCAP_ANTIGRAVITY_IDLE_MINUTES")),
@@ -108,7 +104,6 @@ internal static class IdleEnd {
     /// <para>Cursor's caller must not follow this with a session-end post: its end has one owner, the
     /// sessionEnd hook or the server's lease-gated sweep.</para>
     /// </summary>
-
     internal static bool ShouldEndOnIdle(
             string         vendor,
             bool           isSessionWatcher,
@@ -161,7 +156,6 @@ internal static class IdleEnd {
     /// hook touches the heartbeat whether or not the transcript moved, and a session still firing hooks must
     /// not idle-exit. For every other vendor the caller passes no heartbeat.
     /// </summary>
-
     internal static DateTimeOffset ResolveCursorIdleClock(
             string          vendor,
             DateTimeOffset  lastActivityAt,

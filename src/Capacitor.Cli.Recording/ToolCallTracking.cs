@@ -13,7 +13,6 @@ internal static class ToolCallTracking {
     /// unbounded, so running it for every vendor would make an unrelated recorder parse a multi-megabyte line
     /// it can never match. Not gated on role: a collab child needs it to know when to post its stop.
     /// </summary>
-
     internal static bool TracksCodexToolCalls(string vendor) => vendor == "codex";
 
     /// <summary>Only a VS Code Local session idle-ends, and raw drain lines are unbounded, so nothing else parses them here.</summary>
@@ -31,7 +30,6 @@ internal static class ToolCallTracking {
     /// Tracks a Copilot tool from <c>tool.execution_start</c> to <c>tool.execution_complete</c>. Malformed
     /// lines are ignored, so this is safe on any transcript line.
     /// </summary>
-
     internal static void UpdateCopilotPendingToolCalls(HashSet<string> pending, string line) {
         try {
             using var doc  = JsonDocument.Parse(line);
@@ -55,7 +53,6 @@ internal static class ToolCallTracking {
     /// Adds a <c>function_call</c> or <c>custom_tool_call</c> response item's <c>call_id</c>, and removes it on the
     /// matching <c>_output</c> variant. Malformed lines are ignored, so this is safe on any transcript line.
     /// </summary>
-
     internal static void UpdateCodexPendingToolCalls(HashSet<string> pending, string line) {
         try {
             using var doc  = JsonDocument.Parse(line);
@@ -92,7 +89,6 @@ internal static class ToolCallTracking {
     /// <see cref="IdleEnd.ShouldEndOnIdle"/> gives a ceiling to: one reaped on idle that never tracks its tool
     /// calls has no in-flight suppression and would end a live subagent mid-build.
     /// </summary>
-
     internal static bool TracksClaudeToolCalls(string vendor, bool isSessionWatcher) =>
         vendor == "claude" && !isSessionWatcher;
 
@@ -101,7 +97,6 @@ internal static class ToolCallTracking {
     /// never sees the <c>tool_use</c> that opened before its cursor, so the set would come up empty and the
     /// ceiling would treat a live subagent as idle.
     /// </summary>
-
     internal static TranscriptReplayConsumer ClaudePendingToolCallsReplay(HashSet<string> pending) =>
         new(WindowOnly: true, line => {
             UpdateClaudePendingToolCalls(pending, line);
@@ -113,7 +108,6 @@ internal static class ToolCallTracking {
     /// <c>tool_result</c> removes it through <c>tool_use_id</c>. Reads the content blocks rather than the record's
     /// <c>type</c>, since the blocks are what carry the ids.
     /// </summary>
-
     internal static void UpdateClaudePendingToolCalls(HashSet<string> pending, string line) {
         try {
             using var doc = JsonDocument.Parse(line);

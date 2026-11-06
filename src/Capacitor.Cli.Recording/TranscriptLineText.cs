@@ -17,7 +17,6 @@ public static partial class TranscriptLineText {
     /// A prompt the user typed or a reply from the agent. Slash commands, injected preludes and
     /// session headers are not turns, so a session holding only those sends no lines.
     /// </summary>
-
     internal static bool IsRealTurnLine(string line, string vendor, OnceLog? parseErrors = null) =>
         vendor == "gemini"
             ? GeminiLines.IsImportRelevantLine(line)
@@ -64,7 +63,6 @@ public static partial class TranscriptLineText {
     /// Records the session's first prompt, unless it is a slash command: the next real prompt titles the
     /// session instead.
     /// </summary>
-
     public static void SetFirstUserText(WatchState state, string userText, Action<string> log) {
         var cmdMatch = CommandNameRegex.Match(userText);
 

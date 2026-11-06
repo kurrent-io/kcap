@@ -17,8 +17,8 @@ public class TranscriptRecorderTests {
 
     ConfigRoot Config => field ??= new(Tmp.CreateDir("config"));
 
-    TranscriptRecorder Recorder(string path, string? agentId = null) => new(
-        new RecordingSource(Sid, agentId, path, "claude", null), _transport, new NoStamps(), TimeProvider.System,
+    TranscriptRecorder Recorder(string path, string? agentId = null, string vendor = "claude") => new(
+        new RecordingSource(Sid, agentId, path, vendor, null), _transport, new NoStamps(), TimeProvider.System,
         new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _vendor, TimeProvider.System, _ => { }, () => { }));
 
     async Task LinesSent(int count) {
@@ -83,6 +83,61 @@ public class TranscriptRecorderTests {
 
         await _transport.RaiseStopRequestedAsync($"{Sid}-agent-1", "for this one");
         await run.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>Holds the recorder in a vendor call that takes no token, as a repository probe is, until
+    /// <paramref name="whileHeld"/> has run. Returns whether the stopping token was cancelled by then, with the
+    /// vendor call still blocked.</summary>
+    async Task<bool> StoppingWhileAVendorCallIsBlocked(TranscriptRecorder recorder, Task run, Func<Task> whileHeld) {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _vendor.BeforeDrain = () => {
+            entered.TrySetResult();
+            return release.Task;
+        };
+
+        await entered.Task.WithinDeadlineAsync("the recorder entering its vendor call");
+        await whileHeld();
+
+        var stopping = recorder.Stopping.IsCancellationRequested;
+        var blocked  = !run.IsCompleted;
+
+        release.SetResult();
+        await run.WithinDeadlineAsync("the run after the vendor call returned");
+        await Assert.That(blocked).IsTrue();
+
+        return stopping;
+    }
+
+    [Test]
+    public async Task A_stop_reaches_the_stopping_token_while_a_vendor_call_is_blocked() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        using var recorder = Recorder(path);
+
+        var run = recorder.RunAsync(CancellationToken.None);
+
+        var stopping = await StoppingWhileAVendorCallIsBlocked(
+            recorder, run, () => _transport.RaiseStopRequestedAsync(Sid, "the session ended"));
+
+        await Assert.That(stopping).IsTrue();
+    }
+
+    [Test]
+    public async Task A_refused_reconnect_reaches_the_stopping_token_while_a_vendor_call_is_blocked() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n{Later}\n");
+        using var recorder = Recorder(path, vendor: "cursor");
+
+        var run = recorder.RunAsync(CancellationToken.None);
+        await LinesSent(3);
+
+        var stopping = await StoppingWhileAVendorCallIsBlocked(recorder, run, async () => {
+            await File.WriteAllTextAsync(path, $"{Prompt}\n");
+            _transport.ResumeFrom = 2;
+            await _transport.RaiseReconnectedAsync();
+        });
+
+        await Assert.That(stopping).IsTrue();
     }
 
     [Test]

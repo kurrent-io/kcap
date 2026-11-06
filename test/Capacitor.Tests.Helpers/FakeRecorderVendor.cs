@@ -10,6 +10,10 @@ public sealed class FakeRecorderVendor : IRecorderVendor {
 
     public int Connected { get; private set; }
 
+    /// <summary>Awaited inside <see cref="BeforeDrainAsync"/>, which ignores its token as repository detection
+    /// does, so a test can hold the recorder in a call a stop can't interrupt.</summary>
+    public Func<Task>? BeforeDrain { get; set; }
+
     public Task PrepareAsync(WatchState state, CancellationToken ct) {
         Prepared++;
 
@@ -20,7 +24,7 @@ public sealed class FakeRecorderVendor : IRecorderVendor {
 
     public void RefreshTranscript(string transcriptPath) { }
 
-    public Task BeforeDrainAsync(WatchState state, CancellationToken ct) => Task.CompletedTask;
+    public Task BeforeDrainAsync(WatchState state, CancellationToken ct) => BeforeDrain?.Invoke() ?? Task.CompletedTask;
 
     public Task AfterDrainAsync(WatchState state, string transcriptPath, IReadOnlyList<string> drained, CancellationToken ct) => Task.CompletedTask;
 

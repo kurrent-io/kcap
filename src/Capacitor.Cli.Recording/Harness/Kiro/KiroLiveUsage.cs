@@ -41,7 +41,6 @@ internal static class KiroLiveUsage {
     /// <see cref="WatchState.KiroUsagePendingAnchors"/> for the caller to commit after a successful send. Returns
     /// the count staged, 0 on a missing or malformed sidecar. Never throws: usage is best-effort.
     /// </summary>
-
     internal static long AppendKiroUsageBackfillLines(WatchState state, List<string> newLines, List<int> newLineNumbers, string transcriptPath, Action<string> log) {
         state.KiroUsagePendingAnchors.Clear();
         var staged = 0L;
@@ -77,7 +76,6 @@ internal static class KiroLiveUsage {
     /// dedupes Kiro events by canonical id, so it can't be backfilled. Order-preserving, and never throws or
     /// drops a line.
     /// </summary>
-
     internal static List<string> EnrichKiroContextUsage(List<string> lines, string transcriptPath, OnceLog? warnings = null) {
         // Nothing to enrich unless the batch has an AssistantMessage line — skip the file read entirely.
         if (!lines.Any(static l => l.Contains("AssistantMessage", StringComparison.Ordinal))) return lines;

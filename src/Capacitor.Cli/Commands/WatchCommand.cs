@@ -40,7 +40,7 @@ namespace Capacitor.Cli.Commands;
 class WatchCommand(
         ConfigRoot config, ProfileContext profiles, HarnessRegistry harnesses,
         ICapacitorHttpClient http, ICredentialSource credentials, WatcherManager watchers,
-        GitProviderRouter router, TimeProvider time, AccountStore accounts, UserHome home) : IRecorderVendor {
+        GitProviderRouter router, TimeProvider time, AccountStore accounts, UserHome home, CapacitorServer server) : IRecorderVendor {
     readonly WatcherPaths _paths = WatcherPaths.FromEnvironment(config);
 
     // RunWatch sets these once: a WatchCommand hosts one recorder, and what its housekeeping keeps
@@ -345,16 +345,13 @@ class WatchCommand(
         var transport     = new HubRecorderTransport(hubConnection, _source.Key, TouchHeartbeat, message => Log(time, message), time);
 
         using var recorder = new TranscriptRecorder(_source, transport, new NoStamps(), time, new RecorderContext(
-            new CapacitorServer(Url, config, profiles), this, time, message => Log(time, message), TouchHeartbeat));
+            server, this, time, message => Log(time, message), TouchHeartbeat));
 
         var state = recorder.State;
 
-        // A stop request's sender waits only seconds (a kill 5s later, or the server's drain wait); nothing
-        // waits on any other exit.
-        void StopRequested() {
-            recorder.RequestStop();
-            cts.Cancel();
-        }
+        // The recorder can stop itself, and only cts stops what runs beside it. Left to the end of RunAsync, a
+        // parent monitor could see an agent exit right after its end hook and post a parent_exited end.
+        using var stopWithRecorder = recorder.Stopping.Register(cts.Cancel);
 
         // Handle SIGTERM/SIGINT for graceful shutdown.
         //
@@ -368,17 +365,20 @@ class WatchCommand(
         // signal's default action (terminate) after the handler unless the
         // context is cancelled, which would kill the watcher before the main
         // loop notices cts and the drain / session-end POST never run.
+        //
+        // A stop request's sender waits only seconds (a kill 5s later, or the server's drain wait); nothing
+        // waits on any other exit, so these tell the recorder rather than only cancelling.
         Console.CancelKeyPress += (_, e) => {
             e.Cancel = true;
-            StopRequested();
+            recorder.RequestStop();
         };
         using var sigtermReg = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => {
-            StopRequested();
+            recorder.RequestStop();
             ctx.Cancel = true;
         });
         using var stopRequest = WatcherStopSignal.Listen(Environment.ProcessId, () => {
             Log(time, "Stop requested; shutting down watcher");
-            StopRequested();
+            recorder.RequestStop();
         });
 
         // SIGHUP defense-in-depth: setsid above should prevent the kernel from
@@ -557,9 +557,6 @@ class WatchCommand(
 
             return 0;
         }
-
-        // The recorder can stop itself, and what cts drives has no reason to outlive it.
-        await cts.CancelAsync();
 
         // The Kiro hook posted session-start before this watcher spawned, so a session Crew finished
         // below the buffering threshold still sends its lines and its end rather than staying open.

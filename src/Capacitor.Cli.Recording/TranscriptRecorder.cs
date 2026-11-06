@@ -72,6 +72,11 @@ public sealed class TranscriptRecorder(
 
     public WatchState State { get; } = new() { LastActivityAt = time.GetUtcNow() };
 
+    /// <summary>Cancelled the moment the recorder stops, by any cause and before its loop notices, which can be
+    /// long after: it may be in a call that takes no token. A host stops what it runs beside the recorder from
+    /// this, so nothing of the host's outlives the stop and changes how the session ended.</summary>
+    public CancellationToken Stopping => _stop.Token;
+
     /// <summary>Where the transcript is now: Claude can move it mid-session.</summary>
     public string TranscriptPath { get; private set; } = source.TranscriptPath;
 
@@ -143,7 +148,7 @@ public sealed class TranscriptRecorder(
         // watched it. That is quarantined rather than seeded, and the loop below never runs.
         if (!await SeedCursorByteOffsetAsync(State, State.LinesProcessed, _cursorGuard, stop)) {
             log("cursor_transcript_rewrite_detected: initial resume frontier beyond local transcript — quarantined, exiting");
-            await _stop.CancelAsync();
+            _stop.Cancel();
         }
 
         // Resumed mid-session: rebuild what the lines before the cursor would have fed, such as a tool
@@ -218,7 +223,7 @@ public sealed class TranscriptRecorder(
                         noEndSignal: vendor == "copilot" && (State.CopilotHostMissing || CopilotPaths.IsVsCodeLocalTranscript(TranscriptPath)))) {
                     log($"{vendor} transcript idle for >{idleTimeout.TotalMinutes:F0}m; ending session (idle_timeout)");
                     EndedIdle = true;
-                    await _stop.CancelAsync();
+                    _stop.Cancel();
 
                     break;
                 }
@@ -226,7 +231,7 @@ public sealed class TranscriptRecorder(
                 if (CopilotShutdown.CopilotShutdownSettled(State.CopilotShutdownSeenAt, time.GetUtcNow())) {
                     log($"session.shutdown still the transcript's last line after {CopilotShutdown.CopilotShutdownGrace.TotalSeconds:0}s; ending session (session_shutdown)");
                     EndedOnCopilotShutdown = true;
-                    await _stop.CancelAsync();
+                    _stop.Cancel();
 
                     break;
                 }
@@ -404,7 +409,7 @@ public sealed class TranscriptRecorder(
                 if (!rewound) {
                     // The rewind quarantined the session and moved neither frontier: exit as a detected rewrite does.
                     context.Log("cursor_transcript_rewrite_detected: reconnect frontier beyond local transcript — quarantined, exiting");
-                    await _stop.CancelAsync();
+                    _stop.Cancel();
                 }
             }
         } catch (Exception ex) {

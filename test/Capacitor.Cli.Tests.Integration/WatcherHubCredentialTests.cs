@@ -23,7 +23,7 @@ public class WatcherHubCredentialTests : IDisposable {
     public void Dispose() => _server.Stop();
 
     WatchCommand Watch(string? bearer) =>
-        new(Config.Root, Resolutions.At(_server.Url!, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(bearer), TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home);
+        new(Config.Root, Resolutions.At(_server.Url!, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(), new FixedCredentialSource(bearer), TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient()), new GitProviderRouter(), TimeProvider.System, TestAccounts.None, Home, new(_server.Url, Config.Root, Resolutions.At(_server.Url!, Config.Root)));
 
     /// <summary>Refused, so the attempt ends at negotiate — which has already sent what we came for.</summary>
     void StubNegotiate() =>

@@ -28,7 +28,7 @@ namespace Capacitor.Cli.Recording.Harness.Cursor;
 /// <see cref="CursorMarkers.Quarantine">quarantine marker</see> the moment it detects one, so the
 /// decision survives the process exiting. <see cref="VerifyFullPrefix"/> is the coarser-grained
 /// periodic full-prefix re-hash (every N polls, wired by the watcher), reusing
-/// <see cref="CursorAppendOnlyProbe"/> — the same pure core the phase-0 harness uses.
+/// <see cref="CursorAppendOnlyProbe"/>, the pure core <c>CursorVerifyAppendOnlyCommand</c> runs on too.
 /// </summary>
 public sealed class CursorRewriteGuard(ConfigRoot config, string sessionId, TimeProvider time, Action<string>? log = null) {
     readonly CursorMarkers _markers = new(config, time);

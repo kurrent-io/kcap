@@ -14,7 +14,6 @@ public static class TranscriptReader {
     /// newline-less last line parses as JSON. A length that stopped changing proves nothing, because a large
     /// write can pause mid-record for longer than any bounded wait.
     /// </summary>
-
     internal static bool IsFinalLineComplete(string fileText) {
         if (fileText.Length == 0 || fileText[^1] == '\n') return true;
 
@@ -33,7 +32,6 @@ public static class TranscriptReader {
     /// <see cref="IsFinalLineComplete"/> decides on, read without decoding the lines before it. A UTF-16 or
     /// UTF-32 file is read whole, since its newline is not a lone <c>0x0A</c> byte.
     /// </summary>
-
     internal static async Task<string> ReadFinalLineSharedAsync(string path) {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
@@ -71,7 +69,6 @@ public static class TranscriptReader {
     /// throws: a failed read counts as not yet complete. Shares read and write, because this polls while the
     /// agent flushes its last records (see <see cref="SharedFileText"/>).
     /// </summary>
-
     internal static async Task<bool> WaitForFinalLineCompletionAsync(
             string path, TimeProvider time, int attempts = 4, int delayMs = 500) {
         for (var i = 0; i < attempts; i++) {
@@ -97,7 +94,6 @@ public static class TranscriptReader {
     /// <see cref="NewTranscriptLines.NextPosition"/> for a later drain to read whole. Blank lines are skipped
     /// but still advance the position.
     /// </summary>
-
     internal static NewTranscriptLines SplitNewCompleteLines(
             string                    fileText,
             int                       linesProcessed,
@@ -128,7 +124,6 @@ public static class TranscriptReader {
     /// Reads until <paramref name="buffer"/> is full or the file ends, since one read may fill only part of
     /// it, and returns the bytes read.
     /// </summary>
-
     internal static async Task<int> ReadFullyAsync(FileStream stream, byte[] buffer, CancellationToken ct) {
         var total = 0;
 
@@ -146,7 +141,6 @@ public static class TranscriptReader {
     /// <paramref name="range"/>, which starts at <paramref name="rangeStartOffset"/>. The server can acknowledge
     /// fewer lines than it was sent, so a checkpoint must not assume the whole range was delivered.
     /// </summary>
-
     internal static long ByteOffsetForAckedLines(ReadOnlySpan<byte> range, long rangeStartOffset, int ackedLineCount) {
         if (ackedLineCount <= 0) return rangeStartOffset;
 
@@ -176,7 +170,6 @@ public static class TranscriptReader {
     /// the end would read that newline as an empty line and number every later line one too high. The
     /// record is read and sent again, which the server dedupes by its event ids.
     /// </remarks>
-
     internal static async Task<(long ByteOffset, int LineNumber)?> ResolveByteOffsetForLineAsync(string transcriptPath, int lineNumber, CancellationToken ct) {
         if (lineNumber <= 0) return (0, lineNumber);
         if (!File.Exists(transcriptPath)) return null;
@@ -210,6 +203,10 @@ public static class TranscriptReader {
         stream.Position      = lastNewlineEnd;
         var trailingRead     = await ReadFullyAsync(stream, trailing, ct);
 
+        // A short read means the file shrank since the scan, and the rest of the buffer is zeroes rather than
+        // the record, so nothing below may judge it.
+        if (trailingRead != trailingLength) return null;
+
         return IsCompleteJsonRecord(Encoding.UTF8.GetString(trailing))
             ? (lastNewlineEnd, lineNumber - 1)
             : null;
@@ -231,7 +228,6 @@ public static class TranscriptReader {
     /// <param name="lineOffsets">Ignored with <paramref name="captureRawBytes"/>. Otherwise starts the read at
     /// the cursor's byte offset instead of byte 0, and learns the offsets of the lines it reads. The
     /// result is the same as without it.</param>
-
     public static async Task<NewTranscriptLines> ReadNewCompleteLinesAsync(
             FileStream                stream,
             int                       linesProcessed,
@@ -394,6 +390,5 @@ public static class TranscriptReader {
 
     /// <summary>True if <paramref name="line"/>, a single transcript line with no newline, parses as a
     /// complete JSON document.</summary>
-
     static bool IsCompleteJsonRecord(string line) => JsonRecord.IsComplete(line);
 }
