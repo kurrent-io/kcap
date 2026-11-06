@@ -8,6 +8,7 @@ namespace Capacitor.Cli.Daemon.Harness.Claude;
 internal static class ClaudeTerminalDialogDetector {
     const string SelectFooter = "Enter to confirm · Esc to cancel";
     const string FormFooter = "←/→ to change · Enter to continue · Esc to cancel";
+    const string ApprovalFooter = "Esc to cancel · Tab to amend";
     const char   Cursor = '❯';
     // The fullscreen TUI tops a panel (settings, status, usage, pickers) with this edge in place of
     // the prompt box. Every such panel closes with Esc, whatever else its footer offers, and its
@@ -27,19 +28,24 @@ internal static class ClaudeTerminalDialogDetector {
         if (footer < 0) return (null, false);
         var footerText = lines[footer].Trim();
         var select = footerText.StartsWith(SelectFooter, StringComparison.Ordinal);
+        var approval = footerText.StartsWith(ApprovalFooter, StringComparison.Ordinal);
         string[] region;
         if (PanelTop(lines, footer) is { } top && (ClosesWithEsc(footerText) || ScrolledPastFooter(footerText))) {
             // A panel scrolled past its footer still holds the keyboard; its last row is content.
             region = ClosesWithEsc(footerText) ? lines[(top + 1)..footer] : lines[(top + 1)..(footer + 1)];
             select = false;
         } else {
-            if (!select && !footerText.StartsWith(FormFooter, StringComparison.Ordinal)) return (null, false);
-            var border = Array.FindLastIndex(lines, footer, IsRule);
+            if (!select && !approval && !footerText.StartsWith(FormFooter, StringComparison.Ordinal)) return (null, false);
+            // Approval previews have dashed rules around the command. Keep the command in the
+            // screen-only fallback by starting at the solid dialog edge above the preview.
+            var border = Array.FindLastIndex(lines, footer,
+                line => IsRule(line) && (!approval || line.Trim()[0] is '─' or '━'));
             if (border < 0) return (null, false);
             region = lines[(border + 1)..footer];
         }
 
-        // Forms edit individual settings; moving the cursor and pressing Enter is not one answer.
+        // Forms and amendable approvals use the screen-only fallback; only select menus promise
+        // that moving the cursor and pressing Enter is one answer.
         (List<string> options, int selected, int firstRow, bool incomplete) = select
             ? ReadOptions(region, cols)
             : ([], -1, region.Length, false);

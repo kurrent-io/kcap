@@ -10,7 +10,7 @@
          streams, and the two actions that reach across. -->
     <Grid x:Name="SplitGrid" ColumnDefinitions="*,320">
     <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
-        <Border Grid.Row="0" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
+        <Border x:Name="SessionHeader" Grid.Row="0" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
                 Padding="20,16,16,16" Background="Transparent" PointerPressed="OnHeaderPointerPressed">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                 <StackPanel Spacing="6" VerticalAlignment="Center" Margin="0,0,8,0">

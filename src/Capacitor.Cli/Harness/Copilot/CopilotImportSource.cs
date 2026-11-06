@@ -32,6 +32,8 @@ namespace Capacitor.Cli.Harness.Copilot;
 internal sealed class CopilotImportSource : IImportSource {
     readonly CopilotPaths                          _paths;
     readonly TimeProvider                          _time;
+    readonly ConfigRoot                            _config;
+    readonly GitProviderRouter                     _router;
 
     public CopilotImportSource(
         ConfigRoot                              config,
@@ -39,8 +41,10 @@ internal sealed class CopilotImportSource : IImportSource {
         GitProviderRouter                        router,
         TimeProvider                            time
     ) {
-        _paths        = paths;
-        _time         = time;
+        _paths  = paths;
+        _time   = time;
+        _config = config;
+        _router = router;
     }
 
     static StringComparison PathComparison =>
@@ -127,6 +131,8 @@ internal sealed class CopilotImportSource : IImportSource {
                             ["Cwd"]            = meta?.Cwd,
                             ["Name"]           = meta?.Name,
                             ["UserNamed"]      = meta?.UserNamed ?? false,
+                            ["Branch"]         = meta?.Branch,
+                            [ImportCommand.RecordedRepositoryKey] = meta?.Repository,
                         }));
                 } catch {
                     // A hostile/inaccessible session subtree must not abort the whole scan.
@@ -264,6 +270,9 @@ internal sealed class CopilotImportSource : IImportSource {
         // permanently lifecycle-less. Re-runs are idempotent server-side
         // (deterministic lifecycle event ids).
         var startPayload = BuildSessionStartPayload(classification.SessionId, cwd, classification.Meta.FirstTimestamp);
+        if (await RepositoryNodeAsync(classification.SourceMeta, cwd) is { } repository) {
+            startPayload["repository"] = repository;
+        }
         if (ctx.VisibilityStampFor(classification.Status) is { } visibility) {
             startPayload["default_visibility"] = visibility;
         }
@@ -318,6 +327,31 @@ internal sealed class CopilotImportSource : IImportSource {
         if (sent == 0) return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Skipped;
 
         return startLine > 0 ? ImportOutcome.Resumed : ImportOutcome.Loaded;
+    }
+
+    /// <summary>The repository as Copilot recorded it, the checkout filling what it left out. The branch is
+    /// only ever the recorded one: the checkout's today says nothing about a session weeks old. Null outside
+    /// any repository.</summary>
+    async Task<JsonObject?> RepositoryNodeAsync(IReadOnlyDictionary<string, object?> meta, string? cwd) {
+        var recorded = ImportCommand.ParseRecordedRepository(meta.GetValueOrDefault(ImportCommand.RecordedRepositoryKey) as string);
+        var branch   = meta.GetValueOrDefault("Branch") as string;
+        var detected = cwd is null ? null : await RepositoryDetection.DetectRepositoryAsync(_router, _config, cwd, _time, detectPullRequest: false);
+
+        if (recorded is null && detected is null) return null;
+
+        var owner    = recorded?.Owner ?? detected?.Owner;
+        var name     = recorded?.Name ?? detected?.RepoName;
+        var sameRepo = detected is not null && detected.Owner == owner && detected.RepoName == name;
+
+        return RepositoryDetection.BuildRepositoryNode(new RepositoryPayload {
+            Owner     = owner,
+            RepoName  = name,
+            Branch    = branch,
+            RemoteUrl = sameRepo ? detected!.RemoteUrl : null,
+            Host      = sameRepo ? detected!.Host : null,
+            UserName  = detected?.UserName,
+            UserEmail = detected?.UserEmail,
+        });
     }
 
     static JsonObject BuildSessionStartPayload(string sessionId, string? cwd, DateTimeOffset? startedAt) {
@@ -410,8 +444,9 @@ internal sealed class CopilotImportSource : IImportSource {
     /// <c>session.start</c> always emits; <c>user.message</c> emits for
     /// non-empty <c>content</c>; <c>assistant.message</c> emits per non-empty
     /// reasoningText / content / toolRequests entry;
-    /// <c>tool.execution_complete</c> emits when <c>toolCallId</c> is present.
-    /// Everything else (hook.*, system.*, assistant.turn_*, session.* telemetry,
+    /// <c>tool.execution_complete</c> emits when <c>toolCallId</c> is present;
+    /// <c>session.usage_record</c> emits when <c>usage.model</c> is non-empty.
+    /// Everything else (hook.*, system.*, assistant.turn_*, other session.* telemetry,
     /// subagent.*, tool.execution_start) is skipped server-side and can never
     /// advance the transcript watermark. Fail direction on drift: treating a
     /// skipped line as relevant re-classifies a complete session as Partial
@@ -433,6 +468,7 @@ internal sealed class CopilotImportSource : IImportSource {
                                           || data.Str("reasoningText") is { Length: > 0 }
                                           || data.Arr("toolRequests") is { } requests && requests.GetArrayLength() > 0,
                 "tool.execution_complete" => data.Str("toolCallId") is not null,
+                "session.usage_record"    => data.Obj("usage") is { } usage && usage.Str("model") is { Length: > 0 },
                 _                         => false
             };
         } catch {
@@ -462,14 +498,18 @@ internal sealed class CopilotImportSource : IImportSource {
 /// YAML dependency would be overkill for the fields we need, and a parse
 /// failure must never break discovery (returns null / partial data instead).
 /// </summary>
-internal sealed record CopilotWorkspaceYaml(string? Cwd, string? Name, bool UserNamed, DateTimeOffset? CreatedAt, DateTimeOffset? UpdatedAt) {
+internal sealed record CopilotWorkspaceYaml(
+        string? Cwd, string? Name, bool UserNamed, DateTimeOffset? CreatedAt, DateTimeOffset? UpdatedAt,
+        string? Repository = null, string? Branch = null) {
     public static CopilotWorkspaceYaml? TryRead(string path) {
         try {
             if (!File.Exists(path)) return null;
 
-            string? cwd       = null;
-            string? name      = null;
-            bool userNamed    = false;
+            string? cwd        = null;
+            string? name       = null;
+            string? repository = null;
+            string? branch     = null;
+            bool userNamed     = false;
             DateTimeOffset? createdAt = null;
             DateTimeOffset? updatedAt = null;
 
@@ -485,13 +525,15 @@ internal sealed record CopilotWorkspaceYaml(string? Cwd, string? Name, bool User
                 switch (key) {
                     case "cwd":        cwd  = value; break;
                     case "name":       name = value; break;
+                    case "repository": repository = value; break;
+                    case "branch":     branch = value; break;
                     case "user_named": userNamed = value == "true"; break;
                     case "created_at": createdAt = ParseTimestamp(value); break;
                     case "updated_at": updatedAt = ParseTimestamp(value); break;
                 }
             }
 
-            return new CopilotWorkspaceYaml(cwd, name, userNamed, createdAt, updatedAt);
+            return new CopilotWorkspaceYaml(cwd, name, userNamed, createdAt, updatedAt, repository, branch);
         } catch {
             return null;
         }

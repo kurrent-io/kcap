@@ -19,6 +19,12 @@ public sealed partial class WatcherManager(
     // Nullable because an offline invocation resolves none — the IsPostable guards refuse that.
     string? Url => profiles.Resolution.ServerUrl;
 
+    /// <summary>Replaces the redaction a drain runs, for a test that stalls it.</summary>
+    internal Func<InlineDrainRedaction>? DrainRedaction { get; init; }
+
+    /// <summary>Replaces the commit observation a drain starts from, for a test with no git hook to read.</summary>
+    internal CommitObservation? DrainCommits { get; init; }
+
     internal string GetWatcherDir() => paths.Directory;
 
     internal string GetHeartbeatFilePath(string key) => paths.HeartbeatFile(key);
@@ -438,17 +444,12 @@ public sealed partial class WatcherManager(
     }
 
     /// <summary>
-    /// Spawns a detached, short-lived <c>kcap copilot-finalize</c> process that
-    /// delivers the Copilot <c>session.shutdown</c> tail (and any final assistant
-    /// turn) which Copilot writes to events.jsonl only AFTER the sessionEnd hook
-    /// returns. The hook calls this as its FIRST action — before killing
-    /// the live watcher and POSTing session-end — so the drainer is guaranteed to
-    /// exist even if the POST hangs and Copilot SIGKILLs the hook; being detached
-    /// it survives that kill and is the only thing left to read the file. Fire-
-    /// and-forget and idempotent (server watermark + deterministic ids); mirrors
+    /// Spawns a detached, short-lived <c>kcap copilot-finalize</c> process that delivers the transcript
+    /// tail Copilot writes after its sessionEnd hook, then <paramref name="endBody"/>. Being detached it
+    /// survives Copilot killing the hook. Fire-and-forget and idempotent; mirrors
     /// <see cref="SpawnWhatsDoneGenerator"/>.
     /// </summary>
-    public void SpawnCopilotFinalizeDrain(string sessionId, string transcriptPath) {
+    public void SpawnCopilotFinalizeDrain(string sessionId, string transcriptPath, string endBody) {
         // A detached child that would poll for up to 45s and then exit 2 on an unusable URL, leaving
         // no marker any assertion could observe. Refuse to launch it at all.
         if (!HookHttp.IsPostable(Url)) {
@@ -474,6 +475,7 @@ public sealed partial class WatcherManager(
             psi.ArgumentList.Add("copilot-finalize");
             psi.ArgumentList.Add(sessionId);
             psi.ArgumentList.Add(transcriptPath);
+            psi.ArgumentList.Add(endBody);
 
             // Don't let this detached child inherit the agent's pipe descriptors —
             // same pipe-leak hazard as the spawns above. The child writes its own output to a
@@ -533,11 +535,14 @@ public sealed partial class WatcherManager(
 
             var newLines       = new List<string>();
             var newLineNumbers = new List<int>();
+            var commits        = DrainCommits ?? await GitHook.ObservationAsync(config, sessionId, agentId, cwd: null, time);
+            var sentAny        = false;
 
             await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var       reader = new StreamReader(stream);
 
             var lineIndex = 0;
+            var redaction = DrainRedaction?.Invoke() ?? new InlineDrainRedaction(time);
 
             while (await reader.ReadLineAsync() is { } line) {
                 if (lineIndex < startLine) {
@@ -547,8 +552,12 @@ public sealed partial class WatcherManager(
                 }
 
                 if (!string.IsNullOrWhiteSpace(line)) {
-                    var captured = TranscriptCapture.EncodeUntilHeld([line], static () => false, (loss, _) =>
-                        Console.Error.WriteLine($"Inline capture loss at line {lineIndex}: {CaptureLossMarker.ReasonName(loss)}"));
+                    var captured = redaction.Encode(line, ReportLoss);
+                    if (captured.Consumed == 0 && redaction.CanRetry) {
+                        // A caller's cap can abandon the second try, and nothing posts after that.
+                        if (!await SendAsync()) return;
+                        captured = redaction.Retry(line, ReportLoss);
+                    }
                     if (captured.Consumed == 0) {
                         await Console.Error.WriteLineAsync(
                             $"Inline drain for {sessionId}: line {lineIndex} could not be redacted in time; to send it and the rest, run: kcap import --session {sessionId}");
@@ -561,38 +570,52 @@ public sealed partial class WatcherManager(
                 lineIndex++;
             }
 
-            var commits = (await GitHook.ObservationAsync(config, sessionId, agentId, cwd: null, time)).Collect();
-
-            if (newLines.Count == 0 && commits.Pending is not { Length: > 0 }) {
+            if (await SendAsync() && !sentAny) {
                 await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: nothing new to send");
-
-                return;
             }
 
-            var batch = new TranscriptBatch {
-                SessionId       = sessionId,
-                AgentId         = agentId,
-                Lines           = [..newLines],
-                LineNumbers     = [..newLineNumbers],
-                Vendor          = vendor == "claude" ? null : vendor,
-                ObservedCommits = commits.Pending,
-            };
+            void ReportLoss(RedactionLossReason loss, int _) =>
+                Console.Error.WriteLine($"Inline capture loss at line {lineIndex}: {CaptureLossMarker.ReasonName(loss)}");
 
-            try {
-                foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                    var batchJson = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
-                    using var content = new StringContent(batchJson, Encoding.UTF8, "application/json");
-                    using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time);
-                    if (!resp.IsSuccessStatusCode) {
-                        await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: server returned HTTP {(int)resp.StatusCode}");
-                        PrintRecoveryHint(sessionId);
-                        return;
+            // False when the drain has to stop, having printed why.
+            async Task<bool> SendAsync() {
+                commits = commits.Collect();
+
+                if (newLines.Count == 0 && commits.Pending is not { Length: > 0 }) return true;
+
+                var batch = new TranscriptBatch {
+                    SessionId       = sessionId,
+                    AgentId         = agentId,
+                    Lines           = [..newLines],
+                    LineNumbers     = [..newLineNumbers],
+                    Vendor          = vendor == "claude" ? null : vendor,
+                    ObservedCommits = commits.Pending,
+                };
+
+                try {
+                    foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
+                        var batchJson = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
+                        using var content = new StringContent(batchJson, Encoding.UTF8, "application/json");
+                        using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time);
+                        if (!resp.IsSuccessStatusCode) {
+                            await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: server returned HTTP {(int)resp.StatusCode}");
+                            PrintRecoveryHint(sessionId);
+                            return false;
+                        }
+                        await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: sent {chunk.Lines.Length} line(s)");
                     }
-                    await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: sent {chunk.Lines.Length} line(s)");
+                } catch (HttpRequestException ex) {
+                    await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: server unreachable after retries — {ex.Message}");
+                    PrintRecoveryHint(sessionId);
+                    return false;
                 }
-            } catch (HttpRequestException ex) {
-                await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: server unreachable after retries — {ex.Message}");
-                PrintRecoveryHint(sessionId);
+
+                commits = commits.Delivered(batch.ObservedCommits);
+                newLines.Clear();
+                newLineNumbers.Clear();
+                sentAny = true;
+
+                return true;
             }
         } catch (Exception ex) {
             await Console.Error.WriteLineAsync($"Inline drain for {sessionId} failed: {ex.Message}");

@@ -508,6 +508,8 @@ public class AccountRefresherTests {
         try {
             await Until(refresherA, () => refresherA.Finished == 1);
             await Until(refresherB, () => refresherB.Finished == 1);
+            // A refresh that fails before its probe still counts as finished.
+            await ProbeCount(probe, 2);
             await AdvanceTo(8, refresherA, refresherB);
 
             probe.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -526,6 +528,26 @@ public class AccountRefresherTests {
             probe.Gate?.TrySetResult();
             await refresherA.StopAsync(CancellationToken.None);
             await refresherB.StopAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>Hooks and the publisher read the registry without its lock, so a claim can land on a file a reader
+    /// has open. Refused there, the refresh ends without a probe and still counts as finished.</summary>
+    [Test]
+    public async Task A_reader_holding_the_registry_costs_no_probe() {
+        Register(Work);
+        var probe = new CountingProbe(_time);
+        using var refresher = Refresher(probe);
+
+        try {
+            using (new FileStream(Home.PathTo("accounts", "accounts.json"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
+                await refresher.StartAsync(CancellationToken.None);
+                await Until(refresher, () => refresher.Finished == 1);
+            }
+
+            await Assert.That(probe[Work]).IsEqualTo(1);
+        } finally {
+            await refresher.StopAsync(CancellationToken.None);
         }
     }
 

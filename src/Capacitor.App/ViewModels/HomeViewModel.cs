@@ -92,7 +92,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     /// A daemon attached by name that serves another server: signing in again cannot move it.
     internal static string DaemonOnOtherServerNotice(string daemonServer, string appServer) {
         var (daemonLabel, appLabel) = AttachedIdentity.ServerLabels(daemonServer, appServer);
-        return $"This machine's daemon uses another server. It's connected to {daemonLabel}, so it can't run agents for {appLabel}.";
+        return $"This machine's daemon uses another server. It's set up for {daemonLabel}, so it can't run agents for {appLabel}.";
     }
 
     /// The daemon's server when it is known and is not the app's; null otherwise, an unknown side included.
@@ -314,6 +314,35 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         private set {
             this.RaiseAndSetIfChanged(ref _startError, value);
             StartErrorOffersDefault = false;
+            this.RaisePropertyChanged(nameof(CanRequestRepositoryAccess));
+        }
+    }
+
+    public bool CanRequestRepositoryAccess => !RemoteMachineSelected
+        && !string.IsNullOrEmpty(SelectedRepoPath)
+        && StartError is { } error
+        && error.Contains($"Access to the path '{SelectedRepoPath}' is denied", StringComparison.OrdinalIgnoreCase);
+
+    bool _requestingRepositoryAccess;
+    public async Task RequestRepositoryAccessAsync(Func<string, Task<bool>> requestAccess) {
+        if (!CanRequestRepositoryAccess || _requestingRepositoryAccess) return;
+        var path = SelectedRepoPath;
+        var error = StartError;
+        _requestingRepositoryAccess = true;
+        try {
+            if (!await requestAccess(path)) return;
+            await Task.Run(() => {
+                // Directory.Exists masks permission failures. Enumerating forces a real access check,
+                // including for an empty repository.
+                using var entries = Directory.EnumerateFileSystemEntries(path).GetEnumerator();
+                entries.MoveNext();
+            });
+            if (!RemoteMachineSelected && SelectedRepoPath == path && StartError == error)
+                StartError = null;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) {
+            // Keep the original refusal and draft available for another attempt.
+        } finally {
+            _requestingRepositoryAccess = false;
         }
     }
 
@@ -529,7 +558,10 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     /// wires the machine picker ever sees.
     public bool RemoteMachineSelected {
         get => _remoteMachineSelected;
-        private set => this.RaiseAndSetIfChanged(ref _remoteMachineSelected, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref _remoteMachineSelected, value);
+            this.RaisePropertyChanged(nameof(CanRequestRepositoryAccess));
+        }
     }
 
     // Drives the reactive pipelines below (CanExecute, Harnesses) — a subject rather than
@@ -796,7 +828,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         // ordering guarantees a real value is there (MainWindowViewModel's identical seam comment).
         var foreignServer = daemon.Snapshots.Select(s => ForeignDaemonServer(s.Daemon.ServerUrl, appServerUrl))
             .StartWith((string?)null).DistinctUntilChanged();
-        // A daemon serving another server is connected to the wrong one: it cannot launch for this app.
+        // A daemon serving another server cannot launch for this app.
         var daemonAvailability = daemon.Status.CombineLatest(
             daemon.Snapshots.Select(s => s.Daemon.Connection).StartWith(""), AvailabilityFor);
         var availability = daemonAvailability.CombineLatest(foreignServer,
@@ -1384,14 +1416,19 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         _intakeNotice = null;
     }
 
-    /// Sets the selection and persists it for SelectedRepoPath — except in remote mode, where the
-    /// choice applies for the session only; a remote repository is never written into the local
-    /// (this-machine-scoped) store.
+    /// Sets the selection and persists it for SelectedRepoPath; a remote repository is keyed by its
+    /// machine as well, since the same path can exist on this machine and on each remote.
     public async Task ChooseHarnessAsync(string vendor) {
         SetVendor(vendor);
-        if (RemoteMachineSelected) return;
 
         var repoPath = SelectedRepoPath;
+        if (RemoteMachineSelected) {
+            var machine = SelectedMachine;
+            await _state.UpdateAsync(s => s with {
+                HarnessByRemoteRepo = WithRemoteEntry(s.HarnessByRemoteRepo, machine, repoPath, vendor) });
+            return;
+        }
+
         await _state.UpdateAsync(s => s with { HarnessByRepo = WithEntry(s.HarnessByRepo, repoPath, vendor) });
     }
 
@@ -1399,10 +1436,31 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     public async Task ChoosePermissionModeAsync(string mode) {
         _permissionModeChoices++;
         SelectedPermissionMode = mode;
-        if (RemoteMachineSelected) return;
 
         var repoPath = SelectedRepoPath;
+        if (RemoteMachineSelected) {
+            var machine = SelectedMachine;
+            await _state.UpdateAsync(s => s with {
+                PermissionModeByRemoteRepo = WithRemoteEntry(s.PermissionModeByRemoteRepo, machine, repoPath, mode) });
+            return;
+        }
+
         await _state.UpdateAsync(s => s with { PermissionModeByRepo = WithEntry(s.PermissionModeByRepo, repoPath, mode) });
+    }
+
+    /// The remote counterpart of SelectRepositoryAsync's restore, against the machine's own harnesses.
+    /// Nothing is restored once the machine or repository changed while the store loaded, and a
+    /// permission mode picked meanwhile is kept.
+    async Task RestoreRemoteChoicesAsync(IReadOnlyList<HarnessOption> harnesses) {
+        var (machine, repoPath, choices) = (SelectedMachine, SelectedRepoPath, _permissionModeChoices);
+        var saved = await _state.LoadAsync();
+        if (!RemoteMachineSelected
+            || !string.Equals(SelectedMachine, machine, StringComparison.Ordinal)
+            || !string.Equals(SelectedRepoPath, repoPath, StringComparison.Ordinal)) return;
+
+        SetVendor(RemoteRepoVendor(RemoteLookup(saved.HarnessByRemoteRepo, machine, repoPath), harnesses));
+        if (_permissionModeChoices == choices)
+            SelectedPermissionMode = KnownPermissionMode(RemoteLookup(saved.PermissionModeByRemoteRepo, machine, repoPath));
     }
 
     static string KnownPermissionMode(string? token) =>
@@ -1424,8 +1482,19 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             if (!Untouched()) return;
             bool OnMachine() => RemoteMachineSelected && string.Equals(SelectedMachine, machine, StringComparison.Ordinal);
             if (!OnMachine()) await SelectMachineAsync(machine, isLocal: false);
-            if (OnMachine()) await SelectRepositoryAsync(path);
+            if (OnMachine()) await SelectRepositoryAsync(OutermostOwner(path));
             return;
+        }
+
+        // A session started inside an agent worktree records that worktree; launching from it
+        // would nest the new worktree where removing the outer one deletes it. An owner that is
+        // itself an agent worktree's root unwraps again; a repository in a subdirectory of one stays.
+        static string OutermostOwner(string path) {
+            while (GitRepository.AgentWorktreeOf(path) is { } wt) {
+                path = wt.Owner;
+                if (GitRepository.AgentWorktreeOf(path) is not { } outer || outer.Worktree != path) break;
+            }
+            return path;
         }
 
         var root = await Task.Run(() => Directory.Exists(path) ? PlatformPaths.Normalize(GitRepository.ResolveMainRepoRoot(path)) : "");
@@ -1456,18 +1525,21 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     /// registry reports them now (none once it is gone, or only a local twin of the same name is
     /// left), plus a typed path not yet among them (no known-repos merge, no
     /// scratch adoption — a remote path is never verified locally), each labelled with the harness
-    /// the pick keeps, since there is no per-repo remembered harness for a machine that is not this one.
+    /// picking it lands on, remembered per machine.
     public async Task<IReadOnlyList<RepositoryOption>> ListRepositoriesAsync() {
         if (RemoteMachineSelected) {
             var remoteSelected = SelectedRepoPath;
+            var machine = SelectedMachine;
+            var remembered = (await _state.LoadAsync()).HarnessByRemoteRepo;
+            var remoteHarnesses = Harnesses;
             var live = _currentDaemons.Where(d => !IsLocalTwin(d)).ToList();
-            var remotePaths = (FindMachine(live, SelectedMachine, _lastViewerId)?.RepoPaths ?? []).ToList();
+            var remotePaths = (FindMachine(live, machine, _lastViewerId)?.RepoPaths ?? []).ToList();
             if (remoteSelected.Length > 0 && !remotePaths.Contains(remoteSelected, RemotePathComparer))
                 remotePaths.Add(remoteSelected);
             return remotePaths
                 .OrderBy(RepoLabel.Leaf, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(p => p, StringComparer.Ordinal)
-                .Select(p => new RepositoryOption(p, RemoteRepoVendor(Harnesses), RemotePathComparer.Equals(p, remoteSelected)))
+                .Select(p => new RepositoryOption(p, RemoteRepoVendor(RemoteLookup(remembered, machine, p), remoteHarnesses), RemotePathComparer.Equals(p, remoteSelected)))
                 .ToList();
         }
 
@@ -1489,6 +1561,13 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         return options;
     }
 
+    /// A remote pick lands on the remembered harness while the machine offers it, else keeps the
+    /// selected one; see RevalidateVendor.
+    string RemoteRepoVendor(string? remembered, IReadOnlyList<HarnessOption> harnesses) =>
+        IsAvailable(harnesses, remembered) ? remembered!
+            : IsAvailable(harnesses, SelectedVendor) ? SelectedVendor
+            : harnesses.FirstOrDefault(o => o.Available)?.Vendor ?? DefaultVendor;
+
     /// The harness picking a local repository lands on, so its menu entry never names one the pick
     /// would not use: the remembered harness while it is available, then DefaultVendor, then the
     /// selected one, then the first available. With nothing available it is the remembered one or
@@ -1500,10 +1579,6 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         return harnesses.FirstOrDefault(o => o.Available)?.Vendor ?? remembered ?? DefaultVendor;
     }
 
-    /// A remote pick keeps the selected harness while the machine offers it; see RevalidateVendor.
-    string RemoteRepoVendor(IReadOnlyList<HarnessOption> harnesses) =>
-        IsAvailable(harnesses, SelectedVendor) ? SelectedVendor
-            : harnesses.FirstOrDefault(o => o.Available)?.Vendor ?? DefaultVendor;
 
     internal static bool IsAvailable(IReadOnlyList<HarnessOption> harnesses, string? vendor) =>
         vendor is not null && harnesses.Any(o => o.Available && string.Equals(o.Vendor, vendor, StringComparison.OrdinalIgnoreCase));
@@ -1599,6 +1674,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         _remoteVendorOverride.OnNext(machine.SupportedVendors);
         SelectedRepoPath = machine.RepoPaths.FirstOrDefault() is { Length: > 0 } first ? first : ScratchRepoPath;
         RevalidateVendorAgainst(machine.SupportedVendors);
+        await RestoreRemoteChoicesAsync(HostedHarnessCatalog.Build(machine.SupportedVendors));
     }
 
     /// Resets SelectedVendor to the first vendor Available in supportedVendors' Build() when the
@@ -1744,6 +1820,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             : PlatformPaths.Normalize(repoPath);
         if (RemoteMachineSelected) {
             RevalidateVendor(Harnesses);
+            await RestoreRemoteChoicesAsync(Harnesses);
             return;
         }
 
@@ -2350,6 +2427,35 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
                     next[entry.Key] = entry.Value;
 
         next[normalized] = value;
+        return next;
+    }
+
+    static string? RemoteLookup(
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? byMachine, string machine, string repoPath) {
+        if (byMachine is null || !byMachine.TryGetValue(machine, out var byRepo)) return null;
+        foreach (var entry in byRepo)
+            if (RemotePathComparer.Equals(entry.Key, repoPath))
+                return entry.Value;
+
+        return null;
+    }
+
+    /// Remote paths are stored and compared verbatim: this host's normalization and case rules are
+    /// not the remote machine's.
+    static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> WithRemoteEntry(
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? existing, string machine, string repoPath, string value) {
+        var next = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
+        if (existing is not null)
+            foreach (var entry in existing)
+                next[entry.Key] = entry.Value;
+
+        var byRepo = new Dictionary<string, string>(RemotePathComparer);
+        if (next.TryGetValue(machine, out var current))
+            foreach (var entry in current)
+                byRepo[entry.Key] = entry.Value;
+
+        byRepo[repoPath] = value;
+        next[machine] = byRepo;
         return next;
     }
 }

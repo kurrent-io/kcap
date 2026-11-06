@@ -11,10 +11,6 @@ internal static class TranscriptCapture {
     /// the server drop the redacted line a later pass sends; and before the next line once
     /// <paramref name="stop"/> says the caller's time is up, after at least one line.
     /// </summary>
-    public static CapturedLines EncodeUntilHeld(
-            IReadOnlyList<string> rawLines, Func<bool> stop, Action<RedactionLossReason, int> reportLoss) =>
-        EncodeUntilHeld(rawLines, stop, TimeProvider.System, reportLoss);
-
     internal static CapturedLines EncodeUntilHeld(
             IReadOnlyList<string> rawLines, Func<bool> stop, TimeProvider time, Action<RedactionLossReason, int> reportLoss,
             SecretPatterns? patterns = null) {

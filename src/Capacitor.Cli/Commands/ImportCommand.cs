@@ -1065,6 +1065,14 @@ class ImportCommand(
             }
         }
 
+        // A harness's own record is where the import will place the session, whatever its folder holds now.
+        foreach (var session in discoveriesPerSource.SelectMany(d => d)) {
+            if (session.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) is string recorded
+             && ParseRecordedRepository(recorded) is { } repo) {
+                resolved[session.SessionId] = repo;
+            }
+        }
+
         // --- Missing cwd report ---
         // Surface transcripts whose (possibly remapped) cwd no longer exists on
         // disk so the user understands why some sessions won't match an org or
@@ -2332,6 +2340,18 @@ class ImportCommand(
         }
 
         return map;
+    }
+
+    /// <summary>The <see cref="DiscoveredSession.SourceMeta"/> entry naming the <c>owner/name</c> a
+    /// harness recorded a session against.</summary>
+    internal const string RecordedRepositoryKey = "RecordedRepository";
+
+    /// <summary>Splits <c>owner/name</c> at its last slash, since a GitLab owner can be nested. Null for
+    /// anything without both halves.</summary>
+    internal static (string Owner, string Name)? ParseRecordedRepository(string? recorded) {
+        var slash = recorded?.LastIndexOf('/') ?? -1;
+
+        return slash <= 0 || slash == recorded!.Length - 1 ? null : (recorded[..slash], recorded[(slash + 1)..]);
     }
 
     /// <summary>

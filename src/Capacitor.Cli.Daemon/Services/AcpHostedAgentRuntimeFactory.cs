@@ -294,6 +294,7 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
                 sessionNewMeta: descriptor.SessionNewMeta,
                 turnUsageReader: descriptor.TurnUsageReader,
                 subagentReader: descriptor.SubagentReader,
+                completesPermissionToolCall: descriptor.CompletesPermissionToolCall,
                 questionProtocol: descriptor.QuestionProtocol
             );
 
@@ -309,7 +310,9 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
         }
 
         var mcpServers = ctx.IsReviewFlow
-            ? descriptor.ReviewFlowMcpTransport == AcpReviewFlowMcpTransport.SessionNew ? reviewMcp : null
+            ? descriptor.ReviewFlowMcpTransport == AcpReviewFlowMcpTransport.SessionNew
+                ? descriptor.Harness is HarnessId.OpenCode ? OpenCodeLaunchEnvironment.WithUserHome(reviewMcp!, config.Home.Path) : reviewMcp
+                : null
             : descriptor.SupportsMcpServers ? InteractiveMcpServers(descriptor, ctx) : null;
 
         // An unattended reviewer's MCP surface is a security boundary: the flow-result channel must be
@@ -1006,16 +1009,15 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
             // the same names, and that failure is silent: the reviewer starts normally and its own
             // result channel is simply absent from its toolset (measured).
             if (ctx.IsReviewFlow) {
-                // Both merge OVER the isolated dir stamped below, so an inherited one puts the
-                // operator's own servers — the flows server included — back into the reviewer.
-                psi.Environment.Remove(OpenCodeLaunchEnvironment.ConfigFileVariable);
-                psi.Environment.Remove(OpenCodeLaunchEnvironment.ConfigContentVariable);
+                var userConfig = OpenCodeLaunchEnvironment.UserConfig(psi.Environment, config.Home.Path);
 
                 OpenCodeLaunchEnvironment.ApplyReviewer(
                     psi.Environment,
                     OpenCodeReviewerConfigDir.Create(
                         ReviewerStateDir(config), config.DaemonEpoch ?? "unpinned", ctx.AgentId),
-                    ValidateAndBuildReviewFlowMcp(ctx, descriptor, resolved)!);
+                    userConfig,
+                    ValidateAndBuildReviewFlowMcp(ctx, descriptor, resolved)!,
+                    config.Home.Path);
             }
         }
 

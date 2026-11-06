@@ -7,8 +7,10 @@ public static class ClaudeSubagentFiles {
     const string Prefix     = "agent-";
     const string MetaSuffix = ".meta.json";
 
+    internal const string DirectoryName = "subagents";
+
     public static string DirectoryOf(string parentTranscriptPath) =>
-        Path.Combine(Path.ChangeExtension(parentTranscriptPath, null), "subagents");
+        Path.Combine(Path.ChangeExtension(parentTranscriptPath, null), DirectoryName);
 
     public static string TranscriptPath(string parentTranscriptPath, string agentId) =>
         Path.Combine(DirectoryOf(parentTranscriptPath), $"{Prefix}{agentId}.jsonl");

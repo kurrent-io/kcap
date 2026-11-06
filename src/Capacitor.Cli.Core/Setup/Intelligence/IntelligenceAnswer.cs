@@ -5,7 +5,7 @@ namespace Capacitor.Cli.Core.Setup.Intelligence;
 public sealed record IntelligenceAnswer(string Mode, string? Harness, IntelligenceVendor? Vendor) {
     public const string NoneToken = "none";
 
-    public static IReadOnlyList<string> Harnesses { get; } = [HeadlessHarnessProbe.Claude, HeadlessHarnessProbe.Codex];
+    public static IReadOnlyList<string> Harnesses { get; } = [HeadlessHarnessProbe.Claude, HeadlessHarnessProbe.Codex, HeadlessHarnessProbe.Pi, HeadlessHarnessProbe.OpenCode];
 
     /// <summary>Every token <see cref="Parse"/> accepts.</summary>
     public static IReadOnlyList<string> Tokens { get; } = [.. Harnesses, .. IntelligenceVendor.All.Select(v => v.Id), NoneToken];

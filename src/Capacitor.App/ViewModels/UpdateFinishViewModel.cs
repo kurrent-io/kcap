@@ -91,7 +91,7 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
     }
 
     public string Heading => _closing ? "Updating kcap…"
-        : !_settled ? "Finishing the update…" : _clean ? "kcap is ready" : "kcap is installed";
+        : !_settled ? "Finishing the update…" : _clean ? "kcap is ready" : "kcap is updated";
 
     public string Description => _closing
         ? "kcap restarts to install the update. Background services finish updating after it reopens."
@@ -184,7 +184,7 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
     internal static (IReadOnlyList<UpdateStep> Steps, bool Settled, bool Clean) Project(
             AppUpdateTransition transition, AttachStatus status, string? daemonVersion, string? connection, DaemonRestartWait restartPending,
             LocalStepInput? local, DaemonOnOtherInstall? otherInstall = null, bool waitedLong = false) {
-        var steps = new List<UpdateStep> { new($"kcap {Display(transition.To)}", "Installed", UpdateStepState.Done) };
+        var steps = new List<UpdateStep> { new($"kcap {Display(transition.To)}", "Updated", UpdateStepState.Done) };
         var localStep = LocalStep(local);
         if (localStep is not null) steps.Add(localStep);
         var localRunning = localStep?.State is UpdateStepState.Running or UpdateStepState.Pending;

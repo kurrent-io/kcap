@@ -13,6 +13,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -694,6 +695,41 @@ public class ChatTabViewSmokeTests {
                 await host.AppendAndTickAsync(path, 10);
                 host.Settle();
                 await Assert.That(host.AtBottom()).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_drag_from_a_messages_left_margin_selects_text(bool user, bool rowPadding) {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var line = user ? UserLine.Replace("hello", "hello world")
+                    : """{"type":"assistant","message":{"content":[{"type":"text","text":"hello world"}]}}""";
+                var path = Tmp.CreateFile("margin-selection.jsonl", [line]);
+                await host.LoadAsync(path);
+                var markdown = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.Text == "hello world");
+                PresentAndLocate(host, markdown);
+                var block = MarkdownViewHarness.Paragraphs(markdown).Single();
+                var first = block.TextLayout.HitTestTextPosition(0);
+                var last = block.TextLayout.HitTestTextPosition(10);
+                var start = block.TranslatePoint(new Point(-8, first.Height / 2), host.Window)!.Value;
+                if (rowPadding) start = new Point(host.Scroll.TranslatePoint(new Point(4, 0), host.Window)!.Value.X, start.Y);
+                var end = block.TranslatePoint(new Point(last.X, last.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(start);
+                host.Window.MouseDown(start, MouseButton.Left);
+                host.Window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+                host.Window.MouseUp(end, MouseButton.Left);
+                host.Settle();
+                await Assert.That(markdown.HasSelection).IsTrue();
+                await Assert.That(markdown.IsSelecting).IsFalse();
+                await markdown.CopySelectionAsync();
+                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("hello worl");
             } finally { await host.CloseAsync(); }
         });
     }
@@ -2533,16 +2569,26 @@ public class ChatTabViewSmokeTests {
         });
     }
 
-    /// The banner names the one run with its pulsing dot while it lasts, stacks above the queue
-    /// banner, and the activity note sits directly above the composer.
+    static string ShellCall(string id, string input) =>
+        $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"{{{id}}}","name":"Bash","input":{{{input}}}}]}}""";
+
+    static string ShellLaunch(string id, string task) =>
+        $$$"""{"type":"user","message":{"role":"user","content":[{"tool_use_id":"{{{id}}}","type":"tool_result","content":"Command running in background with ID: {{{task}}}.","is_error":false}]},"toolUseResult":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"backgroundTaskId":"{{{task}}}"}}""";
+
+    static string ShellFinish(string id, string task) =>
+        $$$"""{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>{{{task}}}</task-id>\n<tool-use-id>{{{id}}}</tool-use-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>"}}""";
+
+    /// One banner above the queue holds every background task, folded to a count whose badge pulses
+    /// behind the number; a click opens one row per task, each marked as a subagent or a command
+    /// and only a subagent's row a button, and the banner goes once the last ends. A command with no description is named by its own text, shown once.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_subagents_banner_is_hidden_at_zero_and_names_the_run_above_the_queue_banner() {
+    public async Task The_background_tasks_banner_folds_to_a_count_and_a_click_opens_its_rows() {
         await RunOnUiAsync(async () => {
             var host = new Host();
-            var banner = host.View.FindControl<Border>("SubagentsBanner")!;
+            var banner = host.View.FindControl<Border>("BackgroundTasksBanner")!;
             var queued = host.View.FindControl<Border>("QueuedMessagesBanner")!;
-            var note = host.View.FindControl<TextBlock>("ChatActivityNote")!;
+            var note = host.View.FindControl<StackPanel>("ChatActivityBand")!;
             var composer = host.View.FindControl<Border>("ComposerCard")!;
             var band = host.View.FindControl<Border>("ComposerBand")!;
             foreach (Control part in new Control[] { banner, queued, note, composer })
@@ -2552,47 +2598,76 @@ public class ChatTabViewSmokeTests {
             await Assert.That(Grid.GetRow(queued)).IsLessThan(Grid.GetRow(note));
             await Assert.That(Grid.GetRow(note)).IsLessThan(Grid.GetRow(composer));
 
-            var path = Tmp.CreateFile("sub.jsonl", [AgentCallLine, AgentLaunchLine]);
+            var path = Tmp.CreateFile("bg.jsonl", [
+                AgentCallLine, AgentLaunchLine,
+                ShellCall("toolu_S", """{"command":"dotnet test","description":"Run the full suite"}"""), ShellLaunch("toolu_S", "b1"),
+                ShellCall("toolu_T", """{"command":"make check"}"""), ShellLaunch("toolu_T", "b2"),
+            ]);
             await host.LoadAsync(path);
             await Assert.That(banner.IsVisible).IsTrue();
-            var shown = banner.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
-            await Assert.That(shown).Contains("Explore");
-            await Assert.That(shown.Any(t => t!.StartsWith("running in background · ", StringComparison.Ordinal))).IsTrue();
-            await Assert.That(banner.GetVisualDescendants().OfType<Border>().Any(b => b.Classes.Contains("toolRunning") && b.IsEffectivelyVisible)).IsTrue();
-            await Assert.That(queued.IsVisible).IsFalse();
+            var rows = host.View.FindControl<ScrollViewer>("BackgroundTasksScroll")!;
+            await Assert.That(rows.IsVisible).IsFalse();
+            var count = host.View.FindControl<Panel>("BackgroundTasksCount")!;
+            await Assert.That(VisibleTexts(count)).IsEquivalentTo(new[] { "3" });
+            var pulse = banner.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("toolRunning"));
+            await Assert.That(pulse.GetVisualParent()).IsSameReferenceAs(count);
+            await Assert.That(PulseClock.GetIsActive(pulse)).IsTrue();
 
-            await host.AppendLinesAndTickAsync(path, AgentFinishLine);
+            var toggle = host.View.FindControl<Button>("BackgroundTasksToggle")!;
+            Click(host, toggle);
+            var list = host.View.FindControl<ItemsControl>("BackgroundTasksList")!;
+            await Assert.That(rows.IsVisible).IsTrue();
+            await Assert.That(list.IsEffectivelyVisible).IsTrue();
+            await Assert.That(Avalonia.Automation.AutomationProperties.GetName(toggle))
+                .IsEqualTo("Background tasks, 1 subagent and 2 commands running, expanded");
+            var shown = VisibleTexts(list);
+            await Assert.That(shown).Contains("Explore");
+            await Assert.That(shown).Contains("Map desktop chat UI surfaces");
+            await Assert.That(shown).Contains("Run the full suite");
+            await Assert.That(shown).Contains("dotnet test");
+            await Assert.That(shown.Count(t => t.Contains("make check", StringComparison.Ordinal))).IsEqualTo(1);
+            await Assert.That(shown.Any(t => t.StartsWith("running", StringComparison.Ordinal))).IsFalse();
+            // Only the subagent opens a transcript, so only its row is a live button.
+            var buttons = list.GetVisualDescendants().OfType<Button>().Where(b => b.Name == "BackgroundTaskRow").Select(b => b.IsEnabled).ToList();
+            await Assert.That(buttons).IsEquivalentTo(new[] { true, false, false }, CollectionOrdering.Matching);
+            var kinds = list.GetVisualDescendants().OfType<AppIcon>().Where(i => i.IsEffectivelyVisible).Select(i => i.Kind ?? default).ToList();
+            await Assert.That(kinds).IsEquivalentTo(new[] { ToolCategoryIcons.AgentIcon, ToolCategoryIcons.CommandIcon, ToolCategoryIcons.CommandIcon },
+                CollectionOrdering.Matching);
+
+            await host.AppendLinesAndTickAsync(path, AgentFinishLine, ShellFinish("toolu_S", "b1"), ShellFinish("toolu_T", "b2"));
             await Assert.That(banner.IsVisible).IsFalse();
             await host.CloseAsync();
         });
     }
 
     /// A command's name can run to 80 characters; on a narrow pane the name gives way, never the
-    /// state line with its timer. 550 is the chat pane at the window's minimum width, beside the
-    /// rail and the work-context pane.
+    /// timer. 550 is the chat pane at the window's minimum width, beside the rail and the
+    /// work-context pane.
     [Test]
     [NotInParallel("AvaloniaSession")]
     [Arguments(600, true)]
     [Arguments(550, true)]
     [Arguments(550, false)]
-    public async Task A_long_command_name_never_pushes_the_state_line_out_of_the_banner(double width, bool described) {
+    public async Task A_long_command_name_never_pushes_the_timer_out_of_the_banner(double width, bool described) {
         await RunOnUiAsync(async () => {
             var host = new Host();
             host.Window.Width = width;
             var text = "Run every integration suite against the staging server and collect the coverage";
             var input = described ? $$$"""{"command":"make it","description":"{{{text}}}"}""" : $$$"""{"command":"{{{text}}}"}""";
-            var call = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_S","name":"Bash","input":{{{input}}}}]}}""";
-            var launch = """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_S","type":"tool_result","content":"Command running in background with ID: b1.","is_error":false}]},"toolUseResult":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"backgroundTaskId":"b1"}}""";
-            await host.LoadAsync(Tmp.CreateFile("sh.jsonl", [call, launch]));
-            host.Settle();
+            await host.LoadAsync(Tmp.CreateFile("sh.jsonl", [ShellCall("toolu_S", input), ShellLaunch("toolu_S", "b1")]));
+            Click(host, host.View.FindControl<Button>("BackgroundTasksToggle")!);
 
-            var banner = host.View.FindControl<Border>("SubagentsBanner")!;
-            var state = banner.GetVisualDescendants().OfType<TextBlock>()
-                .Single(t => t.IsEffectivelyVisible && t.Text!.StartsWith("running in background · ", StringComparison.Ordinal));
-            var right = state.TranslatePoint(new Point(state.Bounds.Width, 0), banner)!.Value.X;
+            var banner = host.View.FindControl<Border>("BackgroundTasksBanner")!;
+            var row = host.Chat.Tasks.Rows.Single();
+            var timer = banner.GetVisualDescendants().OfType<TextBlock>()
+                .Single(t => t.IsEffectivelyVisible && t.Text == row.ElapsedText);
+            var right = timer.TranslatePoint(new Point(timer.Bounds.Width, 0), banner)!.Value.X;
             await Assert.That(right).IsLessThanOrEqualTo(banner.Bounds.Width);
-            await Assert.That(state.Bounds.Width).IsGreaterThan(0);
+            await Assert.That(timer.Bounds.Width).IsGreaterThan(0);
             await host.CloseAsync();
         });
     }
+
+    static List<string> VisibleTexts(Visual root) =>
+        root.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text ?? "").ToList();
 }

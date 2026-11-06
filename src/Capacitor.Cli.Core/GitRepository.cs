@@ -164,6 +164,42 @@ public static class GitRepository {
         }
     }
 
+    /// <summary>The <c>origin</c> URL as the repository's own config states it, read with no git process;
+    /// null when there is none or the config cannot be read. Includes and <c>insteadOf</c> are not followed,
+    /// so this stands in only where git itself will not answer.</summary>
+    public static string? OriginUrl(string? startDir) {
+        if (string.IsNullOrEmpty(startDir) || ResolveCommonDir(startDir) is not { } commonDir) return null;
+
+        try {
+            var inOrigin = false;
+            foreach (var raw in File.ReadLinesShared(Path.Combine(commonDir, "config"))) {
+                var line = raw.Trim();
+                if (line.StartsWith('[')) {
+                    inOrigin = line.Equals("[remote \"origin\"]", StringComparison.Ordinal);
+                    continue;
+                }
+
+                if (!inOrigin) continue;
+
+                var equals = line.IndexOf('=');
+                if (equals > 0 && line[..equals].Trim().Equals("url", StringComparison.OrdinalIgnoreCase)) {
+                    return ConfigValue(line[(equals + 1)..].Trim()) is { Length: > 0 } url ? url : null;
+                }
+            }
+        } catch {
+            // Same "heuristic, not authoritative" stance as FindRoot.
+        }
+
+        return null;
+    }
+
+    // A quoted value ends at its closing quote; an unquoted one at a comment.
+    static string ConfigValue(string raw) {
+        if (raw.StartsWith('"')) return raw.IndexOf('"', 1) is > 0 and var close ? raw[1..close] : raw[1..];
+
+        return raw.IndexOfAny(['#', ';']) is >= 0 and var comment ? raw[..comment].TrimEnd() : raw;
+    }
+
     static bool IsObjectId(string text) =>
         text.Length is 40 or 64 && text.All(char.IsAsciiHexDigit);
 

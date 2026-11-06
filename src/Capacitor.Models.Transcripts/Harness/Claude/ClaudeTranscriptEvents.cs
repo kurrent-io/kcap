@@ -51,7 +51,9 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
             var queued = type == "attachment" ? QueuedCommand(root) : null;
             if (type == "attachment" && queued is null) {
                 ctx.PreviousUsage = null;
-                return ProjectionResult.Empty;
+                return IsResumeHook(root)
+                    ? ProjectionResult.Empty with { RestartedAt = TranscriptTime.Resolve(root.Str("timestamp"), receivedAt).At }
+                    : ProjectionResult.Empty;
             }
 
             Guid recordId;
@@ -80,6 +82,13 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
             });
         }
     }
+
+    /// The one trace a resume leaves in the transcript. An async hook's response carries the same name
+    /// but lands whenever that hook finishes, possibly after the new process started runs of its own.
+    static bool IsResumeHook(JsonElement root) =>
+        root.Obj("attachment") is { } attachment
+        && attachment.Str("hookName") == "SessionStart:resume"
+        && attachment.Str("type") != "async_hook_response";
 
     readonly record struct Record(Guid Id, DateTimeOffset At, string? RecordTimestamp, string? CausedBy, bool IsSidechain, string IdScope) {
         public Timestamp ProtoTimestamp => Timestamp.FromDateTimeOffset(At);

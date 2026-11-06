@@ -219,7 +219,7 @@ public partial class App : Application {
     ServerPermissionFeed? _permissionFeed;
     SessionAttentionTracker? _attention;
     HandoffDrafts? _handoffDrafts;
-    BackgroundCommandActivity? _commands;
+    SessionRunActivity? _commands;
     SessionAccessService? _sessionAccess;
     PullRequestToneCache? _pullRequestTones;
     ConsentPromptCoordinator? _promptCoordinator;
@@ -1240,8 +1240,8 @@ public partial class App : Application {
         _menuBar?.SetFeedbackAction(openFeedback);
 
         var appSubject = SignedInSubject.From(serverLane.Status);
-        var commands = new BackgroundCommandActivity((key, report, ended, handoff) =>
-            new BackgroundCommandMonitor(key, report, ended, service, directory, sessionAccess, readDetail, serverLane, _time, handoff));
+        var commands = new SessionRunActivity((key, report, ended, handoff) =>
+            new SessionRunMonitor(key, report, ended, service, directory, sessionAccess, readDetail, serverLane, _time, handoff));
         _commands = commands;
         Action linkGitHub = () => {
             if (profiles?.Resolution.ServerUrl is { Length: > 0 } url)
@@ -1333,7 +1333,7 @@ public partial class App : Application {
                 lifecycleStatus, _navigation, _workspaceTeardown.Track, BuildWorkspace,
                 // The tenant slug the rail footer shows — profiles are named after it at sign-in.
                 tenantName: profiles?.Resolution?.ProfileName, agentsWithPending: agentsWithPending,
-                agentsAwaitingAnswer: permissions.AgentsAwaitingAnswer, agentsRunningCommands: commands.Running,
+                agentsAwaitingAnswer: permissions.AgentsAwaitingAnswer, agentsRunningWork: commands.Running,
                 requestSignIn: requestSignIn,
                 lifecycleAttention: lifecycleAttention, identityReport: lifecycle.IdentityReport,
                 pullRequestSummaries: pullRequestTones.Summaries, railShown: railShown,
@@ -2219,7 +2219,7 @@ public partial class App : Application {
             IObservable<IReadOnlySet<string>>? agentsWithPending = null,
             IObservable<IReadOnlySet<string>>? agentsAwaitingAnswer = null, Action? requestSignIn = null,
             IObservable<string?>? lifecycleAttention = null, IObservable<string?>? identityReport = null,
-            IObservable<IReadOnlyDictionary<string, int>>? agentsRunningCommands = null,
+            IObservable<IReadOnlyDictionary<string, RunningWork>>? agentsRunningWork = null,
             IObservable<IReadOnlyDictionary<string, RailPullRequestSummary>>? pullRequestSummaries = null,
             IObserver<Func<AgentRow, bool>>? railShown = null,
             IAgentDirectory? directory = null, IRemoteAgentsService? remoteAgents = null,
@@ -2311,7 +2311,7 @@ public partial class App : Application {
         var rail = new SessionRailViewModel(
             resolvedDirectory, openLocalSession: agentId => vm?.OpenSession(agentId, AgentOrigin.Local),
             openRemoteSession: agentId => vm?.OpenSession(agentId, AgentOrigin.Remote), time: time, agentsWithPending: agentsWithPending,
-            agentsAwaitingAnswer: agentsAwaitingAnswer, agentsRunningCommands: agentsRunningCommands,
+            agentsAwaitingAnswer: agentsAwaitingAnswer, agentsRunningWork: agentsRunningWork,
             pullRequests: pullRequestSummaries, openPullRequest: (agentId, origin, subject) => vm?.OpenSessionPullRequest(agentId, origin, subject),
             openServerSession: sessionId => vm?.OpenSession(sessionId, AgentOrigin.Server),
             sessions: sessions, preferences: initialRail, persistPreferences: persistRail,
@@ -2330,7 +2330,7 @@ public partial class App : Application {
             laneStatus: lane?.Status, restartPending: restartPending, daemonOnOtherInstall: daemonOnOtherInstall,
             originOf: originOf, remoteWorkspaceFactory: remoteWorkspaceFactory, directory: resolvedDirectory,
             serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
-            searchFactory: searchFactory,
+            searchFactory: searchFactory, appServerUrl: appServerUrl,
             openFeedback: openFeedback, opener: new ShellUrlOpener(), requestSignIn: requestSignIn,
             settingsAction: settingsAction, checkForUpdatesAction: checkForUpdatesAction,
             uninstallAction: uninstallAction, requestSetup: requestSetup, historyImport: historyImport,

@@ -9,6 +9,35 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 public class TranscriptChatCanonicalTests {
     static CanonicalEvent Event(string type, object payload) => new(type, payload, Guid.NewGuid(), DateTimeOffset.UtcNow);
 
+    static CanonicalEvent SessionStart(string? source) {
+        var started = new SessionStarted();
+        var slug = new Struct();
+        if (source is not null) slug.Fields["source"] = Value.ForString(source);
+        started.Extensions[ClaudeCodeExtension.Slug] = slug;
+        return Event(CanonicalEventTypes.SessionStarted, started);
+    }
+
+    [Test]
+    public async Task A_resumed_claude_session_start_is_a_restart_dated_by_the_event() {
+        var evt = SessionStart("Resume");
+        var result = TranscriptChat.Project(evt, ClaudeChatRules.Instance);
+        await Assert.That(result.Envelopes).IsEmpty();
+        await Assert.That(((RunSignal.Restarted)result.Runs.Single()).At).IsEqualTo(evt.Timestamp);
+    }
+
+    /// Compact and clear keep their process, and a first start has nothing before it to end.
+    [Test]
+    [Arguments("Startup")]
+    [Arguments("Compact")]
+    [Arguments("Clear")]
+    [Arguments(null)]
+    public async Task Any_other_claude_session_start_restarts_nothing(string? source) =>
+        await Assert.That(TranscriptChat.Project(SessionStart(source), ClaudeChatRules.Instance).Runs).IsEmpty();
+
+    [Test]
+    public async Task A_vendor_without_the_rule_reads_a_resumed_session_start_as_nothing() =>
+        await Assert.That(TranscriptChat.Project(SessionStart("Resume"), rules: null).Runs).IsEmpty();
+
     [Test]
     public async Task A_user_message_is_one_row_and_one_submitted_input_without_rules() {
         var result = TranscriptChat.Project(Event(CanonicalEventTypes.UserMessageReceived, new UserMessageReceived { Content = "hello" }), rules: null);

@@ -12,7 +12,7 @@ Measures, against each installed ACP vendor CLI:
      session/load response (ACP spec MUST).
   6. Post-load liveness: a fresh prompt on the loaded session completes.
 
-Usage: python3 acp_c0_probe.py --vendor cursor|copilot|kiro|gemini [--outdir DIR]
+Usage: python3 acp_c0_probe.py --vendor cursor|copilot|kiro|gemini|mistral-vibe [--outdir DIR]
 Writes <outdir>/<vendor>/frames.jsonl, stderr.log, summary.json.
 """
 
@@ -21,6 +21,7 @@ import asyncio
 import json
 import os
 import signal
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -50,6 +51,7 @@ VENDORS = {
                  # Vertex needs both; the project must have billing enabled.
                  "env": {"GOOGLE_CLOUD_PROJECT": os.environ.get("KCAP_PROBE_GCP_PROJECT", "capacitortesting"),
                          "GOOGLE_CLOUD_LOCATION": os.environ.get("KCAP_PROBE_GCP_LOCATION", "global")}},
+    "mistral-vibe": {"argv": ["vibe-acp"], "model": None},
 }
 
 
@@ -75,12 +77,21 @@ class AcpClient:
         self.update_waiters = []      # list of (predicate, Future)
         self.write_lock = asyncio.Lock()
         self.eof = asyncio.Event()
+        # The session/load request id. The reader marks the barrier when it records that response, so an
+        # update it reads next is never counted as replay because the request had not resumed yet.
+        self.barrier_id = None
 
     def record(self, direction, obj, note=None):
         self.frames.append({
             "t": now_iso(), "dir": direction, "phase": self.phase_ref[0],
             "child": self.label, **({"note": note} if note else {}), "frame": obj,
         })
+        if (direction == "in" and self.barrier_id is not None and obj.get("id") == self.barrier_id
+                and ("result" in obj or "error" in obj)):
+            self.barrier_id = None
+            self.phase_ref[0] = "post_load_trailer"
+            self.frames.append({"t": now_iso(), "dir": "mark", "phase": self.phase_ref[0], "child": self.label,
+                                "frame": {"event": "load_response_received", "ok": "error" not in obj}})
 
     async def start(self):
         env = dict(os.environ)
@@ -206,6 +217,10 @@ class AcpClient:
         # The whole process group: Gemini self-re-execs, and killing only the spawned pid
         # orphans the real agent with the pipes still open.
         self.record("mark", {"event": "sigkill", "pid": self.proc.pid})
+        if os.name == "nt":
+            # No process groups on Windows: the daemon's tree kill is the equivalent.
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.proc.pid)], capture_output=True, check=False)
+            return
         try:
             os.killpg(self.proc.pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -382,6 +397,7 @@ async def probe_vendor(vendor, outdir):
             phase_ref[0] = "load_replay"
             load_ok = False
             load_err = None
+            c2.barrier_id = c2.next_id + 1
             try:
                 load_resp = await c2.request(
                     "session/load",
@@ -392,7 +408,9 @@ async def probe_vendor(vendor, outdir):
                 summary["load_response"] = load_resp.get("result") if load_ok else load_resp
             except (asyncio.TimeoutError, ConnectionError) as ex:
                 load_err = repr(ex)
-            c2.record("mark", {"event": "load_response_received", "ok": load_ok})
+            if c2.barrier_id is not None:  # no response reached the reader: timed out or the child died
+                c2.barrier_id = None
+                c2.record("mark", {"event": "load_response_received", "ok": load_ok})
             note(f"session/load ok={load_ok} err={json.dumps(load_err)[:300] if load_err else None}")
             phase_ref[0] = "post_load_trailer"
             await asyncio.sleep(3)

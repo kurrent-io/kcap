@@ -167,45 +167,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         this.RaisePropertyChanged(nameof(QueueSummary));
     }
 
-    /// While a turn is live a foreground launch is already a Task row in the transcript, so the
-    /// strip keeps only the runs that outlive the turn.
-    IEnumerable<RunRow> StripRows =>
-        ActivityNote.Length == 0 ? _runs.Running : _runs.Running.Where(static r => r.IsBackground);
+    /// A foreground run is the turn's own Task row in the transcript, so the band lists only what
+    /// was sent to the background.
+    IEnumerable<RunRow> BackgroundRows => _runs.Running.Where(static r => r.IsBackground);
 
-    public bool HasRunningRuns => StripRows.Any();
-
-    /// The one strip row when there is exactly one: the view reads its name and state line, which
-    /// the row itself keeps current, so a tick changes nothing here.
-    public RunRow? RunningRow {
-        get {
-            using var rows = StripRows.GetEnumerator();
-            if (!rows.MoveNext()) return null;
-            var only = rows.Current;
-            return rows.MoveNext() ? null : only;
-        }
-    }
-
-    public string RunSummary {
-        get {
-            var running = StripRows.ToList();
-            if (running.Count < 2) return "";
-            var shells = running.Count(r => r.IsShell);
-            var agents = running.Count - shells;
-            var counts = (agents, shells) switch {
-                (_, 0) => $"{agents} subagents",
-                (0, _) => $"{shells} commands",
-                _      => $"{Plural(agents, "subagent")}, {Plural(shells, "command")}",
-            };
-            return running.All(r => r.IsBackground) ? $"{counts} running in background" : $"{counts} running";
-        }
-    }
-
-    static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+    public BackgroundTasksViewModel Tasks { get; } = new();
 
     void RefreshRuns() {
-        this.RaisePropertyChanged(nameof(HasRunningRuns));
-        this.RaisePropertyChanged(nameof(RunningRow));
-        this.RaisePropertyChanged(nameof(RunSummary));
+        Tasks.Refresh(BackgroundRows);
         RefreshAgentStatus();
     }
 
@@ -263,6 +232,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// Nothing in the chat yet can mean the agent is held at a prompt only its terminal shows, so
     /// the empty chat's note points there, unless the terminal-menu card already does.
     public bool ShowsTerminalOffer => ShowTerminal is not null && PhaseNote.Length > 0 && !_ended && !ShowsTerminalMenu;
+
+    /// The empty-chat offer sits over the messages, so a chat with history has this one beside the
+    /// activity row's warning instead.
+    public bool ShowsActivityTerminalOffer => ShowTerminal is not null && LaunchPromptUnsent && !ShowsTerminalMenu;
+
+    bool LaunchPromptUnsent => _launchPromptUnconfirmed && !_ended && _items.Count > 0;
 
     void RaisePhaseNote() {
         this.RaisePropertyChanged(nameof(PhaseNote));
@@ -401,6 +376,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         private set {
             this.RaiseAndSetIfChanged(ref _showsTerminalMenu, value);
             this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
+            this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
         }
     }
 
@@ -570,12 +546,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         get => _activityNote;
         private set {
             if (_activityNote == value) return;
-            var turnChanged = _activityNote.Length == 0 != (value.Length == 0);
             this.RaiseAndSetIfChanged(ref _activityNote, value);
-            if (!turnChanged) return;
-            this.RaisePropertyChanged(nameof(HasRunningRuns));
-            this.RaisePropertyChanged(nameof(RunningRow));
-            this.RaisePropertyChanged(nameof(RunSummary));
         }
     }
 
@@ -592,7 +563,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
 
     void RefreshActivityNote() {
         var inTurn = SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
-        var working = inTurn && !HasPendingCards;
+        var working = inTurn && !HasPendingCards && !HasTerminalMenu;
         if (!inTurn) {
             _workingSince = null;
             _worked = TimeSpan.Zero;
@@ -610,14 +581,19 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             _worked += _time.GetElapsedTime(pausedAt);
             _workingSince = null;
         }
+        // History hides the empty-chat note, so a launch prompt that has not gone says so here.
+        var unsent = LaunchPromptUnsent;
         ActivityNote = _failureNote is { } failure && Phase != ChatTabPhase.Failed
             ? FailureNote(failure)
-            : _status == "Starting"
-                ? VendorLabel.Length > 0 ? $"Starting {VendorLabel}…" : "Starting…"
-                : working && _workingSince is { } since
-                    ? WorkingNote(_worked + _time.GetElapsedTime(since)) : "";
-        ShowsActivityNote = _failureNote is not null && Phase != ChatTabPhase.Failed && ActivityNote.Length > 0;
+            : unsent
+                ? LaunchPromptUnconfirmedNote
+                : _status == "Starting"
+                    ? VendorLabel.Length > 0 ? $"Starting {VendorLabel}…" : "Starting…"
+                    : working && _workingSince is { } since
+                        ? WorkingNote(_worked + _time.GetElapsedTime(since)) : "";
+        ShowsActivityNote = (unsent || (_failureNote is not null && Phase != ChatTabPhase.Failed)) && ActivityNote.Length > 0;
         ShowsLiveNote = !ShowsActivityNote && ActivityNote.Length > 0;
+        this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
         RefreshAgentStatus();
         RefreshQueuedSend();
     }
@@ -648,10 +624,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         var elapsed = ActivityNote.StartsWith("Working for ", StringComparison.Ordinal) ? ActivityNote : null;
         var stage = ActivityNote.StartsWith("Starting ", StringComparison.Ordinal) ? ActivityNote : null;
         var answerExpected = Cards.PendingCards.Any(static c => c is QuestionCardViewModel or AcpQuestionCardViewModel);
+        var work = _runs.Work;
         AgentStatus = SessionStatusDots.Present(
-            _status, _awaitingInput, _waitsOnUser, _liveSubagents, HasPendingCards,
+            _status, _awaitingInput, _waitsOnUser, SessionStatusDots.LiveSubagents(_liveSubagents, work), HasPendingCards,
             question ? _usageLimit!.Summary : null, stage, elapsed,
-            answerExpected: answerExpected, ended: _ended, liveCommands: _runs.RunningCommandCount,
+            answerExpected: answerExpected, ended: _ended, liveCommands: work.Commands,
             terminalDialog: _terminalDialog is not null, interruption: _interruption, agentId: _agentId,
             turnAttested: _turnAttested);
         StatusText = AgentStatus.Label;
@@ -797,6 +774,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         _time = time;
         _permissions = permissions;
         _runs = runs;
+        Tasks.Refresh(BackgroundRows);
         _runs.Changed += RefreshRuns;
         _lifetimeToken = _lifetime.Token;
         _senders = senders is null ? null : new MessageSenderLookup(senders, time, _lifetimeToken, LogOnce, ConfirmAttributedDispatch);
@@ -833,6 +811,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             if (empty == (_items.Count == 0)) return;
             empty = _items.Count == 0;
             RaisePhaseNote();
+            RefreshActivityNote();
         };
         ShowTerminalCommand = ReactiveCommand.Create(() => ShowTerminal?.Invoke());
         _disposables.Add(ShowTerminalCommand);
@@ -1163,6 +1142,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         if (_launchPromptUnconfirmed != (info.LaunchPromptUnconfirmed == true)) {
             _launchPromptUnconfirmed = info.LaunchPromptUnconfirmed == true;
             RaisePhaseNote();
+            RefreshActivityNote();
         }
         _waitsOnUser = info.WaitsOnUser;
         if (info.Ended)
@@ -2066,6 +2046,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         try { _lifetime.Cancel(); } catch (ObjectDisposedException) { }
         _disposables.Dispose();
         Cards.Dispose();
+        Tasks.Dispose();
         Tray.Clear();
         _rootSubject.Dispose();
         _intakeNotice.Dispose();

@@ -268,6 +268,10 @@ public class HandoffComposerViewModelTests {
             rig.Ops.Next = Reply(start);
             var vm = await rig.ReadyAsync();
             await Assert.That(vm.StripLabel).IsEqualTo(label);
+            var branch = start.HeadIsFork ? $"{start.HeadOwner}:{start.Branch}" : start.Branch;
+            var summary = $"Starting from {branch} at abcdef1";
+            if (start.Checkout == nameof(HandoffCheckout.Detached)) summary += " · No branch checked out";
+            await Assert.That(vm.StripSummary).IsEqualTo(summary);
             await Assert.That(vm.DisabledReason).IsNull();
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
         }
@@ -540,7 +544,7 @@ public class HandoffComposerViewModelTests {
 
         rig.Ops.Next = Reply(AttachedStart, nameof(HandoffCompleteness.Unconfirmed));
         var unconfirmed = await rig.ReadyAsync();
-        await Assert.That(unconfirmed.CompletenessNote).IsEqualTo("The session may have left work that isn't pushed");
+        await Assert.That(unconfirmed.CompletenessNote).IsEqualTo("Previous session may have unpushed work");
         await Assert.That(unconfirmed.WorkMissingOrUnconfirmed).IsTrue();
     });
 

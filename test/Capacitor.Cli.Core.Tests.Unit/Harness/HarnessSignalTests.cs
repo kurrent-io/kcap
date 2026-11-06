@@ -123,8 +123,84 @@ public class HarnessSignalTests {
     public async Task Copilot_reads_the_home_it_was_given_and_nothing_else() {
         using var tmp = new TempDir();
 
+        tmp.CreateDir("logs");
+
         await Assert.That(CopilotHarness.Over(new CopilotPaths(Nowhere, null)).Signals.HasUserData).IsFalse();
         await Assert.That(CopilotHarness.Over(new CopilotPaths(Nowhere, tmp.Path)).Signals.HasUserData).IsTrue();
+    }
+
+    /// <summary>Wiring Copilot writes these, so a machine must not detect Copilot from kcap's own files.</summary>
+    [Test]
+    [Arguments("hooks", null, false)]
+    [Arguments(null, "mcp-config.json", false)]
+    [Arguments(null, "copilot-instructions.md", false)]
+    [Arguments("logs", null, true)]
+    [Arguments("ide", null, true)]
+    [Arguments("session-state", null, true)]
+    [Arguments("history-session-state", null, true)]
+    [Arguments(null, "config.json", true)]
+    public async Task Copilot_user_data_is_what_copilot_wrote(string? dir, string? file, bool expected) {
+        using var tmp = new TempDir();
+        if (dir is not null) tmp.CreateDir(dir);
+        if (file is not null) await File.WriteAllTextAsync(tmp.PathTo(file), "{}");
+
+        await Assert.That(CopilotHarness.Over(new CopilotPaths(Nowhere, tmp.Path)).Signals.HasUserData).IsEqualTo(expected);
+    }
+
+    static string CopilotBinaryIn(TempDir tmp, params string[] directory) {
+        var dir  = tmp.CreateDir(directory);
+        var path = Path.Combine(dir, OperatingSystem.IsWindows() ? "copilot.exe" : "copilot");
+        File.WriteAllText(path, "");
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+
+        return dir;
+    }
+
+    /// <summary>VS Code puts a shim named copilot on the user's PATH: finding it is finding VS Code, not the CLI.</summary>
+    [Test]
+    [Arguments("copilot-shim", "VS Code")]
+    [Arguments("homebrew-bin", null)]
+    public async Task A_copilot_on_the_path_is_named_by_where_it_lives(string directory, string? expected) {
+        using var tmp = new TempDir();
+        var binaries = BinaryProbe.Searching(CopilotBinaryIn(tmp, "Code", directory));
+
+        var found = HarnessRegistry.Over(binaries, CopilotHarness.Over(new CopilotPaths(Nowhere, tmp.PathTo("home")))).Detect(HarnessId.Copilot);
+
+        await Assert.That(found.BinaryFound).IsTrue();
+        await Assert.That(found.HostApp).IsEqualTo(expected);
+    }
+
+    /// <summary>The CLI wins when both are here: it is what setup can name for certain.</summary>
+    [Test]
+    public async Task A_copilot_cli_beside_vs_code_reads_as_the_cli() {
+        using var tmp = new TempDir();
+        tmp.CreateDir("home", "ide");
+        var binaries = BinaryProbe.Searching(CopilotBinaryIn(tmp, "bin"));
+
+        var found = HarnessRegistry.Over(binaries, CopilotHarness.Over(new CopilotPaths(Nowhere, tmp.PathTo("home")))).Detect(HarnessId.Copilot);
+
+        await Assert.That(found.DesktopAppFound).IsTrue();
+        await Assert.That(found.HostApp).IsNull();
+    }
+
+    /// <summary>VS Code signs Copilot in through ide/ and keeps the extension's data in its own storage.</summary>
+    [Test]
+    public async Task Vs_code_copilot_with_no_cli_is_found_as_vs_code() {
+        using var signedIn = new TempDir();
+        signedIn.CreateDir("ide");
+        using var storage = new TempDir();
+        storage.CreateDir("Code", "User", "globalStorage", "github.copilot-chat");
+        using var empty = new TempDir();
+
+        var none = BinaryProbe.Searching(null);
+        var byIde = CopilotHarness.Over(new CopilotPaths(Nowhere, signedIn.Path));
+        var byStorage = CopilotHarness.Over(new CopilotPaths(Nowhere, empty.PathTo("absent")));
+
+        await Assert.That(byIde.Signals.HasDesktopApp(DesktopAppProbe.None)).IsTrue();
+        await Assert.That(byIde.Signals.FindHostApp(none, DesktopAppProbe.None)).IsEqualTo("VS Code");
+        await Assert.That(byStorage.Signals.HasDesktopApp(DesktopAppProbe.Searching(storage.Path))).IsTrue();
+        await Assert.That(byStorage.Signals.FindHostApp(none, DesktopAppProbe.Searching(storage.Path))).IsEqualTo("VS Code");
+        await Assert.That(byStorage.Signals.HasDesktopApp(DesktopAppProbe.Searching(empty.Path))).IsFalse();
     }
 
     [Test]

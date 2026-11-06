@@ -23,6 +23,11 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
 
     public bool StartsSubagentRows => true;
 
+    /// The server writes a session start for every hook source, a compaction's included.
+    public bool IsRestart(SessionStarted started) =>
+        string.Equals(SchemaExtensions.Text(SchemaExtensions.Slug(started, ClaudeCodeExtension.Slug), SessionSource), "resume", StringComparison.OrdinalIgnoreCase);
+
+    const string SessionSource = "source";
     const string StoppedTaskMessage = "Successfully stopped task";
     const string HandbackPointer = "This agent's report was delivered to you as a message";
 
@@ -38,7 +43,9 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
             || SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) is not (null or "human")) return [];
         // Try the exact text first: a user can be documenting the paste wrapper itself. Unwrap
         // once, without stripping reminders/commands that may be part of that literal paste.
-        var pasted = UnwrapPastes(text.Replace("\r\n", "\n"));
+        // Claude Code puts newlines outside the wrapper; left on, ↑ recall resends them and each
+        // round trip grows the paste.
+        var pasted = UnwrapPastes(text.Replace("\r\n", "\n"), dropEdgeNewlines: true);
         return pasted == text ? [text] : [text, pasted];
     }
 
@@ -331,8 +338,9 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
 
     /// A paste is a block whose close repeats the id, with a newline right after the open tag and
     /// right before the close. Only those newlines come off: a one-line pair is prose, and spaces
-    /// inside the block stay so the queue still matches.
-    static string UnwrapPastes(string text) {
+    /// inside the block stay so the queue still matches. <paramref name="dropEdgeNewlines"/> also
+    /// drops a run of newlines that stands alone between the message's edge and an unwrapped paste.
+    static string UnwrapPastes(string text, bool dropEdgeNewlines = false) {
         var cursor = 0;
         var scan = 0;
         StringBuilder? built = null;
@@ -357,16 +365,19 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
                 scan = afterOpen;
                 continue;
             }
+            var leadingEdge = built is null && dropEdgeNewlines && OnlyNewlines(text.AsSpan(0, open));
             built ??= new StringBuilder(text.Length);
-            built.Append(text, cursor, open - cursor);
+            if (!leadingEdge) built.Append(text, cursor, open - cursor);
             built.Append(text, contentStart, closeAt - contentStart);
             cursor = closeAt + close.Length;
             scan = cursor;
         }
         if (built is null) return text;
-        built.Append(text, cursor, text.Length - cursor);
+        if (!(dropEdgeNewlines && OnlyNewlines(text.AsSpan(cursor)))) built.Append(text, cursor, text.Length - cursor);
         return built.ToString();
     }
+
+    static bool OnlyNewlines(ReadOnlySpan<char> text) => !text.ContainsAnyExcept('\n');
 
     /// The command when the whole message is a bash-input tag, reminders beside it aside; null when the
     /// tag is quoted inside other text or the command is blank.

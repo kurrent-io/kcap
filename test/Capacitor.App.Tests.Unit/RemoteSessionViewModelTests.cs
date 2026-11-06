@@ -61,7 +61,7 @@ public class RemoteSessionViewModelTests {
 
         public RemoteSessionViewModel Build(AgentRow row, IPlanArtifactSource? planArtifacts = null,
                 Capacitor.Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,
-                BackgroundCommandActivity? commands = null, SubagentEventsReader? readSubagent = null, AccountReadings? readings = null,
+                SessionRunActivity? commands = null, SubagentEventsReader? readSubagent = null, AccountReadings? readings = null,
                 Func<AgentRow, HandoffComposerViewModel>? handoff = null, HandoffOutcomeReader? handoffOutcomes = null,
                 IPageContentSource? pageContent = null, IUrlOpener? opener = null, bool? webView = null, bool inAppPages = true,
                 IHeldMessagesApi? heldMessages = null) {
@@ -412,8 +412,8 @@ public class RemoteSessionViewModelTests {
             };
             var agentRow = Harness.Row(vendor: "claude");
             var vm = h.Build(agentRow, readSubagent: read);
-            await h.UntilAsync(vm, () => vm.WorkContext.Runs.Any(r => r.CanOpen), "subagent row named");
-            var row = vm.WorkContext.Runs.Single();
+            await h.UntilAsync(vm, () => vm.WorkContext.Subagents.Any(r => r.CanOpen), "subagent row named");
+            var row = vm.WorkContext.Subagents.Single();
 
             vm.WorkContext.OpenRunCommand.Execute(row).Subscribe();
 
@@ -428,7 +428,7 @@ public class RemoteSessionViewModelTests {
             }
             await Assert.That(pane.Chat.Items.OfType<AssistantTextItem>().Single().Text).IsEqualTo("Found the chat surfaces");
             await Assert.That(requested[0]).IsEqualTo(("s1", "a9f262478e032f427"));
-            await Assert.That(vm.WorkContext.Runs.Single()).IsSameReferenceAs(row);
+            await Assert.That(vm.WorkContext.Subagents.Single()).IsSameReferenceAs(row);
 
             pane.BackCommand.Execute().Subscribe();
 
@@ -458,8 +458,8 @@ public class RemoteSessionViewModelTests {
                 return Task.FromResult(new SubagentEventsFetch(new SubagentEventsDto { Events = [] }));
             };
             var vm = h.Build(Harness.ServerRow(), readSubagent: read);
-            await h.UntilAsync(vm, () => vm.WorkContext.Runs.Any(r => r.CanOpen), "imported subagent row named");
-            var row = vm.WorkContext.Runs.Single();
+            await h.UntilAsync(vm, () => vm.WorkContext.Subagents.Any(r => r.CanOpen), "imported subagent row named");
+            var row = vm.WorkContext.Subagents.Single();
             await Assert.That(row.StateWord).IsEqualTo("done");
             await Assert.That(row.UnopenableReason).IsNull();
 
@@ -491,8 +491,8 @@ public class RemoteSessionViewModelTests {
                 Event(1, CanonicalEventTypes.ToolResultReceived, UnlinkedAgentResult)));
             SubagentEventsReader read = (_, _, _, _) => Task.FromResult(new SubagentEventsFetch(null, NotFound: true));
             var vm = h.Build(Harness.ServerRow(), readSubagent: read);
-            await h.UntilAsync(vm, () => vm.WorkContext.HasRuns, "imported subagent row listed");
-            var row = vm.WorkContext.Runs.Single();
+            await h.UntilAsync(vm, () => vm.WorkContext.HasSubagents, "imported subagent row listed");
+            var row = vm.WorkContext.Subagents.Single();
 
             await Assert.That(row.CanOpen).IsFalse();
             await Assert.That(row.UnopenableReason).Contains("no record of which subagent transcript this call started");
@@ -512,8 +512,8 @@ public class RemoteSessionViewModelTests {
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             var vm = h.Build(Harness.Row(vendor: "claude"));
-            await h.UntilAsync(vm, () => vm.WorkContext.Runs.Any(r => r.AgentId is not null), "subagent row named");
-            var row = vm.WorkContext.Runs.Single();
+            await h.UntilAsync(vm, () => vm.WorkContext.Subagents.Any(r => r.AgentId is not null), "subagent row named");
+            var row = vm.WorkContext.Subagents.Single();
 
             await Assert.That(row.CanOpen).IsFalse();
             await Assert.That(row.UnopenableReason).IsEqualTo("Subagent transcripts can't be opened for this session.");
@@ -548,7 +548,7 @@ public class RemoteSessionViewModelTests {
             vm.PullRequests!.SetForeground(true);
             await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready && vm.WorkContext.IsReady
                 && vm.WorkContext.Plan.HasPlan && vm.Artefacts.HasAny && vm.PullRequests.HasPullRequest, what: "all context loaded");
-            await h.UntilAsync(vm, () => vm.WorkContext.HasRuns, "subagent loaded");
+            await h.UntilAsync(vm, () => vm.WorkContext.HasSubagents, "subagent loaded");
             await WaitUntilAsync(() => !vm.WorkContext.IsReading, what: "initial work read settled");
             h.WorkSource.Gate();
             vm.WorkContext.RefreshCommand.Execute().Subscribe();
@@ -565,7 +565,7 @@ public class RemoteSessionViewModelTests {
             await WaitUntilAsync(() => !vm.WorkContext.HasSession && h.WorkSource.InFlight == 0, what: "context cleared and read cancelled");
             await Assert.That(vm.ShowsPanes).IsFalse();
             await Assert.That(vm.WorkContext.Title).IsEqualTo("");
-            await Assert.That(vm.WorkContext.HasRuns).IsFalse();
+            await Assert.That(vm.WorkContext.HasSubagents).IsFalse();
             await Assert.That(vm.WorkContext.Plan.HasPlan).IsFalse();
             await Assert.That(vm.Artefacts.HasAny).IsFalse();
             await Assert.That(vm.PullRequests.Choices.Count).IsEqualTo(0);
@@ -1315,9 +1315,9 @@ public class RemoteSessionViewModelTests {
             var row = Harness.Row(sessionId: null);
             h.Directory.Rows.AddOrUpdate(row);
             var unexpectedRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            BackgroundCommandMonitor? monitor = null;
+            SessionRunMonitor? monitor = null;
             var ended = false;
-            monitor = new BackgroundCommandMonitor(row.Key, _ => { }, () => {
+            monitor = new SessionRunMonitor(row.Key, _ => { }, () => {
                 ended = true;
                 monitor!.Dispose();
             }, new FakeDaemonClientService(), h.Directory, h.Access, (_, _) => {
@@ -1350,27 +1350,27 @@ public class RemoteSessionViewModelTests {
             h.Detail = new(RemoteFixtures.Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, call),
                 Event(1, CanonicalEventTypes.ToolResultReceived, launch)));
-            BackgroundCommandMonitor? monitor = null;
+            SessionRunMonitor? monitor = null;
             var backgroundSeed = new TaskCompletionSource<SessionDetailFetch>(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var commands = new BackgroundCommandActivity((key, report, ended, _) =>
-                monitor = new BackgroundCommandMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                monitor = new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
                     h.Access, (_, ct) => backgroundSeed.Task.WaitAsync(ct), h.Lane, h.Time));
-            IReadOnlyDictionary<string, int> latest = new Dictionary<string, int>();
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var row = Harness.Row(vendor: "claude") with { AwaitingInput = true };
             var vm = h.Build(row, commands: commands);
-            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1") == 1, "running command");
+            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1").Commands == 1, "running command");
             await vm.TeardownAsync();
             h.Time.Advance(ChatTabViewModel.PollInterval);
             await Task.Yield();
             await (monitor!.PendingReadForTesting ?? Task.CompletedTask);
-            await Assert.That(latest.GetValueOrDefault("remote:a1")).IsEqualTo(1);
+            await Assert.That(latest.GetValueOrDefault("remote:a1").Commands).IsEqualTo(1);
             backgroundSeed.SetResult(h.Detail);
             await WaitUntilAsync(() => h.Lane.Tails.Count == 2, what: "background monitor tail");
             h.Time.Advance(ChatTabViewModel.PollInterval);
             await Task.Yield();
             await (monitor!.PendingReadForTesting ?? Task.CompletedTask);
-            await Assert.That(latest.GetValueOrDefault("remote:a1")).IsEqualTo(1);
+            await Assert.That(latest.GetValueOrDefault("remote:a1").Commands).IsEqualTo(1);
 
             if (sessionEnds) h.Directory.Rows.AddOrUpdate(row with { Status = "Completed" });
             else h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, finished));
@@ -1381,6 +1381,100 @@ public class RemoteSessionViewModelTests {
                 await Task.Delay(10);
             }
             await Assert.That(latest.ContainsKey("remote:a1")).IsFalse();
+        });
+    }
+
+    /// The rail looks a session running in a terminal up by its server key, so its work is published
+    /// under that key, and stays there once the workspace closes.
+    [Test]
+    public async Task A_terminal_sessions_subagent_stays_on_its_server_key_after_navigation_until_it_ends() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
+            using var subscription = commands.Running.Subscribe(running => latest = running);
+            var vm = h.Build(Harness.ServerRow("s1", "active"), commands: commands);
+            await h.UntilAsync(vm, () => latest.GetValueOrDefault("server:s1").Subagents == 1, "running subagent");
+
+            await vm.TeardownAsync();
+            await WaitUntilAsync(() => {
+                h.Time.Advance(ChatTabViewModel.PollInterval);
+                return h.Lane.Tails.Count == 2;
+            }, what: "background monitor tail");
+            await Assert.That(latest.GetValueOrDefault("server:s1").Subagents).IsEqualTo(1);
+
+            h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, AgentNotification));
+            await WaitUntilAsync(() => {
+                h.Time.Advance(ChatTabViewModel.PollInterval);
+                return !latest.ContainsKey("server:s1");
+            }, what: "the subagent's end");
+        });
+    }
+
+    /// Closes the workspace on a running subagent, removes the row, and returns what is then published.
+    static async Task<IReadOnlyDictionary<string, RunningWork>> AfterTheRowLeaves(Harness h, AgentRow row, SessionRunActivity commands, Func<IReadOnlyDictionary<string, RunningWork>> latest) {
+        var vm = h.Build(row, commands: commands);
+        await h.UntilAsync(vm, () => latest().GetValueOrDefault(row.Key).Subagents == 1, "running subagent");
+        await vm.TeardownAsync();
+        await WaitUntilAsync(() => {
+            h.Time.Advance(ChatTabViewModel.PollInterval);
+            return h.Lane.Tails.Count == 2;
+        }, what: "background monitor tail");
+        h.Directory.Rows.Remove(row.Key);
+        await Task.Delay(100);
+        return latest();
+    }
+
+    /// A server row leaves the loaded set on a page cut or a scope change, which says nothing about
+    /// the session, so only the row coming back ended stops the monitor.
+    [Test]
+    public async Task A_terminal_session_leaving_the_loaded_set_stays_tracked_until_it_returns_ended() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
+            using var subscription = commands.Running.Subscribe(running => latest = running);
+            var row = Harness.ServerRow("s1", "active");
+
+            var gone = await AfterTheRowLeaves(h, row, commands, () => latest);
+            await Assert.That(gone.GetValueOrDefault(row.Key).Subagents).IsEqualTo(1);
+
+            h.Directory.Rows.AddOrUpdate(row);
+            await Task.Delay(100);
+            await Assert.That(latest.GetValueOrDefault(row.Key).Subagents).IsEqualTo(1);
+
+            h.Directory.Rows.AddOrUpdate(row with { Status = "Completed" });
+            await WaitUntilAsync(() => !latest.ContainsKey(row.Key), what: "the row's end");
+        });
+    }
+
+    /// A hosted agent's row going means the agent has gone, and nothing else would stop the monitor.
+    [Test]
+    public async Task A_hosted_row_leaving_the_directory_stops_tracking_its_session() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
+            using var subscription = commands.Running.Subscribe(running => latest = running);
+            var row = Harness.Row(vendor: "claude");
+
+            var gone = await AfterTheRowLeaves(h, row, commands, () => latest);
+            await Assert.That(gone.ContainsKey(row.Key)).IsFalse();
         });
     }
 
@@ -1398,13 +1492,13 @@ public class RemoteSessionViewModelTests {
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, call),
                 Event(1, CanonicalEventTypes.ToolResultReceived, launch)));
             var refusal = new SessionDetailFetch(null, NotFound: notFound, Unauthorized: !notFound);
-            using var commands = new BackgroundCommandActivity((key, report, ended, _) =>
-                new BackgroundCommandMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
+            using var commands = new SessionRunActivity((key, report, ended, _) =>
+                new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
                     h.Access, (_, _) => Task.FromResult(refusal), h.Lane, h.Time));
-            IReadOnlyDictionary<string, int> latest = new Dictionary<string, int>();
+            IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var vm = h.Build(Harness.Row(vendor: "claude") with { AwaitingInput = true }, commands: commands);
-            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1") == 1, "running command");
+            await h.UntilAsync(vm, () => latest.GetValueOrDefault("remote:a1").Commands == 1, "running command");
             await vm.TeardownAsync();
 
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
@@ -1429,12 +1523,12 @@ public class RemoteSessionViewModelTests {
             var vm = h.Build(Harness.Row(vendor: "claude"));
             await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
             await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
-            await h.UntilAsync(vm, () => vm.Chat.HasRunningRuns, "the strip");
-            await Assert.That(vm.Chat.RunningRow!.StateText).StartsWith("running in background · ");
+            await h.UntilAsync(vm, () => vm.Chat.Tasks.HasRows, "the strip");
+            await Assert.That(vm.Chat.Tasks.Rows.Single().StateText).StartsWith("running in background · ");
             await Assert.That(vm.Chat.Items.OfType<ToolGroupItem>().Single().Calls.Single().Outcome).IsEqualTo(ToolOutcome.Done);
 
             h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, AgentNotification));
-            await h.UntilAsync(vm, () => !vm.Chat.HasRunningRuns, "the finish");
+            await h.UntilAsync(vm, () => !vm.Chat.Tasks.HasRows, "the finish");
             await Assert.That(vm.Chat.Items.OfType<SystemNoteItem>().Count()).IsEqualTo(1);
             await Assert.That(vm.Chat.Items.OfType<UserTurnItem>().Any()).IsFalse();
             await vm.TeardownAsync();
@@ -1460,14 +1554,14 @@ public class RemoteSessionViewModelTests {
             var vm = h.Build(Harness.Row(vendor: "claude"));
             await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
             await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
-            await h.UntilAsync(vm, () => vm.Chat.HasRunningRuns, "the first launch");
+            await h.UntilAsync(vm, () => vm.Chat.Tasks.HasRows, "the first launch");
 
             h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, firstFinish));
-            await h.UntilAsync(vm, () => !vm.Chat.HasRunningRuns, "the first finish");
+            await h.UntilAsync(vm, () => !vm.Chat.Tasks.HasRows, "the first finish");
 
             h.Lane.PushStreamEvent(Envelope("s1", 3, CanonicalEventTypes.AssistantToolCallsGenerated, secondCall));
             h.Lane.PushStreamEvent(Envelope("s1", 4, CanonicalEventTypes.ToolResultReceived, secondLaunch));
-            await h.UntilAsync(vm, () => vm.Chat.HasRunningRuns, "the second launch");
+            await h.UntilAsync(vm, () => vm.Chat.Tasks.HasRows, "the second launch");
 
             // A completion that lands after this synchronization marker was folded into the strip
             // before the marker's own row could appear, since the tail applies its stream in order.
@@ -1475,8 +1569,8 @@ public class RemoteSessionViewModelTests {
             h.Lane.PushStreamEvent(Envelope("s1", 6, CanonicalEventTypes.AssistantTextGenerated, """{"content":"__sync__"}"""));
             await h.UntilAsync(vm, () => vm.Chat.Items.OfType<AssistantTextItem>().Any(i => i.Text == "__sync__"), "the sync marker");
 
-            await Assert.That(vm.Chat.HasRunningRuns).IsTrue();
-            await Assert.That(vm.Chat.RunningRow!.StateText).StartsWith("running in background · ");
+            await Assert.That(vm.Chat.Tasks.HasRows).IsTrue();
+            await Assert.That(vm.Chat.Tasks.Rows.Single().StateText).StartsWith("running in background · ");
             await vm.TeardownAsync();
         });
     }
@@ -1491,11 +1585,11 @@ public class RemoteSessionViewModelTests {
             var vm = h.Build(Harness.Row(vendor: "claude"));
             await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
             await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
-            await h.UntilAsync(vm, () => vm.Chat.HasRunningRuns, "the strip");
+            await h.UntilAsync(vm, () => vm.Chat.Tasks.HasRows, "the strip");
             var rows = vm.Chat.Items.Count;
 
             h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, MetaNotification));
-            await h.UntilAsync(vm, () => !vm.Chat.HasRunningRuns, "the finish");
+            await h.UntilAsync(vm, () => !vm.Chat.Tasks.HasRows, "the finish");
             await Assert.That(vm.Chat.Items.Count).IsEqualTo(rows);
             await vm.TeardownAsync();
         });
@@ -1510,16 +1604,16 @@ public class RemoteSessionViewModelTests {
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             var vm = h.Build(Harness.Row(vendor: "claude"));
             await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
-            await h.UntilAsync(vm, () => vm.Chat.HasRunningRuns, "the strip");
+            await h.UntilAsync(vm, () => vm.Chat.Tasks.HasRows, "the strip");
 
             h.Directory.Rows.Remove("remote:a1");
             await Assert.That(vm.SessionEnded).IsTrue();
-            await Assert.That(vm.Chat.HasRunningRuns).IsFalse();
+            await Assert.That(vm.Chat.Tasks.HasRows).IsFalse();
 
             h.Directory.Rows.AddOrUpdate(Harness.Row(vendor: "claude"));
             await Assert.That(vm.SessionEnded).IsFalse();
-            await Assert.That(vm.Chat.HasRunningRuns).IsTrue();
-            await Assert.That(vm.Chat.RunningRow!.StateText).StartsWith("running in background · ");
+            await Assert.That(vm.Chat.Tasks.HasRows).IsTrue();
+            await Assert.That(vm.Chat.Tasks.Rows.Single().StateText).StartsWith("running in background · ");
             await vm.TeardownAsync();
         });
     }

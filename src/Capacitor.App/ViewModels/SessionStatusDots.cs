@@ -24,9 +24,12 @@ public static class SessionStatusDots {
         row.Status is "Failed" or "Interrupted" || WaitsOnUser(row) || UsageLimitNoticeDto.IsQuestion(row.UsageLimit)
      || row.TerminalDialog is not null;
 
-    /// Running, and either mid-turn or with subagents the daemon still counts or background
-    /// commands the app saw start. A parent that is also waiting still counts as working; the
-    /// wait is a line on the status tip.
+    /// The daemon forgets a subagent at every pause, and a transcript hears of one a read later,
+    /// or never where its feed cannot be read, so a session runs what either source still sees.
+    public static int LiveSubagents(int? daemon, RunningWork work) => Math.Max(daemon ?? 0, work.Subagents);
+
+    /// Running, and either mid-turn or with subagents or background commands still live. A parent
+    /// that is also waiting still counts as working; the wait is a line on the status tip.
     public static bool IsWorking(string status, bool? awaitingInput, int? liveSubagents, int liveCommands = 0) =>
         status == "Running" && (awaitingInput == false || liveSubagents > 0 || liveCommands > 0);
 
@@ -38,9 +41,9 @@ public static class SessionStatusDots {
 
     public static string Label(AgentRow row) => ForRow(row, pending: false).Label;
 
-    public static AgentStatusPresentation ForRow(AgentRow row, bool pending, bool answerExpected = false, int liveCommands = 0) =>
+    public static AgentStatusPresentation ForRow(AgentRow row, bool pending, bool answerExpected = false, RunningWork work = default) =>
         Present(
-            row.Status, row.AwaitingInput, WaitsOnUser(row), row.LiveSubagents, pending,
+            row.Status, row.AwaitingInput, WaitsOnUser(row), LiveSubagents(row.LiveSubagents, work), pending,
             UsageLimitSummary(row.UsageLimit),
             row.Origin == AgentOrigin.Pending ? LaunchStages.Label(row.LaunchStage) : null,
             elapsed: null,
@@ -48,18 +51,21 @@ public static class SessionStatusDots {
             model: row.Model is { Length: > 0 } known ? HostedHarnessCatalog.ModelLabelFor(row.Vendor, known) : null,
             harness: string.IsNullOrEmpty(row.Vendor) ? null : HostedHarnessCatalog.LabelFor(row.Vendor),
             ended: row.IsEndedSession,
-            liveCommands: liveCommands,
-            terminalDialog: row.TerminalDialog is not null, interruption: row.Interruption, agentId: row.Id);
+            liveCommands: work.Commands,
+            terminalDialog: row.TerminalDialog is not null, interruption: row.Interruption, agentId: row.Id,
+            stale: row.IsStale);
 
     /// First match wins, so two surfaces cannot draw different marks for the same facts.
     /// <paramref name="usageLimitSummary"/> is set only for a question the user must answer.
+    /// <paramref name="stale"/> is the server's idle flag, which outranks only the bare "Running" that
+    /// claims nothing about the turn: anything the daemon actually reported is still shown.
     public static AgentStatusPresentation Present(
             string status, bool? awaitingInput, bool waitsOnUser, int? liveSubagents, bool pending,
             string? usageLimitSummary, string? launchStage, string? elapsed,
             string? requester = null, string? borrowedFrom = null, bool answerExpected = false,
             string? model = null, string? harness = null, bool ended = false, int liveCommands = 0,
             bool terminalDialog = false, string? interruption = null, string? agentId = null,
-            bool turnAttested = false) {
+            bool turnAttested = false, bool stale = false) {
         var kind =
             status == "Failed" ? AgentStatusKind.Failed
             : answerExpected ? AgentStatusKind.Answer
@@ -69,6 +75,7 @@ public static class SessionStatusDots {
             : status == "Resuming" ? AgentStatusKind.Resuming
             : IsWorking(status, awaitingInput, liveSubagents, liveCommands) ? AgentStatusKind.Working
             : waitsOnUser || status == "Idle" ? AgentStatusKind.Idle
+            : stale && status == "Running" ? AgentStatusKind.Stale
             : status == "Completed" ? AgentStatusKind.Done
             : AgentStatusKind.Other;
         var label = kind switch {
@@ -80,6 +87,7 @@ public static class SessionStatusDots {
             AgentStatusKind.Resuming    => "Resuming",
             AgentStatusKind.Working     => "Working",
             AgentStatusKind.Idle        => "Idle",
+            AgentStatusKind.Stale       => "Stale",
             AgentStatusKind.Done        => "Done",
             _                           => status,
         };
@@ -93,6 +101,7 @@ public static class SessionStatusDots {
             : kind == AgentStatusKind.Answer ? "An answer is expected"
             : kind == AgentStatusKind.Resuming ? "Resuming after a daemon restart"
             : kind == AgentStatusKind.Interrupted ? "Not resumed after a daemon restart"
+            : kind == AgentStatusKind.Stale ? "No activity for over an hour"
             : label;
         var facts = new List<AgentStatusFact> { new(sentence, "Status") };
         Add(facts, harness, "Harness");
@@ -138,15 +147,15 @@ public static class SessionStatusDots {
     /// only carrying the daemon's own word. The accessible name counts the dominant kind.
     public static AgentStatusPresentation? Rollup(
             IEnumerable<AgentRow> rows, IReadOnlySet<string> pending, IReadOnlySet<string>? answering = null,
-            IReadOnlyDictionary<string, int>? commands = null) {
+            IReadOnlyDictionary<string, RunningWork>? work = null) {
         var presented = rows
             .Select(row => (Row: row, Status: ForRow(row, pending.Contains(row.Id), answering?.Contains(row.Id) ?? false,
-                commands?.GetValueOrDefault(row.Key) ?? 0)))
+                work?.GetValueOrDefault(row.Key) ?? default)))
             .Where(item => item.Status.HasLabel)
             .OrderBy(item => (int)item.Status.Kind)
             .ThenBy(item => item.Row.Id, StringComparer.Ordinal)
             .ToList();
-        var surfaced = presented.Where(item => item.Status.Kind is not AgentStatusKind.Done and not AgentStatusKind.Other).ToList();
+        var surfaced = presented.Where(item => item.Status.Kind is not AgentStatusKind.Stale and not AgentStatusKind.Done and not AgentStatusKind.Other).ToList();
         if (surfaced.Count == 0) return null;
         var dominant = surfaced[0].Status.Kind;
         var count = surfaced.Count(item => item.Status.Kind == dominant);

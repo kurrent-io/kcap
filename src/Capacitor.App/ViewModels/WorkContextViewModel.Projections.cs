@@ -54,8 +54,12 @@ public sealed partial class WorkContextViewModel {
         get => _title;
         private set { this.RaiseAndSetIfChanged(ref _title, value); NotifyIdentity(); }
     }
-    bool IsPrimaryIssue(WorkContextLinkViewModel? issue) =>
-        issue is not null && string.Equals(issue.Key, Key, StringComparison.OrdinalIgnoreCase);
+    /// A short key carries no repository, so only this names the primary issue. GitHub numbers issues
+    /// and pull requests in one sequence, so a seed spelled `!N` can be the issue `#N` of its
+    /// repository; other providers number them apart.
+    string? _seedIssueIdentity;
+    bool HasHeaderKey(WorkContextLinkViewModel issue) => string.Equals(issue.Key, Key, StringComparison.OrdinalIgnoreCase);
+    bool IsPrimaryIssue(WorkContextLinkViewModel? issue) => issue is not null && Same(issue.Identity, _seedIssueIdentity);
     static bool IsFallbackIssueTitle(WorkContextLinkViewModel issue) =>
         issue.Title.Length == 0 || string.Equals(issue.Title, issue.Key, StringComparison.OrdinalIgnoreCase)
         || string.Equals(issue.Title, $"Issue {issue.Key}", StringComparison.OrdinalIgnoreCase);
@@ -63,8 +67,9 @@ public sealed partial class WorkContextViewModel {
         _issues.FirstOrDefault(IsPrimaryIssue) ?? _issues.FirstOrDefault();
     public string DisplayTitle => Title.Length > 0 && !string.Equals(Title, Key, StringComparison.OrdinalIgnoreCase) ? Title
         : PrimaryIssue is { } primary && IsPrimaryIssue(primary) && !IsFallbackIssueTitle(primary) ? primary.Title : "";
+    /// An untitled issue folds only into a header that spells its key: `!N` does not name the issue `#N`.
     public bool HasInlineIssue => PrimaryIssue is { } primary && IsPrimaryIssue(primary)
-        && (IsFallbackIssueTitle(primary) || string.Equals(primary.Title, DisplayTitle, StringComparison.OrdinalIgnoreCase));
+        && (IsFallbackIssueTitle(primary) ? HasHeaderKey(primary) : string.Equals(primary.Title, DisplayTitle, StringComparison.OrdinalIgnoreCase));
     /// Issues the section should show: every link-class issue except a primary absorbed into the work-item title.
     public IEnumerable<WorkContextLinkViewModel> SeparateIssues =>
         HasInlineIssue ? _issues.Where(i => !IsPrimaryIssue(i)) : _issues;
@@ -245,8 +250,8 @@ public sealed partial class WorkContextViewModel {
         }
     }
 
-    bool _runsExpanded;
-    public bool RunsExpanded { get => _runsExpanded; private set => this.RaiseAndSetIfChanged(ref _runsExpanded, value); }
+    bool _subagentsExpanded;
+    public bool SubagentsExpanded { get => _subagentsExpanded; private set => this.RaiseAndSetIfChanged(ref _subagentsExpanded, value); }
 
     public ReactiveCommand<Unit, Unit> TogglePartsCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> TogglePeopleCommand { get; private set; } = null!;
@@ -254,7 +259,7 @@ public sealed partial class WorkContextViewModel {
     public ReactiveCommand<Unit, Unit> ToggleUsageCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleCheckoutCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleSessionCommand { get; private set; } = null!;
-    public ReactiveCommand<Unit, Unit> ToggleRunsCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> ToggleSubagentsCommand { get; private set; } = null!;
 
     void InitializeProjections() {
         TogglePartsCommand   = Toggle(() => PartsExpanded = !PartsExpanded);
@@ -269,7 +274,7 @@ public sealed partial class WorkContextViewModel {
         ToggleSessionCommand  = Toggle(() => SessionExpanded = !SessionExpanded);
         _layout.PropertyChanged += OnLayoutChanged;
         _disposables.Add(System.Reactive.Disposables.Disposable.Create(() => _layout.PropertyChanged -= OnLayoutChanged));
-        ToggleRunsCommand = Toggle(() => RunsExpanded = !RunsExpanded);
+        ToggleSubagentsCommand = Toggle(() => SubagentsExpanded = !SubagentsExpanded);
     }
 
     ReactiveCommand<Unit, Unit> Toggle(Action flip) {
@@ -325,6 +330,7 @@ public sealed partial class WorkContextViewModel {
     }
 
     void ClearItem() {
+        _seedIssueIdentity = null;
         Key = null;
         Title = "";
         Overview = null;
@@ -435,6 +441,9 @@ public sealed partial class WorkContextViewModel {
     static bool Same(string a, string? b) => string.Equals(a, b, StringComparison.Ordinal);
 
     void ApplyItem(WorkItemDto item, IReadOnlyList<SessionWorkItemAssignmentDto> assignments) {
+        _seedIssueIdentity = item.Key is { } seed
+            ? IssueIdentity("issue", seed.Provider, seed.Provider == "github" ? seed.Value.Replace('!', '#') : seed.Value)
+            : null;
         Key = FirstNonBlank(item.Key?.ShortKey);
         // An item with no tracker or generated title arrives with its key as the title.
         var title = FirstNonBlank(item.EnrichedTitle, item.Title) ?? "";
@@ -533,8 +542,9 @@ public sealed partial class WorkContextViewModel {
             || string.Equals(c.Identity, identity, StringComparison.Ordinal));
     }
 
-    static string IssueIdentity(WorkItemLinkDto link) =>
-        string.Join('\u001f', link.Kind, link.Provider, link.Value);
+    static string IssueIdentity(WorkItemLinkDto link) => IssueIdentity(link.Kind, link.Provider, link.Value);
+
+    static string IssueIdentity(string kind, string provider, string value) => string.Join('\u001f', kind, provider, value);
 
     void ApplyTopology(WorkItemTopologyDto topology) {
         PartOfTitle = topology.PartOf?.Title;

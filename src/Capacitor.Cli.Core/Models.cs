@@ -240,6 +240,17 @@ class WatchState {
     // Only populated for claude child watchers — nothing else reads it.
     public HashSet<string> PendingClaudeToolCalls { get; } = new(StringComparer.Ordinal);
 
+    // Same guard for a VS Code Local session's idle end. Only populated for those watchers.
+    public HashSet<string> PendingCopilotToolCalls { get; } = new(StringComparer.Ordinal);
+
+    // When a session.shutdown became the transcript's last line, while it still is.
+    public DateTimeOffset? CopilotShutdownSeenAt { get; set; }
+
+    public DateTimeOffset StartedAt { get; set; }
+
+    // No Copilot process was found above this session's watcher, so nothing would end it but going idle.
+    public bool CopilotHostMissing { get; set; }
+
     // Codex collab CHILD watcher only (vendor == "codex" && agentId != null): folds the child
     // rollout's own task_complete/turn-activity lines so the polling loop can post a LIVE
     // subagent-stop once the turn is done and a grace window elapsed — before this,
@@ -1338,7 +1349,9 @@ partial class CapacitorJsonContext : JsonSerializerContext;
 public readonly record struct PermissionDecision(
         string       Behavior,
         JsonElement? ApplyPermissions,
-        JsonElement? UpdatedInput
+        JsonElement? UpdatedInput,
+        // The reason a person gave with a deny. Absent from a server that predates it.
+        string?      Message = null
     );
 
 /// <summary>
@@ -2348,6 +2361,9 @@ public readonly record struct DaemonConnect(
         // Accepts a LaunchAgentCommand.ResumeInPlace launch. False from a daemon predating it, which would
         // ignore the block and start an ordinary session.
         bool                                        SupportsResumeInPlace = false,
+        // Relays a deny's Message to the agent. False from a daemon predating it; the server then
+        // tells the person their reason was not delivered.
+        bool                                        SupportsDenyMessage = false,
         // Answers each SendInput carrying a dispatch id with SendInputAcked once taken, and ignores a resend
         // of one already taken. An older server ignores it and sends each input once.
         bool                                        SupportsInputAcks = false

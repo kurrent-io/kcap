@@ -448,9 +448,11 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
 
         Regroup();
         BuildWindows(report);
-        State = Groups.Count > 0 ? HistoryState.Repos
-            : _unmatched > 0     ? HistoryState.OnlyUnmatched
-            :                      HistoryState.NoHistory;
+        // With no repository to show, a folder's checkbox is all the page has to offer, so it starts open.
+        if (Groups.Count == 0 && Folders.Count > 0) Customizing = true;
+        State = Groups.Count > 0 || Folders.Count > 0 ? HistoryState.Repos
+            : _unmatched > 0                          ? HistoryState.OnlyUnmatched
+            :                                           HistoryState.NoHistory;
         this.RaisePropertyChanged(nameof(UnmatchedNote));
     }
 

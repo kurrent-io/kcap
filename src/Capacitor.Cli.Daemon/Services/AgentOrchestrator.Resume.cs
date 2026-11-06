@@ -52,9 +52,9 @@ internal partial class AgentOrchestrator {
     internal int FlowParticipantsMidRound =>
         _agents.Values.Count(a => !IsInteractive(a) && a.Status is "Starting" or "Running" && a.ActivityClock.TurnInFlight);
 
-    /// True when every live interactive agent is waiting on input, so a restart interrupts no turn.
+    /// True when no live interactive agent has anything in flight, so a restart interrupts no work.
     internal bool InteractiveAgentsAtTurnBoundary =>
-        _agents.Values.Where(a => IsInteractive(a) && a.Status is "Starting" or "Running").All(a => a.ActivityClock.AwaitingInput);
+        _agents.Values.Where(a => IsInteractive(a) && a.Status is "Starting" or "Running").All(a => a.ActivityClock.NothingInFlight);
 
     LaunchHold BeginLaunchHold() {
         Interlocked.Increment(ref _launchesInAdmission);
@@ -304,7 +304,7 @@ internal partial class AgentOrchestrator {
                         PredecessorInstanceId = _config.InstanceId,
                         ResumingAt            = now,
                         UpdatedAt             = now,
-                        AwaitingInput         = agent.ActivityClock.AwaitingInput,
+                        AwaitingInput         = agent.ActivityClock.NothingInFlight,
                         SessionId             = agent.SessionId ?? entry.SessionId,
                         VendorSession         = vendorSession,
                         Participant           = entry.Participant is { } p ? p with { ActivitySeq = clock.ActivitySeq, AgeMs = clock.AgeMs } : null,
@@ -1321,7 +1321,7 @@ internal partial class AgentOrchestrator {
             entry.Launch.RepoPath, entry.Vendor, entry.Launch.RequesterDisplay);
         var consent = _consentGate.GrantResume(entry.AgentId, input, entry.Launch.ConsentSource ?? "");
 
-        // An agent that was waiting comes back waiting: a nudge would start a turn nobody asked for. A participant
+        // An agent with nothing in flight comes back waiting: a nudge would start a turn nobody asked for. A participant
         // always gets its nudge, which is how it learns it was relaunched mid-flow.
         var silent  = entry.Participant is null && entry.AwaitingInput == true
                    && _runtimeFactories.TryGetValue(entry.Vendor, out var factory) && factory.ResumesIdleWithoutPrompt(entry.Transport);
@@ -1423,8 +1423,40 @@ internal partial class AgentOrchestrator {
         }
 
         await ReleaseHeldInputAsync(entry.AgentId);
+        if (silent) _ = NudgeIfWorkWasLostAsync(agent, entry);
 
         return null;
+    }
+
+    /// <summary>Scans for lost work, half a readiness window apart: a slow start writes its notices, and discovery links
+    /// the transcript, after that window. An idle agent has nothing to find, so the looking has to end.</summary>
+    internal const int LostWorkScans = 12;
+
+    /// <summary>An agent back with no turn stays idle even when the restart cut off its background work, because its
+    /// vendor records that and starts no turn on it. Asked once the agent is back, so it also covers what the
+    /// predecessor could not see at its stop: background shells, and an older daemon's record of a waiting agent. A
+    /// failed nudge leaves a resume that succeeded standing. Never throws: it runs unobserved, since a delivery lasts
+    /// as long as any dialog on screen and the resume must not hold its lane slot for that long.</summary>
+    async Task NudgeIfWorkWasLostAsync(AgentInstance agent, ResumeLedgerEntry entry) {
+        try {
+            if (!_runtimeFactories.TryGetValue(entry.Vendor, out var factory)) return;
+
+            for (var scan = 1; ; scan++) {
+                if (!agent.ActivityClock.AwaitingInput || agent.IsCleanupStarted) return;
+                if (factory.ReportsLostWork(agent.TranscriptPath)) break;
+                if (scan == LostWorkScans) return;
+
+                await Task.Delay(_config.ResumeReadinessWindow / 2, _time, _shutdownCts.Token);
+            }
+
+            var outcome = await DeliverInputAsync(agent, ResumeNudge.Build(LastAlive(entry, null), entry.Launch.Prompt), attachmentIds: null, onlyIfWaiting: true);
+            if (outcome.Kind == InputDeliveryKind.Delivered) LogResumeNudgedLostWork(agent.Id);
+            else LogResumeNudgeDropped(null, agent.Id, outcome.Error ?? outcome.Reason ?? "");
+        } catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested) {
+            // The vendor's record stands until a turn answers it, so the next resume finds it.
+        } catch (Exception ex) {
+            LogResumeNudgeDropped(ex, agent.Id, "fault");
+        }
     }
 
     /// <summary>Whether the resumed runtime is still running, and still this agent, once the readiness
@@ -1846,4 +1878,10 @@ internal partial class AgentOrchestrator {
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Resume: agent {AgentId} {Outcome}")]
     partial void LogResumeOutcome(string agentId, string outcome);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Resume: agent {AgentId} lost background work to the restart and was nudged")]
+    partial void LogResumeNudgedLostWork(string agentId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Resume: agent {AgentId} lost background work but its nudge was dropped: {Reason}")]
+    partial void LogResumeNudgeDropped(Exception? ex, string agentId, string reason);
 }

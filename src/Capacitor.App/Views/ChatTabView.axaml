@@ -58,6 +58,55 @@
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
+        <!-- The banner is already the raised surface, so hover steps up one more. -->
+        <Style Selector="Button.kcapGhost.tasksToggle">
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.kcapGhost.tasksToggle:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.kcapGhost.tasksToggle:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+        </Style>
+        <!-- Fluent fades a disabled button, but a row that does not open must read like one that does. -->
+        <Style Selector="Button.taskRow">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="Button.taskRow /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.taskRow:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Button.taskRow.openable">
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.taskRow.openable:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.taskRow.openable:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+        </Style>
+        <Style Selector="TextBlock.runDetail">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Margin" Value="8,0,0,0" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <!-- A command's detail is its text, set like a command in a tool row. -->
+        <Style Selector="TextBlock.runDetail.shell">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontFamily" Value="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace" />
+            <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.MiddleEllipsis}" />
+        </Style>
         <!-- A card's body is inset from its header on both sides, so a row's status pill reads as
              part of the body rather than as a second column of card chrome under the chevron. The
              left edge hangs off the header's label, never its icon: 14px icon box plus the 8px gap
@@ -506,27 +555,83 @@
                 Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                 BorderThickness="0,1,0,0">
             <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
-                <!-- Runs that outlive the turn. Warning marks work in flight here as it does on a running
-                     tool, not attention. -->
-                <Border x:Name="SubagentsBanner" Grid.Row="0" Margin="0,0,0,8" Padding="13,10"
+                <!-- The subagents and commands that outlive the turn, folded to a count until opened. 5px
+                     here plus the toggle's 8px puts the title where the queue banner puts its text. -->
+                <Border x:Name="BackgroundTasksBanner" Grid.Row="0" Margin="0,0,0,8" Padding="5,4"
                         Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
-                        BorderThickness="1" CornerRadius="8" IsVisible="{Binding HasRunningRuns}">
-                    <Grid ColumnDefinitions="Auto,*">
-                        <Border Classes="toolRunning" Width="8" Height="8" CornerRadius="4" Margin="0,0,8,0" VerticalAlignment="Center"
-                                Background="{StaticResource KcapWarningBrush}"
-                                views:PulseClock.IsActive="{Binding HasRunningRuns}" />
-                        <!-- The name gives way on a narrow pane; the state line with its timer never does. -->
-                        <Grid x:Name="RunningSubagentText" Grid.Column="1" ColumnDefinitions="*,Auto" HorizontalAlignment="Left" VerticalAlignment="Center"
-                              IsVisible="{Binding RunningRow, Converter={x:Static ObjectConverters.IsNotNull}}">
-                            <TextBlock Text="{Binding RunningRow.Name}" FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                                       Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Margin="6,0,0,0" Text="{Binding RunningRow.StateText}" FontSize="13.5"
-                                       Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
-                        </Grid>
-                        <TextBlock x:Name="SubagentSummaryText" Grid.Column="1" TextTrimming="CharacterEllipsis" Text="{Binding RunSummary}" FontSize="13.5" FontWeight="SemiBold"
-                                   Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center"
-                                   IsVisible="{Binding RunningRow, Converter={x:Static ObjectConverters.IsNull}}" />
-                    </Grid>
+                        BorderThickness="1" CornerRadius="8"
+                        DataContext="{Binding Tasks}" x:DataType="vm:BackgroundTasksViewModel"
+                        IsVisible="{Binding HasRows}">
+                    <StackPanel>
+                        <Button x:Name="BackgroundTasksToggle" Classes="kcapGhost tasksToggle" Command="{Binding ToggleCommand}"
+                                AutomationProperties.Name="{Binding AccessibleName}">
+                            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
+                                <TextBlock Text="Background tasks" FontSize="13.5" FontWeight="SemiBold"
+                                           Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                                <!-- Only the fill pulses, so the count stays legible. -->
+                                <Panel x:Name="BackgroundTasksCount" Grid.Column="1" VerticalAlignment="Center" ToolTip.Tip="{Binding CountTip}">
+                                    <Border Classes="toolRunning" Background="{StaticResource KcapPurpleDimBrush}" CornerRadius="999"
+                                            views:PulseClock.IsActive="{Binding HasRows}" />
+                                    <TextBlock Text="{Binding Count}" Margin="7,1" FontSize="11.5" FontWeight="SemiBold"
+                                               Foreground="{StaticResource KcapPurpleBrush}" VerticalAlignment="Center" />
+                                </Panel>
+                                <Panel Grid.Column="3" Width="12" Height="12" VerticalAlignment="Center">
+                                    <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
+                                                   Foreground="{StaticResource KcapMutedBrush}" />
+                                    <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
+                                                   Foreground="{StaticResource KcapMutedBrush}" />
+                                </Panel>
+                            </Grid>
+                        </Button>
+                        <!-- 2px here plus a row's 6px padding: rows start where the title does. -->
+                        <ScrollViewer x:Name="BackgroundTasksScroll" MaxHeight="144" Margin="2,2,2,4" IsVisible="{Binding IsExpanded}"
+                                      HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="BackgroundTasksList" ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="1" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:RunRow">
+                                        <!-- Only a subagent whose transcript is known opens; any other row is disabled, so it is
+                                             no tab stop, but reads the same and says why a subagent does not open. -->
+                                        <Button x:Name="BackgroundTaskRow" Classes="taskRow" Classes.openable="{Binding CanOpen}" IsEnabled="{Binding CanOpen}"
+                                                ToolTip.Tip="{Binding UnopenableReason}" ToolTip.ShowOnDisabled="True"
+                                                AutomationProperties.HelpText="{Binding UnopenableReason}"
+                                                Command="{Binding $parent[ItemsControl].((vm:BackgroundTasksViewModel)DataContext).OpenRunCommand}"
+                                                CommandParameter="{Binding}">
+                                            <AutomationProperties.Name>
+                                                <MultiBinding StringFormat="{}{0}, {1}">
+                                                    <Binding Path="Name" />
+                                                    <Binding Path="StateWord" />
+                                                </MultiBinding>
+                                            </AutomationProperties.Name>
+                                            <!-- The name and detail give way on a narrow pane; the timer never does. -->
+                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                                <Panel Width="12" Height="12" VerticalAlignment="Center">
+                                                    <views:AppIcon Kind="{x:Static views:ToolCategoryIcons.AgentIcon}" Size="12" IsVisible="{Binding !IsShell}"
+                                                                   Foreground="{StaticResource KcapMutedBrush}" />
+                                                    <views:AppIcon Kind="{x:Static views:ToolCategoryIcons.CommandIcon}" Size="12" IsVisible="{Binding IsShell}"
+                                                                   Foreground="{StaticResource KcapMutedBrush}" />
+                                                </Panel>
+                                                <DockPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" ToolTip.ShowOnDisabled="True"
+                                                               Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding Description}" Classes="runDetail" Classes.shell="{Binding IsShell}"
+                                                               ToolTip.Tip="{Binding Description}" ToolTip.ShowOnDisabled="True"
+                                                               IsVisible="{Binding HasDescription}" />
+                                                </DockPanel>
+                                                <TextBlock Grid.Column="2" Margin="4,0,0,0" Text="{Binding ElapsedText}" FontSize="12.5"
+                                                           Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
                 </Border>
 
                 <Border x:Name="QueuedMessagesBanner" Grid.Row="1" Margin="0,0,0,8" Padding="13,10"
@@ -633,10 +738,22 @@
                 <!-- Inset to the cards' text edge; a horizontal StackPanel here would never wrap it. The
                      band does not scroll, so the line cap keeps a server-sent reason from pushing the
                      composer off-screen. -->
-                <TextBlock x:Name="ChatActivityNote" Grid.Row="3" Margin="14,0,14,8" IsVisible="{Binding ShowsActivityNote}"
-                           Text="{Binding ActivityNote}" ToolTip.Tip="{Binding ActivityNote}"
-                           Foreground="{StaticResource KcapMutedBrush}" FontSize="13.5"
-                           TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+                <StackPanel x:Name="ChatActivityBand" Grid.Row="3" Margin="14,0,14,8" Spacing="2"
+                            IsVisible="{Binding ShowsActivityNote}">
+                    <TextBlock x:Name="ChatActivityNote"
+                               Text="{Binding ActivityNote}" ToolTip.Tip="{Binding ActivityNote}"
+                               Foreground="{StaticResource KcapMutedBrush}" FontSize="13.5"
+                               TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+                    <StackPanel x:Name="ChatActivityTerminalOffer" Orientation="Horizontal"
+                                IsVisible="{Binding ShowsActivityTerminalOffer}">
+                        <TextBlock Text="Check on the agent in the " Foreground="{StaticResource KcapMutedBrush}"
+                                   FontSize="13.5" VerticalAlignment="Center" />
+                        <Button Classes="kcapLink" Command="{Binding ShowTerminalCommand}"
+                                VerticalAlignment="Center" AutomationProperties.Name="Open the terminal">
+                            <TextBlock Text="terminal" FontSize="13.5" />
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
 
                 <Border x:Name="ReadOnlyBanner" Grid.Row="4" IsVisible="{Binding ShowsReadOnlyBanner}"
                         Background="{StaticResource KcapWarningDimBrush}" BorderBrush="{StaticResource KcapWarningBrush}"

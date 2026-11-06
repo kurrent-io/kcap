@@ -11,6 +11,8 @@ namespace Capacitor.App.ViewModels;
 public sealed class SessionRuns(TimeProvider time) {
     readonly AvaloniaList<RunRow> _rows = new();
     readonly AvaloniaList<RunRow> _running = new();
+    readonly AvaloniaList<RunRow> _agents = new();
+    readonly AvaloniaList<RunRow> _runningAgents = new();
     readonly Dictionary<string, RunRow> _byCall = new(StringComparer.Ordinal);
     /// Calls that may still go to the background, by call id; a Detached promotes one to a row,
     /// its result drops it. The session's end leaves them: a remote lane can turn it back off.
@@ -30,6 +32,8 @@ public sealed class SessionRuns(TimeProvider time) {
     /// Rows per presented state, indexed by the state's value.
     readonly int[] _counts = new int[Enum.GetValues<RunState>().Length];
     int _runningBackground;
+    /// The latest restart heard, for a line that lands behind it.
+    DateTimeOffset? _restartedAt;
     bool _sessionOver;
     bool _opensSubagents = true;
 
@@ -38,6 +42,10 @@ public sealed class SessionRuns(TimeProvider time) {
     public IAvaloniaReadOnlyList<RunRow> Running => _running;
     public int RunningCount => Count(RunState.Running);
     public int RunningCommandCount => _running.Count(row => row.IsShell);
+    public RunningWork Work => new(RunningCommandCount, _runningAgents.Count);
+    /// The subagent rows, which the sidebar lists; commands are listed only above the composer.
+    public IAvaloniaReadOnlyList<RunRow> Agents => _agents;
+    public IAvaloniaReadOnlyList<RunRow> RunningAgents => _runningAgents;
 
     public int Count(RunState state) => _counts[(int)state];
 
@@ -92,7 +100,7 @@ public sealed class SessionRuns(TimeProvider time) {
                     Resume(resumed);
                     break;
                 case RunSignal.Waiting waiting:
-                    Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.RetractStop();
+                    Report(RowFor(waiting.CallId, waiting.AgentId, waiting.At), waiting.AgentId)?.Waited(waiting.At);
                     break;
                 case RunSignal.Stopped stopped:
                     if (!_reported.Contains(stopped.AgentId)) SoleRun(stopped)?.Stop(stopped.At);
@@ -100,6 +108,12 @@ public sealed class SessionRuns(TimeProvider time) {
                     break;
                 case RunSignal.Finished finished:
                     Finish(finished);
+                    DropHeldIfACandidateEnded();
+                    break;
+                case RunSignal.Restarted restarted:
+                    if (!(_restartedAt > restarted.At)) _restartedAt = restarted.At;
+                    // The server hears a resume from a hook, which can land after the new process's own lines.
+                    foreach (var row in _rows.Where(r => r.StartedAt < restarted.At)) row.CutOff(restarted.At);
                     DropHeldIfACandidateEnded();
                     break;
                 case RunSignal.Identified identified:
@@ -128,6 +142,7 @@ public sealed class SessionRuns(TimeProvider time) {
         _pending.Clear();
         _earlyByCall.Clear();
         _earlyUnpaired.Clear();
+        _restartedAt = null;
         Refresh();
     }
 
@@ -145,8 +160,7 @@ public sealed class SessionRuns(TimeProvider time) {
 
     RunRow Add(RunSignal.Started started) {
         var row = new RunRow(started.CallId, started.Name, started.Description, started.At, started.Kind) { Openable = _opensSubagents };
-        _byCall[started.CallId] = row;
-        _rows.Add(row);
+        Place(row);
         if (row.Kind == RunKind.Agent) {
             if (_earlyByCall.Remove(started.CallId, out var agentId)) Name(row, agentId);
             else PairUnpaired();
@@ -154,12 +168,19 @@ public sealed class SessionRuns(TimeProvider time) {
         return row;
     }
 
+    /// A pre-restart line can land behind the restart on the server's stream, and reads as if it had not.
+    void Place(RunRow row) {
+        _byCall[row.CallId] = row;
+        _rows.Add(row);
+        if (row.StartedAt < _restartedAt) row.CutOff(_restartedAt.Value);
+    }
+
     void Detach(RunSignal.Detached detached) {
         if (!_byCall.TryGetValue(detached.CallId, out var row)) {
             if (!_pending.Remove(detached.CallId, out var pending)) return;
             row = Add(pending);
         }
-        if (row.IsEnded) return;
+        if (row.IsEnded && !row.IsCutOff) return;
         row.MarkBackground();
         Name(row, detached.AgentId);
         PairUnpaired();
@@ -172,8 +193,7 @@ public sealed class SessionRuns(TimeProvider time) {
         if (_byCall.ContainsKey(resumed.CallId) || !_byAgent.TryGetValue(resumed.AgentId, out var previous)) return;
         previous.End(null, resumed.At);
         var row = new RunRow(resumed.CallId, previous.Name, previous.Description, resumed.At, previous.Kind) { Openable = _opensSubagents };
-        _byCall[resumed.CallId] = row;
-        _rows.Add(row);
+        Place(row);
         row.MarkBackground();
         Name(row, resumed.AgentId);
     }
@@ -248,7 +268,7 @@ public sealed class SessionRuns(TimeProvider time) {
 
     /// A stop names no run, is dated when the server heard it, and comes at each pause as well as at the
     /// end, so it counts only while its agent has a single run. A resumed agent's later runs then end
-    /// only on the transcript's report, or with the session.
+    /// only on the transcript's report, at a restart, or with the session.
     RunRow? SoleRun(RunSignal.Stopped stopped) {
         RunRow? sole = null;
         foreach (var row in _rows) {
@@ -281,6 +301,8 @@ public sealed class SessionRuns(TimeProvider time) {
             counts[(int)row.State]++;
         }
         StableRows.Sync(_running, _rows.Where(row => row.IsRunning));
+        StableRows.Sync(_agents, _rows.Where(row => !row.IsShell));
+        StableRows.Sync(_runningAgents, _running.Where(row => !row.IsShell));
         var runningBackground = _running.Count(row => row.IsBackground);
         if (counts.SequenceEqual(_counts) && runningBackground == _runningBackground) return;
         counts.CopyTo(_counts);
