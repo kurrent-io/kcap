@@ -952,9 +952,18 @@ public class LauncherPaneViewSmokeTests {
         });
     }
 
+    /// The repository and machine menus are built after the click handler awaits the repository list and the app state,
+    /// whose reads finish on the thread pool and come back through the dispatcher: the menu is waited for, not assumed.
     static (Flyout Menu, List<AppIcon> Checks) OpenMenu(Window window, LauncherPaneView view, string chipName) {
         Click(window, Find<Button>(window, chipName)!);
-        var menu = (chipName is "RepositoryChip" or "MachineChip" ? view.OpenMenuForTesting : view.GetVisualDescendants().OfType<LaunchChipsView>().Single().OpenMenuForTesting)!;
+        Flyout? Open() => chipName is "RepositoryChip" or "MachineChip"
+            ? view.OpenMenuForTesting
+            : view.GetVisualDescendants().OfType<LaunchChipsView>().Single().OpenMenuForTesting;
+        for (var i = 0; i < 400 && Open() is null; i++) {
+            Dispatcher.UIThread.RunJobs();
+            if (Open() is null) Thread.Sleep(5);
+        }
+        var menu = Open() ?? throw new TimeoutException($"The {chipName} menu never opened.");
         var checks = ((Control)menu.Content!).GetVisualDescendants().OfType<AppIcon>()
             .Where(i => i.Kind == Lucide.Avalonia.LucideIconKind.Check).ToList();
         return (menu, checks);
