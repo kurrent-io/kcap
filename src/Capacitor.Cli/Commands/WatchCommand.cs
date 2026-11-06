@@ -1,4 +1,5 @@
 using Capacitor.Cli.Recording;
+using Capacitor.Cli.Recording.Harness.Antigravity;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -10,7 +11,6 @@ using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
-using Capacitor.Cli.Core.Harness.Antigravity;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Gemini;
@@ -47,6 +47,7 @@ class WatchCommand(
     RecordingSource _source = null!;
     Action          _beat   = null!;
     IRecorderHost   _host   = null!;
+    SubagentScanContext _scans = null!;
     bool            _skipTitle;
     int?            _parentPid;
 
@@ -339,6 +340,7 @@ class WatchCommand(
         _parentPid = parentPid;
         _beat      = TouchHeartbeat;
         _host      = new WatchRecorderHost(config, profiles, harnesses, http, watchers, time, ArmProcessWatches, cts.Cancel);
+        _scans     = new SubagentScanContext(_host, config, profiles, http, time, message => Log(time, message));
 
         var hubConnection = BuildHubConnection($"{Url}/hubs/sessions");
         var transport     = new HubRecorderTransport(hubConnection, _source.Key, TouchHeartbeat, message => Log(time, message), time);
@@ -778,7 +780,7 @@ class WatchCommand(
             await ScanCodexSubagents(sessionId, transcriptPath, _seenSubagents, _codexRuledOutRollouts,
                 _codexRolloutMtimes, _spawnedChildWatcherKeys, ct);
         } else if (agentId is null && vendor == "antigravity") {
-            await ScanAntigravitySubagentLinks(sessionId, drained, state.PostedSubagentLinks, ct);
+            await AntigravitySubagentLinks.ScanAntigravitySubagentLinks(_scans, sessionId, drained, state.PostedSubagentLinks, ct);
         } else if (agentId is null && vendor == "mistral-vibe") {
             await ScanMistralVibeSubagents(sessionId, transcriptPath, _vibeSubagents, _seenSubagents, _spawnedChildWatcherKeys, ct);
         } else if (agentId is null && vendor == "grok") {
@@ -822,7 +824,7 @@ class WatchCommand(
         // The parent may have emitted an INVOKE_SUBAGENT step after the loop's last tick, and this is the
         // last chance to link it.
         if (agentId is null && vendor == "antigravity") {
-            await ScanAntigravitySubagentLinks(sessionId, drained, state.PostedSubagentLinks, ct);
+            await AntigravitySubagentLinks.ScanAntigravitySubagentLinks(_scans, sessionId, drained, state.PostedSubagentLinks, ct);
         }
 
         // A store the transcript does not carry can change after the loop's last read; this is its last chance.
@@ -1760,65 +1762,6 @@ class WatchCommand(
         }
 
         return (state.FirstUserText, state.FirstAssistantText);
-    }
-
-    /// <summary>
-    /// Links subagents from the parent transcript's INVOKE_SUBAGENT steps (the
-    /// spawn-time signal), replacing the messages/*.json scan. For each child id not already
-    /// posted, POST the link once via <paramref name="post"/> (returns true on success); a failed
-    /// POST is left un-posted so a later scan retries. Pure over its inputs for unit testing.
-    /// </summary>
-    internal static async Task ExtractAndPostSubagentLinks(
-            IEnumerable<string> lines, HashSet<string> posted, Func<string, Task<bool>> post, TimeProvider time) {
-        foreach (var line in lines) {
-            var children = AntigravitySubagents.ChildConversationIdsFromLine(line);
-            if (children.Count == 0) {
-                if (AntigravitySubagents.IsInvokeSubagentLine(line))
-                    Log(time, "Antigravity INVOKE_SUBAGENT step had no parseable child conversationId (format drift?)");
-                continue;
-            }
-            foreach (var child in children) {
-                if (posted.Contains(child)) continue;
-                if (await post(child)) posted.Add(child);   // fail-open: leave un-posted to retry
-            }
-        }
-    }
-
-    /// <summary>
-    /// Live subagent nesting: links a subagent from its parent transcript's
-    /// INVOKE_SUBAGENT steps — the spawn-time signal — rather than waiting for the child to
-    /// report back. <paramref name="drainedLines"/> are the lines the watcher just drained from
-    /// the parent transcript this tick. Each newly-seen child is POSTed to
-    /// <c>/hooks/antigravity/subagent-link</c> and only added to <paramref name="posted"/> on
-    /// success, so a failed POST retries on the next scan (fail-open — never breaks the drain
-    /// loop).
-    /// </summary>
-    Task ScanAntigravitySubagentLinks(
-            string sessionId, IReadOnlyList<string> drainedLines,
-            HashSet<string> posted, CancellationToken ct) =>
-        ExtractAndPostSubagentLinks(drainedLines, posted,
-            child => PostAntigravitySubagentLinkAsync(sessionId, child, ct), time);
-
-    async Task<bool> PostAntigravitySubagentLinkAsync(
-        string sessionId, string childId, CancellationToken ct
-    ) {
-        try {
-            using var client  = await http.ForBackgroundAsync(ct);
-            var       payload = new JsonObject {
-                ["hook_event_name"] = "subagent-link",
-                ["session_id"]      = sessionId,
-                ["agent_id"]        = childId,
-            };
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp    = await client.PostWithRetryAsync($"{Url}/hooks/antigravity/subagent-link", content, time, ct: ct);
-
-            return resp.IsSuccessStatusCode;
-        } catch (OperationCanceledException) {
-            throw;
-        } catch (Exception ex) {
-            Log(time, $"Antigravity subagent-link POST failed for child {childId}: {ex.Message}");
-            return false;
-        }
     }
 
     // An evidence-derived repo (from RepoEvidenceScanner, for a session launched outside any
