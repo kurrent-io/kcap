@@ -3391,6 +3391,31 @@ public class HomeViewModelTests {
         });
     }
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Harness_is_remembered_per_remote_repository_across_launchers() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var path = Tmp.PathTo("app-state.json");
+            using var vm = BuildWithBox(path, out _);
+
+            await vm.SelectMachineAsync("box", isLocal: false);
+            await vm.EnterRemoteRepositoryAsync("/srv/a");
+            await vm.ChooseHarnessAsync("pi");
+            await vm.EnterRemoteRepositoryAsync("/srv/b");
+            await vm.ChooseHarnessAsync("claude");
+
+            await vm.EnterRemoteRepositoryAsync("/srv/a");
+            await Assert.That(vm.SelectedVendor).IsEqualTo("pi");
+            var listed = await vm.ListRepositoriesAsync();
+            await Assert.That(listed.Single(o => o.RepoPath == "/srv/a").Vendor).IsEqualTo("pi");
+
+            using var fresh = BuildWithBox(path, out _);
+            await fresh.SelectMachineAsync("box", isLocal: false);
+            await fresh.EnterRemoteRepositoryAsync("/srv/a");
+            await Assert.That(fresh.SelectedVendor).IsEqualTo("pi");
+        });
+    }
+
     /// The same path on this machine and on a remote names two different repositories.
     [Test]
     [NotInParallel("AvaloniaSession")]
