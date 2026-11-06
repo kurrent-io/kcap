@@ -44,7 +44,7 @@ internal static class CodexSubagentScan {
             // Both gates evaluate before branching so first sight also records the mtime. An
             // already-seen rollout that hasn't grown keeps its watcher state as-is — alive and
             // streaming, or reaped-idle — rather than respawning a reaped child for a finished rollout.
-            var advanced = SubagentScanContext.ChildRolloutAdvanced(rolloutMtimes, sub.FilePath, File.GetLastWriteTimeUtc(sub.FilePath));
+            var advanced = ChildRolloutMtimes.Advanced(rolloutMtimes, sub.FilePath, File.GetLastWriteTimeUtc(sub.FilePath));
             var isNew    = seen.Add(sub.FilePath);
 
             if (!isNew && !advanced) continue;

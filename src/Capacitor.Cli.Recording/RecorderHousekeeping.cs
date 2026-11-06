@@ -54,7 +54,7 @@ public sealed class RecorderHousekeeping(
     // cached, so it is retried.
     readonly HashSet<string> _codexRuledOutRollouts = new(StringComparer.Ordinal);
 
-    // The last mtime ChildRolloutAdvanced fired for, per child rollout: backs the re-ensure that
+    // The last mtime ChildRolloutMtimes.Advanced fired for, per child rollout: backs the re-ensure that
     // respawns a reaped child watcher when its subagent re-engages.
     readonly Dictionary<string, DateTime> _codexRolloutMtimes = new(StringComparer.Ordinal);
 

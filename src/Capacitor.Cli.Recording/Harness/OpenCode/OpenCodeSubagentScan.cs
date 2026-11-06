@@ -1,7 +1,6 @@
 using System.Text;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.OpenCode;
-using Capacitor.Cli.Recording.Harness.Gemini;
 
 namespace Capacitor.Cli.Recording.Harness.OpenCode;
 
@@ -11,7 +10,7 @@ internal static class OpenCodeSubagentScan {
     /// OpenCode fires no subagent hooks; its subagents live in its SQLite db, so the kcap
     /// plugin fetches each child session via the SDK and writes its <c>{info,parts}</c> JSONL
     /// into <c>&lt;cacheDir&gt;/&lt;parentSid&gt;/&lt;childSid&gt;.jsonl</c>. The parent watcher discovers
-    /// those files (mirroring <see cref="GeminiSubagentScan.ScanGeminiSubagents"/>): on first sight it registers
+    /// those files (mirroring <c>GeminiSubagentScan.ScanGeminiSubagents</c>): on first sight it registers
     /// the subagent (<c>subagent-start</c>, fail-closed) then spawns a detached child watcher
     /// that streams it with the canonical agentId (= childSid) → <c>AgentSubsession-*</c>, which
     /// lines up with the agentId the server surfaced from the parent's <c>task</c> tool call.

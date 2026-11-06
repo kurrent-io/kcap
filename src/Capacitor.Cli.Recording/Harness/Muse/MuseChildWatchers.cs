@@ -147,7 +147,7 @@ internal sealed class MuseChildWatchers {
         return stopped.Length;
     }
 
-    internal void RecordLogMtime(string key, DateTime mtime) => SubagentScanContext.ChildRolloutAdvanced(_logMtimes, _spawned[key].Log, mtime);
+    internal void RecordLogMtime(string key, DateTime mtime) => ChildRolloutMtimes.Advanced(_logMtimes, _spawned[key].Log, mtime);
 
     /// <summary>Stopped children whose log has grown since they were stopped: the worker took more work.
     /// They count as freshly spawned, and stop again only on a new result.</summary>
@@ -158,7 +158,7 @@ internal sealed class MuseChildWatchers {
             if (!ShouldAttemptSpawn(key, now)) continue;
 
             var log = _spawned[key].Log;
-            var advanced = SubagentScanContext.ChildRolloutAdvanced(_logMtimes, log, mtimeOf(log));
+            var advanced = ChildRolloutMtimes.Advanced(_logMtimes, log, mtimeOf(log));
             if (!advanced && !_restartPending.Contains(key)) continue;
 
             _stopped.Remove(key);

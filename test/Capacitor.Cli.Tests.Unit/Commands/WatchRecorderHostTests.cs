@@ -3,6 +3,11 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Antigravity;
 using Capacitor.Cli.Core.Harness.Cursor;
+using System.Net;
+using System.Text.Json.Nodes;
+using Capacitor.Cli.Core.Harness.Grok;
+using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Recording.Harness.Muse;
 using Capacitor.Cli.Recording.Harness.Titles;
 using Capacitor.Cli.Tests.Unit.Harness.Antigravity;
@@ -73,6 +78,84 @@ public class WatchRecorderHostTests {
         await Assert.That(watcher.WaitForExit(TimeSpan.FromSeconds(5))).IsTrue();
         await Assert.That(children.RecheckPending).IsFalse();
         await Assert.That(children.SelectStops(ready, now.AddSeconds(2))).IsEmpty();
+    }
+
+    static readonly RecordingSource Child = new("sess-1", "agent-1", "/work/sess-1/agent-1.jsonl", "cursor", "/work/repo");
+
+    /// <summary>A spawner whose watcher "starts" by writing a pid file for this process, as a real one does.</summary>
+    static FakeWatcherSpawner SpawnerThatStarts(WatcherPaths paths) => new(request => {
+        Directory.CreateDirectory(paths.Directory);
+
+        return File.WriteAllTextAsync(paths.PidFile(request.Key), $"{Environment.ProcessId}\n{PidIdentity.Capture(Environment.ProcessId)}");
+    });
+
+    WatchRecorderHost HostSpawning(WatcherPaths paths, IWatcherSpawner spawner, ICapacitorHttpClient? http = null) {
+        http ??= new FixedCapacitorHttpClient();
+        var resolved = Resolutions.At("http://127.0.0.1:1", Config.Root);
+        var watchers = new WatcherManager(Config.Root, resolved, http, SystemProcessStarter.Instance, paths, spawner, TimeProvider.System);
+
+        return new WatchRecorderHost(Config.Root, resolved, Harnesses, http, watchers, TimeProvider.System, () => { }, () => { });
+    }
+
+    [Test]
+    public async Task A_child_start_hands_the_spawner_every_field_of_the_child_source() {
+        var paths   = new WatcherPaths(Config.PathTo("watchers"));
+        var spawner = SpawnerThatStarts(paths);
+
+        var started = await HostSpawning(paths, spawner).StartChildAsync(Child);
+
+        var request = spawner.Spawned.Single();
+        await Assert.That(started).IsTrue();
+        await Assert.That(request.Key).IsEqualTo("sess-1-agent-1");
+        await Assert.That(request.TranscriptPath).IsEqualTo(Child.TranscriptPath);
+        await Assert.That(request.AgentId).IsEqualTo("agent-1");
+        await Assert.That(request.SessionIdOverride).IsEqualTo("sess-1");
+        await Assert.That(request.Cwd).IsEqualTo("/work/repo");
+        await Assert.That(request.Vendor).IsEqualTo("cursor");
+        await Assert.That(request.SkipTitle).IsFalse();
+        await Assert.That(request.ParentPid).IsNull();
+    }
+
+    [Test]
+    public async Task A_child_start_is_false_when_no_pid_file_appears() {
+        var paths   = new WatcherPaths(Config.PathTo("watchers"));
+        var spawner = new FakeWatcherSpawner();
+
+        var started = await HostSpawning(paths, spawner).StartChildAsync(Child);
+
+        await Assert.That(spawner.Spawned).Count().IsEqualTo(1);
+        await Assert.That(started).IsFalse();
+    }
+
+    [Test]
+    public async Task A_grok_child_finish_posts_the_stop_for_the_child_it_was_given() {
+        var handler = new RecordingHandler();
+        var paths   = new WatcherPaths(Config.PathTo("watchers"));
+        var parent  = Path.Combine(Config.PathTo("grok"), "sessions", "parent-1", "updates.jsonl");
+        var childId = "0199a3b2-1c2d-7e8f-9a0b-1c2d3e4f5a6b";
+        var host    = HostSpawning(paths, new FakeWatcherSpawner(), new RecordingCapacitorHttpClient(handler));
+
+        var settled = await host.FinishGrokChildAsync("sess-1", parent, childId, "explorer");
+
+        var stop = handler.Posts.Single(p => p.Path == "/hooks/subagent-stop").Body;
+        await Assert.That(settled).IsTrue();
+        await Assert.That(stop["session_id"]!.GetValue<string>()).IsEqualTo("sess-1");
+        await Assert.That(stop["agent_id"]!.GetValue<string>()).IsEqualTo(GrokSubagents.AgentId(childId));
+        await Assert.That(stop["agent_type"]!.GetValue<string>()).IsEqualTo("explorer");
+        await Assert.That(stop["transcript_path"]!.GetValue<string>()).IsEqualTo(GrokSubagents.ChildTranscript(parent, childId));
+    }
+
+    sealed class RecordingHandler : HttpMessageHandler {
+        public List<(string Path, JsonObject Body)> Posts { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            if (request.Method != HttpMethod.Post) return new HttpResponseMessage(HttpStatusCode.NoContent);
+
+            var body = await request.Content!.ReadAsStringAsync(ct);
+            Posts.Add((request.RequestUri!.AbsolutePath, (JsonObject)JsonNode.Parse(body)!));
+
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
     }
 
     string CursorTranscript() =>

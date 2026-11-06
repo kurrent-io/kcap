@@ -3,8 +3,11 @@ using Capacitor.Cli.Core.Harness.Titles;
 
 namespace Capacitor.Cli.Recording;
 
-/// <summary>What a recorder's housekeeping needs that only the process hosting it can do. A host that can't do
-/// something answers null or false.</summary>
+/// <summary>What a recorder's housekeeping needs that only the process hosting it can do. A host with nothing to
+/// offer answers each member in kind: null for a store, an empty list for usage rows,
+/// <see cref="CommitObservation.Uncovered"/> for a commit observation. Where a member returns a bool, false is
+/// not a way to decline: <see cref="StartChildAsync"/>'s result is ignored by most scans, and
+/// <see cref="FinishGrokChildAsync"/>'s false means the caller retries.</summary>
 public interface IRecorderHost {
     /// <summary>Starts the watches that can stop the run. Called once the recorder has connected: a stop before
     /// then skips its final drain.</summary>
