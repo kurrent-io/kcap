@@ -602,15 +602,71 @@ public class ClaudeChatRulesTests {
         await Assert.That(finished.Outcome).IsNull();
     }
 
-    /// A resumed Claude Code reports a background agent the previous process left running this way:
-    /// keyed by the agent id alone, with a status of its own.
+    const string OrphanReport = "<task-notification>\n<task-id>b6pn0657h</task-id>\n<task-id>bjgjxvmn0</task-id>\n<task-id>bhr6650se</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>3 background shell command tasks didn't finish before the previous session ended. First 20 task ids: b6pn0657h, bjgjxvmn0, bhr6650se.</summary>\n<note>No completion record was found for them in the previous session. They have been marked stopped. Task ids in this notification beginning with \"__orphan_summary\" are internal scan markers, not tasks.</note>\n</task-notification>";
+    const string AgentOrphanReport = "<task-notification>\n<task-id>a9202cd3d93195cce</task-id>\n<output-file>/tmp/a9202cd3d93195cce.output</output-file>\n<status>stopped</status>\n<summary>Background agent \"Review Task 12 (spec + quality)\" didn't finish before the previous session ended</summary>\n<note>No completion record was found for it in the previous session.</note>\n</task-notification>";
+
+    static ChatProjectionResult Report(string content, string origin = "\"origin\":{\"kind\":\"task-notification\"},\"promptSource\":\"system\",") =>
+        R($$$"""{"type":"user","timestamp":"2026-10-22T13:42:55.148Z",{{{origin}}}"message":{"role":"user","content":{{{JsonSerializer.Serialize(content)}}}}}""");
+
+    /// A resumed Claude Code reports what the previous process left running, one task or many to a
+    /// notification, and the report shows the process came back. It is written by the new process,
+    /// so it reopens rather than restarts: it cannot date the restart. The orphan-summary id is a scan
+    /// marker, not a task.
     [Test]
-    public async Task A_notification_for_an_agent_the_previous_process_left_running_finishes_it_as_stopped() {
-        var line = """{"type":"user","timestamp":"2026-10-22T13:42:55.148Z","origin":{"kind":"task-notification"},"promptSource":"system","message":{"role":"user","content":"<task-notification>\n<task-id>a9202cd3d93195cce</task-id>\n<output-file>/tmp/a9202cd3d93195cce.output</output-file>\n<status>stopped</status>\n<summary>Background agent \"Review Task 12 (spec + quality)\" didn't finish before the previous session ended</summary>\n<note>No completion record was found for it in the previous session.</note>\n</task-notification>"}}""";
-        var finished = (RunSignal.Finished)R(line).Runs.Single();
-        await Assert.That(finished.CallId).IsNull();
-        await Assert.That(finished.AgentId).IsEqualTo("a9202cd3d93195cce");
-        await Assert.That(finished.Outcome).IsEqualTo(RunOutcome.Stopped);
+    [Arguments(AgentOrphanReport, "a9202cd3d93195cce")]
+    [Arguments(OrphanReport, "b6pn0657h,bjgjxvmn0,bhr6650se")]
+    public async Task A_report_of_work_the_previous_process_left_running_stops_it_and_reopens_the_session(string content, string ids) {
+        var runs = Report(content).Runs;
+
+        var finished = runs.OfType<RunSignal.Finished>().ToList();
+        await Assert.That(finished.Select(f => f.AgentId!)).IsEquivalentTo(ids.Split(','));
+        await Assert.That(finished.All(f => f.CallId is null && f.Outcome == RunOutcome.Stopped)).IsTrue();
+        await Assert.That(runs.OfType<RunSignal.Reopened>().Single().At).IsEqualTo(new DateTimeOffset(2026, 10, 22, 13, 42, 55, 148, TimeSpan.Zero));
+        await Assert.That(runs.OfType<RunSignal.Restarted>()).IsEmpty();
+    }
+
+    /// Only Claude Code's own report reopens the session: a summary quoting its words, a report quoted
+    /// in a result, or one the user pasted ends no other run.
+    [Test]
+    [Arguments("<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Background command \"echo didn't finish before the previous session ended\" completed (exit code 0)</summary>\n</task-notification>", "")]
+    [Arguments("<task-notification>\n<task-id>b1</task-id>\n<status>stopped</status>\n<summary>Background command \"grep 'before the previous session ended' x.log\" was stopped</summary>\n</task-notification>", "")]
+    [Arguments("<task-notification>\n<task-id>a1</task-id>\n<status>stopped</status>\n<summary>Agent \"Explain\" was stopped</summary>\n<result>It read:\n<task-id>__orphan_summary__:shell</task-id>\n<summary>21 background shell command tasks didn't finish before the previous session ended.</summary>\n<note>No completion record was found for them in the previous session.</note>\n</result>\n</task-notification>", "")]
+    [Arguments(OrphanReport, "\"origin\":{\"kind\":\"human\"},\"promptSource\":\"typed\",")]
+    [Arguments(OrphanReport + "\n\nWhy did these stop?", "-")]
+    public async Task Nothing_but_claudes_own_report_reopens_the_session(string content, string origin) {
+        var result = origin switch {
+            "" => Report(content),
+            "-" => R(User(content)),
+            _ => Report(content, origin),
+        };
+        await Assert.That(result.Runs.OfType<RunSignal.Reopened>()).IsEmpty();
+        await Assert.That(result.Runs.OfType<RunSignal.Restarted>()).IsEmpty();
+    }
+
+    /// A person quoting a notification ends nothing: one sent with a human origin, or one with more
+    /// text after it and no origin to say Claude Code wrote it.
+    [Test]
+    [Arguments(OrphanReport, "\"origin\":{\"kind\":\"human\"},\"promptSource\":\"typed\",")]
+    [Arguments("<task-notification>\n<task-id>b1</task-id>\n<status>killed</status>\n<summary>Background command \"x\" was stopped</summary>\n</task-notification>", "\"origin\":{\"kind\":\"human\"},")]
+    [Arguments("<task-notification>\n<task-id>b1</task-id>\n<status>killed</status>\n<summary>Background command \"x\" was stopped</summary>\n</task-notification>", "\"promptSource\":\"typed\",")]
+    [Arguments(OrphanReport + "\n\nWhy did these stop?", "")]
+    public async Task A_notification_a_person_quoted_ends_nothing(string content, string origin) =>
+        await Assert.That(Report(content, origin).Runs).IsEmpty();
+
+    /// Claude Code checks in on a quiet command with a notification that has no status and guidance after
+    /// it; the command is still running.
+    [Test]
+    public async Task A_check_in_on_a_quiet_command_ends_nothing() {
+        var content = "<task-notification>\n<task-id>brizrthis</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<output-file>/tmp/brizrthis.output</output-file>\n<summary>Background command \"Run the tests\" is still running after 59m, with no new output for 30m</summary>\n</task-notification>\nThis is a check-in, not a completion.";
+        await Assert.That(Report(content, "\"origin\":{\"kind\":\"task-notification\",\"producer\":\"session-task\"},\"promptSource\":\"system\",").Runs).IsEmpty();
+    }
+
+    /// Any end can name several tasks, and each of them ends.
+    [Test]
+    public async Task A_notification_naming_several_tasks_ends_each_of_them() {
+        var runs = R(User("<task-notification>\n<task-id>b1</task-id>\n<task-id>b2</task-id>\n<status>killed</status>\n<summary>Background commands were stopped</summary>\n</task-notification>")).Runs;
+
+        await Assert.That(runs.Cast<RunSignal.Finished>().Select(f => f.AgentId!)).IsEquivalentTo(new[] { "b1", "b2" });
     }
 
     /// Claude Code reports a background agent that stopped with work of its own still running as

@@ -645,9 +645,78 @@ public class SessionRunsTests {
         await Assert.That(Only(s).State).IsEqualTo(RunState.Failed);
     }
 
-    /// The records Claude writes for an agent caught paused by a restart, end to end through the chat's projection.
+    /// The records Claude writes for an agent caught paused by a restart, end to end through the chat's
+    /// projection. A resume can leave the hook record, or only the report of what the old process left
+    /// running, which need not name the paused agent.
     [Test]
-    public async Task A_transcript_with_a_paused_agent_stops_it_at_the_resume_hook() {
+    [Arguments("""{"type":"attachment","timestamp":"2026-09-17T11:39:00Z","attachment":{"type":"hook_success","hookName":"SessionStart:resume"}}""")]
+    [Arguments("""{"type":"user","timestamp":"2026-09-17T11:39:00Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>b7k2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>1 background shell command tasks didn't finish before the previous session ended. First 20 task ids: b7k2.</summary>\n<note>No completion record was found for them in the previous session. They have been marked stopped.</note>\n</task-notification>"}}""")]
+    public async Task A_transcript_with_a_paused_agent_stops_it_at_the_restart(string restart) {
+        var chat = TranscriptChat.For("claude")!;
+        var context = chat.CreateContext("a1", null);
+        var s = new SessionRuns(Clock());
+        var number = 0;
+        foreach (var line in new[] {
+            """{"type":"assistant","timestamp":"2026-09-17T10:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_A","name":"Agent","input":{"description":"Fix it","subagent_type":"general-purpose"}}]}}""",
+            """{"type":"user","timestamp":"2026-09-17T10:00:01Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_A","content":"launched"}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a151b2d5ee7fd3108"}}""",
+            """{"type":"assistant","timestamp":"2026-09-17T10:01:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_B","name":"Bash","input":{"command":"sleep 600","description":"Wait","run_in_background":true}}]}}""",
+            """{"type":"user","timestamp":"2026-09-17T10:01:01Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_B","content":"Command running in background with ID: b7k2."}]},"toolUseResult":{"backgroundTaskId":"b7k2"}}""",
+            """{"type":"user","timestamp":"2026-09-17T10:07:00Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>a151b2d5ee7fd3108</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Fix it\" is waiting on its own background work</summary>\n</task-notification>"}}""",
+        }) s.Apply(chat.ProjectWithInputs(line, ++number, T0, context));
+        await Assert.That(s.RunningCount).IsEqualTo(2);
+
+        s.Apply(chat.ProjectWithInputs(restart, ++number, T0, context));
+
+        await Assert.That(s.Rows.Select(r => r.State)).IsEquivalentTo(new[] { RunState.Stopped, RunState.Stopped });
+        await Assert.That(s.Rows[0].StateText).IsEqualTo("stopped · 1h 39m");
+    }
+
+    /// A report the new process wrote can follow runs it started itself, so it stops only what was
+    /// paused before it: those were the old process's, and no later process resumes them.
+    [Test]
+    public async Task A_reopen_stops_only_the_runs_paused_before_it() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Waiting("c1", "a1", T0.AddMinutes(10))));
+        s.Apply(Signals(Started("c2", T0.AddMinutes(35)), Detached("c2", "a2")));
+        s.Apply(Signals(Shell("c3"), Detached("c3", "b3")));
+
+        s.Apply(Signals(new RunSignal.Reopened(T0.AddMinutes(40))));
+
+        await Assert.That(s.Rows[0].State).IsEqualTo(RunState.Stopped);
+        await Assert.That(s.Rows[0].EndedAt).IsEqualTo(T0.AddMinutes(40));
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+        await Assert.That(s.Rows[2].State).IsEqualTo(RunState.Running);
+    }
+
+    /// A late notification can land on either side of the reopen, and the wait's own date decides.
+    [Test]
+    [Arguments(20, false)]
+    [Arguments(60, true)]
+    public async Task A_paused_run_reads_by_its_wait_against_the_reopen_in_any_order(int waitedAt, bool running) {
+        RunSignal[] signals = [new RunSignal.Reopened(T0.AddMinutes(40)), Waiting(null, "a1", T0.AddMinutes(waitedAt))];
+        foreach (var order in new[] { new[] { 0, 1 }, new[] { 1, 0 } }) {
+            var s = new SessionRuns(Clock());
+            s.Apply(Signals(Started("c1"), Detached("c1", "a1")));
+            foreach (var index in order) s.Apply(Signals(signals[index]));
+
+            await Assert.That(Only(s).IsRunning).IsEqualTo(running).Because(string.Join(",", order));
+        }
+    }
+
+    [Test]
+    public async Task Clear_forgets_the_reopen_with_the_rows_it_read() {
+        var s = new SessionRuns(Clock());
+        s.Apply(Signals(new RunSignal.Reopened(T0.AddMinutes(30))));
+
+        s.Clear();
+        s.Apply(Signals(Started("c1"), Detached("c1", "a1"), Waiting(null, "a1", T0.AddMinutes(10))));
+
+        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
+    }
+
+    /// The new process can start work before Claude records the old one's leftovers.
+    [Test]
+    public async Task A_transcript_with_a_new_run_ahead_of_the_report_keeps_it_running() {
         var chat = TranscriptChat.For("claude")!;
         var context = chat.CreateContext("a1", null);
         var s = new SessionRuns(Clock());
@@ -656,13 +725,15 @@ public class SessionRunsTests {
             """{"type":"assistant","timestamp":"2026-09-17T10:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_A","name":"Agent","input":{"description":"Fix it","subagent_type":"general-purpose"}}]}}""",
             """{"type":"user","timestamp":"2026-09-17T10:00:01Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_A","content":"launched"}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"a151b2d5ee7fd3108"}}""",
             """{"type":"user","timestamp":"2026-09-17T10:07:00Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>a151b2d5ee7fd3108</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Fix it\" is waiting on its own background work</summary>\n</task-notification>"}}""",
+            """{"type":"assistant","timestamp":"2026-09-17T11:38:30Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_N","name":"Bash","input":{"command":"sleep 600","description":"Wait","run_in_background":true}}]}}""",
+            """{"type":"user","timestamp":"2026-09-17T11:38:31Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_N","content":"Command running in background with ID: bnew."}]},"toolUseResult":{"backgroundTaskId":"bnew"}}""",
         }) s.Apply(chat.ProjectWithInputs(line, ++number, T0, context));
-        await Assert.That(Only(s).State).IsEqualTo(RunState.Running);
 
-        s.Apply(chat.ProjectWithInputs("""{"type":"attachment","timestamp":"2026-09-17T11:39:00Z","attachment":{"type":"hook_success","hookName":"SessionStart:resume"}}""", ++number, T0, context));
+        s.Apply(chat.ProjectWithInputs("""{"type":"user","timestamp":"2026-09-17T11:39:00Z","origin":{"kind":"task-notification"},"promptSource":"system","message":{"role":"user","content":"<task-notification>\n<task-id>b7k2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>1 background shell command tasks didn't finish before the previous session ended. First 20 task ids: b7k2.</summary>\n<note>No completion record was found for them in the previous session.</note>\n</task-notification>"}}""", ++number, T0, context));
 
-        await Assert.That(Only(s).State).IsEqualTo(RunState.Stopped);
-        await Assert.That(Only(s).StateText).IsEqualTo("stopped · 1h 39m");
+        await Assert.That(s.Rows[0].State).IsEqualTo(RunState.Stopped);
+        await Assert.That(s.Rows[1].State).IsEqualTo(RunState.Running);
+        await Assert.That(s.RunningCommandCount).IsEqualTo(1);
     }
 
     /// The local feed names a launch from its meta file after the lines are folded, so on a reopen it
