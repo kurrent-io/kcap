@@ -222,6 +222,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         BindHistoryShortcuts();
         BindSettingsShortcut();
         KeepContentClearOfCaptionButtons();
+        ShowInstanceTitle();
         BindFullScreenShortcut();
         Closing += (_, e) => {
             if (CloseInterceptor?.Invoke() == true) e.Cancel = true;
@@ -350,6 +351,20 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             e.Handled = true;
             ui.Execute(null);
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+    }
+
+    public const string TitleEnvVar = "KCAP_APP_TITLE";
+
+    // Names the instance, so several running side by side can be told apart. Where the window paints
+    // into its title bar the app draws it centred and Title stays empty, because Windows still draws
+    // a non-empty Title at the top left; elsewhere the window manager draws Title. Onboarding puts
+    // its own step title in the same spot, so the label gives way to it.
+    void ShowInstanceTitle() {
+        if (Environment.GetEnvironmentVariable(TitleEnvVar) is not { } raw || raw.Trim() is not { Length: > 0 } title) return;
+        InstanceTitle.Text = title;
+        this.GetObservable(IsExtendedIntoWindowDecorationsProperty).Subscribe(extended => Title = extended ? "" : title);
+        InstanceTitle.Bind(IsVisibleProperty, this.GetObservable(IsExtendedIntoWindowDecorationsProperty)
+            .CombineLatest(OnboardingPane.GetObservable(IsVisibleProperty), (extended, onboarding) => extended && !onboarding));
     }
 
     // Windows draws its caption buttons over the top-right of the extended client area, so the
