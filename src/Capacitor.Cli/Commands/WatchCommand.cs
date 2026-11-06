@@ -3268,23 +3268,23 @@ partial class WatchCommand(
                     ObservedCommits = state.Commits.Pending,
                 };
 
-                int? cursorAckNextLine = null;
+                var sent = await TranscriptBatchBuffer.SendAsync(
+                    batch,
+                    async chunk => {
+                        if (vendor == "cursor")
+                            return (await hubConnection.InvokeAsync<TranscriptBatchAck>("SendTranscriptBatchAcked", chunk, ct)).NextLineNumber;
 
-                foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                    if (vendor == "cursor") {
-                        // A barrier can appear between chunks, after the initial admission check.
-                        if (_markers.IsQuarantined(sessionId)
-                         || _markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)) {
-                            return newLines;
-                        }
-
-                        var ack = await hubConnection.InvokeAsync<TranscriptBatchAck>("SendTranscriptBatchAcked", chunk, ct);
-                        cursorAckNextLine = ack.NextLineNumber;
-                        if (chunk.LineNumbers!.Length > 0 && ack.NextLineNumber <= chunk.LineNumbers[^1]) break;
-                    } else {
                         await hubConnection.InvokeAsync("SendTranscriptBatch2", chunk, ct);
-                    }
-                }
+
+                        return null;
+                    },
+                    // A barrier can appear between chunks, after the initial admission check.
+                    () => vendor != "cursor"
+                     || !(_markers.IsQuarantined(sessionId) || _markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)));
+
+                if (sent is not { } outcome) return newLines;
+
+                var cursorAckNextLine = outcome.AckedNextLine;
 
                 if (newLines.Count > 0) {
                     Log(time, cursorAckNextLine is { } nextLine
@@ -3303,7 +3303,7 @@ partial class WatchCommand(
                 // frontier, not the raw line count sent — a retry-blocked or persist-blocked
                 // line re-delivers next poll and an ignored (no-event) line still advances past.
                 state.LinesProcessed = cursorAckNextLine ?? linesRead;
-                state.Commits = state.Commits.Delivered(batch.ObservedCommits);
+                if (outcome.Complete) state.Commits = state.Commits.Delivered(batch.ObservedCommits);
 
                 if (cursorAckNextLine is not null) {
                     // checkpoint only the bytes the ack actually covers.
