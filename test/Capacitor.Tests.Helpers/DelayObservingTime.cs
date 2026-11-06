@@ -1,10 +1,8 @@
-using Microsoft.Extensions.Time.Testing;
+namespace Capacitor.Tests.Helpers;
 
-namespace Capacitor.Cli.Tests.Unit.Commands;
-
-/// Forwards to a <see cref="FakeTimeProvider"/> and signals the first time a caller arms a delay on it,
+/// Forwards to a fake clock and signals the first time a caller arms a delay on it,
 /// so a test can change the world while a poll is parked and only then advance the clock.
-sealed class DelayObservingTime(FakeTimeProvider inner, TaskCompletionSource parked) : TimeProvider {
+public sealed class DelayObservingTime(TimeProvider inner, TaskCompletionSource parked) : TimeProvider {
     public override TimeZoneInfo LocalTimeZone => inner.LocalTimeZone;
     public override long TimestampFrequency => inner.TimestampFrequency;
     public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();

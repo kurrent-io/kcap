@@ -3,8 +3,15 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using Capacitor.Cli.Recording.Capture;
+using Capacitor.Cli.Recording.Harness.Cursor;
+using static Capacitor.Cli.Recording.IdleEnd;
+using static Capacitor.Cli.Recording.ToolCallTracking;
+using static Capacitor.Cli.Recording.TranscriptLineText;
+using static Capacitor.Cli.Recording.TranscriptReader;
+using static Capacitor.Cli.Recording.Harness.Antigravity.AntigravityLiveUsage;
+using static Capacitor.Cli.Recording.Harness.Copilot.CopilotShutdown;
+using static Capacitor.Cli.Recording.Harness.Kiro.KiroLiveUsage;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
@@ -21,13 +28,11 @@ using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Harness.Kiro;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.OpenCode;
-using Capacitor.Cli.Core.Harness.Pi;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.RepoEvidence;
 using Capacitor.Cli.Harness.Antigravity;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
-using Capacitor.Cli.Harness.Cursor;
 using Capacitor.Cli.Harness.Gemini;
 using Capacitor.Cli.Harness.Grok;
 using Capacitor.Cli.Harness.MistralVibe;
@@ -42,7 +47,7 @@ using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.Commands;
 
-partial class WatchCommand(
+class WatchCommand(
         ConfigRoot config, ProfileContext profiles, HarnessRegistry harnesses,
         ICapacitorHttpClient http, ICredentialSource credentials, WatcherManager watchers,
         GitProviderRouter router, TimeProvider time, AccountStore accounts, UserHome home) {
@@ -50,6 +55,8 @@ partial class WatchCommand(
     readonly WatcherPaths   _paths    = WatcherPaths.FromEnvironment(config);
     readonly Dictionary<(string, string?), HeldLineRedaction> _heldLines = [];
     readonly WatchAckCursor _ackCursor = new(config);
+    readonly OnceLog _parseErrors  = new(message => Log(time, message));
+    readonly OnceLog _kiroWarnings = new(message => Log(time, message));
     readonly Lock   _ackCursorGate = new();
     int _ackCursorWritten = -1;
 
@@ -261,91 +268,6 @@ partial class WatchCommand(
         int.TryParse(envValue, out var minutes) && minutes > 0
             ? TimeSpan.FromMinutes(minutes)
             : DefaultParentDeadCeiling;
-
-    /// <summary>
-    /// Shutdown completion signal for a JSONL transcript's final line: complete when the file is
-    /// empty, newline-terminated, OR its last (newline-less) line parses as JSON. Length-stability
-    /// is NOT proof of completion — a large write can pause mid-record for longer than any bounded
-    /// wait, so a static-but-unparseable tail is still incomplete. Pure so it is unit-testable
-    /// without a real file.
-    /// </summary>
-    internal static bool IsFinalLineComplete(string fileText) {
-        if (fileText.Length == 0 || fileText[^1] == '\n') return true;
-
-        var lastNl = fileText.LastIndexOf('\n');
-        var tail   = lastNl < 0 ? fileText : fileText[(lastNl + 1)..];
-
-        // A whitespace-only trailing partial carries nothing to lose → treat as complete; otherwise
-        // the tail must parse as a complete JSON record (length-stability alone is NOT proof).
-        return tail.Trim().Length == 0 || IsCompleteJsonRecord(tail);
-    }
-
-    static readonly UTF8Encoding Utf8NoPreamble = new(encoderShouldEmitUTF8Identifier: false);
-
-    /// <summary>
-    /// The file's text from its last <c>'\n'</c> on, or all of it when it has none: what
-    /// <see cref="IsFinalLineComplete"/> decides on, read without decoding the lines before it. A
-    /// UTF-16 or UTF-32 file is read whole, since its newline is not a lone <c>0x0A</c> byte.
-    /// </summary>
-    internal static async Task<string> ReadFinalLineSharedAsync(string path) {
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-
-        return await ReadFinalLineAsync(stream, path);
-    }
-
-    internal static async Task<string> ReadFinalLineAsync(FileStream stream, string path) {
-        if (stream.Length > 0 && stream.ReadByte() is 0xFE or 0xFF or 0x00) return await File.ReadAllTextSharedAsync(path);
-
-        var end   = stream.Length;
-        var start = end;
-
-        while (start > 0) {
-            var chunk = new byte[(int)Math.Min(64 * 1024, start)];
-            stream.Position = start - chunk.Length;
-            if (await ReadFullyAsync(stream, chunk, CancellationToken.None) != chunk.Length) break;
-
-            var newline = chunk.AsSpan().LastIndexOf((byte)'\n');
-            start -= chunk.Length;
-            if (newline >= 0) {
-                start += newline;
-                break;
-            }
-        }
-
-        var tail = new byte[end - start];
-        stream.Position = start;
-        var text = tail.AsSpan(0, await ReadFullyAsync(stream, tail, CancellationToken.None));
-
-        return Utf8NoPreamble.GetString(start == 0 && text.StartsWith(Encoding.UTF8.Preamble) ? text[3..] : text);
-    }
-
-    /// <summary>
-    /// Bounded wait (≤2s, 4×500ms) for the shutdown final drain: re-reads <paramref name="path"/>
-    /// looking for <see cref="IsFinalLineComplete"/> before the watcher decides whether it's safe to
-    /// send-and-advance the newline-less final line. Never throws — a read failure just counts as
-    /// "not yet complete" for that iteration; the delay between iterations is likewise best-effort so
-    /// cancellation/short-lived environments can't turn this into a hang.
-    /// <para>Shares read+write: this polls while the vendor flushes its final records, so it must not
-    /// block that write (see <see cref="SharedFileText"/>).</para>
-    /// </summary>
-    internal static async Task<bool> WaitForFinalLineCompletionAsync(
-            string path, TimeProvider time, int attempts = 4, int delayMs = 500) {
-        for (var i = 0; i < attempts; i++) {
-            try {
-                if (IsFinalLineComplete(await ReadFinalLineSharedAsync(path))) return true;
-            } catch {
-                // Transient read failure (e.g. concurrent write) — try again on the next iteration.
-            }
-
-            try {
-                await Task.Delay(TimeSpan.FromMilliseconds(delayMs), time);
-            } catch {
-                // Never let a delay hiccup abort the shutdown path.
-            }
-        }
-
-        return false;
-    }
 
     /// <summary>
     /// Maximum single wait between heartbeat touches. Comfortably below the
@@ -1199,7 +1121,7 @@ partial class WatchCommand(
         FollowMovedTranscript();
 
         // The turn may have landed after the last poll, so the unsent lines are read again here.
-        if (agentId is null && !state.ThresholdReached && UnsentLinesHoldRealTurn(transcriptPath, state.LinesProcessed, vendor, time)) {
+        if (agentId is null && !state.ThresholdReached && UnsentLinesHoldRealTurn(transcriptPath, state.LinesProcessed, vendor, _parseErrors)) {
             Log(time, "Session ended below the buffering threshold with a real turn; draining it");
             state.ThresholdReached = true;
             state.BufferedLines.Clear();
@@ -1909,19 +1831,6 @@ partial class WatchCommand(
     }
 
     /// <summary>
-    /// Codex's counterpart to <see cref="ClaudePendingToolCallsReplay"/>. Both roles need the pending set:
-    /// a <c>function_call</c> that opened before the cursor writes nothing until its output lands, so a
-    /// session watcher would read <c>toolInFlight</c> false and idle-end a live session. Turn state is
-    /// child-only: nothing else re-delivers the acknowledged <c>task_complete</c> that arms the live stop.
-    /// </summary>
-    internal static TranscriptReplayConsumer CodexWatcherStateReplay(WatchState state, bool isChildWatcher) =>
-        new(WindowOnly: true, line => {
-            UpdateCodexPendingToolCalls(state.PendingCodexToolCalls, line);
-            if (isChildWatcher) state.CodexSubagentTurn.Observe(line);
-            return false;
-        });
-
-    /// <summary>
     /// The first probe waits for a root rather than spending its minute on none, since a short session can
     /// end before the next one and the final probe is skipped below the transcript threshold.
     /// </summary>
@@ -1979,172 +1888,6 @@ partial class WatchCommand(
     static readonly TimeSpan ParentExitPostBudget = TimeSpan.FromSeconds(15);
 
     /// <summary>
-    /// Codex has no session-end hook and the desktop app's single long-lived
-    /// `codex app-server` process is the watchdog's parent PID for EVERY
-    /// conversation, so the parent-exit watchdog never fires per-conversation —
-    /// sessions stay "active" until the whole app quits. This idle window is the
-    /// fallback: if the rollout file gets no new lines for this long, the watcher
-    /// POSTs session-end (reason "idle_timeout"). Self-correcting — Codex fires a
-    /// Stop hook per turn that re-spawns the watcher and the read model
-    /// reactivates the session, so a resumed conversation comes back to life.
-    /// </summary>
-    internal static readonly TimeSpan DefaultCodexIdleTimeout = TimeSpan.FromMinutes(60);
-
-    /// <summary>
-    /// Resolves the Codex idle timeout from KCAP_CODEX_IDLE_MINUTES, falling back
-    /// to <see cref="DefaultCodexIdleTimeout"/> for unset/blank/non-numeric/
-    /// non-positive values. Pure so the parsing is unit-testable.
-    /// </summary>
-    internal static TimeSpan ResolveCodexIdleTimeout(string? envValue) =>
-        int.TryParse(envValue, out var minutes) && minutes > 0
-            ? TimeSpan.FromMinutes(minutes)
-            : DefaultCodexIdleTimeout;
-
-    /// <summary>
-    /// Task 11 (D1) — Cursor has no shell hooks that reliably fire a per-conversation
-    /// parent-exit signal (the same class of gap Codex/Antigravity have), so an idle transcript
-    /// is likewise the fallback session-end signal. Its own knob (default 60 min, mirroring
-    /// <see cref="DefaultCodexIdleTimeout"/>) so tenants can tune it independently of the two
-    /// GUI vendors.
-    /// </summary>
-    internal static readonly TimeSpan DefaultCursorIdleCeiling = TimeSpan.FromMinutes(60);
-
-    /// <summary>
-    /// Resolves the Cursor idle ceiling from KCAP_CURSOR_IDLE_CEILING_MINUTES, falling back to
-    /// <see cref="DefaultCursorIdleCeiling"/> for unset/blank/non-numeric/non-positive values.
-    /// Pure so the parsing is unit-testable (mirrors <see cref="ResolveCodexIdleTimeout"/>).
-    /// </summary>
-    internal static TimeSpan ResolveCursorIdleCeiling(string? envValue) =>
-        int.TryParse(envValue, out var minutes) && minutes > 0
-            ? TimeSpan.FromMinutes(minutes)
-            : DefaultCursorIdleCeiling;
-
-    /// <summary>
-    /// Reap ceiling for a Claude CHILD (subagent) watcher, whose only other exits are the
-    /// SubagentStop-driven StopWatcher signal and the parent-exit watchdog — so a missed
-    /// SubagentStop leaks it for the life of the parent session.
-    ///
-    /// Far longer than the 60-minute vendor ceilings because it is a leak backstop, not an
-    /// end-of-conversation detector: a child watcher posts no session-end, so reaping late costs
-    /// nothing while reaping a LIVE subagent drops the rest of its transcript.
-    /// </summary>
-    internal static readonly TimeSpan DefaultClaudeSubagentIdleCeiling = TimeSpan.FromHours(6);
-
-    /// <summary>
-    /// Resolves the Claude subagent idle ceiling from KCAP_CLAUDE_SUBAGENT_IDLE_MINUTES, falling
-    /// back to <see cref="DefaultClaudeSubagentIdleCeiling"/> for unset/blank/non-numeric/
-    /// non-positive values. Pure so the parsing is unit-testable.
-    /// </summary>
-    internal static TimeSpan ResolveClaudeSubagentIdleCeiling(string? envValue) =>
-        int.TryParse(envValue, out var minutes) && minutes > 0
-            ? TimeSpan.FromMinutes(minutes)
-            : DefaultClaudeSubagentIdleCeiling;
-
-    /// <summary>
-    /// Reap ceiling for a Codex collab CHILD watcher (#550), the backstop for a child orphaned by
-    /// a hard-killed parent (no parent-pid watchdog, and StopWatcher only reaches the session
-    /// watcher). Same sizing rationale as <see cref="DefaultClaudeSubagentIdleCeiling"/>: a leak
-    /// backstop, not an end-of-conversation detector — reaping late costs nothing, reaping a LIVE
-    /// subagent drops the rest of its transcript.
-    /// </summary>
-    internal static readonly TimeSpan DefaultCodexSubagentReapCeiling = TimeSpan.FromHours(6);
-
-    /// <summary>
-    /// Resolves the Codex subagent reap ceiling from KCAP_CODEX_SUBAGENT_REAP_MINUTES — its own
-    /// knob because KCAP_CODEX_SUBAGENT_IDLE_MINUTES already tunes the subagent-stop grace.
-    /// Falls back to <see cref="DefaultCodexSubagentReapCeiling"/> for unset/blank/non-numeric/
-    /// non-positive values. Pure so the parsing is unit-testable.
-    /// </summary>
-    internal static TimeSpan ResolveCodexSubagentReapCeiling(string? envValue) =>
-        int.TryParse(envValue, out var minutes) && minutes > 0
-            ? TimeSpan.FromMinutes(minutes)
-            : DefaultCodexSubagentReapCeiling;
-
-    /// <summary>
-    /// The idle window <see cref="RunWatch"/> measures against, per vendor and watcher role — each
-    /// vendor on its OWN knob. <paramref name="env"/> is injected to keep the mapping testable.
-    /// The role argument exists for Claude, whose CHILD watchers get the subagent backstop rather
-    /// than a conversation-idle window.
-    /// </summary>
-    internal static TimeSpan ResolveIdleWindow(string vendor, bool isSessionWatcher, Func<string, string?> env) =>
-        vendor switch {
-            "antigravity"                     => ResolveCodexIdleTimeout(env("KCAP_ANTIGRAVITY_IDLE_MINUTES")),
-            "cursor"                          => ResolveCursorIdleCeiling(env("KCAP_CURSOR_IDLE_CEILING_MINUTES")),
-            "copilot"                         => ResolveCodexIdleTimeout(env("KCAP_COPILOT_IDLE_MINUTES")),
-            "claude" when !isSessionWatcher   => ResolveClaudeSubagentIdleCeiling(env("KCAP_CLAUDE_SUBAGENT_IDLE_MINUTES")),
-            "codex" when !isSessionWatcher    => ResolveCodexSubagentReapCeiling(env("KCAP_CODEX_SUBAGENT_REAP_MINUTES")),
-            _                                 => ResolveCodexIdleTimeout(env("KCAP_CODEX_IDLE_MINUTES")),
-        };
-
-    /// <summary>
-    /// Whether the watcher should self-terminate because the vendor's transcript file has gone
-    /// idle. Pure so the policy is unit-testable. Gated to the vendor/role combinations whose
-    /// parent-exit watchdog can't fire per-conversation — see the switch below for which, and
-    /// why each one qualifies. Session watchers additionally require threshold-reached
-    /// (below-threshold short-lived sessions have no server session to end); CHILD (subagent)
-    /// watchers are eligible WITHOUT the threshold gate — they never buffer, so ThresholdReached
-    /// never flips true for them; see <see cref="RunWatch"/>'s call site for the
-    /// heartbeat-aware idle clock. Uses strictly-greater-than so the boundary tick is not yet
-    /// considered idle. Also suppressed when a tool call is in flight
-    /// (<paramref name="toolInFlight"/> true): a long-running shell command / custom tool
-    /// legitimately produces no new transcript lines between its start and completion records —
-    /// ending while it's running would falsely terminate an active session. No hard ceiling on
-    /// tool duration for the vendors with a live parent-exit watchdog; for Claude subagents the
-    /// generous <see cref="DefaultClaudeSubagentIdleCeiling"/> is itself the second layer.
-    ///
-    /// For Cursor specifically the caller must NOT follow this up with a session-end POST —
-    /// unlike Codex/Antigravity, end synthesis for Cursor has exactly one owner (the sessionEnd
-    /// hook, or the server-side lease-gated sweep as a backstop); the watcher only exits and
-    /// final-drains (see the <c>endReason</c> resolution in <see cref="RunWatch"/>).
-    /// </summary>
-    internal static bool ShouldEndOnIdle(
-            string         vendor,
-            bool           isSessionWatcher,
-            bool           thresholdReached,
-            DateTimeOffset lastActivityAt,
-            DateTimeOffset now,
-            TimeSpan       idleTimeout,
-            bool           toolInFlight              = false,
-            TimeSpan       disconnectedSinceActivity = default,
-            bool           noEndSignal               = false
-        ) {
-        // Which vendors may idle-exit, and in which role:
-        //   codex             — both. Session: the idle window is the fallback session-end signal
-        //                       (no per-conversation parent-exit hook). CHILD: the reap ceiling
-        //                       is a leak backstop (#550) — no parent-pid watchdog, and the
-        //                       server's StopWatcher only reaches the session watcher, so a child
-        //                       that outlives the parent's teardown would otherwise never exit.
-        //                       Server-side finalization stays with the child's own live
-        //                       subagent-stop POST or the parent-end teardown, never this exit.
-        //   antigravity       — session only; it spawns no child watchers at all.
-        //   cursor            — both; no shell hook fires a reliable parent-exit signal either.
-        //   claude            — CHILD only: nothing else finalizes it (a missed SubagentStop
-        //                       leaks it for the life of the parent). Its SESSION watcher has a
-        //                       working watchdog AND a sessionEnd hook, so a ceiling there could
-        //                       end a live session out from under a thinking user.
-        //   copilot           — a SESSION with no end signal only: VS Code Local, which has neither a
-        //                       session-end hook nor a parent, or one whose host was not found. A session
-        //                       with both has the same ceiling-end risk as Claude's session watcher.
-        var eligible = vendor switch {
-            "codex" or "cursor" => true,
-            "antigravity"       => isSessionWatcher,
-            "claude"            => !isSessionWatcher,
-            "copilot"           => isSessionWatcher && noEndSignal,
-            _                   => false,
-        };
-
-        if (!eligible) return false;
-
-        // A child watcher never buffers, so requiring ThresholdReached would make it permanently
-        // ineligible. A session watcher keeps the gate: a session nobody has taken a turn in has not
-        // gone idle, and its end comes from the parent's exit instead. A Local session has no parent
-        // to end it, so idling is its end with or without a turn.
-        if (isSessionWatcher && !thresholdReached && !noEndSignal) return false;
-
-        return now - lastActivityAt - disconnectedSinceActivity > idleTimeout && !toolInFlight;
-    }
-
-    /// <summary>
     /// Task 13 — pure extraction of the end-synthesis suppression <see cref="RunWatch"/>
     /// applies to its own idle-ceiling exit. Cursor's end-of-session synthesis has exactly one
     /// owner (the <c>sessionEnd</c> hook, or the server-side lease-gated sweep as a backstop);
@@ -2164,244 +1907,15 @@ partial class WatchCommand(
         endReason is not null && agentId is null && !cursorSuppressesEndPost;
 
     /// <summary>
-    /// A prompt the user typed or a reply from the agent. Slash commands, injected preludes and
-    /// session headers are not turns, so a session holding only those sends no lines.
-    /// </summary>
-    internal static bool IsRealTurnLine(string line, string vendor, TimeProvider time) =>
-        vendor == "gemini"
-            ? GeminiImportSource.IsImportRelevantLine(line)
-            : TryExtractAssistantText(line, vendor) is not null
-           || (TryExtractUserText(line, time, vendor) is { } prompt && !string.IsNullOrWhiteSpace(prompt) && !CommandNameRegex.IsMatch(prompt))
-           || (vendor == "claude" && IsClaudeImagePrompt(line));
-
-    /// <summary>A Claude prompt that is only an attached image has no text to extract, yet is the user's turn.</summary>
-    static bool IsClaudeImagePrompt(string line) {
-        if (!line.Contains("\"image\"", StringComparison.Ordinal)) return false;
-
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            return root.Str("type") == "user"
-                && root.Bool("isMeta") != true
-                && root.Obj("message")?.Arr("content") is { } content
-                && content.EnumerateArray().Any(block => block.Str("type") == "image");
-        } catch (JsonException) {
-            return false;
-        }
-    }
-
-    /// <summary>Whether a session watcher's held-back lines go to the server: once they hold a real turn, or
-    /// reach <see cref="WatchState.TranscriptThreshold"/> whatever they hold.</summary>
-    internal static bool ShouldFlushBuffer(IReadOnlyList<string> buffered, string vendor, TimeProvider time) =>
-        buffered.Count >= WatchState.TranscriptThreshold || buffered.Any(line => IsRealTurnLine(line, vendor, time));
-
-    /// <summary>
-    /// Whether the transcript from <paramref name="fromLine"/> on holds a real turn. Read at shutdown, so a
-    /// turn written after the last poll still counts; a transcript that was never written holds none.
-    /// </summary>
-    internal static bool UnsentLinesHoldRealTurn(string transcriptPath, int fromLine, string vendor, TimeProvider time) {
-        try {
-            return File.ReadLinesShared(transcriptPath).Skip(fromLine)
-                .Any(line => !string.IsNullOrWhiteSpace(line) && IsRealTurnLine(line, vendor, time));
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return false;
-        }
-    }
-
-    /// <summary>
     /// Vendors whose watcher sends from the first line instead of holding lines back until a real turn.
     /// Their start hook (or Antigravity's pre-spawn POST) registers the session before the watcher reads
     /// anything. See <see cref="RunWatch"/>'s call site.
     /// </summary>
     internal static bool SkipsThresholdBuffering(string vendor) => vendor is "antigravity" or "cursor" or "mistral-vibe" or "grok" or "muse";
 
-    /// <summary>
-    /// the idle clock <see cref="ShouldEndOnIdle"/> measures against for
-    /// Cursor must be the LATER of transcript activity (<paramref name="lastActivityAt"/>) and the
-    /// hook heartbeat mtime (<paramref name="hookHeartbeatAt"/>): every Cursor hook invocation —
-    /// including telemetry-only ones — touches <c>CursorMarkers.HeartbeatPath</c> independent of
-    /// whether the tailing watcher itself observes new transcript content, so a session Cursor is
-    /// still actively firing hooks for (but which happens to produce no new transcript lines)
-    /// must not idle-exit underneath the user. For every other vendor <paramref name="hookHeartbeatAt"/>
-    /// is always null (the caller only reads the heartbeat file for vendor == "cursor"), so this
-    /// degrades to plain <paramref name="lastActivityAt"/> — unchanged behavior. Pure so it's
-    /// unit-testable without a real heartbeat file.
-    /// </summary>
-    internal static DateTimeOffset ResolveCursorIdleClock(
-            string          vendor,
-            DateTimeOffset  lastActivityAt,
-            DateTimeOffset? hookHeartbeatAt
-        ) =>
-        vendor == "cursor" && hookHeartbeatAt is { } hb && hb > lastActivityAt
-            ? hb
-            : lastActivityAt;
-
-    /// <summary>
-    /// Updates <c>pending</c> based on a single Codex rollout line.
-    /// A <c>function_call</c> or <c>custom_tool_call</c> response_item adds its
-    /// <c>call_id</c> to the set; the matching <c>_output</c> variant removes it.
-    /// All other lines and malformed JSON are silently ignored so this is safe to
-    /// call unconditionally for every line of any vendor transcript.
-    /// </summary>
-    /// <summary>
-    /// Which watchers feed <see cref="UpdateCodexPendingToolCalls"/>. It reads RAW drain lines,
-    /// which are unbounded, so — unlike when it read the 64 KiB-bounded redacted list — running it
-    /// for every vendor would make an unrelated watcher parse a multi-megabyte line it can never
-    /// match. Not gated on watcher role: a collab child needs it for ShouldPostSubagentStop.
-    /// </summary>
-    internal static bool TracksCodexToolCalls(string vendor) => vendor == "codex";
-
-    /// <summary>Only a VS Code Local session idle-ends, and raw drain lines are unbounded, so nothing else parses them here.</summary>
-    internal static bool TracksCopilotToolCalls(string vendor, string transcriptPath, bool hostMissing) =>
-        vendor == "copilot" && (hostMissing || Capacitor.Cli.Core.Harness.Copilot.CopilotPaths.IsVsCodeLocalTranscript(transcriptPath));
-
-    /// <summary>A Local session has no parent process to end it, so a tool that never reports back, such as
-    /// one running when VS Code quits, would keep it open and its watcher running for good without a ceiling.</summary>
-    internal static readonly TimeSpan CopilotToolCeiling = TimeSpan.FromHours(4);
-
-    internal static bool CopilotToolInFlight(WatchState state, DateTimeOffset now) =>
-        state.PendingCopilotToolCalls.Count > 0 && now - state.LastActivityAt < CopilotToolCeiling;
-
-    /// <summary>How long <c>session.shutdown</c> must stay last before it counts as the session's end: a resume
-    /// appends to the same file, and VS Code has written its resume line 0.9s after the shutdown.</summary>
-    internal static readonly TimeSpan CopilotShutdownGrace = TimeSpan.FromSeconds(30);
-
-    /// <summary>A Local transcript has no shutdown line, and a child's end comes from its session.</summary>
-    internal static bool TracksCopilotShutdown(string vendor, string? agentId, string transcriptPath) =>
-        vendor == "copilot" && agentId is null && !Capacitor.Cli.Core.Harness.Copilot.CopilotPaths.IsVsCodeLocalTranscript(transcriptPath);
-
-    /// <summary>A shutdown written before this watcher started belongs to an earlier run: a resumed or forked session
-    /// can sit on one until its first new line, with its runtime live. An unreadable timestamp counts as earlier.</summary>
-    internal static DateTimeOffset? CopilotShutdownAfter(DateTimeOffset? seenAt, IEnumerable<string> lines, DateTimeOffset now, DateTimeOffset watcherStartedAt) =>
-        lines.LastOrDefault(line => !string.IsNullOrWhiteSpace(line)) switch {
-            null                                                                                                   => seenAt,
-            // Buffered lines are read again until they are sent, so a repeat must not restart the clock.
-            var last when CopilotFinalizeDrainCommand.IsShutdownLine(last) && WrittenSince(last, watcherStartedAt) => seenAt ?? now,
-            _                                                                                                      => null,
-        };
-
-    static bool WrittenSince(string line, DateTimeOffset since) {
-        try {
-            using var doc = JsonDocument.Parse(line);
-
-            return doc.RootElement.Str("timestamp") is { } text
-                && DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var at)
-                && at >= since;
-        } catch (JsonException) {
-            return false;
-        }
-    }
-
-    internal static bool CopilotShutdownSettled(DateTimeOffset? seenAt, DateTimeOffset now) =>
-        seenAt is { } at && now - at >= CopilotShutdownGrace;
-
     /// <summary>A Copilot watcher's parent was found by name, so it being gone means the agent has stopped, not
     /// that a hook returned. Waiting for a re-resolve could not help: nothing above a watcher names the agent.</summary>
     internal static bool EndsWhenParentFoundDead(string vendor, string? agentId) => vendor == "copilot" && agentId is null;
-
-    internal static void UpdateCopilotPendingToolCalls(HashSet<string> pending, string line) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            switch (root.Str("type")) {
-                case "tool.execution_start" when root.Obj("data")?.Str("toolCallId") is { } started:
-                    pending.Add(started);
-                    break;
-
-                case "tool.execution_complete" when root.Obj("data")?.Str("toolCallId") is { } completed:
-                    pending.Remove(completed);
-                    break;
-            }
-        } catch {
-            // Ignore malformed / non-JSON lines — never break the drain loop
-        }
-    }
-
-    internal static void UpdateCodexPendingToolCalls(HashSet<string> pending, string line) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("type") != "response_item") return;
-
-            var payload = root.Obj("payload");
-
-            if (payload is not { } p) return;
-
-            var callId = p.Str("call_id");
-
-            if (callId is null) return;
-
-            switch (p.Str("type")) {
-                case "function_call"
-                  or "custom_tool_call":
-                    pending.Add(callId);
-                    break;
-
-                case "function_call_output"
-                  or "custom_tool_call_output":
-                    pending.Remove(callId);
-                    break;
-            }
-        } catch {
-            // Ignore malformed / non-JSON lines — never break the drain loop
-        }
-    }
-
-    /// <summary>
-    /// Claude's counterpart to <see cref="UpdateCodexPendingToolCalls"/>, guarding the subagent
-    /// idle ceiling: a <c>tool_use</c> block adds its <c>id</c>, the matching <c>tool_result</c>
-    /// removes it via <c>tool_use_id</c>. While the set is non-empty the subagent has a tool
-    /// running and transcript silence is expected, so the ceiling is suppressed.
-    ///
-    /// Keyed off the content blocks rather than the record's top-level <c>type</c>: the block
-    /// types are what actually carry the ids, so this stays correct regardless of how the
-    /// envelope is labelled.
-    /// </summary>
-    /// <summary>
-    /// Which watchers feed <see cref="UpdateClaudePendingToolCalls"/>. Must stay in step with the
-    /// watchers <see cref="ShouldEndOnIdle"/> gives a ceiling to: one that is reaped on idle but
-    /// never tracks its tool calls has no in-flight suppression and would end a live subagent
-    /// mid-build.
-    /// </summary>
-    internal static bool TracksClaudeToolCalls(string vendor, bool isSessionWatcher) =>
-        vendor == "claude" && !isSessionWatcher;
-
-    /// <summary>
-    /// Rebuilds the in-flight set from the lines before a resume cursor. A watcher that reconnects
-    /// mid-tool starts draining at the server's line position and never sees the <c>tool_use</c> that
-    /// opened before it, so the set would come up empty and the ceiling would treat a live subagent as
-    /// idle.
-    /// </summary>
-    internal static TranscriptReplayConsumer ClaudePendingToolCallsReplay(HashSet<string> pending) =>
-        new(WindowOnly: true, line => {
-            UpdateClaudePendingToolCalls(pending, line);
-            return false;
-        });
-
-    internal static void UpdateClaudePendingToolCalls(HashSet<string> pending, string line) {
-        try {
-            using var doc = JsonDocument.Parse(line);
-
-            if (doc.RootElement.Obj("message")?.Arr("content") is not { } content) return;
-
-            foreach (var block in content.EnumerateArray()) {
-                switch (block.Str("type")) {
-                    case "tool_use" when block.Str("id") is { } id:
-                        pending.Add(id);
-                        break;
-
-                    case "tool_result" when block.Str("tool_use_id") is { } resultId:
-                        pending.Remove(resultId);
-                        break;
-                }
-            }
-        } catch {
-            // Ignore malformed / non-JSON lines — never break the drain loop
-        }
-    }
 
     internal async Task<bool> PostSessionEndOnParentExitAsync(
             string             sessionId,
@@ -2731,9 +2245,6 @@ partial class WatchCommand(
         return false;
     }
 
-    static readonly Regex CommandNameRegex = CommandNameRx();
-    static          bool  parseErrorLogged;
-
     // review fix #2/#3 — internal (not private) so the Cursor rewrite-guard wiring
     // (shrink detection, the periodic full-prefix cadence, and the acked-byte-offset checkpoint)
     // is directly regression-testable: every path exercised by those tests trips the guard and
@@ -2991,7 +2502,7 @@ partial class WatchCommand(
             // into state.KiroUsageEmittedAnchors only after a successful send (below), so a failed
             // batch re-reads and re-stages the same anchors next drain.
             if (vendor == "kiro" && (agentId is not null || state.ThresholdReached)) {
-                AppendKiroUsageBackfillLines(state, newLines, newLineNumbers, transcriptPath, time);
+                AppendKiroUsageBackfillLines(state, newLines, newLineNumbers, transcriptPath, message => Log(time, message));
             }
 
             if (newLines.Count > 0) {
@@ -3068,13 +2579,13 @@ partial class WatchCommand(
                                 continue;
                             }
 
-                            var userText = TryExtractUserText(scanLine, time, vendor);
+                            var userText = TryExtractUserText(scanLine, vendor, _parseErrors);
 
                             if (userText is null) {
                                 continue;
                             }
 
-                            SetFirstUserText(state, userText, time);
+                            SetFirstUserText(state, userText, message => Log(time, message));
 
                             if (state.FirstUserText is not null) {
                                 break;
@@ -3089,8 +2600,8 @@ partial class WatchCommand(
 
                 // Also check new lines (normal path)
                 if (state.FirstUserText is null && newLines.Count > 0) {
-                    foreach (var userText in newLines.Select(line => TryExtractUserText(line, time, vendor)).OfType<string>()) {
-                        SetFirstUserText(state, userText, time);
+                    foreach (var userText in newLines.Select(line => TryExtractUserText(line, vendor, _parseErrors)).OfType<string>()) {
+                        SetFirstUserText(state, userText, message => Log(time, message));
 
                         if (state.FirstUserText is not null) {
                             break;
@@ -3151,7 +2662,7 @@ partial class WatchCommand(
                     state.BufferedLineNumbers.AddRange(newLineNumbers);
                     state.LinesReadAhead = linesRead;
 
-                    if (!ShouldFlushBuffer(state.BufferedLines, vendor, time)) {
+                    if (!ShouldFlushBuffer(state.BufferedLines, vendor, _parseErrors)) {
                         if (state.BufferedLines.Count != previouslyBuffered) {
                             Log(time, $"Buffering {state.BufferedLines.Count}/{WatchState.TranscriptThreshold} line(s) until a real turn");
                         }
@@ -3183,7 +2694,7 @@ partial class WatchCommand(
             // first send — it can't be backfilled (the server dedupes Kiro events by canonical id).
             // Best-effort; rationale in the design spec.
             if (vendor == "kiro" && newLines.Count > 0) {
-                newLines = EnrichKiroContextUsage(newLines, transcriptPath, time);
+                newLines = EnrichKiroContextUsage(newLines, transcriptPath, _kiroWarnings);
             }
 
             // Evidence-based repo detection for a session launched outside any repo — extracted
@@ -3525,23 +3036,11 @@ partial class WatchCommand(
         return result;
     }
 
-    static void SetFirstUserText(WatchState state, string userText, TimeProvider time) {
-        var cmdMatch = CommandNameRegex.Match(userText);
-
-        if (cmdMatch.Success) {
-            // Skip slash commands — wait for the next real user prompt to generate the title
-            Log(time, $"Skipping slash command /{cmdMatch.Groups[1].Value} for title generation");
-
-            return;
-        }
-
-        state.FirstUserText = userText;
-    }
-
     /// <summary>The first prompt and first reply a title is generated from, read the way the watch loop reads them,
     /// for a generator that runs after the watcher is gone.</summary>
     internal static (string? UserText, string? AssistantText) ReadTitleContext(string transcriptPath, string vendor, TimeProvider time) {
-        var state = new WatchState();
+        var state       = new WatchState();
+        var parseErrors = new OnceLog(message => Log(time, message));
 
         using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using var reader = new StreamReader(stream);
@@ -3549,264 +3048,13 @@ partial class WatchCommand(
         while (reader.ReadLine() is { } line && (state.FirstUserText is null || state.FirstAssistantText is null)) {
             if (string.IsNullOrWhiteSpace(line)) continue;
 
-            if (state.FirstUserText is null && TryExtractUserText(line, time, vendor) is { } userText) SetFirstUserText(state, userText, time);
+            if (state.FirstUserText is null && TryExtractUserText(line, vendor, parseErrors) is { } userText) SetFirstUserText(state, userText, message => Log(time, message));
 
             if (state.FirstAssistantText is null && TryExtractAssistantText(line, vendor) is { } assistantText)
                 state.FirstAssistantText = assistantText.Length > 300 ? assistantText[..300] : assistantText;
         }
 
         return (state.FirstUserText, state.FirstAssistantText);
-    }
-
-    internal static string? TryExtractAssistantText(string line, string vendor = "claude") =>
-        vendor switch {
-            "codex"    => TryExtractCodexAssistantText(line),
-            "copilot"  => TryExtractCopilotAssistantText(line),
-            "kiro"     => TryExtractKiroAssistantText(line),
-            "pi"       => TryExtractPiAssistantText(line),
-            "opencode" => TryExtractOpenCodeText(line, "assistant"),
-            "antigravity" => TryExtractAntigravityText(line, "assistant"),
-            "grok"     => TryExtractGrokText(line, "agent_message_chunk"),
-            _          => TryExtractClaudeAssistantText(line)
-        };
-
-    static string? TryExtractClaudeAssistantText(string line) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("type") != "assistant") {
-                return null;
-            }
-
-            if (root.Obj("message")?.Arr("content") is not { } content) {
-                return null;
-            }
-
-            foreach (var block in content.EnumerateArray()) {
-                if (block.Str("type") == "text") {
-                    var text = block.Str("text")?.Trim();
-
-                    if (!string.IsNullOrEmpty(text)) {
-                        return text;
-                    }
-                }
-            }
-        } catch {
-            // Ignore parse errors
-        }
-
-        return null;
-    }
-
-    static string? TryExtractCodexAssistantText(string line) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("type") != "response_item") return null;
-
-            var payload = root.Obj("payload");
-
-            if (payload?.Str("type") != "message" || payload.Value.Str("role") != "assistant") return null;
-
-            return TitleGenerator.ExtractCodexBlockText(payload.Value, "output_text")?.Trim() is { Length: > 0 } text ? text : null;
-        } catch {
-            return null;
-        }
-    }
-
-    internal static bool IsEvent(string line, string vendor = "claude") {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (vendor == "copilot") {
-                // user.message / assistant.message are the only conversational
-                // envelopes; everything else (hook.*, system.*, tool.*,
-                // session.*) is plumbing and must not count toward the
-                // title-generation event threshold.
-                return root.Str("type") is "user.message" or "assistant.message";
-            }
-
-            if (vendor == "kiro") {
-                // Prompt / AssistantMessage are the conversational lines;
-                // ToolResults is plumbing and must not count toward the
-                // title-generation event threshold.
-                return root.Str("kind") is "Prompt" or "AssistantMessage";
-            }
-
-            if (vendor == "codex") {
-                // Codex rolls everything into a top-level response_item envelope;
-                // a "message" payload (user or assistant) is the analog of Claude's
-                // user/assistant event for title-threshold purposes. User-role
-                // payloads that are codex-injected preludes
-                // (<environment_context>, AGENTS.md, <turn_aborted>) must NOT
-                // count — otherwise a fresh session with no real prompts can
-                // reach the 5-event threshold and produce a low-context title.
-                if (root.Str("type") != "response_item") return false;
-
-                var payload = root.Obj("payload");
-
-                if (payload?.Str("type") != "message") return false;
-
-                var role = payload.Value.Str("role");
-
-                return role switch {
-                    "assistant" => true,
-                    "user"      => TitleGenerator.ExtractCodexBlockText(payload.Value, "input_text") is { } text
-                                && !TitleGenerator.IsCodexInjectedUserPrelude(text),
-                    _           => false
-                };
-            }
-
-            if (vendor == "pi") {
-                // Pi conversational envelopes are type:"message" with
-                // message.role user/assistant (Pi has no top-level user/assistant
-                // type). Gate on CONTENT, not just role: an empty user/assistant
-                // envelope produces no canonical event (the server's NormalizeUser
-                // returns null for empty content, NormalizeAssistant for zero
-                // parts), so it must not count toward the title-event threshold
-                // either. Mirrors PiImportSource.IsImportRelevantLine.
-                if (root.Str("type") != "message") return false;
-                if (root.Obj("message") is not { } piMsg) return false;
-
-                return piMsg.Str("role") switch {
-                    "user"      => PiContent.HasUserContent(piMsg),
-                    "assistant" => PiContent.HasAssistantContent(piMsg),
-                    _           => false
-                };
-            }
-
-            if (vendor == "opencode") {
-                // OpenCode envelopes are {info,parts} with info.role user/assistant.
-                // Gate on text content: a turn with no non-hidden text (e.g. tool-only)
-                // yields no titleable text, so it must not count toward the title-event
-                // threshold. Mirrors the Pi content gate.
-                if (root.Obj("info")?.Str("role") is not ("user" or "assistant")) return false;
-
-                return OpenCodeTextParts(root.Arr("parts")) is not null;
-            }
-
-            if (vendor == "antigravity") {
-                // Antigravity transcript_full.jsonl lines carry a `type`; only the two
-                // conversational steps count toward the title-event threshold, and only
-                // when they have text (a tool-only PLANNER_RESPONSE or an empty prompt
-                // yields no titleable text). Everything else (RUN_COMMAND, VIEW_FILE,
-                // GENERIC, CHECKPOINT, INVOKE_SUBAGENT, SYSTEM_*) is plumbing.
-                return root.Str("type") switch {
-                    "USER_INPUT"       => TryExtractAntigravityText(line, "user")      is not null,
-                    "PLANNER_RESPONSE" => TryExtractAntigravityText(line, "assistant") is not null,
-                    _                  => false
-                };
-            }
-
-            if (vendor == "grok") return TryExtractGrokText(line, "user_message_chunk") is not null
-                                      || TryExtractGrokText(line, "agent_message_chunk") is not null;
-
-            return root.Str("type") is "user" or "assistant";
-        } catch {
-            return false;
-        }
-    }
-
-    internal static string? TryExtractUserText(string line, TimeProvider time, string vendor = "claude") =>
-        vendor switch {
-            "codex"    => TryExtractCodexUserText(line, time),
-            "copilot"  => TryExtractCopilotUserText(line),
-            "kiro"     => TryExtractKiroUserText(line),
-            "pi"       => TryExtractPiUserText(line),
-            "opencode" => TryExtractOpenCodeText(line, "user"),
-            "antigravity" => TryExtractAntigravityText(line, "user"),
-            "grok"     => TryExtractGrokText(line, "user_message_chunk"),
-            _          => TryExtractClaudeUserText(line, time)
-        };
-
-    // Grok's updates.jsonl lines are ACP session/update notifications, each text run whole.
-    static string? TryExtractGrokText(string line, string sessionUpdate) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("method") != "session/update") return null;
-            if (root.Obj("params")?.Obj("update") is not { } update || update.Str("sessionUpdate") != sessionUpdate) return null;
-
-            return update.Obj("content")?.Str("text")?.Trim() is { Length: > 0 } text ? text : null;
-        } catch {
-            return null;
-        }
-    }
-
-    // ── OpenCode extractors ───────────────────────────────────────────
-    //
-    // OpenCode transcript lines are {info,parts} with info.role user/assistant. Title
-    // text is the joined non-hidden text parts — mirrors the server's
-    // OpenCodeTranscriptNormalizer.ExtractText so the watcher's titles match ingest.
-    static string? TryExtractOpenCodeText(string line, string role) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Obj("info")?.Str("role") != role) return null;
-
-            return OpenCodeTextParts(root.Arr("parts"));
-        } catch {
-            return null;
-        }
-    }
-
-    static string? OpenCodeTextParts(JsonElement? parts) {
-        if (parts is not { } arr) return null;
-
-        var pieces = new List<string>();
-        foreach (var part in arr.EnumerateArray()) {
-            if (part.Str("type") != "text") continue;
-            if (part.TryGetProperty("synthetic", out var syn) && syn.ValueKind == JsonValueKind.True) continue;
-            if (part.TryGetProperty("ignored",   out var ign) && ign.ValueKind == JsonValueKind.True) continue;
-            if (part.Str("text")?.Trim() is { Length: > 0 } t) pieces.Add(t);
-        }
-
-        return pieces.Count > 0 ? string.Join("\n", pieces) : null;
-    }
-
-    // ── Antigravity extractors ────────────────────────────────────────
-    //
-    // Antigravity writes brain/<id>/.system_generated/logs/transcript_full.jsonl as
-    // {step_index, source, type, status, content, thinking, tool_calls, …} lines.
-    // USER_INPUT (source USER_EXPLICIT) carries the prompt wrapped in
-    // <USER_REQUEST>…</USER_REQUEST> plus trailing <ADDITIONAL_METADATA>/
-    // <USER_SETTINGS_CHANGE> blocks; PLANNER_RESPONSE (source MODEL) carries the
-    // assistant's visible `content`. Mirrors the server's
-    // AntigravityTranscriptNormalizer so watcher titles match ingest.
-    static string? TryExtractAntigravityText(string line, string role) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            var want = role == "user" ? "USER_INPUT" : "PLANNER_RESPONSE";
-            if (root.Str("type") != want) return null;
-
-            if (root.Str("content")?.Trim() is not { Length: > 0 } content) return null;
-
-            return role == "user" ? StripAntigravityUserWrapper(content) : content;
-        } catch {
-            return null;
-        }
-    }
-
-    // Pull the human prompt out of the <USER_REQUEST> envelope, dropping the trailing
-    // metadata blocks Antigravity appends. Falls back to the raw text when no envelope
-    // is present.
-    static string? StripAntigravityUserWrapper(string content) {
-        const string open = "<USER_REQUEST>", close = "</USER_REQUEST>";
-        var start = content.IndexOf(open, StringComparison.Ordinal);
-        if (start < 0) return content;
-
-        start += open.Length;
-        var end   = content.IndexOf(close, start, StringComparison.Ordinal);
-        var inner = (end < 0 ? content[start..] : content[start..end]).Trim();
-
-        return inner.Length > 0 ? inner : null;
     }
 
     // Synthetic USAGE line numbers live in a high band so they never collide with real
@@ -3838,157 +3086,6 @@ partial class WatchCommand(
             Log(time, $"Antigravity usage poll failed: {ex.Message}");
         }
         return maxIdx;
-    }
-
-    // Task 10: Kiro's per-turn credits/context% live in the sidecar {id}.json, not the
-    // .jsonl the live watcher tails (see KiroUsage docs) — the import path enriches the anchor
-    // AssistantMessage line inline because it reads the whole file up front, but a live drain has
-    // already sent that line by the time Kiro flushes the sidecar. So the live path emits a
-    // synthetic KiroUsageBackfilled line per turn anchor instead (server: Task 12 folds it into a
-    // backfill event, deterministic id keyed on the anchor — never the same shape/idea as a real
-    // transcript line, hence its own kind). High band keeps its line numbers clear of both real
-    // transcript lines and Antigravity's synthetic USAGE band (AntigravityUsageLineBase).
-    const long KiroUsageLineBase = 2_000_000_000L;
-
-    /// <summary>
-    /// Builds the synthetic JSONL line the server recognizes as a Kiro usage backfill for one
-    /// turn anchor (the turn's final <c>message_id</c>). <paramref name="contextPct"/> is omitted
-    /// when absent, mirroring <see cref="KiroUsage.EnrichLine"/>'s optional-field handling.
-    /// </summary>
-    internal static string BuildKiroUsageBackfillLine(string anchor, double credits, double? contextPct) {
-        var data = new JsonObject {
-            ["message_id"] = anchor,
-            ["credits"]    = credits,
-        };
-        if (contextPct is { } pct) data["context_usage_percentage"] = pct;
-
-        var root = new JsonObject {
-            ["kind"] = "KiroUsageBackfilled",
-            ["data"] = data,
-        };
-        return root.ToJsonString();
-    }
-
-    /// <summary>
-    /// Reads the sidecar <c>{id}.json</c> next to <paramref name="transcriptPath"/> and appends a
-    /// synthetic <see cref="BuildKiroUsageBackfillLine"/> line for each turn anchor NOT already in
-    /// <see cref="WatchState.KiroUsageEmittedAnchors"/>, staging the newly-seen anchors on
-    /// <see cref="WatchState.KiroUsagePendingAnchors"/> for the caller to commit after a successful
-    /// send (mirrors <see cref="AppendAntigravityUsageLines"/>'s watermark-after-send contract, but
-    /// keyed on anchor strings rather than a monotonic row index). Returns the count staged (0 on a
-    /// missing/malformed sidecar or when every turn's anchor is already emitted) — never throws;
-    /// usage is always best-effort.
-    /// </summary>
-    internal static long AppendKiroUsageBackfillLines(WatchState state, List<string> newLines, List<int> newLineNumbers, string transcriptPath, TimeProvider time) {
-        state.KiroUsagePendingAnchors.Clear();
-        var staged = 0L;
-        try {
-            var metaPath = Path.ChangeExtension(transcriptPath, ".json");
-            if (!File.Exists(metaPath)) return 0;
-
-            var anchors = KiroUsage.AnchorMap(File.ReadAllTextShared(metaPath)); // never lock Kiro out of its own sidecar
-            var offset  = 0;
-
-            foreach (var (anchor, usage) in anchors) {
-                if (state.KiroUsageEmittedAnchors.Contains(anchor)) { offset++; continue; }
-
-                // Task 10 scope is credits/context% only — tokens stay upstream-blocked,
-                // so a turn with only (dormant, zero) token counts has nothing to backfill yet.
-                if (usage.Credits == 0 && usage.ContextPct is null) { offset++; continue; }
-
-                newLines.Add(BuildKiroUsageBackfillLine(anchor, usage.Credits, usage.ContextPct));
-                newLineNumbers.Add((int)(KiroUsageLineBase + offset));
-                state.KiroUsagePendingAnchors.Add(anchor);
-                staged++;
-                offset++;
-            }
-        } catch (Exception ex) {
-            // Usage is always best-effort — never let a sidecar read break the drain.
-            Log(time, $"Kiro usage backfill poll failed: {ex.Message}");
-        }
-        return staged;
-    }
-
-    /// <summary>
-    /// Kiro live context-%: returns <paramref name="lines"/> with each Kiro AssistantMessage line
-    /// stamped with <c>data._kcap_usage.context_usage_percentage</c> from the sibling <c>{id}.json</c>
-    /// (reusing <see cref="KiroUsage.AnchorMap"/> + <see cref="KiroUsage.EnrichLine"/>). The sibling is
-    /// derived from the transcript path (dashed on disk), not the dashless <c>sessionId</c>.
-    /// Best-effort, order-preserving — never throws, never drops a line. See the design spec.
-    /// </summary>
-    internal static List<string> EnrichKiroContextUsage(List<string> lines, string transcriptPath, TimeProvider time) {
-        // Nothing to enrich unless the batch has an AssistantMessage line — skip the file read entirely.
-        if (!lines.Any(static l => l.Contains("AssistantMessage", StringComparison.Ordinal))) return lines;
-        try {
-            var siblingJson = Path.ChangeExtension(transcriptPath, ".json");
-            if (!File.Exists(siblingJson)) return lines;
-
-            var anchors = KiroUsage.AnchorMap(File.ReadAllTextShared(siblingJson)); // never lock Kiro out of its own sidecar
-            if (anchors.Count == 0) return lines;
-
-            return lines.Select(l => KiroUsage.EnrichLine(l, anchors)).ToList();
-        } catch (Exception ex) {
-            // Log the first failure only — a persistently unreadable/malformed sibling would otherwise
-            // spam one line per flush and drown out real warnings.
-            if (!_kiroEnrichWarned) {
-                _kiroEnrichWarned = true;
-                Log(time, $"Kiro context-% enrichment failed (further failures suppressed): {ex.Message}");
-            }
-            return lines;
-        }
-    }
-
-    static bool _kiroEnrichWarned;
-
-    /// <summary>
-    /// Subagent-orchestration tool calls whose result arrives ASYNCHRONOUSLY via a separate
-    /// conversation (the child reports back through <c>brain/&lt;parent&gt;/.system_generated/
-    /// messages</c>, not as a result STEP in the parent's own transcript). They therefore never
-    /// produce a decrement step, so counting them as "in flight" would pin
-    /// <see cref="WatchState.PendingAntigravityToolCalls"/> above zero forever and permanently
-    /// suppress the parent's idle-end — a subagent-invoking conversation would only end when
-    /// Antigravity quits. They do not block the parent's idleness, so they are excluded
-    /// from the pending count.
-    /// </summary>
-    static readonly HashSet<string> AsyncAntigravityToolCalls =
-        new(StringComparer.OrdinalIgnoreCase) { "invoke_subagent", "define_subagent" };
-
-    /// <summary>
-    /// Tracks Antigravity tool calls in flight from a transcript line: a PLANNER_RESPONSE adds
-    /// its tool_calls count (excluding async subagent-orchestration calls, see
-    /// <see cref="AsyncAntigravityToolCalls"/>); a result step (RUN_COMMAND/VIEW_FILE/
-    /// LIST_DIRECTORY/CODE_ACTION) removes one. Safe to call for any line — non-matching /
-    /// malformed lines are ignored — so the count reflects whether a (possibly long-running)
-    /// tool is awaiting its in-transcript result.
-    /// </summary>
-    internal static void UpdateAntigravityPendingToolCalls(WatchState state, string line) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object) return;
-
-            switch (root.Str("type")) {
-                case "PLANNER_RESPONSE":
-                    if (root.Arr("tool_calls") is { } calls)
-                        state.PendingAntigravityToolCalls += calls.EnumerateArray()
-                            .Count(tc => tc.Str("name") is { } name && !AsyncAntigravityToolCalls.Contains(name));
-                    break;
-                case "RUN_COMMAND" or "VIEW_FILE" or "LIST_DIRECTORY" or "CODE_ACTION":
-                    if (state.PendingAntigravityToolCalls > 0) state.PendingAntigravityToolCalls--;
-                    break;
-            }
-        } catch {
-            // Never break the drain loop on a malformed line.
-        }
-    }
-
-    static string? TryGetAntigravityCreatedAt(string line) {
-        try {
-            using var doc = JsonDocument.Parse(line);
-            return doc.RootElement.ValueKind == JsonValueKind.Object ? doc.RootElement.Str("created_at") : null;
-        } catch {
-            return null;
-        }
     }
 
     /// <summary>
@@ -4049,218 +3146,6 @@ partial class WatchCommand(
             return false;
         }
     }
-
-    // ── Kiro extractors ───────────────────────────────────────────
-    //
-    // Kiro CLI writes ~/.kiro/sessions/cli/{id}.jsonl as {"version","kind","data"}
-    // lines: kind "Prompt" (user) / "AssistantMessage" / "ToolResults", whose
-    // data.content[] holds {"kind":"text"|"toolUse"|"toolResult","data":…} blocks.
-    // For titles we want the first user prompt and the first assistant text.
-
-    static string? TryExtractKiroUserText(string line) => KiroLineText(line, "Prompt");
-
-    static string? TryExtractKiroAssistantText(string line) => KiroLineText(line, "AssistantMessage");
-
-    static string? KiroLineText(string line, string kind) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("kind") != kind) return null;
-            if (root.Obj("data")?.Arr("content") is not { } content) return null;
-
-            foreach (var block in content.EnumerateArray()) {
-                if (block.Str("kind") == "text" && block.Str("data")?.Trim() is { Length: > 0 } text)
-                    return text;
-            }
-        } catch {
-            // Ignore parse errors
-        }
-
-        return null;
-    }
-
-    // ── Copilot extractors ────────────────────────────────────────
-    //
-    // Copilot's events.jsonl envelope: {type, data, id, timestamp, parentId,
-    // agentId?}. Subagent-tagged events (agentId set) are skipped — a
-    // subagent's user.message is the parent's task prompt, not something the
-    // human typed, and using it for the title would mislabel the session.
-
-    static string? TryExtractCopilotUserText(string line) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("type") != "user.message") return null;
-            if (root.Str("agentId") is not null) return null;
-
-            // data.content is the clean prompt; transformedContent wraps it in
-            // injected <current_datetime>/<system_reminder> noise.
-            var text = root.Obj("data")?.Str("content")?.Trim();
-
-            return string.IsNullOrEmpty(text) ? null : text;
-        } catch {
-            return null;
-        }
-    }
-
-    static string? TryExtractCopilotAssistantText(string line) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("type") != "assistant.message") return null;
-            if (root.Str("agentId") is not null) return null;
-
-            var text = root.Obj("data")?.Str("content")?.Trim();
-
-            return string.IsNullOrEmpty(text) ? null : text;
-        } catch {
-            return null;
-        }
-    }
-
-    // ── Pi extractors ─────────────────────────────────────────────
-    //
-    // Pi emits type:"message" with message.role user/assistant — NOT Claude's
-    // top-level type:"user"/"assistant" — so the watcher title path needs its
-    // own branch (mirrors the server PiTranscriptNormalizer mapping). Content is
-    // a string or an array of {type:"text",text} blocks.
-
-    static string? TryExtractPiUserText(string line) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("type") != "message") return null;
-            if (root.Obj("message") is not { } msg) return null;
-            if (msg.Str("role") != "user") return null;
-
-            if (msg.Str("content")?.Trim() is { Length: > 0 } strContent) return strContent;
-
-            if (msg.Arr("content") is { } content) {
-                foreach (var block in content.EnumerateArray()) {
-                    if (block.Str("type") == "text" && block.Str("text")?.Trim() is { Length: > 0 } text) {
-                        return text;
-                    }
-                }
-            }
-        } catch {
-            // Ignore parse errors
-        }
-
-        return null;
-    }
-
-    static string? TryExtractPiAssistantText(string line) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("type") != "message") return null;
-            if (root.Obj("message") is not { } msg) return null;
-            if (msg.Str("role") != "assistant") return null;
-
-            if (msg.Arr("content") is { } content) {
-                foreach (var block in content.EnumerateArray()) {
-                    if (block.Str("type") == "text" && block.Str("text")?.Trim() is { Length: > 0 } text) {
-                        return text;
-                    }
-                }
-            }
-        } catch {
-            // Ignore parse errors
-        }
-
-        return null;
-    }
-
-    static string? TryExtractClaudeUserText(string line, TimeProvider time) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("type") != "user") {
-                return null;
-            }
-
-            // Skip system-injected meta messages (e.g. <local-command-caveat>)
-            if (root.TryGetProperty("isMeta", out var metaProp) && metaProp.ValueKind == JsonValueKind.True) {
-                return null;
-            }
-
-            var msg = root.Obj("message");
-
-            // message.content can be a string or an array
-            if (msg?.Str("content") is { } strContent) {
-                return strContent.StartsWith("<local-command-stdout>") ? null : StripSystemInstructions(strContent);
-            }
-
-            if (msg?.Arr("content") is { } arrContent) {
-                foreach (var element in arrContent.EnumerateArray()) {
-                    if (element.Str("type") == "text" && element.Str("text") is { } text
-                     && !text.StartsWith("<local-command-stdout>")) {
-                        return StripSystemInstructions(text);
-                    }
-                }
-            }
-        } catch (Exception ex) {
-            if (!parseErrorLogged) {
-                parseErrorLogged = true;
-                Log(time, $"TryExtractUserText parse error (further errors suppressed): {ex.Message}");
-            }
-        }
-
-        return null;
-    }
-
-    static string? TryExtractCodexUserText(string line, TimeProvider time) {
-        try {
-            using var doc  = JsonDocument.Parse(line);
-            var       root = doc.RootElement;
-
-            if (root.Str("type") != "response_item") return null;
-
-            var payload = root.Obj("payload");
-
-            if (payload?.Str("type") != "message" || payload.Value.Str("role") != "user") return null;
-
-            // Skip codex-injected wrappers (environment_context, AGENTS.md, turn_aborted).
-            // These role:"user" payloads precede the real prompt and would otherwise be
-            // used as the title context. Prelude list and block extractor live in
-            // TitleGenerator so the offline-import and live-watch paths stay in sync.
-            var text = TitleGenerator.ExtractCodexBlockText(payload.Value, "input_text");
-
-            return text is null || TitleGenerator.IsCodexInjectedUserPrelude(text) ? null : text;
-        } catch (Exception ex) {
-            if (!parseErrorLogged) {
-                parseErrorLogged = true;
-                Log(time, $"TryExtractUserText (codex) parse error (further errors suppressed): {ex.Message}");
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Strips XML-like system instruction blocks from user text so they don't pollute title generation.
-    /// Removes content between tags like &lt;system_instructions&gt;, &lt;system-reminder&gt;, etc.
-    /// </summary>
-    internal static string? StripSystemInstructions(string? text) {
-        if (text is null) {
-            return null;
-        }
-
-        var stripped = SystemInstructionsRegex.Replace(text, "").Trim();
-
-        return stripped.Length > 0 ? stripped : null;
-    }
-
-    [GeneratedRegex(@"<(system_instructions|system-instructions|system-reminder|system_reminder|SYSTEM_INSTRUCTIONS)\b[^>]*>[\s\S]*?</\1>", RegexOptions.IgnoreCase)]
-    private static partial Regex SystemInstructionsRx();
-
-    static readonly Regex SystemInstructionsRegex = SystemInstructionsRx();
 
     async Task GenerateTitleAsync(HubConnection hubConnection, string sessionId, WatchState state, string vendor) {
         try {
@@ -4793,247 +3678,6 @@ partial class WatchCommand(
         Console.Error.WriteLine($"[{time.GetLocalNow():HH:mm:ss.fff}] [watch] {message}");
 
     /// <summary>
-    /// Result of a transcript drain read: the new non-blank <see cref="Lines"/> (beyond the
-    /// caller's processed position), their 0-based <see cref="LineNumbers"/>, the
-    /// <see cref="NextPosition"/> the caller should advance its watermark to, and
-    /// <see cref="HeldIncompleteFinalLine"/> — true when a non-blank, unterminated (or, under
-    /// <see cref="IncompleteFinalLinePolicy.ConsumeIfComplete"/>, unparseable) final line was held
-    /// back rather than consumed. The shutdown final drain uses this to flag the session
-    /// needs-import instead of silently dropping a truncated tail. <see cref="SnapshotBytes"/> is
-    /// the raw byte buffer captured during THIS same capped read, starting at absolute file offset
-    /// <see cref="SnapshotStartOffset"/> (0 by default — the true file start) and running
-    /// <see cref="SnapshotByteLength"/> - <see cref="SnapshotStartOffset"/> bytes — populated only
-    /// when the caller opts in via <c>captureRawBytes</c> (<see cref="ReadNewCompleteLinesAsync"/>)
-    /// — so the Cursor rewrite guard can hash the EXACT bytes that decoded <see cref="Lines"/>
-    /// instead of a later, separately-reopened disk read (review fix #1: the previous
-    /// two-read wiring left a TOCTOU window between decoding the batch and hashing it).
-    ///
-    /// <see cref="SnapshotStartOffset"/> is non-zero whenever
-    /// the caller asked for a BOUNDED capture (<c>rawBytesReadFrom</c> on
-    /// <see cref="ReadNewCompleteLinesAsync"/>): <see cref="SnapshotBytes"/> then only spans the
-    /// guard's prior-tail zone plus the new range, not the whole file, so a poll with little/no new
-    /// content allocates ~nothing instead of a file-sized buffer every second.
-    /// </summary>
-    public readonly record struct NewTranscriptLines(
-        List<string> Lines,
-        List<int>    LineNumbers,
-        int          NextPosition,
-        bool         HeldIncompleteFinalLine = false,
-        long         SnapshotByteLength      = 0,
-        byte[]?      SnapshotBytes           = null,
-        long         SnapshotStartOffset     = 0);
-
-    /// <summary>
-    /// Policy for an unterminated (no trailing newline) final transcript line at drain time.
-    /// </summary>
-    public enum IncompleteFinalLinePolicy {
-        /// <summary>Every normal live drain: ALWAYS hold an unterminated final line — the agent is
-        /// mid-write of it, and consuming its truncated prefix would permanently drop the completed
-        /// line.</summary>
-        Hold,
-
-        /// <summary>The shutdown final drain: consume the unterminated final line
-        /// ONLY IF the exact bytes read parse as a complete JSON record; otherwise hold it. The
-        /// parseable-JSON check runs on the SAME bytes being consumed, so there is no TOCTOU with a
-        /// separate pre-read completeness probe — a line that resumed growing into an incomplete
-        /// record after any earlier probe is still held, never sent-and-advanced.</summary>
-        ConsumeIfComplete
-    }
-
-    /// <summary>
-    /// Split <paramref name="fileText"/> into the new complete (newline-terminated) transcript
-    /// lines beyond <paramref name="linesProcessed"/>. A final line that is NOT newline-terminated
-    /// means the agent is mid-write of it: it is held back — excluded from the batch AND from
-    /// <see cref="NewTranscriptLines.NextPosition"/> — so a later drain re-reads it once complete.
-    /// Consuming it would send a truncated line that fails to normalize server-side and permanently
-    /// drop the completed line (the "endless reads" bug; large Read tool_result lines were
-    /// the common victim). Blank lines are skipped from the output but still advance the position,
-    /// matching the long-standing drain behaviour.
-    /// </summary>
-    public static NewTranscriptLines SplitNewCompleteLines(
-            string                    fileText,
-            int                       linesProcessed,
-            IncompleteFinalLinePolicy policy = IncompleteFinalLinePolicy.Hold
-        ) {
-        var newLines       = new List<string>();
-        var newLineNumbers = new List<int>();
-
-        var endsWithNewline = fileText.Length == 0 || fileText[^1] == '\n';
-
-        using var reader    = new StringReader(fileText);
-        var       lineIndex = 0;
-
-        while (reader.ReadLine() is { } line) {
-            if (lineIndex >= linesProcessed && !string.IsNullOrWhiteSpace(line)) {
-                newLines.Add(line);
-                newLineNumbers.Add(lineIndex);
-            }
-
-            lineIndex++;
-        }
-
-        // this string-based helper has no independent byte-length sample
-        // of its own (its caller already materialized the whole file into `fileText` elsewhere),
-        // so SnapshotByteLength stays at its default (0, unused here) — only
-        // ReadNewCompleteLinesAsync below (the Cursor watcher's actual read path) populates it.
-        return ApplyPartialLineHoldback(
-            newLines, newLineNumbers, nextPosition: lineIndex, linesProcessed, endsWithNewline, policy);
-    }
-
-    /// <summary>
-    /// Task 11 (D0/D3) — reads exactly <paramref name="buffer"/>'s length worth of bytes
-    /// from <paramref name="stream"/>'s CURRENT position, looping until the buffer is full or EOF
-    /// is hit. Used by the Cursor watcher's runtime rewrite-guard byte-range checks, which need
-    /// a definite byte count (a single <see cref="Stream.ReadAsync(Memory{byte},CancellationToken)"/>
-    /// call is not guaranteed to fill the buffer). Returns the number of bytes actually read.
-    /// </summary>
-    static async Task<int> ReadFullyAsync(FileStream stream, byte[] buffer, CancellationToken ct) {
-        var total = 0;
-
-        while (total < buffer.Length) {
-            var n = await stream.ReadAsync(buffer.AsMemory(total, buffer.Length - total), ct);
-            if (n == 0) break;
-            total += n;
-        }
-
-        return total;
-    }
-
-    /// <summary>
-    /// maps a server-acknowledged LINE count within the Cursor guard's
-    /// freshly-verified new-range byte buffer to the byte offset immediately after that many
-    /// lines' terminating newlines. <paramref name="range"/> spans file bytes starting at
-    /// <paramref name="rangeStartOffset"/>; <paramref name="ackedLineCount"/> is how many of the
-    /// lines within it the server's source-acknowledgement frontier actually disposed of (D3's
-    /// per-line halt-at-the-gap — fewer than were sent whenever a line is retry-blocked or
-    /// persist-blocked). Used to advance the guard's byte checkpoint only that far, never the
-    /// whole capped range just because more bytes happened to be present in the same poll's read.
-    /// Pure so it's unit-testable without a real file.
-    /// </summary>
-    internal static long ByteOffsetForAckedLines(ReadOnlySpan<byte> range, long rangeStartOffset, int ackedLineCount) {
-        if (ackedLineCount <= 0) return rangeStartOffset;
-
-        var seen = 0;
-
-        for (var i = 0; i < range.Length; i++) {
-            if (range[i] != (byte)'\n') continue;
-
-            seen++;
-
-            if (seen == ackedLineCount) return rangeStartOffset + i + 1;
-        }
-
-        // Acked at least as many lines as this range's newlines account for (a full ack) — the
-        // whole verified range was consumed.
-        return rangeStartOffset + range.Length;
-    }
-
-    /// <summary>
-    /// scans <paramref name="transcriptPath"/> from byte 0 to find the byte
-    /// offset immediately after the <paramref name="lineNumber"/>-th newline. Returns 0 for a
-    /// non-positive <paramref name="lineNumber"/> (nothing to resolve). Returns null when the file
-    /// is missing, or has fewer lines than requested — <b> review fix (r4, finding #5)</b>:
-    /// this used to silently CLAMP to EOF instead, on the stated assumption that the reconnect path
-    /// only ever rewinds to a line count the server itself acknowledged, which "by construction"
-    /// can't exceed what the file has ever contained. That assumption breaks on an initial resume
-    /// after the transcript was truncated/replaced while the watcher was offline (or, symmetrically,
-    /// on a reconnect after the same happened mid-session): the server can legitimately hand back a
-    /// line number N that the CURRENT local file — fewer than N lines — can no longer produce.
-    /// Clamping there seeded a rewrite guard baseline against the WRONG (truncated) file while the
-    /// bounded decoder went on labelling subsequent local lines starting at N — exactly the
-    /// history-rewrite the guard exists to catch, let through by the seed path instead. Callers
-    /// (<see cref="SeedCursorByteOffsetAsync"/>) must treat null as "cannot resolve this frontier
-    /// exactly" and quarantine rather than seed a bogus baseline.
-    ///
-    /// <para>
-    /// finding #5's guard was slightly too strict: a COMPLETE final
-    /// record with no trailing newline yet (exactly what this watcher's own shutdown final drain,
-    /// <see cref="IncompleteFinalLinePolicy.ConsumeIfComplete"/>, sends — and what historical
-    /// import's <c>StreamReader</c>-based line splitting also sends for a file with no final
-    /// newline) is a legitimately resolvable "last line", not a truncation. Let C be the number of
-    /// <c>'\n'</c> bytes in the file. For <paramref name="lineNumber"/> &lt;= C this still resolves
-    /// to the byte offset right after that newline (unchanged). For
-    /// <paramref name="lineNumber"/> == C + 1, if the bytes after the last newline (or from byte 0,
-    /// if there is no newline at all) form a complete JSON record (the same
-    /// <see cref="IsCompleteJsonRecord"/> predicate <see cref="ApplyPartialLineHoldback"/> uses to
-    /// gate consuming an unterminated final line), that record IS line C + 1 and is resolvable —
-    /// matching <see cref="ByteOffsetForAckedLines"/>, which already treats a full ack beyond the
-    /// range's newline count as consuming through EOF. Any other case (no trailing content, or a
-    /// trailing tail that doesn't parse, or <paramref name="lineNumber"/> &gt; C + 1) is a genuine
-    /// local shortfall and still returns null so the caller quarantines.
-    /// </para>
-    ///
-    /// <para>
-    /// the C + 1 case no longer resolves to EOF paired with the
-    /// unchanged <paramref name="lineNumber"/>. Seeding <see cref="WatchState.CursorByteOffset"/>
-    /// at EOF while <see cref="WatchState.LinesProcessed"/> stayed at C + 1 (the r5 behaviour) put
-    /// the byte cursor exactly where Cursor's OWN later-arriving terminator for this SAME
-    /// already-acknowledged record lands (Cursor normally writes that <c>'\n'</c> before appending
-    /// the next JSONL record). When it arrives, the bounded reader
-    /// (<see cref="ReadNewCompleteLinesAsync"/>) starts reading right there and — because it seeds
-    /// its own line index from <see cref="WatchState.LinesProcessed"/>, already at C + 1 — treats
-    /// the leading terminator as closing a NEW, phantom empty line, then labels every real line
-    /// after it one too high, permanently: the server is left waiting at the true frontier while
-    /// the watcher repeatedly resends from the stale offset.
-    /// </para>
-    ///
-    /// <para>
-    /// The fix rewinds instead of seeding at EOF: the C + 1 case now returns
-    /// (<c>lastNewlineEnd</c>, <paramref name="lineNumber"/> - 1) — the byte offset the final
-    /// record itself STARTS at, paired with a line count that does NOT count that record as
-    /// processed. The record is then re-read (and re-sent) on the next poll exactly as if it had
-    /// never been acknowledged — harmless, because Cursor's normalizer emits deterministic event
-    /// ids, so the server's source-ack frontier dedupes a resend at/behind it rather than treating
-    /// it as new. When the terminator later lands, the record is read and counted normally as line
-    /// C (0-based), and the following record lands at line C + 1 — no phantom line, no drift. This
-    /// keeps the byte/line frontier in lockstep exactly like every other seed path in this file.
-    /// </para>
-    /// </summary>
-    internal static async Task<(long ByteOffset, int LineNumber)?> ResolveByteOffsetForLineAsync(string transcriptPath, int lineNumber, CancellationToken ct) {
-        if (lineNumber <= 0) return (0, lineNumber);
-        if (!File.Exists(transcriptPath)) return null;
-
-        await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        var buffer = new byte[81920];
-        var seen   = 0;
-        long offset = 0;
-        long lastNewlineEnd = 0;
-
-        int read;
-        while ((read = await stream.ReadAsync(buffer, ct)) > 0) {
-            for (var i = 0; i < read; i++) {
-                offset++;
-
-                if (buffer[i] != (byte)'\n') continue;
-
-                seen++;
-                if (seen == lineNumber) return (offset, lineNumber);
-                lastNewlineEnd = offset;
-            }
-        }
-
-        // Fewer newline-terminated lines than requested. The one remaining possibility is that the
-        // requested line IS the final, unterminated-but-complete record — never a shortfall further
-        // back than that.
-        if (lineNumber != seen + 1 || offset <= lastNewlineEnd) return null;
-
-        var trailingLength = (int)(offset - lastNewlineEnd);
-        var trailing        = new byte[trailingLength];
-        stream.Position      = lastNewlineEnd;
-        var trailingRead     = await ReadFullyAsync(stream, trailing, ct);
-
-        if (trailingRead != trailingLength) return null; // file shrank underneath us — don't guess
-
-        // rewind to the record's own start (lastNewlineEnd) and drop
-        // LineNumber by one (not yet "processed" — it will be re-read/re-sent) instead of
-        // resolving at EOF with LineNumber unchanged. See the method doc for why the EOF seed
-        // drifted line numbering once Cursor's own terminator for this record later arrived.
-        return IsCompleteJsonRecord(Encoding.UTF8.GetString(trailing))
-            ? (lastNewlineEnd, lineNumber - 1)
-            : null;
-    }
-
-    /// <summary>
     /// applies a reconnect-discovered rewind (the server's acknowledged
     /// line frontier, <paramref name="serverPosition"/>, is behind <paramref name="state"/>'s own
     /// <see cref="WatchState.LinesProcessed"/>) atomically: for Cursor, resolves and rewinds
@@ -5239,265 +3883,6 @@ partial class WatchCommand(
         }
     }
 
-    /// <summary>
-    /// Streams the new complete transcript lines from <paramref name="stream"/> WITHOUT materializing
-    /// the whole file (Qodo #291 #2): only lines beyond <paramref name="linesProcessed"/> are retained.
-    /// The file length is sampled once and the end-of-file newline is read from the last byte, then the
-    /// read is CAPPED at that length — so a concurrent append after the sample can't make an as-yet
-    /// unterminated final line look complete and get consumed (which would re-drop it).
-    /// Opened by the caller with FileShare.ReadWrite (Qodo #291 #1) so the writing agent is never blocked.
-    /// </summary>
-    /// <param name="rawBytesReadFrom">
-    /// only meaningful when <paramref name="captureRawBytes"/>
-    /// is true: the absolute file offset the captured buffer starts at. 0 (the default) captures
-    /// the whole file, exactly as before. A caller that knows it only needs a bounded window (the
-    /// Cursor guard's prior-tail zone plus the new range) passes the true start offset instead, so
-    /// the buffer allocated is bounded by how much is actually new/relevant, not file size.
-    /// </param>
-    /// <param name="newRangeByteOffset">
-    /// only meaningful when <paramref name="captureRawBytes"/>
-    /// is true: the absolute file offset of the first NEW line (line number <paramref name="linesProcessed"/>).
-    /// Bytes in the captured buffer before this offset (the prior-tail zone, present only for the
-    /// guard's hash) are never decoded as lines. When null (the default), the legacy behaviour
-    /// applies: every line in the buffer is decoded and filtered by absolute index — required for
-    /// every caller that doesn't (yet) know this offset, and pinned by
-    /// <c>ReadNewCompleteLinesAsyncTests</c>. The caller is responsible for ensuring this offset
-    /// lands exactly on a line boundary (true by construction for the Cursor watcher's own
-    /// <c>CursorByteOffset</c> — see <see cref="ByteOffsetForAckedLines"/>).
-    /// </param>
-    /// <param name="lineOffsets">
-    /// Ignored when <paramref name="captureRawBytes"/> is true. Otherwise lets the read start at
-    /// <paramref name="linesProcessed"/>'s byte offset rather than byte 0, and learns the offsets of
-    /// the lines it reads; the result is the same as without it.
-    /// </param>
-    internal static async Task<NewTranscriptLines> ReadNewCompleteLinesAsync(
-            FileStream                stream,
-            int                       linesProcessed,
-            IncompleteFinalLinePolicy policy,
-            CancellationToken         ct,
-            bool                      captureRawBytes    = false,
-            long                      rawBytesReadFrom   = 0,
-            long?                     newRangeByteOffset = null,
-            TranscriptLineIndex?      lineOffsets        = null) {
-        var length = stream.Length;
-
-        bool endsWithNewline;
-        if (length == 0) {
-            endsWithNewline = true;
-        } else {
-            stream.Seek(length - 1, SeekOrigin.Begin);
-            endsWithNewline = stream.ReadByte() == '\n';
-            stream.Seek(0, SeekOrigin.Begin);
-        }
-
-        var newLines           = new List<string>();
-        var newLineNumbers     = new List<int>();
-        var lineIndex          = 0;
-        byte[]? rawBytes       = null;
-        var     snapshotStart  = 0L;
-
-        // when the caller (the Cursor watcher) needs it, capture the raw
-        // bytes of this SAME capped read into a buffer and decode lines from THAT buffer, rather
-        // than streaming lines directly off `stream`. This is what lets the runtime rewrite guard
-        // hash the EXACT bytes that produced `newLines` below — the previous wiring decoded lines
-        // here, closed the stream, and only reopened the file later to hash "the new range",
-        // leaving a window where a rewrite between the two reads went undetected (both the record
-        // and the pre-send re-verify would see the same, but stale, later snapshot). Every other
-        // vendor keeps the original zero-buffering streaming path (captureRawBytes defaults false).
-        if (captureRawBytes) {
-            // bound the capture to [rawBytesReadFrom, EOF)
-            // instead of always materializing the whole file. The caller (DrainNewLines) only ever
-            // passes a non-zero rawBytesReadFrom on a poll that doesn't need the periodic
-            // full-prefix re-hash, so an idle/small poll allocates a buffer sized to the guard's
-            // small trailing-tail zone plus whatever actually grew — not file length.
-            snapshotStart = Math.Min(rawBytesReadFrom, length);
-            if (snapshotStart > 0) stream.Position = snapshotStart;
-
-            var buffer = new byte[length - snapshotStart];
-            var total  = 0;
-
-            while (total < buffer.Length) {
-                var n = await stream.ReadAsync(buffer.AsMemory(total, buffer.Length - total), ct);
-                if (n == 0) break;
-                total += n;
-            }
-
-            // A concurrent shrink between the Length sample above and this read could leave
-            // `total` short of `length` — trim to what was ACTUALLY read so SnapshotByteLength/
-            // SnapshotBytes never claim bytes that were never really on disk.
-            rawBytes = total == buffer.Length ? buffer : buffer[..total];
-            length   = snapshotStart + rawBytes.Length;
-
-            if (newRangeByteOffset is { } nro) {
-                // Every byte at/after this position in the buffer is NEW (the offset is guaranteed
-                // to land on a line boundary — see the parameter doc); bytes before it are the
-                // prior-tail zone, captured only so the guard can hash it, never decoded as lines.
-                var decodeFrom = (int)Math.Clamp(nro - snapshotStart, 0, rawBytes.Length);
-                lineIndex = linesProcessed;
-
-                using var bytesReader = new StreamReader(
-                    new MemoryStream(rawBytes, decodeFrom, rawBytes.Length - decodeFrom, writable: false));
-                while (await bytesReader.ReadLineAsync(ct) is { } line) {
-                    if (!string.IsNullOrWhiteSpace(line)) {
-                        newLines.Add(line);
-                        newLineNumbers.Add(lineIndex);
-                    }
-
-                    lineIndex++;
-                }
-            } else {
-                // Legacy path: the caller doesn't know the new range's exact byte offset (every
-                // caller other than the live Cursor watcher), so the whole buffer (necessarily the
-                // whole file — rawBytesReadFrom stays 0 with no newRangeByteOffset) is decoded and
-                // filtered by absolute line index, exactly as before this fix.
-                using var bytesReader = new StreamReader(new MemoryStream(rawBytes, writable: false));
-                while (await bytesReader.ReadLineAsync(ct) is { } line) {
-                    if (lineIndex >= linesProcessed && !string.IsNullOrWhiteSpace(line)) {
-                        newLines.Add(line);
-                        newLineNumbers.Add(lineIndex);
-                    }
-
-                    lineIndex++;
-                }
-            }
-        } else {
-            var startOffset = 0L;
-            if (lineOffsets is not null) {
-                (lineIndex, startOffset) = await lineOffsets.StartAsync(stream, length, linesProcessed, ct);
-                stream.Position          = startOffset;
-            }
-
-            // Mid-file there is no byte-order mark to detect, and a line that happens to begin with
-            // the UTF-8 one must keep it, as it does when decoded from byte 0.
-            using var reader = startOffset == 0
-                ? new StreamReader(new LengthLimitedReadStream(stream, length, lineOffsets), leaveOpen: true)
-                : new StreamReader(new LengthLimitedReadStream(stream, length - startOffset, lineOffsets),
-                    Utf8NoPreamble, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
-
-            while (await reader.ReadLineAsync(ct) is { } line) {
-                if (lineIndex >= linesProcessed && !string.IsNullOrWhiteSpace(line)) {
-                    newLines.Add(line);
-                    newLineNumbers.Add(lineIndex);
-                }
-
-                lineIndex++;
-            }
-
-            if (lineOffsets is not null) await lineOffsets.FinishAsync(stream, ct);
-        }
-
-        // `length` is the exact byte boundary this read was capped at
-        // (sampled once, above, before any concurrent append could grow the file further) —
-        // threaded through as SnapshotByteLength so the Cursor rewrite guard can use THIS value
-        // instead of re-sampling FileInfo.Length later and risking a race with an append that
-        // landed in between the two samples.
-        return ApplyPartialLineHoldback(
-            newLines, newLineNumbers, nextPosition: lineIndex, linesProcessed, endsWithNewline, policy,
-            snapshotByteLength: length, snapshotBytes: rawBytes, snapshotStartOffset: snapshotStart);
-    }
-
-    // Decide the fate of a still-being-written final line (no trailing newline yet). Under
-    // Hold (every live drain) it is always held back: the position stays before it and it is dropped
-    // from this batch, so a later drain re-reads it once newline-terminated — consuming its truncated
-    // prefix would permanently drop the completed line. Under ConsumeIfComplete (the
-    // shutdown final drain — task 7) it is consumed ONLY IF the exact bytes read parse as a
-    // complete JSON record; a still-growing/unparseable tail is held (never sent-and-advanced) and
-    // signalled via HeldIncompleteFinalLine so the caller can flag needs-import. Because the parse
-    // check runs on the bytes actually being consumed here, there is no TOCTOU with any earlier
-    // completeness probe. Shared by the string helper (SplitNewCompleteLines) and the streaming
-    // reader (ReadNewCompleteLinesAsync).
-    static NewTranscriptLines ApplyPartialLineHoldback(
-            List<string>              newLines,
-            List<int>                 newLineNumbers,
-            int                       nextPosition,
-            int                       linesProcessed,
-            bool                      endsWithNewline,
-            IncompleteFinalLinePolicy policy,
-            long                      snapshotByteLength  = 0,
-            byte[]?                   snapshotBytes       = null,
-            long                      snapshotStartOffset = 0) {
-        if (endsWithNewline || nextPosition <= linesProcessed) {
-            return new NewTranscriptLines(
-                newLines, newLineNumbers, nextPosition,
-                SnapshotByteLength: snapshotByteLength, SnapshotBytes: snapshotBytes,
-                SnapshotStartOffset: snapshotStartOffset);
-        }
-
-        var partialIndex = nextPosition - 1;
-        var hasPartial   = newLineNumbers.Count > 0 && newLineNumbers[^1] == partialIndex;
-
-        // Consume the unterminated final line only when the policy allows it AND the exact bytes
-        // read form a complete JSON record. Anything else (Hold, blank/whitespace partial, or an
-        // unparseable tail) is held back.
-        var consume = policy == IncompleteFinalLinePolicy.ConsumeIfComplete
-                      && hasPartial
-                      && IsCompleteJsonRecord(newLines[^1]);
-
-        if (consume) {
-            return new NewTranscriptLines(
-                newLines, newLineNumbers, nextPosition,
-                SnapshotByteLength: snapshotByteLength, SnapshotBytes: snapshotBytes,
-                SnapshotStartOffset: snapshotStartOffset);
-        }
-
-        if (hasPartial) {
-            newLines.RemoveAt(newLines.Count - 1);
-            newLineNumbers.RemoveAt(newLineNumbers.Count - 1);
-        }
-
-        // Only a real (non-blank) held line is "incomplete content" the caller must surface; a
-        // whitespace-only trailing partial carries nothing to lose. SnapshotByteLength/SnapshotBytes
-        // still reflect the FULL capped read (including the held-back tail's bytes) — the guard
-        // must still verify those bytes weren't rewritten even though they weren't sent this poll.
-        return new NewTranscriptLines(
-            newLines, newLineNumbers, partialIndex, HeldIncompleteFinalLine: hasPartial,
-            SnapshotByteLength: snapshotByteLength, SnapshotBytes: snapshotBytes,
-            SnapshotStartOffset: snapshotStartOffset);
-    }
-
-    /// <summary>True if <paramref name="line"/> (a single, newline-less transcript line) parses as a
-    /// complete JSON document. Used to gate consuming an unterminated final line at shutdown.</summary>
-    static bool IsCompleteJsonRecord(string line) => JsonRecord.IsComplete(line);
-
-    /// <summary>Read-only view of <c>inner</c> that reports EOF after <c>limit</c> bytes, so a
-    /// StreamReader over it can't read past a length sampled before a concurrent append.</summary>
-    internal sealed class LengthLimitedReadStream(Stream inner, long limit, TranscriptLineIndex? observer = null) : Stream {
-        long _consumed;
-
-        public override int Read(byte[] buffer, int offset, int count) {
-            var allowed = (int)Math.Min(count, limit - _consumed);
-            if (allowed <= 0) return 0;
-            var n = inner.Read(buffer, offset, allowed);
-            _consumed += n;
-            observer?.Observe(buffer.AsSpan(offset, n));
-            return n;
-        }
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) {
-            var allowed = (int)Math.Min(buffer.Length, limit - _consumed);
-            if (allowed <= 0) return 0;
-            var n = await inner.ReadAsync(buffer[..allowed], ct);
-            _consumed += n;
-            observer?.Observe(buffer.Span[..n]);
-            return n;
-        }
-
-        public override bool CanRead  => true;
-        public override bool CanSeek  => false;
-        public override bool CanWrite => false;
-        public override long Length   => limit;
-
-        public override long Position {
-            get => _consumed;
-            set => throw new NotSupportedException();
-        }
-
-        public override void Flush() { }
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-    }
-
     public static int CountFileLines(string path) {
         try {
             if (!File.Exists(path)) {
@@ -5517,9 +3902,6 @@ partial class WatchCommand(
             return 0;
         }
     }
-
-    [GeneratedRegex("<command-name>(.*?)</command-name>", RegexOptions.Compiled)]
-    private static partial Regex CommandNameRx();
 
     /// <summary>
     /// Retries SignalR reconnection indefinitely with exponential backoff capped at 30s.

@@ -1,12 +1,11 @@
-using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
 
-namespace Capacitor.Cli.Harness.Cursor;
+namespace Capacitor.Cli.Recording.Harness.Cursor;
 
 /// <summary>
 /// Runtime two-zone rewrite guard for the per-session Cursor tailing watcher (defence-in-depth —
-/// see <see cref="CursorVerifyAppendOnlyCommand"/>). Cursor's JSONL transcript is expected to be
+/// see <c>CursorVerifyAppendOnlyCommand</c>). Cursor's JSONL transcript is expected to be
 /// append-only, but nothing in the IDE's contract guarantees it, and a silent in-place rewrite
 /// would corrupt the server's source-acknowledgement frontier by re-sending stale byte ranges
 /// under line numbers it already disposed of.

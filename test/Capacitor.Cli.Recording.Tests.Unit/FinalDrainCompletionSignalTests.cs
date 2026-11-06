@@ -1,36 +1,35 @@
-using Capacitor.Cli.Commands;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Capacitor.Cli.Tests.Unit.Commands;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 public class FinalDrainCompletionSignalTests {
     [Test]
     public async Task newline_terminated_is_complete() =>
-        await Assert.That(WatchCommand.IsFinalLineComplete("{\"a\":1}\n")).IsTrue();
+        await Assert.That(TranscriptReader.IsFinalLineComplete("{\"a\":1}\n")).IsTrue();
 
     [Test]
     public async Task parseable_json_without_newline_is_complete() =>
-        await Assert.That(WatchCommand.IsFinalLineComplete("{\"a\":1}\n{\"b\":2}")).IsTrue();
+        await Assert.That(TranscriptReader.IsFinalLineComplete("{\"a\":1}\n{\"b\":2}")).IsTrue();
 
     [Test]
     public async Task unparseable_newlineless_tail_is_incomplete() =>
-        await Assert.That(WatchCommand.IsFinalLineComplete("{\"a\":1}\n{\"b\":2")).IsFalse();
+        await Assert.That(TranscriptReader.IsFinalLineComplete("{\"a\":1}\n{\"b\":2")).IsFalse();
 
     [Test]
     public async Task empty_file_is_complete() =>
-        await Assert.That(WatchCommand.IsFinalLineComplete("")).IsTrue();
+        await Assert.That(TranscriptReader.IsFinalLineComplete("")).IsTrue();
 
     [Test]
     public async Task whitespace_only_tail_is_complete() =>
-        await Assert.That(WatchCommand.IsFinalLineComplete("{\"a\":1}\n   ")).IsTrue();
+        await Assert.That(TranscriptReader.IsFinalLineComplete("{\"a\":1}\n   ")).IsTrue();
 
     [Test]
     public async Task single_incomplete_line_no_prior_newline_is_incomplete() =>
-        await Assert.That(WatchCommand.IsFinalLineComplete("{\"a\":1")).IsFalse();
+        await Assert.That(TranscriptReader.IsFinalLineComplete("{\"a\":1")).IsFalse();
 }
 
 /// <summary>
-/// Exercises <see cref="WatchCommand.WaitForFinalLineCompletionAsync"/> against a real file so the
+/// Exercises <see cref="TranscriptReader.WaitForFinalLineCompletionAsync"/> against a real file so the
 /// bounded-wait loop itself (not just the pure predicate) is covered — small attempts/delay keep
 /// these fast.
 /// </summary>
@@ -39,7 +38,7 @@ public class WaitForFinalLineCompletionAsyncTests {
     public async Task already_complete_returns_true_immediately() {
         using var tmp  = new TempDir();
         var       path = tmp.CreateFile("transcript.tmp", "{\"a\":1}\n");
-        var result = await WatchCommand.WaitForFinalLineCompletionAsync(path, TimeProvider.System, attempts: 4, delayMs: 20);
+        var result = await TranscriptReader.WaitForFinalLineCompletionAsync(path, TimeProvider.System, attempts: 4, delayMs: 20);
         await Assert.That(result).IsTrue();
     }
 
@@ -52,7 +51,7 @@ public class WaitForFinalLineCompletionAsyncTests {
 
         var clock = new FakeTimeProvider();
         var parked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var result = WatchCommand.WaitForFinalLineCompletionAsync(
+        var result = TranscriptReader.WaitForFinalLineCompletionAsync(
             path, new DelayObservingTime(clock, parked), attempts: 6, delayMs: 20);
         await parked.Task;
 
@@ -68,13 +67,13 @@ public class WaitForFinalLineCompletionAsyncTests {
 
         // Length-stable AND unparseable for the entire window — must never flip to "complete".
         await File.WriteAllTextAsync(path, "{\"a\":1}\n{\"b\":\"still writ");
-        var result = await WatchCommand.WaitForFinalLineCompletionAsync(path, TimeProvider.System, attempts: 3, delayMs: 10);
+        var result = await TranscriptReader.WaitForFinalLineCompletionAsync(path, TimeProvider.System, attempts: 3, delayMs: 10);
         await Assert.That(result).IsFalse();
     }
 
     [Test]
     public async Task missing_file_returns_false() {
-        var result = await WatchCommand.WaitForFinalLineCompletionAsync(
+        var result = await TranscriptReader.WaitForFinalLineCompletionAsync(
             "/tmp/nonexistent_" + Guid.NewGuid(), TimeProvider.System, attempts: 2, delayMs: 10);
         await Assert.That(result).IsFalse();
     }
@@ -93,7 +92,7 @@ public class WaitForFinalLineCompletionAsyncTests {
         // agent appending to its own transcript does.
         await using var writer = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
 
-        var result = await WatchCommand.WaitForFinalLineCompletionAsync(path, TimeProvider.System, attempts: 3, delayMs: 10);
+        var result = await TranscriptReader.WaitForFinalLineCompletionAsync(path, TimeProvider.System, attempts: 3, delayMs: 10);
 
         await Assert.That(result).IsTrue();
     }

@@ -1,9 +1,10 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
-using Capacitor.Cli.Harness.Cursor;
 using Microsoft.AspNetCore.SignalR.Client;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording;
+using Capacitor.Cli.Recording.Harness.Cursor;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
 
@@ -29,7 +30,7 @@ public class CursorReconnectRewindTests {
 
     static string NewSessionId() => Guid.NewGuid().ToString("N");
 
-    // ---- WatchCommand.ResolveByteOffsetForLineAsync ----
+    // ---- TranscriptReader.ResolveByteOffsetForLineAsync ----
 
     [Test]
     public async Task ResolveByteOffsetForLineAsync_returns_zero_for_line_zero_or_negative() {
@@ -39,11 +40,11 @@ public class CursorReconnectRewindTests {
 
         // the method now returns a (ByteOffset, LineNumber) pair —
         // trivial for a non-positive request, LineNumber just carries the input through.
-        var zero = await WatchCommand.ResolveByteOffsetForLineAsync(path, 0, CancellationToken.None);
+        var zero = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 0, CancellationToken.None);
         await Assert.That(zero!.Value.ByteOffset).IsEqualTo(0L);
         await Assert.That(zero!.Value.LineNumber).IsEqualTo(0);
 
-        var negative = await WatchCommand.ResolveByteOffsetForLineAsync(path, -1, CancellationToken.None);
+        var negative = await TranscriptReader.ResolveByteOffsetForLineAsync(path, -1, CancellationToken.None);
         await Assert.That(negative!.Value.ByteOffset).IsEqualTo(0L);
         await Assert.That(negative!.Value.LineNumber).IsEqualTo(-1);
     }
@@ -55,7 +56,7 @@ public class CursorReconnectRewindTests {
     [Test]
     public async Task ResolveByteOffsetForLineAsync_returns_null_when_the_file_is_missing_and_a_line_is_requested() {
         using var missingDir = TempDir.WithPathTo("kcap-reconnect-missing.jsonl", out var missing);
-        await Assert.That(await WatchCommand.ResolveByteOffsetForLineAsync(missing, 2, CancellationToken.None)).IsNull();
+        await Assert.That(await TranscriptReader.ResolveByteOffsetForLineAsync(missing, 2, CancellationToken.None)).IsNull();
     }
 
     [Test]
@@ -68,15 +69,15 @@ public class CursorReconnectRewindTests {
         // unchanged mid-file case — the returned pair's LineNumber is
         // always the requested lineNumber unchanged; only the r5 unterminated-final-record case
         // (covered below) rewinds it.
-        var r1 = await WatchCommand.ResolveByteOffsetForLineAsync(path, 1, CancellationToken.None);
+        var r1 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 1, CancellationToken.None);
         await Assert.That(r1!.Value.ByteOffset).IsEqualTo(2L);
         await Assert.That(r1!.Value.LineNumber).IsEqualTo(1);
 
-        var r2 = await WatchCommand.ResolveByteOffsetForLineAsync(path, 2, CancellationToken.None);
+        var r2 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 2, CancellationToken.None);
         await Assert.That(r2!.Value.ByteOffset).IsEqualTo(7L);
         await Assert.That(r2!.Value.LineNumber).IsEqualTo(2);
 
-        var r3 = await WatchCommand.ResolveByteOffsetForLineAsync(path, 3, CancellationToken.None);
+        var r3 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 3, CancellationToken.None);
         await Assert.That(r3!.Value.ByteOffset).IsEqualTo(10L);
         await Assert.That(r3!.Value.LineNumber).IsEqualTo(3);
     }
@@ -90,7 +91,7 @@ public class CursorReconnectRewindTests {
         var path = tmp.PathTo("t.jsonl");
         await File.WriteAllTextAsync(path, "a\nb\n"); // only 2 lines
 
-        await Assert.That(await WatchCommand.ResolveByteOffsetForLineAsync(path, 5, CancellationToken.None)).IsNull();
+        await Assert.That(await TranscriptReader.ResolveByteOffsetForLineAsync(path, 5, CancellationToken.None)).IsNull();
     }
 
     // a COMPLETE final record with no trailing newline yet must resolve,
@@ -117,14 +118,14 @@ public class CursorReconnectRewindTests {
         await File.WriteAllTextAsync(path, content);
 
         // Line 1 (newline-terminated) resolves exactly as before.
-        var r1 = await WatchCommand.ResolveByteOffsetForLineAsync(path, 1, CancellationToken.None);
+        var r1 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 1, CancellationToken.None);
         await Assert.That(r1!.Value.ByteOffset).IsEqualTo(8L); // "{\"a\":1}\n".Length
         await Assert.That(r1!.Value.LineNumber).IsEqualTo(1);
 
         // Line 2 — the complete, unterminated final record — rewinds to the record's own start
         // (same byte offset as line 1's end, NOT EOF) paired with LineNumber - 1 (NOT counted
         // as processed yet).
-        var r2 = await WatchCommand.ResolveByteOffsetForLineAsync(path, 2, CancellationToken.None);
+        var r2 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 2, CancellationToken.None);
         await Assert.That(r2!.Value.ByteOffset).IsEqualTo(8L);
         await Assert.That(r2!.Value.LineNumber).IsEqualTo(1);
     }
@@ -138,7 +139,7 @@ public class CursorReconnectRewindTests {
         var path = tmp.PathTo("t.jsonl");
         await File.WriteAllTextAsync(path, "{\"a\":1}\n{\"b\":2"); // final record missing its closing brace
 
-        await Assert.That(await WatchCommand.ResolveByteOffsetForLineAsync(path, 2, CancellationToken.None)).IsNull();
+        await Assert.That(await TranscriptReader.ResolveByteOffsetForLineAsync(path, 2, CancellationToken.None)).IsNull();
     }
 
     // review fix (r4, finding #5), preserved under r5 — a request for a line further beyond
@@ -151,7 +152,7 @@ public class CursorReconnectRewindTests {
         var path = tmp.PathTo("t.jsonl");
         await File.WriteAllTextAsync(path, "a\nb\n"); // exactly 2 complete, terminated lines, no trailing content
 
-        await Assert.That(await WatchCommand.ResolveByteOffsetForLineAsync(path, 5, CancellationToken.None)).IsNull();
+        await Assert.That(await TranscriptReader.ResolveByteOffsetForLineAsync(path, 5, CancellationToken.None)).IsNull();
     }
 
     // ---- CursorRewriteGuard.ResetCheckpoint ----
@@ -293,7 +294,7 @@ public class CursorReconnectRewindTests {
         // DrainNewLines' own ByteOffsetForAckedLines(verifiedRange, cursorGuardOldOffset,
         // ackedLineCount) call, with rangeStartOffset seeded from the SAME offset above.
         var remainingRange  = System.Text.Encoding.UTF8.GetBytes("cc\ndddd\neeeee\n"); // lines 2,3,4 — 14 bytes
-        var ackedByteOffset = WatchCommand.ByteOffsetForAckedLines(
+        var ackedByteOffset = TranscriptReader.ByteOffsetForAckedLines(
             remainingRange, rangeStartOffset: state.CursorByteOffset, ackedLineCount: 3);
 
         // N's offset (7) + M's bytes (14) = 21 — the TRUE end-of-file offset. The pre-fix bug

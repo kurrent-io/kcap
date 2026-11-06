@@ -140,7 +140,7 @@ record GitCacheEntry {
     public DateTimeOffset CachedAt { get; init; }
 }
 
-class WatchState {
+public class WatchState {
     public int                LinesProcessed     { get; set; }
     public RepositoryPayload? Repository         { get; set; }
     public RepositoryPayload? LastSentRepository { get; set; }

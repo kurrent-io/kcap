@@ -3,7 +3,6 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Recording.Capture;
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
 
@@ -89,9 +88,9 @@ public static class CursorTranscriptBackfill {
         try {
             await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             var policy = finalDrain
-                ? WatchCommand.IncompleteFinalLinePolicy.ConsumeIfComplete
-                : WatchCommand.IncompleteFinalLinePolicy.Hold;
-            var read = await WatchCommand.ReadNewCompleteLinesAsync(stream, resumeFrom, policy, ct);
+                ? IncompleteFinalLinePolicy.ConsumeIfComplete
+                : IncompleteFinalLinePolicy.Hold;
+            var read = await TranscriptReader.ReadNewCompleteLinesAsync(stream, resumeFrom, policy, ct);
 
             var captured = TranscriptCapture.EncodeUntilHeld(read.Lines, budget, time,
                 (reason, count) => Console.Error.WriteLine($"Cursor capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"), patterns);

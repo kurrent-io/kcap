@@ -1,8 +1,8 @@
 using System.Text;
 using Capacitor.Cli.Core.Harness.Cursor;
-using Capacitor.Cli.Harness.Cursor;
+using Capacitor.Cli.Recording.Harness.Cursor;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Cursor;
 
 /// <summary>
 /// the runtime two-zone rewrite guard. Each test gets its own config root, so asserting

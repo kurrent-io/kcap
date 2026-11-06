@@ -1,14 +1,14 @@
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Kiro;
+using Capacitor.Cli.Recording.Harness.Kiro;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Kiro;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Kiro;
 
 /// <summary>
 /// Covers the live-watch Kiro usage-backfill synthetic line:
-/// <see cref="WatchCommand.BuildKiroUsageBackfillLine"/> builds the JSONL the server
-/// recognizes, and <see cref="WatchCommand.AppendKiroUsageBackfillLines"/> reads the
+/// <see cref="KiroLiveUsage.BuildKiroUsageBackfillLine"/> builds the JSONL the server
+/// recognizes, and <see cref="KiroLiveUsage.AppendKiroUsageBackfillLines"/> reads the
 /// sidecar <c>{id}.json</c> via <see cref="KiroUsage.AnchorMap"/>
 /// and emits one line per NOT-yet-emitted anchor, tracked on
 /// <see cref="WatchState.KiroUsageEmittedAnchors"/> so a live drain never double-emits.
@@ -16,7 +16,7 @@ namespace Capacitor.Cli.Tests.Unit.Harness.Kiro;
 public class KiroLiveUsageBackfillTests {
     [Test]
     public async Task build_line_carries_anchor_credits_and_context() {
-        var line = WatchCommand.BuildKiroUsageBackfillLine("msg-42", credits: 1.5, contextPct: 37.0);
+        var line = KiroLiveUsage.BuildKiroUsageBackfillLine("msg-42", credits: 1.5, contextPct: 37.0);
         var node = JsonNode.Parse(line)!;
         await Assert.That(node["kind"]!.GetValue<string>()).IsEqualTo("KiroUsageBackfilled");
         await Assert.That(node["data"]!["message_id"]!.GetValue<string>()).IsEqualTo("msg-42");
@@ -26,7 +26,7 @@ public class KiroLiveUsageBackfillTests {
 
     [Test]
     public async Task build_line_omits_context_when_absent() {
-        var line = WatchCommand.BuildKiroUsageBackfillLine("msg-1", credits: 0.5, contextPct: null);
+        var line = KiroLiveUsage.BuildKiroUsageBackfillLine("msg-1", credits: 0.5, contextPct: null);
         var node = JsonNode.Parse(line)!;
         await Assert.That(node["data"]!["context_usage_percentage"]).IsNull();
     }
@@ -45,11 +45,11 @@ public class KiroLiveUsageBackfillTests {
         """);
         var state = new WatchState { ThresholdReached = true };
         var lines = new List<string>(); var nums = new List<int>();
-        var n1 = WatchCommand.AppendKiroUsageBackfillLines(state, lines, nums, jsonl, TimeProvider.System);
+        var n1 = KiroLiveUsage.AppendKiroUsageBackfillLines(state, lines, nums, jsonl, _ => { });
         // simulate a successful send commit
         foreach (var a in new[]{"msg-1"}) state.KiroUsageEmittedAnchors.Add(a);
         var lines2 = new List<string>(); var nums2 = new List<int>();
-        var n2 = WatchCommand.AppendKiroUsageBackfillLines(state, lines2, nums2, jsonl, TimeProvider.System);
+        var n2 = KiroLiveUsage.AppendKiroUsageBackfillLines(state, lines2, nums2, jsonl, _ => { });
 
         await Assert.That(n1).IsEqualTo(1);
         await Assert.That(n2).IsEqualTo(0); // already emitted → not re-appended
@@ -70,7 +70,7 @@ public class KiroLiveUsageBackfillTests {
         // No sidecar yet — first drain sees nothing to backfill.
         var state  = new WatchState { ThresholdReached = true };
         var lines0 = new List<string>(); var nums0 = new List<int>();
-        var n0     = WatchCommand.AppendKiroUsageBackfillLines(state, lines0, nums0, jsonl, TimeProvider.System);
+        var n0     = KiroLiveUsage.AppendKiroUsageBackfillLines(state, lines0, nums0, jsonl, _ => { });
         await Assert.That(n0).IsEqualTo(0);
 
         // Sidecar lands after the anchor line was already sent.
@@ -81,7 +81,7 @@ public class KiroLiveUsageBackfillTests {
         """);
 
         var lines1 = new List<string>(); var nums1 = new List<int>();
-        var n1     = WatchCommand.AppendKiroUsageBackfillLines(state, lines1, nums1, jsonl, TimeProvider.System);
+        var n1     = KiroLiveUsage.AppendKiroUsageBackfillLines(state, lines1, nums1, jsonl, _ => { });
         await Assert.That(n1).IsEqualTo(1);
         await Assert.That(lines1[0]).Contains("msg-late");
     }
@@ -93,7 +93,7 @@ public class KiroLiveUsageBackfillTests {
         await File.WriteAllTextAsync(jsonl, "");
         var state = new WatchState { ThresholdReached = true };
         var lines = new List<string>(); var nums = new List<int>();
-        var n = WatchCommand.AppendKiroUsageBackfillLines(state, lines, nums, jsonl, TimeProvider.System);
+        var n = KiroLiveUsage.AppendKiroUsageBackfillLines(state, lines, nums, jsonl, _ => { });
         await Assert.That(n).IsEqualTo(0);
         await Assert.That(lines.Count).IsEqualTo(0);
     }

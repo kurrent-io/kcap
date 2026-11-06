@@ -1,6 +1,5 @@
-using Capacitor.Cli.Commands;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.OpenCode;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.OpenCode;
 
 /// <summary>
 /// the watcher must read OpenCode's <c>{info,parts}</c> shape for
@@ -17,37 +16,37 @@ public class OpenCodeExtractorTests {
     [Test]
     public async Task TryExtractUserText_OpenCode_JoinsTextParts_OnlyUserRole() {
         var two = """{"info":{"role":"user"},"parts":[{"type":"text","text":"first"},{"type":"text","text":"second"}]}""";
-        await Assert.That(WatchCommand.TryExtractUserText(two, TimeProvider.System, "opencode")).IsEqualTo("first\nsecond");
-        await Assert.That(WatchCommand.TryExtractUserText(UserLine, TimeProvider.System, "opencode")).IsEqualTo("summarize the files");
-        await Assert.That(WatchCommand.TryExtractUserText(AssistantLine, TimeProvider.System, "opencode")).IsNull();
+        await Assert.That(TranscriptLineText.TryExtractUserText(two, "opencode")).IsEqualTo("first\nsecond");
+        await Assert.That(TranscriptLineText.TryExtractUserText(UserLine, "opencode")).IsEqualTo("summarize the files");
+        await Assert.That(TranscriptLineText.TryExtractUserText(AssistantLine, "opencode")).IsNull();
     }
 
     [Test]
     public async Task TryExtractAssistantText_OpenCode_ReturnsText_SkipsReasoning() {
-        await Assert.That(WatchCommand.TryExtractAssistantText(AssistantLine, "opencode")).IsEqualTo("here is the summary");
-        await Assert.That(WatchCommand.TryExtractAssistantText(UserLine, "opencode")).IsNull();
+        await Assert.That(TranscriptLineText.TryExtractAssistantText(AssistantLine, "opencode")).IsEqualTo("here is the summary");
+        await Assert.That(TranscriptLineText.TryExtractAssistantText(UserLine, "opencode")).IsNull();
     }
 
     [Test]
     public async Task Extractors_SkipSyntheticAndIgnoredParts() {
         var synthetic = """{"info":{"role":"user"},"parts":[{"type":"text","text":"injected","synthetic":true},{"type":"text","text":"real prompt"}]}""";
-        await Assert.That(WatchCommand.TryExtractUserText(synthetic, TimeProvider.System, "opencode")).IsEqualTo("real prompt");
+        await Assert.That(TranscriptLineText.TryExtractUserText(synthetic, "opencode")).IsEqualTo("real prompt");
 
         var ignored = """{"info":{"role":"user"},"parts":[{"type":"text","text":"elided","ignored":true}]}""";
-        await Assert.That(WatchCommand.TryExtractUserText(ignored, TimeProvider.System, "opencode")).IsNull();
+        await Assert.That(TranscriptLineText.TryExtractUserText(ignored, "opencode")).IsNull();
     }
 
     [Test]
     public async Task IsEvent_OpenCode_CountsTextTurns_NotToolOnlyOrOtherRoles() {
-        await Assert.That(WatchCommand.IsEvent(UserLine, "opencode")).IsTrue();
-        await Assert.That(WatchCommand.IsEvent(AssistantLine, "opencode")).IsTrue();
+        await Assert.That(TranscriptLineText.IsEvent(UserLine, "opencode")).IsTrue();
+        await Assert.That(TranscriptLineText.IsEvent(AssistantLine, "opencode")).IsTrue();
 
         // A tool-only assistant turn has no titleable text → must not count toward the threshold.
         var toolOnly = """{"info":{"role":"assistant"},"parts":[{"type":"tool","tool":"read","callID":"c","state":{"status":"completed"}}]}""";
-        await Assert.That(WatchCommand.IsEvent(toolOnly, "opencode")).IsFalse();
+        await Assert.That(TranscriptLineText.IsEvent(toolOnly, "opencode")).IsFalse();
 
         // Non user/assistant roles never count.
         var system = """{"info":{"role":"system"},"parts":[{"type":"text","text":"x"}]}""";
-        await Assert.That(WatchCommand.IsEvent(system, "opencode")).IsFalse();
+        await Assert.That(TranscriptLineText.IsEvent(system, "opencode")).IsFalse();
     }
 }

@@ -1,15 +1,15 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
-using Capacitor.Cli.Harness.Cursor;
 using Microsoft.AspNetCore.SignalR.Client;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording.Harness.Cursor;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
 
 /// <summary>
 /// regression tests for the Cursor runtime rewrite-guard WIRING inside
-/// <see cref="WatchCommand.DrainNewLines"/> (as distinct from <see cref="CursorRewriteGuardTests"/>,
+/// <see cref="WatchCommand.DrainNewLines"/> (as distinct from <c>CursorRewriteGuardTests</c>,
 /// which pins the guard's own pure hash-comparison logic in isolation). Both scenarios here trip
 /// the guard and return BEFORE <c>DrainNewLines</c> ever touches its <see cref="HubConnection"/>
 /// argument, so an unconnected/never-started connection is sufficient — no live SignalR server

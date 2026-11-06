@@ -1,18 +1,18 @@
-namespace Capacitor.Cli.Commands;
+namespace Capacitor.Cli.Recording;
 
 /// <summary>
 /// The transcript before a resume cursor, read once for every consumer that rebuilds state a resumed
-/// watcher would otherwise never see: it drains only past the server's frontier. Lines before a windowed
+/// recorder would otherwise never see: it drains only past the server's frontier. Lines before a windowed
 /// consumer's window are still read, since there is no cheap seek to line N, but never handed to it.
 /// Opened for sharing, because the agent is still writing the file, and fail-open: losing a rebuild beats
-/// failing a watcher's startup.
+/// failing a recorder's startup.
 /// </summary>
-internal static class TranscriptReplay {
+public static class TranscriptReplay {
     /// How far back a windowed consumer looks. An unfinished tool sits at the tail, since nothing is written
     /// after its call until the result arrives, so anything older is settled and only costs startup time.
-    internal const int WindowLines = 512;
+    public const int WindowLines = 512;
 
-    internal static async Task ReplayAsync(
+    public static async Task ReplayAsync(
             string transcriptPath, int upToLine, IReadOnlyList<TranscriptReplayConsumer> consumers, CancellationToken ct, Action<string> log) {
         if (ct.IsCancellationRequested || upToLine <= 0 || consumers.Count == 0) return;
 

@@ -9,6 +9,7 @@ using Capacitor.Cli.Core.Harness.Cursor;
 
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.Time.Testing;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -218,12 +219,12 @@ public class LiveWatchHardeningAcceptanceTests {
     /// every intermediate consuming read attempt — never sent-and-advanced — and only consumed
     /// once it actually finishes.
     ///
-    /// <para><see cref="FinalDrainCompletionSignalTests"/>/<see cref="SplitNewCompleteLinesTests"/>/
-    /// <see cref="ReadNewCompleteLinesAsyncTests"/> already cover
+    /// <para><c>FinalDrainCompletionSignalTests</c>/<c>SplitNewCompleteLinesTests</c>/
+    /// <c>ReadNewCompleteLinesAsyncTests</c> already cover
     /// <c>IsFinalLineComplete</c>/<c>SplitNewCompleteLines</c>/<c>ReadNewCompleteLinesAsync</c> in
     /// isolation, including a growth-after-probe TOCTOU case. This test's value-add is combining
-    /// the bounded PROBE (<see cref="WatchCommand.WaitForFinalLineCompletionAsync"/>) with the
-    /// actual CONSUMING read (<see cref="WatchCommand.ReadNewCompleteLinesAsync"/>) against one
+    /// the bounded PROBE (<see cref="TranscriptReader.WaitForFinalLineCompletionAsync"/>) with the
+    /// actual CONSUMING read (<see cref="TranscriptReader.ReadNewCompleteLinesAsync"/>) against one
     /// real file that grows while the probe is parked between reads — the full shutdown
     /// final-drain flow, not either half alone.</para>
     /// </summary>
@@ -245,7 +246,7 @@ public class LiveWatchHardeningAcceptanceTests {
         // The writer finishes the record while the probe is parked between reads, inside its window.
         var clock  = new FakeTimeProvider();
         var parked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var probe  = WatchCommand.WaitForFinalLineCompletionAsync(path, new DelayObservingTime(clock, parked), attempts: 8, delayMs: 25);
+        var probe  = TranscriptReader.WaitForFinalLineCompletionAsync(path, new DelayObservingTime(clock, parked), attempts: 8, delayMs: 25);
         await parked.Task;
 
         await File.WriteAllTextAsync(path, "{\"a\":1}\n{\"b\":\"still writing\"}\n");
@@ -261,10 +262,10 @@ public class LiveWatchHardeningAcceptanceTests {
         await Assert.That(final.HeldIncompleteFinalLine).IsFalse();
     }
 
-    static async Task<WatchCommand.NewTranscriptLines> ReadFinalDrainAsync(string path, int linesProcessed) {
+    static async Task<NewTranscriptLines> ReadFinalDrainAsync(string path, int linesProcessed) {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        return await WatchCommand.ReadNewCompleteLinesAsync(
-            stream, linesProcessed, WatchCommand.IncompleteFinalLinePolicy.ConsumeIfComplete, CancellationToken.None);
+        return await TranscriptReader.ReadNewCompleteLinesAsync(
+            stream, linesProcessed, IncompleteFinalLinePolicy.ConsumeIfComplete, CancellationToken.None);
     }
 
     // ── 6. Heartbeat staleness story: wedged reaped, healthy/reconnecting and grace not reaped ──

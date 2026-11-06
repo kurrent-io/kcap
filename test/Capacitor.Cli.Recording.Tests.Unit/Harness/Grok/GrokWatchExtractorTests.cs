@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Commands;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Grok;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Grok;
 
 /// <summary>
 /// The watcher reads Grok's <c>updates.jsonl</c> (ACP <c>session/update</c> lines) for its title and
@@ -26,22 +25,22 @@ public class GrokWatchExtractorTests {
 
     [Test]
     public async Task The_user_s_prompt_is_title_text() {
-        await Assert.That(WatchCommand.TryExtractUserText(Update("user_message_chunk", "summarize the repo"), TimeProvider.System, "grok"))
+        await Assert.That(TranscriptLineText.TryExtractUserText(Update("user_message_chunk", "summarize the repo"), "grok"))
             .IsEqualTo("summarize the repo");
-        await Assert.That(WatchCommand.TryExtractUserText(Update("agent_message_chunk", "here it is"), TimeProvider.System, "grok")).IsNull();
+        await Assert.That(TranscriptLineText.TryExtractUserText(Update("agent_message_chunk", "here it is"), "grok")).IsNull();
     }
 
     [Test]
     public async Task The_agent_s_message_is_assistant_text_but_its_thinking_is_not() {
-        await Assert.That(WatchCommand.TryExtractAssistantText(Update("agent_message_chunk", "here it is"), "grok")).IsEqualTo("here it is");
-        await Assert.That(WatchCommand.TryExtractAssistantText(Update("agent_thought_chunk", "hmm"), "grok")).IsNull();
+        await Assert.That(TranscriptLineText.TryExtractAssistantText(Update("agent_message_chunk", "here it is"), "grok")).IsEqualTo("here it is");
+        await Assert.That(TranscriptLineText.TryExtractAssistantText(Update("agent_thought_chunk", "hmm"), "grok")).IsNull();
     }
 
     [Test]
     public async Task Only_conversational_lines_count_as_events() {
-        await Assert.That(WatchCommand.IsEvent(Update("user_message_chunk", "go"), "grok")).IsTrue();
-        await Assert.That(WatchCommand.IsEvent(Update("agent_message_chunk", "ok"), "grok")).IsTrue();
-        await Assert.That(WatchCommand.IsEvent(ToolCall, "grok")).IsFalse();
-        await Assert.That(WatchCommand.IsEvent(Update("agent_message_chunk", "ok", "_x.ai/session/update"), "grok")).IsFalse();
+        await Assert.That(TranscriptLineText.IsEvent(Update("user_message_chunk", "go"), "grok")).IsTrue();
+        await Assert.That(TranscriptLineText.IsEvent(Update("agent_message_chunk", "ok"), "grok")).IsTrue();
+        await Assert.That(TranscriptLineText.IsEvent(ToolCall, "grok")).IsFalse();
+        await Assert.That(TranscriptLineText.IsEvent(Update("agent_message_chunk", "ok", "_x.ai/session/update"), "grok")).IsFalse();
     }
 }

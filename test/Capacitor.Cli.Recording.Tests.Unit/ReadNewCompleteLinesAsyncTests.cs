@@ -1,12 +1,10 @@
 using System.Text;
-using Capacitor.Cli.Commands;
 
-namespace Capacitor.Cli.Tests.Unit.Commands;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
-// Qodo #291: the streaming drain reader (ReadNewCompleteLinesAsync) replaces
-// File.ReadAllTextAsync in DrainNewLines. It must (1) open with FileShare.ReadWrite so a
-// concurrently-writing agent is never blocked (#291 #1), (2) NOT materialize the whole file
-// (#291 #2), and (3) stay byte-for-byte behaviour-equivalent to the string helper
+// The streaming drain reader (ReadNewCompleteLinesAsync) must (1) open with FileShare.ReadWrite so a
+// concurrently-writing agent is never blocked, (2) NOT materialize the whole file,
+// and (3) stay byte-for-byte behaviour-equivalent to the string helper
 // (SplitNewCompleteLines) — same partial-final-line hold-back, so a mid-write final line is
 // never consumed and dropped. The length-cap makes that hold-back robust against a concurrent
 // append happening after the length was sampled.
@@ -15,21 +13,21 @@ public class ReadNewCompleteLinesAsyncTests {
 
     string WriteTemp(string content) => Tmp.CreateFile($"drain-{Guid.NewGuid():N}.jsonl", content);
 
-    static async Task<WatchCommand.NewTranscriptLines> ReadViaStream(
-            string path, int linesProcessed, WatchCommand.IncompleteFinalLinePolicy policy) {
+    static async Task<NewTranscriptLines> ReadViaStream(
+            string path, int linesProcessed, IncompleteFinalLinePolicy policy) {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        return await WatchCommand.ReadNewCompleteLinesAsync(stream, linesProcessed, policy, default);
+        return await TranscriptReader.ReadNewCompleteLinesAsync(stream, linesProcessed, policy, default);
     }
 
     // the Cursor watcher's captureRawBytes: true path.
-    static async Task<WatchCommand.NewTranscriptLines> ReadViaStreamRaw(
-            string path, int linesProcessed, WatchCommand.IncompleteFinalLinePolicy policy) {
+    static async Task<NewTranscriptLines> ReadViaStreamRaw(
+            string path, int linesProcessed, IncompleteFinalLinePolicy policy) {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        return await WatchCommand.ReadNewCompleteLinesAsync(stream, linesProcessed, policy, default, captureRawBytes: true);
+        return await TranscriptReader.ReadNewCompleteLinesAsync(stream, linesProcessed, policy, default, captureRawBytes: true);
     }
 
-    async Task AssertParity(string content, int linesProcessed, WatchCommand.IncompleteFinalLinePolicy policy) {
-        var expected = WatchCommand.SplitNewCompleteLines(content, linesProcessed, policy);
+    async Task AssertParity(string content, int linesProcessed, IncompleteFinalLinePolicy policy) {
+        var expected = TranscriptReader.SplitNewCompleteLines(content, linesProcessed, policy);
 
         var path = WriteTemp(content);
         var actual = await ReadViaStream(path, linesProcessed, policy);
@@ -44,42 +42,42 @@ public class ReadNewCompleteLinesAsyncTests {
 
     [Test]
     public async Task Parity_all_lines_when_file_ends_with_newline() =>
-        await AssertParity("a\nb\nc\n", 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        await AssertParity("a\nb\nc\n", 0, IncompleteFinalLinePolicy.Hold);
 
     [Test]
     public async Task Parity_partial_final_line_held_back_when_no_trailing_newline() =>
-        await AssertParity("a\nb\nc", 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        await AssertParity("a\nb\nc", 0, IncompleteFinalLinePolicy.Hold);
 
     [Test]
     public async Task Parity_blank_lines_skipped_but_counted() =>
-        await AssertParity("a\n\nb\n", 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        await AssertParity("a\n\nb\n", 0, IncompleteFinalLinePolicy.Hold);
 
     [Test]
     public async Task Parity_blank_partial_final_line() =>
-        await AssertParity("real\n   ", 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        await AssertParity("real\n   ", 0, IncompleteFinalLinePolicy.Hold);
 
     [Test]
     public async Task Parity_respects_lines_already_processed() =>
-        await AssertParity("a\nb\nc\n", 2, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        await AssertParity("a\nb\nc\n", 2, IncompleteFinalLinePolicy.Hold);
 
     [Test]
     public async Task Parity_crlf_terminated_lines() =>
-        await AssertParity("a\r\nb\r\n", 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        await AssertParity("a\r\nb\r\n", 0, IncompleteFinalLinePolicy.Hold);
 
     [Test]
     public async Task Parity_lone_partial_line_holds_at_start() =>
-        await AssertParity("partial-json-being-written", 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        await AssertParity("partial-json-being-written", 0, IncompleteFinalLinePolicy.Hold);
 
     [Test]
     public async Task Parity_empty_file() =>
-        await AssertParity("", 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        await AssertParity("", 0, IncompleteFinalLinePolicy.Hold);
 
     // ---- 2. Final drain (ConsumeIfComplete): consume only a parseable unterminated final line ----
 
     [Test]
     public async Task Final_drain_consumes_a_parseable_unterminated_final_line() {
         var path = WriteTemp("{\"a\":1}\n{\"b\":2}");
-        var r = await ReadViaStream(path, 0, WatchCommand.IncompleteFinalLinePolicy.ConsumeIfComplete);
+        var r = await ReadViaStream(path, 0, IncompleteFinalLinePolicy.ConsumeIfComplete);
 
         await Assert.That(r.Lines).IsEquivalentTo(new[] { "{\"a\":1}", "{\"b\":2}" });
         await Assert.That(r.LineNumbers).IsEquivalentTo(new[] { 0, 1 });
@@ -90,7 +88,7 @@ public class ReadNewCompleteLinesAsyncTests {
     [Test]
     public async Task Final_drain_holds_an_unparseable_unterminated_final_line() {
         var path = WriteTemp("{\"a\":1}\n{\"b\":2");
-        var r = await ReadViaStream(path, 0, WatchCommand.IncompleteFinalLinePolicy.ConsumeIfComplete);
+        var r = await ReadViaStream(path, 0, IncompleteFinalLinePolicy.ConsumeIfComplete);
 
         await Assert.That(r.Lines).IsEquivalentTo(new[] { "{\"a\":1}" });
         await Assert.That(r.LineNumbers).IsEquivalentTo(new[] { 0 });
@@ -105,7 +103,7 @@ public class ReadNewCompleteLinesAsyncTests {
     public async Task Final_drain_holds_a_line_that_grew_into_an_incomplete_record_after_the_completeness_check() {
         var path = WriteTemp("{\"a\":1}\n");
         // Step 1: the bounded completeness probe sees a fully complete file.
-        await Assert.That(await WatchCommand.WaitForFinalLineCompletionAsync(path, TimeProvider.System, attempts: 1, delayMs: 1)).IsTrue();
+        await Assert.That(await TranscriptReader.WaitForFinalLineCompletionAsync(path, TimeProvider.System, attempts: 1, delayMs: 1)).IsTrue();
 
         // Step 2: the writer RESUMES, appending a new partial record (no newline, unparseable)
         // in the gap before the consuming read — the exact TOCTOU the fix must close.
@@ -113,14 +111,14 @@ public class ReadNewCompleteLinesAsyncTests {
 
         // Step 3: the consuming final drain re-validates on the bytes it actually reads and
         // HOLDS the still-incomplete tail — only the complete first record is delivered.
-        var r = await ReadViaStream(path, 0, WatchCommand.IncompleteFinalLinePolicy.ConsumeIfComplete);
+        var r = await ReadViaStream(path, 0, IncompleteFinalLinePolicy.ConsumeIfComplete);
 
         await Assert.That(r.Lines).IsEquivalentTo(new[] { "{\"a\":1}" });
         await Assert.That(r.NextPosition).IsEqualTo(1);
         await Assert.That(r.HeldIncompleteFinalLine).IsTrue();
     }
 
-    // ---- 3. FileShare.ReadWrite doesn't block a concurrent writer (#291 #1) ----
+    // ---- 3. FileShare.ReadWrite doesn't block a concurrent writer ----
 
     [Test]
     public async Task Read_does_not_block_a_concurrent_append_writer() {
@@ -129,7 +127,7 @@ public class ReadNewCompleteLinesAsyncTests {
         await using var readStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
 
         // A concurrent agent appending to the same file must succeed (no sharing violation).
-        // With default FileShare.Read this would throw IOException — the #291 #1 regression.
+        // With default FileShare.Read this would throw IOException.
         await using (var writeStream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
         await using (var writer = new StreamWriter(writeStream)) {
             await writer.WriteLineAsync("c");
@@ -137,7 +135,7 @@ public class ReadNewCompleteLinesAsyncTests {
 
         // The read still works while the handle is shared; the append landed before the read,
         // so all three complete lines are surfaced.
-        var r = await WatchCommand.ReadNewCompleteLinesAsync(readStream, 0, WatchCommand.IncompleteFinalLinePolicy.Hold, default);
+        var r = await TranscriptReader.ReadNewCompleteLinesAsync(readStream, 0, IncompleteFinalLinePolicy.Hold, default);
         await Assert.That(r.Lines).IsEquivalentTo(new[] { "a", "b", "c" });
     }
 
@@ -152,7 +150,7 @@ public class ReadNewCompleteLinesAsyncTests {
         var limit = 4L;                                     // "a\nb\n" only
         using var inner = new MemoryStream(full);
 
-        var capped = new WatchCommand.LengthLimitedReadStream(inner, limit);
+        var capped = new LengthLimitedReadStream(inner, limit);
 
         var buffer = new byte[full.Length];
         var total  = 0;
@@ -179,7 +177,7 @@ public class ReadNewCompleteLinesAsyncTests {
         }
 
         // Read only up to the sampled length, exactly as ReadNewCompleteLinesAsync does internally.
-        using var reader = new StreamReader(new WatchCommand.LengthLimitedReadStream(stream, sampledLength), leaveOpen: true);
+        using var reader = new StreamReader(new LengthLimitedReadStream(stream, sampledLength), leaveOpen: true);
         var text = await reader.ReadToEndAsync();
 
         await Assert.That(text).IsEqualTo("a\nb\n");
@@ -192,7 +190,7 @@ public class ReadNewCompleteLinesAsyncTests {
         var limit = 5L;
         using var inner = new MemoryStream(full);
 
-        var capped = new WatchCommand.LengthLimitedReadStream(inner, limit);
+        var capped = new LengthLimitedReadStream(inner, limit);
 
         var buffer = new byte[full.Length];
         var total  = 0;
@@ -205,17 +203,14 @@ public class ReadNewCompleteLinesAsyncTests {
         await Assert.That(Encoding.UTF8.GetString(buffer, 0, total)).IsEqualTo("hello");
     }
 
-    // 5. review fix #1: captureRawBytes threads the EXACT decode-read bytes back to
-    // the caller. This is the mechanism the fix relies on to close the TOCTOU the round-2 review
-    // found: the runtime rewrite guard used to decode lines from one read, then reopen the file
-    // SEPARATELY to hash "the new range" — a rewrite landing between those two reads meant the
-    // guard recorded/verified a snapshot the batch never actually came from. Binding the guard's
-    // hash to SnapshotBytes (this same capped read) instead of a later reopen closes that window. ----
+    // 5. captureRawBytes threads the EXACT decode-read bytes back to the caller, so the rewrite
+    // guard hashes the bytes the batch came from. A separate reopen would leave a window in which a
+    // rewrite lands between the two reads and the guard verifies a snapshot the batch never came from. ----
 
     [Test]
     public async Task CaptureRawBytes_snapshot_bytes_are_exactly_the_bytes_that_decoded_the_returned_lines() {
         var path = WriteTemp("line1\nline2\nline3\n");
-        var r = await ReadViaStreamRaw(path, 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        var r = await ReadViaStreamRaw(path, 0, IncompleteFinalLinePolicy.Hold);
 
         await Assert.That(r.SnapshotBytes).IsNotNull();
         await Assert.That(r.SnapshotBytes!.Length).IsEqualTo((int)r.SnapshotByteLength);
@@ -223,8 +218,8 @@ public class ReadNewCompleteLinesAsyncTests {
         // Independently decoding the SAME buffer must reproduce exactly the lines the
         // streaming read already decoded — proving SnapshotBytes really is "the bytes that
         // produced Lines", not bytes from some other (possibly later, possibly rewritten) read.
-        var reDecoded = WatchCommand.SplitNewCompleteLines(
-            Encoding.UTF8.GetString(r.SnapshotBytes!), 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        var reDecoded = TranscriptReader.SplitNewCompleteLines(
+            Encoding.UTF8.GetString(r.SnapshotBytes!), 0, IncompleteFinalLinePolicy.Hold);
 
         await Assert.That(reDecoded.Lines).IsEquivalentTo(r.Lines);
         await Assert.That(reDecoded.LineNumbers).IsEquivalentTo(r.LineNumbers);
@@ -234,7 +229,7 @@ public class ReadNewCompleteLinesAsyncTests {
     public async Task CaptureRawBytes_defaults_to_null_when_the_caller_does_not_opt_in() {
         // Every non-Cursor vendor keeps the original zero-buffering streaming path.
         var path = WriteTemp("line1\nline2\n");
-        var r = await ReadViaStream(path, 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        var r = await ReadViaStream(path, 0, IncompleteFinalLinePolicy.Hold);
         await Assert.That(r.SnapshotBytes).IsNull();
     }
 
@@ -243,8 +238,8 @@ public class ReadNewCompleteLinesAsyncTests {
         const string content = "a\nb\n\nc";
         var pathA = WriteTemp(content);
         var pathB = WriteTemp(content);
-        var expected = await ReadViaStream(pathA, 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
-        var actual   = await ReadViaStreamRaw(pathB, 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        var expected = await ReadViaStream(pathA, 0, IncompleteFinalLinePolicy.Hold);
+        var actual   = await ReadViaStreamRaw(pathB, 0, IncompleteFinalLinePolicy.Hold);
 
         await Assert.That(actual.Lines).IsEquivalentTo(expected.Lines);
         await Assert.That(actual.LineNumbers).IsEquivalentTo(expected.LineNumbers);
@@ -252,18 +247,18 @@ public class ReadNewCompleteLinesAsyncTests {
         await Assert.That(actual.HeldIncompleteFinalLine).IsEqualTo(expected.HeldIncompleteFinalLine);
     }
 
-    // 6. review fix (r3, finding #3): rawBytesReadFrom/newRangeByteOffset bound the
+    // 6. rawBytesReadFrom/newRangeByteOffset bound the
     // captureRawBytes buffer instead of always materializing the whole file. A large, mostly-
     // unchanged Cursor transcript must NOT be re-read/re-allocated in full on every poll — only the
     // guard's own small trailing-tail zone plus whatever's actually new. The periodic full-prefix
     // cadence (a separate, rare poll) is the only time the whole file is still read; that path is
     // exercised by passing rawBytesReadFrom: 0 (the default), already covered above. ----
 
-    static async Task<WatchCommand.NewTranscriptLines> ReadViaStreamRawBounded(
+    static async Task<NewTranscriptLines> ReadViaStreamRawBounded(
             string path, int linesProcessed, long rawBytesReadFrom, long newRangeByteOffset,
-            WatchCommand.IncompleteFinalLinePolicy policy = WatchCommand.IncompleteFinalLinePolicy.Hold) {
+            IncompleteFinalLinePolicy policy = IncompleteFinalLinePolicy.Hold) {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        return await WatchCommand.ReadNewCompleteLinesAsync(
+        return await TranscriptReader.ReadNewCompleteLinesAsync(
             stream, linesProcessed, policy, default,
             captureRawBytes: true, rawBytesReadFrom: rawBytesReadFrom, newRangeByteOffset: newRangeByteOffset);
     }
@@ -332,8 +327,8 @@ public class ReadNewCompleteLinesAsyncTests {
 
         // Re-decoding SnapshotBytes independently (from its own start, offset 0 relative to the
         // snapshot itself) must reproduce exactly the lines the bounded read already decoded.
-        var reDecoded = WatchCommand.SplitNewCompleteLines(
-            Encoding.UTF8.GetString(r.SnapshotBytes!), 0, WatchCommand.IncompleteFinalLinePolicy.Hold);
+        var reDecoded = TranscriptReader.SplitNewCompleteLines(
+            Encoding.UTF8.GetString(r.SnapshotBytes!), 0, IncompleteFinalLinePolicy.Hold);
 
         await Assert.That(reDecoded.Lines).IsEquivalentTo(r.Lines);
     }

@@ -4,6 +4,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.PrDetection;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Time.Testing;
+using Capacitor.Cli.Recording.Harness.Copilot;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -53,7 +54,7 @@ public class CopilotShutdownEndTests {
     [Arguments(Shutdown, 1, false)]
     [Arguments("""{"type":"session.shutdown","data":{},"id":"e4"}""", -1, false)]
     public async Task Only_a_shutdown_written_since_the_watcher_started_counts(string line, int startOffsetSeconds, bool seen) =>
-        await Assert.That(WatchCommand.CopilotShutdownAfter(null, [line], T0, T0.AddSeconds(startOffsetSeconds)) is not null).IsEqualTo(seen);
+        await Assert.That(CopilotShutdown.CopilotShutdownAfter(null, [line], T0, T0.AddSeconds(startOffsetSeconds)) is not null).IsEqualTo(seen);
 
     [Test]
     [Arguments("copilot", null, "/home/.copilot/session-state/abc/events.jsonl", true)]
@@ -61,22 +62,22 @@ public class CopilotShutdownEndTests {
     [Arguments("copilot", null, "/data/GitHub.copilot-chat/transcripts/abc.jsonl", false)]
     [Arguments("claude", null, "/home/.claude/projects/abc.jsonl", false)]
     public async Task Only_a_Copilot_session_watcher_on_events_jsonl_tracks_shutdown(string vendor, string? agentId, string transcript, bool expected) =>
-        await Assert.That(WatchCommand.TracksCopilotShutdown(vendor, agentId, transcript)).IsEqualTo(expected);
+        await Assert.That(CopilotShutdown.TracksCopilotShutdown(vendor, agentId, transcript)).IsEqualTo(expected);
 
     [Test]
     public async Task A_drain_ending_on_shutdown_starts_the_grace_and_blank_lines_do_not_hide_it() =>
-        await Assert.That(WatchCommand.CopilotShutdownAfter(null, [Resume, Shutdown, "  "], T0, T0)).IsEqualTo(T0);
+        await Assert.That(CopilotShutdown.CopilotShutdownAfter(null, [Resume, Shutdown, "  "], T0, T0)).IsEqualTo(T0);
 
     [Test]
     [Arguments(Resume)]
     [Arguments(Quoted)]
     public async Task A_later_line_clears_it(string later) =>
-        await Assert.That(WatchCommand.CopilotShutdownAfter(T0, [Shutdown, later], T0.AddSeconds(1), T0)).IsNull();
+        await Assert.That(CopilotShutdown.CopilotShutdownAfter(T0, [Shutdown, later], T0.AddSeconds(1), T0)).IsNull();
 
     [Test]
     public async Task Nothing_new_and_a_reread_of_the_same_line_keep_the_clock_running() {
-        await Assert.That(WatchCommand.CopilotShutdownAfter(T0, [], T0.AddSeconds(5), T0)).IsEqualTo(T0);
-        await Assert.That(WatchCommand.CopilotShutdownAfter(T0, [Shutdown], T0.AddSeconds(5), T0)).IsEqualTo(T0);
+        await Assert.That(CopilotShutdown.CopilotShutdownAfter(T0, [], T0.AddSeconds(5), T0)).IsEqualTo(T0);
+        await Assert.That(CopilotShutdown.CopilotShutdownAfter(T0, [Shutdown], T0.AddSeconds(5), T0)).IsEqualTo(T0);
     }
 
     /// <summary>On real transcripts a VS Code resume wrote its line 0.9s after the shutdown.</summary>
@@ -85,7 +86,7 @@ public class CopilotShutdownEndTests {
     [Arguments(29, false)]
     [Arguments(30, true)]
     public async Task It_settles_only_after_the_grace(int seconds, bool expected) =>
-        await Assert.That(WatchCommand.CopilotShutdownSettled(T0, T0.AddSeconds(seconds))).IsEqualTo(expected);
+        await Assert.That(CopilotShutdown.CopilotShutdownSettled(T0, T0.AddSeconds(seconds))).IsEqualTo(expected);
 
     /// <summary>A transcript that can't be read must not cancel an end already decided.</summary>
     [Test]
@@ -100,7 +101,7 @@ public class CopilotShutdownEndTests {
 
     [Test]
     public async Task No_shutdown_seen_never_settles() =>
-        await Assert.That(WatchCommand.CopilotShutdownSettled(null, T0.AddDays(1))).IsFalse();
+        await Assert.That(CopilotShutdown.CopilotShutdownSettled(null, T0.AddDays(1))).IsFalse();
 
     [Test]
     public async Task A_settled_shutdown_ends_the_session_and_the_process_exiting_outranks_it() {

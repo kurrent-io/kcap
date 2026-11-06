@@ -1,8 +1,7 @@
 using System.Text;
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 
-namespace Capacitor.Cli.Tests.Unit.Commands;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 /// <summary>
 /// A poll that carries a <see cref="TranscriptLineIndex"/> must return exactly what a full read
@@ -11,8 +10,8 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 public class IndexedTranscriptReadTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
-    const WatchCommand.IncompleteFinalLinePolicy Hold    = WatchCommand.IncompleteFinalLinePolicy.Hold;
-    const WatchCommand.IncompleteFinalLinePolicy Consume = WatchCommand.IncompleteFinalLinePolicy.ConsumeIfComplete;
+    const IncompleteFinalLinePolicy Hold    = IncompleteFinalLinePolicy.Hold;
+    const IncompleteFinalLinePolicy Consume = IncompleteFinalLinePolicy.ConsumeIfComplete;
 
     // A derived FileStream's async reads call back into its own sync overloads, so only the
     // outermost call counts.
@@ -57,15 +56,15 @@ public class IndexedTranscriptReadTests {
         }
     }
 
-    static async Task<(WatchCommand.NewTranscriptLines Result, long BytesRead)> Read(
-            string path, int linesProcessed, WatchCommand.IncompleteFinalLinePolicy policy, TranscriptLineIndex? index) {
+    static async Task<(NewTranscriptLines Result, long BytesRead)> Read(
+            string path, int linesProcessed, IncompleteFinalLinePolicy policy, TranscriptLineIndex? index) {
         await using var stream = new CountingFileStream(path);
-        var result = await WatchCommand.ReadNewCompleteLinesAsync(stream, linesProcessed, policy, default, lineOffsets: index);
+        var result = await TranscriptReader.ReadNewCompleteLinesAsync(stream, linesProcessed, policy, default, lineOffsets: index);
 
         return (result, stream.BytesRead);
     }
 
-    static async Task AssertSame(WatchCommand.NewTranscriptLines expected, WatchCommand.NewTranscriptLines actual, string context) {
+    static async Task AssertSame(NewTranscriptLines expected, NewTranscriptLines actual, string context) {
         await Assert.That(actual.Lines).IsEquivalentTo(expected.Lines).Because(context);
         await Assert.That(actual.LineNumbers).IsEquivalentTo(expected.LineNumbers).Because(context);
         await Assert.That(actual.NextPosition).IsEqualTo(expected.NextPosition).Because(context);
@@ -238,8 +237,8 @@ public class IndexedTranscriptReadTests {
         var path = Tmp.CreateFile($"final-{Guid.NewGuid():N}.jsonl", content);
         if (content == "UTF16") await File.WriteAllTextAsync(path, "{\"a\":1}\n", Encoding.Unicode);
 
-        var expected = WatchCommand.IsFinalLineComplete(await File.ReadAllTextAsync(path));
-        var actual   = WatchCommand.IsFinalLineComplete(await WatchCommand.ReadFinalLineSharedAsync(path));
+        var expected = TranscriptReader.IsFinalLineComplete(await File.ReadAllTextAsync(path));
+        var actual   = TranscriptReader.IsFinalLineComplete(await TranscriptReader.ReadFinalLineSharedAsync(path));
 
         await Assert.That(actual).IsEqualTo(expected);
     }
@@ -288,10 +287,10 @@ public class IndexedTranscriptReadTests {
         var path = TenMegabytes();
         await using var stream = new CountingFileStream(path);
 
-        var tail = await WatchCommand.ReadFinalLineAsync(stream, path);
+        var tail = await TranscriptReader.ReadFinalLineAsync(stream, path);
 
         await Assert.That(new FileInfo(path).Length).IsGreaterThan(10_000_000);
-        await Assert.That(WatchCommand.IsFinalLineComplete(tail)).IsTrue();
+        await Assert.That(TranscriptReader.IsFinalLineComplete(tail)).IsTrue();
         await Assert.That(stream.BytesRead).IsLessThan(64 * 1024 + 1024);
     }
 

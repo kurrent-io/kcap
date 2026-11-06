@@ -2,6 +2,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.PrDetection;
 using Microsoft.AspNetCore.SignalR.Client;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -57,12 +58,12 @@ public class ShortLiveSessionTests {
     [Arguments("gemini", """{"type":"user","content":[{"text":"hello"}]}""", true)]
     [Arguments("gemini", """{"type":"user","content":"<session_context>ctx</session_context>"}""", false)]
     public async Task A_real_turn_is_a_prompt_or_a_reply(string vendor, string line, bool expected) {
-        await Assert.That(WatchCommand.IsRealTurnLine(line, vendor, TimeProvider.System)).IsEqualTo(expected);
+        await Assert.That(TranscriptLineText.IsRealTurnLine(line, vendor)).IsEqualTo(expected);
     }
 
     [Test]
     public async Task A_buffer_with_a_turn_flushes_below_the_threshold() {
-        await Assert.That(WatchCommand.ShouldFlushBuffer([PiHeader, PiPrompt], "pi", TimeProvider.System)).IsTrue();
+        await Assert.That(TranscriptLineText.ShouldFlushBuffer([PiHeader, PiPrompt], "pi")).IsTrue();
     }
 
     [Test]
@@ -70,8 +71,8 @@ public class ShortLiveSessionTests {
         var below = Enumerable.Repeat(PiModelChange, WatchState.TranscriptThreshold - 1).ToList();
         var at    = Enumerable.Repeat(PiModelChange, WatchState.TranscriptThreshold).ToList();
 
-        await Assert.That(WatchCommand.ShouldFlushBuffer(below, "pi", TimeProvider.System)).IsFalse();
-        await Assert.That(WatchCommand.ShouldFlushBuffer(at, "pi", TimeProvider.System)).IsTrue();
+        await Assert.That(TranscriptLineText.ShouldFlushBuffer(below, "pi")).IsFalse();
+        await Assert.That(TranscriptLineText.ShouldFlushBuffer(at, "pi")).IsTrue();
     }
 
     /// <summary>The shape of the reported OpenCode run: a whole turn in fewer lines than the threshold.</summary>
@@ -132,27 +133,27 @@ public class ShortLiveSessionTests {
     public async Task A_turn_written_after_the_last_poll_is_found_at_shutdown() {
         var path = Tmp.CreateFile("t.jsonl", Lines(PiHeader, PiModelChange, PiPrompt));
 
-        await Assert.That(WatchCommand.UnsentLinesHoldRealTurn(path, 0, "pi", TimeProvider.System)).IsTrue();
+        await Assert.That(TranscriptLineText.UnsentLinesHoldRealTurn(path, 0, "pi")).IsTrue();
     }
 
     [Test]
     public async Task A_turnless_transcript_holds_no_turn_at_shutdown() {
         var path = Tmp.CreateFile("t.jsonl", Lines(PiHeader, PiModelChange, PiThinking));
 
-        await Assert.That(WatchCommand.UnsentLinesHoldRealTurn(path, 0, "pi", TimeProvider.System)).IsFalse();
+        await Assert.That(TranscriptLineText.UnsentLinesHoldRealTurn(path, 0, "pi")).IsFalse();
     }
 
     /// <summary>Pi writes no session file until the first turn, so a session that ended before one has none.</summary>
     [Test]
     public async Task A_transcript_that_was_never_written_holds_no_turn() {
-        await Assert.That(WatchCommand.UnsentLinesHoldRealTurn(Tmp.PathTo("missing.jsonl"), 0, "pi", TimeProvider.System)).IsFalse();
+        await Assert.That(TranscriptLineText.UnsentLinesHoldRealTurn(Tmp.PathTo("missing.jsonl"), 0, "pi")).IsFalse();
     }
 
     [Test]
     public async Task A_turn_the_server_already_holds_is_not_counted_again() {
         var path = Tmp.CreateFile("t.jsonl", Lines(PiPrompt, PiModelChange));
 
-        await Assert.That(WatchCommand.UnsentLinesHoldRealTurn(path, 1, "pi", TimeProvider.System)).IsFalse();
+        await Assert.That(TranscriptLineText.UnsentLinesHoldRealTurn(path, 1, "pi")).IsFalse();
     }
 
     [Test]

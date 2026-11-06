@@ -2,11 +2,12 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Cursor;
-using Capacitor.Cli.Harness.Cursor;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Recording;
+using Capacitor.Cli.Recording.Harness.Cursor;
 
 namespace Capacitor.Cli.Tests.Integration;
 
@@ -18,7 +19,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// A real SignalR wire round trip (the watcher's own <c>HubConnection</c>) is out of scope here —
 /// this project has no in-process SignalR host, so the drain/ack path itself is unit-tested
 /// server-side (<c>SendTranscriptBatchAckedWireTests</c>) and CLI-side via the pure
-/// <see cref="WatchCommand.ReadNewCompleteLinesAsync"/>/<see cref="CursorRewriteGuard"/> seams.
+/// <see cref="TranscriptReader.ReadNewCompleteLinesAsync"/>/<see cref="CursorRewriteGuard"/> seams.
 ///
 /// <para>Covers the four acceptance scenarios from the plan/spec:</para>
 /// <list type="number">
@@ -95,8 +96,8 @@ public class CursorTailingWatcherTests {
         );
 
         await using (var liveStream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
-            var liveDrain = await WatchCommand.ReadNewCompleteLinesAsync(
-                liveStream, linesProcessed: 0, WatchCommand.IncompleteFinalLinePolicy.Hold, CancellationToken.None);
+            var liveDrain = await TranscriptReader.ReadNewCompleteLinesAsync(
+                liveStream, linesProcessed: 0, IncompleteFinalLinePolicy.Hold, CancellationToken.None);
 
             // Only the two flushed lines — the unterminated third is held, and NextPosition
             // stays before it so a later drain re-reads it once complete. HeldIncompleteFinalLine
@@ -110,8 +111,8 @@ public class CursorTailingWatcherTests {
         // The agent process is gone — nothing will ever append the trailing newline. The
         // shutdown final drain must still recover the line rather than losing the turn.
         await using (var finalStream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
-            var finalDrain = await WatchCommand.ReadNewCompleteLinesAsync(
-                finalStream, linesProcessed: 2, WatchCommand.IncompleteFinalLinePolicy.ConsumeIfComplete, CancellationToken.None);
+            var finalDrain = await TranscriptReader.ReadNewCompleteLinesAsync(
+                finalStream, linesProcessed: 2, IncompleteFinalLinePolicy.ConsumeIfComplete, CancellationToken.None);
 
             await Assert.That(finalDrain.Lines.Count).IsEqualTo(1);
             await Assert.That(finalDrain.Lines[0]).Contains("force-quit line");
@@ -124,7 +125,7 @@ public class CursorTailingWatcherTests {
 
     /// <summary>
     /// Combines the two decisions <c>RunWatch</c> makes back to back at its idle-ceiling exit:
-    /// <see cref="WatchCommand.ShouldEndOnIdle"/> (should the watcher exit?) and
+    /// <see cref="IdleEnd.ShouldEndOnIdle"/> (should the watcher exit?) and
     /// <see cref="WatchCommand.CursorSuppressesEndPost"/> (should it also POST session-end on the
     /// way out?). For Cursor these must diverge from every other idle-ceiling vendor: the watcher
     /// exits, but it must NOT be the one to synthesize session-end (that stays owned by the
@@ -137,7 +138,7 @@ public class CursorTailingWatcherTests {
         var idle  = now.AddMinutes(-61);
         var idleTimeout = TimeSpan.FromMinutes(60);
 
-        var cursorShouldExit = WatchCommand.ShouldEndOnIdle(
+        var cursorShouldExit = IdleEnd.ShouldEndOnIdle(
             vendor: "cursor", isSessionWatcher: true, thresholdReached: true,
             lastActivityAt: idle, now: now, idleTimeout: idleTimeout);
         await Assert.That(cursorShouldExit).IsTrue();
@@ -147,7 +148,7 @@ public class CursorTailingWatcherTests {
 
         // Contrast: Codex hits the SAME idle-ceiling exit condition but must NOT suppress —
         // the suppression is Cursor-specific, not "every idle-ceiling vendor".
-        var codexShouldExit = WatchCommand.ShouldEndOnIdle(
+        var codexShouldExit = IdleEnd.ShouldEndOnIdle(
             vendor: "codex", isSessionWatcher: true, thresholdReached: true,
             lastActivityAt: idle, now: now, idleTimeout: idleTimeout);
         await Assert.That(codexShouldExit).IsTrue();
@@ -241,7 +242,7 @@ public class CursorTailingWatcherTests {
     /// Before this fix, <c>SeedCursorByteOffsetAsync</c> seeded <c>CursorByteOffset</c> at EOF
     /// while leaving <c>LinesProcessed</c> at the final record's own (already-acked) line number.
     /// The next poll's bounded read then started exactly at that EOF, saw the freshly-appended
-    /// leading <c>'\n'</c>, and — because <see cref="WatchCommand.ReadNewCompleteLinesAsync"/>
+    /// leading <c>'\n'</c>, and — because <see cref="TranscriptReader.ReadNewCompleteLinesAsync"/>
     /// seeds its line index from <c>LinesProcessed</c> — misread it as closing a NEW, phantom
     /// empty line, then labelled the real next record one line too high, permanently: the server,
     /// still waiting at the true frontier, would see a persistent apparent gap while the watcher
@@ -249,7 +250,7 @@ public class CursorTailingWatcherTests {
     ///
     /// This composes the same two pure seams the rest of this class uses instead of a live
     /// SignalR round trip: <see cref="WatchCommand.SeedCursorByteOffsetAsync"/> (the resume) and
-    /// <see cref="WatchCommand.ReadNewCompleteLinesAsync"/> (the next poll's bounded read), fed
+    /// <see cref="TranscriptReader.ReadNewCompleteLinesAsync"/> (the next poll's bounded read), fed
     /// from the SAME <c>WatchState</c> fields <c>RunWatch</c>/<c>DrainNewLines</c> thread between
     /// them in production.
     /// </summary>
@@ -283,8 +284,8 @@ public class CursorTailingWatcherTests {
             await File.AppendAllTextAsync(transcriptPath, "\n{\"c\":3}\n");
 
             await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            var drainRead = await WatchCommand.ReadNewCompleteLinesAsync(
-                stream, state.LinesProcessed, WatchCommand.IncompleteFinalLinePolicy.Hold, CancellationToken.None,
+            var drainRead = await TranscriptReader.ReadNewCompleteLinesAsync(
+                stream, state.LinesProcessed, IncompleteFinalLinePolicy.Hold, CancellationToken.None,
                 captureRawBytes: true, rawBytesReadFrom: state.CursorByteOffset, newRangeByteOffset: state.CursorByteOffset);
 
             // The rewound line 1 ("{"b":2}") is re-read/re-sent — harmless, the server's

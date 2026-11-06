@@ -1,5 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.RepoEvidence;
+using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
