@@ -270,6 +270,8 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             _goalEdits++;
             ClearIntakeNotice();
             this.RaiseAndSetIfChanged(ref _goal, value);
+            // An emptied composer, by hand or by a launch, no longer holds the row's goal.
+            if (value.Length == 0) NextWorkSource = null;
         }
     }
 
@@ -391,6 +393,42 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
 
     /// The usage-data disclosure, shown on the launcher until it is acknowledged.
     public UsageDataNotice? UsageNotice { get; init; }
+
+    /// The web Home's "What to do next" band under the composer; null without a server.
+    public NextWork.NextWorkBandViewModel? NextWork { get; init; }
+
+    NextWork.NextWorkFill? _nextWorkSource;
+    readonly System.Reactive.Subjects.Subject<Unit> _composerFills = new();
+
+    /// The band row whose goal the composer holds, named on the chip above the goal; null once it is cleared.
+    public NextWork.NextWorkFill? NextWorkSource {
+        get => _nextWorkSource;
+        private set {
+            if (ReferenceEquals(_nextWorkSource, value)) return;
+            this.RaiseAndSetIfChanged(ref _nextWorkSource, value);
+            NextWork?.MarkFilled(value?.Key);
+        }
+    }
+
+    /// Raised after a band row filled the composer, so the view can draw the eye to it.
+    public IObservable<Unit> ComposerFills => _composerFills;
+
+    /// Drops the row's goal from the composer.
+    public void ClearNextWorkSource() {
+        if (NextWorkSource is null) return;
+        Goal = "";
+        NextWorkSource = null;
+    }
+
+    /// Puts a band row's goal in the composer, on the machine and in the checkout it names when it names one.
+    public async Task FillFromNextWorkAsync(NextWork.NextWorkFill fill) {
+        if (fill.Machine is { } machine && !(string.Equals(SelectedMachine, machine, StringComparison.Ordinal) && RemoteMachineSelected == !fill.MachineIsLocal))
+            await SelectMachineAsync(machine, fill.MachineIsLocal);
+        if (fill.RepoPath is { } path) await SelectRepositoryAsync(path);
+        Goal = fill.Goal;
+        NextWorkSource = fill;
+        _composerFills.OnNext(Unit.Default);
+    }
 
     readonly ObservableAsPropertyHelper<bool> _bannerBusy;
     /// True while the banner is an in-flight connect/finish line — a loader, not Sign in.
@@ -1368,6 +1406,8 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     public void Dispose() {
         _disposed = true;
         _disposables.Dispose();
+        NextWork?.Dispose();
+        _composerFills.Dispose();
         Notices.Dispose();
         _daemonStartMessageFeed.Dispose();
         _daemonStartVisibleFeed.Dispose();

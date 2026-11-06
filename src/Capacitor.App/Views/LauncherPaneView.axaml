@@ -259,6 +259,23 @@
                     <Border x:Name="GoalCard" Classes="attachTarget" Background="{StaticResource KcapSurfaceBrush}"
                             BorderThickness="1" CornerRadius="12" Padding="14">
                         <StackPanel Spacing="12">
+                            <!-- The band row whose goal this is: the goal is the prompt the server built for it. -->
+                            <Border x:Name="NextWorkSourceChip" HorizontalAlignment="Left" CornerRadius="999" Padding="10,3,4,3"
+                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                                    IsVisible="{Binding NextWorkSource, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <views:AppIcon Kind="Lightbulb" Size="12" Foreground="{StaticResource KcapMutedBrush}" />
+                                    <TextBlock Text="Picked up" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding NextWorkSource.Label, FallbackValue={x:Null}}" FontSize="12" Foreground="{StaticResource KcapTextBrush}"
+                                               MaxWidth="360" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                    <Button x:Name="ClearNextWorkSourceButton" Classes="kcapGhost" Width="20" Height="20" Padding="0"
+                                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                            Click="OnClearNextWorkSource" ToolTip.Tip="Clear this goal" AutomationProperties.Name="Clear the picked-up goal">
+                                        <views:AppIcon Kind="X" Size="12" Foreground="{StaticResource KcapMutedBrush}" />
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+
                             <views:AttachmentChipStrip x:Name="ChipStrip" Tray="{Binding Tray}"
                                                        IsVisible="{Binding Tray.HasAttachments}" />
 
@@ -377,6 +394,11 @@
                     </StackPanel>
                 </Grid>
             </StackPanel>
+
+            <!-- What to pick up next, under the composer: the panel keeps the composer where it is whatever this holds,
+                 and gives the list the height left below it. -->
+            <views:NextWorkBandView x:Name="NextWorkBand" DataContext="{Binding NextWork}" HorizontalAlignment="Stretch"
+                                    IsVisible="{Binding IsAvailable, FallbackValue=False}" />
     </views:LauncherLayoutPanel>
     </ScrollViewer>
 </UserControl>
