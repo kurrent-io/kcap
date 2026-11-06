@@ -222,6 +222,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         BindHistoryShortcuts();
         BindSettingsShortcut();
         KeepContentClearOfCaptionButtons();
+        ShowInstanceTitle();
         BindFullScreenShortcut();
         Closing += (_, e) => {
             if (CloseInterceptor?.Invoke() == true) e.Cancel = true;
@@ -350,6 +351,17 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             e.Handled = true;
             ui.Execute(null);
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+    }
+
+    public const string TitleEnvVar = "KCAP_APP_TITLE";
+
+    // Names the instance, so several running side by side can be told apart. Drawn by the app only
+    // where the window paints into its title bar; elsewhere the window manager draws the title.
+    void ShowInstanceTitle() {
+        if (Environment.GetEnvironmentVariable(TitleEnvVar) is not { } raw || raw.Trim() is not { Length: > 0 } title) return;
+        Title = title;
+        InstanceTitle.Text = title;
+        InstanceTitle.Bind(IsVisibleProperty, this.GetObservable(IsExtendedIntoWindowDecorationsProperty));
     }
 
     // Windows draws its caption buttons over the top-right of the extended client area, so the
