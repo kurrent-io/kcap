@@ -28,7 +28,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             this.RaiseAndSetIfChanged(ref _connectionNotice, value);
             this.RaisePropertyChanged(nameof(HasConnectionNotice));
             this.RaisePropertyChanged(nameof(ShowsStartingNotice));
-            if (Chat is not null) Chat.HasWorkspaceNotice = HasConnectionNotice;
+            if (Chat is not null) Chat.WorkspaceNotice = ConnectionNotice;
             if (WorkContext is not null) WorkContext.HasWorkspaceNotice = HasConnectionNotice || IsStarting;
         }
     }
@@ -416,7 +416,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     openLink: Artefacts.OpenLink) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
                     InputSending = inputSending,
-                    HasWorkspaceNotice = HasConnectionNotice,
+                    WorkspaceNotice = ConnectionNotice,
                 };
                 Chat.Tasks.RunOpened += OpenSubagent;
                 _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));

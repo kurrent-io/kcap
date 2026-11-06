@@ -59,8 +59,14 @@
         <Border x:Name="AccessBanner" Grid.Row="1"
                 IsVisible="{Binding HasAccessNotice}">
             <Panel>
-                <views:SessionConnectionNotice DataContext="{Binding ConnectionNotice}"
-                    IsVisible="{Binding $parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).HasConnectionNotice}" />
+                <views:SessionConnectionNotice IsCompact="True" DataContext="{Binding ConnectionNotice}">
+                    <views:SessionConnectionNotice.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="$parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).HasConnectionNotice" />
+                            <Binding Path="!$parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).IsChatActive" />
+                        </MultiBinding>
+                    </views:SessionConnectionNotice.IsVisible>
+                </views:SessionConnectionNotice>
                 <Border Margin="20,10,20,0" Padding="13,10" CornerRadius="10"
                         Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
                         IsVisible="{Binding !HasConnectionNotice}">
@@ -71,6 +77,15 @@
         </Border>
 
         <Grid Grid.Row="2">
+            <views:SessionConnectionNotice DataContext="{Binding ConnectionNotice}">
+                <views:SessionConnectionNotice.IsVisible>
+                    <MultiBinding Converter="{x:Static BoolConverters.And}">
+                        <Binding Path="$parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).HasConnectionNotice" />
+                        <Binding Path="$parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).IsChatActive" />
+                        <Binding Path="!$parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).ShowsChatPane" />
+                    </MultiBinding>
+                </views:SessionConnectionNotice.IsVisible>
+            </views:SessionConnectionNotice>
             <!-- The active-tab flag lives on this VM, which is not the pane's DataContext. -->
             <views:ChatTabView x:Name="ChatHost" DataContext="{Binding Chat}"
                                IsVisible="{Binding $parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).ShowsChatPane}" />
