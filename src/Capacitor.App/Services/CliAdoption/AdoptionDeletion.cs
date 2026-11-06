@@ -130,19 +130,30 @@ internal sealed class AdoptionDeletion(
     }
 
     // Checked on the renamed entry, so a tree put in its place since the identity check is never deleted: an npm
-    // package must still be kcap's at the recorded version, which a reinstall at the same path changes.
-    static bool StillOurs(OtherCliInstall install, string entry, string aside) {
+    // package must still be kcap's at the recorded version, which a reinstall at the same path changes, and a script
+    // install's `current` must still name the recorded version, which a reinstall moves to its own.
+    internal static bool StillOurs(OtherCliInstall install, string entry, string aside) {
         var link = new FileInfo(aside).LinkTarget is not null;
         if (install.Kind == OtherCliInstallKind.Npm)
             return !link && Package(aside) is ({ } name, { } version) && version == install.Version
                 && (name == OtherCliInstallReader.NpmPackage || name.StartsWith(OtherCliInstallReader.NpmPackage + "-", StringComparison.Ordinal));
 
         return Path.GetFileName(entry) switch {
-            ScriptInstallLayout.CurrentName  => link,
-            ScriptInstallLayout.VersionsName => !link && Directory.Exists(aside),
+            ScriptInstallLayout.CurrentName  => NamesVersion(aside, install.Version),
+            ScriptInstallLayout.VersionsName => !link && Directory.Exists(Path.Combine(aside, install.Version))
+                && CurrentStillNames(entry, install.Version),
             _                                => !link && File.Exists(aside),
         };
     }
+
+    // `versions` goes before `current`, so a reinstall since the identity check shows in the link still in place.
+    static bool CurrentStillNames(string versions, string version) {
+        var current = Path.Combine(Path.GetDirectoryName(versions)!, ScriptInstallLayout.CurrentName);
+        return new FileInfo(current).LinkTarget is null && !Path.Exists(current) || NamesVersion(current, version);
+    }
+
+    static bool NamesVersion(string link, string version) =>
+        new FileInfo(link).LinkTarget is { } target && Path.GetFileName(target.TrimEnd('/', '\\')) == version;
 
     static (string? Name, string? Version) Package(string folder) {
         try {
