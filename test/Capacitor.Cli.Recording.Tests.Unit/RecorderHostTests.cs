@@ -1280,6 +1280,47 @@ public class RecorderHostTests {
         await Eventually(() => _transport.Detached.Count == 2, "the late registration to go");
     }
 
+    /// <summary>The late connect leaves the registration to the entry holding the key, and this one never gets as far as
+    /// recording: the add fails, so it has to detach on its way out as any other source does.</summary>
+    [Test]
+    public async Task An_add_that_fails_detaches_a_connect_that_landed_during_it() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var landed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var adding  = new ManualResetEventSlim();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _transport.ConnectFailures = 1;
+        var host = NewHost(factoryHook: kind => {
+            if (kind != "context" || !adding.IsSet) return;
+
+            entered.Set();
+            release.Wait();
+
+            throw new InvalidOperationException("no context");
+        });
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+        _transport.ConnectHold = landed.Task;
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => _transport.ConnectsHeld == 1, "the final drain's connect");
+        await Eventually(() => finish.IsCompleted, "the connect to time out", TranscriptRecorder.DrainOnceConnectBudget);
+        await Assert.That(_transport.Detached.Count).IsEqualTo(1);
+
+        adding.Set();
+        var add = Task.Run(() => host.TryAdd(source));
+        await Eventually(() => entered.IsSet, "the add to reach its factory");
+
+        landed.SetResult();
+        await Eventually(() => _log.Any(line => line.Contains("while it is being recorded", StringComparison.Ordinal)), "the late connect to leave it to the add");
+
+        release.Set();
+        await Assert.That(async () => await add).Throws<InvalidOperationException>();
+
+        await Assert.That(_transport.Detached.Count).IsEqualTo(2);
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
     /// <summary>The same source is still draining over a later connect, and its own end detaches it after this landing.
     /// A detach here would pull the registration out from under that drain.</summary>
     [Test]

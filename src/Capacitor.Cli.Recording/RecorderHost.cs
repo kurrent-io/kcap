@@ -72,13 +72,17 @@ public sealed class RecorderHost {
             }
         }
 
+        RecorderContext? built = null;
+
         try {
-            var context  = _contexts(source);
+            var context = _contexts(source);
+            built = context;
+
             var recorder = Create(source, context, context);
             entry.First = context;
             _ = Task.Run(() => RunAsync(source, entry, context, recorder));
         } catch {
-            Remove(source.Key, entry);
+            Remove(source, entry, built);
 
             throw;
         }
@@ -267,10 +271,7 @@ public sealed class RecorderHost {
                 }
             }
         } finally {
-            // Started while the key is still refused and left to run, so a hang can't hold up whoever waits for the end.
-            entry.BeginDetach();
-            _ = DetachAsync(source, first);
-            Remove(key, entry);
+            Remove(source, entry, first);
         }
     }
 
@@ -356,7 +357,7 @@ public sealed class RecorderHost {
 
     // Started under the lock that admits a key, so a recorder added after this connects behind it. The catch stays
     // outside that lock: a transport can throw before its first await, and a log can block.
-    async Task<bool> DetachAsync(RecordingSource source, RecorderContext first, Func<bool>? due = null) {
+    async Task<bool> DetachAsync(RecordingSource source, RecorderContext? first, Func<bool>? due = null) {
         try {
             using var budget = new CancellationTokenSource(DetachBudget, _time);
 
@@ -389,16 +390,20 @@ public sealed class RecorderHost {
     }
 
     // A failing logger must not turn one source's trouble into a leak or into another source's problem.
-    static void Log(RecorderContext context, string message) {
+    static void Log(RecorderContext? context, string message) {
         try {
-            context.Log(message);
+            context?.Log(message);
         } catch {
             // Nowhere left to report it.
         }
     }
 
-    void Remove(string key, Entry entry) {
-        _entries.TryRemove(new KeyValuePair<string, Entry>(key, entry));
+    // The detach starts while the key is still refused and is left to run, so a hang can't hold up whoever waits for the
+    // end. Every way out takes it, an add that failed included: a late connect may have left its registration to this entry.
+    void Remove(RecordingSource source, Entry entry, RecorderContext? first) {
+        entry.BeginDetach();
+        _ = DetachAsync(source, first);
+        _entries.TryRemove(new KeyValuePair<string, Entry>(source.Key, entry));
         entry.Complete();
     }
 
