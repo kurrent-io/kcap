@@ -762,9 +762,26 @@ public class ClaudeChatRulesTests {
     }
 
     [Test]
-    public async Task Two_frames_in_one_message_stay_as_they_arrived() {
-        const string content = "<ci-monitor-event>failed</ci-monitor-event>\n<ci-monitor-event>passed</ci-monitor-event>";
+    [Arguments("<ci-monitor-event>failed</ci-monitor-event>\n<ci-monitor-event>passed</ci-monitor-event>")]
+    [Arguments(PeerFrame + "\n" + PeerFrame + "\n\n" + PlainGuidance)]
+    public async Task Two_frames_in_one_message_stay_as_they_arrived(string content) =>
         await Assert.That(R(User(content)).Envelopes.Single().Text).IsEqualTo(content);
+
+    /// A rewording of Claude Code's guidance shows the whole message, where a looser match could drop someone's words.
+    [Test]
+    public async Task A_peers_message_with_unknown_guidance_shows_whole() {
+        var content = "Another Claude session sent a message:\n" + PeerFrame + "\n\nThis is from a session you may know.";
+        var note = R(User(content, "\"isMeta\":true,\"origin\":{\"kind\":\"peer\"}")).Envelopes.Single();
+        await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.PeerSession);
+        await Assert.That(note.ToolName).IsEqualTo("Message from another session");
+        await Assert.That(note.Text).IsEqualTo(content);
+    }
+
+    [Test]
+    public async Task A_quoted_angle_bracket_stays_inside_a_frames_attribute() {
+        var note = R(User("<cross-session-message from=\"a>b\" from-name=\"quiet-cow-d1\">\nHi\n</cross-session-message>")).Envelopes.Single();
+        await Assert.That(note.ToolName).IsEqualTo("Message from quiet-cow-d1");
+        await Assert.That(note.Text).IsEqualTo("Hi");
     }
 
     /// Other attributes can sit ahead of the name, and a frame without one still says where the message came from.
