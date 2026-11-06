@@ -540,7 +540,7 @@ public class HandoffComposerViewModelTests {
 
         rig.Ops.Next = Reply(AttachedStart, nameof(HandoffCompleteness.Unconfirmed));
         var unconfirmed = await rig.ReadyAsync();
-        await Assert.That(unconfirmed.CompletenessNote).IsEqualTo("The session may have left work that isn't pushed");
+        await Assert.That(unconfirmed.CompletenessNote).IsEqualTo("Previous session may have unpushed work");
         await Assert.That(unconfirmed.WorkMissingOrUnconfirmed).IsTrue();
     });
 

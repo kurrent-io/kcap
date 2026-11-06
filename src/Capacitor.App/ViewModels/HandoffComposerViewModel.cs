@@ -912,7 +912,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     internal static string? CompletenessNoteFor(string? completeness, IReadOnlyList<string>? missingCommits) => completeness switch {
         nameof(HandoffCompleteness.Complete) => null,
         nameof(HandoffCompleteness.PartlyMissing) => $"Part of the session's work is missing: {missingCommits?.Count ?? 0} commits",
-        _ => "The session may have left work that isn't pushed",
+        _ => "Previous session may have unpushed work",
     };
 
     public void Dispose() {
