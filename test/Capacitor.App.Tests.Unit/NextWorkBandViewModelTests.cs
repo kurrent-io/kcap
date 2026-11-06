@@ -49,6 +49,8 @@ public class NextWorkBandViewModelTests {
         await Assert.That(band.MoreToggleText).IsEqualTo("More to do (1)");
         await Assert.That(band.ElsewhereText).IsEqualTo("1 more on the dashboard");
         await Assert.That(band.Cards[1].Meta).IsEqualTo("payments-api · today");
+        await Assert.That(band.Cards[1].KindLabel).IsEqualTo("Work item");
+        await Assert.That(band.Cards[0].KindLabel).IsEqualTo("Pull request");
     }
 
     [Test]
