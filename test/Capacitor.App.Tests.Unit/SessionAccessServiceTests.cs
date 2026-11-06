@@ -183,8 +183,9 @@ public class SessionAccessServiceTests {
             entered.Set();
             resume.Wait();
         });
-        h.Connect();
-        await Task.Run(entered.Wait);
+        // Delivery can land on the thread that connects, and the observer blocks whichever thread it runs on.
+        var connect = Task.Run(() => h.Connect());
+        await Task.Run(entered.Wait).WaitAsync(TimeSpan.FromSeconds(30));
 
         var other = await Task.Run(() => {
             using var l = h.Service.Acquire("s2");
@@ -192,6 +193,7 @@ public class SessionAccessServiceTests {
             return l.SessionId;
         }).WaitAsync(TimeSpan.FromSeconds(30));
         resume.Set();
+        await connect.WaitAsync(TimeSpan.FromSeconds(30));
 
         await Assert.That(other).IsEqualTo("s2");
     }
