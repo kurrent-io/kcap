@@ -411,9 +411,13 @@ public sealed class TranscriptRecorder(
 
         using var abandon = CancellationTokenSource.CreateLinkedTokenSource(stop);
 
+        var connect = transport.ConnectAsync(source, abandon.Token);
+
         try {
-            return await transport.ConnectAsync(source, abandon.Token).WaitAsync(limit, time, stop);
+            return await connect.WaitAsync(limit, time, stop);
         } catch (TimeoutException) {
+            // The abandoned connect may still fault later; observing it keeps that from surfacing as an unobserved exception.
+            _ = connect.ContinueWith(static task => _ = task.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             await abandon.CancelAsync();
 
             throw;

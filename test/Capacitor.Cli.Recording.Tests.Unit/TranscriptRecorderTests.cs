@@ -141,6 +141,42 @@ public class TranscriptRecorderTests {
     }
 
     [Test]
+    public async Task A_log_that_throws_does_not_reach_the_transports_other_subscribers() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        var broken = new bool[1];
+        using var recorder = new TranscriptRecorder(
+            new RecordingSource(Sid, null, path, "claude", null), _transport, new NoStamps(), TimeProvider.System,
+            new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System,
+                _ => {
+                    if (Volatile.Read(ref broken[0])) throw new InvalidOperationException("the log is broken");
+                }, () => { }));
+        var lastRan = 0;
+        _transport.StopRequested += (_, _) => Task.FromResult(Interlocked.Increment(ref lastRan));
+        _transport.Reconnected   += () => Task.FromResult(Interlocked.Increment(ref lastRan));
+
+        var run = recorder.RunAsync(CancellationToken.None).ContinueWith(_ => { }, TaskScheduler.Default);
+        await Eventually(() => _transport.Connects == 1);
+        Volatile.Write(ref broken[0], true);
+        _transport.ConnectFailures = 1;
+
+        await _transport.RaiseReconnectedAsync();
+        await _transport.RaiseStopRequestedAsync(Sid, "the server asked");
+
+        await Assert.That(lastRan).IsEqualTo(2);
+        await run.WithinDeadlineAsync("the run");
+    }
+
+    static async Task Eventually(Func<bool> condition) {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+
+        while (!condition()) {
+            if (DateTimeOffset.UtcNow > deadline) throw new TimeoutException("the condition never held");
+
+            await Task.Delay(10);
+        }
+    }
+
+    [Test]
     public async Task Disposing_a_recorder_cancels_the_title_work_it_started() {
         var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
         var recorder = Recorder(path);

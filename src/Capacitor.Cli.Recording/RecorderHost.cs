@@ -74,8 +74,25 @@ public sealed class RecorderHost {
         await entry.Done.WaitAsync(ct);
     }
 
+    // A log or beat that throws, as the daemon's file log can, would otherwise fail the recorder at its first line.
     TranscriptRecorder Create(RecordingSource source, RecorderContext context) =>
-        new(source, _transport, _stampers(source), _time, context) { OpenTranscript = _openTranscript };
+        new(source, _transport, _stampers(source), _time, context with { Log = Guarded(context.Log), Beat = Guarded(context.Beat) }) { OpenTranscript = _openTranscript };
+
+    static Action<string> Guarded(Action<string> log) => message => {
+        try {
+            log(message);
+        } catch {
+            // Nowhere left to report it.
+        }
+    };
+
+    static Action Guarded(Action beat) => () => {
+        try {
+            beat();
+        } catch {
+            // A failing beat only makes the source look stale.
+        }
+    };
 
     // Never throws, and always leaves the dictionary, whatever a recorder did.
     async Task RunAsync(RecordingSource source, Entry entry, RecorderContext first, TranscriptRecorder? recorder) {

@@ -25,6 +25,7 @@ public class RecorderHostTests {
     readonly ConcurrentDictionary<string, int> _beats = new();
     readonly ConcurrentDictionary<string, Func<Task>?> _afterFinalDrain = new();
     readonly ConcurrentDictionary<string, bool> _logThrows = new();
+    readonly ConcurrentDictionary<string, bool> _beatThrows = new();
 
     public RecorderHostTests() => _time.Attempts = () => _transport.ConnectAttempts;
 
@@ -51,11 +52,15 @@ public class RecorderHostTests {
                     return _beforeDrain.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask;
                 },
             },
-            _clocks.GetValueOrDefault(source.Key, _time), message => {
+            _clocks.GetValueOrDefault(source.Key, TimeProvider.System), message => {
                 if (_logThrows.ContainsKey(source.Key)) throw new InvalidOperationException("the log is broken");
 
                 _log.Enqueue($"{source.Key}: {message}");
-            }, () => _beats.AddOrUpdate(source.Key, 1, (_, n) => n + 1));
+            }, () => {
+                if (_beatThrows.ContainsKey(source.Key)) throw new InvalidOperationException("the beat is broken");
+
+                _beats.AddOrUpdate(source.Key, 1, (_, n) => n + 1);
+            });
         },
         _time, open);
 
@@ -303,7 +308,7 @@ public class RecorderHostTests {
         var delays = Enumerable.Range(1, 7).Select(attempt => _time.Timers.Where(t => t.Attempts == attempt).Sum(t => t.Due.TotalSeconds)).ToList();
         await Assert.That(delays.SequenceEqual([1.0, 2, 4, 8, 16, 30, 30])).IsTrue().Because(string.Join(",", delays));
         await Assert.That(_time.Timers.Max(t => t.Due)).IsLessThanOrEqualTo(TranscriptRecorder.HeartbeatSlice);
-        await Assert.That(_beats[capped.Key]).IsGreaterThanOrEqualTo(7);
+        await Assert.That(_beats[capped.Key]).IsGreaterThanOrEqualTo(21);
     }
 
     [Test]
@@ -353,7 +358,7 @@ public class RecorderHostTests {
         await Eventually(() => LinesSent(source.SessionId) == 2, "its lines");
         await Eventually(() => entered.Task.IsCompleted, "the recorder entering its second drain", TimeSpan.FromSeconds(1));
         var finish = host.FinishAsync(source.Key, CancellationToken.None);
-        _transport.ResumeFrom = 2;
+        _transport.ResumeFrom = LinesSent(source.SessionId);
         release.SetResult();
         await finish.WithinDeadlineAsync("the finish");
 
@@ -378,26 +383,73 @@ public class RecorderHostTests {
     }
 
     [Test]
-    public async Task A_log_that_throws_does_not_reach_the_transports_other_subscribers() {
-        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
-        var host   = NewHost();
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_log_or_beat_that_always_throws_does_not_stop_a_source_recording(bool log) {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "a1");
+        if (log) _logThrows[source.Key] = true;
+        else _beatThrows[source.Key] = true;
+        var host = NewHost();
 
         host.TryAdd(source);
-        await Eventually(() => _transport.Connects == 1, "the source to register");
-        _logThrows[source.Key] = true;
-        var lastRan = 0;
-        _transport.StopRequested += (_, _) => Task.FromResult(Interlocked.Increment(ref lastRan));
-        _transport.Reconnected   += () => Task.FromResult(Interlocked.Increment(ref lastRan));
-
-        _transport.ConnectFailures = 1;
-        await _transport.RaiseReconnectedAsync();
-        await _transport.RaiseStopRequestedAsync(source.Key, "the server asked");
-
-        // A log that throws can also fail the recorder's own loop, so only the raises are pinned here.
-        await Assert.That(lastRan).IsEqualTo(2);
-
-        _logThrows.TryRemove(source.Key, out _);
+        await Eventually(() => LinesSent(source.SessionId) == 2, "its lines");
         await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(host.ActiveKeys).IsEmpty();
+        await Assert.That(_transport.Connects).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_server_stop_before_the_source_connects_still_drains_it() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var prepares = 0;
+        _prepare[source.Key] = () => {
+            if (Interlocked.Increment(ref prepares) > 1) return Task.CompletedTask;
+
+            entered.SetResult();
+
+            return release.Task;
+        };
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await entered.Task.WithinDeadlineAsync("the recorder entering its preparation");
+        await _transport.RaiseStopRequestedAsync(source.Key, "the server asked");
+        release.SetResult();
+
+        await Eventually(() => host.ActiveKeys.Count == 0, "the stopped source to leave without a backoff");
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(2);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_server_stop_followed_by_a_failed_run_drains_without_a_backoff() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls   = 0;
+        _beforeDrain[source.Key] = async () => {
+            if (Interlocked.Increment(ref calls) != 2) return;
+
+            entered.SetResult();
+            await release.Task;
+
+            throw new InvalidOperationException("boom");
+        };
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 2, "its lines");
+        await Eventually(() => entered.Task.IsCompleted, "the recorder entering its second drain", TimeSpan.FromSeconds(1));
+        await _transport.RaiseStopRequestedAsync(source.Key, "the server asked");
+        _transport.ResumeFrom = LinesSent(source.SessionId);
+        release.SetResult();
+
+        await Eventually(() => host.ActiveKeys.Count == 0, "the stopped source to leave without a backoff");
+        await Assert.That(_transport.Connects).IsEqualTo(2);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
     }
 
     [Test]
