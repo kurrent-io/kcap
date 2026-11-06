@@ -19,11 +19,14 @@ public sealed partial class MacAppRemoval : IAppRemoval {
     readonly IProcessRunner        _runner;
     readonly UserHome              _home;
     readonly string                _bundleRoot;
-    readonly Func<string, KcapLinkRemover> _linkRemover;
+    readonly KcapLinkRemover       _links;
     readonly MacUpdaterFiles?      _updaterFiles;
 
     public MacAppRemoval(IProcessRunner runner, UserHome home, ConfigRoot config, string bundleRoot)
-        : this(runner, home, bundleRoot, binary => KcapLinkRemover.For(home, config, binary), MacUpdaterFiles.ForCurrentBundle(bundleRoot, home)) { }
+        : this(runner, home, config, bundleRoot, MacUpdaterFiles.ForCurrentBundle(bundleRoot, home)) { }
+
+    internal MacAppRemoval(IProcessRunner runner, UserHome home, ConfigRoot config, string bundleRoot, MacUpdaterFiles? updaterFiles)
+        : this(runner, home, bundleRoot, binary => KcapLinkRemover.For(home, config, binary), updaterFiles) { }
 
     internal MacAppRemoval(IProcessRunner runner, UserHome home, string bundleRoot, IReadOnlyList<string> linkFolders,
             MacUpdaterFiles? updaterFiles = null)
@@ -34,14 +37,14 @@ public sealed partial class MacAppRemoval : IAppRemoval {
         _runner      = runner;
         _home        = home;
         _bundleRoot  = bundleRoot;
-        _linkRemover = linkRemover;
+        // Read now: the CLI's uninstall deletes the inventory that names the adopted links' folders before they go.
+        _links       = linkRemover(BundleBinary);
         _updaterFiles = updaterFiles;
     }
 
     public async Task<IReadOnlyList<string>> RemoveLinksAsync(CancellationToken ct) {
-        var remover = _linkRemover(BundleBinary);
-        await RemoveAsAdminAsync(remover.Remove(), ct).ConfigureAwait(false);
-        return [.. remover.Find(), .. RemoveProfileLines()];
+        await RemoveAsAdminAsync(_links.Remove(), ct).ConfigureAwait(false);
+        return [.. _links.Find(), .. RemoveProfileLines()];
     }
 
     IEnumerable<string> RemoveProfileLines() {

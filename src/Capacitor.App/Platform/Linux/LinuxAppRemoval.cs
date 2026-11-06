@@ -12,7 +12,7 @@ public sealed partial class LinuxAppRemoval : IAppRemoval {
     readonly IProcessRunner        _runner;
     readonly string                _image;
     readonly string                _stagedRoot;
-    readonly Func<string, KcapLinkRemover> _linkRemover;
+    readonly KcapLinkRemover       _links;
     readonly string                _trash;
     readonly TimeProvider          _time;
     readonly Func<string, string, int> _move;
@@ -34,7 +34,8 @@ public sealed partial class LinuxAppRemoval : IAppRemoval {
         _runner      = runner;
         _image       = image;
         _stagedRoot  = stagedRoot;
-        _linkRemover = linkRemover;
+        // Read now: the CLI's uninstall deletes the inventory that names the adopted links' folders before they go.
+        _links       = linkRemover(Path.Combine(AppImageInstall.StagedCliDirectory(stagedRoot), "kcap"));
         _trash       = trash;
         _time        = time;
     }
@@ -46,10 +47,9 @@ public sealed partial class LinuxAppRemoval : IAppRemoval {
     /// A link in a folder only root can write stays: the CLI's own uninstall has already printed the command
     /// that removes it.
     public Task<IReadOnlyList<string>> RemoveLinksAsync(CancellationToken ct) {
-        var remover = _linkRemover(Path.Combine(AppImageInstall.StagedCliDirectory(_stagedRoot), "kcap"));
-        foreach (var failure in remover.Remove()) Console.Error.WriteLine($"kcap: could not remove {failure.Path}: {failure.Reason}");
+        foreach (var failure in _links.Remove()) Console.Error.WriteLine($"kcap: could not remove {failure.Path}: {failure.Reason}");
 
-        return Task.FromResult(remover.Find());
+        return Task.FromResult(_links.Find());
     }
 
     public bool DeleteSupportFiles() {
