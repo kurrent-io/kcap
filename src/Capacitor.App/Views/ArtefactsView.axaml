@@ -26,8 +26,8 @@
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
     </UserControl.Styles>
-    <Grid ColumnDefinitions="240,*">
-        <Border Grid.Column="0" Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,1,0">
+    <Grid ColumnDefinitions="Auto,*">
+        <Border x:Name="DocumentListPane" Grid.Column="0" Width="240" IsVisible="{Binding HasDocuments}" Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,1,0">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="10,14,10,14" Spacing="4">
                     <TextBlock Text="DOCUMENTS" FontSize="11.5" FontWeight="Bold" LetterSpacing="1.2"
