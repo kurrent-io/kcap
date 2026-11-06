@@ -228,8 +228,14 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `A_throwing_source_does_not_stop_the_others`.
   - `Finishing_a_source_leaves_the_others_running`: finish the child key, and the parent stays in `ActiveKeys`.
   - `Adding_a_key_twice_is_refused`.
-  - `Fifty_idle_sources_read_a_bounded_amount_on_a_tick`: under 8 KiB per source per tick. The index's tail compare is what catches a rewrite, so an idle tick isn't zero.
-- [ ] **Implement:** one loop per source, with one failure isolated by a per-source catch that logs and retries as the watcher does. No shared mutable state beyond the transport.
+  - `Fifty_idle_sources_read_a_bounded_amount_on_a_tick`: under 8 KiB per source per tick, and above a lower bound, because the index's tail compare is what catches a rewrite, so an idle tick isn't zero. It includes a root source past its threshold.
+  - `A_failed_source_is_recorded_again_after_a_backoff`: it stays in `ActiveKeys` and `TryAdd` stays refused meanwhile.
+  - `A_source_that_ends_cleanly_is_not_retried`.
+  - `Finishing_a_source_that_never_connected_still_drains_it`.
+  - `Finishing_during_a_backoff_drains_once`.
+  - `A_source_that_cannot_connect_at_finish_is_marked_for_import`.
+  - `Cancelling_a_finish_ends_the_wait_and_not_the_drain`.
+- [ ] **Implement:** one loop per source, with failures isolated per source and no shared mutable state beyond the transport. A watcher has no retry, because an exception kills it and the next hook respawns it. No hook does that for a source the daemon holds, so the host retries: it keeps the entry, builds a fresh recorder, context and stamper for each attempt, and waits 1 second doubling to 30 seconds on `TimeProvider`, resetting once an attempt has connected and run past the cap. A clean return from `RunAsync` finishes the source and never retries. The retry has no ceiling here, because the daemon finishes a hosted source when its agent exits. A source that didn't connect is finished by one fresh recorder through `TranscriptRecorder.DrainOnceAsync(CancellationToken ct)`, which prepares, connects and makes the final drain without entering the loop. `RunAsync` keeps its early exit on a stop before connecting, so `kcap watch` doesn't change. If that connect fails too, the source is marked for import, never dropped silently. `FinishAsync`'s `ct` bounds the caller's wait only: it never cuts a final drain short, because a drain cut short loses its tail with no spool and no mark.
 - [ ] **Verify:** the class passes.
 - [ ] **Commit:** `Run many transcript recorders in one process`
 
@@ -257,7 +263,7 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `The_claim_never_touches_the_pid_file`: assert `KillWatcher` can't reach the daemon's pid.
   - `EnsureWatcherRunning_spawns_nothing_for_a_fresh_claim`.
   - `A_recorder_that_lost_its_claim_stops_sending` (Review Focus 2): a recorder holding a claim taken by a hook stops at its next tick.
-- [ ] **Implement:** claim-awareness lives inside `WatcherManager`, so no vendor call site changes. Add `IDaemonRecordingClient` with `Task<bool> FinishSourceAsync(string key, CancellationToken ct)`; until Task 15 it answers false. `TranscriptRecorder` takes an optional trailing `RecorderClaims? claims = null` and checks its claim each tick when given one.
+- [ ] **Implement:** claim-awareness lives inside `WatcherManager`, so no vendor call site changes. A source in `RecorderHost`'s backoff keeps beating its claim, so a hosted source stays owned. Task 15 decides this for terminal sources, where not beating would let a hook take a source the daemon can't reach. Add `IDaemonRecordingClient` with `Task<bool> FinishSourceAsync(string key, CancellationToken ct)`; until Task 15 it answers false. `TranscriptRecorder` takes an optional trailing `RecorderClaims? claims = null` and checks its claim each tick when given one.
 - [ ] **Verify:** both classes, plus the Claude, Gemini, Codex, Grok, OpenCode, Pi and Copilot hook suites.
 - [ ] **Commit:** `Make watcher stop and drain paths honour recorder claims`
 
@@ -286,6 +292,9 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `git` and `gh` inherit the daemon's environment and PATH, and a failed start reads as "no repository", silently.
   - `GitProviderRouter`'s memo has no expiry, and a failed probe stores GitLab. That costs a watcher one session and would cost a daemon its whole lifetime, so give it an expiry.
   - Child start and title hand-off spawn `Environment.ProcessPath`, which in a daemon is the daemon binary.
+  - `RecorderHost` disposes its recorders, so `DaemonRecorder` can't read `EndedIdle`, `SpawnedChildKeys` or a failure, and `RetireAckCursor` is never called. The host needs an on-ended callback.
+  - `ServerRecorderTransport` raises `Reconnected` to every recorder. Raise them with one handler's failure or hang isolated from the rest, because in turn, one stuck `WatcherConnect` stalls every later source's re-registration and N sources cost N round trips.
+  - A send that hangs in a final drain has nothing to end it. A daemon shutdown needs a bound on `RecorderHost`, and it must spool rather than cut a drain short.
 - [ ] **Verify:** the suites, then one real hosted Claude session on a VM, comparing its server transcript to today's watcher path.
 - [ ] **Commit:** `Record hosted Claude sessions in the daemon`
 
