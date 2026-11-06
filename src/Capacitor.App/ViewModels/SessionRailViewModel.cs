@@ -207,6 +207,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly ObservableAsPropertyHelper<string?> _liveNotShownText;
     public string? LiveNotShownText => _liveNotShownText.Value;
     public ReactiveCommand<Unit, Unit> ShowMoreCommand { get; }
+    public ReactiveCommand<Unit, Unit> OpenPreviousSessionCommand { get; }
+    public ReactiveCommand<Unit, Unit> OpenNextSessionCommand { get; }
 
     readonly ObservableCollectionExtended<RailGroupViewModel> _groupsSource = new();
     public ReadOnlyObservableCollection<RailGroupViewModel> Groups { get; }
@@ -246,6 +248,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         SetSortCommand = ReactiveCommand.Create<RailSort>(sort => Sort = sort).DisposeWith(_disposables);
         ToggleDirectionCommand = ReactiveCommand.Create(() => { Descending = !Descending; }).DisposeWith(_disposables);
         ToggleFiltersCommand = ReactiveCommand.Create(() => { FiltersOpen = !FiltersOpen; }).DisposeWith(_disposables);
+        OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
+        OpenNextSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(1); }).DisposeWith(_disposables);
         _stateFilter = new BehaviorSubject<Func<AgentRow, bool>>(StateFilter()).DisposeWith(_disposables);
         if (shownRows is not null) _stateFilter.Subscribe(shownRows.OnNext).DisposeWith(_disposables);
         _rowComparer = new BehaviorSubject<IComparer<RailSessionViewModel>>(RowComparer(_sort, _descending)).DisposeWith(_disposables);
@@ -384,6 +388,22 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var groupKey = GroupKeyOf(row.Value);
         _collapsed.Remove(groupKey);
         Groups.FirstOrDefault(group => group.Key == groupKey)?.Expand();
+    }
+
+    /// Opens the row `step` places from the selected one in the order the rail draws, skipping rows
+    /// in folded groups and stopping at either end. With nothing selected it starts from the end it
+    /// moves away from.
+    internal bool OpenAdjacent(int step) {
+        if (_disposables.IsDisposed) return false;
+        var rows = Groups.SelectMany(group => group.Sessions.Select(row => (Row: row, Shown: group.IsExpanded))).ToList();
+        var at = rows.FindIndex(r => r.Row.IsSelected);
+        if (at < 0) at = step > 0 ? -1 : rows.Count;
+        for (var i = at + step; i >= 0 && i < rows.Count; i += step) {
+            if (!rows[i].Shown) continue;
+            rows[i].Row.OpenCommand.Execute().Subscribe();
+            return true;
+        }
+        return false;
     }
 
     void Persist() {
