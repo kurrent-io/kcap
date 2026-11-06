@@ -60,7 +60,12 @@ public class SessionRailFilterTests {
             rail.Descending = true;
             await Assert.That(rail.FiltersDiffer).IsFalse();
 
-            await Assert.That(raised).IsEqualTo(10);
+            rail.TitleFilter = "login";
+            await Assert.That(rail.FiltersDiffer).IsTrue();
+            rail.TitleFilter = "  ";
+            await Assert.That(rail.FiltersDiffer).IsFalse();
+
+            await Assert.That(raised).IsEqualTo(12);
         });
     }
 

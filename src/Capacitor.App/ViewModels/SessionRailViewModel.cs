@@ -110,6 +110,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             if (_titleFilter == value) return;
             this.RaiseAndSetIfChanged(ref _titleFilter, value);
             _stateFilter.OnNext(StateFilter());
+            this.RaisePropertyChanged(nameof(FiltersDiffer));
         }
     }
 
@@ -181,12 +182,12 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     public string DirectionLabel => _descending ? "Descending" : "Ascending";
 
-    /// True when any of the five controls differs from the defaults, however the panel is collapsed.
+    /// True when any control differs from its default, however the panel is collapsed.
     public bool FiltersDiffer {
         get {
             var defaults = RailPreferences.Default;
             return _scope != defaults.Scope || _state != defaults.State || _grouping != defaults.Grouping
-                || _sort != defaults.Sort || _descending != defaults.Descending;
+                || _sort != defaults.Sort || _descending != defaults.Descending || _titleFilter.Trim().Length > 0;
         }
     }
 

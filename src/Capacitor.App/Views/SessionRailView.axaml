@@ -70,6 +70,19 @@
             <Setter Property="FontSize" Value="12" />
             <Setter Property="CornerRadius" Value="7" />
         </Style>
+        <!-- Sized to read as one more picker beside Group and Sort, not as a standalone field. -->
+        <Style Selector="TextBox.railTitleField">
+            <Setter Property="Padding" Value="0,4,6,4" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="LetterSpacing" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="7" />
+        </Style>
+        <Style Selector="TextBox.railTitleField /template/ Border#PART_BorderElement,
+                         TextBox.railTitleField:focus /template/ Border#PART_BorderElement,
+                         TextBox.railTitleField:pointerover /template/ Border#PART_BorderElement">
+            <Setter Property="CornerRadius" Value="7" />
+        </Style>
         <Style Selector="Button.railPickerRow">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -179,12 +192,6 @@
                     </Button>
                 </Grid>
 
-                <TextBox x:Name="RailTitleFilter" Classes="kcapField clearButton" Margin="10,0,10,8" FontSize="13"
-                         DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
-                         IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}"
-                         Text="{Binding TitleFilter, Mode=TwoWay}" PlaceholderText="Filter by title"
-                         AutomationProperties.Name="Filter sessions by title" />
-
                 <!-- Scope and state are one tap each; grouping and sort open pickers. -->
                 <StackPanel x:Name="RailControls" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                             Margin="10,0,10,8" Spacing="6" IsVisible="{Binding FiltersOpen, FallbackValue=False}">
@@ -268,6 +275,12 @@
                             </Panel>
                         </Button>
                     </Grid>
+                    <TextBox x:Name="RailTitleFilter" Classes="kcapField railTitleField clearButton"
+                             Text="{Binding TitleFilter, Mode=TwoWay}" AutomationProperties.Name="Filter sessions by title">
+                        <TextBox.InnerLeftContent>
+                            <TextBlock Text="Title" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" Margin="6,0,4,0" />
+                        </TextBox.InnerLeftContent>
+                    </TextBox>
                 </StackPanel>
 
                 <TextBlock Text="Loading sessions…" FontSize="12" Foreground="{StaticResource KcapFaintBrush}"
