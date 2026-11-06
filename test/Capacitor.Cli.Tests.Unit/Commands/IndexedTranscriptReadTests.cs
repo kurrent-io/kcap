@@ -292,7 +292,7 @@ public class IndexedTranscriptReadTests {
 
         await Assert.That(new FileInfo(path).Length).IsGreaterThan(10_000_000);
         await Assert.That(WatchCommand.IsFinalLineComplete(tail)).IsTrue();
-        await Assert.That(stream.BytesRead).IsLessThan(2 * 64 * 1024);
+        await Assert.That(stream.BytesRead).IsLessThan(64 * 1024 + 1024);
     }
 
     [Test]

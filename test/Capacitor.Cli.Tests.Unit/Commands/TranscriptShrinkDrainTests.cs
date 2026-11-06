@@ -72,6 +72,23 @@ public class TranscriptShrinkDrainTests {
     }
 
     [Test]
+    [NotInParallel]
+    public async Task A_second_shrink_logs_again() {
+        var path  = Transcript(10);
+        var state = new WatchState { LinesProcessed = 10, ThresholdReached = true };
+
+        using var capture = ConsoleOutput.StartErrorCapture();
+        await File.WriteAllTextAsync(path, Lines(0, 4));
+        await Drain(path, state);
+        await File.WriteAllTextAsync(path, Lines(0, 10));
+        await Drain(path, state);
+        await File.WriteAllTextAsync(path, Lines(0, 4));
+        await Drain(path, state);
+
+        await Assert.That(capture.GetCapturedError().Split('\n').Count(l => l.Contains("shorter"))).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Reconnect_rewind_resends_exactly_the_gap() {
         var path  = Transcript(10);
         var state = new WatchState { LinesProcessed = 10 };
