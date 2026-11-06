@@ -110,6 +110,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     TaskCompletionSource?            _dialogGone;
     TaskCompletionSource?            _arrival;
     bool                             _unconfirmed;
+    Task<bool>?                      _inputReadiness;
     int                              _deliveries;
     int                              _keystrokes;
 
@@ -121,7 +122,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     internal Task<bool> LaunchPromptSubmitted => _submitted.Task;
 
     public bool LaunchPromptUnconfirmed {
-        get { lock (_arrivalGate) { return _unconfirmed || HeldTooLong; } }
+        get { lock (_arrivalGate) { return _unconfirmed || LaunchPromptDelivery is not null && HeldTooLong; } }
     }
 
     public Task? LaunchPromptOverdue => awaitsSessionStart ? _overdue.Task : null;
@@ -341,13 +342,33 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// follow-up instead: that hold has no time limit, and a server dispatch awaits this on the
     /// daemon's one sequential SignalR dispatch, ahead of every other agent's stop and launch.</summary>
     async Task WaitForLaunchPromptAsync() {
-        if (LaunchPromptDelivery is not { } delivery) return;
+        if (((Task?)LaunchPromptDelivery ?? _inputReadiness) is not { } delivery) return;
 
         await Task.WhenAny(delivery, _overdue.Task);
         if (HeldTooLong && !delivery.IsCompleted)
             throw new IOException("the agent is still starting: finish what its terminal is asking, then send this again");
 
         try { await delivery; } catch (Exception) { }
+
+        if (delivery == _inputReadiness && Interlocked.Exchange(ref _inputReadiness, null) is { } readiness && !await readiness)
+            LogInputSentUnsettled(_logger, vendor, LaunchPromptMaxWait.TotalSeconds);
+    }
+
+    /// <summary>Holds the first text input of an agent spawned with no launch prompt, such as one resumed
+    /// idle, until its terminal is ready for a paste on the launch prompt's terms. Input sent once
+    /// <see cref="LaunchPromptMaxWait"/> has run out is pasted anyway, and logged as unproven.</summary>
+    internal void HoldInputUntilReady() {
+        if (LaunchPromptDelivery is not null) throw new InvalidOperationException("The launch prompt already holds input.");
+
+        _inputReadiness ??= WaitForInputReadinessAsync();
+    }
+
+    async Task<bool> WaitForInputReadinessAsync() {
+        try {
+            return await WaitForStartupToSettleAsync(_disposal.Token);
+        } catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) {
+            return true;
+        }
     }
 
     /// <summary>True once output has been quiet for the window, false when the wait expired first.
@@ -646,6 +667,9 @@ internal sealed partial class PtyHostedAgentRuntime(
             return false;
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A {Vendor} agent's first message was pasted without its terminal settling within {Seconds:F0}s, so it may not have been submitted")]
+    static partial void LogInputSentUnsettled(ILogger logger, string vendor, double seconds);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "A {Vendor} agent reported no turn for a message after its submit was sent twice")]
     static partial void LogFollowUpNotConfirmed(ILogger logger, string vendor);
