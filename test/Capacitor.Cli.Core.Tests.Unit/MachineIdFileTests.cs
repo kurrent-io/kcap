@@ -53,6 +53,42 @@ public class MachineIdFileTests {
         await Assert.That(File.ReadAllText(MachinePath)).IsEqualTo(before);
     }
 
+    /// <summary>Concurrent first runs converge on one id, and machine.json is never visible half-written
+    /// or locked: once it exists, a read returns an id. Each round is a fresh directory, so every round
+    /// is a first run.</summary>
+    [Test]
+    public async Task Concurrent_first_runs_agree_and_never_expose_an_unreadable_file() {
+        const int rounds = 200, writers = 4;
+        var unreadable = 0;
+
+        for (var round = 0; round < rounds; round++) {
+            var root = new ConfigRoot(Config.CreateDir($"r{round}"));
+            var path = root.Path("machine.json");
+            var done = 0;
+
+            var reader = Task.Run(() => {
+                var probe = new MachineId(root);
+                while (Volatile.Read(ref done) == 0)
+                    if (probe.IsPersisted && probe.ReadPersisted() is null) Interlocked.Increment(ref unreadable);
+            });
+
+            using var start = new Barrier(writers);
+            var ids = await Task.WhenAll(Enumerable.Range(0, writers).Select(_ => Task.Run(() => {
+                start.SignalAndWait();
+                return new MachineId(root).Get();
+            })));
+
+            Volatile.Write(ref done, 1);
+            await reader;
+
+            await Assert.That(ids.Distinct().Count()).IsEqualTo(1);
+            await Assert.That(new MachineId(root).ReadPersisted()).IsEqualTo(ids[0]);
+            await Assert.That(Directory.GetFiles(Path.GetDirectoryName(path)!)).IsEquivalentTo([path]);
+        }
+
+        await Assert.That(unreadable).IsEqualTo(0);
+    }
+
     [Test]
     public async Task Get_WhenMachineJsonIsCorrupt_HealsTheFileAndReturnsAStableId() {
         // A corrupt machine.json (partial/garbled write) makes ReadPersisted() return null, so Get()

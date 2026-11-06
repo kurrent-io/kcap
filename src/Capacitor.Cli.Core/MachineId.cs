@@ -42,60 +42,47 @@ public sealed class MachineId(ConfigRoot config) {
             var file = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.MachineIdFile);
             return string.IsNullOrWhiteSpace(file.Id) ? null : file.Id;
         } catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException) {
-            // Corrupt/partial JSON, or a transient read error while a peer holds the file exclusively
-            // mid-write — treat all as "no readable id right now"; never throw out of Get() (Qodo #290 #1).
+            // Never throw out of Get(): a corrupt file or a transient read error is "no readable id".
             return null;
         }
     }
 
-    // Two processes can race to create machine.json on a brand-new machine (e.g. the watcher and
-    // the daemon starting at once). FileMode.CreateNew is an exclusive OS-level create — exactly
-    // one writer succeeds; the loser's create throws IOException and re-reads the file the
-    // winner just wrote instead of keeping its own generated id, so both converge on one value
-    // with no separate lock file needed.
+    // machine.json only ever appears whole: the id is written to a temp file beside it and moved into
+    // place. The first-run move refuses to replace an existing file, so of two processes racing on a
+    // new machine exactly one publishes and the other reads the winner's complete id back.
     string Create() {
-        var id  = Guid.NewGuid().ToString("N");
-        var dir = Path.GetDirectoryName(MachinePath)!;
-        Directory.CreateDirectory(dir);
+        var id = Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(Path.GetDirectoryName(MachinePath)!);
 
+        if (TryPublish(id, overwrite: false)) return id;
+
+        if (ReadPersisted() is { } peer) return peer;
+
+        // Present but unreadable (corrupt): replace it so Get() settles on one persisted id instead of
+        // a fresh GUID per call. Two healers race harmlessly; both return whichever landed.
+        TryPublish(id, overwrite: true);
+
+        return ReadPersisted() ?? id;
+    }
+
+    bool TryPublish(string id, bool overwrite) {
+        var temp = Path.Combine(Path.GetDirectoryName(MachinePath)!, $".machine.json.{Guid.NewGuid():N}.tmp");
         try {
-            WriteId(FileMode.CreateNew, id);   // exclusive create — the brand-new-machine case
-            return id;
-        } catch (IOException) {
-            // machine.json already exists: adopt a peer's valid id if we can read one (the
-            // lost-the-race case — a peer created it between our ReadPersisted() check inside Get()
-            // and this create).
-            var peer = ReadPeerIdWithRetry();
-            if (peer is not null) return peer;
-            // ...else it's persistently unreadable (corrupt / stuck partial write). HEAL by overwriting
-            // once so Get() returns a STABLE persisted id instead of churning a new GUID each call
-            // (Qodo #290 #2). Best-effort: on a heal race we still return our id; the next Get() reads
-            // whichever heal won.
-            try { WriteId(FileMode.Create, id); } catch (IOException) { /* best effort */ }
-            return id;
-        }
-    }
+            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
+                stream.Write(JsonSerializer.SerializeToUtf8Bytes(new MachineIdFile(id), CapacitorJsonContext.Default.MachineIdFile));
+                stream.Flush(flushToDisk: true);
+            }
 
-    void WriteId(FileMode mode, string id) {
-        using var stream = new FileStream(MachinePath, mode, FileAccess.Write, FileShare.None);
-        using var writer = new StreamWriter(stream);
-        writer.Write(JsonSerializer.Serialize(new MachineIdFile(id), CapacitorJsonContext.Default.MachineIdFile));
-    }
+            if (!overwrite) return ExclusivePublish.TryMove(temp, MachinePath);
 
-    // Fallback read on the lost-race path. The winner holds the file exclusively (FileShare.None)
-    // between its FileStream construction and disposal; a plain ReadPersisted() (File.ReadAllText
-    // opens FileShare.Read) landing inside that sub-ms window fails to read and returns null (the
-    // IOException is now swallowed there — Qodo #290 #1). Retry a few times with a tiny backoff so
-    // the write completes and the id becomes readable; only return null (→ the caller heals with its
-    // own generated id) if it stays genuinely unreadable past the budget.
-    const int  PeerReadMaxAttempts = 10;
-    const int  PeerReadDelayMs     = 5;
+            File.Move(temp, MachinePath, overwrite: true);
 
-    string? ReadPeerIdWithRetry() {
-        for (var attempt = 1; ; attempt++) {
-            var peer = ReadPersisted();
-            if (peer is not null || attempt >= PeerReadMaxAttempts) return peer;
-            Thread.Sleep(PeerReadDelayMs);
+            return true;
+        } catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+            // Windows refuses to replace a file a reader holds open; the caller re-reads either way.
+            return false;
+        } finally {
+            try { File.Delete(temp); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
     }
 }
