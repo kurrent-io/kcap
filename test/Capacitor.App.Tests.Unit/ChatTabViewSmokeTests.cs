@@ -234,6 +234,34 @@ public class ChatTabViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public Task An_unresolved_tool_renders_a_neutral_status_when_its_session_ends() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            var path = Tmp.CreateFile("unresolved.jsonl", [ToolCallLine]);
+            await host.LoadAsync(path);
+            var call = OnlyGroup(host).Calls.Single();
+            call.Toggle();
+            host.Settle();
+            var running = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("toolRunning"));
+            await Assert.That(running.IsEffectivelyVisible).IsTrue();
+
+            host.Daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path, Status = "Completed" });
+            host.Settle();
+
+            await Assert.That(running.IsEffectivelyVisible).IsFalse();
+            await Assert.That(PulseClock.GetIsActive(running)).IsFalse();
+            var neutral = host.View.GetVisualDescendants().OfType<Border>().SingleOrDefault(b => b.Name == "ToolUnknownStatusPill");
+            await Assert.That(neutral).IsNotNull();
+            await Assert.That(neutral!.IsEffectivelyVisible).IsTrue();
+            await Assert.That(neutral.Background).IsEqualTo((IBrush)host.View.FindResource("KcapMutedBrush")!);
+            var text = host.View.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+            await Assert.That(text).Contains("Outcome unknown");
+            await Assert.That(text).Contains("No result was recorded");
+        } finally { await host.CloseAsync(); }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task A_usage_limit_question_renders_its_choices_and_a_choice_sends_the_digit() {
         await RunOnUiAsync(async () => {
             var host = new Host();

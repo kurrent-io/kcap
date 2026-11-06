@@ -1137,6 +1137,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         _interruption = info.Interruption;
         if (_ended != info.Ended) {
             _ended = info.Ended;
+            foreach (var call in _items.OfType<ToolGroupItem>().SelectMany(static group => group.Calls).Where(static call => !call.IsSettled))
+                call.SessionOver = _ended;
             RaisePhaseNote();
         }
         if (_launchPromptUnconfirmed != (info.LaunchPromptUnconfirmed == true)) {
@@ -1749,7 +1751,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                             : ToolDetail.From(e.ToolInputJson, _root, category);
                         var label = entry?.Label ?? (isToolSearch ? "Looked up tools" : foreignLabel ?? ToolSummary.RowLabel(name, category, e.ToolInputJson));
                         var chip = foreignLabel is not null ? KcapToolCatalogue.ForeignServer(name) : null;
-                        var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip);
+                        var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip) { SessionOver = _ended };
                         if (e.ToolCallId is { } id) {
                             cursor.Pending[id] = item;
                             if (name == ClaudeElicitation.ToolName) NoteQuestionCall(cursor, id, e.ToolInputJson);
@@ -1786,7 +1788,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             _openGroup = cursor.OpenGroup;
             _openShell = cursor.OpenShell;
             _pendingTools.Clear();
-            foreach (var (id, call) in cursor.Pending) _pendingTools.Add(id, call);
+            foreach (var (id, call) in cursor.Pending) {
+                call.SessionOver = _ended;
+                _pendingTools.Add(id, call);
+            }
             _settledTools.Clear();
             _settledTools.UnionWith(cursor.Settled);
             _questionAsks.Clear();
@@ -1797,6 +1802,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                 foreach (var text in projected.SubmittedInputs)
                     _history.Observe(AttachmentTrailer.Strip(text));
             if (cursor.Fresh.Count > 0) {
+                // A session update can land while a historical read projects off the UI thread.
+                // Apply its current verdict here, just before the new rows become visible.
+                foreach (var call in cursor.Fresh.OfType<ToolGroupItem>().SelectMany(static group => group.Calls))
+                    call.SessionOver = _ended;
                 _items.AddRange(cursor.Fresh);
                 _senders?.Track(SenderLabels(cursor.Fresh, candidates));
             }
