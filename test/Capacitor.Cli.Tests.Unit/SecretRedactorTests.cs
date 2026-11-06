@@ -814,12 +814,26 @@ public class SecretRedactorTests {
         await Assert.That(result).Contains(kept);
     }
 
+    [Test]
+    public async Task RedactsLine_UrlUserinfo_StopsBeforeALaterFieldsAddress() {
+        var line = """
+            {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"postgres://app:fieldPw@db.example.com,contact=alice@example.org","is_error":false}]}}
+            """.Trim();
+
+        var result = SecretRedactor.RedactLine(line);
+
+        await Assert.That(result).DoesNotContain("fieldPw");
+        await Assert.That(result).Contains("postgres://app:[REDACTED]@db.example.com,contact=alice@example.org");
+    }
+
     // JSON text held in a string value, as a tool result often carries it: once the outer line is
     // decoded, the URL's slashes or its @ may still be JSON-escaped.
     [Test]
     [Arguments(@"redis-sentinel:\\/\\/" + "escSlashPw" + "@sentinel.example.com:26379", "escSlashPw")]
     [Arguments(@"postgres:\\/\\/app:" + "escSlashPw2" + "@db.example.com", "escSlashPw2")]
     [Arguments("redis://" + "escAtPw" + @"\\u0040cache.example.com:6379", "escAtPw")]
+    [Arguments(@"postgres:\\//app:" + "mixedSlashPw" + "@db.example.com", "mixedSlashPw")]
+    [Arguments(@"postgres:/\\/app:" + "mixedSlashPw2" + "@db.example.com", "mixedSlashPw2")]
     public async Task RedactsLine_UrlUserinfo_JsonEscapedDelimiters(string url, string secret) {
         var line = $$$"""
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{\"url\":\"{{{url}}}\"}","is_error":false}]}}
