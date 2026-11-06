@@ -3522,6 +3522,46 @@ public class ChatTabViewModelTests {
         });
     }
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_terminal_approval_pauses_working_until_the_dialog_closes() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(TranscriptChat.For("claude"));
+            try {
+                var agent = Agent("a1", "claude", hasTerminal: true) with {
+                    Status = "Running", AwaitingInput = false,
+                    WorkingSince = h.Time.GetUtcNow().UtcDateTime - TimeSpan.FromSeconds(65),
+                };
+                await h.PushAsync(agent);
+                h.Time.Advance(TimeSpan.FromSeconds(10));
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo("Working for 1m 15s");
+
+                h.Chat.ComposerText = "hello";
+                var dialog = new TerminalDialogDto("Bash command", "", [], -1,
+                    "Bash command\ngrep -ril \"pages/\" README.md\nThis command requires approval\nDo you want to proceed?");
+                await h.PushAsync(agent with { TerminalDialog = dialog });
+
+                await Assert.That(h.Chat.HasPendingCards).IsFalse();
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsTrue();
+                await Assert.That(h.Chat.TerminalMenuTitle).IsEqualTo("Waiting for you in Terminal");
+                await Assert.That(h.Chat.TerminalMenuScreen).IsEqualTo(dialog.Screen);
+                await Assert.That(h.Chat.AgentStatus.Kind).IsEqualTo(AgentStatusKind.NeedsYou);
+                await Assert.That(h.Chat.ActivityNote).IsEmpty();
+                await Assert.That(h.Chat.ShowsLiveNote).IsFalse();
+                await Assert.That(await h.Chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
+
+                h.Time.Advance(TimeSpan.FromMinutes(10));
+                await h.PushAsync(agent);
+
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsFalse();
+                await Assert.That(h.Chat.AgentStatus.Kind).IsEqualTo(AgentStatusKind.Working);
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo("Working for 1m 15s");
+                h.Time.Advance(TimeSpan.FromSeconds(2));
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo("Working for 1m 17s");
+            } finally { await h.TeardownAsync(); }
+        });
+    }
+
     /// Pins the fallback for a dialog whose choices could not be read: the card carries the
     /// screen text and sends the user to the terminal, and offers Escape to close it.
     [Test]
