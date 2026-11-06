@@ -21,6 +21,12 @@ public interface IRecorderTransport {
 
     Task DrainCompleteAsync(RecordingSource source, CancellationToken ct);
 
+    /// <summary>Tells the server this connection no longer records the source, for a connection that outlives its
+    /// sources. A host calls this once a source has ended, on any path, before its key can be added again, so a
+    /// transport must not let a later <see cref="ConnectAsync"/> overtake it: on a shared connection a detach landing
+    /// behind that connect would remove the new recorder's registration.</summary>
+    Task DetachAsync(RecordingSource source, CancellationToken ct);
+
     /// <summary>The server asked the source with this key to stop, for this reason.</summary>
     event Func<string, string, Task> StopRequested;
 

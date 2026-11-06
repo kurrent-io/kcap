@@ -245,6 +245,106 @@ public class RecorderHostTests {
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
     }
 
+    /// <summary>A stale-session sweep can't reap a key its connection still holds, and on a daemon's connection that is
+    /// for good. A source that lost its claim sends nothing else, but its registration still has to go.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_source_that_ends_by_itself_detaches_from_the_server(bool lostClaim) {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        await Assert.That(_transport.Detached).IsEmpty();
+
+        if (lostClaim) Claims.Release(source.Key);
+
+        await Eventually(() => host.ActiveKeys.Count == 0, "the source to end", lostClaim ? TimeSpan.FromSeconds(1) : TimeSpan.FromHours(7));
+
+        await Assert.That(_transport.Detached).IsEquivalentTo([source.Key]);
+    }
+
+    [Test]
+    public async Task A_finished_source_detaches_once() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(_transport.Detached).IsEquivalentTo([source.Key]);
+    }
+
+    [Test]
+    public async Task A_source_that_never_connected_detaches_too() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 100;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(_transport.Detached).IsEquivalentTo([source.Key]);
+    }
+
+    /// <summary>A retry keeps its registration: the source is still this connection's, and a server stop has to find it.</summary>
+    [Test]
+    public async Task A_failed_attempt_does_not_detach() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the source to record after its backoff", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_transport.Detached).IsEmpty();
+    }
+
+    /// <summary>On a shared connection a detach landing behind the next recorder's connect would remove that recorder's
+    /// registration, so it has to be on its way while the key is still refused.</summary>
+    [Test]
+    public async Task A_detach_starts_before_the_key_can_be_taken_again() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host    = NewHost();
+        var refused = false;
+        _transport.OnDetach = _ => {
+            refused = !host.TryAdd(source);
+
+            return Task.CompletedTask;
+        };
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(refused).IsTrue();
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_detach_that_fails_harms_nothing(bool hangs) {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.OnDetach = _ => hangs ? new TaskCompletionSource().Task : throw new InvalidOperationException("the hub is down");
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+        await Assert.That(host.ActiveKeys).IsEmpty();
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsFalse();
+
+        _transport.OnDetach = null;
+        await Assert.That(host.TryAdd(source)).IsTrue();
+        await Eventually(() => _transport.Connects == 2, "the source to record again");
+    }
+
     [Test]
     public async Task A_redaction_hold_stalls_only_its_own_source() {
         var stalled = new SwitchableRedactionClock { Exhausted = false };

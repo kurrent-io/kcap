@@ -8,6 +8,7 @@ namespace Capacitor.Tests.Helpers;
 public sealed class FakeRecorderTransport : IRecorderTransport {
     readonly Lock _gate = new();
     readonly List<TranscriptBatch> _batches = [];
+    readonly List<string> _detached = [];
 
     public bool IsConnected { get; set; }
 
@@ -33,6 +34,16 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
             lock (_gate) return [.._batches];
         }
     }
+
+    /// <summary>The key of each <see cref="DetachAsync"/> call, in order.</summary>
+    public IReadOnlyList<string> Detached {
+        get {
+            lock (_gate) return [.._detached];
+        }
+    }
+
+    /// <summary>Awaited inside <see cref="DetachAsync"/> with its token, after the call is recorded.</summary>
+    public Func<CancellationToken, Task>? OnDetach { get; set; }
 
     public event Func<string, string, Task>? StopRequested;
 
@@ -93,6 +104,12 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
         Interlocked.Increment(ref _drainCompletes);
 
         return OnDrainComplete?.Invoke(ct) ?? Task.CompletedTask;
+    }
+
+    public Task DetachAsync(RecordingSource source, CancellationToken ct) {
+        lock (_gate) _detached.Add(source.Key);
+
+        return OnDetach?.Invoke(ct) ?? Task.CompletedTask;
     }
 
     /// <summary>Awaits each handler in turn, as the hub transport does, so one that throws starves the rest.</summary>

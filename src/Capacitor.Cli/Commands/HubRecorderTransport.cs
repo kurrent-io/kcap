@@ -68,6 +68,9 @@ sealed class HubRecorderTransport : IRecorderTransport {
     public Task DrainCompleteAsync(RecordingSource source, CancellationToken ct) =>
         _hub.InvokeAsync("WatcherDrainComplete", source.SessionId, source.AgentId, cancellationToken: ct);
 
+    // This connection ends with its one source.
+    public Task DetachAsync(RecordingSource source, CancellationToken ct) => Task.CompletedTask;
+
     async Task StartWithRetryAsync(CancellationToken ct) {
         var retryDelay = TimeSpan.FromSeconds(1);
 

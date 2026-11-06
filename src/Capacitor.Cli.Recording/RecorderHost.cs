@@ -12,10 +12,12 @@ namespace Capacitor.Cli.Recording;
 /// Given claims, the host beats a source's claim whenever it beats the source, and a source that lost its claim ends
 /// where it stands, undrained and unretried, because it is no longer this host's. Taking and releasing a claim stay
 /// with the host's owner: only it can tell a session that ended from a restart that must keep the source owned.
+/// A source that ends on any path detaches from the transport, best-effort, because its connection may outlive it.
 /// </summary>
 public sealed class RecorderHost {
     static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(1);
     static readonly TimeSpan MaxRetryDelay   = TimeSpan.FromSeconds(30);
+    static readonly TimeSpan DetachBudget    = TimeSpan.FromSeconds(5);
 
     readonly IRecorderTransport _transport;
     readonly Func<RecordingSource, IRowStamper> _stampers;
@@ -181,6 +183,8 @@ public sealed class RecorderHost {
                 }
             }
         } finally {
+            // Started while the key is still refused and left to run, so a hang can't hold up whoever waits for the end.
+            _ = DetachAsync(source, first);
             Remove(key, entry);
         }
     }
@@ -224,6 +228,16 @@ public sealed class RecorderHost {
             MarkNeedsImport(source, first, $"final drain did not complete: {ex.Message}");
         } finally {
             recorder?.Dispose();
+        }
+    }
+
+    async Task DetachAsync(RecordingSource source, RecorderContext first) {
+        try {
+            using var budget = new CancellationTokenSource(DetachBudget, _time);
+
+            await _transport.DetachAsync(source, budget.Token);
+        } catch (Exception ex) {
+            Log(first, $"Detaching {source.Key} failed: {ex.Message}");
         }
     }
 
