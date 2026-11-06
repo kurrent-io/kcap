@@ -93,6 +93,9 @@ public sealed class TranscriptRecorder(
     /// <summary>The transcript went idle and the recorder ended its source.</summary>
     public bool EndedIdle { get; private set; }
 
+    /// <summary>A connect given up on, which can still reach the server after this recorder has gone.</summary>
+    public Task? AbandonedConnect { get; private set; }
+
     /// <summary>A Copilot <c>session.shutdown</c> stayed the transcript's last line.</summary>
     public bool EndedOnCopilotShutdown { get; private set; }
 
@@ -435,8 +438,10 @@ public sealed class TranscriptRecorder(
 
         try {
             return await connect.WaitAsync(limit, time, stop);
-        } catch (TimeoutException) {
-            // The abandoned connect may still fault later; observing it keeps that from surfacing as an unobserved exception.
+        } catch (Exception ex) when (ex is TimeoutException or OperationCanceledException && !connect.IsCompleted) {
+            AbandonedConnect = connect;
+
+            // It may still fault later; observing it keeps that from surfacing as an unobserved exception.
             _ = connect.ContinueWith(static task => _ = task.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             await abandon.CancelAsync();
 

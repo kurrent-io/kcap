@@ -756,6 +756,79 @@ public class RecorderHostTests {
         await Assert.That(host.ActiveKeys).IsEmpty();
     }
 
+    /// <summary>On a daemon's connection a registration nobody detaches stays until the connection drops, and a session
+    /// end then waits out the server's 10 seconds for a source nobody is recording.</summary>
+    [Test]
+    public async Task A_timed_out_connect_that_lands_late_is_detached() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var landed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        _transport.ConnectHold = landed.Task;
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => _transport.ConnectAttempts == 2, "the final drain's connect");
+        await Eventually(() => finish.IsCompleted, "the connect to time out", TranscriptRecorder.DrainOnceConnectBudget);
+        await Eventually(() => _transport.Detached.Count == 1, "the end of the source");
+
+        landed.SetResult();
+
+        await Eventually(() => _transport.Detached.Count == 2, "the late registration to go");
+        await Assert.That(_transport.Connects).IsEqualTo(1);
+    }
+
+    /// <summary>A cancelled invocation can already be on the wire, so a connect that gave up says nothing about the
+    /// server. Detaching a key nothing registered is a no-op there.</summary>
+    [Test]
+    public async Task A_timed_out_connect_that_fails_late_is_detached_too() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var landed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        _transport.ConnectHold = landed.Task;
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => _transport.ConnectAttempts == 2, "the final drain's connect");
+        await Eventually(() => finish.IsCompleted, "the connect to time out", TranscriptRecorder.DrainOnceConnectBudget);
+        await Eventually(() => _transport.Detached.Count == 1, "the end of the source");
+
+        landed.SetException(new OperationCanceledException());
+
+        await Eventually(() => _transport.Detached.Count == 2, "the late registration to go");
+    }
+
+    /// <summary>The server's detach goes by key and connection, so on a shared connection this one would take the
+    /// registration of the recorder that took the key back.</summary>
+    [Test]
+    public async Task A_late_connect_leaves_a_source_that_is_recording_again_alone() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var landed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        _transport.ConnectHold = landed.Task;
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => _transport.ConnectAttempts == 2, "the final drain's connect");
+        await Eventually(() => finish.IsCompleted, "the connect to time out", TranscriptRecorder.DrainOnceConnectBudget);
+        await Eventually(() => _transport.Detached.Count == 1, "the end of the source");
+
+        _transport.ConnectHold = null;
+        host.TryAdd(source);
+        await Eventually(() => _transport.Connects == 1, "the source to record again");
+
+        landed.SetResult();
+
+        await Eventually(() => _log.Any(line => line.Contains("is being recorded again", StringComparison.Ordinal)), "the late connect to be left alone");
+        await Assert.That(_transport.Detached.Count).IsEqualTo(1);
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
     [Test]
     public async Task Backoff_doubles_to_its_cap_and_resets_after_a_long_run() {
         var capped = Source(Tmp.CreateFile("capped.jsonl", $"{Prompt}\n"), "a1");

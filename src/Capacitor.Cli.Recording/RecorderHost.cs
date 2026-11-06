@@ -29,6 +29,7 @@ public sealed class RecorderHost {
     readonly RecorderClaims? _claims;
     readonly Action<RecorderAttemptEnded>? _attemptEnded;
     readonly ConcurrentDictionary<string, Entry> _entries = new();
+    readonly Lock _admission = new();
 
     public RecorderHost(
         IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time,
@@ -58,10 +59,13 @@ public sealed class RecorderHost {
     /// <returns>False when its key is already being recorded.</returns>
     public bool TryAdd(RecordingSource source) {
         var entry = new Entry();
-        if (!_entries.TryAdd(source.Key, entry)) {
-            entry.Dispose();
 
-            return false;
+        lock (_admission) {
+            if (!_entries.TryAdd(source.Key, entry)) {
+                entry.Dispose();
+
+                return false;
+            }
         }
 
         try {
@@ -262,9 +266,36 @@ public sealed class RecorderHost {
 
             MarkNeedsImport(source, first, $"final drain did not complete: {ex.Message}");
         } finally {
+            if (recorder?.AbandonedConnect is { } connect) _ = DetachOnceLandedAsync(source, entry, connect, first);
+
             recorder?.Dispose();
             ReportAttempt(source, first, recorder, context, true, failure);
         }
+    }
+
+    // However the connect ended: a cancelled invocation can already be on the wire. A recorder that took the key back
+    // shares the registration, and the server's detach goes by key and connection, so it stays. Started under the lock
+    // that admits a key, so any recorder added after this look connects behind the detach.
+    async Task DetachOnceLandedAsync(RecordingSource source, Entry entry, Task connect, RecorderContext first) {
+        try {
+            await connect;
+        } catch {
+            // Its outcome changes nothing here.
+        }
+
+        Task detach;
+
+        lock (_admission) {
+            if (_entries.TryGetValue(source.Key, out var holder) && holder != entry) {
+                Log(first, $"A late connect of {source.Key} landed, and it is being recorded again, so it stays registered");
+
+                return;
+            }
+
+            detach = DetachAsync(source, first);
+        }
+
+        await detach;
     }
 
     // Never throws, or a broken owner would stop a retry. Retires the ack count where a watcher would, once no attempt
