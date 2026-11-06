@@ -13,49 +13,6 @@ public class IndexedTranscriptReadTests {
     const IncompleteFinalLinePolicy Hold    = IncompleteFinalLinePolicy.Hold;
     const IncompleteFinalLinePolicy Consume = IncompleteFinalLinePolicy.ConsumeIfComplete;
 
-    // A derived FileStream's async reads call back into its own sync overloads, so only the
-    // outermost call counts.
-    sealed class CountingFileStream(string path) : FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) {
-        int _depth;
-
-        public long BytesRead { get; private set; }
-
-        public override int Read(byte[] buffer, int offset, int count) => Count(() => base.Read(buffer, offset, count));
-
-        public override int ReadByte() {
-            _depth++;
-            try {
-                var b = base.ReadByte();
-                if (_depth == 1 && b >= 0) BytesRead++;
-                return b;
-            } finally {
-                _depth--;
-            }
-        }
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) {
-            _depth++;
-            try {
-                var n = await base.ReadAsync(buffer, ct);
-                if (_depth == 1) BytesRead += n;
-                return n;
-            } finally {
-                _depth--;
-            }
-        }
-
-        int Count(Func<int> read) {
-            _depth++;
-            try {
-                var n = read();
-                if (_depth == 1) BytesRead += n;
-                return n;
-            } finally {
-                _depth--;
-            }
-        }
-    }
-
     static async Task<(NewTranscriptLines Result, long BytesRead)> Read(
             string path, int linesProcessed, IncompleteFinalLinePolicy policy, TranscriptLineIndex? index) {
         await using var stream = new CountingFileStream(path);

@@ -19,11 +19,8 @@ namespace Capacitor.Cli.Recording;
 /// file or exit code. <see cref="RunAsync"/> tails until stopped, and <see cref="FinishAsync"/> then
 /// makes the final drain.
 /// </summary>
-/// <param name="openTranscript">How a poll opens the transcript; null opens the file. A test counts the bytes a poll
-/// reads through it.</param>
 public sealed class TranscriptRecorder(
-        RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context,
-        Func<string, FileStream>? openTranscript = null) : IDisposable {
+        RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context) : IDisposable {
     readonly CursorMarkers  _markers       = new(context.Server.Config, time);
     readonly WatchAckCursor _ackCursor     = new(context.Server.Config);
     readonly TranscriptSpool _spool        = new(context.Server.Config, time, context.Server.Url);
@@ -73,6 +70,12 @@ public sealed class TranscriptRecorder(
     // Nothing kills the recorder on any other exit; the title CLI's own timeout (15s claude, 30s codex) ends it first.
     static readonly TimeSpan UnhurriedShutdownTitleDeadline = TimeSpan.FromSeconds(30);
 
+    /// <summary>How a poll opens the transcript; null opens the file. A test counts the bytes a poll reads through it.</summary>
+    internal Func<string, FileStream>? OpenTranscript { get; init; }
+
+    /// <summary>The server has registered this recorder, so what it holds is the server's to resume.</summary>
+    public bool Connected { get; private set; }
+
     public WatchState State { get; } = new() { LastActivityAt = time.GetUtcNow() };
 
     /// <summary>Cancelled the moment the recorder stops, by any cause and before its loop notices, which can be
@@ -107,7 +110,7 @@ public sealed class TranscriptRecorder(
     }
 
     /// <summary>Tails the transcript until <paramref name="ct"/> or the recorder itself stops it. A failure to
-    /// register with the server is thrown; once registered, only a stop ends it.</summary>
+    /// register with the server is thrown, as is a failure of a vendor step between drains.</summary>
     public async Task RunAsync(CancellationToken ct) {
         using var callerStop = ct.Register(static me => ((TranscriptRecorder)me!).CancelRun(), this);
 
@@ -123,49 +126,9 @@ public sealed class TranscriptRecorder(
 
         Subscribe();
 
-        State.TitleCancellation = _titleCts.Token;
-
-        // These vendors stream from the first line, and their session watchers are eligible for the
-        // idle ceiling from the start, which requires the threshold. A no-op for child watchers.
-        if (SkipsThresholdBuffering(vendor)) State.ThresholdReached = true;
-        State.StartedAt = time.GetUtcNow();
         var idleTimeout = IdleEnd.ResolveIdleWindow(vendor, isSessionWatcher: agentId is null, Environment.GetEnvironmentVariable);
 
-        await context.Housekeeping.PrepareAsync(State, stop);
-
-        log($"Watching {TranscriptPath} for session {sessionId}" + (agentId is not null ? $" agent {agentId}" : ""));
-
-        State.LinesProcessed = await transport.ConnectAsync(source, stop);
-        // Lines the server already holds were flushed by an earlier watcher, so the tail is never held back.
-        if (State.LinesProcessed > 0) State.ThresholdReached = true;
-        PublishAckedLines(State);
-        log($"Connected via SignalR, resuming from line {State.LinesProcessed}");
-        context.Beat();
-
-        // A resumed session can be told a path its transcript has already left; the seed and replay read it next.
-        FollowMovedTranscript();
-
-        context.Housekeeping.OnConnected();
-
-        // The server's frontier can exceed the local line count when the transcript was replaced while nothing
-        // watched it. That is quarantined rather than seeded, and the loop below never runs.
-        if (!await SeedCursorByteOffsetAsync(State, State.LinesProcessed, _cursorGuard, stop)) {
-            log("cursor_transcript_rewrite_detected: initial resume frontier beyond local transcript — quarantined, exiting");
-            _stop.Cancel();
-        }
-
-        // Resumed mid-session: rebuild what the lines before the cursor would have fed, such as a tool
-        // that opened before it, which idle-end would otherwise mistake for an idle agent. At line 0 the
-        // drain delivers the whole file and feeds every consumer itself.
-        if (State.LinesProcessed > 0) {
-            var replay = new List<TranscriptReplayConsumer>();
-            if (State.SecondaryRoots is { } secondaryRoots) replay.Add(SecondaryRootsReplay(secondaryRoots, vendor));
-            if (vendor == "claude") replay.Add(CreatedPullRequestsReplay(State));
-            if (ToolCallTracking.TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ToolCallTracking.ClaudePendingToolCallsReplay(State.PendingClaudeToolCalls));
-            if (ToolCallTracking.TracksCodexToolCalls(vendor)) replay.Add(ToolCallTracking.CodexWatcherStateReplay(State, isChildWatcher: agentId is not null));
-            if (ToolCallTracking.TracksCopilotToolCalls(vendor, TranscriptPath, State.CopilotHostMissing)) replay.Add(new(WindowOnly: false, line => { ToolCallTracking.UpdateCopilotPendingToolCalls(State.PendingCopilotToolCalls, line); return false; }));
-            await TranscriptReplay.ReplayAsync(TranscriptPath, State.LinesProcessed, replay, stop, log);
-        }
+        await ConnectAndSeedAsync(stop);
 
         try {
             while (!stop.IsCancellationRequested) {
@@ -248,6 +211,14 @@ public sealed class TranscriptRecorder(
         } catch (OperationCanceledException) {
             // Expected
         }
+    }
+
+    /// <summary>Registers, then makes the final drain, without tailing. For a source whose run never connected: the
+    /// server's cursor says what is left, and what cannot be sent is spooled as <see cref="FinishAsync"/> does.</summary>
+    public async Task DrainOnceAsync(CancellationToken ct) {
+        Subscribe();
+        await ConnectAndSeedAsync(ct);
+        await FinishAsync(ct);
     }
 
     /// <summary>Makes the final drain, whatever stopped the loop, and tells the server it is done. Lines it could
@@ -370,6 +341,59 @@ public sealed class TranscriptRecorder(
         }
     }
 
+    /// <summary>Registers with the server and rebuilds what the lines before its cursor fed. Shared by the tailing
+    /// run and the single drain, so both start from the same state.</summary>
+    async Task ConnectAndSeedAsync(CancellationToken stop) {
+        var sessionId = source.SessionId;
+        var agentId   = source.AgentId;
+        var vendor    = source.Vendor;
+        var log       = context.Log;
+
+        State.TitleCancellation = _titleCts.Token;
+
+        // These vendors stream from the first line, and their session watchers are eligible for the
+        // idle ceiling from the start, which requires the threshold. A no-op for child watchers.
+        if (SkipsThresholdBuffering(vendor)) State.ThresholdReached = true;
+        State.StartedAt = time.GetUtcNow();
+
+        await context.Housekeeping.PrepareAsync(State, stop);
+
+        log($"Watching {TranscriptPath} for session {sessionId}" + (agentId is not null ? $" agent {agentId}" : ""));
+
+        State.LinesProcessed = await transport.ConnectAsync(source, stop);
+        Connected            = true;
+        // Lines the server already holds were flushed by an earlier watcher, so the tail is never held back.
+        if (State.LinesProcessed > 0) State.ThresholdReached = true;
+        PublishAckedLines(State);
+        log($"Connected via SignalR, resuming from line {State.LinesProcessed}");
+        context.Beat();
+
+        // A resumed session can be told a path its transcript has already left; the seed and replay read it next.
+        FollowMovedTranscript();
+
+        context.Housekeeping.OnConnected();
+
+        // The server's frontier can exceed the local line count when the transcript was replaced while nothing
+        // watched it. That is quarantined rather than seeded, and the loop below never runs.
+        if (!await SeedCursorByteOffsetAsync(State, State.LinesProcessed, _cursorGuard, stop)) {
+            log("cursor_transcript_rewrite_detected: initial resume frontier beyond local transcript — quarantined, exiting");
+            _stop.Cancel();
+        }
+
+        // Resumed mid-session: rebuild what the lines before the cursor would have fed, such as a tool
+        // that opened before it, which idle-end would otherwise mistake for an idle agent. At line 0 the
+        // drain delivers the whole file and feeds every consumer itself.
+        if (State.LinesProcessed > 0) {
+            var replay = new List<TranscriptReplayConsumer>();
+            if (State.SecondaryRoots is { } secondaryRoots) replay.Add(SecondaryRootsReplay(secondaryRoots, vendor));
+            if (vendor == "claude") replay.Add(CreatedPullRequestsReplay(State));
+            if (ToolCallTracking.TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ToolCallTracking.ClaudePendingToolCallsReplay(State.PendingClaudeToolCalls));
+            if (ToolCallTracking.TracksCodexToolCalls(vendor)) replay.Add(ToolCallTracking.CodexWatcherStateReplay(State, isChildWatcher: agentId is not null));
+            if (ToolCallTracking.TracksCopilotToolCalls(vendor, TranscriptPath, State.CopilotHostMissing)) replay.Add(new(WindowOnly: false, line => { ToolCallTracking.UpdateCopilotPendingToolCalls(State.PendingCopilotToolCalls, line); return false; }));
+            await TranscriptReplay.ReplayAsync(TranscriptPath, State.LinesProcessed, replay, stop, log);
+        }
+    }
+
     void CancelRun() => _stop.Cancel();
 
     void Subscribe() {
@@ -389,12 +413,14 @@ public sealed class TranscriptRecorder(
     }
 
     // A transport raises to a snapshot of its handlers, so one can run after this recorder is disposed. Neither
-    // handler may throw: the raiser awaits them in turn, and a throw would starve the recorders after it.
+    // handler may throw, the log included: the raiser awaits them in turn, and a throw would starve the
+    // recorders after it.
     Task OnStopRequestedAsync(string key, string reason) {
         if (key != source.Key) return Task.CompletedTask;
 
+        TryLog($"Received StopWatcher signal: {reason}");
+
         try {
-            context.Log($"Received StopWatcher signal: {reason}");
             RequestStop();
         } catch (ObjectDisposedException) {
             // Already finished.
@@ -409,21 +435,29 @@ public sealed class TranscriptRecorder(
             var serverPosition = await transport.ConnectAsync(source, stop);
 
             if (serverPosition < State.LinesProcessed) {
-                context.Log($"Server behind ({serverPosition} vs {State.LinesProcessed}), rewinding to resend gap");
+                TryLog($"Server behind ({serverPosition} vs {State.LinesProcessed}), rewinding to resend gap");
 
                 var rewound = await GatedApplyReconnectRewindAsync(_cursorRewindGate, State, serverPosition, _cursorGuard, stop);
                 PublishAckedLines(State);
 
                 if (!rewound) {
                     // The rewind quarantined the session and moved neither frontier: exit as a detected rewrite does.
-                    context.Log("cursor_transcript_rewrite_detected: reconnect frontier beyond local transcript — quarantined, exiting");
+                    TryLog("cursor_transcript_rewrite_detected: reconnect frontier beyond local transcript — quarantined, exiting");
                     _stop.Cancel();
                 }
             }
         } catch (ObjectDisposedException) {
             // Already finished.
         } catch (Exception ex) {
-            context.Log($"Re-register after reconnect failed: {ex.Message}");
+            TryLog($"Re-register after reconnect failed: {ex.Message}");
+        }
+    }
+
+    void TryLog(string message) {
+        try {
+            context.Log(message);
+        } catch {
+            // A failing log must not reach the transport's other subscribers.
         }
     }
 
@@ -714,7 +748,7 @@ public sealed class TranscriptRecorder(
             // its truncated prefix and advancing past it would drop the completed line for good. Large tool
             // results are slow to flush and get caught mid-write. The next drain re-reads it once complete.
             NewTranscriptLines drainRead;
-            await using (var stream = openTranscript?.Invoke(transcriptPath) ?? new FileStream(
+            await using (var stream = OpenTranscript?.Invoke(transcriptPath) ?? new FileStream(
                     transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
                 // Cursor captures the raw bytes this read decodes from, so the guard hashes exactly what
                 // produced the lines rather than a later read of a file that may have changed.

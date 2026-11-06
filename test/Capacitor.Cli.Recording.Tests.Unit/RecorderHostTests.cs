@@ -20,22 +20,33 @@ public class RecorderHostTests {
     readonly ConcurrentDictionary<string, int> _ticks = new();
     readonly ConcurrentDictionary<string, Func<Task>?> _beforeDrain = new();
     readonly ConcurrentDictionary<string, TimeProvider> _clocks = new();
+    readonly ConcurrentDictionary<string, Func<Task>?> _prepare = new();
     readonly ConcurrentQueue<string> _log = new();
 
     ConfigRoot Config => field ??= new(Tmp.CreateDir("config"));
 
-    RecorderHost NewHost(Func<string, FileStream>? open = null) => new(
-        _transport, _ => new NoStamps(),
-        source => new RecorderContext(
+    RecorderHost NewHost(Func<string, FileStream>? open = null, Action<string>? factoryHook = null) => new(
+        _transport,
+        _ => {
+            factoryHook?.Invoke("stamper");
+
+            return new NoStamps();
+        },
+        source => {
+            factoryHook?.Invoke("context");
+
+            return new RecorderContext(
             new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)),
             new FakeRecorderHousekeeping {
+                OnPrepare = () => _prepare.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask,
                 BeforeDrain = () => {
                     _ticks.AddOrUpdate(source.Key, 1, (_, n) => n + 1);
 
                     return _beforeDrain.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask;
                 },
             },
-            _clocks.GetValueOrDefault(source.Key, _time), message => _log.Enqueue($"{source.Key}: {message}"), () => { }),
+            _clocks.GetValueOrDefault(source.Key, _time), message => _log.Enqueue($"{source.Key}: {message}"), () => { });
+        },
         _time, open);
 
     static RecordingSource Source(string path, string? agentId = null, string? sessionId = null) =>
@@ -90,21 +101,190 @@ public class RecorderHostTests {
     public async Task A_throwing_source_does_not_stop_the_others() {
         var failing = Source(Tmp.CreateFile("failing.jsonl", $"{Prompt}\n"), "a1");
         var healthy = Source(Tmp.CreateFile("healthy.jsonl", $"{Prompt}\n"), "a2");
-        _beforeDrain[failing.Key] = () => throw new InvalidOperationException("boom");
+        var thrown  = 0;
+        _beforeDrain[failing.Key] = () => {
+            if (Interlocked.Increment(ref thrown) == 1) throw new InvalidOperationException("boom");
+
+            return Task.CompletedTask;
+        };
         var host = NewHost();
 
         host.TryAdd(failing);
         host.TryAdd(healthy);
-        await Eventually(() => !host.ActiveKeys.Contains(failing.Key), "the failing source to leave");
+        await Eventually(() => _log.Any(line => line.Contains("boom", StringComparison.Ordinal)) && LinesSent(healthy.SessionId) == 1, "the failure and the healthy source's first line");
+
+        // The clock has not moved, so the failed source is still in its backoff.
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([failing.Key, healthy.Key]);
+        await Assert.That(host.TryAdd(failing)).IsFalse();
+        await Assert.That(LinesSent(failing.SessionId)).IsEqualTo(0);
+
         await File.AppendAllTextAsync(healthy.TranscriptPath, $"{Reply}\n");
-        await Eventually(() => LinesSent(healthy.SessionId) == 2, "the healthy source's lines", TimeSpan.FromSeconds(1));
+        await Eventually(() => LinesSent(healthy.SessionId) == 2 && LinesSent(failing.SessionId) == 1, "both sources to record", TimeSpan.FromSeconds(1));
+    }
 
-        await Assert.That(host.ActiveKeys).IsEquivalentTo([healthy.Key]);
-        await Assert.That(_log.Any(line => line.StartsWith($"{failing.Key}: Recording", StringComparison.Ordinal) && line.Contains("boom"))).IsTrue();
+    [Test]
+    public async Task A_failed_source_is_recorded_again_after_a_backoff() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 2;
+        var host = NewHost();
 
-        _beforeDrain.TryRemove(failing.Key, out _);
-        await Assert.That(host.TryAdd(failing)).IsTrue();
-        await Eventually(() => LinesSent(failing.SessionId) == 1, "the failed source to record again");
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectAttempts == 1, "the first attempt");
+
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(host.TryAdd(source)).IsFalse();
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(0);
+
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the source to record after its backoffs", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(3);
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
+    [Test]
+    public async Task A_source_that_ends_cleanly_is_not_retried() {
+        var stopped = Source(Tmp.CreateFile("stopped.jsonl", $"{Prompt}\n"), "a1");
+        var host    = NewHost();
+
+        host.TryAdd(stopped);
+        await Eventually(() => _transport.Connects == 1, "the source to register");
+        await _transport.RaiseStopRequestedAsync(stopped.Key, "the server asked");
+        await Eventually(() => host.ActiveKeys.Count == 0, "the source to leave");
+
+        _time.Advance(TimeSpan.FromMinutes(5));
+        await Task.Delay(50);
+
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    [Test]
+    public async Task Finishing_a_source_that_never_connected_still_drains_it() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n{Later}\n"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var prepares = 0;
+        _prepare[source.Key] = () => {
+            if (Interlocked.Increment(ref prepares) > 1) return Task.CompletedTask;
+
+            entered.SetResult();
+
+            return release.Task;
+        };
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await entered.Task.WithinDeadlineAsync("the recorder entering its preparation");
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        release.SetResult();
+        await finish.WithinDeadlineAsync("the finish");
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(3);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    [Test]
+    public async Task Finishing_during_a_backoff_drains_once() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(2);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+        await Assert.That(_transport.Connects).IsEqualTo(1);
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_source_that_cannot_connect_at_finish_is_marked_for_import() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 100;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        var spool = new TranscriptSpool(Config, _time, "http://127.0.0.1:1");
+        await Assert.That(spool.NeedsImport(source.SessionId)).IsTrue();
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    [Test]
+    public async Task Cancelling_a_finish_ends_the_wait_and_not_the_drain() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var entered = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _transport.OnDrainComplete = ct => {
+            entered.TrySetResult(ct);
+
+            return release.Task;
+        };
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+        using var cancel = new CancellationTokenSource();
+        var finish = host.FinishAsync(source.Key, cancel.Token);
+        var drainToken = await entered.Task.WithinDeadlineAsync("the drain reaching its completion signal");
+
+        await cancel.CancelAsync();
+        await Assert.That(async () => await finish.WithinDeadlineAsync("the cancelled wait")).Throws<OperationCanceledException>();
+
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(drainToken.IsCancellationRequested).IsFalse();
+
+        release.SetResult();
+        await Eventually(() => host.ActiveKeys.Count == 0, "the drain to end the source");
+    }
+
+    [Test]
+    public async Task A_finish_cancelled_on_entry_still_drains_the_tail() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "a1");
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 2, "its lines");
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Later}\n");
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        await Assert.That(async () => await host.FinishAsync(source.Key, cancelled.Token)).Throws<OperationCanceledException>();
+        await Eventually(() => host.ActiveKeys.Count == 0, "the drain to end the source");
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(3);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_factory_that_throws_in_TryAdd_adds_nothing() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"));
+        var host   = NewHost(factoryHook: kind => throw new InvalidOperationException($"no {kind}"));
+
+        await Assert.That(() => host.TryAdd(source)).Throws<InvalidOperationException>();
+
+        await Assert.That(host.ActiveKeys).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_factory_that_throws_on_a_retry_counts_as_a_failed_attempt() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var contexts = 0;
+        var host = NewHost(factoryHook: kind => {
+            if (kind == "context" && Interlocked.Increment(ref contexts) == 2) throw new InvalidOperationException("no context");
+        });
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the source to record past the failed factory", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_log.Any(line => line.Contains("no context", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
     }
 
     [Test]
@@ -194,9 +374,14 @@ public class RecorderHostTests {
         host.TryAdd(second);
         await Eventually(() => _transport.Connects == 2, "the second source to register");
 
+        var lastRan = 0;
+        _transport.StopRequested += (_, _) => Task.FromResult(Interlocked.Increment(ref lastRan));
+        _transport.Reconnected   += () => Task.FromResult(Interlocked.Increment(ref lastRan));
+
         if (reconnect) await _transport.RaiseReconnectedAsync();
         else await _transport.RaiseStopRequestedAsync(second.Key, "the server asked");
 
+        await Assert.That(lastRan).IsEqualTo(1);
         await Assert.That(host.ActiveKeys).IsEquivalentTo([first.Key]);
     }
 
@@ -205,14 +390,17 @@ public class RecorderHostTests {
         const int Sources = 50;
         const int IdleTicks = 10;
         const int PerTickBudget = 8 * 1024;
+        const int TailCompare = 3000;
 
-        var read = new ConcurrentDictionary<string, long[]>();
+        var read = new ConcurrentDictionary<string, long>();
 
         var body    = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + new string('x', 1500) + "\"}]}}\n";
         var sources = Enumerable.Range(0, Sources)
-            .Select(i => Source(Tmp.CreateFile($"s{i}.jsonl", string.Concat(Enumerable.Repeat(body, 60))), $"a{i}"))
+            .Select(i => i == 0
+                ? Source(Tmp.CreateFile("s0.jsonl", Prompt + "\n" + string.Concat(Enumerable.Repeat(body, 59))))
+                : Source(Tmp.CreateFile($"s{i}.jsonl", string.Concat(Enumerable.Repeat(body, 60))), $"a{i}"))
             .ToList();
-        var host = NewHost(path => new CountingFileStream(path, read.GetOrAdd(path, _ => new long[1])));
+        var host = NewHost(path => new CountingFileStream(path, n => read.AddOrUpdate(path, n, (_, total) => total + n)));
 
         foreach (var source in sources) host.TryAdd(source);
 
@@ -220,77 +408,16 @@ public class RecorderHostTests {
         await Eventually(() => sources.All(source => Ticks(source.Key) >= 2), "a tick past the first read", TimeSpan.FromSeconds(1));
 
         var ticksBefore = sources.ToDictionary(source => source.Key, source => Ticks(source.Key));
-        var bytesBefore = sources.ToDictionary(source => source.Key, source => Interlocked.Read(ref read[source.TranscriptPath][0]));
+        var bytesBefore = sources.ToDictionary(source => source.Key, source => read[source.TranscriptPath]);
 
         await Eventually(() => sources.All(source => Ticks(source.Key) >= ticksBefore[source.Key] + IdleTicks), "idle ticks", TimeSpan.FromSeconds(1));
 
-        // A reading in flight when a count was taken can land on either side of it, so the window is one tick wider.
-        var worst = sources.Max(source => {
-            var bytes = Interlocked.Read(ref read[source.TranscriptPath][0]) - bytesBefore[source.Key];
-            var ticks = Ticks(source.Key) - ticksBefore[source.Key] + 1;
+        // A read in flight when a count was taken can land on either side of it, so the window is off by at most one.
+        var perTick = sources.Select(source => (double)(read[source.TranscriptPath] - bytesBefore[source.Key]) / (Ticks(source.Key) - ticksBefore[source.Key])).ToList();
 
-            return bytes / ticks;
-        });
-
-        await Assert.That(new FileInfo(sources[0].TranscriptPath).Length).IsGreaterThan(90_000);
-        await Assert.That(worst).IsLessThan(PerTickBudget);
+        await Assert.That(new FileInfo(sources[1].TranscriptPath).Length).IsGreaterThan(90_000);
+        await Assert.That(perTick.Max()).IsLessThan(PerTickBudget);
+        await Assert.That(perTick.Min()).IsGreaterThan(TailCompare);
         await Assert.That(host.ActiveKeys.Count).IsEqualTo(Sources);
-
-        Console.WriteLine($"Worst idle read per tick: {worst} bytes");
-    }
-
-    // Only the outermost call counts: a derived FileStream's async reads call back into its own sync overloads.
-    sealed class CountingFileStream(string path, long[] bytesRead) : FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) {
-        int _depth;
-
-        public override int Read(byte[] buffer, int offset, int count) => Count(() => base.Read(buffer, offset, count));
-
-        public override int Read(Span<byte> buffer) {
-            _depth++;
-            try {
-                var n = base.Read(buffer);
-                if (_depth == 1) Interlocked.Add(ref bytesRead[0], n);
-
-                return n;
-            } finally {
-                _depth--;
-            }
-        }
-
-        public override int ReadByte() {
-            _depth++;
-            try {
-                var b = base.ReadByte();
-                if (_depth == 1 && b >= 0) Interlocked.Increment(ref bytesRead[0]);
-
-                return b;
-            } finally {
-                _depth--;
-            }
-        }
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) {
-            _depth++;
-            try {
-                var n = await base.ReadAsync(buffer, ct);
-                if (_depth == 1) Interlocked.Add(ref bytesRead[0], n);
-
-                return n;
-            } finally {
-                _depth--;
-            }
-        }
-
-        int Count(Func<int> read) {
-            _depth++;
-            try {
-                var n = read();
-                if (_depth == 1) Interlocked.Add(ref bytesRead[0], n);
-
-                return n;
-            } finally {
-                _depth--;
-            }
-        }
     }
 }

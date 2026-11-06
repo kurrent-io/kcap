@@ -19,6 +19,8 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
 
     int _drainCompletes;
     int _connects;
+    int _connectAttempts;
+    int _connectFailures;
 
     public int DrainCompletes => Volatile.Read(ref _drainCompletes);
 
@@ -36,7 +38,23 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
 
     public event Func<Task>? Reconnected;
 
+    /// <summary>How many of the next <see cref="ConnectAsync"/> calls fail, as a hub that is down does.</summary>
+    public int ConnectFailures {
+        get => Volatile.Read(ref _connectFailures);
+        set => Volatile.Write(ref _connectFailures, value);
+    }
+
+    /// <summary>Every <see cref="ConnectAsync"/> call, the failed ones included.</summary>
+    public int ConnectAttempts => Volatile.Read(ref _connectAttempts);
+
+    /// <summary>Awaited inside <see cref="DrainCompleteAsync"/> with its token, to hold a drain open.</summary>
+    public Func<CancellationToken, Task>? OnDrainComplete { get; set; }
+
     public Task<int> ConnectAsync(RecordingSource source, CancellationToken ct) {
+        Interlocked.Increment(ref _connectAttempts);
+        ct.ThrowIfCancellationRequested();
+        if (Interlocked.Decrement(ref _connectFailures) >= 0) throw new InvalidOperationException("The hub is down.");
+        Interlocked.Exchange(ref _connectFailures, 0);
         Require();
         Interlocked.Increment(ref _connects);
 
@@ -69,7 +87,7 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
         Require();
         Interlocked.Increment(ref _drainCompletes);
 
-        return Task.CompletedTask;
+        return OnDrainComplete?.Invoke(ct) ?? Task.CompletedTask;
     }
 
     /// <summary>Awaits each handler in turn, as the hub transport does, so one that throws starves the rest.</summary>

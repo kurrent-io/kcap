@@ -14,10 +14,14 @@ public sealed class FakeRecorderHousekeeping : IRecorderHousekeeping {
     /// does, so a test can hold the recorder in a call a stop can't interrupt.</summary>
     public Func<Task>? BeforeDrain { get; set; }
 
+    /// <summary>Awaited inside <see cref="PrepareAsync"/>, which ignores its token, so a test can hold a recorder
+    /// before it has connected.</summary>
+    public Func<Task>? OnPrepare { get; set; }
+
     public Task PrepareAsync(WatchState state, CancellationToken ct) {
         Prepared++;
 
-        return Task.CompletedTask;
+        return OnPrepare?.Invoke() ?? Task.CompletedTask;
     }
 
     public void OnConnected() => Connected++;
