@@ -3,7 +3,7 @@ using Capacitor.Cli.Core.Harness.Muse;
 namespace Capacitor.Cli.Recording.Harness.Muse;
 
 /// <summary>Finds a Muse session's children, records each one's log as its own source, and stops the finished ones.</summary>
-public static class MuseSubagentScan {
+internal static class MuseSubagentScan {
     /// <summary>
     /// A Muse child writes its own <c>subagent/&lt;id&gt;/session.jsonl</c> beside the parent's log; the
     /// scan is the authority on which children exist. A child the parent log has not announced yet is

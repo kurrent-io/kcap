@@ -3,7 +3,7 @@ using Capacitor.Cli.Core.Harness.Gemini;
 namespace Capacitor.Cli.Recording.Harness.Gemini;
 
 /// <summary>Finds a Gemini session's subagents and records each one's transcript as its own source.</summary>
-public static class GeminiSubagentScan {
+internal static class GeminiSubagentScan {
     /// <summary>
     /// Gemini fires no subagent hooks, so the parent watcher discovers nested subagent
     /// transcripts itself (<c>chats/&lt;parentSessionId&gt;/&lt;subId&gt;.jsonl</c>). On first

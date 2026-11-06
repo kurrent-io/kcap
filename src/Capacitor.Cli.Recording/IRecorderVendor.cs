@@ -3,8 +3,8 @@ using Capacitor.Cli.Core.Harness.Claude;
 
 namespace Capacitor.Cli.Recording;
 
-/// <summary>What a recorder calls that its host provides: repository and pull request detection, harness
-/// titles, subagent discovery and the other work between drains, which is not itself recording.</summary>
+/// <summary>What a recorder calls between drains that is not itself recording: repository and pull request
+/// detection, harness titles and subagent discovery. <see cref="RecorderHousekeeping"/> is the implementation.</summary>
 public interface IRecorderVendor {
     /// <summary>Fills in <paramref name="state"/> before the recorder connects.</summary>
     Task PrepareAsync(WatchState state, CancellationToken ct);
@@ -12,8 +12,8 @@ public interface IRecorderVendor {
     /// <summary>The source is registered and the recorder's final drain will run from here on.</summary>
     void OnConnected();
 
-    /// <summary>Called before every drain, the final one included, for a vendor whose transcript is a copy the
-    /// host has to bring up to date.</summary>
+    /// <summary>Called before every drain, the final one included, for a vendor whose transcript is a copy that
+    /// has to be brought up to date.</summary>
     void RefreshTranscript(string transcriptPath);
 
     Task BeforeDrainAsync(WatchState state, CancellationToken ct);

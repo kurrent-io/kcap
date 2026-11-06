@@ -1,10 +1,9 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.RepoEvidence;
 using TUnit.Assertions.Enums;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 public class WatchSecondaryPullRequestTests {
     const string CliRoot   = "/h/dev/cli-wt";
@@ -33,10 +32,10 @@ public class WatchSecondaryPullRequestTests {
         var empty = new WatchState { SecondaryRoots = new SecondaryRepoRoots(FakeFindRoot, "/h/dev/server") };
         var known = StateWithSecondaryRoot();
 
-        await Assert.That(WatchCommand.SecondaryProbeDue(empty, now)).IsFalse();
-        await Assert.That(WatchCommand.SecondaryProbeDue(known, now)).IsTrue();
+        await Assert.That(RecorderHousekeeping.SecondaryProbeDue(empty, now)).IsFalse();
+        await Assert.That(RecorderHousekeeping.SecondaryProbeDue(known, now)).IsTrue();
         known.LastSecondaryProbe = now.AddSeconds(-30);
-        await Assert.That(WatchCommand.SecondaryProbeDue(known, now)).IsFalse();
+        await Assert.That(RecorderHousekeeping.SecondaryProbeDue(known, now)).IsFalse();
     }
 
     static RepositoryPayload CliPr(int number = 915, string host = "github.com") => new() {
@@ -47,7 +46,7 @@ public class WatchSecondaryPullRequestTests {
 
     static Task Link(WatchState state, Func<string, TimeSpan, Task<RepositoryPayload?>> detect, Func<RepositoryPayload, CancellationToken, Task<bool>> post,
         TimeSpan? budget = null, CancellationToken ct = default, Action? beat = null) =>
-        WatchCommand.LinkSecondaryPullRequestsAsync(state, detect, post, budget ?? Budget, TimeProvider.System, ct, beat ?? (() => { }));
+        RecorderHousekeeping.LinkSecondaryPullRequestsAsync(state, detect, post, budget ?? Budget, TimeProvider.System, ct, beat ?? (() => { }));
 
     // A root whose probe eats the whole pass must not shadow the roots after it every time.
     [Test]
@@ -327,7 +326,7 @@ public class WatchSecondaryPullRequestTests {
         var probed = new List<string>();
         var posted = new List<RepositoryPayload>();
 
-        WatchCommand.ObserveSubagentCheckouts(state, TimeProvider.System, final);
+        RecorderHousekeeping.ObserveSubagentCheckouts(state, _ => { }, final);
         await Link(state,
             (root, _) => { probed.Add(root); return Task.FromResult<RepositoryPayload?>(CliPr()); },
             (pr, _) => { posted.Add(pr); return Task.FromResult(true); });

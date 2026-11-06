@@ -5,10 +5,10 @@ namespace Capacitor.Cli.Recording.PrDetection;
 /// <summary>Spawns a CLI and returns trimmed stdout, or null on failure/timeout.</summary>
 public delegate Task<string?> CommandRunner(string cmd, string arguments, string cwd, TimeSpan timeout);
 
-public sealed record PrInfo(int Number, string? Title, string? Url, string? HeadRef);
+internal sealed record PrInfo(int Number, string? Title, string? Url, string? HeadRef);
 
 /// <summary>GitHub / GitHub Enterprise detection via `gh` (auto-targets the remote's host).</summary>
-public static class GitHubPrDetector {
+internal static class GitHubPrDetector {
     const string Fields = "number,title,url,headRefName";
 
     public static async Task<PrInfo?> DetectAsync(string cwd, TimeSpan cap, CommandRunner run) =>

@@ -4,7 +4,7 @@ using Capacitor.Cli.Core.Harness.Grok;
 namespace Capacitor.Cli.Recording.Harness.Grok;
 
 /// <summary>Follows a Grok session's subagents and records each one's transcript as its own source.</summary>
-public static class GrokSubagentScan {
+internal static class GrokSubagentScan {
     /// <summary>
     /// Grok fires no hook for a subagent: it runs as a sibling session the parent's transcript names when
     /// it is spawned and when it finishes. A spawned child is registered (<c>subagent-start</c>,

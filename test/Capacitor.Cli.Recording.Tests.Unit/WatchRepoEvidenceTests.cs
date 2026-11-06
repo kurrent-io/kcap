@@ -1,14 +1,13 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 public class WatchRepoEvidenceTests {
     [Test]
     public async Task Refresh_never_clears_an_evidence_payload() {
-        await Assert.That(WatchCommand.ShouldReplaceRepository(detected: null, repositoryFromEvidence: true)).IsFalse();
-        await Assert.That(WatchCommand.ShouldReplaceRepository(detected: null, repositoryFromEvidence: false)).IsTrue();
-        await Assert.That(WatchCommand.ShouldReplaceRepository(detected: new(), repositoryFromEvidence: true)).IsTrue();
+        await Assert.That(RecorderHousekeeping.ShouldReplaceRepository(detected: null, repositoryFromEvidence: true)).IsFalse();
+        await Assert.That(RecorderHousekeeping.ShouldReplaceRepository(detected: null, repositoryFromEvidence: false)).IsTrue();
+        await Assert.That(RecorderHousekeeping.ShouldReplaceRepository(detected: new(), repositoryFromEvidence: true)).IsTrue();
     }
 
     // File.ReadLines opens FileShare.Read (Windows-mandatory), which can block the

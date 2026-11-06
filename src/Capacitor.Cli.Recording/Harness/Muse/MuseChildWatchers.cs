@@ -5,7 +5,7 @@ namespace Capacitor.Cli.Recording.Harness.Muse;
 /// unannounced children are still held back, and which finished workers to stop. Pure given the
 /// clock apart from <see cref="Stop"/>, so the policy is testable without a watcher.
 /// </summary>
-public sealed class MuseChildWatchers {
+internal sealed class MuseChildWatchers {
     /// <summary>Scans an unannounced child is held back, so a late-flushed announcement still labels it.</summary>
     internal const int AnnouncementGraceScans = 3;
 

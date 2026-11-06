@@ -6,7 +6,7 @@ using Capacitor.Cli.Recording.Harness.Gemini;
 namespace Capacitor.Cli.Recording.Harness.OpenCode;
 
 /// <summary>Finds an OpenCode session's subagents and records each one's file as its own source.</summary>
-public static class OpenCodeSubagentScan {
+internal static class OpenCodeSubagentScan {
     /// <summary>
     /// OpenCode fires no subagent hooks; its subagents live in its SQLite db, so the kcap
     /// plugin fetches each child session via the SDK and writes its <c>{info,parts}</c> JSONL

@@ -1,4 +1,3 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Harness.Titles;
@@ -8,9 +7,8 @@ using TUnit.Assertions.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
-using Capacitor.Cli.Recording;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 public class WatchHarnessTitleTests {
     sealed class FixedStore(Func<StoreTitle?> read) : IHarnessTitleStore {
@@ -23,7 +21,7 @@ public class WatchHarnessTitleTests {
     static WatchState StateFor(IHarnessTitleStore store) => new() { TitleTracker = new HarnessTitleTracker(store.RecordsChangeTime) };
 
     static Task Poll(IHarnessTitleStore store, WatchState state, WireMockServer server, TimeProvider time, TimeSpan? budget = null, Action? beat = null) =>
-        WatchCommand.PostHarnessTitleAsync(store, state,
+        RecorderHousekeeping.PostHarnessTitleAsync(store, state,
             async (post, b, ct) => {
                 using var client = new HttpClient();
                 return await HarnessTitleClient.PostOrFallBackAsync(client, time, server.Url!, "abc", post, ct, b);
@@ -65,7 +63,7 @@ public class WatchHarnessTitleTests {
 
         await Assert.That(Posts(server)).IsEqualTo(1);
 
-        time.Advance(WatchCommand.HarnessTitleRetryGap);
+        time.Advance(RecorderHousekeeping.HarnessTitleRetryGap);
         await Poll(store, state, server, time);
 
         await Assert.That(Posts(server)).IsEqualTo(2);
@@ -126,7 +124,7 @@ public class WatchHarnessTitleTests {
         var sent    = new List<string>();
         var answers = new Queue<HarnessTitleOutcome>([HarnessTitleOutcome.Posted, HarnessTitleOutcome.Failed, HarnessTitleOutcome.Posted]);
 
-        Task Poll() => WatchCommand.PostHarnessTitleAsync(store, state,
+        Task Poll() => RecorderHousekeeping.PostHarnessTitleAsync(store, state,
             (post, _, _) => { sent.Add(post.Title); return Task.FromResult(answers.Dequeue()); },
             TimeSpan.FromSeconds(10), time, () => { }, _ => { }, default);
 
@@ -246,7 +244,7 @@ public class WatchHarnessTitleTests {
         var state = StateFor(store);
         var posts = 0;
 
-        await WatchCommand.PostHarnessTitleAsync(store, state,
+        await RecorderHousekeeping.PostHarnessTitleAsync(store, state,
             (_, _, _) => { posts++; return Task.FromResult(HarnessTitleOutcome.Posted); },
             TimeSpan.FromSeconds(3), time, () => { }, _ => { }, default);
 
@@ -261,7 +259,7 @@ public class WatchHarnessTitleTests {
         var state   = StateFor(store);
         var granted = TimeSpan.Zero;
 
-        await WatchCommand.PostHarnessTitleAsync(store, state,
+        await RecorderHousekeeping.PostHarnessTitleAsync(store, state,
             (_, b, _) => { granted = b; return Task.FromResult(HarnessTitleOutcome.Posted); },
             TimeSpan.FromSeconds(3), time, () => { }, _ => { }, default);
 
@@ -279,7 +277,7 @@ public class WatchHarnessTitleTests {
 
         try {
             var started = TimeProvider.System.GetTimestamp();
-            await WatchCommand.PostHarnessTitleAsync(store, state,
+            await RecorderHousekeeping.PostHarnessTitleAsync(store, state,
                 (_, _, _) => { posts++; return Task.FromResult(HarnessTitleOutcome.Posted); },
                 TimeSpan.FromSeconds(3), TimeProvider.System, () => { }, _ => { }, default);
 
@@ -305,7 +303,7 @@ public class WatchHarnessTitleTests {
         var state = StateFor(store);
         var posts = 0;
 
-        Task Poll() => WatchCommand.PostHarnessTitleAsync(store, state,
+        Task Poll() => RecorderHousekeeping.PostHarnessTitleAsync(store, state,
             (_, _, _) => { posts++; return Task.FromResult(HarnessTitleOutcome.Posted); },
             TimeSpan.FromSeconds(1), TimeProvider.System, () => { }, _ => { }, default);
 
@@ -353,7 +351,7 @@ public class WatchHarnessTitleTests {
         var time  = new FakeTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero));
         var t1    = time.GetUtcNow();
 
-        Task Poll() => WatchCommand.PostHarnessTitleAsync(store, state,
+        Task Poll() => RecorderHousekeeping.PostHarnessTitleAsync(store, state,
             (p, _, _) => { sent.Add(p); return Task.FromResult(HarnessTitleOutcome.Posted); },
             TimeSpan.FromSeconds(1), time, () => { }, _ => { }, default);
 

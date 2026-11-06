@@ -1,11 +1,9 @@
-using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.RepoEvidence;
 using Capacitor.Cli.Recording.PrDetection;
 using TUnit.Assertions.Enums;
-using Capacitor.Cli.Recording;
 
-namespace Capacitor.Cli.Tests.Unit;
+namespace Capacitor.Cli.Recording.Tests.Unit;
 
 public class WatchCreatedPullRequestTests {
     static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
@@ -18,7 +16,7 @@ public class WatchCreatedPullRequestTests {
 
     static Task Link(WatchState state, Func<CreatedPullRequest, TimeSpan, Task<PrInfo?>> describe, Func<RepositoryPayload, CancellationToken, Task<bool>> post,
         bool lastChance = false, TimeSpan? budget = null) =>
-        WatchCommand.LinkCreatedPullRequestsAsync(state, describe, post, budget ?? Budget, TimeProvider.System, CancellationToken.None, lastChance, () => { });
+        RecorderHousekeeping.LinkCreatedPullRequestsAsync(state, describe, post, budget ?? Budget, TimeProvider.System, CancellationToken.None, lastChance, () => { });
 
     static Task<PrInfo?> Hangs(CreatedPullRequest _, TimeSpan __) => new TaskCompletionSource<PrInfo?>().Task;
 

@@ -6,7 +6,7 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Recording.Harness.Antigravity;
 
 /// <summary>Links Antigravity subagents to their parent as they are spawned.</summary>
-public static class AntigravitySubagentLinks {
+internal static class AntigravitySubagentLinks {
     /// <summary>
     /// Links subagents from the parent transcript's INVOKE_SUBAGENT steps (the
     /// spawn-time signal). For each child id not already

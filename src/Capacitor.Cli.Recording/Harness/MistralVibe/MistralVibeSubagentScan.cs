@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Recording.Harness.MistralVibe;
 
 /// <summary>Follows a Mistral Vibe session's subagents and records each one's store as its own source.</summary>
-public static class MistralVibeSubagentScan {
+internal static class MistralVibeSubagentScan {
     /// <summary>
     /// Vibe fires no hooks for a subagent; the child runs in its own <c>child-&lt;hex&gt;</c> store
     /// beside the parent's, named only by the parent's <c>subagent.spawn</c> effect. The parent

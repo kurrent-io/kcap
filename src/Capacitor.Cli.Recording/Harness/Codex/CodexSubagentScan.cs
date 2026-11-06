@@ -5,7 +5,7 @@ using Capacitor.Cli.Core.Harness.Codex;
 namespace Capacitor.Cli.Recording.Harness.Codex;
 
 /// <summary>Finds a Codex session's collab subagents and records each one's rollout as its own source.</summary>
-public static class CodexSubagentScan {
+internal static class CodexSubagentScan {
     /// <summary>
     /// Codex fires no subagent hooks; its collab subagents (Codex 0.146+, multi-agent v2) each
     /// fork into their OWN rollout in the shared <c>~/.codex/sessions</c> tree, linked back via
