@@ -30,10 +30,10 @@ public class RecorderHousekeepingTests {
 
     string CreateChildLog() => Tmp.CreateFile($"muse/subagent/{Child}/session.jsonl", "");
 
-    RecorderHousekeeping MuseHousekeeping(string transcript, string serverUrl = "http://127.0.0.1:1") => new(
-        new RecordingSource(Session, null, transcript, "muse", null), skipTitle: false, parentPid: null, _host,
+    RecorderHousekeeping MuseHousekeeping(string transcript, string serverUrl = "http://127.0.0.1:1", string vendor = "muse", Action<string>? log = null, Action? beat = null) => new(
+        new RecordingSource(Session, null, transcript, vendor, null), skipTitle: false, parentPid: null, _host,
         Config.Root, Resolutions.At(serverUrl, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(),
-        new GitProviderRouter(), TimeProvider.System, new AccountStore(Config.PathTo("accounts")), Home, _ => { }, () => { });
+        new GitProviderRouter(), TimeProvider.System, new AccountStore(Config.PathTo("accounts")), Home, log ?? (_ => { }), beat ?? (() => { }));
 
     static async Task ScanAsync(RecorderHousekeeping housekeeping, string transcript, int times) {
         for (var i = 0; i < times; i++) await housekeeping.AfterDrainAsync(new WatchState(), transcript, [], CancellationToken.None);
@@ -58,6 +58,28 @@ public class RecorderHousekeepingTests {
 
         await Assert.That(_host.StopThreads).IsEquivalentTo([thread]);
         await Assert.That(housekeeping.HandedMuseEnd).IsNotNull();
+    }
+
+    /// <summary>A host guards the log in a recorder's context, and this one comes to it separately.</summary>
+    [Test]
+    public async Task A_log_that_throws_does_not_fail_housekeeping() {
+        var transcript   = CreateParentLog();
+        var housekeeping = MuseHousekeeping(transcript, log: _ => throw new InvalidOperationException("the log is broken"));
+        MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(Config.Root), Session, """{"reason":"other"}""");
+
+        await ScanAsync(housekeeping, transcript, times: 1);
+
+        await Assert.That(housekeeping.HandedMuseEnd).IsNotNull();
+    }
+
+    [Test]
+    public async Task A_beat_that_throws_does_not_fail_housekeeping() {
+        var housekeeping = MuseHousekeeping(CreateParentLog(), vendor: "claude", beat: () => throw new InvalidOperationException("the beat is broken"));
+        var state        = new WatchState();
+
+        await housekeeping.BeforeDrainAsync(state, CancellationToken.None);
+
+        await Assert.That(state.LastHarnessTitleProbe).IsNotEqualTo(default(DateTimeOffset));
     }
 
     [Test]

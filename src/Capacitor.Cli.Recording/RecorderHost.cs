@@ -99,7 +99,7 @@ public sealed class RecorderHost {
         };
     }
 
-    static Action<string> Guarded(Action<string> log) => message => {
+    internal static Action<string> Guarded(Action<string> log) => message => {
         try {
             log(message);
         } catch {
@@ -107,7 +107,7 @@ public sealed class RecorderHost {
         }
     };
 
-    static Action Guarded(Action beat) => () => {
+    internal static Action Guarded(Action beat) => () => {
         try {
             beat();
         } catch {
