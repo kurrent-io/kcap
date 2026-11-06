@@ -24,6 +24,10 @@ namespace Capacitor.Cli.Daemon.Services;
 /// bracketed paste rather than for any output. The factory sets it on Windows, where ConPTY writes
 /// its own preamble before the agent starts; see <see cref="DeliverLaunchPrompt"/>.
 ///
+/// <paramref name="bracketedPasteMeansComposerUp"/> is set when the vendor turns bracketed paste on
+/// only while a text input is mounted, so that mode is the readiness signal and no quiet window is
+/// waited out after it.
+///
 /// <paramref name="awaitsSessionStart"/> is set when the vendor fires SessionStart only once its
 /// composer is up and that hook reaches this daemon (<see cref="NoteSessionStarted"/>), so the launch
 /// prompt waits for it.
@@ -35,6 +39,7 @@ namespace Capacitor.Cli.Daemon.Services;
 internal sealed partial class PtyHostedAgentRuntime(
         string vendor, IPtyProcess pty, TimeProvider time, bool approvalsDisabled = false,
         ILogger? logger = null, bool readyOnBracketedPaste = false,
+        bool bracketedPasteMeansComposerUp = false,
         bool awaitsSessionStart = false,
         bool confirmsLaunchPrompt = false) : IHostedAgentRuntime {
     /// <summary>
@@ -69,8 +74,9 @@ internal sealed partial class PtyHostedAgentRuntime(
 
     /// <summary>
     /// How long output must have been silent, once the TUI looks ready, before the launch prompt is
-    /// pasted: a TUI still drawing its banner or startup spinner is not reading its composer yet.
-    /// Codex's spinner redraws every 100 ms, so the window has to outlast that gap.
+    /// pasted, for a vendor with no signal that its composer is reading input: a TUI still drawing its
+    /// banner or startup spinner may not be. Codex's spinner redraws every 100 ms, so the window has to
+    /// outlast that gap.
     /// </summary>
     internal static readonly TimeSpan LaunchPromptQuietWindow = TimeSpan.FromMilliseconds(500);
 
@@ -142,8 +148,8 @@ internal sealed partial class PtyHostedAgentRuntime(
     public void NoteSessionStarted() {
         if (!awaitsSessionStart || _sessionStarted.Task.IsCompleted) return;
 
-        // The hook fires as the TUI mounts, so the quiet window runs from here. Stamped first: the
-        // delivery this releases reads it.
+        // The hook can fire before the composer mounts, so a screen quiet since before it proves
+        // nothing and the quiet window runs from here. Stamped first: the delivery this releases reads it.
         Volatile.Write(ref _lastOutputAt, time.GetTimestamp());
         _sessionStarted.TrySetResult();
     }
@@ -166,7 +172,8 @@ internal sealed partial class PtyHostedAgentRuntime(
         }
     }
 
-    bool LooksReadyForInput => readyOnBracketedPaste ? _modes.IsBracketedPasteEnabled : _sawOutput;
+    bool LooksReadyForInput =>
+        readyOnBracketedPaste || bracketedPasteMeansComposerUp ? _modes.IsBracketedPasteEnabled : _sawOutput;
 
     public void NoteTerminalDialog(bool showing) {
         lock (_dialogGate) {
@@ -185,8 +192,9 @@ internal sealed partial class PtyHostedAgentRuntime(
 
     /// <summary>
     /// Makes <paramref name="prompt"/> the agent's first message without putting it on the command
-    /// line: pastes it once the TUI looks ready and output has then been quiet for
-    /// <see cref="LaunchPromptQuietWindow"/>, or <see cref="LaunchPromptMaxWait"/> has passed. A text
+    /// line: pastes it once the TUI looks ready, or <see cref="LaunchPromptMaxWait"/> has passed. Ready
+    /// is bracketed paste on where the vendor ties that mode to its composer, and otherwise output
+    /// followed by <see cref="LaunchPromptQuietWindow"/> of quiet. A text
     /// follow-up sent meanwhile lands after it; raw and special keys do not wait, so a viewer can
     /// answer a startup dialog themselves. A dialog on screen is not a settled startup and has no
     /// time limit: its default option would take the submit Enter and leave the prompt unsent in the
@@ -371,7 +379,7 @@ internal sealed partial class PtyHostedAgentRuntime(
         }
     }
 
-    /// <summary>True once output has been quiet for the window, false when the wait expired first.
+    /// <summary>True once the TUI is ready for a paste, false when the wait expired first.
     /// Returns early, true, when the agent has exited or been asked to stop; the caller checks those.</summary>
     async Task<bool> WaitForStartupToSettleAsync(CancellationToken ct) {
         await WaitForSessionStartAsync(ct);
@@ -413,6 +421,8 @@ internal sealed partial class PtyHostedAgentRuntime(
 
                 continue;
             }
+
+            if (bracketedPasteMeansComposerUp) return true;
 
             var quietFor = time.GetElapsedTime(Math.Max(Volatile.Read(ref _lastOutputAt), uncookedAt));
             if (quietFor >= LaunchPromptQuietWindow) return true;

@@ -474,6 +474,18 @@ public class PtyHostedAgentRuntimeFactoryTests {
         await Assert.That(codex.SessionStartMeansComposerUp).IsFalse();
     }
 
+    /// <summary>Codex turns bracketed paste on at terminal setup, ahead of its first frame, so for it
+    /// the mode proves nothing and its launch prompt keeps the quiet window.</summary>
+    [Test]
+    public async Task Only_claude_reads_bracketed_paste_as_its_composer_mounting() {
+        var config = new DaemonConfig { ClaudePath = "claude", CodexPath = "codex", ServerUrl = "", CapacitorPath = "kcap" };
+        IHostedAgentLauncher claude = new ClaudeLauncher(config, TestHarnesses.Under(Home), NullLogger<ClaudeLauncher>.Instance);
+        IHostedAgentLauncher codex  = new CodexLauncher(config, TestHarnesses.Under(Home), NullLogger<CodexLauncher>.Instance);
+
+        await Assert.That(claude.BracketedPasteMeansComposerUp).IsTrue();
+        await Assert.That(codex.BracketedPasteMeansComposerUp).IsFalse();
+    }
+
     /// <summary>A hold has no time limit, so the daemon log has to say why an agent sits idle.</summary>
     [Test]
     public async Task A_launch_prompt_held_too_long_is_logged() {
