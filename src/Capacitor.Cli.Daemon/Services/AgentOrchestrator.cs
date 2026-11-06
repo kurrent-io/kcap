@@ -5038,21 +5038,16 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _ = _server.SendInputAckedAsync(dispatchId, cmd.AgentId);
     }
 
-    /// <summary>Not awaited by the delivery path: input queued behind an active turn is written only once
-    /// that turn ends. Until then the dispatch stays in flight, so a resend is ignored rather than typed.</summary>
-    async Task AcknowledgeOnceWrittenAsync(SendInputCommand cmd, string vendor, Task? written) {
-        if (written is not null) {
-            try {
-                await written.ConfigureAwait(false);
-            } catch (Exception ex) {
-                LogSendInputDeliveryFailed(ex, cmd.AgentId, vendor, SendInputDropReason.DeliveryFailed);
-                await ReportInputDroppedAsync(cmd, SendInputDropReason.DeliveryFailed);
-
-                return;
-            }
+    /// <summary>Input queued behind an active turn is acknowledged once taken, since the server never
+    /// resends to another daemon process; a write the runtime later loses is still reported, after the ack.
+    /// Not awaited by the delivery path.</summary>
+    async Task ReportLostWriteAsync(SendInputCommand cmd, string vendor, Task written) {
+        try {
+            await written.ConfigureAwait(false);
+        } catch (Exception ex) {
+            LogSendInputDeliveryFailed(ex, cmd.AgentId, vendor, SendInputDropReason.DeliveryFailed);
+            await ReportInputDroppedAsync(cmd, SendInputDropReason.DeliveryFailed);
         }
-
-        AcknowledgeInput(cmd);
     }
 
     async Task HandleSendInput(SendInputCommand cmd) {
@@ -5111,8 +5106,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         var outcome = await DeliverInputAsync(agent, text, attachmentIds, dispatchId);
 
-        if (outcome.Kind is InputDeliveryKind.QuitRequested) AcknowledgeInput(cmd);
-        if (outcome.Kind is InputDeliveryKind.Delivered) _ = AcknowledgeOnceWrittenAsync(cmd, agent.Runtime.Vendor, outcome.Written);
+        if (outcome.Kind is InputDeliveryKind.Delivered or InputDeliveryKind.QuitRequested) AcknowledgeInput(cmd);
+        if (outcome.Written is { IsCompletedSuccessfully: false } written) _ = ReportLostWriteAsync(cmd, agent.Runtime.Vendor, written);
 
         switch (outcome.Kind) {
             case InputDeliveryKind.QuitRequested:

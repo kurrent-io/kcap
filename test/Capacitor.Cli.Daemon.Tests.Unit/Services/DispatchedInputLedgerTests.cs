@@ -27,6 +27,20 @@ public class DispatchedInputLedgerTests {
         await Assert.That(Again(_ledger, id)).IsEqualTo(DispatchState.Taken);
     }
 
+    /// <summary>An input acknowledged once taken can still be lost before it is written; the drop then wins.</summary>
+    [Test]
+    public async Task A_taken_id_dropped_later_is_answered_as_dropped_with_its_reason() {
+        var id = Guid.NewGuid();
+        _ledger.Admit(id, out _);
+        _ledger.MarkTaken(id);
+        _ledger.MarkDropped(id, "delivery_failed");
+
+        var state = _ledger.Admit(id, out var reason);
+
+        await Assert.That(state).IsEqualTo(DispatchState.Dropped);
+        await Assert.That(reason).IsEqualTo("delivery_failed");
+    }
+
     [Test]
     public async Task A_settled_id_expires_once_the_window_passes_without_a_resend() {
         var id = Guid.NewGuid();

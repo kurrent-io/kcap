@@ -112,10 +112,9 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
 
     /// <summary>Input a server dispatch delivered. Completes once the runtime has taken the input, failing
     /// with <see cref="InputNotAdmittedException"/> when it will not; the task it yields completes once the
-    /// input is written, and faults if it never will be. Input queued behind an active turn is taken long
-    /// before it is written, and only the write may be acknowledged to the server. A runtime that records
-    /// the user message it sends stamps the dispatch on it, so a viewer of its journal can ask the server
-    /// who sent the message.</summary>
+    /// input is written, and faults if it never will be, which for input queued behind an active turn can
+    /// be long after it was taken. A runtime that records the user message it sends stamps the dispatch on
+    /// it, so a viewer of its journal can ask the server who sent the message.</summary>
     async Task<Task> SendDispatchedInputAsync(string text, Guid dispatchId) {
         await SendUserInputAsync(text).ConfigureAwait(false);
 
