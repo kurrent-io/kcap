@@ -1242,6 +1242,44 @@ public class RecorderHostTests {
         await Eventually(() => _transport.Detached.Count == 2, "the late registration to go");
     }
 
+    /// <summary>The attempt's failure disposes the recorder with no stop, and a wait on a token nothing can cancel any more
+    /// would park this handler, and every handler behind it on a shared raiser, for as long as the server takes.</summary>
+    [Test]
+    public async Task A_reconnect_in_flight_when_its_attempt_fails_is_detached_when_it_lands() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var landed  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls   = 0;
+        _beforeDrain[source.Key] = async () => {
+            if (Interlocked.Increment(ref calls) != 2) return;
+
+            entered.SetResult();
+            await release.Task;
+
+            throw new InvalidOperationException("boom");
+        };
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => entered.Task.IsCompleted, "the recorder entering its second tick", TimeSpan.FromSeconds(1));
+
+        _transport.ConnectHold = landed.Task;
+        var reconnecting = _transport.RaiseReconnectedAsync();
+        await Eventually(() => _transport.ConnectsHeld == 1, "the re-registration to reach the server");
+        _transport.ConnectHold = null;
+
+        release.SetResult();
+        await reconnecting.WithinDeadlineAsync("the handler to give up with its recorder");
+
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+        await Assert.That(_transport.Detached.Count).IsEqualTo(1);
+
+        landed.SetResult();
+
+        await Eventually(() => _transport.Detached.Count == 2, "the late registration to go");
+    }
+
     /// <summary>The same source is still draining over a later connect, and its own end detaches it after this landing.
     /// A detach here would pull the registration out from under that drain.</summary>
     [Test]

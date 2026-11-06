@@ -117,6 +117,14 @@ public sealed class TranscriptRecorder(
 
     public void Dispose() {
         Unsubscribe();
+
+        // A reconnect still waiting on a connect has nothing else to end that wait, and a raiser waits for its handler.
+        try {
+            _stop.Cancel();
+        } catch (Exception ex) when (ex is ObjectDisposedException or AggregateException) {
+            // Disposed twice, or a callback failed: either way nothing here depends on it.
+        }
+
         _stop.Dispose();
 
         // A title still being generated belongs to this attempt, and a retry makes its own.
