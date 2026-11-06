@@ -234,8 +234,10 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `Finishing_a_source_that_never_connected_still_drains_it`.
   - `Finishing_during_a_backoff_drains_once`.
   - `A_source_that_cannot_connect_at_finish_is_marked_for_import`.
+  - `A_connect_that_never_returns_at_finish_is_marked_for_import`.
+  - `Backoff_doubles_to_its_cap_and_resets_after_a_long_run`: delays of 1, 2, 4, 8, 16, 30, 30.
   - `Cancelling_a_finish_ends_the_wait_and_not_the_drain`.
-- [ ] **Implement:** one loop per source, with failures isolated per source and no shared mutable state beyond the transport. A watcher has no retry, because an exception kills it and the next hook respawns it. No hook does that for a source the daemon holds, so the host retries: it keeps the entry, builds a fresh recorder, context and stamper for each attempt, and waits 1 second doubling to 30 seconds on `TimeProvider`, resetting once an attempt has connected and run past the cap. A clean return from `RunAsync` finishes the source and never retries. The retry has no ceiling here, because the daemon finishes a hosted source when its agent exits. A source that didn't connect is finished by one fresh recorder through `TranscriptRecorder.DrainOnceAsync(CancellationToken ct)`, which prepares, connects and makes the final drain without entering the loop. `RunAsync` keeps its early exit on a stop before connecting, so `kcap watch` doesn't change. If that connect fails too, the source is marked for import, never dropped silently. `FinishAsync`'s `ct` bounds the caller's wait only: it never cuts a final drain short, because a drain cut short loses its tail with no spool and no mark.
+- [ ] **Implement:** one loop per source, with failures isolated per source and no shared mutable state beyond the transport. A watcher has no retry, because an exception kills it and the next hook respawns it. No hook does that for a source the daemon holds, so the host retries: it keeps the entry, builds a fresh recorder, context and stamper for each attempt, and waits 1 second doubling to 30 seconds on `TimeProvider`, resetting once an attempt has connected and run past the cap. A clean return from `RunAsync` finishes the source and never retries. The retry has no ceiling here, because the daemon finishes a hosted source when its agent exits. A source that didn't connect is finished by one fresh recorder through `TranscriptRecorder.DrainOnceAsync(CancellationToken ct)`, which prepares, connects and makes the final drain without entering the loop. `RunAsync` keeps its early exit on a stop before connecting, so `kcap watch` doesn't change. That connect is bounded to 30 seconds on `TimeProvider`, because a transport can retry forever and the mark must still be reached. If it fails or times out, the source is marked for import, never dropped silently, and nothing is cut short, because nothing has been read yet. `FinishAsync`'s `ct` bounds the caller's wait only: it never cuts a final drain short, because a drain cut short loses its tail with no spool and no mark.
 - [ ] **Verify:** the class passes.
 - [ ] **Commit:** `Run many transcript recorders in one process`
 
@@ -247,7 +249,7 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Files:**
 - Create: `src/Capacitor.Cli.Core/RecorderClaims.cs`
-- Modify: `src/Capacitor.Cli/WatcherManager.cs` (`EnsureWatcherRunning` :309, `KillWatcher` :77, `InlineDrainAsync` :493)
+- Modify: `src/Capacitor.Cli/WatcherManager.cs` (`EnsureWatcherRunning` :309, `KillWatcher` :77, `InlineDrainAsync` :493), `src/Capacitor.Cli.Recording/RecorderHost.cs`
 - Test: `test/Capacitor.Cli.Core.Tests.Unit/RecorderClaimsTests.cs`, `test/Capacitor.Cli.Tests.Unit/WatcherManagerClaimTests.cs`
 
 **Interfaces:**
@@ -292,7 +294,8 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `git` and `gh` inherit the daemon's environment and PATH, and a failed start reads as "no repository", silently.
   - `GitProviderRouter`'s memo has no expiry, and a failed probe stores GitLab. That costs a watcher one session and would cost a daemon its whole lifetime, so give it an expiry.
   - Child start and title hand-off spawn `Environment.ProcessPath`, which in a daemon is the daemon binary.
-  - `RecorderHost` disposes its recorders, so `DaemonRecorder` can't read `EndedIdle`, `SpawnedChildKeys` or a failure, and `RetireAckCursor` is never called. The host needs an on-ended callback.
+  - `RecorderHost` disposes its recorders, so `DaemonRecorder` can't read `EndedIdle`, `SpawnedChildKeys` or a failure, and `RetireAckCursor` is never called. The host needs an on-ended callback, fired per attempt, or a failed attempt's child keys are lost.
+  - A server stop during a backoff has no subscriber. No lines are lost, because the next `WatcherConnect` redelivers it, but the server waits only 10 seconds for a drain against a backoff of up to 30, so the session end can overtake the tail, and a substantive line then reactivates an ended session (`CapacitorHub.cs:375`). Settle the order.
   - `ServerRecorderTransport` raises `Reconnected` to every recorder. Raise them with one handler's failure or hang isolated from the rest, because in turn, one stuck `WatcherConnect` stalls every later source's re-registration and N sources cost N round trips.
   - A send that hangs in a final drain has nothing to end it. A daemon shutdown needs a bound on `RecorderHost`, and it must spool rather than cut a drain short.
 - [ ] **Verify:** the suites, then one real hosted Claude session on a VM, comparing its server transcript to today's watcher path.
@@ -423,7 +426,7 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
 
 - [ ] **Tests:** for each vendor, `<Vendor>_session_end_finishes_through_the_daemon`, and for vendors with subagents `<Vendor>_subagent_stop_leaves_the_parent_running`.
 - [ ] **Implement:** terminal Claude first, then the others. Keep each behind the gate until a real session matches its watcher output. Cursor and Antigravity read SQLite, which must never reach the AOT daemon, so their title stores and Antigravity's usage rows have no daemon reader. Those two stay on the fallback watcher until there's a reader the daemon can carry.
-- [ ] **Before a vendor with subagents moves:** a host can't decline by returning false yet. The Gemini, Mistral Vibe, OpenCode, Codex and Grok scans ignore `StartChildAsync`'s result, so false still logs "spawned" and, except for Grok, marks the file seen. False from `FinishGrokChildAsync` means retry, every tick, forever. Copilot: a null parent pid sets `CopilotHostMissing`, which changes idle end, and a daemon has no parent pid to pass. Muse: `MuseHookCommand` decides by pid-file liveness, which a daemon recorder doesn't have, and `KCAP_WATCHER_DIR` must match the hook's.
+- [ ] **Before a vendor with subagents moves:** a source that never had a tick gets no `AfterDrainAsync` subagent scan, which matters for Codex, Gemini and OpenCode. A host can't decline by returning false yet. The Gemini, Mistral Vibe, OpenCode, Codex and Grok scans ignore `StartChildAsync`'s result, so false still logs "spawned" and, except for Grok, marks the file seen. False from `FinishGrokChildAsync` means retry, every tick, forever. Copilot: a null parent pid sets `CopilotHostMissing`, which changes idle end, and a daemon has no parent pid to pass. Muse: `MuseHookCommand` decides by pid-file liveness, which a daemon recorder doesn't have, and `KCAP_WATCHER_DIR` must match the hook's.
 - [ ] **Verify:** one real session per vendor on the MacVisor VM.
 - [ ] **Commit, per vendor:** `Record <Vendor> terminal sessions in the daemon`
 
