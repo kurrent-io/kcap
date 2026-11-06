@@ -2,6 +2,8 @@ namespace Capacitor.App.ViewModels.NextWork;
 
 /// <summary>The server's launch refusal codes in the web dialog's words.</summary>
 public static class NextWorkLaunchText {
+    public const string Unconfirmed = "The launch could not be confirmed. Check the sidebar before starting another agent.";
+
     public static string Prepare(string? code) => code switch {
         "unavailable"           => "Starting agents from next work is not available on this server.",
         "target_not_visible"    => "You can no longer see this item.",

@@ -254,4 +254,32 @@ public class NextWorkBandViewModelTests {
 
         await Assert.That(api.Calls).IsEquivalentTo(["defer x 2026-11-07T09:00:00.0000000+00:00"]);
     }
+
+    [Test]
+    public async Task A_launch_with_no_answer_says_it_could_not_be_confirmed() {
+        var api = Api(Row("wi:a", "work_item", "A-1 Fix it", 2, 1));
+        api.Preparation = new(NextWorkReadKind.Ready, Prep(new NextWorkLaunchCheckoutDto("mbp", "/Users/m/p", ["claude"], "u")));
+        api.Launch = NextWorkRead<NextWorkLaunchResultDto>.Failed;
+        string? said = null;
+        var band = Band(api, notify: m => said = m);
+        await band.RefreshAsync();
+
+        await band.Cards.Single().StartCommand.Execute().ToTask();
+
+        await Assert.That(said).IsEqualTo(NextWorkLaunchText.Unconfirmed);
+    }
+
+    [Test]
+    public async Task A_pick_that_fails_says_so_and_frees_the_row() {
+        var api = Api(Row("wi:a", "work_item", "A-1 Fix it", 2, 1));
+        string? said = null;
+        var band = Band(api, notify: m => said = m, fill: _ => throw new IOException("repos.json is unreadable"));
+        await band.RefreshAsync();
+        var card = band.Cards.Single();
+
+        await card.FillCommand.Execute().ToTask();
+
+        await Assert.That(said).IsEqualTo("Couldn't pick this task: repos.json is unreadable");
+        await Assert.That(card.Busy).IsFalse();
+    }
 }
