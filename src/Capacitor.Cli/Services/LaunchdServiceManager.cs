@@ -380,8 +380,10 @@ sealed partial class LaunchdServiceManager(
         if (!File.Exists(preimagePath)) return null;
 
         switch (LaunchdUnit.TryReadPlist(path, out _)) {
-            // A unit removed since has nothing to go back to.
+            // A unit removed since has nothing to go back to, unless launchd still runs the program it loaded.
             case LaunchdUnit.PlistRead.Absent:
+                if (Probe(serviceId).Label != LabelProbe.Absent)
+                    return "the unit's plist is gone but launchd may still run its job, so its preimage was kept";
                 File.Delete(preimagePath);
                 return null;
             case LaunchdUnit.PlistRead.Unreadable:

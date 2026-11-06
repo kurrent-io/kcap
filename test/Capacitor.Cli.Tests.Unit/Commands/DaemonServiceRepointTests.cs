@@ -194,7 +194,23 @@ public partial class DaemonServiceRepointTests {
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(File.Exists(Preimage("gone"))).IsFalse();
         await Assert.That(File.Exists(PlistPath("gone"))).IsFalse();
-        await Assert.That(launchctl.Calls).IsEmpty();
+        await Assert.That(launchctl.Verbs).IsEquivalentTo(["print"]);
+    }
+
+    /// <summary>launchd runs the program it loaded whatever happens to the plist, and that may be the old install's.</summary>
+    [Test]
+    public async Task A_preimage_whose_plist_is_gone_is_kept_while_launchd_holds_the_job() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        File.WriteAllText(Preimage("gone"), LaunchdUnit.Plist(Spec("gone", OldDaemon)));
+        var launchctl = new FakeLaunchctl(Home);
+        launchctl.Load("gone", OldDaemon);
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(launchctl).RepointFrom(Dir, Bundle);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(File.Exists(Preimage("gone"))).IsTrue();
+        await Assert.That(console.GetCapturedError()).Contains("launchd may still run its job");
     }
 
     [Test]
