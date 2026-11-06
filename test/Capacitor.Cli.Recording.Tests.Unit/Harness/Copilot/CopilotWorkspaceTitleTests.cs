@@ -1,7 +1,7 @@
 using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.Harness.Copilot;
+using Capacitor.Cli.Recording.Harness.Copilot;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Copilot;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Copilot;
 
 public class CopilotWorkspaceTitleTests {
     [TempDir] public required TempDir Tmp { get; init; }
