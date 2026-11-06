@@ -4,6 +4,7 @@ using System.Collections.Frozen;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Reactive;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.InteropServices;
@@ -24,6 +25,7 @@ using Capacitor.App.Services.Onboarding;
 using Capacitor.App.Services.Update;
 using Capacitor.Cli.Core.Install;
 using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.NextWork;
 using Capacitor.App.ViewModels.Onboarding;
 using ReactiveUI.Reactive;
 using Capacitor.App.Views;
@@ -1270,7 +1272,8 @@ public partial class App : Application {
                 && vm.OpenSession(AgentLinkLabels.HeldIdOf(directory.Rows, agentId) ?? agentId));
         var pageLinks = new PageLinkRouter(() => profiles?.Resolution.ServerUrl);
         var webView = new WebViewAvailability();
-        var inAppPages = new InAppPagesSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName);
+        var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
+        var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
         var drafts = new ComposerDrafts();
         var workContextLayout = new WorkContextLayout();
         var transcripts = new LocalTranscripts();
@@ -1378,7 +1381,9 @@ public partial class App : Application {
                 localServer: localServer, localStack: localStack, uiScale: _uiScale, usageNotice: _usageNotice,
                 web: webWorkspace, openLaunchApprovals: launchApprovals.Show,
                 search: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : ServerSearchHttp.Search(sessionHttp, profiles),
-                harnessesSettingsAction: _openHarnessesSettings))),
+                harnessesSettingsAction: _openHarnessesSettings,
+                nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
+                openUrl: url => LinkPolicy.Open(opener, url), nextWorkEnabled: () => launcherNextWork.IsOn))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
             restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace());
@@ -2264,7 +2269,8 @@ public partial class App : Application {
             RailPreferencesStore? railPreferences = null, AccountReadings? readings = null,
             Func<CancellationToken, Task>? repairDaemon = null, IObservable<string?>? repairOffer = null,
             string? profileName = null, Func<SearchRequest, CancellationToken, Task<SearchFetch>>? search = null,
-            IObservable<Action?>? harnessesSettingsAction = null) {
+            IObservable<Action?>? harnessesSettingsAction = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
+            Func<bool>? nextWorkEnabled = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2291,9 +2297,29 @@ public partial class App : Application {
             UsageClock.Create(time));
 
         MainWindowViewModel? vm = null;
+        HomeViewModel? homeRef = null;
+        var knownRepos = new RepoPathStore(config, time).GetSortedPathsAsync;
+        var enabled = nextWorkEnabled ?? (() => false);
+        var checkouts = new LocalRepoCheckouts(knownRepos, new RepoIdentityResolver());
+        var nextWorkBand = nextWork is null ? null : new NextWorkBandViewModel(
+            nextWork, time, appServerUrl is { Length: > 0 } seenServer ? new NextWorkSeenStore(appState, seenServer) : null,
+            openUrl: openUrl, openSession: sessionId => vm?.OpenSession(sessionId, AgentOrigin.Server), notify: notifier.Notify,
+            launched: _ => notifier.Notify("Agent starting. It shows in the sidebar once its daemon picks it up."),
+            localDaemon: service.DaemonName, enabled: enabled,
+            fill: fill => homeRef?.FillFromNextWorkAsync(fill) ?? Task.CompletedTask,
+            localCheckout: checkouts.FindAsync, preferredVendor: () => homeRef?.SelectedVendor);
+        // Connecting is when the snapshot first becomes readable; the interval keeps an idle launcher current, as a
+        // web Home tab is kept current by its live nudges. The switch is read every few seconds, which costs a stat,
+        // so turning it on or off in Settings shows or hides the band without a restart.
+        nextWorkBand?.WatchRefreshes(Observable.Merge(
+                (lane?.Status ?? Observable.Never<ServerLaneStatus>()).Select(s => s.State).DistinctUntilChanged()
+                    .Where(s => s == ServerLaneState.Connected).Select(_ => Unit.Default),
+                Observable.Interval(TimeSpan.FromMinutes(2)).Select(_ => Unit.Default),
+                Observable.Interval(TimeSpan.FromSeconds(3)).Select(_ => enabled()).DistinctUntilChanged().Skip(1).Select(_ => Unit.Default))
+            .ObserveOn(RxSchedulers.MainThreadScheduler));
         var home = new HomeViewModel(
             service, appState,
-            launch, new RepoPathStore(config, time).GetSortedPathsAsync, time, shutdownToken,
+            launch, knownRepos, time, shutdownToken,
             navigationGeneration: () => vm?.NavigationGeneration ?? 0,
             openSessionIfCurrent: (agentId, origin, generation) => vm?.OpenSessionIfCurrent(agentId, origin, generation),
             requestSignIn: requestSignIn,
@@ -2302,7 +2328,8 @@ public partial class App : Application {
             modelCatalog: modelCatalog, uploader: uploader, appServerUrl: appServerUrl,
             listing: remoteAgents?.Listing, daemonAccounts: remoteAgents?.DaemonAccounts, localAccounts: localAccounts,
             retryListing: remoteAgents is null ? null : remoteAgents.RefreshDaemonsAsync, readings: readings,
-            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice };
+            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand };
+        homeRef = home;
         if (localServer is not null) home.AttachLocalServerRecovery(localServer);
         if (lane is ServerConnectionService serverLane) home.AttachServerRetry(() => serverLane.RestartAsync());
         if (repairDaemon is not null && repairOffer is not null) home.AttachServiceRepair(repairDaemon, repairOffer, shutdownToken);

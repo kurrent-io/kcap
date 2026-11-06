@@ -27,4 +27,13 @@ namespace Capacitor.Remote.Models;
 [JsonSerializable(typeof(ListHeldMessagesResponseDto))]
 [JsonSerializable(typeof(HeldMessageDecisionResponseDto))]
 [JsonSerializable(typeof(AgentPrivilegeErrorDto))]
+[JsonSerializable(typeof(NextWorkSnapshotDto))]
+[JsonSerializable(typeof(NextWorkTargetRequestDto))]
+[JsonSerializable(typeof(DismissedNextWorkListDto))]
+[JsonSerializable(typeof(LooseEndCloseRequestDto))]
+[JsonSerializable(typeof(LooseEndDeferRequestDto))]
+[JsonSerializable(typeof(NextWorkLaunchPrepareRequestDto))]
+[JsonSerializable(typeof(NextWorkLaunchPreparationDto))]
+[JsonSerializable(typeof(NextWorkLaunchRequestDto))]
+[JsonSerializable(typeof(NextWorkLaunchResultDto))]
 public partial class RemoteModelsJsonContext : JsonSerializerContext;

@@ -165,6 +165,16 @@ public sealed class DocsShots {
         await CaptureAsync(DocsShotScenes.LauncherAsync, "GoalInput");
     }
 
+    [Test, DocsShot("desktop-launcher-next-work")]
+    public async Task The_launcher_shows_what_to_pick_up_next() {
+        await CaptureAsync(DocsShotScenes.LauncherNextWorkAsync, "BandRows");
+    }
+
+    [Test, DocsShot("desktop-launcher-next-work-filled")]
+    public async Task A_next_work_row_fills_the_composer() {
+        await CaptureAsync(DocsShotScenes.LauncherFilledFromNextWorkAsync, "NextWorkSourceChip");
+    }
+
     [Test, DocsShot("desktop-pull-request")]
     public async Task The_pull_request_tab_shows_its_checks_and_offers_a_fix() {
         await CaptureAsync(DocsShotScenes.PullRequestAsync, "FixPullRequestButton");
