@@ -7,6 +7,7 @@ using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
@@ -49,7 +50,7 @@ internal enum LaunchAvailability { Ready, Pending, DaemonUnavailable, ServerDisc
 /// on the daemon client's own background thread (same as MainWindowViewModel/
 /// ConsentPromptViewModel), so projections ObserveOn RxSchedulers.MainThreadScheduler BEFORE the
 /// operator that touches bound state — a binding must never see a mutation off the UI thread.
-public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink, ILaunchChoices {
+public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink, ILaunchChoices {
     /// A repository with no remembered choice falls back to this — never to whatever vendor was
     /// selected for a DIFFERENT repository, which would leak a preference across repositories.
     public const string DefaultVendor = "claude";
@@ -313,10 +314,13 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         get => _startError;
         private set {
             this.RaiseAndSetIfChanged(ref _startError, value);
+            this.RaisePropertyChanged(nameof(StartErrorIsNotice));
             StartErrorOffersDefault = false;
             this.RaisePropertyChanged(nameof(CanRequestRepositoryAccess));
         }
     }
+
+    public bool StartErrorIsNotice => IsAtCapacityNotice(_startError);
 
     public bool CanRequestRepositoryAccess => !RemoteMachineSelected
         && !string.IsNullOrEmpty(SelectedRepoPath)
@@ -2333,6 +2337,9 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     /// standalone snapshot and a raw <c>git … failed:</c> line are rewritten; every other reason
     /// passes through (the server already truncates to 400 characters).
     internal static string FriendlyLaunchFailure(string reason) {
+        reason = WithoutHubLead(reason);
+        if (DaemonFull().Match(reason) is { Success: true } full)
+            return $"{full.Groups["name"].Value} is already running {full.Groups["used"].Value} of {full.Groups["max"].Value} agents. {AtCapacityAdvice}";
         if (reason == WireTokens.LaunchCancelled)
             return "The launch was cancelled.";
         if (reason.StartsWith(WireTokens.LaunchDeniedByOwnerPrefix, StringComparison.Ordinal))
@@ -2347,6 +2354,24 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             return git;
         return reason;
     }
+
+    internal const string AtCapacityAdvice = "Stop one, or wait for one to finish, to start another.";
+
+    /// A full daemon is a state to wait out, not a fault, so it reads as a notice.
+    internal static bool IsAtCapacityNotice(string? text) =>
+        text?.Contains(AtCapacityAdvice, StringComparison.Ordinal) == true;
+
+    /// SignalR prefixes a hub's refusal with transport wording the user has no use for.
+    static string WithoutHubLead(string reason) {
+        const string lead = "HubException: ";
+        var at = reason.IndexOf(lead, StringComparison.Ordinal);
+        return at >= 0 && reason.StartsWith("An unexpected error occurred invoking '", StringComparison.Ordinal)
+            ? reason[(at + lead.Length)..]
+            : reason;
+    }
+
+    [GeneratedRegex(@"^Daemon '(?<name>[^']+)' is full \((?<used>\d+) of (?<max>\d+) in use\)")]
+    private static partial Regex DaemonFull();
 
     /// The snapshot commit reports "nothing to commit" on stdout. A daemon that only forwarded
     /// stderr leaves this as a bare command, sometimes with that stdout appended.
