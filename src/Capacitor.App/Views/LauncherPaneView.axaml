@@ -276,7 +276,7 @@
                             <!-- The picked next-work task: the launch sends its line, then the goal as context, then the prompt the server
                                  built for it. -->
                             <Border x:Name="NextWorkSourceChip" HorizontalAlignment="Left" CornerRadius="999" Padding="10,3,4,3"
-                                    ToolTip.Tip="{Binding NextWorkSource.Context, FallbackValue={x:Null}, StringFormat='The agent also gets this context from kcap:&#10;&#10;{0}'}"
+                                    ToolTip.Tip="{Binding NextWorkSource.ContextSummary, FallbackValue={x:Null}}"
                                     Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
                                     IsVisible="{Binding NextWorkSource, Converter={x:Static ObjectConverters.IsNotNull}}">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
