@@ -114,6 +114,24 @@ public class LocalIntelligenceStepTests {
         await Assert.That(string.Join('\n', said)).Contains("kcap local intelligence");
     }
 
+    /// <summary>With nobody to ask, a new installation is told it runs nothing and an existing one that it is left as it
+    /// was; both name the real answers rather than a placeholder.</summary>
+    [Test]
+    [Arguments(false, "Background intelligence: off")]
+    [Arguments(true, "Background intelligence: left as it was.")]
+    public async Task Nobody_to_ask_says_what_stands_and_names_the_answers(bool existing, string expected) {
+        var server = new Server();
+        var (step, said) = Step(server, null);
+
+        await step.RunAsync(Args(), existing);
+
+        var text = string.Join('\n', said);
+        await Assert.That(server.Requests).IsEmpty();
+        await Assert.That(text).Contains(expected);
+        await Assert.That(text).Contains("kcap local intelligence with one of: claude, codex");
+        await Assert.That(text).DoesNotContain("<answer>");
+    }
+
     [Test]
     public async Task Asked_the_local_agent_then_outcomes() {
         var server  = new Server(new IntelligenceSetupOutcome.Applied(Took));

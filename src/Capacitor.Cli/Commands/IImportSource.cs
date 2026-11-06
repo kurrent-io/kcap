@@ -54,7 +54,7 @@ internal sealed record ClassifyContext(
 /// <summary>
 /// Dependencies passed to ImportSessionAsync. ForcePrivate carries the
 /// effective --private flag from the orchestrator; DefaultVisibility carries
-/// the Step 3 setup visibility choice, or null for standalone `kcap import`.
+/// the Step 3 setup visibility choice, or the profile's default for standalone `kcap import`.
 /// Neither is read directly by a source — <see cref="VisibilityStampFor"/> is.
 /// Progress is the sink a source hands to every <see cref="SessionImporter.SendTranscriptBatches"/>
 /// call so an <see cref="ImportWarning"/> reaches the user; it is shared by every session of the

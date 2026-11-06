@@ -343,28 +343,57 @@ internal sealed class SetupLocalArmTests : IDisposable {
 
         await Assert.That(exit).IsEqualTo(0).Because(string.Join('\n', stdout) + spectre + stderr);
         await Assert.That(System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " "))
-            .Contains("This server does not run background work on a local agent. kcap local intelligence <answer> sets it up later.");
+            .Contains($"This server does not run background work on a local agent. {LocalIntelligenceStep.Later}");
     }
 
+    /// <summary>The unattended scripts that predate the question pass no answer: the install goes ahead, posts none, and
+    /// names the command and its real choices for later.</summary>
     [Test]
-    public async Task A_scripted_run_without_the_answer_installs_nothing() {
-        var (exit, _, _, stderr) = await Run([
+    public async Task A_scripted_run_without_the_answer_installs_and_leaves_intelligence_off() {
+        var (exit, stdout, spectre, stderr) = await Run([
             "setup", "--local", "--single-user", "--yes", "--no-prompt", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
         ]);
 
-        await Assert.That(exit).IsEqualTo(SetupExit.Refused);
-        await Assert.That(stderr).Contains("--intelligence");
-        await Assert.That(_log).DoesNotContain("install");
+        var said = System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " ");
+
+        await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(said + stderr);
+        await Assert.That(_log).DoesNotContain("POST /api/admin/intelligence");
+        await Assert.That(said).Contains("Background intelligence: off");
+        await Assert.That(said).Contains("kcap local intelligence with one of: claude, codex");
+        await Assert.That(said).DoesNotContain("<answer>");
     }
 
-    /// <summary>A local server records every session as shared with its one user, so a scripted local setup writes no
-    /// default of its own over the profile's: only an explicit flag changes it.</summary>
+    /// <summary>A rerun on the installation an earlier setup made needs neither --single-user nor --yes, and leaves the
+    /// server's intelligence answer alone.</summary>
     [Test]
-    [Arguments(null, "project")]
-    [Arguments("org_public", "org_public")]
-    public async Task No_prompt_local_setup_keeps_the_profiles_visibility(string? flag, string expected) {
-        File.WriteAllText(AppConfig.GetConfigPath(Config.Root),
-            """{"version":2,"active_profile":"default","profiles":{"default":{"default_visibility":"project"}}}""");
+    public async Task A_scripted_rerun_reuses_the_installation_without_the_install_answers() {
+        await Assert.That((await Run([
+            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "none", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
+        ])).Exit).IsEqualTo(SetupExit.Done);
+
+        var (exit, stdout, spectre, stderr) = await Run([
+            "setup", "--local", "--no-embeddings", "--no-prompt", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
+        ]);
+
+        var said = System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " ");
+
+        await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(said + stderr);
+        await Assert.That(said).Contains("Reusing");
+        await Assert.That(said).Contains("Background intelligence: left as it was.");
+        await Assert.That(_log).DoesNotContain("POST /api/admin/intelligence");
+    }
+
+    /// <summary>A local setup asks nothing about visibility but still numbers the step, and records private unless a
+    /// value was chosen: org_public is what a profile nobody set reads as, and nothing offers it locally.</summary>
+    [Test]
+    [Arguments(null, null, "private")]
+    [Arguments("org_public", null, "private")]
+    [Arguments("project", null, "project")]
+    [Arguments("project", "org_public", "org_public")]
+    public async Task No_prompt_local_setup_records_private_unless_a_visibility_was_chosen(string? stored, string? flag, string expected) {
+        if (stored is not null)
+            File.WriteAllText(AppConfig.GetConfigPath(Config.Root),
+                """{"version":2,"active_profile":"default","profiles":{"default":{"default_visibility":""" + $"\"{stored}\"" + "}}}");
 
         var (exit, stdout, spectre, stderr) = await Run([
             "setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "none", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
@@ -373,7 +402,24 @@ internal sealed class SetupLocalArmTests : IDisposable {
 
         await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(string.Join('\n', stdout) + spectre + stderr);
         await Assert.That(ActiveProfile().DefaultVisibility).IsEqualTo(expected);
-        await Assert.That(spectre).DoesNotContain("Default session visibility");
+        await Assert.That(spectre).Contains("Step 3/6");
+        await Assert.That(string.Join('\n', stdout)).Contains($"Default visibility: {expected}");
+    }
+
+    /// <summary>A flag's value survives a later run without it, which would otherwise read org_public as unchosen.</summary>
+    [Test]
+    public async Task A_flagged_visibility_is_kept_by_a_rerun_without_the_flag() {
+        await Assert.That((await Run([
+            "setup", "--local", "--single-user", "--yes", "--no-prompt", "--intelligence", "none", "--skip-import", "--default-visibility", "org_public",
+            .. SetupCommandTests.SkipAllAgentInstallFlags,
+        ])).Exit).IsEqualTo(SetupExit.Done);
+
+        var (exit, _, _, stderr) = await Run([
+            "setup", "--local", "--no-prompt", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
+        ]);
+
+        await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(stderr);
+        await Assert.That(ActiveProfile().DefaultVisibility).IsEqualTo("org_public");
     }
 
     /// <summary>An interactive local setup goes from sign-in to harnesses without asking who may read new sessions.</summary>
@@ -388,8 +434,8 @@ internal sealed class SetupLocalArmTests : IDisposable {
         ]);
 
         await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(string.Join('\n', stdout) + spectre + stderr);
+        await Assert.That(spectre).Contains("Step 3/6");
         await Assert.That(spectre).Contains("Step 4/6");
-        await Assert.That(spectre).DoesNotContain("Default session visibility");
         await Assert.That(spectre).DoesNotContain("readable by other users");
         await Assert.That(ActiveProfile().DefaultVisibility).IsEqualTo("project");
     }

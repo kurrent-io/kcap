@@ -751,23 +751,41 @@ public class SetupCommandTests {
             CursorHooksInstalled: false, CopilotHooksInstalled: false);
         var withoutCodex = withCodex with { CodexHooksInstalled = false, ClaudeInstalled = true };
 
-        await Assert.That(SetupCommand.CodexTrustReminder(withCodex)).Contains("trust");
-        await Assert.That(SetupCommand.CodexTrustReminder(withoutCodex)).IsNull();
+        await Assert.That(SetupCommand.CodexTrustReminder(withCodex, CodexHookTrustSeed.Failed)).Contains("trust");
+        await Assert.That(SetupCommand.CodexTrustReminder(withoutCodex, null)).IsNull();
     }
 
-    /// <summary>A user who only runs <c>codex exec</c> never sees Codex's trust prompt, so the reminder has to say
-    /// so and name what works without it: an interactive launch, the app's settings, or the per-run bypass.</summary>
+    /// <summary>Once Codex trusts kcap's hooks, <c>codex exec</c> records, so setup must not tell the user it won't.</summary>
     [Test]
-    public async Task CodexTrustReminder_says_codex_exec_never_prompts_and_names_the_routes() {
+    [Arguments(CodexHookTrustSeed.Trusted)]
+    [Arguments(CodexHookTrustSeed.AlreadyTrusted)]
+    public async Task CodexTrustReminder_confirms_trust_once_codex_holds_it(CodexHookTrustSeed seed) {
         var result = new CodingAgentsStep.Result(
             ClaudeInstalled: false, CodexHooksInstalled: true, AgentSkillsInstalled: false,
             CursorHooksInstalled: false, CopilotHooksInstalled: false);
 
-        var reminder = SetupCommand.CodexTrustReminder(result)!;
+        var line = SetupCommand.CodexTrustReminder(result, seed)!;
+
+        await Assert.That(line).Contains("[green]✓[/]");
+        await Assert.That(line).DoesNotContain("records nothing");
+    }
+
+    /// <summary>When kcap could not have Codex trust the hooks, a user who only runs <c>codex exec</c> never sees the
+    /// prompt, so the reminder has to say so and name what works without it.</summary>
+    [Test]
+    [Arguments(CodexHookTrustSeed.Failed)]
+    [Arguments(CodexHookTrustSeed.CodexUnavailable)]
+    [Arguments(CodexHookTrustSeed.NoHooks)]
+    public async Task CodexTrustReminder_says_codex_exec_never_prompts_and_names_the_routes(CodexHookTrustSeed seed) {
+        var result = new CodingAgentsStep.Result(
+            ClaudeInstalled: false, CodexHooksInstalled: true, AgentSkillsInstalled: false,
+            CursorHooksInstalled: false, CopilotHooksInstalled: false);
+
+        var reminder = SetupCommand.CodexTrustReminder(result, seed)!;
 
         await Assert.That(reminder).Contains("[cyan]codex exec[/] never shows the trust prompt");
         await Assert.That(reminder).Contains("Run [cyan]codex[/] once");
-        await Assert.That(reminder).Contains("Settings → Hooks");
+        await Assert.That(reminder).Contains("Settings > Hooks");
         await Assert.That(reminder).Contains("--dangerously-bypass-hook-trust");
     }
 
@@ -1426,10 +1444,11 @@ public class SetupCommandTests {
     }
 
     [Test]
-    [Arguments(1, 200, "1 imported session at up to 200 a day: about 1 day.")]
+    [Arguments(1, 200, "1 imported session at up to 200 a day: under a day.")]
+    [Arguments(200, 200, "200 imported sessions at up to 200 a day: about a day.")]
     [Arguments(450, 200, "450 imported sessions at up to 200 a day: about 3 days.")]
     [Arguments(0, 200, null)]
-    public async Task The_pace_line_counts_whole_days(int sessions, int perDay, string? tail) {
+    public async Task The_pace_line_estimates_in_whole_days(int sessions, int perDay, string? tail) {
         var line = SetupCommand.ImportCostLine(sessions, new("provider", null, "anthropic", true, perDay, ["titles"]));
 
         if (tail is null) await Assert.That(line).IsNull();
@@ -1529,6 +1548,25 @@ public class SetupCommandTests {
 
         await Assert.That(result.Ran).IsFalse();
         await Assert.That(runner.Calls).IsEqualTo(0);
+    }
+
+    /// <summary>What a local setup keeps for its next run is what the import actually left out, and only from a run that
+    /// imports: an empty checklist changes nothing.</summary>
+    [Test]
+    public async Task The_left_out_projects_are_handed_back_only_when_the_import_runs() {
+        ImportSkip? kept    = null;
+        var         offered = 0;
+
+        await Command(FakeImportRunner.Succeeding().Discovering(DiscoveredProjects()), FakeBackgroundImportSpawner.Running(),
+                FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(choose: choices => [.. choices.Where(c => c.Repo == ("acme", "web"))]) with { LeftOut = s => kept = s });
+
+        await Command(FakeImportRunner.Succeeding().Discovering(DiscoveredProjects()), FakeBackgroundImportSpawner.Running(),
+                FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(choose: _ => []) with { LeftOut = _ => offered++ });
+
+        await Assert.That(kept).IsEqualTo(new ImportSkip([("acme", "secret")], ["/w/scratch"]));
+        await Assert.That(offered).IsEqualTo(0);
     }
 
     /// <summary>A project a flag left out starts unticked; ticking it again imports it, and a flag naming
