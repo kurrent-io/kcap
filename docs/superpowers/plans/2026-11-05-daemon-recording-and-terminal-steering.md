@@ -205,7 +205,8 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Interfaces:**
 - Consumes: Task 5's seam.
-- Produces: `RecorderHousekeeping : IRecorderVendor` in the recording assembly, holding repository and pull request detection, harness titles and subagent scans, so a daemon can use the same code. What only a host can do arrives as constructor callbacks: arming its process watches on connect, handing a title off, and starting a recorder for a child source it finds. `WatchCommand` stops implementing `IRecorderVendor`, and its per-run `null!` fields go. `IRecorderVendor` loses any member that no longer needs to vary by host.
+- Produces: `RecorderHousekeeping : IRecorderVendor` in the recording assembly, holding repository and pull request detection, harness titles and subagent scans, so a daemon can use the same code. What only a host can do goes through one interface, `IRecorderHost`, in the recording assembly, with `WatchRecorderHost` in `src/Capacitor.Cli/Commands/` as `kcap`'s implementation: arming its process watches on connect, stopping the run synchronously, handing a title off, starting and stopping a child source and finishing a Grok child, opening a SQLite-backed title store, reading Antigravity usage, and the two commit coverage probes. A host that can't do one returns null or false. `WatchCommand` stops implementing `IRecorderVendor`, and its per-run `null!` fields go.
+- SQLite stays out of this assembly: `AntigravityGenMetadataDb`, `AntigravitySummaryTitle` and `CursorComposerTitle` stay in `kcap`, because the AOT daemon references this assembly and the SQLite native bundle must never reach it. `GitHook`, `AgentSessions`, `GrokSubagentTeardown` and `ImportHarnessTitle` stay in `kcap` too.
 
 - [ ] **Tests:** moved tests pass. Add `The_recording_assembly_does_not_reference_kcap` as an assembly-reference assertion.
 - [ ] **Implement:** one vendor per commit. Import sources and hook teardown stay in `Capacitor.Cli` unless the recorder calls them. Namespaces follow directories. Behaviour doesn't change: `KcapWatchHubTests` keeps passing.
@@ -279,7 +280,7 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `A_hard_killed_daemon_resumes_from_WatcherConnect`: resume from the persisted list, with no line lost and none resent past the server's position.
   - `A_restart_skips_a_session_a_live_watcher_holds`.
   - `Stop_with_a_key_stops_only_that_source`, on the server: two keys on one connection.
-- [ ] **Implement:** behind a daemon config flag, off by default until Task 12 proves it. Persist the list of recorded sources in the daemon's state directory. Hosted Claude only.
+- [ ] **Implement:** behind a daemon config flag, off by default until Task 12 proves it. Persist the list of recorded sources in the daemon's state directory. Hosted Claude only. The daemon implements `IRecorderHost`. Move `GitHook`'s probing down here, taking `isClaimed` and the hook command from the host: a hosted session is claimed by definition, and the command comes from `KcapBinaryCommand.ResolveCliSibling()`, because `Resolve()` inside the daemon names the daemon binary and would read every hosted session as uncovered. All recorders share one `GitProviderRouter`, which is one per process by design. Route the `Console.Error` writes in `CursorMarkers.Quarantine` and `TranscriptSpool.MarkNeedsImport` to the recorder's log. Decide what the recorder's idle-window environment read means in a daemon, where it reads the daemon's environment rather than the session's. A clean close from the server ends a watcher rather than reconnecting it, so `ServerRecorderTransport` must not inherit that: a daemon's reconnect is the connection's own.
 - [ ] **Verify:** the suites, then one real hosted Claude session on a VM, comparing its server transcript to today's watcher path.
 - [ ] **Commit:** `Record hosted Claude sessions in the daemon`
 
@@ -407,7 +408,7 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
 - Test: per-vendor recorder tests
 
 - [ ] **Tests:** for each vendor, `<Vendor>_session_end_finishes_through_the_daemon`, and for vendors with subagents `<Vendor>_subagent_stop_leaves_the_parent_running`.
-- [ ] **Implement:** terminal Claude first, then the others. Keep each behind the gate until a real session matches its watcher output.
+- [ ] **Implement:** terminal Claude first, then the others. Keep each behind the gate until a real session matches its watcher output. Cursor and Antigravity read SQLite, which must never reach the AOT daemon, so their title stores and Antigravity's usage rows have no daemon reader. Those two stay on the fallback watcher until there's a reader the daemon can carry.
 - [ ] **Verify:** one real session per vendor on the MacVisor VM.
 - [ ] **Commit, per vendor:** `Record <Vendor> terminal sessions in the daemon`
 

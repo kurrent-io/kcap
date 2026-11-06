@@ -313,6 +313,7 @@ A server-side message queue drained at turn end, with daemons collecting unackno
 - An orderly exit leaves a dispatch Unconfirmed, even though the proof suggests it can't land.
 - A second process on a live session is refused, and its mod keeps trying until the first has gone.
 - Part 3 isn't offered on Windows until `socketPath` has been checked there.
+- Cursor and Antigravity stay on the fallback watcher, because they read SQLite and its native bundle must never reach the AOT daemon.
 - A line can carry a local marker, which keeps it away from the FIFO matcher.
 - The input log persists a hash of each submission rather than its text.
 - Claims are a new file, separate from the watcher pid file.
