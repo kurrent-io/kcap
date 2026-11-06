@@ -155,6 +155,28 @@ public class HomeViewModelTests {
         });
     }
 
+    /// Default discovery, at startup or when the repository menu opens, never fills the empty selection a task waiting
+    /// for its checkout holds: Start keeps refusing until the person picks one.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Default_discovery_leaves_a_task_waiting_for_its_checkout() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var launch = new RecordingLaunchClient();
+            var daemon = new FakeDaemonClientService();
+            Connect(daemon);
+            using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("state.json")), launch,
+                Known(Tmp.CreateDir("recent")), TimeProvider.System);
+
+            await vm.FillFromNextWorkAsync(new("le:b", "Document B", "Document B", null, true, null, "Recorded context", AwaitsCheckout: true));
+            await vm.EnsureDefaultRepositoryAsync();
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
+
+            await vm.StartCommand.Execute();
+            await Assert.That(launch.Last).IsNull();
+            await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.PickTaskRepository);
+        });
+    }
+
     /// Emptying the composer leaves the task picked; only its chip unpicks it.
     [Test]
     public async Task Emptying_the_composer_keeps_the_task_picked() {

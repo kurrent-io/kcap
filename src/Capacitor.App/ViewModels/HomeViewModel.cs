@@ -1845,12 +1845,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
 
     /// When nothing is selected, adopt the most recently used known repository (then a remembered
     /// harness key, then an agent root). No-op when a selection already exists or nothing is known,
-    /// and for a remote machine, which these local paths do not describe.
+    /// for a remote machine, which these local paths do not describe, and while a picked task waits
+    /// for its own checkout: the empty selection is how Start knows to refuse, not a gap to fill.
     public async Task EnsureDefaultRepositoryAsync() {
-        if (SelectedRepoPath.Length > 0 || RemoteMachineSelected) return;
+        bool Settled() => SelectedRepoPath.Length > 0 || RemoteMachineSelected || NextWorkSource is { AwaitsCheckout: true };
+        if (Settled()) return;
         if (await PreferRecentRepositoryAsync() is not { Length: > 0 } recent) return;
         // PreferRecent can await file I/O — a pick or a machine switch made while that ran must win.
-        if (SelectedRepoPath.Length > 0 || RemoteMachineSelected) return;
+        if (Settled()) return;
         await SelectRepositoryAsync(recent);
     }
 
