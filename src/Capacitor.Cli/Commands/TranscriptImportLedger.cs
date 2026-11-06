@@ -76,7 +76,8 @@ internal sealed class TranscriptImportLedger {
     /// against its session projection, which trails the event store: right after a burst of imports it answers 404 for
     /// sessions it has already stored, and without a mark those sessions resend their ignored tail on the next import.
     /// The first round runs at once; later ones wait and run only once a round has settled something, since a server that
-    /// refuses every probe shows no sign of catching up and a 404 alone cannot say it ever will.
+    /// refuses every probe shows no sign of catching up and a 404 alone cannot say it ever will. The budget cancels a
+    /// probe still in flight, so a stalled request ends the wait rather than the client's own timeout.
     /// </summary>
     public async Task ConfirmAsync(HttpClient httpClient, TimeProvider time, CancellationToken ct) {
         List<Delivered> waiting;
@@ -85,24 +86,27 @@ internal sealed class TranscriptImportLedger {
             _unconfirmed.Clear();
         }
 
-        var deadline   = time.GetUtcNow() + ConfirmBudget;
+        using var budget = new CancellationTokenSource(ConfirmBudget, time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
         var caughtUp   = false;
         var idleRounds = 0;
 
-        for (var round = 0; waiting.Count > 0; round++) {
-            if (round > 0) await Task.Delay(ConfirmInterval, time, ct);
+        try {
+            for (var round = 0; waiting.Count > 0; round++) {
+                if (round > 0) await Task.Delay(ConfirmInterval, time, linked.Token);
 
-            var unsettled = new List<Delivered>();
-            await Parallel.ForEachAsync(waiting, new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct }, async (d, token) => {
-                if (!await SettleAsync(httpClient, d, token)) lock (unsettled) unsettled.Add(d);
-            });
+                var unsettled = new List<Delivered>();
+                await Parallel.ForEachAsync(waiting, new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = linked.Token }, async (d, token) => {
+                    if (!await SettleAsync(httpClient, d, token)) lock (unsettled) unsettled.Add(d);
+                });
 
-            if (unsettled.Count < waiting.Count) (caughtUp, idleRounds) = (true, 0);
-            else idleRounds++;
-            waiting = unsettled;
+                if (unsettled.Count < waiting.Count) (caughtUp, idleRounds) = (true, 0);
+                else idleRounds++;
+                waiting = unsettled;
 
-            if (!caughtUp || idleRounds >= MaxIdleRounds || time.GetUtcNow() >= deadline) break;
-        }
+                if (!caughtUp || idleRounds >= MaxIdleRounds) break;
+            }
+        } catch (OperationCanceledException) when (budget.IsCancellationRequested && !ct.IsCancellationRequested) { }
     }
 
     /// <summary>False when the server's answer may still change to one a mark can be taken at.</summary>
