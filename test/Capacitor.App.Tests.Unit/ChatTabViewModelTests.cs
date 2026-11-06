@@ -472,6 +472,70 @@ public class ChatTabViewModelTests {
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_unresolved_tool_in_an_ended_session_has_an_unknown_outcome(bool alreadyEnded) => RunOnUiAsync(async () => {
+        var h = Claude();
+        try {
+            var path = Tmp.CreateFile("unresolved.jsonl", [ToolCallLine, ReadCallLine, ToolResultLine.Replace("t1", "t2")]);
+            var dto = Dto(path);
+            await h.PushAsync(alreadyEnded ? dto with { Status = "Completed" } : dto);
+            var group = Group(h.Chat, 0);
+            var call = group.Calls[0];
+            call.Toggle();
+            if (!alreadyEnded) {
+                await Assert.That(call.IsRunning).IsTrue();
+                await Assert.That(call.Inspection!.Sections[0].Text).IsEqualTo("Running");
+                call.IsAwaitingPermission = true;
+                await h.PushAsync(dto with { Status = "Completed" });
+            }
+
+            await Assert.That(call.IsRunning).IsFalse();
+            await Assert.That(call.IsAwaitingPermission).IsFalse();
+            await Assert.That(call.Inspection!.Sections[0].Text).IsEqualTo("Outcome unknown");
+            await Assert.That(call.Inspection.Sections[2].Text).IsEqualTo("No result was recorded");
+            await Assert.That(call.Inspection.Sections[2].IsMissing).IsTrue();
+            await Assert.That(call.Outcome).IsEqualTo(ToolOutcome.Running);
+            await Assert.That(group.VisibleCalls.Contains(call)).IsTrue();
+            await Assert.That(group.Calls[1].Outcome).IsEqualTo(ToolOutcome.Done);
+
+            File.AppendAllText(path, ToolCallLine.Replace("t1", "t3") + "\n");
+            await h.TickAsync();
+            await Assert.That(group.Calls[2].IsRunning).IsFalse();
+
+            call.IsAwaitingPermission = false;
+            await h.PushAsync(dto);
+            await Assert.That(call.IsRunning).IsTrue();
+            await Assert.That(call.Inspection!.Sections[0].Text).IsEqualTo("Running");
+        } finally { await h.TeardownAsync(); }
+    });
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_unresolved_tool_in_an_ended_session_accepts_a_late_result(bool error) => RunOnUiAsync(async () => {
+        var h = Claude();
+        try {
+            var path = Tmp.CreateFile("late-result.jsonl", [ToolCallLine]);
+            await h.PushAsync(Dto(path) with { Status = "Completed" });
+            var call = Group(h.Chat, 0).Calls.Single();
+            call.Toggle();
+            await Assert.That(call.Inspection!.Sections[0].Text).IsEqualTo("Outcome unknown");
+
+            File.AppendAllText(path, (error ? ToolErrorLine : ToolResultLine) + "\n");
+            await h.TickAsync();
+
+            await Assert.That(Group(h.Chat, 0).Calls.Single()).IsSameReferenceAs(call);
+            await Assert.That(call.IsRunning).IsFalse();
+            await Assert.That(call.IsSettled).IsTrue();
+            await Assert.That(call.Inspection!.Sections[0].Text).IsEqualTo(error ? "Failed" : "Finished");
+            await Assert.That(call.Inspection.Sections[2].Text).IsEqualTo(error ? "boom" : "ok");
+        } finally { await h.TeardownAsync(); }
+    });
+
+    [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Length_regression_resets_items_missing_recovers_and_failed_keeps_items() {
         await RunOnUiAsync(async () => {

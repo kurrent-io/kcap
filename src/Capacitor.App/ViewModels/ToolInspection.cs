@@ -24,6 +24,7 @@ public sealed class ToolInspection {
     internal const string NoInput  = "No input was recorded";
     internal const string NoOutput = "No output was recorded";
     internal const string NoResult = "No result yet";
+    internal const string NoRecordedResult = "No result was recorded";
 
     static readonly string[] PatchTextKeys = ["input", "command"];
 
@@ -31,16 +32,17 @@ public sealed class ToolInspection {
 
     public IReadOnlyList<ToolInspectionSection> Sections { get; }
 
-    public static ToolInspection Build(string name, string? inputJson, string? result, ToolOutcome outcome, bool awaitingPermission) =>
+    public static ToolInspection Build(string name, string? inputJson, string? result, ToolOutcome outcome, bool awaitingPermission, bool sessionOver = false) =>
         new([
-            new ToolInspectionSection(StatusHeading, Status(outcome, awaitingPermission)),
+            new ToolInspectionSection(StatusHeading, Status(outcome, awaitingPermission, sessionOver)),
             Input(name, inputJson),
-            Output(result, outcome),
+            Output(result, outcome, sessionOver),
         ]);
 
-    static string Status(ToolOutcome outcome, bool awaitingPermission) => outcome switch {
+    static string Status(ToolOutcome outcome, bool awaitingPermission, bool sessionOver) => outcome switch {
         ToolOutcome.Error                     => "Failed",
         ToolOutcome.Done                      => "Finished",
+        _ when sessionOver                    => "Outcome unknown",
         _ when awaitingPermission             => "Waiting for permission",
         _                                     => "Running",
     };
@@ -63,8 +65,8 @@ public sealed class ToolInspection {
         }
     }
 
-    static ToolInspectionSection Output(string? result, ToolOutcome outcome) {
-        if (outcome == ToolOutcome.Running) return new(OutputHeading, NoResult, IsMissing: true);
+    static ToolInspectionSection Output(string? result, ToolOutcome outcome, bool sessionOver) {
+        if (outcome == ToolOutcome.Running) return new(OutputHeading, sessionOver ? NoRecordedResult : NoResult, IsMissing: true);
         if (string.IsNullOrWhiteSpace(result)) return new(OutputHeading, NoOutput, IsMissing: true);
         return Section(OutputHeading, result, TranscriptEnvelopes.IsCapped(result)
             ? string.Create(CultureInfo.InvariantCulture, $"Cut to {TranscriptEnvelopes.ToolResultCap:N0} characters when it was recorded")
