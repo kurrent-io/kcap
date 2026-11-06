@@ -18,6 +18,7 @@
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                         <views:AgentStatusMark x:Name="RemoteStatus" Classes="header"
                                                DataContext="{Binding Chat.AgentStatus}"
+                                               IsVisible="{Binding !$parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).HasAccessNotice}"
                                                HorizontalAlignment="Left" VerticalAlignment="Center" />
                         <TextBlock x:Name="RemoteSubtitle" Grid.Column="1" Text="{Binding RepoLabelText}" FontSize="13"
                                    Foreground="{StaticResource KcapMutedBrush}" TextTrimming="CharacterEllipsis"
@@ -55,12 +56,18 @@
             </Grid>
         </Border>
 
-        <Border x:Name="AccessBanner" Grid.Row="1" Margin="20,10,20,0"
-                Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
-                BorderThickness="1" CornerRadius="10" Padding="13,10"
-                IsVisible="{Binding AccessNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-            <TextBlock x:Name="AccessNoteText" Text="{Binding AccessNote}" TextWrapping="Wrap"
-                       FontSize="13.5" Foreground="{StaticResource KcapMutedBrush}" />
+        <Border x:Name="AccessBanner" Grid.Row="1"
+                IsVisible="{Binding HasAccessNotice}">
+            <Panel>
+                <views:SessionConnectionNotice DataContext="{Binding ConnectionNotice}"
+                    IsVisible="{Binding $parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).HasConnectionNotice}" />
+                <Border Margin="20,10,20,0" Padding="13,10" CornerRadius="10"
+                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                        IsVisible="{Binding !HasConnectionNotice}">
+                    <TextBlock x:Name="AccessNoteText" Text="{Binding AccessNote}" TextWrapping="Wrap"
+                               FontSize="13.5" Foreground="{StaticResource KcapMutedBrush}" />
+                </Border>
+            </Panel>
         </Border>
 
         <Grid Grid.Row="2">
@@ -125,7 +132,7 @@
     <!-- Collapsing hides this wrapper, so the pane's own visibility binding stays intact. -->
     <Panel x:Name="ContextColumn" Grid.Column="1">
         <views:WorkContextView x:Name="WorkContextHost" DataContext="{Binding WorkContext}"
-                               IsVisible="{Binding $parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).ShowsPanes}" />
+                               IsVisible="{Binding $parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).ShowsWorkContext}" />
     </Panel>
     <!-- Last child so it hit-tests above the workspace column it overhangs. -->
     <GridSplitter x:Name="ContextSplitter" Grid.Column="1" HorizontalAlignment="Left" Width="6"

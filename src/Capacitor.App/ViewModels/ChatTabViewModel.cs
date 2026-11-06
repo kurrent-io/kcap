@@ -222,9 +222,21 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }
     }
 
+    bool _hasWorkspaceNotice;
+    /// The workspace owns connection feedback; do not compete with its banner in empty chat.
+    public bool HasWorkspaceNotice {
+        get => _hasWorkspaceNotice;
+        set {
+            if (_hasWorkspaceNotice == value) return;
+            this.RaiseAndSetIfChanged(ref _hasWorkspaceNotice, value);
+            RaisePhaseNote();
+            this.RaisePropertyChanged(nameof(ComposerHint));
+        }
+    }
+
     /// A working agent's chat is never empty for long, so an empty one is still waiting, read or not,
     /// until the session ends.
-    public string PhaseNote => _items.Count > 0 ? "" : Phase switch {
+    public string PhaseNote => HasWorkspaceNotice || _items.Count > 0 ? "" : Phase switch {
         ChatTabPhase.Waiting or ChatTabPhase.Reading when !_ended && _launchPromptUnconfirmed => LaunchPromptUnconfirmedNote,
         ChatTabPhase.Waiting or ChatTabPhase.Reading when !_ended => "Waiting for chat…",
         ChatTabPhase.Missing     => _missingNote ?? "The transcript file is missing",
@@ -366,7 +378,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     }
 
     readonly ObservableAsPropertyHelper<string> _composerHint;
-    public string ComposerHint => _composerHint.Value;
+    public string ComposerHint => HasWorkspaceNotice && _input.Availability != SendAvailability.Ready ? "" : _composerHint.Value;
 
     UsageLimitNoticeDto? _usageLimit;
     TerminalDialogDto? _terminalDialog;
