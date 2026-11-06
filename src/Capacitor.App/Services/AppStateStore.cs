@@ -41,6 +41,10 @@ public sealed record AppState(
     IReadOnlyDictionary<string, bool>? HarnessToolsByVendor = null,
     // Absolute repo path -> ClaudePermissionModes token, keyed like HarnessByRepo.
     IReadOnlyDictionary<string, string>? PermissionModeByRepo = null,
+    // Remote daemon name -> repo path on that machine, verbatim -> token. Kept apart from the
+    // local maps: the same path can exist on this machine and on each remote.
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? HarnessByRemoteRepo = null,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? PermissionModeByRemoteRepo = null,
     // A setup attempt is unverified until its command and recording check both succeed.
     IReadOnlyList<string>? UnverifiedHarnessSetups = null);
 
