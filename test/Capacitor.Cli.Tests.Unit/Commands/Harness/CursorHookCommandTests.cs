@@ -293,10 +293,45 @@ public class CursorHookCommandTests {
         await fx.HandleAsync(
             $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
 
-        await Assert.That(new TranscriptSpool(Config.Root, TimeProvider.System, Fixture.StubUrl).NeedsImport(sid)).IsEqualTo(flagged);
+        await Assert.That(NeedsImport(sid)).IsEqualTo(flagged);
         await Assert.That(capture.GetCapturedError().Contains($"kcap import --session {sid}")).IsEqualTo(flagged);
         await Assert.That(fx.RouteOrder.Contains("session-end/cursor")).IsEqualTo(endAttempted);
     }
+
+    /// <summary>The hard cap abandons the drain without awaiting it, so nothing after that point runs; the session
+    /// must already be flagged by then.</summary>
+    [Test]
+    public async Task A_session_end_drain_the_hard_cap_abandons_leaves_the_session_flagged_for_import() {
+        var sid  = Guid.NewGuid().ToString("N");
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fx = new Fixture(Config.Root) { HoldWatermark = hold.Task };
+        await fx.WriteTranscript(TranscriptLine);
+
+        var call = fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+        await fx.WatermarkEntered.Task;
+        fx.Clock.Advance(CursorHookCommand.Ceiling);
+        await call;
+
+        await Assert.That(NeedsImport(sid)).IsTrue();
+    }
+
+    /// <summary>The marker records a loss some earlier reader found; this drain sending its own tail does not undo that.</summary>
+    [Test]
+    public async Task A_complete_session_end_drain_keeps_a_marker_it_did_not_set() {
+        var sid = Guid.NewGuid().ToString("N");
+        new TranscriptSpool(Config.Root, TimeProvider.System, Fixture.StubUrl).MarkNeedsImport(sid, "an earlier loss");
+        using var fx = new Fixture(Config.Root);
+        await fx.WriteTranscript(TranscriptLine);
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        await Assert.That(fx.RouteOrder).Contains("transcript");
+        await Assert.That(NeedsImport(sid)).IsTrue();
+    }
+
+    bool NeedsImport(string sid) => new TranscriptSpool(Config.Root, TimeProvider.System, Fixture.StubUrl).NeedsImport(sid);
 
     public enum EndDrain {
         Complete, Held, HeldWithWatcherRunning, OutOfTime, PostFails, IncompleteFinalRecord, BarrierPending, WatermarkFails,
@@ -1107,6 +1142,8 @@ public class CursorHookCommandTests {
                     // tripping the fail-open path.
                     if (req.Method == HttpMethod.Get) {
                         WatermarkRead?.Invoke();
+                        WatermarkEntered.TrySetResult();
+                        if (HoldWatermark is { } hold) await hold;
                         return new HttpResponseMessage(WatermarkStatus);
                     }
 
@@ -1133,6 +1170,11 @@ public class CursorHookCommandTests {
         public Action? WatermarkRead { get; init; }
 
         public HttpStatusCode WatermarkStatus { get; init; } = HttpStatusCode.NotFound;
+
+        /// <summary>When set, the watermark read waits on this, having signalled <see cref="WatermarkEntered"/>.</summary>
+        public Task? HoldWatermark { get; init; }
+
+        public TaskCompletionSource WatermarkEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>The checkout the hook acts on when a payload carries no workspace root.</summary>
         public string Workdir { get; init; } = AppContext.BaseDirectory;

@@ -13,6 +13,20 @@ public class TranscriptSpoolTests {
         await Assert.That(spool.NeedsImport(Sid)).IsFalse();
     }
 
+    /// <summary>A marker written for another reason records a loss its writer found, which clearing must not undo.</summary>
+    [Test]
+    [Arguments("drain did not finish", true)]
+    [Arguments("an earlier loss", false)]
+    public async Task ClearNeedsImport_removes_only_a_marker_written_for_the_reason_given(string written, bool cleared) {
+        using var tmp = new TempDir();
+        var spool = new TranscriptSpool(tmp.Path, time: TimeProvider.System);
+        spool.MarkNeedsImport(Sid, written);
+
+        spool.ClearNeedsImport(Sid, "drain did not finish");
+
+        await Assert.That(spool.NeedsImport(Sid)).IsEqualTo(!cleared);
+    }
+
     [Test]
     public async Task Append_over_cap_marks_needs_import_and_never_drops_oldest() {
         using var tmp = new TempDir();

@@ -517,6 +517,13 @@ public sealed class CursorHookCommand(
             }
 
             if (drainBeforePost) {
+                // The hard cap abandons this drain without awaiting it, so the flag goes down first and
+                // comes off only once the drain is known to have sent everything.
+                var transcriptSpool = new TranscriptSpool(config, clock.Time, Url);
+                var unfinished      = $"session end: final drain by process {Environment.ProcessId} did not finish";
+                var flaggedBefore   = transcriptSpool.NeedsImport(sessionId!);
+                if (!flaggedBefore) transcriptSpool.MarkNeedsImport(sessionId!, unfinished);
+
                 // Unless a connected watcher is still running, the hook is the last reader of this
                 // transcript, so a valid newline-less final record must be consumed rather than held forever.
                 var drained = await CursorTranscriptBackfill.RunAsync(
@@ -529,6 +536,7 @@ public sealed class CursorHookCommand(
                 // A line redaction held gets no second try here: it can take about 1.4 s of the hook's
                 // 2 s, and overrunning spools the end instead.
                 if (drained.TailUnsent) FlagTailForImport(sessionId!, drained.FirstUnsentLine);
+                else if (!flaggedBefore) transcriptSpool.ClearNeedsImport(sessionId!, unfinished);
             }
 
             if (BudgetExpired()) {

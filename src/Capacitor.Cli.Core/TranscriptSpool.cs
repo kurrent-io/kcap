@@ -87,6 +87,18 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
         }
     }
 
+    /// <summary>Removes the session's marker if it still carries <paramref name="reason"/>. Best effort: a marker
+    /// that stays only asks for an import nobody needed.</summary>
+    public void ClearNeedsImport(string sessionId, string reason) {
+        var p = MarkerPathFor(sessionId);
+        if (p is null) return;
+        try {
+            if (File.ReadAllText(p).TrimEnd().EndsWith($" {reason}", StringComparison.Ordinal)) File.Delete(p);
+        } catch {
+            // Absent, or unreadable: either way there is nothing safe to remove.
+        }
+    }
+
     public bool NeedsImport(string sessionId) {
         var p = MarkerPathFor(sessionId);
         return p is not null && File.Exists(p);
