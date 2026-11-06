@@ -15,14 +15,8 @@ public sealed class NextWorkApi(ICapacitorHttpClient? http, ProfileContext? prof
     public Task<NextWorkRead<NextWorkSnapshotDto>> SnapshotAsync(CancellationToken ct) =>
         GetAsync(ApiRoutes.NextWorkSnapshot(null), Json.NextWorkSnapshotDto, ct);
 
-    public Task<NextWorkRead<DismissedNextWorkListDto>> DismissedAsync(CancellationToken ct) =>
-        GetAsync(ApiRoutes.NextWorkDismissals, Json.DismissedNextWorkListDto, ct);
-
     public Task<bool> DismissAsync(string targetKey, string? repoHash, CancellationToken ct) =>
         PostAsync(ApiRoutes.NextWorkDismissals, new NextWorkTargetRequestDto(targetKey, repoHash), Json.NextWorkTargetRequestDto, ct);
-
-    public Task<bool> RestoreAsync(string targetKey, CancellationToken ct) =>
-        PostAsync(ApiRoutes.NextWorkRestore, new NextWorkTargetRequestDto(targetKey, null), Json.NextWorkTargetRequestDto, ct);
 
     public Task<bool> CloseLooseEndAsync(string looseEndId, CancellationToken ct) =>
         PostAsync(ApiRoutes.LooseEndClose, new LooseEndCloseRequestDto(looseEndId), Json.LooseEndCloseRequestDto, ct);

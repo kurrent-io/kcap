@@ -11,6 +11,5 @@ public sealed record NextWorkGlyphViewModel(LucideIconKind Icon, NextWorkGroup T
     public bool BadgeOk    => Badge == "ok";
     public bool BadgeStop  => Badge == "stop";
     public bool TintWaiting => Tint == NextWorkGroup.Waiting;
-    public bool TintDone    => Tint == NextWorkGroup.Done;
     public bool TintFinish  => Tint == NextWorkGroup.Finish;
 }

@@ -72,7 +72,6 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
         _localCheckout   = localCheckout;
         _preferredVendor = preferredVendor;
 
-        RefreshCommand    = ReactiveCommand.CreateFromTask(RefreshAsync);
         ToggleMoreCommand = ReactiveCommand.Create(() => { MoreExpanded = !MoreExpanded; });
     }
 
@@ -132,7 +131,6 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     public string? ElsewhereText => _elsewhere > 0 ? $"{_elsewhere} more on the dashboard" : null;
     public bool HasElsewhere => _elsewhere > 0;
 
-    public ReactiveCommand<Unit, Unit> RefreshCommand    { get; }
     public ReactiveCommand<Unit, Unit> ToggleMoreCommand { get; }
 
     /// <summary>Refreshes on every signal; the caller delivers them on the UI thread.</summary>
@@ -302,7 +300,8 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
                 : (null, true, row.RepoHash is { } hash && _localCheckout is not null ? await _localCheckout(hash) : null);
             if (path is not null && machine is null) machine = _localDaemon;
 
-            await _fill(new(row.TargetKey, card.Label, goal, machine, local, path, context, context is null ? null : card.ContextSummary));
+            await _fill(new(row.TargetKey, card.Label, goal, machine, local, path, context, context is null ? null : card.ContextSummary,
+                AwaitsCheckout: path is null && row.RepoHash is not null));
             MarkFilled(row.TargetKey);
             if (path is null && row.RepoHash is not null)
                 _notify?.Invoke($"No checkout of {Repo(row)} is known on your machines: pick its repository before you start.");

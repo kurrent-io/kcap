@@ -9,7 +9,7 @@ public class NextWorkFocusLogicTests {
 
     static NextWorkCandidateDto Row(string key, string kind, string label, int tier, int rank, double days = 0, int seen = 0,
             List<NextWorkEvidenceDto>? evidence = null, bool bug = false) =>
-        new(key, kind, key[(key.IndexOf(':') + 1)..], label, null, "h1", "Arm", tier, "kept", null, rank, label,
+        new(key, kind, key[(key.IndexOf(':') + 1)..], label, null, "h1", "Arm", tier, rank, label,
             new(0, null, bug, seen, days), evidence ?? []);
 
     static NextWorkSnapshot Snapshot(params NextWorkCandidateDto[] rows) =>

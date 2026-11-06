@@ -45,7 +45,7 @@ public class LauncherPaneViewSmokeTests {
     public async Task A_rows_actions_hide_when_focus_stays_but_the_pointer_has_gone() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var rows = new List<NextWorkCandidateDto> {
-                new("wi:1", "work_item", "1", "ITEM-1 Do the thing", null, "h1", "FinishYours", 2, "kept", null, 1, "Assigned to you", new(0, null, false, 0, 0), []),
+                new("wi:1", "work_item", "1", "ITEM-1 Do the thing", null, "h1", "FinishYours", 2, 1, "Assigned to you", new(0, null, false, 0, 0), []),
             };
             var api = new FakeNextWorkApi { Snapshot = new(NextWorkReadKind.Ready, new(DateTimeOffset.UtcNow, false, false, null, rows)) };
             using var band = new ViewModels.NextWork.NextWorkBandViewModel(api, TimeProvider.System);
@@ -75,7 +75,7 @@ public class LauncherPaneViewSmokeTests {
     public async Task A_long_next_work_list_scrolls_inside_the_room_under_the_composer() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var rows = Enumerable.Range(1, 30).Select(i => new NextWorkCandidateDto($"wi:{i}", "work_item", $"{i}", $"ITEM-{i} Do the thing", null, "h1",
-                "FinishYours", 2, "kept", null, i, "Assigned to you", new(0, null, false, 0, 0), [])).ToList();
+                "FinishYours", 2, i, "Assigned to you", new(0, null, false, 0, 0), [])).ToList();
             var api = new FakeNextWorkApi { Snapshot = new(NextWorkReadKind.Ready, new(DateTimeOffset.UtcNow, false, false, null, rows)) };
             using var band = new ViewModels.NextWork.NextWorkBandViewModel(api, TimeProvider.System);
             var tmp = TempDir.WithPathTo("app-state.json", out var path);

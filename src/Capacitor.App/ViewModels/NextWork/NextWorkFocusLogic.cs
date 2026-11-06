@@ -29,10 +29,8 @@ public static partial class NextWorkFocusLogic {
 
             // Someone waiting on the viewer keeps a row of their own.
             if (NextWorkLaneLogic.GroupOf(row) != NextWorkGroup.Waiting) {
-                if (id is not null && items.FirstOrDefault(d => d.Ends.Any(e => e.LooseEndId == id)) is { } same) {
-                    same.Same.Add(row);
-                    continue;
-                }
+                // The same loose end an item's own evidence already lists: shown there, not again.
+                if (id is not null && items.Any(d => d.Ends.Any(e => e.LooseEndId == id))) continue;
 
                 if (Mentions(text).FirstOrDefault(byKey.ContainsKey) is { } key) {
                     var owner = byKey[key];
@@ -67,7 +65,6 @@ public static partial class NextWorkFocusLogic {
 
     sealed record Draft(NextWorkRow Row, List<NextWorkFocusEnd> Ends) {
         public List<NextWorkRow> Folded { get; } = [];
-        public List<NextWorkRow> Same   { get; } = [];
     }
 
     static List<NextWorkFocusEnd> OwnEnds(NextWorkRow row, Tokens tokens, DateTimeOffset now) {
@@ -87,7 +84,7 @@ public static partial class NextWorkFocusLogic {
         return null;
     }
 
-    static NextWorkFocusItem Finish(Draft d) => new(d.Row, KindOf(d.Row), d.Ends, d.Folded, d.Same);
+    static NextWorkFocusItem Finish(Draft d) => new(d.Row, KindOf(d.Row), d.Ends, d.Folded);
 
     static NextWorkFocusKind KindOf(NextWorkRow row) {
         // Someone waiting on the viewer is never quiet or a chore, however long they have waited.

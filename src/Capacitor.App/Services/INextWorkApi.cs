@@ -6,9 +6,7 @@ namespace Capacitor.App.Services;
 /// answer whether the server recorded the change.</summary>
 public interface INextWorkApi {
     Task<NextWorkRead<NextWorkSnapshotDto>>        SnapshotAsync(CancellationToken ct);
-    Task<NextWorkRead<DismissedNextWorkListDto>>   DismissedAsync(CancellationToken ct);
     Task<bool>                                     DismissAsync(string targetKey, string? repoHash, CancellationToken ct);
-    Task<bool>                                     RestoreAsync(string targetKey, CancellationToken ct);
     Task<bool>                                     CloseLooseEndAsync(string looseEndId, CancellationToken ct);
     Task<bool>                                     DeferLooseEndAsync(string looseEndId, DateTimeOffset until, CancellationToken ct);
     Task<NextWorkRead<NextWorkLaunchPreparationDto>> PrepareLaunchAsync(string targetKey, CancellationToken ct);

@@ -79,7 +79,6 @@ public static class ApiRoutes {
     public static string NextWorkSnapshot(string? repoHash) =>
         repoHash is null ? "api/next-work/snapshot" : $"api/next-work/snapshot?repo_hash={Uri.EscapeDataString(repoHash)}";
     public const string NextWorkDismissals       = "api/next-work/dismissals";
-    public const string NextWorkRestore          = "api/next-work/dismissals/restore";
     public const string NextWorkLaunchPrepare    = "api/next-work/launch/prepare";
     public const string NextWorkLaunch           = "api/next-work/launch";
     public const string LooseEndClose            = "api/loose-ends/close";
