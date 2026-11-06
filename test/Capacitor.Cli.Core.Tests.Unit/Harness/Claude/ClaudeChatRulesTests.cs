@@ -643,6 +643,24 @@ public class ClaudeChatRulesTests {
         await Assert.That(result.Runs.OfType<RunSignal.Restarted>()).IsEmpty();
     }
 
+    /// A person quoting a notification ends nothing: one sent with a human origin, or one with more
+    /// text after it and no origin to say Claude Code wrote it.
+    [Test]
+    [Arguments(OrphanReport, "\"origin\":{\"kind\":\"human\"},\"promptSource\":\"typed\",")]
+    [Arguments("<task-notification>\n<task-id>b1</task-id>\n<status>killed</status>\n<summary>Background command \"x\" was stopped</summary>\n</task-notification>", "\"origin\":{\"kind\":\"human\"},")]
+    [Arguments("<task-notification>\n<task-id>b1</task-id>\n<status>killed</status>\n<summary>Background command \"x\" was stopped</summary>\n</task-notification>", "\"promptSource\":\"typed\",")]
+    [Arguments(OrphanReport + "\n\nWhy did these stop?", "")]
+    public async Task A_notification_a_person_quoted_ends_nothing(string content, string origin) =>
+        await Assert.That(Report(content, origin).Runs).IsEmpty();
+
+    /// Claude Code checks in on a quiet command with a notification that has no status and guidance after
+    /// it; the command is still running.
+    [Test]
+    public async Task A_check_in_on_a_quiet_command_ends_nothing() {
+        var content = "<task-notification>\n<task-id>brizrthis</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<output-file>/tmp/brizrthis.output</output-file>\n<summary>Background command \"Run the tests\" is still running after 59m, with no new output for 30m</summary>\n</task-notification>\nThis is a check-in, not a completion.";
+        await Assert.That(Report(content, "\"origin\":{\"kind\":\"task-notification\",\"producer\":\"session-task\"},\"promptSource\":\"system\",").Runs).IsEmpty();
+    }
+
     /// Any end can name several tasks, and each of them ends.
     [Test]
     public async Task A_notification_naming_several_tasks_ends_each_of_them() {

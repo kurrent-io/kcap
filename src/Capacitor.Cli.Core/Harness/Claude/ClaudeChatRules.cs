@@ -190,19 +190,20 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
             case AcpEventKind.UserMessage when IsTaskNotification(slug, raw): {
                 // Read past the reminders that open it, which can quote another task's tags.
                 var text = SystemInstructionParser.StripLeading(raw.Text ?? "");
-                var callId = Tag(TaskToolUseId(), text);
+                if (!IsClaudes(slug, text)) return [];
                 var head = Head(text);
+                var callId = Tag(TaskToolUseId(), head);
                 var taskIds = TaskIds(head);
-                RunSignal[] reopened = IsLeftoverReport(slug, text, head) ? [new RunSignal.Reopened(evt.Timestamp)] : [];
+                RunSignal[] reopened = IsLeftoverReport(text, head) ? [new RunSignal.Reopened(evt.Timestamp)] : [];
                 if (callId is null && taskIds.Count == 0) return reopened;
-                // A cut-off notification has no status and still says the run ended; a status
-                // that is not an end, such as running, says nothing.
+                // A notification cut off before its status still says the run ended; a whole one
+                // without a status, such as a check-in, or with a status that is not an end, says nothing.
                 RunOutcome? outcome;
-                switch (Tag(TaskStatus(), text)?.ToLowerInvariant()) {
-                    case null:        outcome = null; break;
+                switch (Tag(TaskStatus(), head)?.ToLowerInvariant()) {
+                    case null when !text.Contains(NotificationClose, StringComparison.Ordinal): outcome = null; break;
                     // Claude Code reports an agent paused on background work of its own as completed
                     // too: the summary is what tells the pause from the end.
-                    case "completed" when Tag(TaskSummary(), text)?.EndsWith(WaitingSummaryEnd, StringComparison.OrdinalIgnoreCase) == true:
+                    case "completed" when Tag(TaskSummary(), head)?.EndsWith(WaitingSummaryEnd, StringComparison.OrdinalIgnoreCase) == true:
                         return [new RunSignal.Waiting(callId, taskIds.FirstOrDefault(), evt.Timestamp)];
                     case "completed": outcome = RunOutcome.Done; break;
                     case "failed":    outcome = RunOutcome.Failed; break;
@@ -239,13 +240,24 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         return ids;
     }
 
+    /// Written by Claude Code rather than quoted by a person. Its origin says so where it has one, and Claude
+    /// may write guidance after it; without one, a message holding more than the notification is a
+    /// person's, and a bare paste cannot be told apart.
+    static bool IsClaudes(Struct? slug, string text) {
+        switch (SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind)) {
+            case "task-notification": return true;
+            case not null:            return false;
+        }
+        if (SchemaExtensions.Text(slug, ClaudeCodeExtension.PromptSource) is not (null or "system")) return false;
+        var close = text.IndexOf(NotificationClose, StringComparison.Ordinal);
+        return close < 0 || text.AsSpan(close + NotificationClose.Length).IsWhiteSpace();
+    }
+
     /// A resumed Claude Code reports what the previous process left unfinished, which shows the process
     /// came back even when the resume wrote no hook record. Only its whole shape counts, since a summary
-    /// quotes a command's text; a stored event can carry no origin, so a bare paste of a report reads as one.
-    static bool IsLeftoverReport(Struct? slug, string text, string head) =>
-        SchemaExtensions.Text(slug, ClaudeCodeExtension.OriginKind) is (null or "task-notification")
-        && SchemaExtensions.Text(slug, ClaudeCodeExtension.PromptSource) is (null or "system")
-        && text.AsSpan().TrimEnd().EndsWith(NotificationClose, StringComparison.Ordinal)
+    /// quotes a command's text.
+    static bool IsLeftoverReport(string text, string head) =>
+        text.Contains(NotificationClose, StringComparison.Ordinal)
         && string.Equals(Tag(TaskStatus(), head), "stopped", StringComparison.OrdinalIgnoreCase)
         && Tag(TaskSummary(), head)?.Contains(PreviousSessionEnded, StringComparison.Ordinal) == true
         && Tag(TaskNote(), head)?.StartsWith(NoCompletionRecord, StringComparison.Ordinal) == true;
