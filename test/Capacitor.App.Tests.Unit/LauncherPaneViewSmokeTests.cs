@@ -39,7 +39,8 @@ public class LauncherPaneViewSmokeTests {
         await Assert.That(LauncherPaneView.IsSameRepositoryFolder(Tmp.PathTo("other"), repository)).IsFalse();
     }
 
-    /// A row's ▶ and menu show under the pointer and on the picked row, not on the focus a click leaves behind.
+    /// A row's ▶ and menu show under the pointer, on the picked row and while the menu is open, not on the focus a click
+    /// leaves behind.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_rows_actions_hide_when_focus_stays_but_the_pointer_has_gone() {
@@ -61,6 +62,15 @@ public class LauncherPaneViewSmokeTests {
                 Find<Button>(window, "CardRow")!.Focus();
                 Dispatcher.UIThread.RunJobs();
 
+                await Assert.That(Find<StackPanel>(window, "CardActions")!.Opacity).IsEqualTo(0);
+
+                // The open menu holds the actions, its own trigger among them, whatever has the pointer.
+                var more = Find<Button>(window, "CardMore")!;
+                more.Flyout!.ShowAt(more);
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(Find<StackPanel>(window, "CardActions")!.Opacity).IsEqualTo(1);
+                more.Flyout.Hide();
+                Dispatcher.UIThread.RunJobs();
                 await Assert.That(Find<StackPanel>(window, "CardActions")!.Opacity).IsEqualTo(0);
             } finally {
                 window.Close();
