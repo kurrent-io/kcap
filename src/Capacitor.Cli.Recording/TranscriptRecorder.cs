@@ -17,10 +17,12 @@ namespace Capacitor.Cli.Recording;
 /// Sends one transcript to the server as it grows. Everything it mutates is its own, because many
 /// recorders can share a process, and it leaves the process itself alone: no console, signals, pid
 /// file or exit code. <see cref="RunAsync"/> tails until stopped, and <see cref="FinishAsync"/> then
-/// makes the final drain.
+/// makes the final drain. Given <paramref name="claims"/>, it records only while its source's claim exists;
+/// beating that claim is its host's job.
 /// </summary>
 public sealed class TranscriptRecorder(
-        RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context) : IDisposable {
+        RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context,
+        RecorderClaims? claims = null) : IDisposable {
     readonly CursorMarkers  _markers       = new(context.Server.Config, time);
     readonly WatchAckCursor _ackCursor     = new(context.Server.Config);
     readonly TranscriptSpool _spool        = new(context.Server.Config, time, context.Server.Url);
@@ -94,6 +96,10 @@ public sealed class TranscriptRecorder(
     /// <summary>A Copilot <c>session.shutdown</c> stayed the transcript's last line.</summary>
     public bool EndedOnCopilotShutdown { get; private set; }
 
+    /// <summary>The claim this recorder ran under has gone. A hook took the source, and whatever recorder it started
+    /// resumes from the server's cursor, so nothing more goes out from here, a final drain included.</summary>
+    public bool LostClaim { get; private set; }
+
     internal HeldLineRedaction HeldLine { get; } =
         new(new HeldLineStore(context.Server.Config, source.SessionId, source.AgentId), time, context.RedactionClock, context.Log);
 
@@ -134,6 +140,9 @@ public sealed class TranscriptRecorder(
         // when the request arrived has already spent some of it.
         using var shutdownStamp = stop.Register(() => Interlocked.CompareExchange(ref _shutdownRequestedAt, time.GetTimestamp(), 0));
 
+        // Registering replaces whichever connection holds the source, and that may be the watcher that took it.
+        if (HasLostClaim()) return;
+
         Subscribe();
 
         var idleTimeout = IdleEnd.ResolveIdleWindow(vendor, isSessionWatcher: agentId is null, Environment.GetEnvironmentVariable);
@@ -145,6 +154,8 @@ public sealed class TranscriptRecorder(
                 // Every iteration, disconnected and idle ones included, so a stale heartbeat means the loop is
                 // wedged, not merely quiet.
                 context.Beat();
+
+                if (HasLostClaim()) break;
 
                 // No point re-reading the file or attempting sends that will fail; the transport reconnects.
                 if (!transport.IsConnected) {
@@ -228,6 +239,8 @@ public sealed class TranscriptRecorder(
     /// Registering gets <see cref="DrainOnceConnectBudget"/>, then throws <see cref="TimeoutException"/>, because a
     /// transport that retries until it connects would otherwise park the drain with nothing spooled or marked.</summary>
     public async Task DrainOnceAsync(CancellationToken ct) {
+        if (HasLostClaim()) return;
+
         Subscribe();
         await ConnectAndSeedAsync(ct, DrainOnceConnectBudget);
         await FinishAsync(ct);
@@ -236,6 +249,13 @@ public sealed class TranscriptRecorder(
     /// <summary>Makes the final drain, whatever stopped the loop, and tells the server it is done. Lines it could
     /// not deliver go to the spool, because the process may exit right after.</summary>
     public async Task FinishAsync(CancellationToken ct) {
+        // A stop can end the loop before a tick saw the claim go.
+        if (HasLostClaim()) {
+            Unsubscribe();
+
+            return;
+        }
+
         var agentId = source.AgentId;
         var vendor  = source.Vendor;
         var log     = context.Log;
@@ -426,6 +446,18 @@ public sealed class TranscriptRecorder(
 
     void CancelRun() => _stop.Cancel();
 
+    bool HasLostClaim() {
+        if (claims is null) return false;
+        if (LostClaim) return true;
+        if (claims.Read(source.Key) is not RecorderClaimState.None) return false;
+
+        LostClaim = true;
+        context.Log($"The claim on {source.Key} has gone; stopping with no final drain");
+        _stop.Cancel();
+
+        return true;
+    }
+
     void Subscribe() {
         if (_subscribed) return;
 
@@ -461,6 +493,8 @@ public sealed class TranscriptRecorder(
 
     async Task OnReconnectedAsync() {
         try {
+            if (HasLostClaim()) return;
+
             var stop           = _stop.Token;
             var serverPosition = await transport.ConnectAsync(source, stop);
 

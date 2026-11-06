@@ -14,7 +14,13 @@ namespace Capacitor.Cli;
 
 public sealed partial class WatcherManager(
         ConfigRoot config, ProfileContext profiles, ICapacitorHttpClient http, IProcessStarter starter,
-        WatcherPaths paths, IWatcherSpawner spawner, TimeProvider time) {
+        WatcherPaths paths, IWatcherSpawner spawner, TimeProvider time, IDaemonRecordingClient? daemonRecording = null) {
+    // As long as a hook waits for a watcher to exit after asking it to stop.
+    static readonly TimeSpan FinishSourceBudget = TimeSpan.FromSeconds(5);
+
+    readonly IDaemonRecordingClient _daemonRecording = daemonRecording ?? NoDaemonRecording.Instance;
+    readonly RecorderClaims         _claims          = new(paths.Directory, time);
+
     // The one URL this process resolved. No member takes one: a watcher spawned against a different
     // server than the hook that spawned it would stream a session nothing on this side can see.
     // Nullable because an offline invocation resolves none — the IsPostable guards refuse that.
@@ -79,9 +85,12 @@ public sealed partial class WatcherManager(
     /// false if it was already dead, no PID file existed, or the kill failed. The pid file and the
     /// heartbeat/started markers go only once no watcher can be left running, so a failed kill leaves
     /// them for a retry to find; see <see cref="DeleteHeartbeatFiles"/> for why the spawn lock is
-    /// intentionally left behind here.
+    /// intentionally left behind here. A claim on <paramref name="key"/>, stale or not, means a daemon
+    /// is the recorder, and this never signals a daemon.
     /// </summary>
     public async Task<bool> KillWatcher(string key, TextWriter? stderr = null) {
+        if (_claims.Read(key) is not RecorderClaimState.None) return false;
+
         var pidFile = paths.PidFile(key);
 
         if (!File.Exists(pidFile)) {
@@ -339,6 +348,10 @@ public sealed partial class WatcherManager(
                 return;
             }
 
+            if (_claims.Read(key) is not RecorderClaimState.None && !TakeStaleClaim(key)) {
+                return;
+            }
+
             if (PidAlive(key)) {
                 // Alive but its heartbeat is stale: wedged. A watcher the reap could not stop
                 // keeps its pid file; spawning over it would leave two watchers on this key, the
@@ -359,6 +372,18 @@ public sealed partial class WatcherManager(
                     RunsAs = runsAs,
                 });
         });
+    }
+
+    /// <summary>Lets go of a daemon's stale claim on a terminal session, for the hook about to record it, under the
+    /// spawn lock. No claim is left behind: that is what stops the daemon's recorder if it wakes, and this hook then
+    /// goes on as it does for a source nobody claims. A hosted session keeps its claim, because a watcher would leave
+    /// it unstamped for good and the daemon's catch-up finishes it.</summary>
+    bool TakeStaleClaim(string key) {
+        if (_claims.Read(key) is not RecorderClaimState.DaemonStale || _claims.IsHosted(key)) return false;
+
+        _claims.Release(key);
+
+        return _claims.Read(key) is RecorderClaimState.None;
     }
 
     /// <summary>Records that the agent process this hook runs under is running <paramref name="key"/>'s
@@ -499,6 +524,20 @@ public sealed partial class WatcherManager(
             string? agentId,
             string  vendor = "claude"
         ) {
+        var key   = new RecordingSource(sessionId, agentId, transcriptPath, vendor, null).Key;
+        var claim = _claims.Read(key);
+
+        // A hook's drain carries no stamps, and one that wins makes the server discard the daemon's stamped copy.
+        if (claim is RecorderClaimState.DaemonFresh) {
+            await AskDaemonToFinishAsync(key, sessionId);
+            return;
+        }
+
+        if (claim is RecorderClaimState.DaemonStale && _claims.IsHosted(key)) {
+            await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: left to the daemon's catch-up, which holds {key}");
+            return;
+        }
+
         // Runs on session-end BEFORE the lifecycle POST. The caller's preceding KillWatcher is
         // unaffected.
         if (!HookHttp.IsPostable(Url)) {
@@ -508,6 +547,11 @@ public sealed partial class WatcherManager(
         }
 
         try {
+            if (claim is RecorderClaimState.DaemonStale && !await TryTakeStaleClaimAsync(key)) {
+                await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: {key} changed hands; leaving it to its holder");
+                return;
+            }
+
             using var httpClient = await http.ForBackgroundAsync();
 
             // Get server's last recorded position
@@ -622,6 +666,34 @@ public sealed partial class WatcherManager(
             await Console.Error.WriteLineAsync($"Inline drain for {sessionId} failed: {ex.Message}");
             PrintRecoveryHint(sessionId);
         }
+    }
+
+    /// <summary>Waits for the daemon inside <see cref="FinishSourceBudget"/>. Whatever comes back, the hook drains
+    /// nothing: the source is the daemon's, which finishes it whether or not anyone is still waiting.</summary>
+    async Task AskDaemonToFinishAsync(string key, string sessionId) {
+        using var budget = new CancellationTokenSource(FinishSourceBudget, time);
+
+        try {
+            var finished = await _daemonRecording.FinishSourceAsync(key, budget.Token).WaitAsync(budget.Token);
+
+            await Console.Error.WriteLineAsync(finished
+                ? $"Inline drain for {sessionId}: the daemon finished {key}"
+                : $"Inline drain for {sessionId}: left to the daemon, which holds {key}");
+        } catch (Exception ex) {
+            await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: left to the daemon, which holds {key}: {ex.Message}");
+        }
+    }
+
+    async Task<bool> TryTakeStaleClaimAsync(string key) {
+        var taken = false;
+
+        await WithSpawnLock(key, () => {
+            taken = TakeStaleClaim(key);
+
+            return Task.CompletedTask;
+        });
+
+        return taken;
     }
 
     static void PrintRecoveryHint(string sessionId) =>

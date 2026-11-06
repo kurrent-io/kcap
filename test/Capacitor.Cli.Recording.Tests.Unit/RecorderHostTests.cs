@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.Time.Testing;
+using System.Diagnostics;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Recording.Tests.Unit;
 
@@ -31,7 +33,9 @@ public class RecorderHostTests {
 
     ConfigRoot Config => field ??= new(Tmp.CreateDir("config"));
 
-    RecorderHost NewHost(Func<string, FileStream>? open = null, Action<string>? factoryHook = null) => new(
+    RecorderClaims Claims => field ??= new(Tmp.CreateDir("watchers"), _time);
+
+    RecorderHost NewHost(Func<string, FileStream>? open = null, Action<string>? factoryHook = null, RecorderClaims? claims = null) => new(
         _transport,
         _ => {
             factoryHook?.Invoke("stamper");
@@ -62,7 +66,7 @@ public class RecorderHostTests {
                 _beats.AddOrUpdate(source.Key, 1, (_, n) => n + 1);
             });
         },
-        _time, open);
+        _time, open, claims);
 
     static RecordingSource Source(string path, string? agentId = null, string? sessionId = null) =>
         new(sessionId ?? Guid.NewGuid().ToString("N"), agentId, path, "claude", null);
@@ -82,6 +86,163 @@ public class RecorderHostTests {
 
             await Task.Delay(5);
         }
+    }
+
+    /// <summary>Past the grace with the claim still fresh means a beat landed after the take, and the only source of
+    /// one is the host's backoff: every connect fails, so no recorder ever reaches its loop.</summary>
+    [Test]
+    public async Task A_source_in_a_backoff_keeps_its_claim_fresh() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 100;
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var taken = _time.GetUtcNow();
+        var host  = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(
+            () => _time.GetUtcNow() - taken > RecorderClaims.Grace * 2 && Claims.Read(source.Key) is RecorderClaimState.DaemonFresh,
+            "a beat past the grace", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_transport.Connects).IsEqualTo(0);
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
+    [Test]
+    public async Task A_running_source_keeps_its_claim_fresh() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var taken = _time.GetUtcNow();
+        var host  = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(
+            () => _time.GetUtcNow() - taken > RecorderClaims.Grace * 2 && Claims.Read(source.Key) is RecorderClaimState.DaemonFresh,
+            "a beat past the grace", TimeSpan.FromSeconds(1));
+
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
+    /// <summary>The heartbeat file and the claim fail apart, so the broken one must not take the other with it.</summary>
+    [Test]
+    public async Task A_failing_heartbeat_still_beats_the_claim() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 100;
+        _beatThrows[source.Key] = true;
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var taken = _time.GetUtcNow();
+        var host  = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(
+            () => _time.GetUtcNow() - taken > RecorderClaims.Grace * 2 && Claims.Read(source.Key) is RecorderClaimState.DaemonFresh,
+            "a beat past the grace", TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>A file the system won't let anyone stamp makes the claim's beat throw for real, and only macOS lets an
+    /// unprivileged test do that. The beat failing must cost the source its staleness at worst, never its recording.</summary>
+    [Test, RunOn(OS.MacOs)]
+    public async Task A_claim_file_that_refuses_a_beat_does_not_stop_the_recording() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var claim = Claims.ClaimFile(source.Key);
+        await ChangeFlags("uchg", claim);
+
+        try {
+            await Assert.That(() => Claims.Beat(source.Key)).Throws<UnauthorizedAccessException>();
+
+            var host = NewHost(claims: Claims);
+            host.TryAdd(source);
+            await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+            await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+            await Eventually(() => LinesSent(source.SessionId) == 2, "the next line", TimeSpan.FromSeconds(1));
+
+            await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+        } finally {
+            await ChangeFlags("nouchg", claim);
+        }
+    }
+
+    static async Task ChangeFlags(string flag, string path) {
+        using var chflags = Process.Start("chflags", [flag, path]);
+        await chflags.WaitForExitAsync().WithinDeadlineAsync("chflags");
+    }
+
+    /// <summary>The hook that took the claim owns the source. A final drain here would run beside its watcher, and a
+    /// retry would register over it.</summary>
+    [Test]
+    public async Task A_source_that_lost_its_claim_ends_with_no_drain_and_no_retry() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        Claims.Release(source.Key);
+        await Eventually(() => host.ActiveKeys.Count == 0, "the source to leave", TimeSpan.FromSeconds(1));
+
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        _time.Advance(TimeSpan.FromMinutes(5));
+        await Task.Delay(50);
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsFalse();
+    }
+
+    [Test]
+    public async Task A_source_that_lost_its_claim_in_a_backoff_never_connects_again() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+
+        Claims.Release(source.Key);
+        await Eventually(() => host.ActiveKeys.Count == 0, "the source to leave", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(0);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Finishing_a_source_that_lost_its_claim_in_a_backoff_drains_nothing() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.ConnectAttempts == 1, "the failed attempt");
+
+        Claims.Release(source.Key);
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(0);
+        await Assert.That(host.ActiveKeys).IsEmpty();
+        await Assert.That(new TranscriptSpool(Config, _time, "http://127.0.0.1:1").NeedsImport(source.SessionId)).IsFalse();
+    }
+
+    /// <summary>The claim is the host's owner's to give up: a source that ends on its own keeps it, so the taker
+    /// decides what ending means. A daemon restarting wants it kept, and a finished session released.</summary>
+    [Test]
+    public async Task A_finished_source_leaves_its_claim_to_whoever_took_it() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
     }
 
     [Test]

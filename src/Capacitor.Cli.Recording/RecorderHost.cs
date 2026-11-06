@@ -9,6 +9,9 @@ namespace Capacitor.Cli.Recording;
 /// <see cref="TryAdd"/> stays refused, and each attempt is a fresh recorder, context and stamper that resume
 /// from the server's cursor. Retries wait 1s doubling to 30s and have no ceiling, because a source ends when its
 /// owner calls <see cref="FinishAsync"/>. A recorder that returns cleanly ends its source and is never retried.
+/// Given claims, the host beats a source's claim whenever it beats the source, and a source that lost its claim ends
+/// where it stands, undrained and unretried, because it is no longer this host's. Taking and releasing a claim stay
+/// with the host's owner: only it can tell a session that ended from a restart that must keep the source owned.
 /// </summary>
 public sealed class RecorderHost {
     static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(1);
@@ -19,20 +22,23 @@ public sealed class RecorderHost {
     readonly Func<RecordingSource, RecorderContext> _contexts;
     readonly TimeProvider _time;
     readonly Func<string, FileStream>? _openTranscript;
+    readonly RecorderClaims? _claims;
     readonly ConcurrentDictionary<string, Entry> _entries = new();
 
     public RecorderHost(
-        IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time)
-        : this(transport, stampers, contexts, time, null) { }
+        IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time,
+        RecorderClaims? claims = null)
+        : this(transport, stampers, contexts, time, null, claims) { }
 
     internal RecorderHost(
         IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time,
-        Func<string, FileStream>? openTranscript) {
+        Func<string, FileStream>? openTranscript, RecorderClaims? claims = null) {
         _transport      = transport;
         _stampers       = stampers;
         _contexts       = contexts;
         _time           = time;
         _openTranscript = openTranscript;
+        _claims         = claims;
     }
 
     /// <summary>The keys of the sources being recorded now, those between attempts included.</summary>
@@ -76,7 +82,22 @@ public sealed class RecorderHost {
 
     // A log or beat that throws, as the daemon's file log can, would otherwise fail the recorder at its first line.
     TranscriptRecorder Create(RecordingSource source, RecorderContext context) =>
-        new(source, _transport, _stampers(source), _time, context with { Log = Guarded(context.Log), Beat = Guarded(context.Beat) }) { OpenTranscript = _openTranscript };
+        new(source, _transport, _stampers(source), _time, context with { Log = Guarded(context.Log), Beat = Beats(source, context.Beat) }, _claims) { OpenTranscript = _openTranscript };
+
+    // Guarded apart, because the heartbeat file and the claim fail apart: a backoff has to keep beating the claim, or a
+    // hook would take a source this host is still retrying.
+    Action Beats(RecordingSource source, Action beat) {
+        var heartbeat = Guarded(beat);
+
+        if (_claims is not { } claims) return heartbeat;
+
+        var claim = Guarded(() => claims.Beat(source.Key));
+
+        return () => {
+            heartbeat();
+            claim();
+        };
+    }
 
     static Action<string> Guarded(Action<string> log) => message => {
         try {
@@ -123,6 +144,8 @@ public sealed class RecorderHost {
 
                         stopped = token.IsCancellationRequested || recorder.Stopping.IsCancellationRequested;
 
+                        if (recorder.LostClaim) return;
+
                         if (!failed && connected) {
                             await FinishRecorderAsync(source, recorder, first);
 
@@ -142,7 +165,7 @@ public sealed class RecorderHost {
 
                 if (connected && _time.GetElapsedTime(started) >= MaxRetryDelay) delay = FirstRetryDelay;
 
-                if (!await DelayWithBeatsAsync(delay, first, token)) {
+                if (!await DelayWithBeatsAsync(delay, Beats(source, first.Beat), token)) {
                     await DrainOnceAsync(source, first);
 
                     return;
@@ -163,13 +186,9 @@ public sealed class RecorderHost {
     }
 
     // The backoff outlasts the heartbeat's staleness threshold, so one plain delay would make a healthy source look wedged.
-    async Task<bool> DelayWithBeatsAsync(TimeSpan total, RecorderContext first, CancellationToken ct) {
+    async Task<bool> DelayWithBeatsAsync(TimeSpan total, Action beat, CancellationToken ct) {
         foreach (var slice in TranscriptRecorder.HeartbeatSlices(total, TranscriptRecorder.HeartbeatSlice)) {
-            try {
-                first.Beat();
-            } catch {
-                // A failing beat must not end the retry.
-            }
+            beat();
 
             try {
                 await Task.Delay(slice, _time, ct);

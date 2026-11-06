@@ -95,6 +95,7 @@ public static class CommandServices {
     /// </summary>
     public static IServiceCollection AddCapacitorCommands(this IServiceCollection services) {
         // Shared by every hook lane and carrying no per-run state, unlike the commands below.
+        services.AddSingleton<IDaemonRecordingClient>(NoDaemonRecording.Instance);
         services.AddSingleton<WatcherManager>();
 
         services.AddTransient<AccountsCommand>();
