@@ -269,7 +269,8 @@ public static partial class SecretRedactor {
     private static partial Regex UrlQuerySecretRx();
 
     [GeneratedRegex(
-        """((?<![A-Za-z0-9+.\-])[A-Za-z][A-Za-z0-9+.\-]*://[^:/?#\s"\\@]+:)([^@\s"\\/?#]+)(@)""",
+        // Redis clients read a colon-free userinfo as the password itself, so only there does a bare one count.
+        """((?<![A-Za-z0-9+.\-])(?:[A-Za-z][A-Za-z0-9+.\-]*://[^:/?#\s"\\@]*:|rediss?://))([^@\s"\\/?#]+)(@)""",
         RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100
     )]
     private static partial Regex UrlUserinfoRx();

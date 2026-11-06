@@ -794,6 +794,8 @@ public class SecretRedactorTests {
     [Arguments("mongodb+srv://svc:" + "m0ng0Pa55" + "@cluster0.example.net/db", "m0ng0Pa55", "mongodb+srv://svc:[REDACTED]@cluster0.example.net")]
     [Arguments("rediss://default:" + "r3disPw" + "@cache.example.com:6380", "r3disPw", "rediss://default:[REDACTED]@cache.example.com")]
     [Arguments("amqps://guest:" + "rabbitPw77" + "@mq.example.com/vhost", "rabbitPw77", "amqps://guest:[REDACTED]@mq.example.com")]
+    [Arguments("redis://:" + "emptyUserPw" + "@cache.example.com:6379", "emptyUserPw", "redis://:[REDACTED]@cache.example.com")]
+    [Arguments("redis://" + "passwordOnly42" + "@cache.example.com:6379", "passwordOnly42", "redis://[REDACTED]@cache.example.com")]
     public async Task RedactsLine_UrlUserinfo_AnyScheme(string text, string secret, string kept) {
         var line = $$$"""
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{text}}}","is_error":false}]}}
