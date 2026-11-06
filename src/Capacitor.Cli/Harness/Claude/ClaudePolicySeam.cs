@@ -40,7 +40,7 @@ internal sealed class ClaudePolicySeam(ConfigRoot config, TimeProvider time, Hoo
     /// available even when the evaluation below cannot run at all.</summary>
     sealed record SeamFields(
         string? ToolName, string? CallId, string? Cwd, string? AgentId, JsonElement? ToolInput, string InputHash,
-        string? TranscriptPath, string? PermissionMode);
+        string? TranscriptPath, string? McpServerName, string? McpServerSource, string? PermissionMode);
 
     /// <summary>Test-only: throws from inside the evaluation region, so the arm that must still
     /// spend an already-consumed ask is driven by a real exception. That region's own dependencies
@@ -113,7 +113,7 @@ internal sealed class ClaudePolicySeam(ConfigRoot config, TimeProvider time, Hoo
     /// <summary>Sits below every rule and outside the policy record: no rule decided the call, so it
     /// stays a pass-through there. A rendered session gets it too, or its classifier keeps refusing.</summary>
     static void AnswerTrustedTool(SeamFields fields, TextWriter stdout) {
-        if (ClaudeKcapToolTrust.Covers(fields.ToolName, fields.PermissionMode))
+        if (ClaudeKcapToolTrust.Covers(fields.ToolName, fields.McpServerName, fields.McpServerSource, fields.PermissionMode))
             stdout.Write(BuildPreToolUseDecision("allow", ClaudeKcapToolTrust.Reason));
     }
 
@@ -212,6 +212,8 @@ internal sealed class ClaudePolicySeam(ConfigRoot config, TimeProvider time, Hoo
                 : null;
         } catch { toolInput = null; }
 
+        var mcpServer = body["mcp_server"] as JsonObject;
+
         return new(
             toolName,
             Str(body, "tool_use_id"),
@@ -222,6 +224,8 @@ internal sealed class ClaudePolicySeam(ConfigRoot config, TimeProvider time, Hoo
             toolInput,
             PolicyInputHash.Compute(toolName, toolInput),
             Str(body, "transcript_path"),
+            mcpServer is null ? null : Str(mcpServer, "name"),
+            mcpServer is null ? null : Str(mcpServer, "source"),
             Str(body, "permission_mode"));
     }
 

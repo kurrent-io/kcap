@@ -35,8 +35,9 @@ running notes file that every PR edits.
 - **kcap's own tools skip Claude's auto-mode classifier, and only there.** A plugin cannot ship
   permission rules and the classifier ignores MCP annotations, so the `PreToolUse` seam answers
   `allow` for the `AutoApprove` servers and for read tools, when `permission_mode` is `auto` and no
-  rule decided the call, in rendered sessions too. Manual stays the user's control, and a bare
-  `mcp__kcap-*` never matches because a repository's `.mcp.json` can claim that name.
+  rule decided the call, in rendered sessions too. Manual stays the user's control. Trust rests on
+  the hook payload's `mcp_server` report, never the tool name: a repository's `.mcp.json` can name a
+  server so its tools carry `mcp__plugin_kcap_`, and a call without the report gets no trust.
 - **The daemon never looks for a credential.** No keychain read, prompt, cache, persistence or
   default command: it forwards what the operator exported, or runs the one command they configured,
   and only when a borrowed launch needs it. Availability is configuration presence, never execution

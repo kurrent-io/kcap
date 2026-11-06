@@ -12,65 +12,88 @@ public class ClaudePolicySeamToolTrustTests {
     const string Sid = "9dc2775376454e4691ecc2d69973c152";
     const string Merge = "mcp__plugin_kcap_kcap-workitems__merge_work_item";
 
+    static JsonObject WorkItemsPlugin => Server("plugin:kcap:kcap-workitems", "plugin");
+
     ClaudePolicySeam Seam => new(Config.Root, TimeProvider.System, new HookSpool(Config.Root, TimeProvider.System, server: null));
 
-    string Body(string toolName, string? permissionMode) {
+    static JsonObject Server(string name, string? source) => new() { ["name"] = name, ["source"] = source };
+
+    string Body(string toolName, JsonNode? mcpServer, string? permissionMode) {
         var node = new JsonObject {
             ["hook_event_name"] = "PreToolUse", ["session_id"] = Sid,
             ["tool_name"] = toolName, ["tool_input"] = new JsonObject(),
             ["cwd"] = Tmp.PathTo("repo"),
         };
+        if (mcpServer is not null) node["mcp_server"] = mcpServer;
         if (permissionMode is not null) node["permission_mode"] = permissionMode;
         return node.ToJsonString();
     }
 
     void WriteUserPolicy(string yaml) => File.WriteAllText(Config.Root.Path("approvals.yaml"), yaml);
 
-    async Task<string?> DecisionFor(string toolName, string? permissionMode = "auto", bool rendered = false) {
+    async Task<string?> DecisionFor(string toolName, JsonNode? mcpServer, string? permissionMode = "auto", bool rendered = false) {
         var stdout = new StringWriter();
-        await Seam.HandlePreToolUseAsync(Body(toolName, permissionMode), Sid, rendered, stdout);
+        await Seam.HandlePreToolUseAsync(Body(toolName, mcpServer, permissionMode), Sid, rendered, stdout);
         var output = stdout.ToString();
         return output.Length == 0
             ? null
             : JsonNode.Parse(output)!["hookSpecificOutput"]!["permissionDecision"]!.GetValue<string>();
     }
 
-    [Test]
-    [Arguments(Merge)]
-    [Arguments("mcp__plugin_kcap_kcap-plans__update_plan_task")]
-    [Arguments("mcp__plugin_kcap_kcap-review__get_pr_summary")]
-    [Arguments("mcp__plugin_kcap_kcap-sessions__search_sessions")]
-    [Arguments("mcp__plugin_kcap_kcap-handoff__continue_session")]
-    [Arguments("mcp__plugin_kcap_kcap-analytics__query_analytics")]
-    public async Task Every_tool_of_a_server_kcap_auto_approves_is_allowed_in_auto_mode(string tool) =>
-        await Assert.That(await DecisionFor(tool)).IsEqualTo("allow");
+    Task<string?> DecisionForPluginTool(string server, string tool) =>
+        DecisionFor($"mcp__plugin_kcap_{server}__{tool}", Server($"plugin:kcap:{server}", "plugin"));
 
     [Test]
-    [Arguments("mcp__plugin_kcap_kcap-knowledge__list_skills")]
-    [Arguments("mcp__plugin_kcap_kcap-memory__search_memories")]
-    [Arguments("mcp__plugin_kcap_kcap-pages__get_page")]
-    [Arguments("mcp__plugin_kcap_kcap-flows__list_flow_definitions")]
-    public async Task A_read_on_any_other_kcap_server_is_allowed_in_auto_mode(string tool) =>
-        await Assert.That(await DecisionFor(tool)).IsEqualTo("allow");
+    [Arguments("kcap-workitems", "merge_work_item")]
+    [Arguments("kcap-plans", "update_plan_task")]
+    [Arguments("kcap-review", "get_pr_summary")]
+    [Arguments("kcap-sessions", "search_sessions")]
+    [Arguments("kcap-handoff", "continue_session")]
+    [Arguments("kcap-analytics", "query_analytics")]
+    public async Task Every_tool_of_a_server_kcap_auto_approves_is_allowed_in_auto_mode(string server, string tool) =>
+        await Assert.That(await DecisionForPluginTool(server, tool)).IsEqualTo("allow");
 
     [Test]
-    [Arguments("mcp__plugin_kcap_kcap-pages__publish_page")]
-    [Arguments("mcp__plugin_kcap_kcap-memory__save_memory")]
-    [Arguments("mcp__plugin_kcap_kcap-knowledge__curate_fact_cluster")]
-    [Arguments("mcp__plugin_kcap_kcap-flows__start_flow")]
-    public async Task A_write_on_any_other_kcap_server_stays_with_the_classifier(string tool) =>
-        await Assert.That(await DecisionFor(tool)).IsNull();
+    [Arguments("kcap-knowledge", "list_skills")]
+    [Arguments("kcap-memory", "search_memories")]
+    [Arguments("kcap-pages", "get_page")]
+    [Arguments("kcap-flows", "list_flow_definitions")]
+    public async Task A_read_on_any_other_kcap_server_is_allowed_in_auto_mode(string server, string tool) =>
+        await Assert.That(await DecisionForPluginTool(server, tool)).IsEqualTo("allow");
 
-    /// <summary>The bare form is the name a repository's own <c>.mcp.json</c> can claim, so trusting
-    /// it would auto-approve whatever server a cloned repository registers under it.</summary>
     [Test]
-    [Arguments("mcp__kcap-workitems__merge_work_item")]
-    [Arguments("mcp__plugin_other_kcap-workitems__merge_work_item")]
-    [Arguments("mcp__plugin_kcap_kcap-unknown__read")]
-    [Arguments("mcp__plugin_linear_linear__save_issue")]
-    [Arguments("Bash")]
-    public async Task A_tool_kcap_does_not_ship_is_left_alone(string tool) =>
-        await Assert.That(await DecisionFor(tool)).IsNull();
+    [Arguments("kcap-pages", "publish_page")]
+    [Arguments("kcap-memory", "save_memory")]
+    [Arguments("kcap-knowledge", "curate_fact_cluster")]
+    [Arguments("kcap-flows", "start_flow")]
+    public async Task A_write_on_any_other_kcap_server_stays_with_the_classifier(string server, string tool) =>
+        await Assert.That(await DecisionForPluginTool(server, tool)).IsNull();
+
+    /// <summary>A <c>.mcp.json</c> server named <c>plugin_kcap_kcap-workitems</c> gets this very tool
+    /// name, so only Claude's report of where the server came from tells the two apart.</summary>
+    [Test]
+    [Arguments("plugin_kcap_kcap-workitems", "project")]
+    [Arguments("plugin_kcap_kcap-workitems", "user")]
+    [Arguments("plugin_kcap_kcap-workitems", "plugin")]
+    [Arguments("plugin:kcap:kcap-workitems", "project")]
+    [Arguments("plugin:kcap:kcap-workitems", null)]
+    public async Task A_server_that_only_looks_like_the_plugin_stays_with_the_classifier(string name, string? source) =>
+        await Assert.That(await DecisionFor(Merge, Server(name, source))).IsNull();
+
+    [Test]
+    public async Task A_call_with_no_server_report_stays_with_the_classifier() =>
+        await Assert.That(await DecisionFor(Merge, mcpServer: null)).IsNull();
+
+    [Test]
+    public async Task A_wrong_typed_server_report_stays_with_the_classifier() =>
+        await Assert.That(await DecisionFor(Merge, JsonValue.Create("plugin"))).IsNull();
+
+    [Test]
+    [Arguments("mcp__plugin_other_kcap-workitems__merge_work_item", "plugin:other:kcap-workitems")]
+    [Arguments("mcp__plugin_kcap_kcap-unknown__read", "plugin:kcap:kcap-unknown")]
+    [Arguments("mcp__plugin_linear_linear__save_issue", "plugin:linear:linear")]
+    public async Task Another_plugins_tool_is_left_alone(string tool, string server) =>
+        await Assert.That(await DecisionFor(tool, Server(server, "plugin"))).IsNull();
 
     [Test]
     [Arguments("default")]
@@ -80,13 +103,13 @@ public class ClaudePolicySeamToolTrustTests {
     [Arguments("bypassPermissions")]
     [Arguments(null)]
     public async Task Only_auto_mode_is_trusted(string? mode) =>
-        await Assert.That(await DecisionFor(Merge, mode)).IsNull();
+        await Assert.That(await DecisionFor(Merge, WorkItemsPlugin, mode)).IsNull();
 
     /// <summary>A rendered session runs tighten-only, so rule allows do not reach it. Trust has to,
     /// or a hosted auto-mode session stays blocked by the classifier.</summary>
     [Test]
     public async Task A_rendered_session_is_trusted_too() =>
-        await Assert.That(await DecisionFor(Merge, rendered: true)).IsEqualTo("allow");
+        await Assert.That(await DecisionFor(Merge, WorkItemsPlugin, rendered: true)).IsEqualTo("allow");
 
     [Test]
     [Arguments("deny", false)]
@@ -95,13 +118,13 @@ public class ClaudePolicySeamToolTrustTests {
     [Arguments("ask", true)]
     public async Task A_policy_rule_outranks_trust(string outcome, bool rendered) {
         WriteUserPolicy($"version: 1\nrules:\n  - match: {{ kind: mcp_tool, server: plugin_kcap_kcap-workitems, tool: merge_work_item }}\n    outcome: {outcome}\n");
-        await Assert.That(await DecisionFor(Merge, rendered: rendered)).IsEqualTo(outcome);
+        await Assert.That(await DecisionFor(Merge, WorkItemsPlugin, rendered: rendered)).IsEqualTo(outcome);
     }
 
     [Test]
     public async Task A_governed_session_is_trusted_where_no_rule_decides() {
         WriteUserPolicy("version: 1\nrules:\n  - match: { kind: shell, command: \"git push --force*\" }\n    outcome: deny\n");
-        await Assert.That(await DecisionFor(Merge)).IsEqualTo("allow");
+        await Assert.That(await DecisionFor(Merge, WorkItemsPlugin)).IsEqualTo("allow");
         await Assert.That(SpooledPolicyEvents.Decisions(Config.Root, Sid).Count).IsEqualTo(0);
     }
 }

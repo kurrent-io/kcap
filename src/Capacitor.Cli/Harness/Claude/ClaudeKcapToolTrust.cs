@@ -9,25 +9,26 @@ using Capacitor.Cli.Core.Policy;
 /// The kcap tools the PreToolUse hook answers for in Claude's auto mode. A plugin cannot ship
 /// permission rules and the classifier ignores MCP annotations, so a hook <c>allow</c> is what keeps
 /// it from refusing kcap's own bookkeeping as a write to an external system. Every other mode keeps
-/// the user's prompts. Only the plugin-scoped name counts: a bare <c>mcp__kcap-*</c> is a name a
-/// repository's <c>.mcp.json</c> can claim.
+/// the user's prompts. Trust rests on where Claude says the server came from, never on the tool
+/// name: a repository's <c>.mcp.json</c> can name a server so its tools carry the plugin's exact
+/// prefix. A call with no such report stays with the classifier.
 /// </summary>
 internal static class ClaudeKcapToolTrust {
     internal const string Reason = "kcap's own tool";
 
     const string AutoMode     = "auto";
-    const string PluginPrefix = "plugin_kcap_";
+    const string PluginSource = "plugin";
+    const string PluginPrefix = "plugin:kcap:";
 
-    public static bool Covers(string? toolName, string? permissionMode) {
-        if (permissionMode != AutoMode) return false;
+    public static bool Covers(string? toolName, string? mcpServerName, string? mcpServerSource, string? permissionMode) {
+        if (permissionMode != AutoMode || mcpServerSource != PluginSource) return false;
+        if (mcpServerName?.StartsWith(PluginPrefix, StringComparison.Ordinal) != true) return false;
 
+        var name   = mcpServerName[PluginPrefix.Length..];
         var action = ClaudeActionNormalizer.Normalize(toolName, null, null);
-        if (action.Kind != ActionKind.McpTool || action.Server?.StartsWith(PluginPrefix, StringComparison.Ordinal) != true)
-            return false;
 
-        var name = action.Server[PluginPrefix.Length..];
-
-        return KcapMcpServers.All.FirstOrDefault(s => s.Name == name) is { } server
+        return action.Kind == ActionKind.McpTool
+            && KcapMcpServers.All.FirstOrDefault(s => s.Name == name) is { } server
             && (server.AutoApprove || ToolsOf(name).Any(t => t.Name == action.Tool && t.Annotations.ReadOnlyHint == true));
     }
 
