@@ -795,6 +795,78 @@ public class RecorderHostTests {
         await Assert.That(host.ActiveKeys).IsEmpty();
     }
 
+    /// <summary>A cut run on the shutdown's own loop would leave every source behind this one uncut. Whichever send is
+    /// cut first has a token callback that blocks, and both drains have to finish regardless.</summary>
+    [Test]
+    public async Task A_shutdown_cuts_every_drain_though_one_cut_blocks() {
+        var first  = Source(Tmp.CreateFile("first.jsonl", $"{Prompt}\n"), "a1");
+        var second = Source(Tmp.CreateFile("second.jsonl", $"{Prompt}\n"), "a2");
+        using var release = new ManualResetEventSlim();
+        var cut     = 0;
+        var sending = 0;
+        var host    = NewHost();
+
+        host.TryAdd(first);
+        host.TryAdd(second);
+        await Eventually(() => LinesSent(first.SessionId) == 1 && LinesSent(second.SessionId) == 1, "both first lines");
+
+        _transport.OnSend = ct => {
+            ct.Register(() => {
+                if (Interlocked.Increment(ref cut) == 1) release.Wait();
+            });
+            Interlocked.Increment(ref sending);
+
+            return Task.Delay(Timeout.Infinite, ct);
+        };
+        await File.AppendAllTextAsync(first.TranscriptPath, $"{Reply}\n");
+        await File.AppendAllTextAsync(second.TranscriptPath, $"{Reply}\n");
+
+        var stopping = Task.Run(() => host.StopAllAsync(TimeSpan.FromSeconds(10), CancellationToken.None));
+        await Eventually(() => Volatile.Read(ref sending) == 2, "both final sends");
+
+        try {
+            _ = Task.Run(() => ElapseTheWaitForSends(TimeSpan.FromSeconds(8)));
+            await Eventually(() => host.ActiveKeys.Count == 0, "both drains to end");
+        } finally {
+            release.Set();
+        }
+
+        await stopping.WithinDeadlineAsync("the shutdown");
+    }
+
+    /// <summary>Cursor's final drain takes the rewind gate first, and that wait refuses a token already cut. The spool
+    /// still has to get the line, and a spooled source needs no import.</summary>
+    [Test]
+    public async Task A_cursor_drain_that_starts_cut_off_still_spools() {
+        var source  = new RecordingSource(Guid.NewGuid().ToString("N"), null, Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "cursor", null);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeDrain[source.Key] = () => {
+            if (LinesSent(source.SessionId) == 0) return Task.CompletedTask;
+
+            entered.TrySetResult();
+
+            return release.Task;
+        };
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => entered.Task.IsCompleted, "the recorder held in its second tick", TimeSpan.FromSeconds(1));
+        _transport.OnSend = ct => Task.Delay(Timeout.Infinite, ct);
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Later}\n");
+
+        var stopping = host.StopAllAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+        await ElapseTheWaitForSends(TimeSpan.FromSeconds(8));
+        await Eventually(() => _time.Timers.Any(timer => timer.Due == TimeSpan.FromSeconds(2)), "the wait for the spool");
+
+        release.SetResult();
+        await stopping.WithinDeadlineAsync("the shutdown");
+
+        var spool = new TranscriptSpool(Config, _time, "http://127.0.0.1:1");
+        await Assert.That(spool.HasBacklog(source.SessionId)).IsTrue();
+        await Assert.That(spool.NeedsImport(source.SessionId)).IsFalse();
+    }
+
     /// <summary>The clock stands still, so no bound elapses: a healthy shutdown takes as long as its drains.</summary>
     [Test]
     public async Task Shutdown_finishes_every_source_within_its_bound() {
@@ -1553,8 +1625,44 @@ public class RecorderHostTests {
         await Eventually(() => _ended.Count == 1, "the failed attempt");
         await _transport.RaiseStopRequestedAsync("another-key", "the server asked");
 
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the source to record after its backoff", TimeSpan.FromSeconds(1));
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        await Eventually(() => LinesSent(source.SessionId) == 2, "the source to go on recording", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
         await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
-        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+    }
+
+    /// <summary>The raiser is a transport's dispatch, which every other source's stop waits behind, so what a stop sets
+    /// off has to run elsewhere. A callback on the send's token is the work that would land there: a delay's and a
+    /// <c>WaitAsync</c>'s continuations are queued by the runtime, so those can't show it.</summary>
+    [Test]
+    public async Task A_server_stop_does_not_run_on_the_transports_dispatch() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
+
+        _transport.OnSend = ct => {
+            ct.Register(release.Wait);
+            entered.TrySetResult();
+
+            return Task.Delay(Timeout.Infinite, ct);
+        };
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        await Eventually(() => entered.Task.IsCompleted, "the send", TimeSpan.FromSeconds(1));
+        _transport.OnSend = null;
+
+        try {
+            await Task.Run(() => _transport.RaiseStopRequestedAsync(source.Key, "the server asked")).WithinDeadlineAsync("the stop to return while its work blocks");
+        } finally {
+            release.Set();
+        }
+
+        await Eventually(() => host.ActiveKeys.Count == 0, "the drain");
     }
 
     /// <summary>The server stopped this source and won't wait long, so a title still generating is handed off, as a

@@ -500,7 +500,9 @@ public sealed class TranscriptRecorder(
         TryLog($"Received StopWatcher signal: {reason}");
 
         try {
-            RequestStop();
+            // Off the raiser's thread, which every other source's stop waits behind.
+            Interlocked.Exchange(ref _stopRequested, 1);
+            _ = _stop.CancelAsync();
         } catch (ObjectDisposedException) {
             // Already finished.
         }
