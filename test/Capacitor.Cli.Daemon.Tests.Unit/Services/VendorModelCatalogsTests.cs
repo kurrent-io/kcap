@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
@@ -147,5 +148,67 @@ public class VendorModelCatalogsTests {
         await Assert.That(missing.Exists).IsFalse();
         await Assert.That(present.Exists).IsTrue();
         await Assert.That(missing).IsNotEqualTo(present);
+    }
+
+    /// A file whose size and write time match the previous fingerprint is not read again: the
+    /// previous digest, here one no content could hash to, comes back unchanged.
+    [Test]
+    public async Task CatalogPathStat_reuses_the_previous_digest_for_an_untouched_file() {
+        var path     = Tmp.CreateFile("models_cache.json", "{}");
+        var first    = CatalogPathStat.Of(path);
+        var previous = first with { Digest = "untouched" };
+
+        await Assert.That(CatalogPathStat.Of(path, previous).Digest).IsEqualTo("untouched");
+        await Assert.That(CatalogPathStat.Of(path, previous with { Length = first.Length + 1 }).Digest).IsEqualTo(first.Digest);
+    }
+
+    /// A file that exists but cannot be read is one a vendor holds mid-rewrite: it keeps the previous
+    /// fingerprint rather than reading as deleted, which would re-probe twice for one rewrite.
+    [Test]
+    [UnsupportedOSPlatform("windows")]
+    public async Task CatalogPathStat_keeps_the_previous_fingerprint_for_an_unreadable_file() {
+        Skip.Unless(!OperatingSystem.IsWindows(), "Unreadability comes from a POSIX file mode.");
+        var path     = Tmp.CreateFile("auth.json", "{}");
+        var previous = CatalogPathStat.Of(path);
+        File.WriteAllText(path, """{"account_id":"y"}""");
+        MakeUnreadable(path);
+        try {
+            await Assert.That(CatalogPathStat.Of(path, previous)).IsEqualTo(previous);
+        } finally {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    /// A file unreadable since it appeared has no digest to keep; the first fingerprint taken once
+    /// it turns readable is a change even when its size and write time did not move.
+    [Test]
+    [UnsupportedOSPlatform("windows")]
+    public async Task CatalogPathStat_an_unreadable_file_turning_readable_is_a_change() {
+        Skip.Unless(!OperatingSystem.IsWindows(), "Unreadability comes from a POSIX file mode.");
+        var path = Tmp.CreateFile("auth.json", "{}");
+        MakeUnreadable(path);
+        CatalogPathStat unreadable;
+        try {
+            unreadable = CatalogPathStat.Of(path);
+        } finally {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        var readable = CatalogPathStat.Of(path, unreadable);
+
+        await Assert.That(unreadable.Digest).IsNull();
+        await Assert.That(CatalogPathStat.SameCatalog([readable], [unreadable])).IsFalse();
+    }
+
+    /// Skips the test on a host whose privileges read through the file mode, such as root.
+    [UnsupportedOSPlatform("windows")]
+    static void MakeUnreadable(string path) {
+        File.SetUnixFileMode(path, UnixFileMode.None);
+        try {
+            File.ReadAllBytes(path);
+        } catch (UnauthorizedAccessException) {
+            return;
+        }
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        Skip.Test("This host reads a file whatever its mode.");
     }
 }

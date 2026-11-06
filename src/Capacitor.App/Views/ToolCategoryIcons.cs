@@ -29,11 +29,12 @@ public static class ToolCategoryIcons {
         "Permission" => PermissionIcon,
         "Question"   => ForCategory(ToolCategory.Question),
         AssistantThinkingItem.ThinkingLabel => ThinkingIcon,
-        SystemNoteItem.AgentReportLabel or SystemNoteItem.AgentMessageLabel => AgentMessageIcon,
+        SystemNoteItem.AgentReportLabel or SystemNoteItem.AgentMessageLabel or SystemNoteItem.TaskNotificationLabel => AgentMessageIcon,
         _            => null,
     };
 
     public static LucideIconKind CommandIcon => ForCategory(ToolCategory.Command);
+    public static LucideIconKind AgentIcon => ForCategory(ToolCategory.Agent);
     public static LucideIconKind NoteIcon => LucideIconKind.StickyNote;
     public static LucideIconKind PermissionIcon => LucideIconKind.ShieldQuestionMark;
     public static LucideIconKind QuestionIcon => ForCategory(ToolCategory.Question);

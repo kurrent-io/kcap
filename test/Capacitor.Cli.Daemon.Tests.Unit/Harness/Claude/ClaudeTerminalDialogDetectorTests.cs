@@ -58,6 +58,45 @@ public class ClaudeTerminalDialogDetectorTests {
     static byte[] Utf8(string text) => Encoding.UTF8.GetBytes(text);
 
     [Test]
+    public async Task A_Bash_approval_with_an_amend_footer_uses_the_terminal_fallback_and_clears() {
+        var screen = new ClaudeScreenWatcher();
+        var approval = string.Join('\n',
+            "  Look for kcap page commands",
+            new string('─', 120),
+            "  Bash command",
+            "  Tip: auto mode handles these prompts for you — choose \"switch to auto mode\" below",
+            "  Look for kcap page commands",
+            new string('╌', 120),
+            "  grep -ril \"pages/\" README.md src/Capacitor.Cli.Core/Resources/ 2>/dev/null | head; kcap --help 2>&1",
+            "  | head -60",
+            new string('╌', 120),
+            "  This command requires approval",
+            "",
+            "  Do you want to proceed?",
+            "  ❯ 1. Yes",
+            "    2. Yes, and don't ask again for: kcap --help",
+            "    3. Yes, and switch to auto mode · auto mode handles these prompts for you",
+            "    4. No",
+            "",
+            "  Esc to cancel · Tab to amend");
+        var split = approval.IndexOf("Tab to amend", StringComparison.Ordinal);
+        await Assert.That(screen.Observe(Utf8(approval[..split])).Dialog).IsNull();
+
+        var dialog = screen.Observe(Utf8(approval[split..])).Dialog;
+
+        await Assert.That(dialog).IsNotNull();
+        await Assert.That(dialog!.Heading).StartsWith("Bash command");
+        await Assert.That(dialog.Options).IsEmpty();
+        await Assert.That(dialog.Selected).IsEqualTo(-1);
+        await Assert.That(dialog.Screen).Contains("grep -ril \"pages/\"");
+        await Assert.That(dialog.Screen).Contains("This command requires approval");
+        await Assert.That(dialog.Screen).Contains("4. No");
+
+        var composer = string.Join('\n', "", new string('─', 120), "❯ ", new string('─', 120), "  ? for shortcuts");
+        await Assert.That(screen.Observe(Utf8(composer)).Dialog).IsNull();
+    }
+
+    [Test]
     [Arguments(0)]
     [Arguments(1)]
     [Arguments(2)]
@@ -262,6 +301,7 @@ public class ClaudeTerminalDialogDetectorTests {
     [Test]
     [Arguments("Enter to confirm · Esc to cancel")]
     [Arguments("←/→ to change · Enter to continue · Esc to cancel")]
+    [Arguments("Esc to cancel · Tab to amend")]
     public async Task Output_that_quotes_the_footer_is_not_a_dialog(string footer) {
         var quoted = string.Join('\n',
             new string('─', 40),
@@ -279,6 +319,7 @@ public class ClaudeTerminalDialogDetectorTests {
     [Test]
     [Arguments("Enter to confirm · Esc to cancel")]
     [Arguments("←/→ to change · Enter to continue · Esc to cancel")]
+    [Arguments("Esc to cancel · Tab to amend")]
     public async Task A_footer_with_no_rule_above_it_is_not_a_dialog(string footer) {
         var screen = string.Join('\n', "  Use this one", "  ❯ Or this one", "", "  " + footer);
 

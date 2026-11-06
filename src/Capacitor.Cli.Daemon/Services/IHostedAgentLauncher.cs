@@ -56,6 +56,9 @@ internal interface IHostedAgentLauncher {
     /// <summary>Whether <see cref="BuildArgs"/> resumes the vendor session a restart resume names.</summary>
     bool SupportsResume => false;
 
+    /// <summary>See <see cref="IHostedAgentRuntimeFactory.ReportsLostWork"/>.</summary>
+    bool ReportsLostWork(string? transcriptPath) => false;
+
     /// <summary>Whether a reviewer launched by this launcher in an owned worktree reopens its session
     /// across a daemon restart. Declared only once a live probe of the reviewer shape has passed.</summary>
     bool SupportsReviewerResume => false;
@@ -70,6 +73,16 @@ internal interface IHostedAgentLauncher {
     /// support intact; it simply is not an override-eligible target for a model override.
     /// </summary>
     IReviewerModelResolver? ReviewerModelResolver => null;
+
+    /// <summary>Whether this launch's hooks can fire at all. False leaves the launch prompt to the
+    /// output checks: no hook would report a turn or a session start, so waiting on one would only
+    /// strand the prompt or send a stray Enter.</summary>
+    bool HooksWired(LauncherContext ctx) => true;
+
+    /// <summary>Whether the vendor fires SessionStart only once its composer is up, ahead of any
+    /// input. True holds the launch prompt for that hook with no time limit, so a vendor that fires it
+    /// on the first turn must stay false: the paste would wait for a hook that waits for the paste.</summary>
+    bool SessionStartMeansComposerUp => false;
 
     /// <summary>
     /// Per-vendor preparation BEFORE the PTY is spawned. Implementations:

@@ -267,21 +267,16 @@ public class ServerConnectionAdvertisementTests {
     }
 
     [Test]
-    public async Task DaemonConnect_advertises_handoff_launches() {
+    public async Task DaemonConnect_advertises_the_launch_and_answer_shapes_it_handles() {
         var config = new DaemonConfig { Name = "test", ServerUrl = "http://127.0.0.1:1", ConfigRoot = Config.Root };
         await using var conn = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance,
             NullLogger<ServerConnection>.Instance, TimeProvider.System);
 
-        await Assert.That(conn.BuildDaemonConnect("mac", [], [], null, config.Advertisement).SupportsHandoffLaunch).IsTrue();
-    }
+        var connect = conn.BuildDaemonConnect("mac", [], [], null, config.Advertisement);
 
-    [Test]
-    public async Task DaemonConnect_advertises_in_place_resumes() {
-        var config = new DaemonConfig { Name = "test", ServerUrl = "http://127.0.0.1:1", ConfigRoot = Config.Root };
-        await using var conn = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance,
-            NullLogger<ServerConnection>.Instance, TimeProvider.System);
-
-        await Assert.That(conn.BuildDaemonConnect("mac", [], [], null, config.Advertisement).SupportsResumeInPlace).IsTrue();
+        await Assert.That(connect.SupportsHandoffLaunch).IsTrue();
+        await Assert.That(connect.SupportsResumeInPlace).IsTrue();
+        await Assert.That(connect.SupportsDenyMessage).IsTrue();
     }
 
     [Test]

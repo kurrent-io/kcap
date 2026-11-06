@@ -28,14 +28,16 @@ public class AdvertisedRepoPathsTests {
         await Assert.That(advertised).DoesNotContain(prefix).Because("the prefix is not a repository");
     }
 
-    /// The allowlist reads either separator before the star, so the search must too.
+    /// The search reads a star the way the allowlist does: after a backslash only on Windows, since on
+    /// POSIX a backslash is part of a name and the entry is a literal path.
     [Test]
     [Arguments("/*")]
     [Arguments("\\*")]
     public async Task A_wildcard_over_a_repository_advertises_that_repository(string star) {
-        var repo = Repo("solo");
+        var repo     = Repo("solo");
+        var expected = star == "/*" || OperatingSystem.IsWindows() ? repo : repo + star;
 
-        await Assert.That(AdvertisedRepoPaths.Merge([], [repo + star])).IsEquivalentTo(new[] { repo });
+        await Assert.That(AdvertisedRepoPaths.Merge([], [repo + star])).IsEquivalentTo(new[] { expected });
     }
 
     /// Files are read by the same listing as directories, so they spend the same budget.

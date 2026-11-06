@@ -9,6 +9,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Mcp;
 using Capacitor.Cli.Daemon.Services;
+using Capacitor.Models.Transcripts.Harness.Claude;
 using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Harness.Claude;
@@ -107,7 +108,17 @@ internal sealed partial class ClaudeLauncher(
 
     public bool SupportsResume => true;
 
+    public bool ReportsLostWork(string? transcriptPath) => transcriptPath is not null && ClaudeLostWork.IsReported(transcriptPath);
+
     public bool SupportsReviewerResume => true;
+
+    /// <summary>The plugin carries Claude's hooks, so a launch without it reports nothing. Read after
+    /// <see cref="Prepare"/>, which copies a project-scoped install into the worktree.</summary>
+    public bool HooksWired(LauncherContext ctx) => ClaudePluginInstaller.RunsHooks(PathsFor(ctx.Account).UserSettings, ctx.Worktree.Path);
+
+    /// <summary>SessionStart fires once the REPL is up, behind onboarding, trust and whatever other
+    /// startup screen a release adds.</summary>
+    public bool SessionStartMeansComposerUp => true;
 
     public LaunchArgs BuildArgs(LauncherContext ctx) {
         var args = new List<string>();

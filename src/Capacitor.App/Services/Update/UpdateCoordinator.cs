@@ -12,11 +12,23 @@ public sealed class UpdateCoordinator {
     internal static readonly TimeSpan DefaultInitialDelay = TimeSpan.FromSeconds(30);
     internal static readonly TimeSpan DefaultInterval = TimeSpan.FromHours(4);
     internal const string CheckLabel = "Check for Updates…";
-    // Velopack's updater on Windows kills every process running from the install folder, and the
-    // app's daemon runs from there; elsewhere a background daemon waits for a turn boundary.
+    // Velopack's updater on Windows ends every process running from the install folder, the app's daemon
+    // among them, so kcap stops the daemon at a turn boundary first; elsewhere a background daemon
+    // restarts at one by itself.
     internal static string ReadyDisclosure(bool windows) => windows
-        ? "kcap restarts to install the update.\n\nThe daemon stops. Running agents are interrupted mid-turn.\n\nEligible agents resume if auto-resume is on. Other sessions may need attention."
+        ? "kcap restarts to install the update.\n\nThe daemon waits for active turns, then stops. It stops anyway when the configured wait ends, interrupting long turns. A daemon that does not answer stops with kcap, mid-turn.\n\nEligible agents resume if auto-resume is on. Other sessions may need attention."
         : "kcap restarts to install the update.\n\nThe daemon waits for active turns. It restarts when the configured wait ends. Long turns may be interrupted.\n\nEligible agents resume if auto-resume is on. Other sessions may need attention. Daemons started in a terminal need a manual restart.";
+
+    internal static string WaitingDisclosure(TimeSpan wait) =>
+        $"The daemon stops once its agents finish their turns, so none is cut off. After {Describe(wait)} it stops anyway and interrupts the turns still running.\n\n" +
+        "Restart now interrupts them at once. Not now keeps the update for later. Eligible agents resume if auto-resume is on.";
+
+    static string Describe(TimeSpan wait) {
+        var seconds = (long)Math.Ceiling(wait.TotalSeconds);
+        if (seconds < 60 || seconds % 60 != 0) return seconds == 1 ? "1 second" : $"{seconds} seconds";
+        var minutes = seconds / 60;
+        return minutes == 1 ? "1 minute" : $"{minutes} minutes";
+    }
 
     readonly IAppUpdater _updater;
     readonly ILifecycleSurface _surface;
@@ -29,9 +41,12 @@ public sealed class UpdateCoordinator {
     readonly BehaviorSubject<UpdateCheckProgress?> _checkProgress = new(null);
     readonly Action<UpdateCandidate>? _handingOver;
     readonly LifecycleLog? _log;
+    readonly IUpdateDaemonStop? _daemonStop;
     readonly Lock _lock = new();
 
     Task? _inflight;
+    bool _stoppingDaemon;
+    int _daemonHandoff;
     Task? _offer;
     bool _manualPending;
     bool _progressVisible;
@@ -51,10 +66,12 @@ public sealed class UpdateCoordinator {
 
     /// <param name="handingOver">Runs immediately before the updater takes over, so the next process can tell
     /// it finishes this update.</param>
+    /// <param name="daemonStop">Stops the daemon before the restart, where the updater would end it mid-turn; null
+    /// leaves it running.</param>
     public UpdateCoordinator(
             IAppUpdater updater, ILifecycleSurface surface, TimeProvider time, Action quit, CancellationToken lifetime,
             TimeSpan? initialDelay = null, TimeSpan? interval = null, Action<UpdateCandidate>? handingOver = null,
-            LifecycleLog? log = null) {
+            LifecycleLog? log = null, IUpdateDaemonStop? daemonStop = null) {
         _updater      = updater;
         _surface      = surface;
         _time         = time;
@@ -65,6 +82,7 @@ public sealed class UpdateCoordinator {
         _menu         = new BehaviorSubject<UpdateMenuItem>(new UpdateMenuItem(updater.IsAvailable, CheckLabel));
         _handingOver  = handingOver;
         _log          = log;
+        _daemonStop   = daemonStop;
     }
 
     public IObservable<UpdateMenuItem> MenuItem => _menu.AsObservable();
@@ -72,6 +90,12 @@ public sealed class UpdateCoordinator {
 
     /// The version a restart would install, once its package is downloaded.
     public string? ReadyVersion => Ready?.Version;
+
+    /// What the accepted restart did with the daemon before it quit.
+    public DaemonHandoff DaemonHandoff => (DaemonHandoff)Volatile.Read(ref _daemonHandoff);
+
+    /// Whether the update leaves no daemon running, for the next process to start.
+    public bool DaemonLeftStopped => DaemonHandoff is DaemonHandoff.Stopped or DaemonHandoff.NotRunning;
 
     /// Applies a package left from a previous run, after the install-location guard and before any
     /// graph exists. Skipped on an update relaunch: a failed apply relaunches the old version with
@@ -306,8 +330,98 @@ public sealed class UpdateCoordinator {
     }
 
     void RequestRestart(UpdateCandidate candidate) {
+        if (_daemonStop is null) {
+            Quit(candidate);
+            return;
+        }
+        lock (_lock) {
+            if (_stoppingDaemon) return;
+            _stoppingDaemon = true;
+        }
+        // Off the caller's thread, which can be the UI's: the stop reads the pid file and waits on the daemon.
+        _ = Task.Run(() => StopDaemonThenQuitAsync(candidate));
+    }
+
+    void Quit(UpdateCandidate candidate) {
         lock (_lock) _pendingApply = candidate;
         _quit();
+    }
+
+    enum WaitAnswer { None, RestartNow, NotNow }
+
+    async Task StopDaemonThenQuitAsync(UpdateCandidate candidate) {
+        var quit = false;
+        try {
+            _log?.Write("update_daemon_stopping", ("to", candidate.Version));
+            var (handoff, answer) = await StopDaemonAsync(candidate).ConfigureAwait(false);
+            if (answer == WaitAnswer.NotNow) {
+                _log?.Write("update_deferred", ("to", candidate.Version), ("stage", "daemon_wait"));
+                return;
+            }
+            Volatile.Write(ref _daemonHandoff, (int)handoff);
+            _log?.Write("update_daemon_handoff", ("to", candidate.Version), ("result", handoff.ToString()),
+                ("restart_now", answer == WaitAnswer.RestartNow ? "true" : null));
+            quit = true;
+        } catch (OperationCanceledException) {
+        } catch (Exception ex) {
+            // The update still applies: the updater ends the daemon as it always did.
+            Console.Error.WriteLine($"kcap: stopping the daemon for the update failed: {ex.Message}");
+            Volatile.Write(ref _daemonHandoff, (int)DaemonHandoff.Interrupted);
+            _log?.Write("update_daemon_handoff", ("to", candidate.Version), ("result", nameof(DaemonHandoff.Interrupted)), ("error", ex.Message));
+            quit = !_lifetime.IsCancellationRequested;
+        } finally {
+            if (!quit) {
+                _daemonStop!.Release();
+                lock (_lock) _stoppingDaemon = false;
+            }
+        }
+        if (quit) Quit(candidate);
+    }
+
+    /// <summary>While the daemon holds the stop for its agents' turns, the user can cut the wait short or put the
+    /// update off; the prompt closes by itself once the daemon settles first.</summary>
+    async Task<(DaemonHandoff Handoff, WaitAnswer Answer)> StopDaemonAsync(UpdateCandidate candidate) {
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(_lifetime);
+        using var settled = CancellationTokenSource.CreateLinkedTokenSource(_lifetime);
+        var answer = (int)WaitAnswer.None;
+        var answered = 0;
+        var asked = 0;
+        Task? prompt = null;
+
+        void Waiting(TimeSpan wait) {
+            if (Interlocked.Exchange(ref asked, 1) != 0) return;
+            Volatile.Write(ref prompt, AskWhileWaitingAsync());
+
+            async Task AskWhileWaitingAsync() {
+                await Task.Yield();
+                var shown = new LifecyclePrompt(LifecyclePrompt.KindUpdateWaiting, candidate.Version, _updater.InstalledVersion, false,
+                    WaitingDisclosure(wait));
+                var accepted = await _surface.ConfirmAsync(shown, settled.Token).ConfigureAwait(false);
+                if (settled.IsCancellationRequested || Interlocked.Exchange(ref answered, 1) != 0) return;
+                Volatile.Write(ref answer, (int)(accepted ? WaitAnswer.RestartNow : WaitAnswer.NotNow));
+                await stop.CancelAsync().ConfigureAwait(false);
+            }
+        }
+
+        DaemonHandoff handoff;
+        try {
+            handoff = await _daemonStop!.StopAsync(Waiting, stop.Token).ConfigureAwait(false);
+        } catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested) {
+            handoff = DaemonHandoff.Interrupted;
+        }
+        Interlocked.Exchange(ref answered, 1);
+        await settled.CancelAsync().ConfigureAwait(false);
+        if (Volatile.Read(ref prompt) is { } open) {
+            try {
+                await open.ConfigureAwait(false);
+            } catch (OperationCanceledException) { }
+        }
+
+        return ((WaitAnswer)Volatile.Read(ref answer)) switch {
+            WaitAnswer.RestartNow => (DaemonHandoff.Interrupted, WaitAnswer.RestartNow),
+            WaitAnswer.NotNow => (handoff, WaitAnswer.NotNow),
+            _ => (handoff, WaitAnswer.None),
+        };
     }
 
     Task ReportAsync(string message) =>

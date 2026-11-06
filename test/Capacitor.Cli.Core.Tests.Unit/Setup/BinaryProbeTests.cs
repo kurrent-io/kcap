@@ -13,6 +13,21 @@ namespace Capacitor.Cli.Core.Tests.Unit.Setup;
 /// </summary>
 public class BinaryProbeTests {
     [Test]
+    public async Task A_live_probe_follows_new_search_directories_without_rebuilding_its_consumers() {
+        using var tmp = new TempDir();
+        var staged = await Stage(tmp.PathTo(Launchable("new-agent")));
+        string? path = null;
+        var probe = BinaryProbe.Tracking(() => path);
+
+        await Assert.That(probe.Resolve("new-agent")).IsNull();
+        path = tmp.Path;
+        await Assert.That(probe.Resolve("new-agent")).IsEqualTo(staged, PathCasing);
+        path = null;
+        await Assert.That(probe.Resolve("new-agent")).IsNull();
+        await Assert.That(probe.Resolve(staged)).IsEqualTo(staged, PathCasing);
+    }
+
+    [Test]
     public async Task Resolve_is_null_for_empty_input() {
         var probe = BinaryProbe.Searching("/usr/bin");
 

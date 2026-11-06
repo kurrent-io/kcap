@@ -30,6 +30,16 @@ public class LauncherPaneViewSmokeTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     [Test]
+    public async Task Folder_access_accepts_a_picker_path_through_a_symlink() {
+        Skip.When(OperatingSystem.IsWindows(), "Unix folder picker aliases; Windows symlinks require privileges");
+        var repository = Directory.CreateDirectory(Tmp.PathTo("repository")).FullName;
+        var alias = Tmp.PathTo("alias");
+        Directory.CreateSymbolicLink(alias, repository);
+        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(alias + Path.DirectorySeparatorChar, repository)).IsTrue();
+        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(Tmp.PathTo("other"), repository)).IsFalse();
+    }
+
+    [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Retrying_a_failed_upgrade_replaces_the_failure_icon_with_progress() {
         await AvaloniaSession.RunOnUiAsync(async () => {

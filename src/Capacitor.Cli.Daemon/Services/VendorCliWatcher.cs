@@ -26,14 +26,16 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
 
     int _rebuildRequested;
     IReadOnlyList<(string AccountId, string Directory)>? _actedAccounts;
+    IReadOnlyList<string>? _watchedVendors;
+    IReadOnlyList<string>? _watchedUnattendedVendors;
 
     // Seams (assigned from DI in the production ctor; overridden directly in tests).
-    internal Func<string, CliBinaryStat?>   StatBinary;
-    internal Func<string, CatalogPathStat>  StatCatalog = CatalogPathStat.Of;
-    internal Action<string>                 Refresh;
+    internal Func<string, CliBinaryStat?>                    StatBinary;
+    internal Func<string, CatalogPathStat?, CatalogPathStat> StatCatalog = CatalogPathStat.Of;
+    internal Action<string>                                  Refresh;
     // A vendor's CLI path is read per tick: a desktop app's bundled CLI moves to a new directory on update.
-    internal Func<string, string?>          CurrentCliPath = _ => null;
-    internal Func<ICollection<string>>      LateCatalogs   = () => [];
+    internal Func<string, string?>                           CurrentCliPath = _ => null;
+    internal Func<ICollection<string>>                       LateCatalogs   = () => [];
     internal IReadOnlyList<(string Vendor, string CliPath, IReadOnlyList<string> CatalogPaths)> Watched;
 
     int _lateCatalogsSeen;
@@ -73,7 +75,7 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
     VendorCliWatcher(IReadOnlyList<(string Vendor, string CliPath, IReadOnlyList<string> CatalogPaths)> watched,
             Action<string> refresh, Func<string, CliBinaryStat?> stat, TimeProvider time,
             IReadOnlyDictionary<string, CliBinaryStat?>? baselines,
-            Func<string, CatalogPathStat>? statCatalog,
+            Func<string, CatalogPathStat?, CatalogPathStat>? statCatalog,
             IReadOnlyDictionary<string, CatalogPathStat[]>? catalogBaselines) {
         _logger           = NullLogger.Instance;
         _time             = time;
@@ -89,7 +91,7 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
             IReadOnlyList<(string Vendor, string CliPath, IReadOnlyList<string> CatalogPaths)> watched,
             Action<string> refresh, Func<string, CliBinaryStat?> stat, TimeProvider time,
             IReadOnlyDictionary<string, CliBinaryStat?>? baselines = null,
-            Func<string, CatalogPathStat>? statCatalog = null,
+            Func<string, CatalogPathStat?, CatalogPathStat>? statCatalog = null,
             IReadOnlyDictionary<string, CatalogPathStat[]>? catalogBaselines = null) =>
         new(watched, refresh, stat, time, baselines, statCatalog, catalogBaselines);
 
@@ -170,6 +172,12 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
 
     // The refresh is raised outside the gate: it is a trigger into the orchestrator, not state of this class.
     string? TickUnlocked() {
+        if (_config is not null && (!ReferenceEquals(_watchedVendors, _config.SupportedVendors)
+                                || !ReferenceEquals(_watchedUnattendedVendors, _config.UnattendedVendors))) {
+            _watchedVendors = _config.SupportedVendors;
+            _watchedUnattendedVendors = _config.UnattendedVendors;
+            Interlocked.Exchange(ref _rebuildRequested, 1);
+        }
         if (Interlocked.Exchange(ref _rebuildRequested, 0) == 1 && _config is not null && _factories is not null) {
             Watched = WatchSet(_config, _factories, _accounts());
             PrimeBaselinesUnlocked();
@@ -179,12 +187,14 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
         foreach (var (vendor, cliPath, catalogPaths) in Watched) {
             var current        = StatCli(CurrentCliPath(vendor) ?? cliPath);
             var binaryChanged  = Changed(_baselines.GetValueOrDefault(vendor), current);
-            var catalog        = StatCatalogs(catalogPaths);
-            var catalogChanged = !catalog.AsSpan().SequenceEqual(_catalogBaselines.GetValueOrDefault(vendor) ?? []);
+            var baseline       = _catalogBaselines.GetValueOrDefault(vendor) ?? [];
+            var catalog        = StatCatalogs(catalogPaths, baseline);
+            var catalogChanged = !CatalogPathStat.SameCatalog(catalog, baseline);
+            // Kept even when the content matched, so the next tick skips reading a file it has already hashed.
+            _catalogBaselines[vendor] = catalog;
             if (!binaryChanged && !catalogChanged) continue;
 
             if (binaryChanged) _baselines[vendor] = current;
-            _catalogBaselines[vendor] = catalog;
             (changed ??= []).Add(vendor);
         }
 
@@ -201,7 +211,8 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
 
     CliBinaryStat? StatCli(string cliPath) => string.IsNullOrEmpty(cliPath) ? null : StatBinary(cliPath);
 
-    CatalogPathStat[] StatCatalogs(IReadOnlyList<string> paths) => [.. paths.Select(StatCatalog)];
+    CatalogPathStat[] StatCatalogs(IReadOnlyList<string> paths, CatalogPathStat[]? previous = null) =>
+        [.. paths.Select(path => StatCatalog(path, previous?.FirstOrDefault(p => p.Path == path) is { Path: not null } p ? p : null))];
 
     /// <summary>A null current fingerprint is a transient (the binary is mid-replacement), never a
     /// change: acting on it would re-probe a file that is not there. A missing catalog file is not

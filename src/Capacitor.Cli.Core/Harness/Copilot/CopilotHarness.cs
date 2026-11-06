@@ -1,3 +1,5 @@
+using Capacitor.Cli.Core.Setup;
+
 namespace Capacitor.Cli.Core.Harness.Copilot;
 
 /// <summary>Copilot as this process sees it.</summary>
@@ -20,11 +22,28 @@ public sealed class CopilotHarness : IHarness<CopilotHarness> {
     /// override a second time.</summary>
     public CopilotPaths Paths { get; }
 
+    const string VsCode = "VS Code";
+
+    static readonly string[] VsCodeExtensionData = [
+        Path.Combine("Code", "User", "globalStorage", "github.copilot-chat"),
+        Path.Combine("Code - Insiders", "User", "globalStorage", "github.copilot-chat"),
+    ];
+
+    // VS Code's own copilot shim sits on the user's PATH with no Copilot CLI behind it.
+    static bool IsVsCodeShim(string path) =>
+        path.Split('/', '\\').Any(segment => segment.Equals("copilot-shim", StringComparison.OrdinalIgnoreCase));
+
+    bool InVsCode(DesktopAppProbe apps) => Paths.HasVsCodeSignIn() || apps.Finds(VsCodeExtensionData);
+
     // The marker covers users who launch Copilot through an IDE wrapper; the PATH probe covers
     // a fresh install that has not created ~/.copilot yet.
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary),
         UserDataSignal = Paths.HasUserData,
+        AppSignal      = InVsCode,
+        HostApp        = (binaries, apps) => binaries.Resolve(CliBinary) is { } cli
+            ? IsVsCodeShim(cli) ? VsCode : null
+            : InVsCode(apps) ? VsCode : null,
         Wired          = () => CopilotHooksInstaller.IsInstalled(Paths.KcapHooksJson),
     };
 }

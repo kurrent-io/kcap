@@ -35,7 +35,7 @@ namespace Capacitor.Cli.Daemon.Harness.Pi;
 /// — so its result channel authenticates from the daemon's own token store and needs no brokered
 /// delivery.</para>
 ///
-/// <para><b>One gate ladder, read by advertisement and launch alike</b> (<see cref="ReviewerRefusal"/>):
+/// <para><b>One gate ladder, read by advertisement and launch alike</b> (<see cref="ReviewerRefusal()"/>):
 /// consent, platform, binary presence and two version floors, so a daemon cannot advertise a reviewer
 /// it would refuse to launch. Consent gates the reviewer only; an interactive launch never consults it.
 /// A borrowed workspace fails closed to an owned worktree — there is no containment substrate here.</para>
@@ -105,8 +105,10 @@ internal sealed partial class PiRpcHostedAgentRuntimeFactory(
 
     public bool BorrowedReviewRequiresIndependentSnapshot => true;
 
-    public UnattendedSupport DescribeUnattendedSupport() =>
-        ReviewerRefusal() is { } reason ? new(false, reason) : new(true, null);
+    public UnattendedSupport DescribeUnattendedSupport() {
+        var reason = ReviewerRefusal(out var probeFailed);
+        return new(reason is null, reason, probeFailed);
+    }
 
     /// <summary>Pi's model rides argv (<c>--model</c>), applied on every launch that resolves one —
     /// unlike a vendor whose model-selection hook is unverified.</summary>
@@ -134,8 +136,11 @@ internal sealed partial class PiRpcHostedAgentRuntimeFactory(
     /// <summary>Null when this daemon may launch a Pi reviewer, else the coded refusal. Consulted for
     /// advertisement and for a review-flow launch only; an interactive launch never asks. Consent and
     /// platform are decided with no probe and no file read — mirrors
-    /// <see cref="Antigravity.AntigravityHostedAgentRuntimeFactory.LaunchRefusal"/>.</summary>
-    internal string? ReviewerRefusal() {
+    /// <see cref="Antigravity.AntigravityHostedAgentRuntimeFactory.LaunchRefusal(bool)"/>.</summary>
+    internal string? ReviewerRefusal() => ReviewerRefusal(out _);
+
+    string? ReviewerRefusal(out bool probeFailed) {
+        probeFailed = false;
         var beforeProbe = PiReviewerCapability.Decide(
             _posixHost, config.PiUnattendedReviewerEnabled, installedVersion: null, minimumVersion: null);
 
@@ -147,6 +152,7 @@ internal sealed partial class PiRpcHostedAgentRuntimeFactory(
                  + $"pi, or set {HarnessId.Pi.PathEnvVar} to its location.";
 
         var installed = _resolveVersion(config.PiPath);
+        probeFailed = string.IsNullOrEmpty(installed);
         var minimum   = VersionStoreFor(config).Affirmed;
         var decision  = PiReviewerCapability.Decide(_posixHost, config.PiUnattendedReviewerEnabled, installed, minimum);
 

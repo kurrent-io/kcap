@@ -1047,7 +1047,8 @@ sealed class SetupCommand(
             Vibe:        harnesses.Detected(HarnessId.MistralVibe),
             Grok:        harnesses.Detected(HarnessId.Grok),
             Muse:        harnesses.Detected(HarnessId.Muse),
-            ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable));
+            ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable),
+            CopilotHostApp: harnesses.Detect(HarnessId.Copilot).HostApp);
 
         bool PromptYesNo(string text) =>
             AnsiConsole.Prompt(new ConfirmationPrompt(text) { DefaultValue = true });
@@ -1138,7 +1139,8 @@ sealed class SetupCommand(
             InstallClaudePlugin:    InstallPlugin,
             InstallCodexHooks:      PluginCommand.InstallCodexHooks,
             InstallCursorHooks:     PluginCommand.InstallCursorHooks,
-            InstallCopilotHooks:    PluginCommand.InstallCopilotHooks,
+            InstallCopilotHooks:    path => PluginCommand.InstallCopilotHooks(path),
+            CopilotHooksNeedPath:   () => PluginCommand.CopilotHooksNeedPath(),
             InstallGeminiHooks:     PluginCommand.InstallGeminiHooks,
             CapacitorOnPath:        () => binaries.Finds("kcap"),
             InstallAgentSkills:     AgentsSkillsInstaller.TryInstall,

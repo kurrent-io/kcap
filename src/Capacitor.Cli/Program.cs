@@ -924,17 +924,17 @@ switch (command) {
         );
     }
     // Internal: spawned detached by the Copilot sessionEnd hook to deliver the
-    // post-hook `session.shutdown` tail Copilot writes after the hook returns
-    // Not a user-facing command.
+    // post-hook `session.shutdown` tail, then the session end. Not a user-facing
+    // command. A hook from an older install can start this binary without the end.
     case "copilot-finalize" when args.Length < 3:
-        Console.Error.WriteLine("Usage: kcap copilot-finalize <sessionId> <transcriptPath>");
+        Console.Error.WriteLine("Usage: kcap copilot-finalize <sessionId> <transcriptPath> [endBody]");
 
         return 1;
     case "copilot-finalize": {
         var cfSessionId = args[1].Replace("-", "");
         var cfPath      = args[2];
 
-        return await Run<CopilotFinalizeDrainCommand>().Run(cfSessionId, cfPath);
+        return await Run<CopilotFinalizeDrainCommand>().Run(cfSessionId, cfPath, args.Length > 3 ? args[3] : null);
     }
     case "set-title" when args.Length < 2 || args is [_, SetTitleCommand.AutoFlag]:
         Console.Error.WriteLine("Usage: kcap set-title [--auto] <title>");
@@ -999,6 +999,8 @@ switch (command) {
         if (args.Contains("--claude") && args.Contains("--plan-edit")) {
             return await Run<ClaudeHookCommand>().HandlePlanEdit(new StringReader(claudeHookBody!));
         }
+        if (args.Contains("--claude")) await Run<ClaudeHookCommand>().RelaySessionStartAsync(claudeHookBody!);
+
         if (args.Contains("--claude") && baseUrl is not null) {
             claudeHookBody = await Run<ClaudeHookCommand>().PrepareForDrain(claudeHookBody!);
             HookTiming.Mark("session-claim");

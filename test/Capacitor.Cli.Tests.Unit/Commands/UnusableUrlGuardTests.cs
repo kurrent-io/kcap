@@ -143,7 +143,7 @@ public class UnusableUrlGuardTests : IDisposable {
         // guard merely lets Process.Start throw or return null, leaving every effect identical.
         var starter = FakeProcessStarter.Refusing();
 
-        GuardedManager(starter).SpawnCopilotFinalizeDrain(Sid, Path.Combine(_dir, "t.jsonl"));
+        GuardedManager(starter).SpawnCopilotFinalizeDrain(Sid, Path.Combine(_dir, "t.jsonl"), "{}");
 
         await Assert.That(starter.Starts).IsEqualTo(0);
     }

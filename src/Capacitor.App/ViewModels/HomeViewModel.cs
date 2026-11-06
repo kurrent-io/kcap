@@ -92,7 +92,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     /// A daemon attached by name that serves another server: signing in again cannot move it.
     internal static string DaemonOnOtherServerNotice(string daemonServer, string appServer) {
         var (daemonLabel, appLabel) = AttachedIdentity.ServerLabels(daemonServer, appServer);
-        return $"This machine's daemon uses another server. It's connected to {daemonLabel}, so it can't run agents for {appLabel}.";
+        return $"This machine's daemon uses another server. It's set up for {daemonLabel}, so it can't run agents for {appLabel}.";
     }
 
     /// The daemon's server when it is known and is not the app's; null otherwise, an unknown side included.
@@ -314,6 +314,35 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         private set {
             this.RaiseAndSetIfChanged(ref _startError, value);
             StartErrorOffersDefault = false;
+            this.RaisePropertyChanged(nameof(CanRequestRepositoryAccess));
+        }
+    }
+
+    public bool CanRequestRepositoryAccess => !RemoteMachineSelected
+        && !string.IsNullOrEmpty(SelectedRepoPath)
+        && StartError is { } error
+        && error.Contains($"Access to the path '{SelectedRepoPath}' is denied", StringComparison.OrdinalIgnoreCase);
+
+    bool _requestingRepositoryAccess;
+    public async Task RequestRepositoryAccessAsync(Func<string, Task<bool>> requestAccess) {
+        if (!CanRequestRepositoryAccess || _requestingRepositoryAccess) return;
+        var path = SelectedRepoPath;
+        var error = StartError;
+        _requestingRepositoryAccess = true;
+        try {
+            if (!await requestAccess(path)) return;
+            await Task.Run(() => {
+                // Directory.Exists masks permission failures. Enumerating forces a real access check,
+                // including for an empty repository.
+                using var entries = Directory.EnumerateFileSystemEntries(path).GetEnumerator();
+                entries.MoveNext();
+            });
+            if (!RemoteMachineSelected && SelectedRepoPath == path && StartError == error)
+                StartError = null;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) {
+            // Keep the original refusal and draft available for another attempt.
+        } finally {
+            _requestingRepositoryAccess = false;
         }
     }
 
@@ -529,7 +558,10 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     /// wires the machine picker ever sees.
     public bool RemoteMachineSelected {
         get => _remoteMachineSelected;
-        private set => this.RaiseAndSetIfChanged(ref _remoteMachineSelected, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref _remoteMachineSelected, value);
+            this.RaisePropertyChanged(nameof(CanRequestRepositoryAccess));
+        }
     }
 
     // Drives the reactive pipelines below (CanExecute, Harnesses) — a subject rather than
@@ -749,7 +781,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         // The account choice follows the target: support from the server's listing (this machine's
         // daemon through its own row in it, never the socket), that host's snapshot, and memory.
         _accountChooser = new AccountChooser(
-            (hostId, vendor, repoPath) => AccountMemory.Lookup(_accountMemory, hostId, vendor, repoPath), RememberAccount);
+            (hostId, vendor, repoPath, remote) => AccountMemory.Lookup(_accountMemory, hostId, vendor, repoPath, remote), RememberAccount);
         _accountChooser.Changed += PublishAccountChoice;
         _retryListing = retryListing;
         if (listing is not null) {
@@ -796,7 +828,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         // ordering guarantees a real value is there (MainWindowViewModel's identical seam comment).
         var foreignServer = daemon.Snapshots.Select(s => ForeignDaemonServer(s.Daemon.ServerUrl, appServerUrl))
             .StartWith((string?)null).DistinctUntilChanged();
-        // A daemon serving another server is connected to the wrong one: it cannot launch for this app.
+        // A daemon serving another server cannot launch for this app.
         var daemonAvailability = daemon.Status.CombineLatest(
             daemon.Snapshots.Select(s => s.Daemon.Connection).StartWith(""), AvailabilityFor);
         var availability = daemonAvailability.CombineLatest(foreignServer,
@@ -1424,8 +1456,19 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             if (!Untouched()) return;
             bool OnMachine() => RemoteMachineSelected && string.Equals(SelectedMachine, machine, StringComparison.Ordinal);
             if (!OnMachine()) await SelectMachineAsync(machine, isLocal: false);
-            if (OnMachine()) await SelectRepositoryAsync(path);
+            if (OnMachine()) await SelectRepositoryAsync(OutermostOwner(path));
             return;
+        }
+
+        // A session started inside an agent worktree records that worktree; launching from it
+        // would nest the new worktree where removing the outer one deletes it. An owner that is
+        // itself an agent worktree's root unwraps again; a repository in a subdirectory of one stays.
+        static string OutermostOwner(string path) {
+            while (GitRepository.AgentWorktreeOf(path) is { } wt) {
+                path = wt.Owner;
+                if (GitRepository.AgentWorktreeOf(path) is not { } outer || outer.Worktree != path) break;
+            }
+            return path;
         }
 
         var root = await Task.Run(() => Directory.Exists(path) ? PlatformPaths.Normalize(GitRepository.ResolveMainRepoRoot(path)) : "");
@@ -1810,7 +1853,7 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
             if (_accountTarget is not { } last || !PathComparerFor(sel.Remote).Equals(last.RepoPath, repoPath)
              || last.Vendor != vendor || last.Machine != machine || last.Remote != sel.Remote) {
                 _accountTarget = (repoPath, vendor, machine, sel.Remote);
-                _accountChooser.EnterTarget(repoPath, vendor);
+                _accountChooser.EnterTarget(repoPath, vendor, sel.Remote);
             }
             var support = viewer.Resolved ? SupportFor(listing, machine, viewer.Id, sel.Remote) : AccountSupport.Unknown;
             var snapshot = AccountsSnapshotFor(sel.Remote, machine, remoteAccounts, localAccounts);
@@ -1858,14 +1901,14 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     }
 
     /// Written in call order: the chooser also forgets an entry from inside its recompute.
-    void RememberAccount(string hostId, string vendor, string repoPath, string? accountId) {
-        _accountMemory = AccountMemory.With(_accountMemory, hostId, vendor, repoPath, accountId);
+    void RememberAccount(string hostId, string vendor, string repoPath, bool remote, string? accountId) {
+        _accountMemory = AccountMemory.With(_accountMemory, hostId, vendor, repoPath, remote, accountId);
         _accountMemoryWrites = WriteAfterAsync(_accountMemoryWrites);
 
         async Task WriteAfterAsync(Task previous) {
             await previous.ConfigureAwait(false);
             await _state.UpdateAsync(s => s with {
-                AccountByRepo = AccountMemory.With(s.AccountByRepo, hostId, vendor, repoPath, accountId),
+                AccountByRepo = AccountMemory.With(s.AccountByRepo, hostId, vendor, repoPath, remote, accountId),
             }).ConfigureAwait(false);
         }
     }

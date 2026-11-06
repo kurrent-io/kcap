@@ -20,6 +20,14 @@ public partial class SecretPatternsTests {
         "=", "=", " ", "\t", "\n", "\"", "\\", "_", "-", ".", ":", "a", "Z", "9", "\u212A", "\u0130", "abcdefghij", "0123456789"
     ];
 
+    [Test]
+    public async Task The_warmup_sample_reaches_every_watcher_pattern() {
+        var patterns = WatcherPatternWarmup.Patterns.ToList();
+
+        await Assert.That(patterns).IsNotEmpty();
+        await Assert.That(patterns.Where(p => !p.IsMatch(WatcherPatternWarmup.Sample)).Select(p => p.ToString())).IsEmpty();
+    }
+
     [GeneratedRegex(UnanchoredVendorToken)]
     private static partial Regex GeneratedVendorToken();
 

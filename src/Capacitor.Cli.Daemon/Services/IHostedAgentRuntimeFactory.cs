@@ -17,7 +17,8 @@ namespace Capacitor.Cli.Daemon.Services;
 /// <param name="WithheldReason">Non-null only when the vendor CAN host unattended agents and this
 /// daemon is refusing to offer it. Null both when the vendor is offered and when it never claimed
 /// unattended support in the first place.</param>
-internal readonly record struct UnattendedSupport(bool Supported, string? WithheldReason);
+/// <param name="ProbeFailed">A support or version probe could not establish an answer, so classification may be retried.</param>
+internal readonly record struct UnattendedSupport(bool Supported, string? WithheldReason, bool ProbeFailed = false);
 
 /// <summary>
 /// Runtime-selection seam: one implementation per vendor family, chosen by
@@ -131,6 +132,10 @@ internal interface IHostedAgentRuntimeFactory {
     /// <summary>Whether a restart resume of an agent that was waiting for input can start with no prompt at all.
     /// Only a runtime that judges the resume by its process, not by a first turn, may say so.</summary>
     bool ResumesIdleWithoutPrompt(string? runtimeTransport) => false;
+
+    /// <summary>Whether the vendor recorded background work that did not survive a restart, with no turn on it since.
+    /// Asked after a resume with no prompt, because the vendor starts no turn on what it recorded.</summary>
+    bool ReportsLostWork(string? transcriptPath) => false;
 
     /// <summary>The models this vendor can launch on this machine, or null when it publishes no
     /// catalog. Null is also every probe failure: consumers then fall through to their other sources

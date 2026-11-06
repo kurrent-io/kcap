@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Copilot;
+using Capacitor.Cli.Harness.Copilot;
 using Capacitor.Cli.SessionStartMemory;
 using Capacitor.Cli.Core.Harness;
 
@@ -28,17 +30,18 @@ namespace Capacitor.Cli.Commands.Harness;
 ///                  --resume — the server's deterministic lifecycle event ids
 ///                  make the re-POST idempotent and the watcher resumes from
 ///                  the server watermark.
-///   sessionEnd   → spawn the detached copilot-finalize drainer FIRST (it
-///                  must be created before — and outlive — the rest of the
-///                  hook to capture the session.shutdown tail Copilot writes
-///                  after the hook returns), then kill watcher + capped inline
-///                  drain (mirrors Claude's pre-drain cap), then POST
+///   sessionEnd   → spawn the detached copilot-finalize process FIRST (it must
+///                  outlive this hook, which Copilot can kill within seconds, to
+///                  deliver the session.shutdown tail and the session end), then
+///                  kill watcher + capped inline drain, then POST the same end to
 ///                  /hooks/session-end/copilot.
 ///   agentStop    → no server POST. Fires at every turn end; used only to
 ///                  re-enliven a crashed watcher (mirrors Codex's Stop).
 ///   notification → best-effort forward to the Claude-shaped /hooks/notification
 ///                  (Copilot's payload already carries message / title /
 ///                  notification_type in the compatible shape).
+/// VS Code's Local harness runs these same hooks with snake_case fields and a transcript under
+/// <c>GitHub.copilot-chat/transcripts</c>. It fires no sessionEnd: its watcher ends it after going idle.
 /// Copilot treats hook stdout as optional. This dispatcher emits nothing for every event except
 /// sessionStart, which writes a single {"additionalContext":"…"} document when — and only when —
 /// a team-memory fragment is available to inject.
@@ -95,8 +98,8 @@ sealed class CopilotHookCommand(
     /// the shared resolver fall back to the hook PROCESS's cwd and inject an unrelated repository's
     /// memories.</para>
     ///
-    /// <para><b>Eligibility:</b> callers reach this only for a real UUID <c>sessionStart</c> (the
-    /// dispatcher drops tool-call-id subagent firings) and only for a non-excluded, enabled session.
+    /// <para><b>Eligibility:</b> callers reach this only for a real <c>sessionStart</c> (the
+    /// dispatcher drops subagent firings) and only for a non-excluded, enabled session.
     /// Copilot DOES report a lifecycle <c>source</c> (<c>startup</c>/<c>new</c>/<c>resume</c>), so the
     /// reason is mapped from it rather than assumed; re-injection across a resume of the same session
     /// id is prevented by the shared lease keyed on (harness, session id).</para>
@@ -156,7 +159,8 @@ sealed class CopilotHookCommand(
         JsonNode? node;
 
         try {
-            node = JsonNode.Parse(body);
+            // A BOM would fail the parse, and the catch would lose the session silently.
+            node = JsonNode.Parse(body.TrimStart('\uFEFF'));
         } catch {
             // Best effort — never crash the host CLI on a malformed payload.
             return 0;
@@ -164,23 +168,22 @@ sealed class CopilotHookCommand(
 
         if (node is null) return 0;
 
-        // Copilot payloads carry the dashed session uuid under camelCase
-        // `sessionId`. Keep the dashed form for filesystem lookups (the
-        // session-state dir name is dashed) and the dashless form for the
-        // server (AgentSession-{dashless} stream convention shared by every
-        // vendor dispatcher).
-        var dashedSessionId = TryGetString(node, "sessionId");
+        // Copilot payloads carry the dashed session uuid, as `sessionId` from Copilot CLI and VS Code's
+        // Copilot harness and as `session_id` from VS Code's Local harness. Keep the dashed form for
+        // filesystem lookups (the session-state dir name is dashed) and the dashless form for the
+        // server (AgentSession-{dashless} stream convention shared by every vendor dispatcher).
+        var dashedSessionId = TryGetString(node, "sessionId") is { Length: > 0 } camelId
+            ? camelId
+            : TryGetString(node, "session_id");
 
         if (string.IsNullOrEmpty(dashedSessionId)) return 0;
 
-        // Copilot session ids are UUIDs (the session-state dir name) — but
-        // subagent-scoped hook firings reuse the spawning toolCallId as
-        // sessionId (captured v1.0.61 agentStop: sessionId:"toolu_01…",
-        // transcriptPath:""). Those are not sessions: routing them onward
-        // would spawn idle watchers (pid files + SignalR registrations) keyed
-        // on tool-call ids. Subagent activity is already inlined in the
-        // parent session's transcript, so dropping these loses nothing.
-        if (!Guid.TryParse(dashedSessionId, out _)) return 0;
+        // A subagent's firing carries its spawning tool-call id or its own agent id as sessionId. Its
+        // activity is inlined in the parent's transcript, so dropping the firing loses nothing.
+        if (!Guid.TryParse(dashedSessionId, out var session)) return 0;
+
+        if (CopilotSubagentFiring.Is(eventName, session, TryGetString(node, "parentAgentId"), GivenTranscriptPath(node),
+                harnesses.Of<CopilotHarness>().Paths)) return 0;
 
         var sessionId = dashedSessionId.Replace("-", "");
 
@@ -248,7 +251,7 @@ sealed class CopilotHookCommand(
         // Copilot stamps hook payloads with a unix-ms timestamp; forward it as
         // started_at so canonical SessionStarted carries the real start time
         // (the server falls back to UtcNow when absent — precedent).
-        if (TryGetUnixMillis(node, "timestamp") is { } startedAt) {
+        if (TryGetTimestamp(node, "timestamp") is { } startedAt) {
             forwarded["started_at"] = startedAt.ToString("O");
         }
 
@@ -263,7 +266,11 @@ sealed class CopilotHookCommand(
         }
 
         SessionStartInventory.Stamp(forwarded, config, harnesses, HarnessId.Copilot, clock.Time);
-        var enriched = await RepositoryDetection.EnrichWithRepositoryInfo(router, config, forwarded.ToJsonString(), clock.Time);
+
+        // Not the per-folder deduped path: each session needs its own link to the repository.
+        var enriched = cwd is null
+            ? forwarded.ToJsonString()
+            : await RepositoryDetection.EnrichWithRepositoryInfoFromCwd(router, config, forwarded.ToJsonString(), cwd, clock.Time);
 
         // Repo exclusion after enrichment (fast in-payload path) — mark the
         // session so per-turn agentStop events skip via DisabledSessions.
@@ -343,21 +350,32 @@ sealed class CopilotHookCommand(
             string   sessionId,
             string?  cwd
         ) {
-        var transcriptPath = TranscriptPathFor(dashedSessionId);
+        var transcriptPath = GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId);
 
-        // Copilot appends `session.shutdown` (per-model input/cache token
-        // aggregates) — and sometimes the final assistant turn — to events.jsonl
-        // only AFTER this hook returns, by which point the live watcher is dead
-        // (KillWatcher below) and the server's session-end StopAndDrain has run,
-        // so nothing else is reading the file. Spawn the detached finalizer FIRST,
-        // before the capped pre-drain and the retrying session-end POST: if a
-        // slow/unreachable server makes the POST burn the whole hook timeout,
-        // Copilot SIGKILLs the hook — and we must have already created the drainer
-        // by then. It is detached (setsid + closed std streams), so it survives
-        // the hook being killed and still delivers the post-hook tail via one
-        // idempotent inline-drain once `session.shutdown` lands (or it times out).
-        // Its poll budget outlasts the worst-case hook lifetime for this reason.
-        watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath);
+        var forwarded = new JsonObject {
+            ["hook_event_name"] = "sessionEnd",
+            ["session_id"]      = sessionId,
+            ["reason"]          = TryGetString(node, "reason") ?? "complete",
+            ["home_dir"]        = home.Path
+        };
+
+        if (cwd is not null) forwarded["cwd"] = cwd;
+
+        // Stamped whatever the payload carries: the server keys a run's end on it.
+        forwarded["ended_at"] = (TryGetTimestamp(node, "timestamp") ?? clock.Time.GetUtcNow()).ToString("O");
+
+        SessionEndIncarnation.Stamp(forwarded, hosted);
+
+        var end = forwarded.ToJsonString();
+
+        // Copilot writes session.shutdown only after this hook, and on quit stops within seconds of
+        // starting it, killing the hook. The detached finalizer survives that, so it starts first and
+        // carries the end: the server derives its event id from the reason and ended_at, so the two
+        // POSTs of this one body record one SessionEnded.
+        // VS Code's Local harness writes no shutdown line, so nothing would end that wait.
+        if (!CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)) {
+            watchers.SpawnCopilotFinalizeDrain(sessionId, transcriptPath, end);
+        }
 
         // Kill watcher + inline-drain BEFORE the POST so the server computes
         // stats over the full transcript — capped so a slow drain can't starve
@@ -381,23 +399,8 @@ sealed class CopilotHookCommand(
             Console.Error.WriteLine($"[kcap] copilot session-end pre-hook failed: {ex.Message}");
         }
 
-        var forwarded = new JsonObject {
-            ["hook_event_name"] = "sessionEnd",
-            ["session_id"]      = sessionId,
-            ["reason"]          = TryGetString(node, "reason") ?? "complete",
-            ["home_dir"]        = home.Path
-        };
-
-        if (cwd is not null) forwarded["cwd"] = cwd;
-
-        if (TryGetUnixMillis(node, "timestamp") is { } endedAt) {
-            forwarded["ended_at"] = endedAt.ToString("O");
-        }
-
-        SessionEndIncarnation.Stamp(forwarded, hosted);
-
         // AuthLapsed / Posted → clean exit (0); a real failure keeps the prior non-zero exit.
-        return await PostHookAsync("session-end/copilot", forwarded.ToJsonString()) == HookPostOutcome.Failed ? 1 : 0;
+        return await PostHookAsync("session-end/copilot", end) == HookPostOutcome.Failed ? 1 : 0;
     }
 
     async Task<int> HandleAgentStop(JsonNode node, string dashedSessionId, string sessionId, string? cwd) {
@@ -454,19 +457,22 @@ sealed class CopilotHookCommand(
     }
 
     async Task EnsureWatcherAsync(string dashedSessionId, string sessionId, JsonNode node, string? cwd) {
-        // agentStop payloads carry transcriptPath; sessionStart's don't —
-        // derive it from the session-state layout in that case. Copilot also
-        // ships transcriptPath as an EMPTY STRING on some firings, so treat
-        // empty as absent rather than spawning a watcher on "".
-        var transcriptPath = TryGetString(node, "transcriptPath") is { Length: > 0 } tp
-            ? tp
-            : TranscriptPathFor(dashedSessionId);
+        // Copilot CLI's sessionStart payload names no transcript, so derive it from the session-state
+        // layout in that case.
+        var transcriptPath = GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId);
 
         await watchers.EnsureWatcherRunning(sessionId, transcriptPath,
             agentId: null, sessionIdOverride: null, cwd: cwd,
             skipTitle: false, vendor: "copilot"
         );
     }
+
+    /// <summary>The transcript a payload names, in either form. Copilot ships an EMPTY STRING on some
+    /// firings, which counts as naming none rather than spawning a watcher on "".</summary>
+    static string? GivenTranscriptPath(JsonNode node) =>
+        TryGetString(node, "transcriptPath") is { Length: > 0 } camel ? camel
+      : TryGetString(node, "transcript_path") is { Length: > 0 } snake ? snake
+      : null;
 
     /// <summary>
     /// events.jsonl path for a session. Prefers the current
@@ -499,13 +505,17 @@ sealed class CopilotHookCommand(
         return idx >= 0 && idx + 1 < args.Length ? args[idx + 1] : null;
     }
 
-    static DateTimeOffset? TryGetUnixMillis(JsonNode? node, string fieldName) {
+    /// <summary>Unix milliseconds from Copilot CLI and the Copilot harness, ISO-8601 text from VS Code's Local harness.</summary>
+    static DateTimeOffset? TryGetTimestamp(JsonNode? node, string fieldName) {
         if (node?[fieldName] is not JsonValue v) return null;
 
         if (v.TryGetValue<long>(out var ms) && ms > 0) return DateTimeOffset.FromUnixTimeMilliseconds(ms);
         if (v.TryGetValue<double>(out var dms) && dms > 0) return DateTimeOffset.FromUnixTimeMilliseconds((long)dms);
 
-        return null;
+        return v.TryGetValue<string>(out var text)
+         && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed)
+            ? parsed
+            : null;
     }
 
     static string? TryGetString(JsonNode? node, string fieldName) {

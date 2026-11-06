@@ -325,7 +325,24 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     string _stripLabel = "";
     public string StripLabel {
         get => _stripLabel;
-        private set => this.RaiseAndSetIfChanged(ref _stripLabel, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref _stripLabel, value);
+            this.RaisePropertyChanged(nameof(StripSummary));
+        }
+    }
+
+    public string StripSummary {
+        get {
+            if (ProbedStart is not { } start)
+                return StripLabel.Length > 0 ? "Starting point will be checked with origin when you start." : "";
+            var sha = start.StartSha.Length > 7 ? start.StartSha[..7] : start.StartSha;
+            var branch = start.Branch;
+            if (branch is not null && start.HeadIsFork && start.HeadOwner is { } owner)
+                branch = $"{owner}:{branch}";
+            var summary = branch is { Length: > 0 } ? $"Starting from {branch} at {sha}" : $"Starting at {sha}";
+            return start.Checkout == nameof(HandoffCheckout.Detached)
+                ? $"{summary} · No branch checked out" : summary;
+        }
     }
 
     string? _completenessNote;
@@ -374,7 +391,10 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     /// The start the strip shows, which a launch sends unchanged.
     public HandoffLaunchStart? ProbedStart {
         get => _probedStart;
-        private set => this.RaiseAndSetIfChanged(ref _probedStart, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref _probedStart, value);
+            this.RaisePropertyChanged(nameof(StripSummary));
+        }
     }
 
     bool _startsFromOrigin;
@@ -912,7 +932,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     internal static string? CompletenessNoteFor(string? completeness, IReadOnlyList<string>? missingCommits) => completeness switch {
         nameof(HandoffCompleteness.Complete) => null,
         nameof(HandoffCompleteness.PartlyMissing) => $"Part of the session's work is missing: {missingCommits?.Count ?? 0} commits",
-        _ => "The session may have left work that isn't pushed",
+        _ => "Previous session may have unpushed work",
     };
 
     public void Dispose() {

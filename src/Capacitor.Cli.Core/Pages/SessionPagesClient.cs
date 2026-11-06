@@ -1,4 +1,7 @@
 using System.Net.Http.Json;
+using System.Net.Mime;
+using System.Text;
+using System.Text.Json.Nodes;
 using System.Text.Json;
 using Capacitor.Cli.Core.Plans;
 using Capacitor.Cli.Core.WorkItems;
@@ -29,6 +32,27 @@ public sealed class SessionPagesClient(HttpClient http, string serverUrl) {
             };
         } catch (Exception e) when (IsTransient(e, ct)) {
             return SessionPagesRead.Of(SessionPlansReadKind.Unreachable);
+        }
+    }
+
+    /// Cites <paramref name="sessionId"/> on the page: true when the server recorded it, false when it
+    /// refused (not the caller's page, or a server without the route), null when asking again may work.
+    public async Task<bool?> CiteAsync(string pageId, string sessionId, CancellationToken ct) {
+        if (WorkContextIds.CanonicalSessionId(sessionId) is not { } id || string.IsNullOrWhiteSpace(pageId)) return false;
+
+        try {
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{_base}/api/artefacts/{Uri.EscapeDataString(pageId)}/sources") {
+                Content = new StringContent(new JsonObject { ["session_id"] = id }.ToJsonString(), Encoding.UTF8, MediaTypeNames.Application.Json)
+            };
+            using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+
+            return (int)resp.StatusCode switch {
+                >= 200 and < 300 => true,
+                401 or 408 or 429 or >= 500 => null,
+                _ => false,
+            };
+        } catch (Exception e) when (IsTransient(e, ct)) {
+            return null;
         }
     }
 

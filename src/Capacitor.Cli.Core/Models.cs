@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Eval.Contracts;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Titles;
@@ -151,13 +152,15 @@ class WatchState {
     public RepoEvidenceScanner<RepositoryPayload>? EvidenceScanner        { get; set; }
     public bool                                    RepositoryFromEvidence { get; set; }
 
-    // Claude session watcher only: checkouts the agent mutated outside its launch cwd, each
+    // Claude session watcher only: checkouts the agent or its subagents mutated outside its launch cwd, each
     // probed for a PR the cwd probe cannot see. A PR joins LinkedPullRequests only once the
     // server accepted it, so a failed post retries on the next pass.
-    public SecondaryRepoRoots?                                  SecondaryRoots     { get; set; }
-    public HashSet<(string Owner, string RepoName, int Number)> LinkedPullRequests { get; } = [];
-    public DateTimeOffset                                       LastSecondaryProbe { get; set; }
-    public string?                                              NextSecondaryRoot  { get; set; }
+    public SecondaryRepoRoots?                                  SecondaryRoots           { get; set; }
+    public HashSet<(string Owner, string RepoName, int Number)> LinkedPullRequests       { get; } = [];
+    public DateTimeOffset                                       LastSecondaryProbe       { get; set; }
+    public string?                                              NextSecondaryRoot        { get; set; }
+    public ClaudeSubagentCheckouts?                             SubagentCheckouts        { get; set; }
+    public DateTimeOffset                                       LastSubagentCheckoutScan { get; set; }
 
     // Claude session and subagent watchers: PRs the transcript shows the agent creating, kept
     // until the server accepts them.
@@ -236,6 +239,17 @@ class WatchState {
     // writes nothing between the two, so without this the ceiling would reap a live subagent.
     // Only populated for claude child watchers — nothing else reads it.
     public HashSet<string> PendingClaudeToolCalls { get; } = new(StringComparer.Ordinal);
+
+    // Same guard for a VS Code Local session's idle end. Only populated for those watchers.
+    public HashSet<string> PendingCopilotToolCalls { get; } = new(StringComparer.Ordinal);
+
+    // When a session.shutdown became the transcript's last line, while it still is.
+    public DateTimeOffset? CopilotShutdownSeenAt { get; set; }
+
+    public DateTimeOffset StartedAt { get; set; }
+
+    // No Copilot process was found above this session's watcher, so nothing would end it but going idle.
+    public bool CopilotHostMissing { get; set; }
 
     // Codex collab CHILD watcher only (vendor == "codex" && agentId != null): folds the child
     // rollout's own task_complete/turn-activity lines so the polling loop can post a LIVE
@@ -1334,7 +1348,9 @@ partial class CapacitorJsonContext : JsonSerializerContext;
 public readonly record struct PermissionDecision(
         string       Behavior,
         JsonElement? ApplyPermissions,
-        JsonElement? UpdatedInput
+        JsonElement? UpdatedInput,
+        // The reason a person gave with a deny. Absent from a server that predates it.
+        string?      Message = null
     );
 
 /// <summary>
@@ -2343,7 +2359,10 @@ public readonly record struct DaemonConnect(
         bool                                        SupportsHandoffLaunch = false,
         // Accepts a LaunchAgentCommand.ResumeInPlace launch. False from a daemon predating it, which would
         // ignore the block and start an ordinary session.
-        bool                                        SupportsResumeInPlace = false
+        bool                                        SupportsResumeInPlace = false,
+        // Relays a deny's Message to the agent. False from a daemon predating it; the server then
+        // tells the person their reason was not delivered.
+        bool                                        SupportsDenyMessage = false
     );
 
 public sealed record UnattendedVendorCapability(

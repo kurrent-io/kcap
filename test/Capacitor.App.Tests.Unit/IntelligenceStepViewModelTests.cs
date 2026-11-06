@@ -36,6 +36,33 @@ public class IntelligenceStepViewModelTests {
         await Assert.That(h.Option("codex").IsSelected).IsTrue();
     }
 
+    /// Copilot and Cursor cannot run the server's headless prompts, so the page promises an agent only when it offers one.
+    [Test]
+    public async Task The_page_mentions_a_local_agent_only_when_it_offers_one() {
+        var offered = new Harness();
+        await offered.EnterAsync();
+        await Assert.That(offered.Vm.Lede!).Contains("your own coding agent");
+
+        var copilotOnly = new Harness { Ticked = [HarnessId.Copilot], Headless = [] };
+        await copilotOnly.EnterAsync();
+        await Assert.That(copilotOnly.Vm.Options.Any(o => o.IsLocalAgent)).IsFalse();
+        await Assert.That(copilotOnly.Vm.Lede!).DoesNotContain("your own coding agent");
+        await Assert.That(copilotOnly.Vm.Lede!).Contains("a provider with your API key");
+        await Assert.That(copilotOnly.Vm.Lede!).Contains("Claude Code, Codex, Pi and OpenCode");
+    }
+
+    [Test]
+    [Arguments("claude", "My local agent: Claude Code", "Runs on this machine through Claude Code's own sign-in and quota. Nothing goes anywhere it does not already send.")]
+    [Arguments("codex", "My local agent: Codex", "Runs on this machine through Codex's own sign-in and quota. Nothing goes anywhere it does not already send.")]
+    [Arguments("pi", "My local agent: Pi", "Runs on this machine through Pi's own sign-in or key. Nothing goes anywhere it does not already send.")]
+    [Arguments("opencode", "My local agent: OpenCode", "Runs on this machine through OpenCode's own sign-in or key. Nothing goes anywhere it does not already send.")]
+    public async Task A_local_agent_card_names_the_agent_and_where_its_access_comes_from(string token, string label, string detail) {
+        var option = IntelligenceOption.LocalAgent(token);
+
+        await Assert.That(option.Label).IsEqualTo(label);
+        await Assert.That(option.Detail).IsEqualTo(detail);
+    }
+
     /// The Harnesses page can change between visits; an agent unticked there must not be offered, or sent, here.
     [Test]
     public async Task Coming_back_after_the_ticks_change_offers_the_new_ticks_and_keeps_a_choice_still_offered() {

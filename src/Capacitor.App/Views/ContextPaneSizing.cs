@@ -32,7 +32,8 @@ public static class ContextPaneSizing {
             if (panes is not null) panes.Changed -= OnChanged;
             panes = null;
         };
-        view.SizeChanged += (_, e) => column.MaxWidth = e.NewSize.Width * PaneLayout.MaxShare;
+        view.SizeChanged += (_, e) =>
+            column.MaxWidth = PaneLayout.MaxWidth(e.NewSize.Width, PaneLayout.ContextMinWidth, PaneLayout.SessionMinWidth);
         splitter.DragDelta += (_, _) =>
             pane.Opacity = panes is not null && PaneLayout.HidesAt(column.ActualWidth, PaneLayout.ContextMinWidth)
                 ? PaneLayout.HidingOpacity

@@ -8,7 +8,8 @@ namespace Capacitor.Cli.Core.Setup;
 /// <see cref="Detected"/> is their OR: a fresh install has written nothing yet, and a desktop app
 /// bundles its CLI off PATH.
 /// </summary>
-public sealed record DetectedAgent(bool BinaryFound, bool InstallSignalFound, bool DesktopAppFound = false) {
+/// <param name="HostApp">The app this vendor runs inside, named when that is how it got here.</param>
+public sealed record DetectedAgent(bool BinaryFound, bool InstallSignalFound, bool DesktopAppFound = false, string? HostApp = null) {
     /// <summary>No signal — what an id outside this process's registry reads as.</summary>
     public static readonly DetectedAgent None = new(false, false);
 

@@ -6,6 +6,7 @@ using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
@@ -43,10 +44,9 @@ public class AgentOrchestratorCapabilityRefreshTests {
         return (orch, server, captured!);
     }
 
-    // No unattended vendors, so the capability half reads unchanged and only the catalog decides.
     static (AgentOrchestrator Orchestrator, CaptureServerConnection Server, DaemonConfig Config) BuildWithCatalog(
             StubCatalogFactory factory, Dictionary<string, VendorModelOption[]>? initial,
-            bool supported = true, Exception? registerThrow = null) {
+            bool supported = true, Exception? registerThrow = null, bool classifyAtStartup = false) {
         var server = new CaptureServerConnection { RegisterDaemonThrow = registerThrow };
         DaemonConfig? captured = null;
         var orch = AgentOrchestratorHarness.BuildOrchestrator(
@@ -57,6 +57,11 @@ public class AgentOrchestratorCapabilityRefreshTests {
                 config.UnattendedVendorCapabilities = [];
                 config.VendorModels                 = initial;
                 config.SupportedVendors             = supported ? [factory.Vendor] : [];
+                if (classifyAtStartup) {
+                    var statuses = DaemonRunner.ClassifyUnattendedVendors([factory]);
+                    config.UnattendedVendors = DaemonRunner.AdvertisedUnattendedVendors(statuses);
+                    config.StartupUnattendedClassificationPending = statuses.Any(s => s.ProbeFailed);
+                }
                 captured = config;
             });
         return (orch, server, captured!);
@@ -67,6 +72,127 @@ public class AgentOrchestratorCapabilityRefreshTests {
 
     static string? ClaudeVersion(DaemonConfig config) =>
         config.UnattendedVendorCapabilities!.Single(c => c.Vendor == "claude").CliVersion;
+
+    [Test]
+    public async Task Discovery_refresh_advertises_a_vendor_installed_after_startup() {
+        var factory = new StubCatalogFactory("cursor", models: null);
+        var (orch, server, config) = BuildWithCatalog(factory, initial: null, supported: false);
+        await using var _ = orch;
+
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+
+        await Assert.That(config.SupportedVendors).IsEquivalentTo(["cursor"]);
+        await Assert.That(config.AcpPresetVendors).IsEquivalentTo(["cursor"]);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task Discovery_retries_withheld_classification_without_an_installation_change(bool throws, bool startup) {
+        var factory = new StubCatalogFactory("cursor", models: null) {
+            CliPathOverride = "",
+            UnattendedProbe = () => throws
+                ? throw new TimeoutException("temporary probe failure")
+                : new(false, "cursor_reviewer_version_unresolved: temporary probe failure", ProbeFailed: true)
+        };
+        var (orch, server, config) = BuildWithCatalog(factory, initial: null, supported: startup, classifyAtStartup: startup);
+        await using var _ = orch;
+        var discoveryPublications = startup ? 0 : 1;
+
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(config.SupportedVendors).IsEquivalentTo(["cursor"]);
+        await Assert.That(config.UnattendedVendors).IsEmpty();
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(discoveryPublications);
+
+        factory.UnattendedProbe = () => new(true, null);
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(config.UnattendedVendors).IsEquivalentTo(["cursor"]);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(discoveryPublications + 1);
+
+        var probes = factory.UnattendedProbeCalls;
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(factory.UnattendedProbeCalls).IsEqualTo(probes);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(discoveryPublications + 1);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_permanent_refusal_does_not_schedule_repeated_classifications(bool startup) {
+        var factory = new StubCatalogFactory("gemini", models: null) {
+            CliPathOverride = "",
+            UnattendedProbe = () => new(false, "gemini_unattended_reviewer_disabled")
+        };
+        var (orch, server, _) = BuildWithCatalog(factory, initial: null, supported: startup, classifyAtStartup: startup);
+        await using var _ = orch;
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        var probes = factory.UnattendedProbeCalls;
+        var registrations = server.RegisterDaemonCalls;
+
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(factory.UnattendedProbeCalls).IsEqualTo(probes);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(registrations);
+    }
+
+    [Test]
+    public async Task Periodic_discovery_runs_without_a_login_shell_PATH_probe() {
+        var factory = new StubCatalogFactory("cursor", models: null);
+        var (orch, server, _) = BuildWithCatalog(factory, initial: null, supported: false);
+        await using var _ = orch;
+        var time = new FakeTimeProvider();
+        using var refresh = new AgentDiscoveryRefresh(null, orch, time, NullLogger<AgentDiscoveryRefresh>.Instance);
+        await refresh.StartAsync(CancellationToken.None);
+        try {
+            using var deadline = new CancellationTokenSource(BoundedWait.Deadline);
+            while (server.RegisterDaemonCalls == 0) {
+                time.Advance(TimeSpan.FromMinutes(1));
+                await Task.Delay(20, deadline.Token);
+            }
+            await orch.CapabilityRefreshForTest;
+            await Assert.That(server.RegisterDaemonCalls).IsEqualTo(1);
+        } finally {
+            await refresh.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Test]
+    public async Task Unchanged_discovery_does_not_probe_catalogs_or_republish() {
+        var factory = new StubCatalogFactory("cursor", models: null);
+        var (orch, server, _) = BuildWithCatalog(factory, initial: null);
+        await using var _ = orch;
+
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+
+        await Assert.That(factory.ProbeCalls).IsEqualTo(0);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Discovery_retries_a_failed_publication_on_the_next_poll() {
+        var factory = new StubCatalogFactory("cursor", models: null);
+        var (orch, server, _) = BuildWithCatalog(factory, initial: null, supported: false,
+            registerThrow: new IOException("temporary disconnect"));
+        await using var _ = orch;
+
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(1);
+
+        server.RegisterDaemonThrow = null;
+        orch.RefreshAgentDiscovery();
+        await orch.CapabilityRefreshForTest;
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(2);
+    }
 
     [Test]
     [UnsupportedOSPlatform("windows")]

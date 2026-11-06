@@ -182,6 +182,7 @@ sealed class CaptureServerConnection : ServerConnection {
     /// the server sees carries the model the process actually runs (the pinned explicit-reviewer
     /// LaunchModel, not the dispatched cmd.Model).</summary>
     public List<(string AgentId, string? Model)> AgentRegisteredCalls { get; } = [];
+    public List<(string AgentId, string? RepoPath)> AgentRegisteredRepoPaths { get; } = [];
 
     /// <summary>The applied Codex posture echoed on each registration, in call order — proves the
     /// initial registration and every reconnect re-registration report the same pair.</summary>
@@ -214,6 +215,7 @@ sealed class CaptureServerConnection : ServerConnection {
         string? accountDirectory = null, string? accountId = null, string? accountLabel = null,
         string? resumedSessionId = null, bool resumeFirstAnnounce = false) {
         AgentRegisteredCallCount++;
+        lock (AgentRegisteredRepoPaths) AgentRegisteredRepoPaths.Add((agentId, repoPath));
         lock (AgentRegisteredContinues) AgentRegisteredContinues.Add((agentId, continuesAgentId));
         lock (AgentRegisteredResumes) AgentRegisteredResumes.Add((agentId, resumedSessionId, resumeFirstAnnounce));
         lock (AgentRegisteredTitles) AgentRegisteredTitles.Add((agentId, title));

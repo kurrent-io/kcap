@@ -59,6 +59,28 @@ public sealed class ClaudeHookCommand(
     /// <see cref="HookBudget.Safety"/>; must match the session-start timeout in <c>kcap/hooks/hooks.json</c>.</summary>
     internal static readonly TimeSpan SessionStartCeiling = TimeSpan.FromSeconds(9);
 
+    /// <summary>Tells the hosting daemon the session started, for a launch prompt that may be held on
+    /// it. Program runs this ahead of the claim and the spool drain, which can spend the whole hook
+    /// budget and would then drop the notice.</summary>
+    public async Task RelaySessionStartAsync(string body) {
+        if (hosted.AgentId is null) return;
+
+        string? sessionId, cwd;
+        try {
+            var node = JsonNode.Parse(body);
+            if (node?["hook_event_name"]?.GetValue<string>() is not { } ev || ToKebab(ev) != "session-start") return;
+
+            sessionId = node["session_id"]?.GetValue<string>()?.Replace("-", "");
+            cwd       = node["cwd"]?.GetValue<string>();
+        } catch {
+            return;
+        }
+
+        if (ClaudeHelperRun.IsHelperRun(sessionId, cwd)) return;
+
+        await DaemonBridgeRelay.NotifySessionStartedAsync(hosted, "claude", sessionId, cwd, clock.Budget(Ceiling("session-start")));
+    }
+
     public Task<string> PrepareForDrain(string body) =>
         ClaudeSessionStartClaim.PrepareAsync(body, config,
             () => ProcessHelpers.GetCodingAgentPid("claude", allowFallback: false),
@@ -265,6 +287,13 @@ public sealed class ClaudeHookCommand(
             // Ahead of both arms below, since each claims the new session before it posts.
             if (node is JsonObject hook && PreviousSession.Stamp(hook, config, () => ProcessHelpers.GetCodingAgentPid("claude", allowFallback: false)))
                 body = hook.ToJsonString();
+
+            // The server dates a start it is given no time for when it writes it, and a resume can
+            // replay from the spool after its own process started runs the boundary must not reach.
+            if (command == "session-start" && source == "resume" && node is JsonObject resumed && resumed["started_at"] is null) {
+                resumed["started_at"] = clock.Time.GetUtcNow().ToString("O");
+                body = resumed.ToJsonString();
+            }
         } catch { }
 
         if (command == "session-end" && SessionEndFence.ShouldHold(hosted, sessionId)) return 0;

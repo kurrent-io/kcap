@@ -1,3 +1,4 @@
+using Capacitor.Cli.Capture;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
@@ -16,6 +17,19 @@ static class TestWatchers {
 
         return new WatcherManager(
             config, profiles, http, starter, paths, new ProcessWatcherSpawner(config, profiles, paths, starter, TimeProvider.System), TimeProvider.System);
+    }
+
+    /// <summary>A manager whose drains run the test's redaction and start from its commit observation.</summary>
+    public static WatcherManager For(
+            ConfigRoot config, ProfileContext profiles, ICapacitorHttpClient http, Func<InlineDrainRedaction> drainRedaction, CommitObservation? drainCommits = null) {
+        var paths   = WatcherPaths.FromEnvironment(config);
+        var starter = SystemProcessStarter.Instance;
+
+        return new WatcherManager(
+            config, profiles, http, starter, paths, new ProcessWatcherSpawner(config, profiles, paths, starter, TimeProvider.System), TimeProvider.System) {
+            DrainRedaction = drainRedaction,
+            DrainCommits   = drainCommits
+        };
     }
 
     /// <summary>A manager whose spawn decisions the test observes instead of launching.</summary>

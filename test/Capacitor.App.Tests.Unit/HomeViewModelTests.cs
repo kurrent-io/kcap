@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using TUnit.Assertions.Enums;
 using System.Collections.Frozen;
 using System.Reactive.Concurrency;
@@ -78,6 +79,50 @@ public class HomeViewModelTests {
             await Assert.That(vm.ModelChoicesFor("gemini").Select(m => m.Slug)).Contains("gemini-3-pro");
             await Assert.That(vm.ModelChoicesFor("claude").Select(m => m.Slug)).Contains("claude-opus-5");
             await Assert.That(vm.ModelChoicesFor("cursor")).IsEmpty();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Folder_access_recovery_preserves_the_draft_and_clears_only_after_access() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            await vm.SelectRepositoryAsync(Tmp.Path);
+            vm.Goal = "Keep this draft";
+            launch.Next = new(false, null, $"Access to the path '{Tmp.Path}' is denied.");
+            await vm.StartCommand.Execute();
+            await Assert.That(vm.CanRequestRepositoryAccess).IsTrue();
+            await AvaloniaSession.DispatchAsync(() => {
+                var view = new Capacitor.App.Views.LauncherPaneView { DataContext = vm };
+                var window = new Avalonia.Controls.Window { Content = view, Width = 1000, Height = 720 };
+                try {
+                    window.Show();
+                    Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                    window.UpdateLayout();
+                    if (!view.FindControl<Avalonia.Controls.Button>("RequestRepositoryAccessButton")!.IsVisible)
+                        throw new InvalidOperationException("Folder recovery action is hidden");
+                    if (Environment.GetEnvironmentVariable("KCAP_ACCESS_SHOT") is { } shot) {
+                        Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                        using var frame = Avalonia.Headless.HeadlessWindowExtensions.CaptureRenderedFrame(window)!;
+                        frame.Save(shot, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+                    }
+                } finally { window.Close(); }
+            });
+            await vm.RequestRepositoryAccessAsync(_ => Task.FromResult(false));
+            await Assert.That(vm.StartError).IsNotNull();
+            await Assert.That(vm.CanRequestRepositoryAccess).IsTrue();
+            var vendor = vm.SelectedVendor;
+            var model = vm.SelectedModel;
+            var mode = vm.SelectedPermissionMode;
+            await vm.RequestRepositoryAccessAsync(_ => throw new UnauthorizedAccessException());
+            await Assert.That(vm.StartError).IsNotNull();
+            await vm.RequestRepositoryAccessAsync(_ => Task.FromResult(true));
+            await Assert.That(vm.StartError).IsNull();
+            await Assert.That(vm.SelectedVendor).IsEqualTo(vendor);
+            await Assert.That(vm.SelectedModel).IsEqualTo(model);
+            await Assert.That(vm.SelectedPermissionMode).IsEqualTo(mode);
+            await Assert.That(vm.Goal).IsEqualTo("Keep this draft");
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(Tmp.Path);
         });
     }
 
@@ -1606,7 +1651,7 @@ public class HomeViewModelTests {
             lane.StatusSubject.OnNext(new ServerLaneStatus(laneState));
 
             await Assert.That(vm.ConnectionNotice)
-                .IsEqualTo("This machine's daemon uses another server. It's connected to norton.kcap.ai, so it can't run agents for kurrent.kcap.ai.");
+                .IsEqualTo("This machine's daemon uses another server. It's set up for norton.kcap.ai, so it can't run agents for kurrent.kcap.ai.");
             await Assert.That(vm.SignInVisible).IsFalse();
             await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsFalse();
         });
@@ -3412,6 +3457,46 @@ public class HomeViewModelTests {
 
             await Assert.That(vm.RemoteMachineSelected).IsEqualTo(adopted);
             await Assert.That(vm.SelectedRepoPath).IsEqualTo(adopted ? "/srv/repo" : "/repo/a");
+        });
+    }
+
+    [Test]
+    [Arguments("/srv/repo/.capacitor/worktrees/agent-1")]
+    [Arguments("/srv/repo/.claude/worktrees/agent-1")]
+    [Arguments("/srv/repo/.capacitor/worktrees/agent-1/.claude/worktrees/agent-2")]
+    [Arguments("/srv/repo/.capacitor/worktrees/agent-1/src")]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_remote_session_in_an_agent_worktree_selects_the_repository_that_owns_it(string worktree) {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var daemon = new FakeDaemonClientService();
+            Connect(daemon);
+            var remote = new FakeRemoteAgents();
+            remote.DaemonsSubject.OnNext([Box("u1")]);
+            using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("app-state.json")), new RecordingLaunchClient(),
+                Known(), TimeProvider.System, daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
+
+            await vm.SelectRepositoryOfAsync(LocalRow(worktree) with { Origin = AgentOrigin.Remote, MachineBadge = "box", OwnerUserId = "u1" });
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo("/srv/repo");
+        });
+    }
+
+    /// A repository checked out in a subdirectory of an agent worktree owns the worktrees under it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_remote_session_in_a_repository_nested_in_an_agent_worktree_keeps_that_repository() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var daemon = new FakeDaemonClientService();
+            Connect(daemon);
+            var remote = new FakeRemoteAgents();
+            remote.DaemonsSubject.OnNext([Box("u1")]);
+            using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("app-state.json")), new RecordingLaunchClient(),
+                Known(), TimeProvider.System, daemons: remote.Daemons, viewerId: _ => Task.FromResult<string?>("u1"));
+
+            await vm.SelectRepositoryOfAsync(LocalRow("/srv/repo/.capacitor/worktrees/agent-1/vendor/lib/.claude/worktrees/agent-2") with {
+                Origin = AgentOrigin.Remote, MachineBadge = "box", OwnerUserId = "u1" });
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo("/srv/repo/.capacitor/worktrees/agent-1/vendor/lib");
         });
     }
 

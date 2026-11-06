@@ -50,6 +50,26 @@ public class BearerRejectionReportHandlerTests {
         return (await client.SendAsync(request), reports);
     }
 
+    /// <summary>A server that takes the socket and never answers the upgrade must not hold the connect
+    /// until the kernel gives up on the connection.</summary>
+    [Test]
+    public async Task A_websocket_connect_the_server_never_answers_times_out() {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint) listener.LocalEndpoint).Port;
+        var time = new FakeTimeProvider(Now);
+
+        var connect = BearerRejectionReportHandler.ConnectWebSocketAsync(
+            new Uri($"ws://127.0.0.1:{port}/hubs/sessions"), null, time, _ => { }, CancellationToken.None).AsTask();
+
+        using var accepted = await listener.AcceptTcpClientAsync();
+        time.Advance(BearerRejectionReportHandler.DefaultWebSocketConnectTimeout);
+
+        // A guard that cancels rather than times out, so a connect that never returns fails the assertion.
+        using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await Assert.That(async () => await connect.WaitAsync(guard.Token)).Throws<TimeoutException>();
+    }
+
     [Test]
     public async Task A_401_reports_the_error_code_and_the_refused_bearers_times() {
         var token = Token(exp: Now.AddSeconds(-90).ToUnixTimeSeconds(), iat: Now.AddMinutes(-6).ToUnixTimeSeconds(), sub: "user_1");

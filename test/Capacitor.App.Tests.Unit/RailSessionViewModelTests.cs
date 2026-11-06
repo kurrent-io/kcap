@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
@@ -340,21 +341,66 @@ public class RailSessionViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_running_background_command_keeps_a_waiting_row_working() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var commands = new BehaviorSubject<IReadOnlyDictionary<string, int>>(FrozenDictionary<string, int>.Empty);
+            var commands = new BehaviorSubject<IReadOnlyDictionary<string, RunningWork>>(FrozenDictionary<string, RunningWork>.Empty);
             using var row = new RailSessionViewModel(Row(awaitingInput: true), new BehaviorSubject<string?>(null), NoPending, NotStale,
-                _ => { }, _ => { }, TimeProvider.System, agentsRunningCommands: commands);
+                _ => { }, _ => { }, TimeProvider.System, agentsRunningWork: commands);
             await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
 
-            commands.OnNext(new Dictionary<string, int> { ["remote:a1"] = 2 });
+            commands.OnNext(new Dictionary<string, RunningWork> { ["remote:a1"] = new(2, 0) });
             await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
 
-            commands.OnNext(new Dictionary<string, int> { ["local:a1"] = 2 });
+            commands.OnNext(new Dictionary<string, RunningWork> { ["local:a1"] = new(2, 0) });
             await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Working);
             await Assert.That(row.Status.Pulses).IsTrue();
             await Assert.That(row.Tooltip).Contains("2 commands running");
 
-            commands.OnNext(FrozenDictionary<string, int>.Empty);
+            commands.OnNext(FrozenDictionary<string, RunningWork>.Empty);
             await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+        });
+    }
+
+    /// A subagent paused on its own background work has left the daemon's count, so the transcript
+    /// alone keeps the row Working and names it; the count stays keyed by lane.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_subagent_only_the_transcript_sees_keeps_the_row_working_and_counted() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var work = new BehaviorSubject<IReadOnlyDictionary<string, RunningWork>>(FrozenDictionary<string, RunningWork>.Empty);
+            using var row = new RailSessionViewModel(Row(awaitingInput: true, liveSubagents: 0), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, TimeProvider.System, agentsRunningWork: work);
+            await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+            await Assert.That(row.Meta).DoesNotContain("subagent");
+
+            work.OnNext(new Dictionary<string, RunningWork> { ["remote:a1"] = new(0, 2) });
+            await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+            await Assert.That(row.Meta).DoesNotContain("subagent");
+
+            work.OnNext(new Dictionary<string, RunningWork> { ["local:a1"] = new(0, 2) });
+            await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Working);
+            await Assert.That(row.Meta).EndsWith(" · 2 subagents");
+            await Assert.That(row.Tooltip).Contains("2 subagents running");
+
+            work.OnNext(FrozenDictionary<string, RunningWork>.Empty);
+            await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+            await Assert.That(row.Meta).DoesNotContain("subagent");
+        });
+    }
+
+    /// Neither count alone is right: the daemon loses a paused subagent, and the transcript hears of
+    /// a new one a read after the daemon does, or never, where its feed cannot be read.
+    [Test]
+    [Arguments(2, 1, " · 2 subagents")]
+    [Arguments(1, 2, " · 2 subagents")]
+    [Arguments(3, 0, " · 3 subagents")]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_row_shows_whichever_count_sees_more(int daemon, int transcript, string shown) {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var work = new BehaviorSubject<IReadOnlyDictionary<string, RunningWork>>(
+                new Dictionary<string, RunningWork> { ["local:a1"] = new(1, transcript) });
+            using var row = new RailSessionViewModel(Row(awaitingInput: true, liveSubagents: daemon), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, TimeProvider.System, agentsRunningWork: work);
+
+            await Assert.That(row.Meta).EndsWith(shown);
         });
     }
 
@@ -475,16 +521,14 @@ public class RailSessionViewModelTests {
         });
     }
 
-    /// Ended on the 22nd's afternoon and read on the 25th's morning: only 2d 16h, but three dates
-    /// back, where the day groups file it, so the row reads "3d ago" rather than "2d ago".
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task An_ended_row_ages_in_calendar_days_like_the_day_groups() {
+    public async Task An_ended_row_ages_in_days_and_hours() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var row = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
                 _ => { }, _ => { }, At(new DateTime(2026, 10, 25, 9, 0, 0, DateTimeKind.Utc)));
 
-            await Assert.That(row.Meta).IsEqualTo("3d ago · 3h 52m");
+            await Assert.That(row.Meta).IsEqualTo("2d 16h ago · 3h 52m");
         });
     }
 
@@ -494,16 +538,67 @@ public class RailSessionViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var time = At(Started.AddMinutes(25));
             using var row = new RailSessionViewModel(ServerRow(status: "active"), new BehaviorSubject<string?>(null), NoPending, NotStale,
-                _ => { }, _ => { }, time);
+                _ => { }, _ => { }, time, sort: Observable.Return(RailSort.Created));
 
             await Assert.That(row.IsTerminalSession).IsTrue();
             await Assert.That(row.IsEnded).IsFalse();
-            await Assert.That(row.Meta).IsEqualTo("25m");
+            await Assert.That(row.Meta).IsEqualTo("25m ago");
             await Assert.That(RailSessionViewModel.TerminalTooltip).IsEqualTo("Started in a terminal, not hosted by a daemon");
 
             using var hosted = new RailSessionViewModel(ServerRow(status: "active", hosted: true), new BehaviorSubject<string?>(null), NoPending, NotStale,
                 _ => { }, _ => { }, time);
             await Assert.That(hosted.IsTerminalSession).IsFalse();
+        });
+    }
+
+    /// The row's time is the one the rail orders by, in the same form on live and ended rows, so a
+    /// live row between two ended ones reads in sequence under either sort.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_time_shown_follows_the_rail_sort() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var sort = new BehaviorSubject<RailSort>(RailSort.LastUpdated);
+            var time = At(Ended.AddHours(2));
+            using var ended = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, time, sort: sort);
+            using var live = new RailSessionViewModel(ServerRow(status: "active") with { LastActivityAt = Ended },
+                new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, time, sort: sort);
+
+            await Assert.That(ended.Meta).IsEqualTo("2h ago · 3h 52m");
+            await Assert.That(live.Meta).IsEqualTo("2h ago");
+
+            sort.OnNext(RailSort.Created);
+            await Assert.That(ended.Meta).IsEqualTo("5h 52m ago · 3h 52m");
+            await Assert.That(live.Meta).IsEqualTo("5h 52m ago");
+        });
+    }
+
+    /// The server records an end apart from the last activity, and the rail sorts by the activity, so
+    /// that is the time an ended row shows.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_ended_row_shows_its_last_activity_not_its_end() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var row = new RailSessionViewModel(ServerRow() with { LastActivityAt = Ended.AddHours(-1) },
+                new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, At(Ended.AddHours(2)));
+
+            await Assert.That(row.Meta).IsEqualTo("3h ago · 3h 52m");
+        });
+    }
+
+    /// Past a day the rows still count hours, or neighbours started 25h and 30h ago would both read
+    /// "1d ago"; from a week on they count weeks.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_row_counts_hours_until_a_week() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var day = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, At(Ended.AddHours(30)));
+            using var overAWeek = new RailSessionViewModel(ServerRow(), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, At(Ended.AddDays(8)));
+
+            await Assert.That(day.Meta).IsEqualTo("1d 6h ago · 3h 52m");
+            await Assert.That(overAWeek.Meta).IsEqualTo("1w ago · 3h 52m");
         });
     }
 

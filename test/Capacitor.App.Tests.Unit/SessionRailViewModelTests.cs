@@ -1,5 +1,7 @@
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.LocalIpc;
@@ -127,9 +129,9 @@ public class SessionRailViewModelTests {
             using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, time);
             directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("a", "/repo", created: time.GetUtcNow().UtcDateTime), new RepoIdentity("path:/repo", "repo")));
             var session = rail.Groups.Single().Sessions.Single();
-            await Assert.That(session.Meta).IsEqualTo("<1m");
+            await Assert.That(session.Meta).IsEqualTo("<1m ago");
             time.Advance(TimeSpan.FromMinutes(2));
-            await Assert.That(session.Meta).IsEqualTo("2m");
+            await Assert.That(session.Meta).IsEqualTo("2m ago");
         });
     }
 
@@ -698,6 +700,30 @@ public class SessionRailViewModelTests {
                 directory.Rows.RemoveKey("local:failed");
                 await Assert.That(Labels(rail)).IsEquivalentTo(["Waiting on you", "Running", "Ended"], CollectionOrdering.Matching);
             }
+        });
+    }
+
+    /// The chip reads Working for a subagent the daemon has lost to a pause, so the group must say
+    /// Running too, and the row goes back once the subagent ends.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Status_grouping_follows_work_only_the_transcript_sees() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            using var sessions = new FakeServerSessionsService();
+            var work = new BehaviorSubject<IReadOnlyDictionary<string, RunningWork>>(FrozenDictionary<string, RunningWork>.Empty);
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { },
+                new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(Noon)),
+                agentsRunningWork: work, openServerSession: _ => { }, sessions: sessions);
+            directory.Rows.AddOrUpdate(Local("paused", awaiting: true));
+            rail.Grouping = RailGrouping.Status;
+            await Assert.That(Labels(rail)).IsEquivalentTo(["Waiting on you"], CollectionOrdering.Matching);
+
+            work.OnNext(new Dictionary<string, RunningWork> { ["local:paused"] = new(0, 1) });
+            await Assert.That(Labels(rail)).IsEquivalentTo(["Running"], CollectionOrdering.Matching);
+
+            work.OnNext(FrozenDictionary<string, RunningWork>.Empty);
+            await Assert.That(Labels(rail)).IsEquivalentTo(["Waiting on you"], CollectionOrdering.Matching);
         });
     }
 

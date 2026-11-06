@@ -10,7 +10,7 @@ public enum FrameType : byte {
     Resize  = 4,
     Detach  = 5,
     List    = 6,   // request the daemon's agent list (for `kcap agent ls`); Text = "title" asks for the title column
-    Restart = 7,   // request restart-after-update (Text = "when-idle"|"now"|"force")
+    Restart = 7,   // request restart-after-update (Text = "when-idle"|"now"|"force"|"turn-boundary")
     Stop    = 8,   // stop an agent (Text = agent id; empty = every agent this daemon hosts)
     StopV2  = 10,  // stop with a force flag (see FrameCodec.StopV2); supersedes Stop
     Hello   = 15,  // optional one-shot: client info (Text = ClientHelloDto JSON; empty valid)

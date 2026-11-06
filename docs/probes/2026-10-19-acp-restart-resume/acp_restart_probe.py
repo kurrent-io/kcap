@@ -6,12 +6,13 @@ The stop mirrors AgentOrchestrator.PrepareForResumeAsync + AcpHostedAgentRuntime
 session/cancel when a turn is in flight, stdin EOF, up to 5 s for the exit, then a tree SIGKILL
 (--kill daemon). --kill sigterm inserts a SIGTERM and 2 s before the kill, so a vendor that saves its
 session on a signal is told apart from one that saves it on EOF. The step that ended the process is
-recorded.
+recorded. On Windows there is no SIGTERM and no process group: the stop ends with the daemon's tree kill
+(taskkill /T /F), and only --kill daemon applies.
 
 The reloaded session is asked for a codeword planted in the first turn, so "session/load answered"
 is not mistaken for "the conversation came back".
 
-Usage: python3 acp_restart_probe.py --vendor cursor|copilot|kiro|gemini|opencode|grok
+Usage: python3 acp_restart_probe.py --vendor cursor|copilot|kiro|gemini|opencode|grok|mistral-vibe
                                     --stop idle|midturn --kill daemon|sigterm [--outdir DIR]
 Writes <outdir>/<vendor>-<stop>-<kill>/frames.jsonl, stderr-*.log, summary.json.
 """
@@ -40,7 +41,10 @@ VENDORS = {
                           "--allowed-mcp-server-names", "__kcap_probe_unmatchable__"]},
     "opencode": {"argv": ["opencode", "acp"], "env": {"OPENCODE_PURE": "1"}},
     "grok":     {"argv": ["grok", "agent", "--no-leader", "stdio"]},
+    "mistral-vibe": {"argv": ["vibe-acp"]},
 }
+
+IS_WINDOWS = os.name == "nt"
 
 LONG_TURN = ("Run the shell command `sleep 20 && echo kcap-probe-long-done` and then reply with "
              "exactly: long-done")
@@ -79,7 +83,59 @@ class GroupedClient(AcpClient):
         self.record("mark", {"event": "spawned", "pid": self.proc.pid, "argv": self.argv})
 
 
-def group_alive(pgid):
+def windows_processes():
+    """pid -> parent pid, from a Toolhelp snapshot."""
+    import ctypes
+    import ctypes.wintypes as wt
+
+    class Entry(ctypes.Structure):
+        _fields_ = [("dwSize", wt.DWORD), ("cntUsage", wt.DWORD), ("th32ProcessID", wt.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_void_p), ("th32ModuleID", wt.DWORD),
+                    ("cntThreads", wt.DWORD), ("th32ParentProcessID", wt.DWORD),
+                    ("pcPriClassBase", ctypes.c_long), ("dwFlags", wt.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.windll.kernel32
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)
+    entry = Entry()
+    entry.dwSize = ctypes.sizeof(entry)
+    procs = {}
+    ok = k32.Process32FirstW(snap, ctypes.byref(entry))
+    while ok:
+        procs[entry.th32ProcessID] = entry.th32ParentProcessID
+        ok = k32.Process32NextW(snap, ctypes.byref(entry))
+    k32.CloseHandle(snap)
+    return procs
+
+
+def tree_of(pid):
+    """The pid and its descendants. Windows only: there it stands in for the process group."""
+    procs = windows_processes()
+    tree, frontier = {pid}, [pid]
+    while frontier:
+        parent = frontier.pop()
+        for child, ppid in procs.items():
+            if ppid == parent and child not in tree:
+                tree.add(child)
+                frontier.append(child)
+    return tree
+
+
+def kill_group(pid, members=None):
+    if IS_WINDOWS:
+        for member in members or {pid}:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(member)], capture_output=True, check=False)
+        return
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def group_alive(pgid, members=None):
+    if IS_WINDOWS:
+        alive = windows_processes()
+        return any(member in alive for member in (members or set()) - {pgid})
     try:
         os.killpg(pgid, 0)
         return True
@@ -92,6 +148,7 @@ def group_alive(pgid):
 async def graceful_stop(client, in_turn, sigterm):
     """Returns how the process ended: eof, sigterm or sigkill, plus whether the group outlived it."""
     pid = client.proc.pid
+    members = tree_of(pid) if IS_WINDOWS else None
     t0 = time.monotonic()
     result = {"cancel_sent": False}
 
@@ -125,10 +182,7 @@ async def graceful_stop(client, in_turn, sigterm):
             step = "sigkill"
     if step == "sigkill":
         client.record("mark", {"event": "sigkill", "pid": pid})
-        try:
-            os.killpg(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        kill_group(pid, members)
         await client.proc.wait()
 
     result["ended_by"] = step
@@ -137,12 +191,9 @@ async def graceful_stop(client, in_turn, sigterm):
 
     # The daemon's tree kill reaps what the leader left; record whether there was anything to reap.
     await asyncio.sleep(0.5)
-    result["group_outlived_leader"] = group_alive(pid)
+    result["group_outlived_leader"] = group_alive(pid, members)
     if result["group_outlived_leader"]:
-        try:
-            os.killpg(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        kill_group(pid, members)
 
     if client.reader_task:
         await asyncio.wait([client.reader_task], timeout=5)
@@ -308,10 +359,7 @@ async def probe(vendor, stop, kill, outdir):
     finally:
         for c in (c1, c2):
             if c is not None and c.proc is not None and c.proc.returncode is None:
-                try:
-                    os.killpg(c.proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                kill_group(c.proc.pid)
         summary["ended"] = now_iso()
         with open(vdir / "frames.jsonl", "w") as f:
             for fr in frames:

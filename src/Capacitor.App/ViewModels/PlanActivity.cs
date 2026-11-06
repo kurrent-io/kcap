@@ -9,6 +9,7 @@ namespace Capacitor.App.ViewModels;
 public sealed class PlanActivity {
     readonly HashSet<string> _writes = new(StringComparer.Ordinal);
     readonly HashSet<string> _publishes = new(StringComparer.Ordinal);
+    readonly HashSet<string> _publishedPages = new(StringComparer.Ordinal);
     bool _sessionOver;
 
     /// Raised once per transcript read that settled a write, however many it settled: a replayed
@@ -17,6 +18,11 @@ public sealed class PlanActivity {
     /// As PlanWritten, for a page publish that succeeded.
     public event Action? PagePublished;
     public event Action? SessionOverChanged;
+
+    /// Every page a successful publish in this transcript named, new or revised.
+    public IReadOnlyCollection<string> PublishedPageIds => _publishedPages;
+    /// The transcript the activity was read from: a file path locally, the session id remotely.
+    public string? FeedKey { get; private set; }
 
     public bool SessionOver {
         get => _sessionOver;
@@ -38,7 +44,10 @@ public sealed class PlanActivity {
                     else if (KcapToolCatalogue.Match(envelope.ToolName)?.Card == ToolCardKind.Page) _publishes.Add(callId);
                 } else if (envelope.Kind == AcpEventKind.ToolResult) {
                     if (_writes.Remove(callId) && !envelope.ToolIsError) written = true;
-                    if (_publishes.Remove(callId) && !envelope.ToolIsError) published = true;
+                    if (_publishes.Remove(callId) && !envelope.ToolIsError) {
+                        published = true;
+                        if (ToolCards.PublishedPageId(envelope.ToolResult) is { } pageId) _publishedPages.Add(pageId);
+                    }
                 }
             }
         if (written) Raise(PlanWritten);
@@ -55,8 +64,15 @@ public sealed class PlanActivity {
         }
     }
 
+    /// A different transcript: nothing read from the last one belongs to it.
+    public void StartFeed(string feedKey) {
+        Clear();
+        FeedKey = feedKey;
+    }
+
     public void Clear() {
         _writes.Clear();
         _publishes.Clear();
+        _publishedPages.Clear();
     }
 }

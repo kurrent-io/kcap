@@ -122,6 +122,27 @@ public class HarnessesStepViewModelTests {
         });
     }
 
+    /// Copilot inside VS Code is named as that, and starts on: no Copilot CLI is why the page would otherwise misread it.
+    [Test]
+    [Arguments(true, false, "VS Code", "in VS Code", true)]
+    [Arguments(false, true, "VS Code", "in VS Code", true)]
+    [Arguments(true, false, null, "on your PATH", true)]
+    [Arguments(false, false, null, "settings folder only", false)]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_Copilot_row_says_where_it_found_copilot(bool binary, bool app, string? hostApp, string signal, bool on) {
+        var (line, record) = await AvaloniaSession.DispatchAsync(async () => {
+            var h = new Harness(Config.Root, new Dictionary<HarnessId, DetectedAgent> {
+                [HarnessId.Copilot] = new(binary, true, app, hostApp),
+            });
+            await h.Vm.OnEnterAsync(CancellationToken.None);
+
+            return (h.Row("Copilot").SignalLine, h.Row("Copilot").Record);
+        });
+
+        await Assert.That(line).IsEqualTo(signal);
+        await Assert.That(record).IsEqualTo(on);
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Rows_are_the_detected_harnesses_in_registry_order_with_both_answers_on() {
@@ -192,7 +213,7 @@ public class HarnessesStepViewModelTests {
 
         await Assert.That(noneFound).IsTrue();
         await Assert.That(declineVisible).IsTrue();
-        await Assert.That(SetupLocation.NoneFoundTail).Contains(SetupLocation.Relaunch);
+        await Assert.That(SetupLocation.NoneFoundTail).Contains("Settings → Harnesses");
         await Assert.That(SetupLocation.NothingSelectedNote).Contains("Settings → Harnesses");
     }
 
@@ -526,8 +547,47 @@ public class HarnessesStepViewModelTests {
         await Assert.That(calls).IsEqualTo(0);
     }
 
+    /// <summary>Copilot's hooks name kcap by its full path, so a failing terminal install must not hold them up.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Copilot_alone_turns_on_without_the_terminal_command() {
+        Skip.When(OperatingSystem.IsWindows(), "macOS lstat semantics");
+        var (message, hazard, calls) = await AvaloniaSession.DispatchAsync(async () => {
+            var (h, _) = await HarnessWithPathFix(failing: true, new Dictionary<HarnessId, DetectedAgent> { [HarnessId.Copilot] = new(false, true) });
+            foreach (var row in h.Vm.Rows) row.Record = row.Tools = true;
+
+            await h.Vm.CanLeaveAsync(WizardNavigation.Next, CancellationToken.None);
+
+            return (h.Vm.Message, h.Vm.PathHazard, h.Cli.PluginInstallCallCount);
+        });
+
+        await Assert.That(message ?? "").DoesNotContain("terminal command");
+        await Assert.That(hazard).IsFalse();
+        await Assert.That(calls).IsEqualTo(1);
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Selecting_another_harness_beside_Copilot_raises_the_path_warning() {
+        var changed = await AvaloniaSession.DispatchAsync(async () => {
+            var (h, _) = await HarnessWithPathFix(failing: false, new Dictionary<HarnessId, DetectedAgent> {
+                [HarnessId.Copilot] = new(false, true),
+                [HarnessId.Claude]  = new(true, true),
+            });
+            foreach (var row in h.Vm.Rows) row.Record = row.Tools = row.Id == HarnessId.Copilot;
+
+            var raised = 0;
+            h.Vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(h.Vm.PathHazard)) raised++; };
+            h.Vm.Rows.Single(r => r.Id == HarnessId.Claude).Record = true;
+
+            return (raised > 0, h.Vm.PathHazard);
+        });
+
+        await Assert.That(changed).IsEqualTo((true, true));
+    }
+
     // A failing install meets someone else's kcap where it would link.
-    async Task<(Harness, PathFixViewModel)> HarnessWithPathFix(bool failing) {
+    async Task<(Harness, PathFixViewModel)> HarnessWithPathFix(bool failing, IReadOnlyDictionary<HarnessId, DetectedAgent>? detected = null) {
         var dir = Path.GetDirectoryName(ConfigPath)!;
         var link = Path.Combine(dir, ".local", "bin", "kcap");
         if (failing) {
@@ -541,7 +601,7 @@ public class HarnessesStepViewModelTests {
         var fix = new PathFixViewModel(
             new PathShimInstaller(probe, new UserHome(dir)),
             new WizardFixtures.NoopAppStateStore(), Path.Combine(dir, "bundled-kcap"));
-        var h = new Harness(Config.Root, pathFix: fix);
+        var h = new Harness(Config.Root, detected, pathFix: fix);
         await h.Vm.OnEnterAsync(CancellationToken.None);
         h.Vm.Visibility = "private";
         return (h, fix);

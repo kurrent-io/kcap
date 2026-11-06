@@ -94,28 +94,39 @@ static class MarkViewSelection {
             layer.InvalidateVisual();
             return;
         }
-        if (e.ClickCount != 1 || HitTestOffset(layer, point) is not null || PressedOnControl(e)) return;
+        TryStartFromLeft(viewer, e);
+    }
+
+    public static bool TryStartFromLeft(MarkdownViewer viewer, PointerPressedEventArgs e) {
+        if (e.ClickCount != 1 || !e.GetCurrentPoint(viewer).Properties.IsLeftButtonPressed || PressedOnControl(e)) return false;
+        if (LayerOf(viewer) is not Visual layer) return false;
+        var point = e.GetPosition(layer);
+        if (HitTestOffset(layer, point) is not null) return false;
         // Padding sits outside the glyph bounds, so MarkView records no anchor and the drag never starts.
-        if (LeftCodePadding(layer, point) is not { } inside || HitTestOffset(layer, inside) is not { } snapped) return;
+        if (LeftPadding(layer, point) is not { } inside || HitTestOffset(layer, inside) is not { } snapped) return false;
         Anchor(layer) = snapped;
         Focus(layer) = snapped;
         IsDragging(viewer) = true;
+        viewer.Focus();
+        // MarkView's content grid owns its move/release handlers, including capture release.
+        e.Pointer.Capture(viewer.Content as IInputElement);
         layer.InvalidateVisual();
+        e.Handled = true;
+        return true;
     }
 
     static bool PressedOnControl(PointerPressedEventArgs e) {
         for (var visual = e.Source as Visual; visual is not null; visual = visual.GetVisualParent())
-            if (visual is Button or MarkdownImage { Target: not null }) return true;
+            if (visual is Button or TextBox or Avalonia.Controls.Primitives.ScrollBar or MarkdownImage { Target: not null }) return true;
         return false;
     }
 
-    static Point? LeftCodePadding(Visual layer, Point point) {
+    static Point? LeftPadding(Visual layer, Point point) {
         foreach (var entry in Entries(layer)) {
             var block = TextBlockOf(entry);
-            if (block.GetVisualParent() is not Border border || !border.Classes.Contains("markdown-code-block")) continue;
-            if (block.TranslatePoint(default, layer) is not { } origin || border.TranslatePoint(default, layer) is not { } edge) continue;
+            if (block.TranslatePoint(default, layer) is not { } origin) continue;
             var local = point - origin;
-            if (point.X < edge.X + border.BorderThickness.Left || local.X >= block.Padding.Left) continue;
+            if (local.X >= block.Padding.Left) continue;
             var y = block.Padding.Top;
             foreach (var line in block.TextLayout.TextLines) {
                 if (local.Y >= y && local.Y < y + line.Height)

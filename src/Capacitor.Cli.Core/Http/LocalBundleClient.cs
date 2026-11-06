@@ -30,29 +30,40 @@ public sealed partial class LocalBundleClient(HttpClient http, TimeProvider time
     public static string RequestedVersion() =>
         Environment.GetEnvironmentVariable(VersionEnvVar) is { Length: > 0 } v ? v : CapacitorVersion.CurrentDisplay();
 
+    /// <summary>When true, a missing manifest is told in a user's terms, naming the developer overrides only while one is set.</summary>
+    public bool Windows { get; init; } = OperatingSystem.IsWindows();
+
     public async Task<(byte[] Manifest, string Signature)> FetchManifestAsync(string version, string rid, CancellationToken ct) {
         if (!ReleaseManifest.IsValidVersion(version)) throw new ArgumentException("Not a release version.", nameof(version));
         if (!RidPattern().IsMatch(rid)) throw new ArgumentException("Not a runtime identifier.", nameof(rid));
 
         var url = $"{BaseUrl}/{rid}/kcap-local-{version}-{rid}.json";
 
-        var manifest = await GetBytesAsync(url, notFound: LocalInstallFailureCode.BundleNotPublished, ct, MaxManifestSize);
-        var sig      = await GetBytesAsync(url + ".sig", notFound: LocalInstallFailureCode.DownloadFailed, ct, MaxManifestSize);
+        var manifest = await GetBytesAsync(url, notFound: NotPublished(url, version), ct, MaxManifestSize);
+        var sig      = await GetBytesAsync(url + ".sig", notFound: null, ct, MaxManifestSize);
 
         return (manifest, System.Text.Encoding.UTF8.GetString(sig));
     }
 
-    async Task<byte[]> GetBytesAsync(string url, LocalInstallFailureCode notFound, CancellationToken ct, int limit) {
+    string NotPublished(string url, string version) =>
+        Windows && !Overridden()
+            ? $"No local edition is published for kcap {version} on Windows yet."
+            : $"No local bundle is published at {url}. Set {VersionEnvVar} to a published version, or {BaseUrlEnvVar} to another location.";
+
+    static bool Overridden() =>
+        Environment.GetEnvironmentVariable(BaseUrlEnvVar) is { Length: > 0 } || Environment.GetEnvironmentVariable(VersionEnvVar) is { Length: > 0 };
+
+    /// <param name="notFound">A 404's message as <see cref="LocalInstallFailureCode.BundleNotPublished"/>; null makes a 404 a download failure.</param>
+    async Task<byte[]> GetBytesAsync(string url, string? notFound, CancellationToken ct, int limit) {
         try {
             using var deadline = new CancellationTokenSource(ManifestTimeout, time);
             using var cts      = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
             using var resp     = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cts.Token);
 
             if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) {
-                throw notFound == LocalInstallFailureCode.BundleNotPublished
-                    ? new LocalBundleException(notFound,
-                        $"No local bundle is published at {url}. Set {VersionEnvVar} to a published version, or {BaseUrlEnvVar} to another location.")
-                    : new LocalBundleException(notFound, $"{url} answered 404.");
+                throw notFound is not null
+                    ? new LocalBundleException(LocalInstallFailureCode.BundleNotPublished, notFound)
+                    : new LocalBundleException(LocalInstallFailureCode.DownloadFailed, $"{url} answered 404.");
             }
 
             if (!resp.IsSuccessStatusCode)

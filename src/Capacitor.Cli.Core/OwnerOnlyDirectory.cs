@@ -98,18 +98,26 @@ public static class OwnerOnlyDirectory {
         info.Create(security);
         info.SetAccessControl(security);
 
-        var readBack = info.GetAccessControl(AccessControlSections.Access | AccessControlSections.Owner);
+        if (Violation(path) is { } violation)
+            throw new InvalidOperationException($"'{path}' is not owner-only: {violation}.");
+    }
+
+    /// <summary>Reads <paramref name="path"/>'s descriptor back and applies <see cref="AclViolation"/> to it.
+    /// Throws when the descriptor cannot be read.</summary>
+    [SupportedOSPlatform("windows")]
+    public static string? Violation(string path) {
+        var readBack = new DirectoryInfo(path).GetAccessControl(AccessControlSections.Access | AccessControlSections.Owner);
         var owner    = readBack.GetOwner(typeof(SecurityIdentifier))?.Value;
         var entries  = readBack.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
             .Cast<FileSystemAccessRule>()
             .Select(rule => (rule.IdentityReference.Value, rule.AccessControlType == AccessControlType.Allow));
 
-        if (AclViolation(owner, readBack.AreAccessRulesProtected, entries, OwnerSids()) is { } violation)
-            throw new InvalidOperationException($"'{path}' is not owner-only: {violation}.");
+        return AclViolation(owner, readBack.AreAccessRulesProtected, entries, OwnerSids());
     }
 
+    /// <summary>The SIDs an owner-only DACL grants: the current user and SYSTEM.</summary>
     [SupportedOSPlatform("windows")]
-    static string[] OwnerSids() => [
+    public static string[] OwnerSids() => [
         WindowsIdentity.GetCurrent().User!.Value,
         new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null).Value
     ];

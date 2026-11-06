@@ -147,6 +147,9 @@
                     </StackPanel>
                     <Button x:Name="TryAgainButton" Classes="onboardingPrimary" Content="Try again" HorizontalAlignment="Left"
                             Command="{Binding TryAgainCommand}" IsVisible="{Binding TryAgainVisible}" />
+                    <Button x:Name="OtherEditionButton" Classes="onboardingPrimary" HorizontalAlignment="Left"
+                            Content="{x:Static vm:InstallStepViewModel.OtherEditionLabel}"
+                            Command="{Binding ChooseOtherEditionCommand}" IsVisible="{Binding OtherEditionVisible}" />
                     <Button x:Name="EmailSupportButton" Classes="onboardingPrimary" Content="Email logs to support" HorizontalAlignment="Left"
                             Command="{Binding EmailSupportCommand}" IsVisible="{Binding EmailSupportVisible}" />
                     <TextBlock x:Name="SupportNoteText" Classes="onboardingDetail" TextWrapping="Wrap" Text="{Binding SupportNote}"

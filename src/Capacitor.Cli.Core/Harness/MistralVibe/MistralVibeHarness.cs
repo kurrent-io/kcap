@@ -16,6 +16,9 @@ public sealed class MistralVibeHarness : IHarness<MistralVibeHarness> {
     public static string    Label     => "Mistral Vibe";
     public static string    CliBinary => "vibe";
 
+    /// <summary>Vibe's ACP server, a separate entry point shipped in the same package.</summary>
+    public static string    AcpBinary => "vibe-acp";
+
     /// <summary>This vendor's layout. Public because our own readers of its files take the typed
     /// paths; they reach them through the instance the entry point built.</summary>
     public MistralVibePaths Paths { get; }

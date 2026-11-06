@@ -384,7 +384,7 @@ public class ChatTabViewModelTests {
             await Assert.That(((UserTurnItem)h.Chat.Items[0]).Text).IsEqualTo("hello");
             await Assert.That(Group(h.Chat, 2).Calls[0].Detail).IsEqualTo("ls -la");
             await Assert.That(Group(h.Chat, 2).Calls[0].Outcome).IsEqualTo(ToolOutcome.Running);
-            await Assert.That(Group(h.Chat, 2).Calls[0].Category).IsEqualTo(ToolCategory.Search);
+            await Assert.That(Group(h.Chat, 2).Calls[0].Category).IsEqualTo(ToolCategory.Command);
             await h.TeardownAsync();
         });
     }
@@ -545,7 +545,7 @@ public class ChatTabViewModelTests {
             File.AppendAllText(path, ToolResultLine + "\n");
             await h.TickAsync();
             await Assert.That(group.LiveCalls.Select(c => c.Name)).IsEquivalentTo(new[] { "Read" });
-            await Assert.That(group.Summary).IsEqualTo("Searched files");
+            await Assert.That(group.Summary).IsEqualTo("Ran a command");
             await Assert.That(group.HasSummary).IsTrue();
             await Assert.That(group.HasFailure).IsFalse();
 
@@ -556,7 +556,7 @@ public class ChatTabViewModelTests {
             File.AppendAllText(path, ToolErrorLine.Replace("t1", "t2") + "\n");
             await h.TickAsync();
             await Assert.That(group.LiveCalls).IsEmpty();
-            await Assert.That(group.Summary).IsEqualTo("Searched files, read a file");
+            await Assert.That(group.Summary).IsEqualTo("Ran a command, read a file");
             await Assert.That(group.HasFailure).IsTrue();
             await Assert.That(group.IsExpanded).IsTrue();
             await h.TeardownAsync();
@@ -742,9 +742,11 @@ public class ChatTabViewModelTests {
             h.Plan.PlanWritten += () => writes++;
             await h.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [PlanCallLine])));
 
-            await h.PushAsync(Dto(Tmp.CreateFile("o.jsonl", [PlanResultLine])));
+            var other = Tmp.CreateFile("o.jsonl", [PlanResultLine]);
+            await h.PushAsync(Dto(other));
 
             await Assert.That(writes).IsEqualTo(0);
+            await Assert.That(h.Plan.FeedKey).IsEqualTo(other);
             await h.TeardownAsync();
         });
     }
@@ -755,121 +757,128 @@ public class ChatTabViewModelTests {
         await RunOnUiAsync(async () => {
             var h = Claude();
             var raised = new List<string?>();
-            h.Chat.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+            h.Chat.Tasks.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
             var path = Tmp.CreateFile("t.jsonl", [AgentCallLine, AgentLaunchLine]);
             await h.PushAsync(Dto(path));
-            await Assert.That(h.Chat.HasRunningRuns).IsTrue();
-            await Assert.That(h.Chat.RunningRow!.Name).IsEqualTo("Explore");
-            await Assert.That(h.Chat.RunningRow!.StateText).StartsWith("running in background · ");
-            await Assert.That(h.Chat.RunSummary).IsEmpty();
+            await Assert.That(h.Chat.Tasks.HasRows).IsTrue();
+            await Assert.That(h.Chat.Tasks.Rows.Single().Name).IsEqualTo("Explore");
+            await Assert.That(h.Chat.Tasks.Rows.Single().StateText).StartsWith("running in background · ");
+            await Assert.That(h.Chat.Tasks.CountTip).IsEqualTo("1 subagent running");
             await Assert.That(h.Runs.Rows.Single().IsBackground).IsTrue();
-            await Assert.That(raised).Contains(nameof(ChatTabViewModel.HasRunningRuns));
-            await Assert.That(raised).Contains(nameof(ChatTabViewModel.RunningRow));
-            await Assert.That(raised).Contains(nameof(ChatTabViewModel.RunSummary));
+            await Assert.That(raised).Contains(nameof(BackgroundTasksViewModel.HasRows));
+            await Assert.That(raised).Contains(nameof(BackgroundTasksViewModel.Count));
+            await Assert.That(raised).Contains(nameof(BackgroundTasksViewModel.CountTip));
 
             File.AppendAllText(path, AgentCallLine.Replace("toolu_A", "toolu_B") + "\n");
             await h.TickAsync();
-            await Assert.That(h.Chat.RunningRow).IsNull();
-            await Assert.That(h.Chat.RunSummary).IsEqualTo("2 subagents running");
+            await Assert.That(h.Chat.Tasks.Count).IsEqualTo(1);
+
+            File.AppendAllText(path, AgentLaunchLine.Replace("toolu_A", "toolu_B").Replace("a9f262478e032f427", "b2") + "\n");
+            await h.TickAsync();
+            await Assert.That(h.Chat.Tasks.Count).IsEqualTo(2);
+            await Assert.That(h.Chat.Tasks.CountTip).IsEqualTo("2 subagents running");
 
             File.AppendAllText(path, AgentFinishLine + "\n");
             await h.TickAsync();
-            await Assert.That(h.Chat.RunningRow!.StateText).StartsWith("running · ");
-            await Assert.That(h.Chat.RunSummary).IsEmpty();
+            await Assert.That(h.Chat.Tasks.Rows.Single().CallId).IsEqualTo("toolu_B");
             await Assert.That(h.Chat.Items.OfType<SystemNoteItem>().Count()).IsEqualTo(1);
 
             File.AppendAllText(path, ToolResultLine.Replace("t1", "toolu_B") + "\n");
             await h.TickAsync();
-            await Assert.That(h.Chat.HasRunningRuns).IsFalse();
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
             await Assert.That(h.Runs.Rows.Select(r => r.State)).IsEquivalentTo(new[] { RunState.Done, RunState.Done }, CollectionOrdering.Matching);
             await h.TeardownAsync();
         });
     }
 
+    /// Background commands and background subagents share one folded group, which keeps them
+    /// through a live turn until each ends and folds again once none is left.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Fixture_transcripts_put_background_commands_in_the_strip() {
+    public async Task Fixture_transcripts_put_background_commands_and_subagents_in_one_group() {
         await RunOnUiAsync(async () => {
             var h = Claude();
             var path = Tmp.CreateFile("t.jsonl", [ShellCallLine, ShellLaunchLine]);
-            await h.PushAsync(Dto(path));
-            await Assert.That(h.Chat.HasRunningRuns).IsTrue();
-            await Assert.That(h.Chat.RunningRow!.Name).IsEqualTo("Run the full suite");
-            await Assert.That(h.Chat.RunningRow!.StateText).StartsWith("running in background · ");
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await Assert.That(h.Chat.Tasks.IsExpanded).IsFalse();
+            await Assert.That(h.Chat.Tasks.Rows.Single().Name).IsEqualTo("Run the full suite");
+            await Assert.That(h.Chat.Tasks.Rows.Single().Description).IsEqualTo("dotnet test");
+            await Assert.That(h.Chat.Tasks.CountTip).IsEqualTo("1 command running");
 
-            File.AppendAllText(path, ShellCallLine.Replace("toolu_S", "toolu_T") + "\n" + ShellLaunchLine.Replace("toolu_S", "toolu_T").Replace("bcyix00ks", "b2") + "\n");
-            await h.TickAsync();
-            await Assert.That(h.Chat.RunningRow).IsNull();
-            await Assert.That(h.Chat.RunSummary).IsEqualTo("2 commands running in background");
+            await h.Chat.Tasks.ToggleCommand.Execute();
+            await Assert.That(h.Chat.Tasks.AccessibleName).IsEqualTo("Background tasks, 1 command running, expanded");
 
-            File.AppendAllText(path, AgentCallLine + "\n" + AgentLaunchLine + "\n");
+            File.AppendAllText(path, ShellCallLine.Replace("toolu_S", "toolu_T") + "\n" + ShellLaunchLine.Replace("toolu_S", "toolu_T").Replace("bcyix00ks", "b2") + "\n"
+                + AgentCallLine + "\n" + AgentLaunchLine + "\n");
+            await h.PushAsync(Dto(path) with { AwaitingInput = false });
             await h.TickAsync();
-            await Assert.That(h.Chat.RunSummary).IsEqualTo("1 subagent, 2 commands running in background");
+            await Assert.That(h.Chat.ActivityNote).StartsWith("Working for");
+            await Assert.That(h.Chat.Tasks.Rows.Select(r => r.CallId)).IsEquivalentTo(new[] { "toolu_S", "toolu_T", "toolu_A" }, CollectionOrdering.Matching);
+            await Assert.That(h.Chat.Tasks.CountTip).IsEqualTo("1 subagent and 2 commands running");
 
-            File.AppendAllText(path, ShellFinishLine + "\n");
+            File.AppendAllText(path, ShellFinishLine + "\n" + AgentFinishLine + "\n");
             await h.TickAsync();
-            await Assert.That(h.Chat.RunSummary).IsEqualTo("1 subagent, 1 command running in background");
-            await Assert.That(h.Runs.Rows.Single(r => r.CallId == "toolu_S").State).IsEqualTo(RunState.Done);
+            await Assert.That(h.Chat.Tasks.Rows.Select(r => r.CallId)).IsEquivalentTo(new[] { "toolu_T" });
+            await Assert.That(h.Chat.Tasks.IsExpanded).IsTrue();
+
+            File.AppendAllText(path, ShellFinishLine.Replace("toolu_S", "toolu_T").Replace("bcyix00ks", "b2") + "\n");
+            await h.TickAsync();
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
+            await Assert.That(h.Chat.Tasks.IsExpanded).IsFalse();
 
             File.AppendAllText(path, ShellCallLine.Replace("toolu_S", "toolu_F") + "\n" + ToolResultLine.Replace("t1", "toolu_F") + "\n");
             await h.TickAsync();
             await Assert.That(h.Runs.Rows.Any(r => r.CallId == "toolu_F")).IsFalse();
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
             await h.TeardownAsync();
         });
     }
 
-    /// A foreground launch is already a Task row while its turn is live, so the strip leaves it
-    /// out until the turn is over.
+    /// A foreground launch is the turn's own Task row in the transcript, so the band never lists
+    /// it, while its turn is live or after.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_strip_leaves_a_foreground_run_to_the_transcript_while_a_turn_is_live() {
+    public async Task The_strip_leaves_a_foreground_run_to_the_transcript() {
         await RunOnUiAsync(async () => {
             var h = Claude();
-            var raised = new List<string?>();
-            h.Chat.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
             var path = Tmp.CreateFile("t.jsonl", [AgentCallLine]);
             await h.PushAsync(Dto(path) with { AwaitingInput = false });
             await h.TickAsync();
             await Assert.That(h.Chat.ActivityNote).StartsWith("Working for");
-            await Assert.That(h.Chat.HasRunningRuns).IsFalse();
-            await Assert.That(h.Chat.RunningRow).IsNull();
+            await Assert.That(h.Runs.Running).Count().IsEqualTo(1);
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
 
-            raised.Clear();
             await h.PushAsync(Dto(path) with { AwaitingInput = true });
             await Assert.That(h.Chat.ActivityNote).IsEmpty();
-            await Assert.That(h.Chat.HasRunningRuns).IsTrue();
-            await Assert.That(h.Chat.RunningRow!.Name).IsEqualTo("Explore");
-            await Assert.That(raised).Contains(nameof(ChatTabViewModel.HasRunningRuns));
-            await Assert.That(raised).Contains(nameof(ChatTabViewModel.RunningRow));
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
             await h.TeardownAsync();
         });
     }
 
-    /// The next prompt starts a live turn; a run still going in the background stays in the strip
-    /// until it ends, as it stays in the sidebar.
+    /// The next prompt starts a live turn; a subagent still going in the background stays in the
+    /// band until it ends, as it stays in the sidebar.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_background_run_stays_in_the_strip_through_the_next_turn() {
         await RunOnUiAsync(async () => {
             var h = Claude();
-            var path = Tmp.CreateFile("t.jsonl", [ShellCallLine, ShellLaunchLine]);
+            var path = Tmp.CreateFile("t.jsonl", [AgentCallLine, AgentLaunchLine]);
             await h.PushAsync(Dto(path) with { AwaitingInput = true });
-            await Assert.That(h.Chat.HasRunningRuns).IsTrue();
+            await Assert.That(h.Chat.Tasks.HasRows).IsTrue();
 
             await h.PushAsync(Dto(path) with { AwaitingInput = false });
             await h.TickAsync();
             await Assert.That(h.Chat.ActivityNote).StartsWith("Working for");
-            await Assert.That(h.Chat.HasRunningRuns).IsTrue();
-            await Assert.That(h.Chat.RunningRow!.Name).IsEqualTo("Run the full suite");
+            await Assert.That(h.Chat.Tasks.Rows.Single().CallId).IsEqualTo("toolu_A");
 
-            File.AppendAllText(path, AgentCallLine + "\n");
+            File.AppendAllText(path, AgentCallLine.Replace("toolu_A", "toolu_B") + "\n");
             await h.TickAsync();
-            await Assert.That(h.Chat.RunningRow!.Name).IsEqualTo("Run the full suite");
-            await Assert.That(h.Chat.RunSummary).IsEmpty();
+            await Assert.That(h.Chat.Tasks.Rows.Single().CallId).IsEqualTo("toolu_A");
+            await Assert.That(h.Chat.Tasks.Count).IsEqualTo(1);
 
-            File.AppendAllText(path, ShellFinishLine + "\n");
+            File.AppendAllText(path, AgentFinishLine + "\n");
             await h.TickAsync();
-            await Assert.That(h.Chat.HasRunningRuns).IsFalse();
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
             await h.TeardownAsync();
         });
     }
@@ -881,18 +890,18 @@ public class ChatTabViewModelTests {
         await RunOnUiAsync(async () => {
             var h = Claude();
             var raised = new List<string?>();
-            h.Chat.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+            h.Chat.Tasks.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
             var path = Tmp.CreateFile("t.jsonl", [AgentCallLine]);
             await h.PushAsync(Dto(path) with { AwaitingInput = false });
             await h.TickAsync();
-            await Assert.That(h.Chat.HasRunningRuns).IsFalse();
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
 
             raised.Clear();
             File.AppendAllText(path, AgentLaunchLine + "\n");
             await h.TickAsync();
-            await Assert.That(h.Chat.HasRunningRuns).IsTrue();
-            await Assert.That(h.Chat.RunningRow!.StateText).StartsWith("running in background · ");
-            await Assert.That(raised).Contains(nameof(ChatTabViewModel.HasRunningRuns));
+            await Assert.That(h.Chat.Tasks.HasRows).IsTrue();
+            await Assert.That(h.Chat.Tasks.Rows.Single().StateText).StartsWith("running in background · ");
+            await Assert.That(raised).Contains(nameof(BackgroundTasksViewModel.HasRows));
             await h.TeardownAsync();
         });
     }
@@ -904,18 +913,18 @@ public class ChatTabViewModelTests {
             var h = Claude();
             var path = Tmp.CreateFile("t.jsonl", [AgentCallLine, AgentLaunchLine]);
             await h.PushAsync(Dto(path));
-            await Assert.That(h.Chat.HasRunningRuns).IsTrue();
+            await Assert.That(h.Chat.Tasks.HasRows).IsTrue();
 
             File.WriteAllLines(path, [UserLine]);
             await h.TickAsync();
-            await Assert.That(h.Chat.HasRunningRuns).IsFalse();
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
             await Assert.That(h.Runs.Rows).IsEmpty();
 
-            var other = Tmp.CreateFile("o.jsonl", [AgentCallLine]);
+            var other = Tmp.CreateFile("o.jsonl", [AgentCallLine, AgentLaunchLine]);
             await h.PushAsync(Dto(other));
-            await Assert.That(h.Chat.HasRunningRuns).IsTrue();
+            await Assert.That(h.Chat.Tasks.HasRows).IsTrue();
             await h.PushAsync(Dto(path));
-            await Assert.That(h.Chat.HasRunningRuns).IsFalse();
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
             await Assert.That(h.Runs.Rows).IsEmpty();
             await h.TeardownAsync();
         });
@@ -931,13 +940,13 @@ public class ChatTabViewModelTests {
             var path = Tmp.CreateFile("t.jsonl", [AgentCallLine, AgentLaunchLine]);
             await h.PushAsync(Dto(path) with { Status = "Completed" });
             await Assert.That(h.Runs.Rows).Count().IsEqualTo(1);
-            await Assert.That(h.Chat.HasRunningRuns).IsFalse();
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
             await Assert.That(h.Runs.Rows.Single().StateText).IsEqualTo("stopped");
 
             File.WriteAllLines(path, [AgentCallLine.Replace("Map desktop chat UI surfaces", "Map")]);
             await h.TickAsync();
             await Assert.That(h.Runs.Rows.Single().Description).IsEqualTo("Map");
-            await Assert.That(h.Chat.HasRunningRuns).IsFalse();
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
             await h.TeardownAsync();
         });
     }
@@ -962,7 +971,7 @@ public class ChatTabViewModelTests {
             await h.TickAsync();
 
             await Assert.That(h.Runs.Rows).IsEmpty();
-            await Assert.That(h.Chat.HasRunningRuns).IsFalse();
+            await Assert.That(h.Chat.Tasks.HasRows).IsFalse();
             await h.TeardownAsync();
         });
     }
@@ -1052,10 +1061,11 @@ public class ChatTabViewModelTests {
     }
 
     /// Pins the system-note row: a task notification the vendor injects into the transcript
-    /// renders as a system note carrying its summary and result, never as a user bubble.
+    /// renders as a system note carrying its summary and result, never as a user bubble. It starts
+    /// folded, its summary in the header, and opens to the whole result.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_task_notification_renders_as_a_system_note() {
+    public async Task A_task_notification_renders_as_a_folded_background_task_note() {
         await RunOnUiAsync(async () => {
             var h = Claude();
             var path = Tmp.CreateFile("t.jsonl", [
@@ -1064,9 +1074,60 @@ public class ChatTabViewModelTests {
             await h.PushAsync(Dto(path));
 
             await Assert.That(h.Chat.Items.Select(i => i.GetType().Name)).IsEquivalentTo(new[] { nameof(SystemNoteItem) });
-            await Assert.That(((SystemNoteItem)h.Chat.Items[0]).Text).IsEqualTo("**Agent finished**\n\nAll good.");
+            var note = (SystemNoteItem)h.Chat.Items[0];
+            await Assert.That(note.Text).IsEqualTo("**Agent finished**\n\nAll good.");
+            await Assert.That(note.Label).IsEqualTo(SystemNoteItem.TaskNotificationLabel);
+            await Assert.That(note.IsExpanded).IsFalse();
+            await Assert.That(note.HeaderLabel).IsEqualTo("Background task · Agent finished");
+            note.Toggle();
+            await Assert.That(note.IsExpanded).IsTrue();
+            await Assert.That(note.HeaderLabel).IsEqualTo(SystemNoteItem.TaskNotificationLabel);
             await h.TeardownAsync();
         });
+    }
+
+    /// A notification with only a summary has nothing behind it to fold, so it stays open.
+    [Test]
+    public async Task A_one_line_note_stays_open_and_a_longer_report_folds_under_its_first_line() {
+        var bare = new SystemNoteItem("**MCP task done.**", SystemNoteItem.TaskNotificationLabel);
+        await Assert.That(bare.IsCollapsible).IsFalse();
+        await Assert.That(bare.IsExpanded).IsTrue();
+        await Assert.That(bare.HeaderLabel).IsEqualTo(SystemNoteItem.TaskNotificationLabel);
+
+        var report = new SystemNoteItem("\n## Findings for `Auth`\n\nNone.", SystemNoteItem.AgentReportLabel);
+        await Assert.That(report.IsCollapsible).IsTrue();
+        await Assert.That(report.IsExpanded).IsFalse();
+        await Assert.That(report.HeaderLabel).IsEqualTo("Subagent report · Findings for Auth");
+        await Assert.That(report.ToggleAccessibleName).IsEqualTo("Expand Subagent report · Findings for Auth");
+        report.Toggle();
+        await Assert.That(report.ToggleAccessibleName).IsEqualTo("Collapse Subagent report");
+
+        foreach (var emphasised in new[] { "*Finished task*", "_Finished task_", "- **Finished task**" })
+            await Assert.That(new SystemNoteItem(emphasised + "\n\nBody.", SystemNoteItem.AgentReportLabel).HeaderLabel)
+                .IsEqualTo("Subagent report · Finished task");
+
+        foreach (var fenced in new[] { "---\n```text\n\nFindings\n```\n\nMore.", "~~~text\nFindings\n~~~\nMore." })
+            await Assert.That(new SystemNoteItem(fenced, SystemNoteItem.AgentReportLabel).HeaderLabel)
+                .IsEqualTo("Subagent report · Findings");
+
+        foreach (var (literal, peek) in new[] { ("-10% change in throughput", "-10% change in throughput"), ("#123 is fixed", "#123 is fixed"),
+                     ("> ## Summary", "Summary"), ("* item", "item"), ("+ item", "item"), ("- # Findings", "Findings"), ("# - Findings", "Findings"), (">  ## Findings", "Findings"), ("Inspect `src/**/test.cs`", "Inspect src/**/test.cs"), ("**Run `__init__`**", "Run __init__"), ("Inspect ``src/**/test.cs``", "Inspect src/**/test.cs"),
+                     ("Inspect `src/**/test.cs", "Inspect `src/**/test.cs"), ("Inspect src/**/test.cs", "Inspect src/**/test.cs"),
+                     ("Ran **all** the __unit__ tests", "Ran all the unit tests"), ("Check user__id__ field", "Check user__id__ field"),
+                     ("Saw \uE0000\uE001 in **`x`**", "Saw \uE0000\uE001 in x"), ("Observed \uE000 in `**secret**`", "Observed \uE000 in **secret**") })
+            await Assert.That(new SystemNoteItem(literal + "\nMore.", SystemNoteItem.AgentReportLabel).HeaderLabel)
+                .IsEqualTo($"Subagent report · {peek}");
+
+        foreach (var ruled in new[] { "* * *", "- - -", "> ---", "> - - -", ">  ---", "> > ---" })
+            await Assert.That(new SystemNoteItem(ruled + "\nFindings\nMore.", SystemNoteItem.AgentReportLabel).HeaderLabel)
+                .IsEqualTo("Subagent report · Findings");
+
+        foreach (var lone in new[] { "---\n\n**Done.**", "---\n```text\n\nFindings\n```", "Findings\n~~~\n---" })
+            await Assert.That(new SystemNoteItem(lone, SystemNoteItem.AgentReportLabel).IsCollapsible).IsFalse();
+
+        var other = new SystemNoteItem("Reconnected.\nResumed the session.");
+        await Assert.That(other.IsCollapsible).IsFalse();
+        await Assert.That(other.IsExpanded).IsTrue();
     }
 
     /// Claude Code stores its compaction summary as a user record; the row must not read as the user's,
@@ -1091,6 +1152,30 @@ public class ChatTabViewModelTests {
             await Assert.That(note.ToggleAccessibleName).IsEqualTo("Collapse Conversation compacted");
             note.Toggle();
             await Assert.That(note.IsExpanded).IsFalse();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// Neither a CI event nor an interrupt is the user's: each is a note named for what it is, and an
+    /// interrupt, which is only its label, has no body. A slash command is the user's own row.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_trigger_and_an_interrupt_render_as_labelled_notes_and_a_command_as_the_users() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            var path = Tmp.CreateFile("t.jsonl", [
+                """{"type":"user","message":{"content":"<command-name>/goal</command-name><command-args>merge PR #4577</command-args>"}}""",
+                """{"type":"user","message":{"content":"<ci-monitor-event>Check `build` failed.</ci-monitor-event>"}}""",
+                """{"type":"user","message":{"content":"[Request interrupted by user]"}}""",
+            ]);
+            await h.PushAsync(Dto(path));
+
+            await Assert.That(h.Chat.Items.OfType<UserTurnItem>().Single().Text).IsEqualTo("/goal merge PR #4577");
+            var notes = h.Chat.Items.OfType<SystemNoteItem>().ToArray();
+            await Assert.That(notes.Select(n => n.Label)).IsEquivalentTo(new[] { "CI event", SystemNoteItem.InterruptedLabel });
+            await Assert.That(notes[0].Text).IsEqualTo("Check `build` failed.");
+            await Assert.That(notes[0].ShowsBody).IsTrue();
+            await Assert.That(notes[1].ShowsBody).IsFalse();
             await h.TeardownAsync();
         });
     }
@@ -3437,6 +3522,46 @@ public class ChatTabViewModelTests {
         });
     }
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_terminal_approval_pauses_working_until_the_dialog_closes() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(TranscriptChat.For("claude"));
+            try {
+                var agent = Agent("a1", "claude", hasTerminal: true) with {
+                    Status = "Running", AwaitingInput = false,
+                    WorkingSince = h.Time.GetUtcNow().UtcDateTime - TimeSpan.FromSeconds(65),
+                };
+                await h.PushAsync(agent);
+                h.Time.Advance(TimeSpan.FromSeconds(10));
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo("Working for 1m 15s");
+
+                h.Chat.ComposerText = "hello";
+                var dialog = new TerminalDialogDto("Bash command", "", [], -1,
+                    "Bash command\ngrep -ril \"pages/\" README.md\nThis command requires approval\nDo you want to proceed?");
+                await h.PushAsync(agent with { TerminalDialog = dialog });
+
+                await Assert.That(h.Chat.HasPendingCards).IsFalse();
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsTrue();
+                await Assert.That(h.Chat.TerminalMenuTitle).IsEqualTo("Waiting for you in Terminal");
+                await Assert.That(h.Chat.TerminalMenuScreen).IsEqualTo(dialog.Screen);
+                await Assert.That(h.Chat.AgentStatus.Kind).IsEqualTo(AgentStatusKind.NeedsYou);
+                await Assert.That(h.Chat.ActivityNote).IsEmpty();
+                await Assert.That(h.Chat.ShowsLiveNote).IsFalse();
+                await Assert.That(await h.Chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
+
+                h.Time.Advance(TimeSpan.FromMinutes(10));
+                await h.PushAsync(agent);
+
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsFalse();
+                await Assert.That(h.Chat.AgentStatus.Kind).IsEqualTo(AgentStatusKind.Working);
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo("Working for 1m 15s");
+                h.Time.Advance(TimeSpan.FromSeconds(2));
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo("Working for 1m 17s");
+            } finally { await h.TeardownAsync(); }
+        });
+    }
+
     /// Pins the fallback for a dialog whose choices could not be read: the card carries the
     /// screen text and sends the user to the terminal, and offers Escape to close it.
     [Test]
@@ -3566,6 +3691,36 @@ public class ChatTabViewModelTests {
 
                 await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with { Status = "Running", LaunchPromptUnconfirmed = false });
                 await Assert.That(h.Chat.PhaseNote).IsEqualTo("Waiting for chat…");
+            } finally { await h.TeardownAsync(); }
+        });
+    }
+
+    /// A resumed chat opens with its history, which hides the empty-chat note, so the warning takes
+    /// the activity row: a prompt held there would otherwise leave no sign at all.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_chat_with_history_says_when_the_first_message_may_not_have_been_sent() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            try {
+                var dto = Dto(Tmp.CreateFile("resumed.jsonl", [UserLine, AssistantLine]));
+                await h.PushAsync(dto with { Status = "Running", LaunchPromptUnconfirmed = true });
+                await WaitUntilAsync(() => h.Chat.Items.Count > 0, what: "the resumed history");
+
+                await Assert.That(h.Chat.PhaseNote).IsEmpty();
+                await Assert.That(h.Chat.ShowsActivityNote).IsTrue();
+                await Assert.That(h.Chat.ActivityNote).IsEqualTo(ChatTabViewModel.LaunchPromptUnconfirmedNote);
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsFalse();
+
+                h.Chat.ShowTerminal = () => { };
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsTrue();
+                await Assert.That(h.Chat.ShowsTerminalOffer).IsFalse();
+
+                await h.PushAsync(dto with { Status = "Running", LaunchPromptUnconfirmed = false });
+
+                await Assert.That(h.Chat.ShowsActivityNote).IsFalse();
+                await Assert.That(h.Chat.ActivityNote).IsEmpty();
+                await Assert.That(h.Chat.ShowsActivityTerminalOffer).IsFalse();
             } finally { await h.TeardownAsync(); }
         });
     }

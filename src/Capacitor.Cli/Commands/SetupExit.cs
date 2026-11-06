@@ -10,5 +10,9 @@ static class SetupExit {
     /// <summary>Nothing was attempted: an argument was wrong, or an answer a run that cannot ask needs was missing.</summary>
     public const int Refused = 2;
 
+    /// <summary>On Windows only: no local bundle is published for this version, the exit <c>kcap local fetch</c>
+    /// and <c>kcap local upgrade</c> give it on every platform. Nothing was installed.</summary>
+    public const int NotPublished = 4;
+
     public const int Interrupted = 130;
 }

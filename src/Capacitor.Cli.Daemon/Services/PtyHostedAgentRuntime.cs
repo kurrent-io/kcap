@@ -24,13 +24,19 @@ namespace Capacitor.Cli.Daemon.Services;
 /// bracketed paste rather than for any output. The factory sets it on Windows, where ConPTY writes
 /// its own preamble before the agent starts; see <see cref="DeliverLaunchPrompt"/>.
 ///
+/// <paramref name="awaitsSessionStart"/> is set when the vendor fires SessionStart only once its
+/// composer is up and that hook reaches this daemon (<see cref="NoteSessionStarted"/>), so the launch
+/// prompt waits for it.
+///
 /// <paramref name="confirmsLaunchPrompt"/> is set when the agent's hooks report its turns to this
 /// daemon (<see cref="NoteTurnRelayed"/>), so the launch prompt is not counted as delivered until
 /// one does.
 /// </summary>
 internal sealed partial class PtyHostedAgentRuntime(
         string vendor, IPtyProcess pty, TimeProvider time, bool approvalsDisabled = false,
-        ILogger? logger = null, bool readyOnBracketedPaste = false, bool confirmsLaunchPrompt = false) : IHostedAgentRuntime {
+        ILogger? logger = null, bool readyOnBracketedPaste = false,
+        bool awaitsSessionStart = false,
+        bool confirmsLaunchPrompt = false) : IHostedAgentRuntime {
     /// <summary>
     /// Delays (relative to the previous write) before each carriage return on the spray submit path.
     /// A single CR right after a paste is unreliable: codex's TUI suppresses Enter-as-submit for a
@@ -73,7 +79,9 @@ internal sealed partial class PtyHostedAgentRuntime(
 
     /// <summary>How long the hooks get to report the turn a submitted launch prompt starts, before the
     /// submit is sent again, and again after that before the prompt is reported unconfirmed. A hook
-    /// relays within a second or two of the submit, so this runs out only when the prompt did not go.</summary>
+    /// relays within a second or two of the submit, so this runs out only when the prompt did not go.
+    /// Also how long a prompt can be held for SessionStart before it reads as overdue: a follow-up
+    /// can wait this long, on the daemon's one sequential SignalR dispatch, before it is refused.</summary>
     internal static readonly TimeSpan LaunchPromptConfirmWait = TimeSpan.FromSeconds(20);
 
     /// <summary>The PTY offers no exit event and the TUI can turn bracketed paste off again, so the
@@ -87,6 +95,8 @@ internal sealed partial class PtyHostedAgentRuntime(
     readonly Lock                    _dialogGate  = new();
     readonly Lock                    _arrivalGate = new();
     readonly TaskCompletionSource<bool> _submitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    readonly TaskCompletionSource    _sessionStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    readonly TaskCompletionSource    _overdue        = new(TaskCreationOptions.RunContinuationsAsynchronously);
     long                             _lastOutputAt;
     volatile bool                    _sawOutput;
     volatile bool                    _stopRequested;
@@ -104,14 +114,30 @@ internal sealed partial class PtyHostedAgentRuntime(
     internal Task<bool> LaunchPromptSubmitted => _submitted.Task;
 
     public bool LaunchPromptUnconfirmed {
-        get { lock (_arrivalGate) { return _unconfirmed; } }
+        get { lock (_arrivalGate) { return _unconfirmed || HeldTooLong; } }
     }
+
+    public Task? LaunchPromptOverdue => awaitsSessionStart ? _overdue.Task : null;
+
+    bool HeldTooLong => _overdue.Task.IsCompleted && !_sessionStarted.Task.IsCompleted;
 
     public void NoteTurnRelayed() {
         lock (_arrivalGate) {
             _arrival?.TrySetResult();
             _unconfirmed = false;
         }
+
+        // Only a REPL starts a turn, whatever became of the SessionStart notice.
+        NoteSessionStarted();
+    }
+
+    public void NoteSessionStarted() {
+        if (!awaitsSessionStart || _sessionStarted.Task.IsCompleted) return;
+
+        // The hook fires as the TUI mounts, so the quiet window runs from here. Stamped first: the
+        // delivery this releases reads it.
+        Volatile.Write(ref _lastOutputAt, time.GetTimestamp());
+        _sessionStarted.TrySetResult();
     }
 
     public string  Vendor              => vendor;
@@ -158,6 +184,12 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// time limit: its default option would take the submit Enter and leave the prompt unsent in the
     /// composer. Neither is a terminal that still rewrites CR, which would turn the submit Enter into a
     /// newline.
+    ///
+    /// A prompt that awaits SessionStart waits for it ahead of all that, also with no time limit: a
+    /// first-run screen fires no hook and is output followed by silence, so it passes every check
+    /// here and would take the paste, the Enter and the retry Enter. Past
+    /// <see cref="LaunchPromptConfirmWait"/> the hold reads as unconfirmed, which points a viewer at
+    /// the terminal, and a follow-up is refused.
     /// </summary>
     /// <remarks>
     /// Under ConPTY output alone is no sign of readiness: it writes its own preamble before the agent
@@ -283,9 +315,15 @@ internal sealed partial class PtyHostedAgentRuntime(
     }
 
     /// <summary>A follow-up waits for the launch prompt so it lands after it. The delivery reports
-    /// its own fate; the follow-up only needs it to be over.</summary>
+    /// its own fate; the follow-up only needs it to be over. A prompt held too long refuses the
+    /// follow-up instead: that hold has no time limit, and a server dispatch awaits this on the
+    /// daemon's one sequential SignalR dispatch, ahead of every other agent's stop and launch.</summary>
     async Task WaitForLaunchPromptAsync() {
         if (LaunchPromptDelivery is not { } delivery) return;
+
+        await Task.WhenAny(delivery, _overdue.Task);
+        if (HeldTooLong && !delivery.IsCompleted)
+            throw new IOException("the agent is still starting: finish what its terminal is asking, then send this again");
 
         try { await delivery; } catch (Exception) { }
     }
@@ -293,6 +331,8 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// <summary>True once output has been quiet for the window, false when the wait expired first.
     /// Returns early, true, when the agent has exited or been asked to stop; the caller checks those.</summary>
     async Task<bool> WaitForStartupToSettleAsync(CancellationToken ct) {
+        await WaitForSessionStartAsync(ct);
+
         var started = time.GetTimestamp();
 
         var sawCooked  = false;
@@ -338,6 +378,21 @@ internal sealed partial class PtyHostedAgentRuntime(
         }
 
         return true;
+    }
+
+    /// <summary>Returns once SessionStart has been reported, or the agent has exited or been asked to stop.</summary>
+    async Task WaitForSessionStartAsync(CancellationToken ct) {
+        if (!awaitsSessionStart) return;
+
+        var started = time.GetTimestamp();
+
+        while (!_sessionStarted.Task.IsCompleted && !pty.HasExited && !_stopRequested) {
+            try {
+                await _sessionStarted.Task.WaitAsync(LaunchPromptPoll, time, ct);
+            } catch (TimeoutException) { }
+
+            if (time.GetElapsedTime(started) >= LaunchPromptConfirmWait) _overdue.TrySetResult();
+        }
     }
 
     /// <summary>Called by a delivery holding the input lane, before each submit Enter. A dialog
