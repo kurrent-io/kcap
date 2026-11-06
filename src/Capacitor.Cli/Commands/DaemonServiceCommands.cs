@@ -955,11 +955,15 @@ sealed class DaemonServiceCommands(
             bool Within(string? binary) => binary is not null && CanonicalPath.IsWithin(binary, dir);
             // A preimage marks a run cut short with the plist already rewritten.
             bool Owned() => File.Exists(preimage) || Within(launchd.UnitBinary(unit));
+            // The caller may delete dir on success, so a unit that cannot be read must not pass as unrelated.
+            async Task<bool> UnreadableAsync() {
+                if (File.Exists(preimage) || !launchd.UnitUnreadable(unit)) return false;
+                await Console.Error.WriteLineAsync($"Daemon '{unit}': its unit could not be read, so kcap cannot tell whether it runs from {dir}.");
+                return true;
+            }
 
             try {
-                // The caller may delete dir on success, so a unit that cannot be read must not pass as unrelated.
-                if (!File.Exists(preimage) && launchd.UnitUnreadable(unit)) {
-                    await Console.Error.WriteLineAsync($"Daemon '{unit}': its unit could not be read, so kcap cannot tell whether it runs from {dir}.");
+                if (await UnreadableAsync()) {
                     failed = true;
                     continue;
                 }
@@ -979,7 +983,11 @@ sealed class DaemonServiceCommands(
                     continue;
                 }
 
-                // An install holding the lock may have repointed the unit already.
+                // An install holding the lock may have repointed the unit already, or changed it since the first read.
+                if (await UnreadableAsync()) {
+                    failed = true;
+                    continue;
+                }
                 if (!Owned()) continue;
 
                 ReloadStop? stop    = null;

@@ -35,9 +35,13 @@ public partial class DaemonServiceRepointTests {
         File.WriteAllText(PlistPath(id), LaunchdUnit.Plist(Spec(id, binary)));
     }
 
-    DaemonServiceCommands Commands(FakeLaunchctl launchctl, ReloadStop answer = ReloadStop.Exited, Action<string>? atStop = null) =>
+    DaemonServiceCommands Commands(
+            FakeLaunchctl launchctl, ReloadStop answer = ReloadStop.Exited, Action<string>? atStop = null, Action<string>? beforeLock = null) =>
         new(Daemons.Store, Config.Root, Resolutions.None(Config.Root), launchctl.Manager(Daemons.Store), "unused", Home, TimeProvider.System) {
-            HostsCaller   = _ => false,
+            HostsCaller   = id => {
+                beforeLock?.Invoke(id);
+                return false;
+            },
             ReloadStopper = id => {
                 atStop?.Invoke(id);
                 if (answer == ReloadStop.Exited) launchctl.Exit(id);
@@ -161,6 +165,22 @@ public partial class DaemonServiceRepointTests {
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(File.ReadAllText(PlistPath("npm"))).IsEqualTo("not a plist");
+        await Assert.That(console.GetCapturedError()).Contains("Daemon 'npm': its unit could not be read");
+    }
+
+    /// <summary>The unit is read again once the lock is held, and a read that fails then fails the run too.</summary>
+    [Test]
+    public async Task A_unit_that_becomes_unreadable_before_the_lock_fails_the_run() {
+        Skip.When(OperatingSystem.IsWindows(), "getuid is POSIX-only");
+        Install("npm", OldDaemon);
+        var launchctl = new FakeLaunchctl(Home);
+        launchctl.Load("npm", OldDaemon);
+        using var console = ConsoleOutput.StartFullCapture();
+
+        var exit = await Commands(launchctl, beforeLock: id => File.WriteAllText(PlistPath(id), "not a plist")).RepointFrom(Dir, Bundle);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(launchctl.Program("npm")).IsEqualTo(OldDaemon);
         await Assert.That(console.GetCapturedError()).Contains("Daemon 'npm': its unit could not be read");
     }
 
