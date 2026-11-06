@@ -73,7 +73,11 @@ public sealed class LauncherLayoutPanel : Panel {
         }
         var listTop = y + height + Gap;
         var room = Math.Max(finalSize.Height - listTop, Math.Min(list.DesiredSize.Height, ListMinHeight));
-        list.Arrange(new Rect(0, listTop, finalSize.Width, Math.Min(room, list.DesiredSize.Height)));
+        var listHeight = Math.Min(room, list.DesiredSize.Height);
+        // Measured unbounded, the list's scroller would size its viewport to all it holds and never scroll; measured
+        // again in the room it gets, it scrolls inside that.
+        if (listHeight < list.DesiredSize.Height) list.Measure(new Size(finalSize.Width, listHeight));
+        list.Arrange(new Rect(0, listTop, finalSize.Width, listHeight));
         return finalSize;
     }
 

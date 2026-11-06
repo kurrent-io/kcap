@@ -52,6 +52,7 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     IReadOnlyList<NextWorkCardViewModel> _moreCards = [];
     bool _moreExpanded;
     int _elsewhere;
+    string? _recentlyDone;
 
     public NextWorkBandViewModel(INextWorkApi api, TimeProvider time, NextWorkSeenStore? seen = null,
             Action<string>? openUrl = null, Action<string>? openSession = null, Action<string>? notify = null,
@@ -125,12 +126,16 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     }
 
     public bool MoreListVisible => _moreExpanded && HasMoreCards;
-    public string MoreToggleText => $"More to do · {_moreCards.Count}";
+    public string MoreToggleText => $"More to do ({_moreCards.Count})";
 
     /// <summary>"9 more on the dashboard": what the launcher leaves out (tracker chores and quiet items); null when
     /// nothing is. The window's Open dashboard leads there.</summary>
     public string? ElsewhereText => _elsewhere > 0 ? $"{_elsewhere} more on the dashboard" : null;
     public bool HasElsewhere => _elsewhere > 0;
+
+    /// <summary>"Recently done: 3 PRs merged · 1 item settled", from the targets the engine saw settle; null when none
+    /// did. The engine's own window, not a calendar week.</summary>
+    public string? RecentlyDoneText { get => _recentlyDone; private set => this.RaiseAndSetIfChanged(ref _recentlyDone, value); }
 
     public ReactiveCommand<Unit, Unit> RefreshCommand    { get; }
     public ReactiveCommand<Unit, Unit> ToggleMoreCommand { get; }
@@ -247,6 +252,7 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
         _elsewhere = focus.Notes.Count + focus.Quiet.Count + Math.Max(0, next.Count - MaxRows + focus.More.Count - MaxMoreRows);
         this.RaisePropertyChanged(nameof(ElsewhereText));
         this.RaisePropertyChanged(nameof(HasElsewhere));
+        RecentlyDoneText = NextWorkLaneLogic.RecentlyDone(snapshot) is { Count: > 0 } parts ? "Recently done: " + string.Join(" · ", parts) : null;
     }
 
     // ---- row actions ------------------------------------------------------------------------------------------

@@ -39,6 +39,38 @@ public class LauncherPaneViewSmokeTests {
         await Assert.That(LauncherPaneView.IsSameRepositoryFolder(Tmp.PathTo("other"), repository)).IsFalse();
     }
 
+    /// The next-work list takes the height left under the composer and scrolls inside it, rather than running past the
+    /// pane's bottom edge.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_long_next_work_list_scrolls_inside_the_room_under_the_composer() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var rows = Enumerable.Range(1, 30).Select(i => new NextWorkCandidateDto($"wi:{i}", "work_item", $"{i}", $"ITEM-{i} Do the thing", null, "h1",
+                "FinishYours", 2, "kept", null, i, "Assigned to you", new(0, null, false, 0, 0), [])).ToList();
+            var api = new FakeNextWorkApi { Snapshot = new(NextWorkReadKind.Ready, new(DateTimeOffset.UtcNow, false, false, null, rows)) };
+            using var band = new ViewModels.NextWork.NextWorkBandViewModel(api, TimeProvider.System);
+            var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            using var cleanup = tmp;
+            using var home = new HomeViewModel(new FakeDaemonClientService(), new AppStateStore(path),
+                new RecordingLaunchClient(), () => Task.FromResult(Array.Empty<string>()), TimeProvider.System) { NextWork = band };
+            await band.RefreshAsync();
+            band.MoreExpanded = true;
+            var window = new Window { Width = 1000, Height = 800, Content = new LauncherPaneView { DataContext = home } };
+            try {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var list = Find<ScrollViewer>(window, "BandList")!;
+                var bottom = list.TranslatePoint(new Point(0, list.Bounds.Height), window)!.Value.Y;
+
+                await Assert.That(list.Extent.Height).IsGreaterThan(list.Viewport.Height);
+                await Assert.That(bottom).IsLessThanOrEqualTo(800);
+            } finally {
+                window.Close();
+            }
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Retrying_a_failed_upgrade_replaces_the_failure_icon_with_progress() {
