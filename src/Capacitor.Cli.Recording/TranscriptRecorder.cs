@@ -128,7 +128,7 @@ public sealed class TranscriptRecorder(
         State.StartedAt = time.GetUtcNow();
         var idleTimeout = IdleEnd.ResolveIdleWindow(vendor, isSessionWatcher: agentId is null, Environment.GetEnvironmentVariable);
 
-        await context.Vendor.PrepareAsync(State, stop);
+        await context.Housekeeping.PrepareAsync(State, stop);
 
         log($"Watching {TranscriptPath} for session {sessionId}" + (agentId is not null ? $" agent {agentId}" : ""));
 
@@ -142,7 +142,7 @@ public sealed class TranscriptRecorder(
         // A resumed session can be told a path its transcript has already left; the seed and replay read it next.
         FollowMovedTranscript();
 
-        context.Vendor.OnConnected();
+        context.Housekeeping.OnConnected();
 
         // The server's frontier can exceed the local line count when the transcript was replaced while nothing
         // watched it. That is quarantined rather than seeded, and the loop below never runs.
@@ -189,13 +189,13 @@ public sealed class TranscriptRecorder(
                     State.DisconnectedSince        = null;
                 }
 
-                await context.Vendor.BeforeDrainAsync(State, stop);
+                await context.Housekeeping.BeforeDrainAsync(State, stop);
 
                 FollowMovedTranscript();
 
                 var drained = await DrainNewLinesGatedAsync(isFinalDrain: false, stop);
 
-                await context.Vendor.AfterDrainAsync(State, TranscriptPath, drained, stop);
+                await context.Housekeeping.AfterDrainAsync(State, TranscriptPath, drained, stop);
 
                 // Keyed on the child's own session id for a child watcher: each Cursor hook touches its own raw
                 // session id, and sessionId here is the parent's.
@@ -307,7 +307,7 @@ public sealed class TranscriptRecorder(
                 _spool, State.LinesProcessed, State.Commits, ct,
                 ShutdownTailRedactionDeadline - time.GetElapsedTime(shutdownStarted), State.LineOffsets);
 
-            await context.Vendor.AfterFinalDrainAsync(State, finalDrained, shutdownStarted, ct);
+            await context.Housekeeping.AfterFinalDrainAsync(State, finalDrained, shutdownStarted, ct);
         }
 
         // The generated title goes out over this connection, so it is waited for before the close.
@@ -327,7 +327,7 @@ public sealed class TranscriptRecorder(
             // carry one at all, so another process finishes it over HTTP, as it does one that never reached the server.
             if (!State.TitleGenerated && (Volatile.Read(ref _stopRequested) == 1 || !connected || !transport.IsConnected)) {
                 log($"Generated title {(settled ? "not sent" : "not ready")} before shutdown; handing it to a title generator");
-                context.Vendor.HandOffTitle(TranscriptPath);
+                context.Housekeeping.HandOffTitle(TranscriptPath);
             } else if (!settled) {
                 log("Generated title not ready before shutdown; abandoning it");
             }
@@ -439,7 +439,7 @@ public sealed class TranscriptRecorder(
     }
 
     Task<IReadOnlyList<string>> DrainNewLinesGatedAsync(bool isFinalDrain, CancellationToken ct) {
-        context.Vendor.RefreshTranscript(TranscriptPath);
+        context.Housekeeping.RefreshTranscript(TranscriptPath);
 
         return GatedDrainNewLinesAsync(_cursorRewindGate, State, ct, isFinalDrain, _cursorGuard, OnCursorRewriteDetected);
     }
@@ -599,7 +599,7 @@ public sealed class TranscriptRecorder(
         var log = context.Log;
 
         try {
-            var result = await context.Vendor.GenerateTitleAsync(state.FirstUserText!, state.FirstAssistantText, state.TitleCancellation);
+            var result = await context.Housekeeping.GenerateTitleAsync(state.FirstUserText!, state.FirstAssistantText, state.TitleCancellation);
 
             if (result is null) {
                 log($"Title generation attempt {state.TitleAttempts}/5 returned no usable result (CLI failure, refusal-like output, or empty title)");
@@ -809,7 +809,7 @@ public sealed class TranscriptRecorder(
             var antigravityGenMax = -1L;
             if (vendor == "antigravity" && (agentId is not null || state.ThresholdReached)) {
                 antigravityGenMax = AntigravityLiveUsage.AppendAntigravityUsageLines(
-                    state, newLines, newLineNumbers, transcriptPath, state.LastAntigravityCreatedAt, context.Vendor.ReadAntigravityUsage, log);
+                    state, newLines, newLineNumbers, transcriptPath, state.LastAntigravityCreatedAt, context.Housekeeping.ReadAntigravityUsage, log);
             }
 
             if (vendor == "kiro" && (agentId is not null || state.ThresholdReached)) {

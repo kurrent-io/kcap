@@ -16,7 +16,7 @@ public sealed class TestRecorders(ConfigRoot config, TimeProvider? time = null, 
 
     public FakeRecorderTransport Transport { get; } = new();
 
-    public FakeRecorderVendor Vendor { get; } = new();
+    public FakeRecorderHousekeeping Housekeeping { get; } = new();
 
     /// <summary>What the recorders logged, oldest first.</summary>
     public IReadOnlyList<string> Log {
@@ -35,7 +35,7 @@ public sealed class TestRecorders(ConfigRoot config, TimeProvider? time = null, 
             return _recorders[key] = new TranscriptRecorder(
                 new RecordingSource(sessionId, agentId, transcriptPath, vendor, null), Transport, new NoStamps(), clock,
                 new RecorderContext(
-                    new CapacitorServer("http://127.0.0.1:1", config, Resolutions.None(config)), Vendor, redactionClock ?? clock, Write, () => { }));
+                    new CapacitorServer("http://127.0.0.1:1", config, Resolutions.None(config)), Housekeeping, redactionClock ?? clock, Write, () => { }));
         }
     }
 

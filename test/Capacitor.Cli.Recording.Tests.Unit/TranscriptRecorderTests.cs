@@ -13,13 +13,13 @@ public class TranscriptRecorderTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     readonly FakeRecorderTransport _transport = new() { IsConnected = true };
-    readonly FakeRecorderVendor    _vendor    = new();
+    readonly FakeRecorderHousekeeping _housekeeping = new();
 
     ConfigRoot Config => field ??= new(Tmp.CreateDir("config"));
 
     TranscriptRecorder Recorder(string path, string? agentId = null, string vendor = "claude") => new(
         new RecordingSource(Sid, agentId, path, vendor, null), _transport, new NoStamps(), TimeProvider.System,
-        new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _vendor, TimeProvider.System, _ => { }, () => { }));
+        new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, _ => { }, () => { }));
 
     async Task LinesSent(int count) {
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
@@ -51,8 +51,8 @@ public class TranscriptRecorderTests {
         await Assert.That(lastBatch.SessionId).IsEqualTo(Sid);
         await Assert.That(recorder.State.LinesProcessed).IsEqualTo(4);
         await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
-        await Assert.That(_vendor.Prepared).IsEqualTo(1);
-        await Assert.That(_vendor.Connected).IsEqualTo(1);
+        await Assert.That(_housekeeping.Prepared).IsEqualTo(1);
+        await Assert.That(_housekeeping.Connected).IsEqualTo(1);
     }
 
     [Test]
@@ -92,7 +92,7 @@ public class TranscriptRecorderTests {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        _vendor.BeforeDrain = () => {
+        _housekeeping.BeforeDrain = () => {
             entered.TrySetResult();
             return release.Task;
         };

@@ -31,7 +31,7 @@ public sealed class RecorderHousekeeping(
         RecordingSource source, bool skipTitle, int? parentPid, IRecorderHost host,
         ConfigRoot config, ProfileContext profiles, HarnessRegistry harnesses, ICapacitorHttpClient http,
         GitProviderRouter router, TimeProvider time, AccountStore accounts, UserHome home,
-        Action<string> log, Action beat) : IRecorderVendor {
+        Action<string> log, Action beat) : IRecorderHousekeeping {
     readonly WatcherPaths        _paths = WatcherPaths.FromEnvironment(config);
     readonly SubagentScanContext _scans = new(host, config, profiles, http, time, log);
 

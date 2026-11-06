@@ -4,8 +4,8 @@ using Capacitor.Cli.Recording;
 
 namespace Capacitor.Tests.Helpers;
 
-/// <summary>A host with no housekeeping to do between drains.</summary>
-public sealed class FakeRecorderVendor : IRecorderVendor {
+/// <summary>Housekeeping that has nothing to do between drains.</summary>
+public sealed class FakeRecorderHousekeeping : IRecorderHousekeeping {
     public int Prepared { get; private set; }
 
     public int Connected { get; private set; }
