@@ -90,7 +90,7 @@ public sealed class DocsShots {
             "desktop-settings-notifications", "desktop-settings-accounts", "desktop-settings-profiles", "desktop-settings-search",
             "desktop-launch-approvals", "desktop-consent-prompt", "desktop-wizard-agents", "desktop-wizard-visibility",
             "desktop-settings-privacy", "desktop-wizard-usage-data", "desktop-settings-usage-data", "desktop-settings-harnesses",
-            "desktop-settings-about"]);
+            "desktop-settings-about", "desktop-launcher-next-work", "desktop-launcher-next-work-filled"]);
     }
 
     [Test]

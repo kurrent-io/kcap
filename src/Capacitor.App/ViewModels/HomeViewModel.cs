@@ -436,8 +436,12 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
     /// Picks a next-work task for the next launch, on the machine and in the checkout it names when it names one. The
     /// composer keeps what it holds, as context for the task.
     public async Task FillFromNextWorkAsync(NextWork.NextWorkFill fill) {
-        if (fill.Machine is { } machine && !(string.Equals(SelectedMachine, machine, StringComparison.Ordinal) && RemoteMachineSelected == !fill.MachineIsLocal))
-            await SelectMachineAsync(machine, fill.MachineIsLocal);
+        bool OnTasksMachine() => fill.Machine is not { } want
+            || (string.Equals(SelectedMachine, want, StringComparison.Ordinal) && RemoteMachineSelected == !fill.MachineIsLocal);
+        if (!OnTasksMachine()) await SelectMachineAsync(fill.Machine!, fill.MachineIsLocal);
+        // A refused switch (a daemon not yet listed as the viewer's) leaves another machine selected, where the task's
+        // path names nothing: the task waits for its checkout instead.
+        if (!OnTasksMachine()) fill = fill with { Machine = null, RepoPath = null, AwaitsCheckout = true };
         if (fill.RepoPath is { } path) await SelectRepositoryAsync(path);
         // A repository already chosen for something else is not this task's: left selected, Start would run it there.
         else if (fill.AwaitsCheckout) await SelectRepositoryAsync(ScratchRepoPath);

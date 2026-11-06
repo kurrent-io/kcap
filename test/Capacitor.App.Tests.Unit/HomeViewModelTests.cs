@@ -138,6 +138,23 @@ public class HomeViewModelTests {
         });
     }
 
+    /// A task on a machine the launcher cannot switch to (not yet listed as the viewer's) never takes that machine's path
+    /// as a local one: it waits for its checkout.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_refused_machine_switch_leaves_the_task_waiting_for_its_checkout() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            await vm.SelectRepositoryAsync(Tmp.CreateDir("unrelated"));
+
+            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", "studio", false, "/home/maya/payments", "Recorded context"));
+
+            await Assert.That(vm.RemoteMachineSelected).IsFalse();
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
+            await Assert.That(vm.NextWorkSource!.AwaitsCheckout).IsTrue();
+        });
+    }
+
     /// Emptying the composer leaves the task picked; only its chip unpicks it.
     [Test]
     public async Task Emptying_the_composer_keeps_the_task_picked() {

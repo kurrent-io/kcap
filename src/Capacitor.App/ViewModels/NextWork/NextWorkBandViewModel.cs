@@ -305,6 +305,10 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
             MarkFilled(row.TargetKey);
             if (path is null && row.RepoHash is not null)
                 _notify?.Invoke($"No checkout of {Repo(row)} is known on your machines: pick its repository before you start.");
+        } catch (Exception ex) when (ex is not OperationCanceledException) {
+            // Reading the known repositories or switching the launcher can fail; the command has no other handler.
+            Console.Error.WriteLine($"kcap: picking next-work task {row.TargetKey} failed: {ex}");
+            _notify?.Invoke($"Couldn't pick this task: {ex.Message}");
         } finally {
             card.Busy = false;
         }
@@ -357,6 +361,10 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
                     break;
                 case { Kind: NextWorkReadKind.Ready, Value: { } result }:
                     _notify?.Invoke(NextWorkLaunchText.Start(result.Refusal));
+                    break;
+                case { Kind: NextWorkReadKind.Failed }:
+                    // No answer is not a refusal: the server may have dispatched it and hold the claim.
+                    _notify?.Invoke(NextWorkLaunchText.Unconfirmed);
                     break;
                 default:
                     _notify?.Invoke(NextWorkLaunchText.Start(null));
