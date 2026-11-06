@@ -430,6 +430,26 @@ public class HomeAttachmentsTests {
         });
     }
 
+    /// <summary>A failed launch of a picked next-work task gives back what was typed and the task, never the composed
+    /// text the agent was sent, so a retry carries the task's target again.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Delayed_failure_restores_the_typed_goal_and_the_picked_task() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            using var rig = new Rig();
+            await LaunchWithDraftAsync(rig, path, beforeStart: vm =>
+                vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, "/repo/a", "Recorded context")));
+            var vm = rig.Vm;
+            await Assert.That(vm.NextWorkSource).IsNull();
+
+            rig.Failures.OnNext(new LaunchFailure(LaunchedId, "boom"));
+
+            await Assert.That(vm.Goal).IsEqualTo("g");
+            await Assert.That(vm.NextWorkSource!.Key).IsEqualTo("wi:a");
+        });
+    }
+
     /// <summary>Closing the app mid-upload disposes the view model and cancels its token while
     /// StartAsync is still awaiting the uploader. The flag it clears on the way out must not reach a
     /// disposed subject, and the cancellation is a close rather than a launch failure — the command's

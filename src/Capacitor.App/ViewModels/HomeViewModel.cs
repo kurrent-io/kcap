@@ -2069,7 +2069,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             SelectedModel, SelectedEffort, PermissionModeFor(SelectedVendor, SelectedPermissionMode),
             CodexPostureFor(SelectedVendor, SelectedCodexSandbox, SelectedCodexApproval),
             Tray.Snapshot(), Tray.Generation,
-            _accountChooser.State == AccountSelectionState.ExplicitValid ? _accountChooser.SelectedAccountId : null);
+            _accountChooser.State == AccountSelectionState.ExplicitValid ? _accountChooser.SelectedAccountId : null,
+            ComposerGoal: Goal, Picked: picked);
         var accountLabel = _accountChooser.SelectedLabel;
 
         if (draft.Files.Count > 0 && !CanAttachFor(draft)) {
@@ -2338,7 +2339,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         }
 
         if (retained is not null && IsRestorable(retained)) {
-            Goal = retained.Draft.Goal;
+            // What the person typed, and the task it was for: never the composed text the agent was sent.
+            Goal = retained.Draft.ComposerGoal ?? retained.Draft.Goal;
+            if (retained.Draft.Picked is { } picked) NextWorkSource = picked;
             Tray.Restore(retained.Draft.Files);
             StartError = friendly + " — your draft is back";
             return;
