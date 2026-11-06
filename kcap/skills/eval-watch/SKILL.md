@@ -54,7 +54,7 @@ is a boolean. Fail → not selectable; try the next candidate file, or close wit
 remain.
 
 **Layer B** (may its ids drive data): `cohort` ∈ {exact, partial_exact, unknown}; `scope` ∈ {all,
-repos} (absent reads as `all`); `background` ∈ {not_needed, running, exited_zero, failed}; `foreground_certainty` ∈ {complete, incomplete};
+repos} (absent reads as `all`); `background` ∈ {not_needed, running, exited_zero, failed, unconfirmed}; `foreground_certainty` ∈ {complete, incomplete};
 `handoff_suppressed` is null or one of import_failed, no_new_sessions, nothing_landed,
 analytics_not_in_plan, skill_not_installed, no_agent_detected (older setups write
 `analytics_not_in_plan`); every entry of `session_ids` and

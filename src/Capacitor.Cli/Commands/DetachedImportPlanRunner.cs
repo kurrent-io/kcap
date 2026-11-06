@@ -30,8 +30,9 @@ sealed class DetachedImportPlanRunner(
         LocalRoot localRoot,
         Func<ImportPlanLevel, ProfileContext, Task<SetupImportRun>>? passRunner = null,
         AccountStore? accounts = null) {
+    /// <param name="accepted">Called once the plan is read and usable, before any level runs.</param>
     /// <returns>0 when every level finished with nothing failed; 1 otherwise.</returns>
-    public async Task<int> RunAsync(string planPath) {
+    public async Task<int> RunAsync(string planPath, Action? accepted = null) {
         if (!ImportPlan.IsSetupPlanPath(config, planPath)) {
             Console.Error.WriteLine($"Refusing the import plan at {planPath}: not a plan setup wrote in {config.Directory}.");
 
@@ -48,6 +49,8 @@ sealed class DetachedImportPlanRunner(
         var context = SetupCommand.ImportContext(profiles, plan.ServerUrl, LocalEndpoints.Read(localRoot));
         var scoped  = passRunner is null ? http.For(plan.ServerUrl, context) : null;
         var exit    = 0;
+
+        accepted?.Invoke();
 
         try {
             foreach (var level in plan.Levels) {
