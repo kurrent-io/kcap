@@ -37,7 +37,7 @@ sealed class SecretPatterns {
         UrlUserinfoRegex         = Rebuild(UrlUserinfoRegex, timeout)
     };
 
-    // Compiled is ignored under NativeAOT, where a rebuilt set is never made; elsewhere the
+    // Compiled is ignored under NativeAOT, which interprets a rebuilt set; elsewhere the
     // interpreter would scan a recording several times slower than the generated code does.
     static Regex Rebuild(Regex generated, TimeSpan timeout) =>
         new(generated.ToString(), generated.Options | RegexOptions.Compiled, timeout);
