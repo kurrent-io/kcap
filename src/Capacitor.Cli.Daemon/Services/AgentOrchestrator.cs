@@ -5453,6 +5453,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         LogCodexRoundNotStarted(agent.Id, (CodexRoundConfirmation.Window * 2).TotalSeconds, resubmitWritten);
 
+        // A resend is refused the same way, since the report below may never reach the server.
+        if (dispatchId is { } dropped) _dispatchedInputs.MarkDropped(dropped, SendInputDropReason.TurnNotStarted);
+
         var report = dispatchId is { } dispatch && !agent.IsServerSilent
             ? ReportUnstartedRoundAsync(dispatch)
             : Task.CompletedTask;
