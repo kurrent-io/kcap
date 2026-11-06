@@ -61,11 +61,16 @@ public sealed record RecordingSource(string SessionId, string? AgentId, string T
     public string Key => AgentId is null ? SessionId : $"{SessionId}-{AgentId}";
 }
 public interface IRecorderTransport {
+    bool IsConnected { get; }
     Task<int> ConnectAsync(RecordingSource source, CancellationToken ct);       // WatcherConnect
-    Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct);      // SendTranscriptBatchAcked, returns next line
+    Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct);      // Cursor: SendTranscriptBatchAcked, which returns the next line. The rest: SendTranscriptBatch2
+    Task SendTitleAsync(string sessionId, string title, CancellationToken ct);  // SendTitle
+    Task UpdateTitleAsync(string sessionId, string title, string? model, long inputTokens, long outputTokens, long cacheReadTokens, long cacheWriteTokens, CancellationToken ct); // UpdateTitle
     Task DrainCompleteAsync(RecordingSource source, CancellationToken ct);      // WatcherDrainComplete
     event Func<string, string, Task> StopRequested;                             // key, reason
+    event Func<Task> Reconnected;                                               // each recorder re-registers and rewinds
 }
+public sealed record RecorderContext(CapacitorServer Server, IRecorderVendor Vendor, TimeProvider RedactionClock, Action<string> Log, Action Beat);
 public interface IRowStamper {
     LineStamp? StampFor(int lineNumber, string rawLine);
     void Acknowledged(int throughLine);
@@ -177,14 +182,15 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 ### Task 5: Extract the per-source recorder
 
 **Files:**
-- Create: `src/Capacitor.Cli.Recording/TranscriptRecorder.cs`, `RecordingSource.cs`, `IRecorderTransport.cs`, `IRowStamper.cs`, `NoStamps.cs`
+- Create: `src/Capacitor.Cli.Recording/TranscriptRecorder.cs`, `RecordingSource.cs`, `RecorderContext.cs`, `IRecorderTransport.cs`, `IRecorderVendor.cs`, `IRowStamper.cs`, `NoStamps.cs`
 - Create: `src/Capacitor.Cli/Commands/HubRecorderTransport.cs`
 - Modify: `src/Capacitor.Cli/Commands/WatchCommand.cs`
+- Move: `CursorRewriteGuard`, and the pure line helpers `TitleGenerator.IsCodexInjectedUserPrelude`, `TitleGenerator.ExtractCodexBlockText`, `GeminiImportSource.IsImportRelevantLine` and `CopilotFinalizeDrainCommand.IsShutdownLine`, so the line extractors move whole and `IRecorderVendor` starts small
 - Move: the tests that exercise the moved logic
 
 **Interfaces:**
 - Consumes: Task 4.
-- Produces: `TranscriptRecorder(RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time)` with `Task RunAsync(CancellationToken ct)` and `Task FinishAsync(CancellationToken ct)`. `kcap watch` becomes argument parsing, process concerns and one recorder. `LineStamp` joins `src/Capacitor.Cli.Core/Models.cs` here because `IRowStamper` names it, and it reaches the wire in Task 11.
+- Produces: `TranscriptRecorder(RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context)` with `Task RunAsync(CancellationToken ct)` and `Task FinishAsync(CancellationToken ct)`. Every recorder has a full context: there is no reduced mode without one, and a test builds one from a `TempDir`. `IRecorderVendor` holds what stays in `kcap` for now, with housekeeping behind four coarse calls, `PrepareAsync`, `BeforeDrainAsync`, `AfterDrainAsync` and `AfterFinalDrainAsync`, and Task 6 shrinks it. `kcap watch` becomes argument parsing, process concerns and one recorder. `LineStamp` joins `src/Capacitor.Cli.Core/Models.cs` here because `IRowStamper` names it, and it reaches the wire in Task 11.
 
 - [ ] **Tests:** the existing `WatchCommandTests`, `LiveWatchHardeningAcceptanceTests` and `CursorTailingWatcherTests` pass against the new shape. Add `A_recorder_runs_against_a_fake_transport`, asserting batches, line numbers and the drain-complete call.
 - [ ] **Implement:** move the loop. `WatchState` is already in `Capacitor.Cli.Core` and stays there. Vendor code stays reachable through an interface for now, so this task can land without Task 6. Process concerns stay in `WatchCommand`: parent-pid watch, pid file, signals, heartbeat.
@@ -214,7 +220,7 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Interfaces:**
 - Consumes: `TranscriptRecorder`.
-- Produces: `RecorderHost(IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, TimeProvider time)` with `bool TryAdd(RecordingSource source)`, `Task FinishAsync(string key, CancellationToken ct)`, `IReadOnlyCollection<string> ActiveKeys`.
+- Produces: `RecorderHost(IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time)` with `bool TryAdd(RecordingSource source)`, `Task FinishAsync(string key, CancellationToken ct)`, `IReadOnlyCollection<string> ActiveKeys`.
 
 - [ ] **Tests:**
   - `A_redaction_hold_stalls_only_its_own_source`: one source held, the other's lines still arrive.
