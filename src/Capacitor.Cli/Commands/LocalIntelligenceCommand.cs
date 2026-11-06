@@ -71,7 +71,7 @@ sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root)
         yield return r.Mode switch {
             IntelligenceModes.LocalAgent => $"Background intelligence: your local agent, {r.Harness}.",
             IntelligenceModes.Provider   => $"Background intelligence: {r.Vendor}, with your API key.",
-            _                            => "Background intelligence: not set up. kcap local intelligence sets it up later.",
+            _                            => $"Background intelligence: not set up. {LocalIntelligenceStep.Later}",
         };
 
         if (r.Mode == IntelligenceModes.None) yield break;
