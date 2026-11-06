@@ -37,7 +37,7 @@ internal static class CodingAgentsStep {
 
     /// <param name="ClaudeHooksViaPowerShell">Windows with no Git Bash Claude can find: Claude then starts every hook
     /// through PowerShell, whose start-up alone can spend a short hook's whole time limit.</param>
-    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false);
+    internal record DetectedAgents(bool Claude, bool Codex, bool Cursor, bool Copilot, bool Gemini = false, bool Kiro = false, bool Pi = false, bool OpenCode = false, bool Antigravity = false, bool Vibe = false, bool Grok = false, bool Muse = false, bool ClaudeHooksViaPowerShell = false, string? CopilotHostApp = null);
 
     internal record Paths(
             string  ClaudeSettingsPath,
@@ -108,6 +108,7 @@ internal static class CodingAgentsStep {
             Func<TomlConfigFile.Outcome>?                           RegisterVibeMcp = null,
             Func<string /*hooksJsonPath*/, bool>?                    InstallGrokHooks = null,
             Func<string /*settingsPath*/, bool>?                     InstallMuseHooks = null,
+            Func<bool>?                                              CopilotHooksNeedPath = null,
             Func<JsonMcpConfigWriter.Change>?                        RegisterMuseMcp = null,
             Func<string /*skillsDir*/, IReadOnlySet<string>>?        ReadAgentSkillsConsumers = null,
             Action<string /*skillsDir*/, IEnumerable<string>>?       WriteAgentSkillsConsumers = null
@@ -226,7 +227,8 @@ internal static class CodingAgentsStep {
         // decline (or a no-agents machine) guarantees zero artifact mutations. See
         // SetupDecisions.DecideInstallAgents for how SetupCommand derives InstallAgents.
         if (detected is { Claude: false, Codex: false, Cursor: false, Copilot: false, Gemini: false, Kiro: false, Pi: false, OpenCode: false, Antigravity: false, Vibe: false, Grok: false, Muse: false }) {
-            writeLine("  [yellow]⚠ No supported agent CLI detected.[/] Install Claude Code, Codex CLI, Cursor, Copilot CLI, Gemini CLI, Kiro CLI, Pi, OpenCode, Antigravity, Mistral Vibe, Grok, or Muse Code to start capturing sessions.");
+            writeLine("  [yellow]⚠ No supported agent CLI detected.[/] Install Claude Code, Codex CLI, Cursor, Copilot CLI, Gemini CLI, Kiro CLI, Pi, OpenCode, Antigravity, Mistral Vibe, Grok, or Muse Code to start storing sessions.");
+            writeLine("  [dim]· For Copilot in VS Code, open VS Code once and run setup again.[/]");
 
             return Task.FromResult(new Result(false, false, false, false, false));
         }
@@ -559,12 +561,14 @@ internal static class CodingAgentsStep {
         toolsEligible = false;
 
         if (!detected.Copilot) {
-            writeLine("  [dim]· Copilot CLI not detected — skipping[/]");
+            writeLine("  [dim]· Copilot not detected — skipping. For Copilot in VS Code, open VS Code once and run setup again[/]");
 
             return false;
         }
 
-        writeLine("  [green]✓[/] Copilot CLI detected");
+        writeLine(detected.CopilotHostApp is { } host
+            ? $"  [green]✓[/] Copilot detected in {Markup.Escape(host)}"
+            : "  [green]✓[/] Copilot detected");
 
         if (options.SkipCopilot && (options.SkipCopilotMcp || !options.ToolsIndependentOfCapture)) {
             writeLine("  [dim]· Copilot CLI hooks skipped by flag[/]");
@@ -572,9 +576,8 @@ internal static class CodingAgentsStep {
             return false;
         }
 
-        // kcap.json writes the bare "kcap hook --copilot" command and relies
-        // on Copilot finding it on PATH — same precheck as the Cursor branch.
-        if (!installers.CapacitorOnPath()) {
+        // Only a bare command relies on Copilot finding kcap on PATH.
+        if ((installers.CopilotHooksNeedPath?.Invoke() ?? true) && !installers.CapacitorOnPath()) {
             writeLine("  [yellow]⚠[/] Copilot hooks not installed — 'kcap' is not on PATH.");
             writeLine("    [dim]" + Markup.Escape(InstallProvenance.NotOnPathHint()) + "[/]");
 

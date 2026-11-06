@@ -30,6 +30,64 @@ public class HarnessPreflightTests {
         await Assert.That(canNext).IsFalse();
     }
 
+    /// A machine where kcap is installed before the harness is not left waiting on a relaunch.
+    [Test]
+    public async Task Checking_again_after_installing_enters_setup() {
+        var (blockedFirst, blockedThen, stepVisible, enters) = await AvaloniaSession.DispatchAsync(async () => {
+            var calls = 0;
+            var first = new FakeWizardStep(WizardStepId.Edition);
+            var vm = new OnboardingViewModel([first, new FakeWizardStep(WizardStepId.Done)], preflight: new HarnessPreflight(_ => Task.FromResult<IReadOnlyDictionary<HarnessId, DetectedAgent>>(
+                ++calls == 1
+                    ? new Dictionary<HarnessId, DetectedAgent>()
+                    : new Dictionary<HarnessId, DetectedAgent> { [HarnessId.Copilot] = new(false, true) })));
+            await vm.PendingPreflightForTesting;
+            var before = vm.PreflightBlocked;
+            await vm.CheckAgainCommand.Execute().ToTask();
+            await vm.PendingEnterForTesting;
+
+            return (before, vm.PreflightBlocked, vm.StepVisible, first.EnterCount);
+        });
+
+        await Assert.That(blockedFirst).IsTrue();
+        await Assert.That(blockedThen).IsFalse();
+        await Assert.That(stepVisible).IsTrue();
+        await Assert.That(enters).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Checking_again_and_finding_nothing_stays_on_the_card() {
+        var (blocked, enters) = await AvaloniaSession.DispatchAsync(async () => {
+            var first = new FakeWizardStep(WizardStepId.Edition);
+            var vm = new OnboardingViewModel([first, new FakeWizardStep(WizardStepId.Done)], preflight: new HarnessPreflight(Detecting()));
+            await vm.PendingPreflightForTesting;
+            await vm.CheckAgainCommand.Execute().ToTask();
+
+            return (vm.PreflightBlocked, first.EnterCount);
+        });
+
+        await Assert.That(blocked).IsTrue();
+        await Assert.That(enters).IsEqualTo(0);
+    }
+
+    /// Setup itself needs no harness: whoever installs kcap for someone else can finish it, and the harness
+    /// is connected later from settings.
+    [Test]
+    public async Task Continuing_without_a_harness_enters_setup() {
+        var (stepVisible, footer, enters) = await AvaloniaSession.DispatchAsync(async () => {
+            var first = new FakeWizardStep(WizardStepId.Edition);
+            var vm = new OnboardingViewModel([first, new FakeWizardStep(WizardStepId.Done)], preflight: new HarnessPreflight(Detecting()));
+            await vm.PendingPreflightForTesting;
+            await vm.ContinueWithoutHarnessCommand.Execute().ToTask();
+            await vm.PendingEnterForTesting;
+
+            return (vm.StepVisible, vm.FooterVisible, first.EnterCount);
+        });
+
+        await Assert.That(stepVisible).IsTrue();
+        await Assert.That(footer).IsTrue();
+        await Assert.That(enters).IsEqualTo(1);
+    }
+
     /// The Claude and Codex desktop apps keep their CLIs off PATH; the app alone is a harness.
     [Test]
     public async Task A_desktop_app_alone_passes() {

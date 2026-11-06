@@ -10,12 +10,7 @@ public static class SetupLocation {
 
     public const string HarnessesSettings = "Settings → Harnesses";
 
-    /// Setup runs on launch, so a relaunch is how a user with nothing to connect comes back to it.
-    public static string Relaunch { get; } = OperatingSystem.IsMacOS()
-        ? "relaunch kcap from the Applications folder"
-        : "relaunch the application";
-
-    public static string NoneFoundTail { get; } = $". Install a harness, then {Relaunch}";
+    public static string NoneFoundTail { get; } = $". Install one later and connect it in {HarnessesSettings}";
 
     public static string ConnectLaterNote { get; } = $"You can connect coding tools later in {HarnessesSettings}.";
 

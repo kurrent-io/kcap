@@ -266,7 +266,11 @@ sealed class CopilotHookCommand(
         }
 
         SessionStartInventory.Stamp(forwarded, config, harnesses, HarnessId.Copilot, clock.Time);
-        var enriched = await RepositoryDetection.EnrichWithRepositoryInfo(router, config, forwarded.ToJsonString(), clock.Time);
+
+        // Not the per-folder deduped path: each session needs its own link to the repository.
+        var enriched = cwd is null
+            ? forwarded.ToJsonString()
+            : await RepositoryDetection.EnrichWithRepositoryInfoFromCwd(router, config, forwarded.ToJsonString(), cwd, clock.Time);
 
         // Repo exclusion after enrichment (fast in-payload path) — mark the
         // session so per-turn agentStop events skip via DisabledSessions.

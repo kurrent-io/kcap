@@ -24,9 +24,12 @@ public static class SessionStatusDots {
         row.Status is "Failed" or "Interrupted" || WaitsOnUser(row) || UsageLimitNoticeDto.IsQuestion(row.UsageLimit)
      || row.TerminalDialog is not null;
 
-    /// Running, and either mid-turn or with subagents the daemon still counts or background
-    /// commands the app saw start. A parent that is also waiting still counts as working; the
-    /// wait is a line on the status tip.
+    /// The daemon forgets a subagent at every pause, and a transcript hears of one a read later,
+    /// or never where its feed cannot be read, so a session runs what either source still sees.
+    public static int LiveSubagents(int? daemon, RunningWork work) => Math.Max(daemon ?? 0, work.Subagents);
+
+    /// Running, and either mid-turn or with subagents or background commands still live. A parent
+    /// that is also waiting still counts as working; the wait is a line on the status tip.
     public static bool IsWorking(string status, bool? awaitingInput, int? liveSubagents, int liveCommands = 0) =>
         status == "Running" && (awaitingInput == false || liveSubagents > 0 || liveCommands > 0);
 
@@ -38,9 +41,9 @@ public static class SessionStatusDots {
 
     public static string Label(AgentRow row) => ForRow(row, pending: false).Label;
 
-    public static AgentStatusPresentation ForRow(AgentRow row, bool pending, bool answerExpected = false, int liveCommands = 0) =>
+    public static AgentStatusPresentation ForRow(AgentRow row, bool pending, bool answerExpected = false, RunningWork work = default) =>
         Present(
-            row.Status, row.AwaitingInput, WaitsOnUser(row), row.LiveSubagents, pending,
+            row.Status, row.AwaitingInput, WaitsOnUser(row), LiveSubagents(row.LiveSubagents, work), pending,
             UsageLimitSummary(row.UsageLimit),
             row.Origin == AgentOrigin.Pending ? LaunchStages.Label(row.LaunchStage) : null,
             elapsed: null,
@@ -48,7 +51,7 @@ public static class SessionStatusDots {
             model: row.Model is { Length: > 0 } known ? HostedHarnessCatalog.ModelLabelFor(row.Vendor, known) : null,
             harness: string.IsNullOrEmpty(row.Vendor) ? null : HostedHarnessCatalog.LabelFor(row.Vendor),
             ended: row.IsEndedSession,
-            liveCommands: liveCommands,
+            liveCommands: work.Commands,
             terminalDialog: row.TerminalDialog is not null, interruption: row.Interruption, agentId: row.Id);
 
     /// First match wins, so two surfaces cannot draw different marks for the same facts.
@@ -138,10 +141,10 @@ public static class SessionStatusDots {
     /// only carrying the daemon's own word. The accessible name counts the dominant kind.
     public static AgentStatusPresentation? Rollup(
             IEnumerable<AgentRow> rows, IReadOnlySet<string> pending, IReadOnlySet<string>? answering = null,
-            IReadOnlyDictionary<string, int>? commands = null) {
+            IReadOnlyDictionary<string, RunningWork>? work = null) {
         var presented = rows
             .Select(row => (Row: row, Status: ForRow(row, pending.Contains(row.Id), answering?.Contains(row.Id) ?? false,
-                commands?.GetValueOrDefault(row.Key) ?? 0)))
+                work?.GetValueOrDefault(row.Key) ?? default)))
             .Where(item => item.Status.HasLabel)
             .OrderBy(item => (int)item.Status.Kind)
             .ThenBy(item => item.Row.Id, StringComparer.Ordinal)

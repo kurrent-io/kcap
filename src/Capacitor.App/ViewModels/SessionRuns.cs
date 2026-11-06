@@ -42,6 +42,7 @@ public sealed class SessionRuns(TimeProvider time) {
     public IAvaloniaReadOnlyList<RunRow> Running => _running;
     public int RunningCount => Count(RunState.Running);
     public int RunningCommandCount => _running.Count(row => row.IsShell);
+    public RunningWork Work => new(RunningCommandCount, _runningAgents.Count);
     /// The subagent rows, which the sidebar lists; commands are listed only above the composer.
     public IAvaloniaReadOnlyList<RunRow> Agents => _agents;
     public IAvaloniaReadOnlyList<RunRow> RunningAgents => _runningAgents;
