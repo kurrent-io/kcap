@@ -449,22 +449,11 @@ public sealed class RecorderHost {
         /// source, and a plain cancel would run this source's drain on it, up to the drain's first real wait.</summary>
         public void Hurry() {
             Volatile.Write(ref _hurried, true);
-
-            try {
-                _ = _run.CancelAsync();
-            } catch (ObjectDisposedException) {
-                // The source has ended.
-            }
+            _run.CancelOffThread();
         }
 
         /// <summary>Off the caller's thread, for the reason <see cref="Hurry"/> is.</summary>
-        public void CutSends() {
-            try {
-                _ = _drain.CancelAsync();
-            } catch (ObjectDisposedException) {
-                // The source has ended.
-            }
-        }
+        public void CutSends() => _drain.CancelOffThread();
 
         public void Complete() {
             _done.TrySetResult();
