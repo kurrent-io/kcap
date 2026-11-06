@@ -799,6 +799,8 @@ public class SecretRedactorTests {
     [Arguments("redis-sentinel://" + "sentinelPw42" + "@sentinel.example.com:26379/0#mymaster", "sentinelPw42", "redis-sentinel://[REDACTED]@sentinel.example.com")]
     [Arguments("rediss-sentinel://" + "sentinelPw43" + "@sentinel.example.com:26379", "sentinelPw43", "rediss-sentinel://[REDACTED]@sentinel.example.com")]
     [Arguments("valkeys://" + "valkeyPw44" + "@cache.example.com:6380", "valkeyPw44", "valkeys://[REDACTED]@cache.example.com")]
+    [Arguments("redis+tls://" + "tlsPw45" + "@cache.example.com:6380", "tlsPw45", "redis+tls://[REDACTED]@cache.example.com")]
+    [Arguments("redis+ssl://" + "sslPw46" + "@cache.example.com:6380", "sslPw46", "redis+ssl://[REDACTED]@cache.example.com")]
     public async Task RedactsLine_UrlUserinfo_AnyScheme(string text, string secret, string kept) {
         var line = $$$"""
             {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"{{{text}}}","is_error":false}]}}
