@@ -331,6 +331,48 @@ public class CursorHookCommandTests {
         await Assert.That(NeedsImport(sid)).IsTrue();
     }
 
+    /// <summary>With no marker on disk, the hint is the only trace of the tail, so it goes out before a drain the
+    /// hard cap may abandon.</summary>
+    [Test, NotInParallel]
+    public async Task A_session_end_drain_that_cannot_write_its_marker_names_the_import_before_it_starts() {
+        var sid  = Guid.NewGuid().ToString("N");
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fx = new Fixture(Config.Root) { HoldWatermark = hold.Task };
+        await fx.WriteTranscript(TranscriptLine);
+        BlockMarkers();
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        var call = fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+        await fx.WatermarkEntered.Task;
+        fx.Clock.Advance(CursorHookCommand.Ceiling);
+        await call;
+
+        await Assert.That(capture.GetCapturedError()).Contains($"kcap import --session {sid}");
+    }
+
+    [Test, NotInParallel]
+    public async Task A_short_session_end_drain_that_cannot_write_its_marker_names_the_import_once() {
+        var sid   = Guid.NewGuid().ToString("N");
+        var clock = new JumpingFakeClock();
+        using var fx = new Fixture(Config.Root) {
+            Clock         = clock,
+            WatermarkRead = () => clock.JumpOnReading(MidFirstTry, TimeSpan.FromSeconds(1.2))
+        };
+        await fx.WriteTranscript(TranscriptLine);
+        BlockMarkers();
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        var hints = capture.GetCapturedError().Split('\n').Count(line => line.Contains($"kcap import --session {sid}"));
+        await Assert.That(hints).IsEqualTo(1);
+    }
+
+    // A file where the spool directory goes fails every marker write.
+    void BlockMarkers() => File.WriteAllText(Config.Root.Path(TranscriptSpool.DirectoryName), "");
+
     bool NeedsImport(string sid) => new TranscriptSpool(Config.Root, TimeProvider.System, Fixture.StubUrl).NeedsImport(sid);
 
     public enum EndDrain {

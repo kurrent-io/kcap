@@ -519,8 +519,10 @@ public sealed class CursorHookCommand(
             if (drainBeforePost) {
                 // The hard cap abandons this drain without awaiting it, so the flag goes down first and
                 // comes off once the drain has sent everything or put down the flag that says what it did not.
+                // Without a flag on disk, the hint is all that survives an abandoned drain, so it goes out now.
                 var transcriptSpool = new TranscriptSpool(config, clock.Time, Url);
-                transcriptSpool.MarkNeedsImport(sessionId!, "session end: final drain did not finish", Environment.ProcessId);
+                var hinted          = !transcriptSpool.MarkNeedsImport(sessionId!, "session end: final drain did not finish", Environment.ProcessId);
+                if (hinted) PrintImportHint(sessionId!, "the transcript tail may not have been sent");
 
                 // Unless a connected watcher is still running, the hook is the last reader of this
                 // transcript, so a valid newline-less final record must be consumed rather than held forever.
@@ -533,7 +535,7 @@ public sealed class CursorHookCommand(
                 // running one may be disconnected with nothing on disk saying so: flag every tail left.
                 // A line redaction held gets no second try here: it can take about 1.4 s of the hook's
                 // 2 s, and overrunning spools the end instead.
-                if (drained.TailUnsent) FlagTailForImport(sessionId!, drained.FirstUnsentLine);
+                if (drained.TailUnsent) FlagTailForImport(sessionId!, drained.FirstUnsentLine, hinted);
                 transcriptSpool.ClearNeedsImport(sessionId!, Environment.ProcessId);
             }
 
@@ -985,13 +987,16 @@ public sealed class CursorHookCommand(
         } catch { }
     }
 
-    void FlagTailForImport(string sessionId, int? firstUnsent) {
+    void FlagTailForImport(string sessionId, int? firstUnsent, bool hinted = false) {
         var (what, reason) = firstUnsent is { } line
             ? ($"line {line} and later were not sent", $"session end: line {line} and later not sent")
             : ("the transcript tail may not have been sent", "session end: transcript tail may not have been sent");
-        Console.Error.WriteLine($"Cursor final drain for {sessionId}: {what}; to send it, run: kcap import --session {sessionId}");
+        if (!hinted) PrintImportHint(sessionId, what);
         new TranscriptSpool(config, clock.Time, Url).MarkNeedsImport(sessionId, reason);
     }
+
+    static void PrintImportHint(string sessionId, string what) =>
+        Console.Error.WriteLine($"Cursor final drain for {sessionId}: {what}; to send it, run: kcap import --session {sessionId}");
 
     /// <summary>True when the server took the post, false when a later drain should retry it, and null
     /// when the server refused it for good — a status <see cref="HookSpool.IsRetryable"/> rejects, such as
