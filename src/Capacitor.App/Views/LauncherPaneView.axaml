@@ -273,7 +273,8 @@
                     <Border x:Name="GoalCard" Classes="attachTarget" Background="{StaticResource KcapSurfaceBrush}"
                             BorderThickness="1" CornerRadius="12" Padding="14">
                         <StackPanel Spacing="12">
-                            <!-- The band row this goal came from; its context, the prompt the server built for it, is added at launch. -->
+                            <!-- The picked next-work task: the launch sends its line, then the goal as context, then the prompt the server
+                                 built for it. -->
                             <Border x:Name="NextWorkSourceChip" HorizontalAlignment="Left" CornerRadius="999" Padding="10,3,4,3"
                                     ToolTip.Tip="{Binding NextWorkSource.Context, FallbackValue={x:Null}, StringFormat='The agent also gets this context from kcap:&#10;&#10;{0}'}"
                                     Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
@@ -285,7 +286,7 @@
                                                MaxWidth="360" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                     <Button x:Name="ClearNextWorkSourceButton" Classes="kcapGhost" Width="20" Height="20" Padding="0"
                                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                                            Click="OnClearNextWorkSource" ToolTip.Tip="Clear this goal" AutomationProperties.Name="Clear the picked-up goal">
+                                            Click="OnClearNextWorkSource" ToolTip.Tip="Unpick this task" AutomationProperties.Name="Unpick the task">
                                         <views:AppIcon Kind="X" Size="12" Foreground="{StaticResource KcapMutedBrush}" />
                                     </Button>
                                 </StackPanel>
@@ -296,7 +297,7 @@
 
                             <TextBox x:Name="GoalInput" Classes="kcapEmbedded" Text="{Binding Goal}"
                                      AutomationProperties.Name="Session goal"
-                                     PlaceholderText="What should we build? Type a goal or paste an issue, PR, or work-item URL…"
+                                     PlaceholderText="{Binding GoalPlaceholder}"
                                      Background="Transparent" Foreground="{StaticResource KcapTextBrush}"
                                      BorderThickness="0" MinHeight="72" MaxHeight="180" TextWrapping="Wrap"
                                      VerticalContentAlignment="Top" AcceptsReturn="True" />

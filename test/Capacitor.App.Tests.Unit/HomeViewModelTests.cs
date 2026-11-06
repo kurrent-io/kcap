@@ -82,20 +82,40 @@ public class HomeViewModelTests {
         });
     }
 
-    /// A goal picked up from the next-work list reads as its title in the composer; the agent gets the server's prompt
-    /// under it, and a launch that sends it clears the chip with the goal.
+    /// A picked next-work task launches from an empty composer with its line and the server's context, and what is
+    /// typed goes between them; the composer's placeholder says so, and a launch that sends the task unpicks it.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_picked_up_goal_sends_its_context_under_the_goal_and_the_launch_clears_both() {
+    public async Task A_picked_task_sends_its_line_what_is_typed_and_its_context_then_unpicks() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
             await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, Tmp.Path, "Recorded context"));
-            await vm.StartCommand.Execute();
 
-            await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\nRecorded context");
             await Assert.That(vm.Goal).IsEqualTo("");
+            await Assert.That(vm.GoalPlaceholder).IsEqualTo(HomeViewModel.PickedGoalPlaceholder);
+            await vm.StartCommand.Execute();
+            await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\nRecorded context");
             await Assert.That(vm.NextWorkSource).IsNull();
+            await Assert.That(vm.GoalPlaceholder).IsEqualTo(HomeViewModel.DefaultGoalPlaceholder);
+
+            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, Tmp.Path, "Recorded context"));
+            vm.Goal = "Keep the public API as it is";
+            await vm.StartCommand.Execute();
+            await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\nKeep the public API as it is\n\nRecorded context");
         });
+    }
+
+    /// Emptying the composer leaves the task picked; only its chip unpicks it.
+    [Test]
+    public async Task Emptying_the_composer_keeps_the_task_picked() {
+        using var vm = Build(out _, out _, Tmp.PathTo("state.json"));
+        await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, null, "Recorded context"));
+        vm.Goal = "x";
+        vm.Goal = "";
+        await Assert.That(vm.NextWorkSource).IsNotNull();
+
+        vm.ClearNextWorkSource();
+        await Assert.That(vm.NextWorkSource).IsNull();
     }
 
     [Test]

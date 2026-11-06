@@ -271,8 +271,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
             _goalEdits++;
             ClearIntakeNotice();
             this.RaiseAndSetIfChanged(ref _goal, value);
-            // An emptied composer, by hand or by a launch, no longer holds the row's goal.
-            if (value.Length == 0) NextWorkSource = null;
         }
     }
 
@@ -404,36 +402,45 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     NextWork.NextWorkFill? _nextWorkSource;
     readonly System.Reactive.Subjects.Subject<Unit> _composerFills = new();
 
-    /// The band row whose goal the composer holds, named on the chip above the goal; null once it is cleared.
+    /// The next-work task picked for the next launch, named on the chip above the goal; null once it is cleared or
+    /// launched. While one is picked the composer is for anything to add to it, and may stay empty.
     public NextWork.NextWorkFill? NextWorkSource {
         get => _nextWorkSource;
         private set {
             if (ReferenceEquals(_nextWorkSource, value)) return;
             this.RaiseAndSetIfChanged(ref _nextWorkSource, value);
+            this.RaisePropertyChanged(nameof(GoalPlaceholder));
             NextWork?.MarkFilled(value?.Key);
         }
     }
 
+    public const string DefaultGoalPlaceholder = "What should we build? Type a goal or paste an issue, PR, or work-item URL…";
+
+    /// The chip names the picked task, so the placeholder does not again.
+    public string GoalPlaceholder => NextWorkSource is not null ? PickedGoalPlaceholder : DefaultGoalPlaceholder;
+
+    public const string PickedGoalPlaceholder = "Add context or requests for this task (optional)…";
+
     /// Raised after a band row filled the composer, so the view can draw the eye to it.
     public IObservable<Unit> ComposerFills => _composerFills;
 
-    /// The goal as typed, and under it the context the picked-up row carries: the agent reads both, the person only the
-    /// goal, and the goal's first line names the session.
-    string GoalToSend() => NextWorkSource?.Context is { Length: > 0 } context ? $"{Goal.TrimEnd()}\n\n{context}" : Goal;
-
-    /// Drops the row's goal from the composer.
-    public void ClearNextWorkSource() {
-        if (NextWorkSource is null) return;
-        Goal = "";
-        NextWorkSource = null;
+    /// With a task picked: its line, then whatever the composer adds, then the context the server wrote for it. The
+    /// task's line comes first, so it names the session. Without one, the goal as typed.
+    string GoalToSend() {
+        if (NextWorkSource is not { } picked) return Goal;
+        string?[] parts = [picked.Goal, Goal.Trim(), picked.Context];
+        return string.Join("\n\n", parts.Where(p => p is { Length: > 0 }));
     }
 
-    /// Puts a band row's goal in the composer, on the machine and in the checkout it names when it names one.
+    /// Drops the picked task; what the composer holds stays.
+    public void ClearNextWorkSource() => NextWorkSource = null;
+
+    /// Picks a next-work task for the next launch, on the machine and in the checkout it names when it names one. The
+    /// composer keeps what it holds, as context for the task.
     public async Task FillFromNextWorkAsync(NextWork.NextWorkFill fill) {
         if (fill.Machine is { } machine && !(string.Equals(SelectedMachine, machine, StringComparison.Ordinal) && RemoteMachineSelected == !fill.MachineIsLocal))
             await SelectMachineAsync(machine, fill.MachineIsLocal);
         if (fill.RepoPath is { } path) await SelectRepositoryAsync(path);
-        Goal = fill.Goal;
         NextWorkSource = fill;
         _composerFills.OnNext(Unit.Default);
     }
@@ -2044,6 +2051,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
 
         // Captured before anything can await: an upload takes time the user can spend re-pointing
         // the launcher, and the files must reach the machine the composer was aimed at.
+        var picked = NextWorkSource;
         var draft = new LaunchDraft(
             SelectedMachine, RemoteMachineSelected, SelectedRepoPath, SelectedVendor, GoalToSend(), _goalEdits,
             SelectedModel, SelectedEffort, PermissionModeFor(SelectedVendor, SelectedPermissionMode),
@@ -2142,6 +2150,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         // typed into since, and chips staged since, belong to the next one.
         var clearedGoal = _goalEdits == draft.GoalEdits;
         if (clearedGoal) Goal = "";
+        if (picked is not null && ReferenceEquals(NextWorkSource, picked)) NextWorkSource = null;
         var trayUntouched = Tray.Generation == draft.TrayGeneration;
         Tray.RemoveAll([.. draft.Files.Select(f => f.Id)]);
         var clearedTray = trayUntouched && Tray.Count == 0;
