@@ -932,6 +932,40 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    /// <summary>An empty input frame writes nothing to the composer, so it does not hold back the
+    /// second Enter.</summary>
+    [Test]
+    public async Task An_empty_input_frame_does_not_withhold_the_second_enter() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
+
+        await runtime.SendRawInputAsync([]);
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptConfirmWait + TimeSpan.FromSeconds(1), () => pty.Writes.Count(w => w == "\r") >= 3);
+
+        await Assert.That(pty.Writes.Count(w => w == "\r")).IsEqualTo(3);
+        pty.Exit();
+    }
+
+    /// <summary>A second message sent before the first's turn is reported shares its wait, so the
+    /// one turn confirms both and neither reports a miss.</summary>
+    [Test]
+    public async Task One_reported_turn_confirms_every_message_still_waiting_for_one() {
+        var time = new FakeTimeProvider();
+        var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
+        var first = runtime.FollowUpConfirmation!;
+
+        var send = runtime.SendUserInputAsync("and ship it");
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => send.IsCompleted);
+        await send;
+        var second = runtime.FollowUpConfirmation!;
+
+        runtime.NoteTurnRelayed();
+
+        await Assert.That(await first.WaitAsync(TimeSpan.FromSeconds(5))).IsEqualTo(LaunchPromptOutcome.Confirmed);
+        await Assert.That(await second.WaitAsync(TimeSpan.FromSeconds(5))).IsEqualTo(LaunchPromptOutcome.Confirmed);
+        pty.Exit();
+    }
+
     /// <summary>A key typed at the agent after the message may sit in its composer, and a second Enter
     /// would submit it, so none follows.</summary>
     [Test]

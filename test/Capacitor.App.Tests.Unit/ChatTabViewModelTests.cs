@@ -1788,11 +1788,12 @@ public class ChatTabViewModelTests {
         public override bool CanAttach => CanAttachValue;
         public override string? AttachHint => CanAttachValue ? null : "attachments need the daemon updated";
         public bool CanResubmitValue;
+        public bool ResubmitResult = true;
         public int Resubmits;
         public override bool CanResubmit => CanResubmitValue;
         public override Task<bool> ResubmitAsync(CancellationToken ct) {
             Resubmits++;
-            return Task.FromResult(true);
+            return Task.FromResult(ResubmitResult);
         }
         public override Task<ChatSendOutcome> SendAsync(string text, IReadOnlyList<string> attachmentIds, CancellationToken ct) {
             Sends.Add((text, attachmentIds, ct));
@@ -2077,9 +2078,11 @@ public class ChatTabViewModelTests {
     /// up instead of waiting for a confirmation that will not come.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task An_unechoed_send_to_an_idle_agent_is_resubmitted_once_then_reads_not_picked_up() {
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_unechoed_send_to_an_idle_agent_is_resubmitted_once_then_reads_not_picked_up(bool resubmitted) {
         await RunOnUiAsync(async () => {
-            var input = new ScriptedInput { CanResubmitValue = true };
+            var input = new ScriptedInput { CanResubmitValue = true, ResubmitResult = resubmitted };
             var h = new Harness(TranscriptChat.For("claude"), input: input);
             var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
             await h.PushAsync(Dto(path) with { AwaitingInput = true });

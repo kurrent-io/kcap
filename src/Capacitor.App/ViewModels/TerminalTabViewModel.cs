@@ -238,16 +238,16 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         return true;
     }
 
-    /// One more Enter for the last delivery. Withheld once anything else has been typed at the agent
-    /// since, which the Enter would submit along with it.
+    /// One more Enter for the last delivery. Withheld while a delivery is in flight, whose paste the
+    /// Enter would submit ahead of its own delay, and once anything else has been typed at the agent
+    /// since, which it would submit along with it. Checked and written with no await between, so no
+    /// send can be accepted in between.
     public async Task<bool> ResubmitAsync(CancellationToken ct) {
         var token = Volatile.Read(ref _openingToken);
-        if (!CanInterrupt || _client is not { } client || ct.IsCancellationRequested) return false;
+        if (!CanInterrupt || SendInFlight || _client is not { } client || ct.IsCancellationRequested) return false;
         if (Volatile.Read(ref _openingToken) != token) return false;
+        if (Volatile.Read(ref _keystrokes) != Volatile.Read(ref _keystrokesAtDelivery)) return false;
         try {
-            while (_delivery is { IsCompleted: false } delivery) await delivery.WaitAsync(ct);
-            if (!CanInterrupt || Volatile.Read(ref _openingToken) != token || ct.IsCancellationRequested) return false;
-            if (Volatile.Read(ref _keystrokes) != Volatile.Read(ref _keystrokesAtDelivery)) return false;
             await client.SendInputAsync(TerminalInputEncoder.Submit);
             return true;
         }
@@ -706,9 +706,9 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         // but suppressing here means a read-only attach never even attempts the round trip.
         surface.InputProduced += bytes => {
             if (Retired(generation) || State.ReadOnly) return;
-            Interlocked.Increment(ref _keystrokes);
             _ = client.SendInputAsync(bytes);
         };
+        surface.Typed += () => Interlocked.Increment(ref _keystrokes);
         // A resize is also the surface's first measurement, which releases what Deliver held for it.
         surface.Resized += (cols, rows) => {
             if (Retired(generation)) return;

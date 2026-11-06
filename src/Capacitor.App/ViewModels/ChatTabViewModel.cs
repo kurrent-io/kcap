@@ -1536,7 +1536,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// queued behind a turn waits for that turn first.
     void CheckPickup() {
         var idle = !_ended && _status == "Running" && !SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents)
-            && !HasTerminalMenu && !IsReadOnlyParticipant && _input.CanResubmit && _sending is null && !_resubmitting;
+            && !HasTerminalMenu && !IsReadOnlyParticipant && _input.CanResubmit && _sending is null;
         var now = _time.GetTimestamp();
         var resubmit = false;
         foreach (var queued in _queuedMessages) {
@@ -1550,7 +1550,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             // Files go through the daemon, which presses its own Enter, not this paste's.
             resubmit |= queued.AttachmentIds.Count == 0;
         }
-        if (resubmit) _ = ResubmitAsync();
+        if (resubmit && !_resubmitting) _ = ResubmitAsync();
     }
 
     async Task ResubmitAsync() {

@@ -469,10 +469,13 @@ internal sealed partial class PtyHostedAgentRuntime(
         Task? arrived  = null;
 
         try {
+            // A message still awaiting its turn shares this one's: the turn either starts reads as
+            // both arriving, so neither reports a miss the other's turn answered.
             if (confirmsLaunchPrompt) {
                 lock (_arrivalGate) {
-                    _arrival = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                    arrived  = _arrival.Task;
+                    if (_arrival is not { Task.IsCompleted: false })
+                        _arrival = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    arrived = _arrival.Task;
                 }
             }
 
@@ -539,7 +542,7 @@ internal sealed partial class PtyHostedAgentRuntime(
         await _lane.WaitAsync();
 
         try {
-            Interlocked.Increment(ref _keystrokes);
+            if (data.Length > 0) Interlocked.Increment(ref _keystrokes);
             await pty.WriteAsync(data);
         } finally {
             _lane.Release();
