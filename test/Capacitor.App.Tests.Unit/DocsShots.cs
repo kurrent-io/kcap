@@ -90,7 +90,7 @@ public sealed class DocsShots {
             "desktop-settings-notifications", "desktop-settings-accounts", "desktop-settings-profiles", "desktop-settings-search",
             "desktop-launch-approvals", "desktop-consent-prompt", "desktop-wizard-agents", "desktop-wizard-visibility",
             "desktop-settings-privacy", "desktop-wizard-usage-data", "desktop-settings-usage-data", "desktop-settings-harnesses",
-            "desktop-settings-about"]);
+            "desktop-settings-about", "desktop-launcher-next-work", "desktop-launcher-next-work-filled"]);
     }
 
     [Test]
@@ -163,6 +163,16 @@ public sealed class DocsShots {
     [Test, DocsShot("desktop-launcher")]
     public async Task The_launcher_holds_a_goal_with_every_chip_chosen() {
         await CaptureAsync(DocsShotScenes.LauncherAsync, "GoalInput");
+    }
+
+    [Test, DocsShot("desktop-launcher-next-work")]
+    public async Task The_launcher_shows_what_to_pick_up_next() {
+        await CaptureAsync(DocsShotScenes.LauncherNextWorkAsync, "BandRows");
+    }
+
+    [Test, DocsShot("desktop-launcher-next-work-filled")]
+    public async Task A_next_work_row_fills_the_composer() {
+        await CaptureAsync(DocsShotScenes.LauncherFilledFromNextWorkAsync, "NextWorkSourceChip");
     }
 
     [Test, DocsShot("desktop-pull-request")]

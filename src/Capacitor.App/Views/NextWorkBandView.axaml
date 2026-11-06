@@ -1,0 +1,225 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:nw="clr-namespace:Capacitor.App.ViewModels.NextWork"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.NextWorkBandView"
+             x:DataType="nw:NextWorkBandViewModel">
+    <!-- The launcher's quick start under the composer: a short list of what to pick up next, not the dashboard's
+         overview, since the composer is the launcher's subject. It takes the height the launcher leaves it and scrolls
+         inside it. Labels, reasons and evidence are tracker- or model-authored, so every one is
+         a TextBlock's text. Colour is status only: warning where someone waits on the viewer, success where work
+         settled, danger for urgent and bug marks; selection marks the row whose goal the composer holds. -->
+    <UserControl.Styles>
+        <Style Selector="Button.nwbRow">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.nwbRow /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.nwbRow:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.nwbRow:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                         Grid.nwbRowHost.menuOpen Button.nwbRow /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.nwbRow.filled /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.nwbRow.filled:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+        </Style>
+        <Style Selector="Button.nwbRow:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <!-- A row's own actions show where the viewer is: under the pointer, on the picked row, while it works, or with
+             keyboard focus on the actions themselves. Not on the row's own focus, which a click leaves behind. -->
+        <Style Selector="Grid.nwbRowHost StackPanel.nwbActs">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="Grid.nwbRowHost:pointerover StackPanel.nwbActs, Grid.nwbRowHost StackPanel.nwbActs:focus-within,
+                         Grid.nwbRowHost.filled StackPanel.nwbActs, Grid.nwbRowHost.busy StackPanel.nwbActs,
+                         Grid.nwbRowHost.menuOpen StackPanel.nwbActs">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Border.nwbGlyph">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="views|AppIcon.nwbTint"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
+        <Style Selector="views|AppIcon.nwbTint.finish"><Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" /></Style>
+        <Style Selector="views|AppIcon.nwbTint.waiting"><Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" /></Style>
+        <Style Selector="Ellipse.nwbBadge">
+            <Setter Property="Width" Value="9" />
+            <Setter Property="Height" Value="9" />
+            <Setter Property="Stroke" Value="{StaticResource KcapCanvasBrush}" />
+            <Setter Property="StrokeThickness" Value="2" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Margin" Value="0,-3,-3,0" />
+        </Style>
+        <Style Selector="Ellipse.nwbBadge.wait"><Setter Property="Fill" Value="{StaticResource KcapWarningBrush}" /></Style>
+        <Style Selector="Ellipse.nwbBadge.ok"><Setter Property="Fill" Value="{StaticResource KcapSuccessBrush}" /></Style>
+        <Style Selector="Ellipse.nwbBadge.stop"><Setter Property="Fill" Value="{StaticResource KcapDangerBrush}" /></Style>
+        <Style Selector="Ellipse.nwbNew">
+            <Setter Property="Width" Value="6" />
+            <Setter Property="Height" Value="6" />
+            <Setter Property="Fill" Value="{StaticResource KcapTextBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.nwbHeader">
+            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="LetterSpacing" Value="0.6" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.nwbTitle">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style Selector="TextBlock.nwbMeta">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.nwbMicro">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.nwbChip">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="999" />
+            <Setter Property="Padding" Value="6,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.nwbChip > TextBlock">
+            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Border.nwbChip.warning">
+            <Setter Property="Background" Value="{StaticResource KcapWarningDimBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.nwbChip.warning > TextBlock"><Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" /></Style>
+        <Style Selector="Border.nwbChip.danger">
+            <Setter Property="Background" Value="{StaticResource KcapDangerDimBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.nwbChip.danger > TextBlock"><Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" /></Style>
+        <Style Selector="Border.nwbChip.success">
+            <Setter Property="Background" Value="{StaticResource KcapSuccessDimBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.nwbChip.success > TextBlock"><Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" /></Style>
+        <!-- Set apart from the picks above: the rest of the work is its own section, not the next row. -->
+        <Style Selector="Button.nwbFold">
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Margin" Value="0,12,0,0" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="Button.nwbFold TextBlock"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
+        <Style Selector="Button.nwbFold views|AppIcon"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
+        <Style Selector="TextBlock.nwbContext">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.nwbIconAction">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.nwbIconAction views|AppIcon"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
+        <Style Selector="Button.nwbMenuRow">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid x:Name="BandSection" RowDefinitions="Auto,*" MaxWidth="680"
+          PointerEntered="OnPointerEntered" PointerExited="OnPointerExited"
+          GotFocus="OnGotFocus" LostFocus="OnLostFocus"
+          AutomationProperties.Name="Pick up next" AutomationProperties.LandmarkType="Region">
+        <!-- The window's own Open dashboard is the way to what the launcher leaves out, so its count is text, not
+             another link. -->
+        <StackPanel Orientation="Horizontal" Spacing="6" Margin="8,0,4,4">
+            <!-- The header's letter spacing trails its last letter too; the negative margin takes it back, so the dot
+                 sits midway between the words. -->
+            <TextBlock Classes="nwbHeader" Text="PICK UP NEXT" Margin="0,0,-0.6,0" />
+            <TextBlock Text="·" FontSize="11.5" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" IsVisible="{Binding HasElsewhere}" />
+            <TextBlock x:Name="BandElsewhere" Text="{Binding ElsewhereText}" FontSize="11.5"
+                       Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" IsVisible="{Binding HasElsewhere}" />
+            <Panel VerticalAlignment="Center">
+                <views:AppIcon x:Name="BandLoading" Classes="kcapSpinning" Kind="LoaderCircle" Size="12" Foreground="{StaticResource KcapFaintBrush}"
+                               IsVisible="{Binding IsLoading}" ToolTip.Tip="Loading suggestions…" />
+                <views:AppIcon x:Name="BandNote" Kind="RefreshCw" Size="12" Foreground="{StaticResource KcapWarningBrush}"
+                               ToolTip.Tip="{Binding Note}" AutomationProperties.Name="{Binding Note}">
+                    <views:AppIcon.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="HasNote" />
+                            <Binding Path="!NoteIsError" />
+                        </MultiBinding>
+                    </views:AppIcon.IsVisible>
+                </views:AppIcon>
+                <views:AppIcon Kind="CircleAlert" Size="12" Foreground="{StaticResource KcapDangerBrush}"
+                               ToolTip.Tip="{Binding Note}" AutomationProperties.Name="{Binding Note}" IsVisible="{Binding NoteIsError}" />
+            </Panel>
+        </StackPanel>
+
+        <ScrollViewer x:Name="BandList" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock x:Name="BandEmpty" Text="Nothing to pick up right now." FontSize="12" Margin="8,4"
+                           Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding ShowEmpty}" />
+                <ItemsControl x:Name="BandRows" ItemsSource="{Binding Cards}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="nw:NextWorkCardViewModel">
+                            <views:NextWorkCardView />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- The rest of the viewer's own work, folded under the picks until asked for. -->
+                <Button x:Name="MoreToggle" Classes="kcapGhost nwbFold" Command="{Binding ToggleMoreCommand}" IsVisible="{Binding HasMoreCards}"
+                        AutomationProperties.Name="{Binding MoreToggleText}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !MoreExpanded}" />
+                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding MoreExpanded}" />
+                        <TextBlock Text="{Binding MoreToggleText}" FontSize="12" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <ItemsControl x:Name="MoreRows" ItemsSource="{Binding MoreCards}" IsVisible="{Binding MoreListVisible}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="nw:NextWorkCardViewModel">
+                            <views:NextWorkCardView />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+
+
+    </Grid>
+</UserControl>

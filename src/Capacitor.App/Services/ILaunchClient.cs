@@ -13,7 +13,8 @@ public sealed record LaunchRequest(
     IReadOnlyList<string>? AttachmentIds = null, CodexLaunchPosture? CodexPosture = null,
     HandoffLaunchStart? Handoff = null,
     ResumeLaunchPayload? Resume = null,
-    string? AccountId = null);
+    string? AccountId = null,
+    string? NextWorkTargetKey = null);
 
 /// Unauthorized marks a server 401 — the caller routes it to sign-in instead of rendering the
 /// raw transport message.
@@ -61,6 +62,9 @@ public sealed record LaunchAgentRequestV2Payload {
     // expects untouched.
     [JsonPropertyName("account_id"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? AccountId { get; init; }
+    // Omitted when null: only a picked next-work task carries it, and an older server never sees the key.
+    [JsonPropertyName("next_work"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NextWorkLaunchTargetPayload? NextWork { get; init; }
 }
 
 /// The RequestLaunchAgentV2 argument, split from the transport so its shape is testable.
@@ -79,5 +83,6 @@ public static class LaunchPayload {
         Handoff        = r.Handoff,
         Resume         = r.Resume,
         AccountId      = string.IsNullOrWhiteSpace(r.AccountId) ? null : r.AccountId,
+        NextWork       = string.IsNullOrWhiteSpace(r.NextWorkTargetKey) ? null : new NextWorkLaunchTargetPayload(r.NextWorkTargetKey),
     };
 }
