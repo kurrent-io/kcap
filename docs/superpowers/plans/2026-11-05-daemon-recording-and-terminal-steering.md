@@ -205,10 +205,10 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Interfaces:**
 - Consumes: Task 5's seam.
-- Produces: `TranscriptRecorder` with no reference to the `kcap` exe.
+- Produces: `RecorderHousekeeping : IRecorderVendor` in the recording assembly, holding repository and pull request detection, harness titles and subagent scans, so a daemon can use the same code. What only a host can do arrives as constructor callbacks: arming its process watches on connect, handing a title off, and starting a recorder for a child source it finds. `WatchCommand` stops implementing `IRecorderVendor`, and its per-run `null!` fields go. `IRecorderVendor` loses any member that no longer needs to vary by host.
 
 - [ ] **Tests:** moved tests pass. Add `The_recording_assembly_does_not_reference_kcap` as an assembly-reference assertion.
-- [ ] **Implement:** one vendor per commit. Import sources and hook teardown stay in `Capacitor.Cli` unless the recorder calls them. Namespaces follow directories.
+- [ ] **Implement:** one vendor per commit. Import sources and hook teardown stay in `Capacitor.Cli` unless the recorder calls them. Namespaces follow directories. Behaviour doesn't change: `KcapWatchHubTests` keeps passing.
 - [ ] **Verify:** the suites and the AOT publish check.
 - [ ] **Commit, per vendor:** `Move <Vendor> recording code into the recording assembly`
 
