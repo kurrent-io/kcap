@@ -86,9 +86,10 @@ public sealed class TranscriptRecorder(
 
     public WatchState State { get; } = new() { LastActivityAt = time.GetUtcNow() };
 
-    /// <summary>Cancelled the moment the recorder stops, by any cause and before its loop notices, which can be
-    /// long after: it may be in a call that takes no token. A host stops what it runs beside the recorder from
-    /// this, so nothing of the host's outlives the stop and changes how the session ended.</summary>
+    /// <summary>Set the moment the recorder stops, by any cause and before its loop notices, which can be long after:
+    /// it may be in a call that takes no token. A host stops what it runs beside the recorder from this. A callback can
+    /// run a moment after the token reads cancelled, because a server stop cancels off the transport's thread, so
+    /// whatever decides how the session ended reads the token rather than rely on a callback having run.</summary>
     public CancellationToken Stopping => _stop.Token;
 
     /// <summary>Where the transcript is now: Claude can move it mid-session.</summary>
