@@ -27,7 +27,7 @@ using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Gemini;
 using Capacitor.Cli.Harness.Grok;
 using Capacitor.Cli.Recording.Harness.MistralVibe;
-using Capacitor.Cli.Harness.Muse;
+using Capacitor.Cli.Recording.Harness.Muse;
 using Capacitor.Cli.Harness.OpenCode;
 using Capacitor.Cli.Harness.Titles;
 using Capacitor.Cli.Recording.PrDetection;
@@ -551,7 +551,7 @@ class WatchCommand(
             if (TakesHandedMuseEnd(vendor, agentId)) {
                 watchers.RemoveOwnPidFile(sessionId, Environment.ProcessId);
 
-                if (ClaimHandedMuseEnd(sessionId) is { } handed) {
+                if (MuseSessionEndRequest.ClaimHandedEnd(_paths, sessionId, Url, time) is { } handed) {
                     await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, vendor: vendor);
                     await SettleHandedEndsAsync(sessionId, transcriptPath, cwd, vendor, repository: null, handed);
                 }
@@ -620,7 +620,7 @@ class WatchCommand(
             agentId is null ? sessionId : $"{sessionId}-{agentId}", Environment.ProcessId);
         recorder.RetireAckCursor();
 
-        if (TakesHandedMuseEnd(vendor, agentId)) _museEndRequest ??= ClaimHandedMuseEnd(sessionId);
+        if (TakesHandedMuseEnd(vendor, agentId)) _museEndRequest ??= MuseSessionEndRequest.ClaimHandedEnd(_paths, sessionId, Url, time);
 
         if (_museEndRequest is { } handedEnd) {
             await SettleHandedEndsAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, handedEnd);
@@ -791,10 +791,10 @@ class WatchCommand(
         } else if (agentId is null && vendor == "grok") {
             await GrokSubagentScan.ScanGrokSubagents(_scans, sessionId, transcriptPath, drained, _grokSubagents, _spawnedChildWatcherKeys, ct);
         } else if (agentId is null && vendor == "muse") {
-            await ScanMuseSubagents(sessionId, transcriptPath, _seenSubagents, _museChildren, _spawnedChildWatcherKeys, ct);
-            await StopFinishedMuseChildren(sessionId, transcriptPath, drained, _museChildren);
+            await MuseSubagentScan.ScanMuseSubagents(_scans, sessionId, transcriptPath, _seenSubagents, _museChildren, _spawnedChildWatcherKeys, ct);
+            await MuseSubagentScan.StopFinishedMuseChildren(_scans, sessionId, transcriptPath, drained, _museChildren);
 
-            if (ClaimHandedMuseEnd(sessionId) is { } handed) {
+            if (MuseSessionEndRequest.ClaimHandedEnd(_paths, sessionId, Url, time) is { } handed) {
                 Log(time, "Muse SessionEnd hook handed its session-end to this watcher; draining and posting it");
                 _museEndRequest = handed;
                 _host.StopRun();
@@ -853,127 +853,6 @@ class WatchCommand(
         TitleGeneration.GenerateAsync(userText, assistantText, time, m => Log(time, m), profiles.Resolution.Profile, harnesses, _source.Vendor, ct);
 
     public void HandOffTitle(string transcriptPath) => _host.HandOffTitle(_source.SessionId, _source.Vendor, transcriptPath);
-
-    /// <summary>
-    /// A Muse child writes its own <c>subagent/&lt;id&gt;/session.jsonl</c> beside the parent's log; the
-    /// scan is the authority on which children exist. A child the parent log has not announced yet is
-    /// held back for <see cref="MuseChildWatchers.AnnouncementGraceScans"/> scans, so its label is not
-    /// frozen as the placeholder when the announcement is merely flushed late.
-    /// </summary>
-    async Task ScanMuseSubagents(
-            string              sessionId,
-            string              transcriptPath,
-            HashSet<string>     seen,
-            MuseChildWatchers   children,
-            ICollection<string> spawnedChildKeys,
-            CancellationToken   ct
-        ) {
-        IReadOnlyList<string> childLogs;
-        try {
-            childLogs = MuseSubagentDiscovery.EnumerateChildLogs(transcriptPath);
-        } catch {
-            return; // discovery is best-effort — never break the main drain loop
-        }
-
-        if (childLogs.Count == 0) return;
-
-        IReadOnlyDictionary<string, MuseChildLabel>? labels = null;
-
-        foreach (var childLog in childLogs) {
-            if (ct.IsCancellationRequested) return;
-            if (seen.Contains(childLog)) continue;
-
-            var childSessionId = Path.GetFileName(Path.GetDirectoryName(childLog)!);
-            if (!Guid.TryParse(childSessionId, out var childGuid)) continue;
-
-            labels ??= MuseSubagentDiscovery.ResolveChildLabels(transcriptPath);
-            if (children.ShouldHold(childLog, announced: labels.ContainsKey(childGuid.ToString("D")))) continue;
-
-            var label = MuseSubagentDiscovery.LabelFor(childSessionId, labels);
-            var key   = $"{sessionId}-{label.AgentId}";
-            var now   = time.GetUtcNow();
-
-            if (!children.ShouldAttemptSpawn(key, now)) continue;
-
-            // Fail-closed: register before streaming; a refused registration is retried next tick.
-            if (!children.IsRegistered(key)) {
-                if (!await _scans.PostSubagentStartAsync(sessionId, label.AgentId, label.AgentType, childLog, ct)) continue;
-
-                children.Registered(key);
-            }
-
-            await watchers.EnsureWatcherRunning(key: key, transcriptPath: childLog, agentId: label.AgentId,
-                sessionIdOverride: sessionId, vendor: "muse");
-
-            // EnsureWatcherRunning returns normally when it could not start one.
-            if (!watchers.IsWatcherAlive(key)) {
-                var delay = children.SpawnFailed(key, now);
-                Log(time, $"Muse subagent {label.AgentId} child watcher did not start; retrying in {delay.TotalSeconds:0}s");
-                continue;
-            }
-
-            seen.Add(childLog);
-            spawnedChildKeys.Add(key);
-            children.Spawned(key, childLog, time.GetUtcNow());
-
-            Log(time, $"Muse subagent {label.AgentId} ({label.AgentType}) registered + child watcher spawned");
-        }
-    }
-
-    /// <summary>
-    /// Stops the child watcher of a Muse worker once the parent log reports its <c>result_ready</c>, and
-    /// restarts one whose log grows afterwards. The stop is a SIGTERM, so the child runs its final drain
-    /// first. Reminder children have no such record and run until the parent ends. The full-log read
-    /// happens only while a result may be unhandled.
-    /// </summary>
-    async Task StopFinishedMuseChildren(
-            string                sessionId,
-            string                transcriptPath,
-            IReadOnlyList<string> drained,
-            MuseChildWatchers     children
-        ) {
-        if (drained.Any(l => l.Contains("subagent.control.result_ready", StringComparison.Ordinal))) children.RecheckPending = true;
-
-        try {
-            var reengagedAt = time.GetUtcNow();
-
-            foreach (var key in children.Reengaged(File.GetLastWriteTimeUtc, reengagedAt)) {
-                var started = false;
-
-                try {
-                    await watchers.EnsureWatcherRunning(key: key, transcriptPath: children.LogOf(key),
-                        agentId: key[(sessionId.Length + 1)..], sessionIdOverride: sessionId, vendor: "muse");
-                    started = watchers.IsWatcherAlive(key);
-                } catch (Exception ex) when (ex is not OperationCanceledException) {
-                    Log(time, $"Muse subagent {key} child watcher restart failed: {ex.Message}");
-                }
-
-                if (started) {
-                    children.SpawnSucceeded(key);
-                    Log(time, $"Muse subagent {key} resumed; child watcher restarted");
-                } else {
-                    var delay = children.RestartFailed(key, reengagedAt);
-                    Log(time, $"Muse subagent {key} child watcher did not restart; retrying in {delay.TotalSeconds:0}s");
-                }
-            }
-
-            if (!children.RecheckPending) return;
-
-            var ready = MuseSubagentDiscovery.ResolveResultReadyCounts(transcriptPath)
-                .ToDictionary(kv => $"{sessionId}-{Guid.Parse(kv.Key):N}", kv => kv.Value, StringComparer.Ordinal);
-
-            var stops = children.SelectStops(ready, time.GetUtcNow());
-            if (stops.Count == 0) return;
-
-            // Read before the kill: a write after the child's final drain then still advances it.
-            foreach (var key in stops) children.RecordLogMtime(key, File.GetLastWriteTimeUtc(children.LogOf(key)));
-
-            var stopped = await children.Stop(watchers, stops, ready);
-            Log(time, $"Stopped {stopped} of {stops.Count} finished Muse child watcher(s)");
-        } catch (Exception ex) when (ex is not OperationCanceledException) {
-            // best-effort — the parent's teardown still stops every spawned child
-        }
-    }
 
     /// <summary>
     /// OpenCode fires no subagent hooks; its subagents live in its SQLite db, so the kcap
@@ -1241,12 +1120,6 @@ class WatchCommand(
     int? LiveClaimant(string sessionId) =>
         SessionId.Parse(sessionId) is { } session ? AgentSessions.OnThisMachine(config).LiveClaimant(session) : null;
 
-    /// <summary>Only a request handed over for this watcher's server, or one that recorded none: this watcher posts to its
-    /// own server, and one for another is left to that server's drain.</summary>
-    MuseSessionEndRequest? ClaimHandedMuseEnd(string sessionId) =>
-        MuseSessionEndRequest.TryClaim(_paths, sessionId, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), time,
-            recorded => recorded is null || ServerIdentity.SameServer(recorded, Url));
-
     internal enum HandedEndOutcome { Posted, Dropped, Failed }
 
     /// <summary>Settles the handed end this watcher took, then every other one handed over before it exits, oldest
@@ -1257,7 +1130,7 @@ class WatchCommand(
             string sessionId, string transcriptPath, string? cwd, string vendor, RepositoryPayload? repository, MuseSessionEndRequest first) {
         var failed = new List<MuseSessionEndRequest>();
 
-        for (MuseSessionEndRequest? handed = first; handed is not null; handed = ClaimHandedMuseEnd(sessionId)) {
+        for (MuseSessionEndRequest? handed = first; handed is not null; handed = MuseSessionEndRequest.ClaimHandedEnd(_paths, sessionId, Url, time)) {
             if (HoldHandedEndForResume(handed, AgentHoldingEndForResume(handed, sessionId)) is { } resumingId) {
                 Log(time, $"session end suppressed: agent {resumingId} is resuming");
                 continue;

@@ -1,7 +1,6 @@
-using Capacitor.Cli.Core;
-using Capacitor.Cli.Harness.Muse;
+using Capacitor.Cli.Recording.Harness.Muse;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Muse;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Muse;
 
 public class MuseChildWatchersTests {
     static readonly DateTimeOffset T0 = new(2026, 10, 13, 12, 0, 0, TimeSpan.Zero);
@@ -137,37 +136,22 @@ public class MuseChildWatchersTests {
         await Assert.That(children.SelectStops(ready, now.AddSeconds(2))).IsEmpty();
     }
 
-    /// <summary>A kill that fails leaves the child's watcher running, so the stop is confirmed only by
-    /// the retry that ends it.</summary>
+    /// <summary>A stop the host could not carry out stays selected, so only the retry that ends the child confirms it.</summary>
     [Test]
-    public async Task A_child_is_confirmed_stopped_only_once_its_watcher_is_gone() {
-        using var config = new TempConfigRoot();
-        var paths = new WatcherPaths(config.PathTo("watchers"));
-        Directory.CreateDirectory(paths.Directory);
-        var watchers = TestWatchers.In(paths, config.Root, Resolutions.None(config.Root), new FixedCapacitorHttpClient());
-
-        using var watcher = DummyProcess.StartSleep(30);
-        var       pidFile = paths.PidFile("s-a");
-        await File.WriteAllTextAsync(pidFile, $"{watcher.Pid}\n{PidIdentity.Capture(watcher.Pid)}");
-
+    public async Task A_child_is_confirmed_stopped_only_once_its_host_says_so() {
+        var host     = new FakeRecorderHost { StopsChild = _ => false };
         var children = new MuseChildWatchers();
         children.Spawned("s-a", "/a/session.jsonl", T0);
         children.SelectStops(Ready("s-a"), T0);
         var now   = T0 + MuseChildWatchers.StopGrace;
         var ready = Ready("s-a");
 
-        int failed;
-        using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-            failed = await children.Stop(watchers, children.SelectStops(ready, now), ready);
-
-        await Assert.That(failed).IsEqualTo(0);
-        await Assert.That(watcher.HasExited).IsFalse();
+        await Assert.That(await children.Stop(host, children.SelectStops(ready, now), ready)).IsEqualTo(0);
         await Assert.That(children.RecheckPending).IsTrue();
 
-        var retried = await children.Stop(watchers, children.SelectStops(ready, now.AddSeconds(1)), ready);
+        host.StopsChild = _ => true;
 
-        await Assert.That(retried).IsEqualTo(1);
-        await Assert.That(watcher.WaitForExit(TimeSpan.FromSeconds(5))).IsTrue();
+        await Assert.That(await children.Stop(host, children.SelectStops(ready, now.AddSeconds(1)), ready)).IsEqualTo(1);
         await Assert.That(children.RecheckPending).IsFalse();
         await Assert.That(children.SelectStops(ready, now.AddSeconds(2))).IsEmpty();
     }
