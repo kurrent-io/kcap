@@ -195,34 +195,6 @@ public class WatchCommandTests {
         await Assert.That(result).IsEqualTo(TimeSpan.FromMinutes(expectedMinutes));
     }
 
-    // #550 companion: with children joining the reap ceiling, ScanCodexSubagents' first-sight-only
-    // gate became a content-loss hazard — a ceiling-reaped child whose subagent re-engages would
-    // grow its rollout with nobody watching for the rest of the parent's life. The scan therefore
-    // re-ensures the child watcher whenever the rollout's mtime advances; this pure gate decides
-    // when, recording the mtime it fired for so an unchanged rollout stays quiet.
-    [Test]
-    public async Task ChildRolloutAdvanced_fires_on_first_sight_and_then_only_on_mtime_change() {
-        var mtimes = new Dictionary<string, DateTime>(StringComparer.Ordinal);
-        var t0     = new DateTime(2026, 8, 13, 12, 0, 0, DateTimeKind.Utc);
-
-        await Assert.That(WatchCommand.ChildRolloutAdvanced(mtimes, "/a.jsonl", t0)).IsTrue();
-        await Assert.That(WatchCommand.ChildRolloutAdvanced(mtimes, "/a.jsonl", t0)).IsFalse();
-        await Assert.That(WatchCommand.ChildRolloutAdvanced(mtimes, "/a.jsonl", t0.AddSeconds(1))).IsTrue();
-        await Assert.That(WatchCommand.ChildRolloutAdvanced(mtimes, "/a.jsonl", t0.AddSeconds(1))).IsFalse();
-    }
-
-    // Distinct rollouts are tracked independently — one child's growth must not re-ensure another.
-    [Test]
-    public async Task ChildRolloutAdvanced_tracks_each_rollout_independently() {
-        var mtimes = new Dictionary<string, DateTime>(StringComparer.Ordinal);
-        var t0     = new DateTime(2026, 8, 13, 12, 0, 0, DateTimeKind.Utc);
-
-        await Assert.That(WatchCommand.ChildRolloutAdvanced(mtimes, "/a.jsonl", t0)).IsTrue();
-        await Assert.That(WatchCommand.ChildRolloutAdvanced(mtimes, "/b.jsonl", t0)).IsTrue();
-        await Assert.That(WatchCommand.ChildRolloutAdvanced(mtimes, "/a.jsonl", t0.AddSeconds(5))).IsTrue();
-        await Assert.That(WatchCommand.ChildRolloutAdvanced(mtimes, "/b.jsonl", t0)).IsFalse();
-    }
-
     [Test]
     public async Task Cursor_acked_ack_sets_next_line_cursor() {
         var ack = System.Text.Json.JsonSerializer.Deserialize(

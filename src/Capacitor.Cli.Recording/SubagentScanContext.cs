@@ -8,4 +8,18 @@ namespace Capacitor.Cli.Recording;
 public sealed record SubagentScanContext(
         IRecorderHost Host, ConfigRoot Config, ProfileContext Profiles, ICapacitorHttpClient Http, TimeProvider Time, Action<string> Log) {
     public string Url => Profiles.Resolution.ServerUrl!;
+
+    /// <summary>
+    /// Fires on first sight of a rollout and thereafter only when its mtime advances, recording the mtime it
+    /// fired for, so a child reaped at the codex-child ceiling stays reaped while its rollout is quiet but is
+    /// re-ensured the moment its subagent re-engages (the fresh watcher resumes from the server frontier).
+    /// Pure for testability.
+    /// </summary>
+    public static bool ChildRolloutAdvanced(Dictionary<string, DateTime> lastMtimes, string filePath, DateTime currentMtime) {
+        if (lastMtimes.TryGetValue(filePath, out var prev) && prev == currentMtime) return false;
+
+        lastMtimes[filePath] = currentMtime;
+
+        return true;
+    }
 }

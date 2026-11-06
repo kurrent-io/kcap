@@ -1,9 +1,9 @@
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Accounts.Readings;
 using Capacitor.Cli.Core.Harness;
-using Capacitor.Cli.Harness.Codex;
+using Capacitor.Cli.Recording.Harness.Codex;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.Codex;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Codex;
 
 public class CodexRolloutReadingsTests {
     const string Stamp = "2026-10-24T23:27:20.165Z";

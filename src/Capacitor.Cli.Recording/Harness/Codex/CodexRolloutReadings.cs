@@ -5,7 +5,7 @@ using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Accounts.Readings;
 using Capacitor.Cli.Core.Harness.Codex;
 
-namespace Capacitor.Cli.Harness.Codex;
+namespace Capacitor.Cli.Recording.Harness.Codex;
 
 /// <summary>Records the rate limits on a Codex rollout's <c>token_count</c> lines as the owning account's
 /// reading. A side output of the watcher: it reads the raw lines and never changes what is sent.</summary>
