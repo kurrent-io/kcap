@@ -54,12 +54,12 @@ public sealed partial class WorkContextViewModel {
         get => _title;
         private set { this.RaiseAndSetIfChanged(ref _title, value); NotifyIdentity(); }
     }
-    /// GitHub numbers issues and pull requests in one sequence, so a seed spelled `!N` can be the issue
-    /// `#N` of its repository. Other providers number them apart.
+    /// A short key carries no repository, so only this names the primary issue. GitHub numbers issues
+    /// and pull requests in one sequence, so a seed spelled `!N` can be the issue `#N` of its
+    /// repository; other providers number them apart.
     string? _seedIssueIdentity;
     bool HasHeaderKey(WorkContextLinkViewModel issue) => string.Equals(issue.Key, Key, StringComparison.OrdinalIgnoreCase);
-    bool IsPrimaryIssue(WorkContextLinkViewModel? issue) =>
-        issue is not null && (HasHeaderKey(issue) || Same(issue.Identity, _seedIssueIdentity));
+    bool IsPrimaryIssue(WorkContextLinkViewModel? issue) => issue is not null && Same(issue.Identity, _seedIssueIdentity);
     static bool IsFallbackIssueTitle(WorkContextLinkViewModel issue) =>
         issue.Title.Length == 0 || string.Equals(issue.Title, issue.Key, StringComparison.OrdinalIgnoreCase)
         || string.Equals(issue.Title, $"Issue {issue.Key}", StringComparison.OrdinalIgnoreCase);
@@ -165,7 +165,6 @@ public sealed partial class WorkContextViewModel {
         && _links.Count == 0
         && !ShowsPullRequestCard;
     public const string PullRequestEmptyNote = "No pull request linked";
-    public const string IssueTitleMissingNote = "Title not available";
     public bool ShowsPullRequestSection => ShowsPullRequestCard || ShowsLegacyLinkCards || ShowsPullRequestEmpty;
     public string WhoCountText => _sessionCount switch {
         0     => "",
@@ -442,8 +441,8 @@ public sealed partial class WorkContextViewModel {
     static bool Same(string a, string? b) => string.Equals(a, b, StringComparison.Ordinal);
 
     void ApplyItem(WorkItemDto item, IReadOnlyList<SessionWorkItemAssignmentDto> assignments) {
-        _seedIssueIdentity = item.Key is { Provider: "github" } seed
-            ? IssueIdentity("issue", seed.Provider, seed.Value.Replace('!', '#'))
+        _seedIssueIdentity = item.Key is { } seed
+            ? IssueIdentity("issue", seed.Provider, seed.Provider == "github" ? seed.Value.Replace('!', '#') : seed.Value)
             : null;
         Key = FirstNonBlank(item.Key?.ShortKey);
         // An item with no tracker or generated title arrives with its key as the title.

@@ -1,6 +1,7 @@
 using ReactiveUnit = System.Reactive.Unit;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Capacitor.App.Services;
@@ -787,8 +788,8 @@ public class WorkContextViewModelTests {
             Url = url, Title = title, LinkClass = linkClass,
         };
 
-    static WorkItemKeyDto SeedKey(string shortKey, string value, string provider = "github") =>
-        new() { ShortKey = shortKey, Provider = provider, Kind = "pr", Value = value };
+    static WorkItemKeyDto SeedKey(string shortKey, string value, string provider = "github", string kind = "pr") =>
+        new() { ShortKey = shortKey, Provider = provider, Kind = kind, Value = value };
 
     static WorkItemContributorDto Person(string userId, string? name, DateTimeOffset? at = null, string? avatar = null) =>
         new() { UserId = userId, DisplayName = name, LastActivityAt = at, AvatarUrl = avatar };
@@ -1090,7 +1091,7 @@ public class WorkContextViewModelTests {
         var view = new WorkContextView { DataContext = h.Vm };
         var window = new Window { Content = view, Width = 320, Height = 800 };
         var item = Item(title: "WK-2198", enriched: null) with {
-            Links = [Link("issue", "WK-2198", "https://linear.app/example/issue/WK-2198")],
+            Links = [Link("issue", "WK-2198", "https://linear.app/example/issue/WK-2198", provider: "linear")],
         };
         h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198"), item),
             ReadyWith(Row("w1", "WK-2198"), item with {
@@ -1137,7 +1138,7 @@ public class WorkContextViewModelTests {
         var view = new WorkContextView { DataContext = h.Vm };
         var window = new Window { Content = view, Width = 320, Height = 800 };
         h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198"), Item(enriched: enriched) with {
-            Links = [Link("issue", "WK-2198", "https://linear.app/example/issue/WK-2198", issueTitle)],
+            Links = [Link("issue", "WK-2198", "https://linear.app/example/issue/WK-2198", issueTitle, provider: "linear")],
         }));
         try {
             window.Show();
@@ -1206,7 +1207,7 @@ public class WorkContextViewModelTests {
             var h = new Harness();
             h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198"), Item(title: "WK-2198", enriched: null) with {
                 Links = [
-                    Link("issue", "WK-2198", "https://linear.app/x/issue/WK-2198", "WK-2198"),
+                    Link("issue", "WK-2198", "https://linear.app/x/issue/WK-2198", "WK-2198", provider: "linear"),
                     Link("issue", "#860", "https://github.com/example/repo/issues/860", "Secondary tracker"),
                 ],
             }));
@@ -1296,12 +1297,15 @@ public class WorkContextViewModelTests {
             await Assert.That(note).IsNotNull();
             await Assert.That(note!.IsEffectivelyVisible).IsTrue();
             await Assert.That(note.Text).IsEqualTo("Title not available");
+            var button = view.FindControl<Button>("IssueTitleButton")!;
+            await Assert.That(AutomationProperties.GetName(button)).IsEqualTo("#2423: Title not available");
 
             await h.TickAsync();
             window.UpdateLayout();
             await Assert.That(view.FindControl<TextBlock>("IssueTitle")!.Text).IsEqualTo("Tracker title");
             await Assert.That(view.FindControl<TextBlock>("IssueTitle")!.IsEffectivelyVisible).IsTrue();
             await Assert.That(note.IsEffectivelyVisible).IsFalse();
+            await Assert.That(AutomationProperties.GetName(button)).IsEqualTo("#2423: Tracker title");
         } finally {
             window.Close();
             await h.Vm.TeardownAsync();
@@ -1342,6 +1346,23 @@ public class WorkContextViewModelTests {
         }));
         await h.PushAsync(Dto());
         await Assert.That(h.Vm.HasSeparateIssue).IsTrue();
+        await h.Vm.TeardownAsync();
+    });
+
+    /// A short key carries no repository, so only the full identity says which `#7` is the seed.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_issue_sharing_the_seed_short_key_stays_listed() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(Row("w1", "#7"), Item(title: "#7", enriched: "Main") with {
+            Key   = SeedKey("#7", "github:o/r#7", kind: "issue"),
+            Links = [
+                Link("issue", "#7", title: "Main", value: "github:o/r#7"),
+                Link("issue", "#7", title: "Other", value: "github:o/other#7"),
+            ],
+        }));
+        await h.PushAsync(Dto());
+        await Assert.That(h.Vm.SeparateIssues.Select(i => i.Title)).IsEquivalentTo(new[] { "Other" });
         await h.Vm.TeardownAsync();
     });
 

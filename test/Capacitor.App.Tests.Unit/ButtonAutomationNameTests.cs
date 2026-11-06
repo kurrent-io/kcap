@@ -173,7 +173,7 @@ public class ButtonAutomationNameTests {
                                  "Usage, expanded", "Usage, collapsed", "Checkout, collapsed", "Checkout, expanded",
                                  "Session, collapsed", "Session, expanded",
                                  "x-design.md", pullRequestCard ? "Pull requests" : "#7: Fix",
-                                 .. titledIssues ? ["WK-1: One", "WK-2: Two"] : new[] { "WK-1" }];
+                                 .. titledIssues ? ["WK-1: One", "WK-2: Two"] : new[] { "WK-1: Title not available" }];
             await Assert.That(expected.Where(n => !names.Contains(n))).IsEmpty();
         } finally {
             window.Close();
