@@ -417,6 +417,8 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
 
     public const string PickedGoalPlaceholder = "Add context or requests for this task (optional)…";
 
+    public const string PickTaskRepository = "Pick this task's repository before you start: no checkout of it is known on your machines.";
+
     /// Raised after a band row filled the composer, so the view can draw the eye to it.
     public IObservable<Unit> ComposerFills => _composerFills;
 
@@ -437,6 +439,8 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         if (fill.Machine is { } machine && !(string.Equals(SelectedMachine, machine, StringComparison.Ordinal) && RemoteMachineSelected == !fill.MachineIsLocal))
             await SelectMachineAsync(machine, fill.MachineIsLocal);
         if (fill.RepoPath is { } path) await SelectRepositoryAsync(path);
+        // A repository already chosen for something else is not this task's: left selected, Start would run it there.
+        else if (fill.AwaitsCheckout) await SelectRepositoryAsync(ScratchRepoPath);
         NextWorkSource = fill;
         _composerFills.OnNext(Unit.Default);
     }
@@ -2048,6 +2052,10 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
         // Captured before anything can await: an upload takes time the user can spend re-pointing
         // the launcher, and the files must reach the machine the composer was aimed at.
         var picked = NextWorkSource;
+        if (picked is { AwaitsCheckout: true } && string.IsNullOrEmpty(SelectedRepoPath)) {
+            StartError = PickTaskRepository;
+            return;
+        }
         var draft = new LaunchDraft(
             SelectedMachine, RemoteMachineSelected, SelectedRepoPath, SelectedVendor, GoalToSend(), _goalEdits,
             SelectedModel, SelectedEffort, PermissionModeFor(SelectedVendor, SelectedPermissionMode),
@@ -2123,7 +2131,8 @@ public sealed class HomeViewModel : ReactiveObject, IDisposable, IAttachmentSink
 
         var request = new LaunchRequest(
             draft.Machine, draft.RepoPath, draft.Vendor, draft.Goal, draft.Model, draft.Effort,
-            draft.PermissionMode, attachmentIds, draft.CodexPosture, AccountId: draft.AccountId);
+            draft.PermissionMode, attachmentIds, draft.CodexPosture, AccountId: draft.AccountId,
+            NextWorkTargetKey: picked is { IsLaunchTarget: true } ? picked.Key : null);
         // Captured BEFORE the call, never after: the whole point is to notice a navigation that
         // changed WHILE the launch was in flight.
         var generation = _navigationGeneration?.Invoke() ?? 0;

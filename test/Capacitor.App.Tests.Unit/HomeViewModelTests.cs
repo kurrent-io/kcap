@@ -102,6 +102,39 @@ public class HomeViewModelTests {
             vm.Goal = "Keep the public API as it is";
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\nKeep the public API as it is\n\nRecorded context");
+            await Assert.That(launch.Last!.NextWorkTargetKey).IsEqualTo("wi:a");
+        });
+    }
+
+    /// A pull request to review is no next-work launch target: the server claims and attaches only work items and loose ends.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_picked_review_launches_without_a_next_work_target() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            await vm.FillFromNextWorkAsync(new("pr:o/r#9", "#9 Retry", "Review pull request #9 Retry.", null, true, Tmp.Path));
+            await vm.StartCommand.Execute();
+
+            await Assert.That(launch.Last!.NextWorkTargetKey).IsNull();
+        });
+    }
+
+    /// A task whose repository has no known checkout clears a repository chosen for something else, and Start refuses
+    /// until its own is picked, so the task never runs in an unrelated checkout.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_task_without_a_checkout_clears_the_chosen_repository_and_waits_for_its_own() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            var unrelated = Tmp.CreateDir("unrelated");
+            await vm.SelectRepositoryAsync(unrelated);
+
+            await vm.FillFromNextWorkAsync(new("le:b", "Document B", "Document B", null, true, null, "Recorded context", AwaitsCheckout: true));
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
+
+            await vm.StartCommand.Execute();
+            await Assert.That(launch.Last).IsNull();
+            await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.PickTaskRepository);
         });
     }
 

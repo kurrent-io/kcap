@@ -11,7 +11,7 @@ public static partial class NextWorkLaneLogic {
     public const string LooseEndPrefix = "le:";
 
     public static IReadOnlyList<NextWorkRow> Kept(NextWorkSnapshot? snapshot) =>
-        snapshot is null ? [] : [.. snapshot.Candidates.Where(c => c.Kept && c.Rank is not null).OrderBy(c => c.Rank)];
+        snapshot is null ? [] : [.. snapshot.Candidates.Where(c => c.Rank is not null).OrderBy(c => c.Rank)];
 
     public static NextWorkGroup? GroupOf(NextWorkRow c) => c.Tier switch {
         1 => NextWorkGroup.Waiting,
@@ -22,19 +22,17 @@ public static partial class NextWorkLaneLogic {
 
     /// <summary>Which rows get a launch action: kept work items and loose ends. Review, resume and housekeeping rows
     /// have their own actions.</summary>
-    public static bool IsLaunchable(NextWorkRow c) => c.Kept && c.TargetKind is "work_item" or "loose_end";
+    public static bool IsLaunchable(NextWorkRow c) => c.TargetKind is "work_item" or "loose_end";
 
     public static NextWorkGlyph Glyph(NextWorkRow c) {
-        var done = c.Disconfirmed;
-        var tint = done ? NextWorkGroup.Done : GroupOf(c) ?? NextWorkGroup.All;
+        var tint = GroupOf(c) ?? NextWorkGroup.All;
 
         return c.TargetKind switch {
-            "pr" when done && c.DisconfirmedReason == "pr_merged" => new("merge", tint, null),
-            "pr"        => new("pr", tint, done ? null : c.Arm switch { "ReviewRequested" => "wait", "ApprovedUnmerged" => "ok", _ => null }),
-            "session"   => new("session", tint, !done && c.Arm == "ResumeInterrupted" ? "stop" : null),
+            "pr"        => new("pr", tint, c.Arm switch { "ReviewRequested" => "wait", "ApprovedUnmerged" => "ok", _ => null }),
+            "session"   => new("session", tint, c.Arm == "ResumeInterrupted" ? "stop" : null),
             "loose_end" => new("loose_end", tint, null),
             "evals"     => new("evals", tint, null),
-            _           => new(c.Facets.IsBug ? "bug" : "issue", tint, !done && c.Arm == "BlocksOthers" ? "wait" : null),
+            _           => new(c.Facets.IsBug ? "bug" : "issue", tint, c.Arm == "BlocksOthers" ? "wait" : null),
         };
     }
 

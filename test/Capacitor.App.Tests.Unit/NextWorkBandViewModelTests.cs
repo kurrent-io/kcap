@@ -9,9 +9,8 @@ namespace Capacitor.App.Tests.Unit;
 public class NextWorkBandViewModelTests {
     static readonly DateTimeOffset Now = new(2026, 11, 6, 12, 0, 0, TimeSpan.Zero);
 
-    static NextWorkCandidateDto Row(string key, string kind, string label, int tier, int? rank, string outcome = "kept",
-            string? reason = null, double days = 0) =>
-        new(key, kind, key[(key.IndexOf(':') + 1)..], label, null, "h1", "Arm", tier, outcome, reason, rank, label,
+    static NextWorkCandidateDto Row(string key, string kind, string label, int tier, int? rank, double days = 0) =>
+        new(key, kind, key[(key.IndexOf(':') + 1)..], label, null, "h1", "Arm", tier, rank, label,
             new(0, null, false, 1, days), []);
 
     static FakeNextWorkApi Api(params NextWorkCandidateDto[] rows) =>
@@ -39,7 +38,6 @@ public class NextWorkBandViewModelTests {
             Row("wi:b", "work_item", "B-2 Fix that", 2, 3),
             Row("wi:c", "work_item", "C-3 Fix more", 2, 4),
             Row("wi:d", "work_item", "D-4 Fix again", 2, 5),
-            Row("pr:9", "pr", "#9 Merged", 1, null, "disconfirmed", "pr_merged"),
             Row("le:n", "loose_end", "File an issue for the flake", 3, 6)));
         await band.RefreshAsync();
 
@@ -136,7 +134,7 @@ public class NextWorkBandViewModelTests {
     [Test]
     public async Task Pressing_a_review_fills_a_goal_naming_the_pull_request() {
         var api = new FakeNextWorkApi { Snapshot = new(NextWorkReadKind.Ready, new(Now, false, false, null,
-            [new("pr:9", "pr", "9", "#9 Retry", "https://github.com/o/r/pull/9", "h1", "ReviewRequested", 1, "kept", null, 1, "Dana waits", new(1, null, false, 0, 0), [])])) };
+            [new("pr:9", "pr", "9", "#9 Retry", "https://github.com/o/r/pull/9", "h1", "ReviewRequested", 1, 1, "Dana waits", new(1, null, false, 0, 0), [])])) };
         NextWorkFill? filled = null;
         var band = Band(api, fill: f => { filled = f; return Task.CompletedTask; });
         await band.RefreshAsync();
@@ -203,6 +201,7 @@ public class NextWorkBandViewModelTests {
         await Assert.That(filled.Context).IsEqualTo("Close the replay loose end");
         await Assert.That(filled.ContextSummary).IsEqualTo("The agent also gets the session this loose end was noted in.");
         await Assert.That(filled.RepoPath).IsNull();
+        await Assert.That(filled.AwaitsCheckout).IsTrue();
     }
 
     [Test]
@@ -220,7 +219,7 @@ public class NextWorkBandViewModelTests {
     [Test]
     public async Task An_item_shows_the_loose_end_noted_against_it_and_how_many_more() {
         var api = new FakeNextWorkApi { Snapshot = new(NextWorkReadKind.Ready, new(Now, false, false, null, [
-            new("wi:a", "work_item", "a", "A-1 Fix it", null, "h1", "FinishYours", 2, "kept", null, 1, "Assigned to you", new(0, null, false, 0, 0), [
+            new("wi:a", "work_item", "a", "A-1 Fix it", null, "h1", "FinishYours", 2, 1, "Assigned to you", new(0, null, false, 0, 0), [
                 new("loose_end", "session", "sighted once", "Add jitter to the retry backoff", LooseEndId: "le1"),
                 new("loose_end", "session", "sighted once", "Cover the 503 path in the gateway tests", LooseEndId: "le2")]),
         ])) };

@@ -13,16 +13,15 @@ static partial class DocsShotScenes {
     static string Stamp(TimeSpan ago) => (Now - ago).UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
 
     static NextWorkCandidateDto Row(string key, string kind, string label, string arm, int tier, int? rank, string because,
-            NextWorkFacetsDto facets, List<NextWorkEvidenceDto> evidence, string outcome = "kept", string? reason = null,
-            string? href = null, string? id = null) =>
-        new(key, kind, id ?? key[(key.IndexOf(':') + 1)..], label, href, PaymentsHash, arm, tier, outcome, reason, rank, because, facets, evidence,
+            NextWorkFacetsDto facets, List<NextWorkEvidenceDto> evidence, string? href = null, string? id = null) =>
+        new(key, kind, id ?? key[(key.IndexOf(':') + 1)..], label, href, PaymentsHash, arm, tier, rank, because, facets, evidence,
             TrackerDependent: kind == "work_item", TrackerStateAsOf: kind == "work_item" ? Now.AddMinutes(-9) : null);
 
     static NextWorkFacetsDto Facets(double days, int? priority = null, bool bug = false, int seen = 0, int waiting = 0) =>
         new(waiting, priority, bug, seen, days);
 
     /// Maya's next work in the payments repository: a review someone waits on, her assigned gateway bug with a loose end
-    /// under it, an unclaimed loose end, a backlog item, an interrupted session, a chore, a quiet note and a merged PR.
+    /// under it, an unclaimed loose end, a backlog item, an interrupted session, a chore and a quiet note.
     public static NextWorkSnapshotDto NorthwindNextWork() => new(Now, Partial: false, Incomplete: false,
         new() { [PaymentsHash] = "northwind/payments-api" },
         [
@@ -54,9 +53,6 @@ static partial class DocsShotScenes {
             Row("le:le4", "loose_end", "Consider caching FX rates for an hour", "LooseEnd", 3, 7,
                 "Consider caching FX rates for an hour", Facets(19),
                 [new("loose_end", "session", $"sighted 1 time, last at {Stamp(TimeSpan.FromDays(19))}", null, LooseEndId: "le4")]),
-            Row("pr:northwind/payments-api#471", "pr", "#471 Add a circuit breaker to the card network client", "ApprovedUnmerged", 1, null,
-                "", Facets(0.2), [], outcome: "disconfirmed", reason: "pr_merged",
-                href: "https://github.com/northwind/payments-api/pull/471"),
         ]);
 
     public static NextWorkLaunchPreparationDto NorthwindWorkOn() => new(null, "northwind/payments-api",

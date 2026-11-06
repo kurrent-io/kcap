@@ -57,7 +57,6 @@
         <Style Selector="views|AppIcon.nwbTint"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
         <Style Selector="views|AppIcon.nwbTint.finish"><Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" /></Style>
         <Style Selector="views|AppIcon.nwbTint.waiting"><Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" /></Style>
-        <Style Selector="views|AppIcon.nwbTint.done"><Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" /></Style>
         <Style Selector="Ellipse.nwbBadge">
             <Setter Property="Width" Value="9" />
             <Setter Property="Height" Value="9" />
@@ -127,10 +126,11 @@
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
         <Style Selector="Border.nwbChip.success > TextBlock"><Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" /></Style>
+        <!-- Set apart from the picks above: the rest of the work is its own section, not the next row. -->
         <Style Selector="Button.nwbFold">
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="Padding" Value="8,4" />
-            <Setter Property="Margin" Value="0,2,0,0" />
+            <Setter Property="Margin" Value="0,12,0,0" />
             <Setter Property="MinHeight" Value="0" />
         </Style>
         <Style Selector="Button.nwbFold TextBlock"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>

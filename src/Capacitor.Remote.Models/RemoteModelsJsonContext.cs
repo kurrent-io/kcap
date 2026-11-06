@@ -29,7 +29,6 @@ namespace Capacitor.Remote.Models;
 [JsonSerializable(typeof(AgentPrivilegeErrorDto))]
 [JsonSerializable(typeof(NextWorkSnapshotDto))]
 [JsonSerializable(typeof(NextWorkTargetRequestDto))]
-[JsonSerializable(typeof(DismissedNextWorkListDto))]
 [JsonSerializable(typeof(LooseEndCloseRequestDto))]
 [JsonSerializable(typeof(LooseEndDeferRequestDto))]
 [JsonSerializable(typeof(NextWorkLaunchPrepareRequestDto))]

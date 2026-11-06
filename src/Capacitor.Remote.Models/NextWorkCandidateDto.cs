@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace Capacitor.Remote.Models;
 
-/// <summary>One candidate of <see cref="NextWorkSnapshotDto"/>. Labels, because-clauses and evidence are tracker- or
+/// <summary>One kept candidate of <see cref="NextWorkSnapshotDto"/>. Labels, because-clauses and evidence are tracker- or
 /// model-authored text: show them as text, never as markup or a command.</summary>
 public sealed record NextWorkCandidateDto(
     [property: JsonPropertyName("target_key")]          string                   TargetKey,
@@ -13,8 +13,6 @@ public sealed record NextWorkCandidateDto(
     [property: JsonPropertyName("repo_hash")]           string?                  RepoHash,
     [property: JsonPropertyName("arm")]                 string?                  Arm,
     [property: JsonPropertyName("tier")]                int                      Tier,
-    [property: JsonPropertyName("outcome")]             string?                  Outcome,
-    [property: JsonPropertyName("disconfirmed_reason")] string?                  DisconfirmedReason,
     [property: JsonPropertyName("rank")]                int?                     Rank,
     [property: JsonPropertyName("because")]             string?                  Because,
     [property: JsonPropertyName("facets")]              NextWorkFacetsDto?       Facets,
