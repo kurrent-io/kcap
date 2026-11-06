@@ -553,6 +553,22 @@ public class McpArtefactsServerTests {
         await Assert.That(text).IsEqualTo(McpArtefactsServer.NoGuideMessage);
     }
 
+    [Test]
+    [Arguments("<html>a proxy's error page</html>")]
+    [Arguments("[\"text\"]")]
+    [Arguments("\"text\"")]
+    [Arguments("{\"text\":42}")]
+    public async Task A_guide_answer_that_is_not_the_document_reads_as_unreadable(string body) {
+        using var stub = WireMockServer.Start();
+        stub.Given(Request.Create().WithPath("/api/artefacts/guide").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody(body));
+
+        var (isError, text) = await CallAsync(Server(), stub.Url!, new JsonObject(), "get_page_guide");
+
+        await Assert.That(isError).IsTrue();
+        await Assert.That(text).IsEqualTo(McpArtefactsServer.UnreadableGuideMessage);
+    }
+
     // ── searching pages ───────────────────────────────────────────────────────────────
 
     static WireMockServer SearchStub(string body) {

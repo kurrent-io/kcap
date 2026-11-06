@@ -236,6 +236,8 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
 
     /// <summary>The server's own document, unwrapped. A server without the route reads
     /// <c>guide</c> as a page id and answers 404, which is an older server rather than a missing page.</summary>
+    internal const string UnreadableGuideMessage = "Error: the server's answer could not be read.";
+
     async Task<string> GetGuideAsync(JsonNode id, HttpClient client, string baseUrl, CancellationToken ct) {
         using var response = await client.GetAsync($"{baseUrl}/api/artefacts/guide", ct);
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -244,9 +246,12 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
 
         if (await RefusalAsync(id, response, body, baseUrl) is { } refusal) return refusal;
 
-        return JsonNode.Parse(body)?["text"] is JsonValue text && text.TryGetValue<string>(out var guide)
-            ? BuildToolResult(id, guide)
-            : BuildToolResult(id, "Error: the server's answer could not be read.", isError: true);
+        try {
+            if (JsonNode.Parse(body) is JsonObject root && root["text"] is JsonValue text && text.TryGetValue<string>(out var guide))
+                return BuildToolResult(id, guide);
+        } catch (JsonException) { }
+
+        return BuildToolResult(id, UnreadableGuideMessage, isError: true);
     }
 
     const int DefaultSearchLimit = 10;
