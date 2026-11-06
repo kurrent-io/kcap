@@ -2406,6 +2406,47 @@ public class ClaudeHookCommandTests {
         await Assert.That(hook["async"]?.GetValue<bool>()).IsTrue();
     }
 
+    /// <summary>On Windows without Git Bash, Claude blocks the tool call when a synchronous hook that leaves
+    /// <c>onFailure</c> unset fails or times out; kcap must never stand between the user and their tools.</summary>
+    [Test]
+    [Arguments("hooks.json")]
+    [Arguments("hooks.windows.json")]
+    public async Task Every_synchronous_hook_lets_the_action_go_ahead_when_it_fails(string file) {
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "kcap", "hooks", file)))!;
+        var hooks    = ManifestHooks(manifest).Where(h => h["async"]?.GetValue<bool>() != true).ToList();
+
+        await Assert.That(hooks).IsNotEmpty();
+        foreach (var hook in hooks)
+            await Assert.That(hook["onFailure"]?.GetValue<string>()).IsEqualTo("continue");
+    }
+
+    /// <summary>Windows bundles ship <c>hooks.windows.json</c> in place of <c>hooks.json</c>: it must be the same
+    /// hooks, each naming <c>kcap.exe</c> with its arguments so Claude starts it with no shell.</summary>
+    [Test]
+    public async Task The_windows_manifest_is_the_same_hooks_started_without_a_shell() {
+        var dir     = Path.Combine(RepoRoot(), "kcap", "hooks");
+        var shell   = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "hooks.json")))!;
+        var windows = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "hooks.windows.json")))!;
+
+        foreach (var hook in ManifestHooks(windows)) {
+            await Assert.That(hook["command"]?.GetValue<string>()).IsEqualTo("kcap.exe");
+            await Assert.That(hook["args"]).IsTypeOf<JsonArray>();
+
+            var args = hook["args"]!.AsArray().Select(a => a!.GetValue<string>());
+            hook["command"] = "kcap " + string.Join(' ', args);
+            hook.Remove("args");
+        }
+
+        await Assert.That(JsonNode.DeepEquals(windows, shell)).IsTrue();
+    }
+
+    static IEnumerable<JsonObject> ManifestHooks(JsonNode manifest) =>
+        manifest["hooks"]!.AsObject()
+            .SelectMany(e => e.Value!.AsArray())
+            .SelectMany(g => g!["hooks"]!.AsArray())
+            .Select(h => h!.AsObject())
+            .ToList();
+
     static string RepoRoot([CallerFilePath] string here = "") {
         var dir = Path.GetDirectoryName(here);
         while (dir is not null && !File.Exists(Path.Combine(dir, "Capacitor.slnx")))
