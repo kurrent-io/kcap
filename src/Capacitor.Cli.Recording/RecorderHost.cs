@@ -14,6 +14,7 @@ namespace Capacitor.Cli.Recording;
 /// with the host's owner: only it can tell a session that ended from a restart that must keep the source owned.
 /// A source that ends on any path detaches from the transport, best-effort, because its connection may outlive it.
 /// The owner hears how each attempt ended on the source's own loop, so it must not wait there for that source.
+/// A server stop ends a backoff as a finish does, and a final drain after one is in a hurry.
 /// </summary>
 public sealed class RecorderHost {
     static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(1);
@@ -44,6 +45,8 @@ public sealed class RecorderHost {
         _openTranscript = openTranscript;
         _claims         = claims;
         _attemptEnded   = attemptEnded;
+
+        _transport.StopRequested += OnStopRequestedAsync;
     }
 
     /// <summary>The keys of the sources being recorded now, those between attempts included.</summary>
@@ -72,6 +75,14 @@ public sealed class RecorderHost {
         }
 
         return true;
+    }
+
+    // A running recorder hears a stop itself. Between attempts none is listening, and the server's drain wait is
+    // shorter than a backoff.
+    Task OnStopRequestedAsync(string key, string reason) {
+        if (_entries.TryGetValue(key, out var entry)) entry.Hurry();
+
+        return Task.CompletedTask;
     }
 
     /// <summary>Stops the source <paramref name="key"/> names, makes its final drain, and returns once it has left
@@ -159,7 +170,7 @@ public sealed class RecorderHost {
 
                         if (failure is null && connected) {
                             ended   = true;
-                            failure = await FinishRecorderAsync(source, recorder, first);
+                            failure = await FinishRecorderAsync(source, entry, recorder, first);
 
                             return;
                         }
@@ -171,7 +182,7 @@ public sealed class RecorderHost {
 
                 // Nothing was finished: the run failed, or was stopped before it connected.
                 if (stopped) {
-                    await DrainOnceAsync(source, first);
+                    await DrainOnceAsync(source, entry, first);
 
                     return;
                 }
@@ -179,7 +190,7 @@ public sealed class RecorderHost {
                 if (connected && _time.GetElapsedTime(started) >= MaxRetryDelay) delay = FirstRetryDelay;
 
                 if (!await DelayWithBeatsAsync(delay, Beats(source, first.Beat), token)) {
-                    await DrainOnceAsync(source, first);
+                    await DrainOnceAsync(source, entry, first);
 
                     return;
                 }
@@ -217,8 +228,10 @@ public sealed class RecorderHost {
         return true;
     }
 
-    async Task<Exception?> FinishRecorderAsync(RecordingSource source, TranscriptRecorder recorder, RecorderContext first) {
+    async Task<Exception?> FinishRecorderAsync(RecordingSource source, Entry entry, TranscriptRecorder recorder, RecorderContext first) {
         try {
+            if (entry.Hurried) recorder.RequestStop();
+
             await recorder.FinishAsync(CancellationToken.None);
 
             return null;
@@ -232,7 +245,7 @@ public sealed class RecorderHost {
 
     // One fresh recorder connects and drains, for a source whose run never connected. If that doesn't complete, the
     // import recovers the lines; they are never dropped.
-    async Task DrainOnceAsync(RecordingSource source, RecorderContext first) {
+    async Task DrainOnceAsync(RecordingSource source, Entry entry, RecorderContext first) {
         TranscriptRecorder? recorder = null;
         RecorderContext?    context  = null;
         Exception?          failure  = null;
@@ -240,6 +253,8 @@ public sealed class RecorderHost {
         try {
             context  = _contexts(source);
             recorder = Create(source, context);
+            if (entry.Hurried) recorder.RequestStop();
+
             await recorder.DrainOnceAsync(CancellationToken.None);
         } catch (Exception ex) {
             failure = ex;
@@ -305,8 +320,13 @@ public sealed class RecorderHost {
         readonly CancellationTokenSource _run  = new();
         readonly TaskCompletionSource    _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        bool _hurried;
+
         /// <summary>Cancelled when the source is asked to finish.</summary>
         public CancellationToken Token { get; }
+
+        /// <summary>Whoever stopped this source will not wait long, so its final drain must not either.</summary>
+        public bool Hurried => Volatile.Read(ref _hurried);
 
         public Task Done => _done.Task;
 
@@ -315,6 +335,18 @@ public sealed class RecorderHost {
         public void CancelRun() {
             try {
                 _run.Cancel();
+            } catch (ObjectDisposedException) {
+                // The source has ended.
+            }
+        }
+
+        /// <summary>Cancels off the caller's thread: that one is a transport's dispatch or a shutdown's loop over every
+        /// source, and a plain cancel would run this source's drain on it, up to the drain's first real wait.</summary>
+        public void Hurry() {
+            Volatile.Write(ref _hurried, true);
+
+            try {
+                _ = _run.CancelAsync();
             } catch (ObjectDisposedException) {
                 // The source has ended.
             }

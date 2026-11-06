@@ -41,7 +41,13 @@ public sealed class FakeRecorderHousekeeping : IRecorderHousekeeping {
 
     public IReadOnlyList<(long Idx, string Line)> ReadAntigravityUsage(string dbPath, long afterIdx, string? createdAt) => [];
 
-    public Task<ClaudeCliResult?> GenerateTitleAsync(string userText, string? assistantText, CancellationToken ct) => Task.FromResult<ClaudeCliResult?>(null);
+    /// <summary>Replaces <see cref="GenerateTitleAsync"/>, so a test can hold a title in progress.</summary>
+    public Func<string, Task<ClaudeCliResult?>>? OnGenerateTitle { get; set; }
 
-    public void HandOffTitle(string transcriptPath) { }
+    public Task<ClaudeCliResult?> GenerateTitleAsync(string userText, string? assistantText, CancellationToken ct) =>
+        OnGenerateTitle?.Invoke(userText) ?? Task.FromResult<ClaudeCliResult?>(null);
+
+    public Action? OnHandOffTitle { get; set; }
+
+    public void HandOffTitle(string transcriptPath) => OnHandOffTitle?.Invoke();
 }

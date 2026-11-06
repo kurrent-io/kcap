@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.Time.Testing;
@@ -31,6 +32,8 @@ public class RecorderHostTests {
     readonly ConcurrentDictionary<string, bool> _beatThrows = new();
     readonly ConcurrentQueue<IReadOnlyCollection<string>> _attemptChildren = new();
     readonly ConcurrentQueue<RecorderAttemptEnded> _ended = new();
+    readonly ConcurrentDictionary<string, Func<string, Task<ClaudeCliResult?>>> _titles = new();
+    readonly ConcurrentDictionary<string, Action> _handOffs = new();
 
     public RecorderHostTests() => _time.Attempts = () => _transport.ConnectAttempts;
 
@@ -52,6 +55,8 @@ public class RecorderHostTests {
             new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)),
             new FakeRecorderHousekeeping {
                 SpawnedChildKeys = _attemptChildren.TryDequeue(out var children) ? children : [],
+                OnGenerateTitle = _titles.GetValueOrDefault(source.Key),
+                OnHandOffTitle = _handOffs.GetValueOrDefault(source.Key),
                 OnAfterFinalDrain = () => _afterFinalDrain.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask,
                 OnPrepare = () => _prepare.TryGetValue(source.Key, out var hook) && hook is not null ? hook() : Task.CompletedTask,
                 BeforeDrain = () => {
@@ -972,6 +977,77 @@ public class RecorderHostTests {
         host.TryAdd(source);
 
         await Eventually(() => _log.Any(line => line.Contains("cursor_quarantine_marker_write_failed", StringComparison.Ordinal)), "the failed write in its log");
+    }
+
+    /// <summary>A backoff has no recorder to hear the stop. The server waits 10 seconds for a drain against a backoff
+    /// of up to 30, so the clock stands still here: only the stop can end the wait.</summary>
+    [Test]
+    public async Task A_server_stop_during_a_backoff_drains_at_once() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+        await _transport.RaiseStopRequestedAsync(source.Key, "the server asked");
+
+        await Eventually(() => host.ActiveKeys.Count == 0, "the drain");
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(2);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
+        await Assert.That(_transport.Connects).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_server_stop_for_another_key_leaves_a_backoff_alone() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+        await _transport.RaiseStopRequestedAsync("another-key", "the server asked");
+
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+    }
+
+    /// <summary>The server stopped this source and won't wait long, so a title still generating is handed off, as a
+    /// running recorder told to stop hands off its own.</summary>
+    [Test]
+    public async Task A_drain_after_a_server_stop_does_not_wait_out_a_title() {
+        var source  = new RecordingSource(Guid.NewGuid().ToString("N"), null, Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "claude", null);
+        var handed  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blocked = new TaskCompletionSource<ClaudeCliResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _titles[source.Key]    = _ => blocked.Task;
+        _handOffs[source.Key]  = () => handed.TrySetResult();
+        _transport.ConnectFailures = 1;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+        await _transport.RaiseStopRequestedAsync(source.Key, "the server asked");
+
+        await Eventually(() => handed.Task.IsCompleted, "the hand-off", TimeSpan.FromSeconds(1));
+        await Eventually(() => host.ActiveKeys.Count == 0, "the drain");
+    }
+
+    /// <summary>The stop lands after the failed recorder has gone and before the backoff's wait begins, where no
+    /// recorder is listening and a stop heard only during the wait would be lost.</summary>
+    [Test]
+    public async Task A_server_stop_between_attempts_is_not_lost() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = 1;
+        var host = NewHost(attemptEnded: ended => {
+            if (!ended.SourceEnded) _transport.RaiseStopRequestedAsync(source.Key, "the server asked").GetAwaiter().GetResult();
+        });
+
+        host.TryAdd(source);
+
+        await Eventually(() => host.ActiveKeys.Count == 0, "the drain");
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(1);
     }
 
     [Test]
