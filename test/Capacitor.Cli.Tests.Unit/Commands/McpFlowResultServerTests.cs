@@ -338,36 +338,31 @@ public class McpFlowResultServerTests {
         await Assert.That(body).Contains("msg-1");
     }
 
+    /// <summary>A launch race (no_active_flow) and a concurrent writer on the flow's fold (concurrent_update) are
+    /// both retried with the same message_id, so the server can dedupe a redelivered send.</summary>
     [Test]
-    public async Task Send_message_retries_no_active_flow_with_same_message_id() {
-        using var server = WireMockServer.Start();
-        server.Given(Request.Create().WithPath("/api/flows/participant/message").UsingPost())
-              .InScenario("launch-race")
-              .WillSetStateTo("second")
-              .RespondWith(Response.Create().WithStatusCode(404).WithBody("""{"error":"no_active_flow","message":"not registered yet"}"""));
-        server.Given(Request.Create().WithPath("/api/flows/participant/message").UsingPost())
-              .InScenario("launch-race")
-              .WhenStateIs("second")
-              .WillSetStateTo("third")
-              .RespondWith(Response.Create().WithStatusCode(404).WithBody("""{"error":"no_active_flow","message":"not registered yet"}"""));
-        server.Given(Request.Create().WithPath("/api/flows/participant/message").UsingPost())
-              .InScenario("launch-race")
-              .WhenStateIs("third")
-              .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
-        using var client = new HttpClient();
+    [Arguments("no_active_flow", 404)]
+    [Arguments("concurrent_update", 409)]
+    public async Task Send_message_retries_a_race_with_the_same_message_id(string code, int status) {
+        HttpResponseMessage Race(HttpRequestMessage _) =>
+            new((HttpStatusCode)status) { Content = new StringContent($$"""{"error":"{{code}}","message":"raced"}""") };
+
+        var transport = new ScriptedTransport(
+            Race,
+            Race,
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") });
+        using var client = new HttpClient(transport);
 
         var delays = new List<TimeSpan>();
         var (text, isError) = await Server().SendMessageCoreAsync(
-            client, server.Url!, "agent-1", MessageArgs(), NoDelay(delays), messageId: "msg-stable"
+            client, "http://kcap.test", "agent-1", MessageArgs(), NoDelay(delays), messageId: "msg-stable"
         );
 
         await Assert.That(isError).IsFalse();
         await Assert.That(text).Contains("Message sent to the flow driver");
         await Assert.That(delays).Count().IsEqualTo(2);
-
-        var bodies = server.LogEntries.Select(e => e.RequestMessage.Body!).ToList();
-        await Assert.That(bodies).Count().IsEqualTo(3);
-        foreach (var b in bodies) {
+        await Assert.That(transport.Bodies).Count().IsEqualTo(3);
+        foreach (var b in transport.Bodies) {
             await Assert.That(b).Contains("msg-stable");
         }
     }
