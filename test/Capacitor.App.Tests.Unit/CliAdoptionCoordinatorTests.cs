@@ -529,6 +529,28 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Notifier.Notified[^1]).Contains("was removed");
     }
 
+    /// <summary>A fallback the user removed by hand is nothing to keep: the next run lets the unproven move go instead of
+    /// asking a repoint about an install that is gone.</summary>
+    [Test]
+    public async Task An_unproven_fallback_removed_by_hand_is_let_go() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Repoint = _ => {
+            world.WritePlist(world.Bundle.Daemon);
+            world.Machine.Jobs[AdoptionWorld.DaemonName] = new LaunchdJob(true, AdoptionWorld.NewDaemonPid, world.Bundle.Daemon);
+            return new MutationOutcome.UnconfirmedNoAttach();
+        };
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+        await Assert.That(world.Record.UnprovenMoves).IsNotEmpty();
+
+        Directory.Delete(world.Root, recursive: true);
+        Directory.Delete(world.Platform, recursive: true);
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        await Assert.That(world.Machine.Repoints).IsEqualTo(1);
+        await Assert.That(world.Record.UnprovenMoves).IsEmpty();
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+    }
+
     /// <summary>A service that was not running gets no successor to answer, so its plist is the proof, and launchd must
     /// hold no job for it: a stopped service is never started by the switch.</summary>
     [Test]

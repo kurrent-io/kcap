@@ -15,6 +15,7 @@ internal sealed class AdoptionServiceMove(
         IAdoptionMachine machine, AdoptionRecordStore store, AdoptionBundle bundle, Action<string, (string Key, string? Value)[]> log) {
     const string DaemonBusy   = "daemon_busy";
     const string MoveUnproven = "move_unproven";
+    const string FallbackGone = "fallback_gone";
 
     /// <summary>A refusal a later attempt can get past: the daemon was not at a safe point, or the install changed.</summary>
     internal static bool Deferred(MutationOutcome outcome) =>
@@ -32,6 +33,13 @@ internal sealed class AdoptionServiceMove(
             var units    = evidence.Units.Where(u => Inside(install, u.Program) || Inside(install, u.LoadedProgram)).ToList();
             var unproven = Unproven(store.Load(), install);
             if (units.Count == 0 && unproven is null) {
+                moved.Add(install);
+                continue;
+            }
+            // A fallback removed by hand is nothing to keep, and a repoint would refuse an install it cannot read.
+            if (units.Count == 0 && !install.OwnedEntries.Prepend(install.Root).Any(Exists)) {
+                store.Update(r => r with { UnprovenMoves = [.. r.UnprovenMoves.Where(m => !Names(m, install))] });
+                log("adoption_repoint", AdoptionEvent.For(install, "ok", FallbackGone));
                 moved.Add(install);
                 continue;
             }
@@ -122,6 +130,8 @@ internal sealed class AdoptionServiceMove(
     }
 
     static bool Running(ServiceUnitFact unit) => unit is { Loaded: true, JobPid: not null };
+
+    static bool Exists(string path) => new FileInfo(path).LinkTarget is not null || Path.Exists(path);
 
     static bool Inside(OtherCliInstall install, string? path) =>
         path is not null && install.OwnedEntries.Prepend(install.Root).Any(folder => CanonicalPath.IsWithin(path, folder));
