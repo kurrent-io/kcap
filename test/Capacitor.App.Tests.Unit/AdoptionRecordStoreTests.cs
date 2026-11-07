@@ -26,7 +26,8 @@ public class AdoptionRecordStoreTests {
             [new LinkChange("/usr/local/bin/kcap", "/old", "/new")],
             new PrivilegedOperation("/p1", 7, "start", true),
             ["notice-a", "notice-b"],
-            true);
+            true,
+            [new UnprovenMove("/p2", "mac", [new ServiceUnitFact("/la/mac.plist", "mac", "/p2/bin/kcap-daemon", "/usr/bin", null, true, 7, null)])]);
 
         new AdoptionRecordStore(Config).Update(_ => record);
         var loaded = new AdoptionRecordStore(Config).Load();
@@ -46,6 +47,9 @@ public class AdoptionRecordStoreTests {
         await Assert.That(loaded.Privileged).IsEqualTo(record.Privileged);
         await Assert.That(loaded.NoticesShown.SequenceEqual(["notice-a", "notice-b"])).IsTrue();
         await Assert.That(loaded.MachineSwitched).IsTrue();
+        var unproven = loaded.UnprovenMoves.Single();
+        await Assert.That((unproven.InstallRoot, unproven.Daemon)).IsEqualTo(("/p2", "mac"));
+        await Assert.That(unproven.Units.Single()).IsEqualTo(record.UnprovenMoves[0].Units[0]);
     }
 
     [Test]
@@ -64,14 +68,16 @@ public class AdoptionRecordStoreTests {
         await Assert.That(store.Load().NoticesShown.Single()).IsEqualTo("x");
     }
 
+    /// <summary>Finish switching takes a left install back in without clearing the machine's switch, so a switched
+    /// machine can hold one pending.</summary>
     [Test]
-    public async Task Pending_is_true_only_while_an_install_waits_and_the_machine_is_not_switched() {
+    public async Task Pending_is_true_while_an_install_waits_switched_machine_or_not() {
         var waiting = new RecordedInstall(Install("/p"), InstallState.Pending, null, null, null, null);
         var record = AdoptionRecord.Empty with { Installs = [waiting] };
 
         await Assert.That(AdoptionRecord.Empty.Pending).IsFalse();
         await Assert.That(record.Pending).IsTrue();
-        await Assert.That((record with { MachineSwitched = true }).Pending).IsFalse();
+        await Assert.That((record with { MachineSwitched = true }).Pending).IsTrue();
         await Assert.That((record with { Installs = [waiting with { State = InstallState.Left }] }).Pending).IsFalse();
     }
 
@@ -103,10 +109,27 @@ public class AdoptionRecordStoreTests {
         await Assert.That(loaded.Installs).IsEmpty();
         await Assert.That(loaded.Links).IsEmpty();
         await Assert.That(loaded.NoticesShown).IsEmpty();
+        await Assert.That(loaded.UnprovenMoves).IsEmpty();
         await Assert.That(loaded.Pending).IsFalse();
 
         var updated = new AdoptionRecordStore(Config).Update(r => r with { NoticesShown = [.. r.NoticesShown, "switched:/p"] });
         await Assert.That(updated.NoticesShown).IsEquivalentTo(["switched:/p"]);
+    }
+
+    /// <summary>An unproven move whose units cannot all be read keeps the ones that can; one naming no install is dropped.</summary>
+    [Test]
+    public async Task An_unproven_move_loads_without_the_parts_it_cannot_name() {
+        Directory.CreateDirectory(Config.Directory);
+        File.WriteAllText(FilePath, """
+            {"unproven_moves":[{"install_root":"/p","daemon":"mac"},{"daemon":"x"},
+              {"install_root":"/q","units":[{"name":"mac"},{"name":"other","plist_path":"/la/other.plist","program":"/q/kcap-daemon","loaded":true,"job_pid":3}]}]}
+            """);
+
+        var loaded = new AdoptionRecordStore(Config).Load().UnprovenMoves;
+
+        await Assert.That(loaded.Select(m => m.InstallRoot)).IsEquivalentTo(["/p", "/q"]);
+        await Assert.That(loaded[0].Units).IsEmpty();
+        await Assert.That(loaded[1].Units.Single().Name).IsEqualTo("other");
     }
 
     [Test]

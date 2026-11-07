@@ -153,7 +153,7 @@ public sealed class StaleClientRepair(
 
         if (result.ExitCode == 0) return new Relink.Done();
         if (result.Stderr.Contains(EntryChanged, StringComparison.Ordinal)) return new Relink.Changed();
-        if (result.Stderr.Contains("(-128)", StringComparison.Ordinal)) return new Relink.Refused(new ClientRepairOutcome.Cancelled(link));
+        if (AdministratorPrompt.WasCancelled(result)) return new Relink.Refused(new ClientRepairOutcome.Cancelled(link));
 
         return new Relink.Refused(new ClientRepairOutcome.Failed(
             link, string.IsNullOrWhiteSpace(result.Stderr) ? "osascript failed." : result.Stderr.Trim()));

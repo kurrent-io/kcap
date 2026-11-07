@@ -29,4 +29,9 @@ internal interface IAdoptionMachine {
 
     /// <summary>Whether <paramref name="pid"/> is still the process that had <paramref name="startToken"/>.</summary>
     bool StillRuns(int pid, string startToken);
+
+    /// <summary>Returns once no process has <paramref name="pid"/>, or it is no longer the one that had
+    /// <paramref name="startToken"/>, or after <paramref name="bound"/>. Without a token a process still at that pid may
+    /// be a later one, so it is waited for the whole bound.</summary>
+    Task WaitForExitAsync(int pid, string? startToken, TimeSpan bound, CancellationToken ct);
 }
