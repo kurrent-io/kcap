@@ -910,6 +910,72 @@ public class RecorderHostTests {
         await Assert.That(_ended.Last() is { SourceEnded: true, LostClaim: false, Failure: TimeoutException }).IsTrue();
     }
 
+    /// <summary>A final drain stuck in its housekeeping is past its sends and its spool, and given up on there. Woken, it
+    /// would tell the server the drain is complete, releasing a stop held for whichever recorder has the source next.</summary>
+    [Test]
+    public async Task A_final_drain_that_wakes_after_it_was_given_up_tells_the_server_nothing() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var stuck  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _afterFinalDrain[source.Key] = () => stuck.Task;
+        var host = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await Eventually(() => finish.IsCompleted, "the drain to be given up", TimeSpan.FromSeconds(1));
+        var batches = _transport.Batches.Count;
+        var backlog = Spool.HasBacklog(source.SessionId);
+
+        stuck.SetResult();
+        await Eventually(() => _transport.DrainCompletes > 0 || _log.Any(line => line.Contains("is no longer this recorder's", StringComparison.Ordinal)),
+            "the woken drain to reach its end");
+
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+        await Assert.That(_transport.Batches.Count).IsEqualTo(batches);
+        await Assert.That(Spool.HasBacklog(source.SessionId)).IsEqualTo(backlog);
+    }
+
+    /// <summary>A source that never connected drains through a fresh recorder, which can be stuck before its first await
+    /// as a run can. Given up on there, it is marked for import and ends; woken, it must not register the key, which
+    /// nothing would detach once its source has ended.</summary>
+    [Test]
+    public async Task A_single_drain_stuck_in_its_preparation_is_given_up_and_never_registers() {
+        var source   = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var prepares = 0;
+        using var gate = new ManualResetEventSlim();
+        _transport.ConnectFailures = 1;
+        _prepare[source.Key] = () => {
+            if (Interlocked.Increment(ref prepares) == 2) gate.Wait();
+
+            return Task.CompletedTask;
+        };
+        var host = NewHost();
+
+        try {
+            host.TryAdd(source);
+            await Eventually(() => _ended.Count == 1, "the failed attempt");
+
+            var finish = host.FinishAsync(source.Key, CancellationToken.None);
+            await Eventually(() => finish.IsCompleted, "the drain to be given up", TimeSpan.FromSeconds(1));
+            await finish;
+
+            await Assert.That(GivenUp(source.Key)).IsTrue();
+            await Assert.That(Spool.NeedsImport(source.SessionId)).IsTrue();
+            await Assert.That(host.ActiveKeys).IsEmpty();
+        } finally {
+            gate.Set();
+        }
+
+        await Eventually(() => _log.Any(line => line.Contains("is no longer this recorder's", StringComparison.Ordinal)), "the woken drain to reach its connect");
+
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+        await Assert.That(_transport.Connects).IsEqualTo(0);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(0);
+    }
+
     /// <summary>The stuck attempt is left behind with nothing of the source's: the finish is the fresh attempt's, which
     /// drains the tail and tells the server.</summary>
     [Test]

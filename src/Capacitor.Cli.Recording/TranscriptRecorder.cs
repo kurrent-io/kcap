@@ -45,6 +45,7 @@ public sealed class TranscriptRecorder(
 
     readonly CancellationTokenSource _stop     = new();
     readonly CancellationTokenSource _titleCts = new();
+    readonly CancellationTokenSource _givenUp  = new();
 
     long _shutdownRequestedAt;
     Exception? _registrationLost;
@@ -137,6 +138,7 @@ public sealed class TranscriptRecorder(
     /// return. <see cref="Abandoned"/> is what refuses it the rest.</summary>
     internal void Supersede() {
         Unsubscribe();
+        _givenUp.CancelOffThread();
         _stop.CancelOffThread();
         _titleCts.CancelOffThread();
     }
@@ -161,6 +163,7 @@ public sealed class TranscriptRecorder(
         }
 
         _titleCts.Dispose();
+        _givenUp.Dispose();
         _cursorRewindGate?.Dispose();
     }
 
@@ -410,6 +413,14 @@ public sealed class TranscriptRecorder(
             }
         }
 
+        // A drain given up on can wake past the checks above, and a session below the threshold never reaches them. Its
+        // drain complete would release a stop the server holds for whichever recorder has the source now.
+        if (HasLostClaim()) {
+            Unsubscribe();
+
+            return;
+        }
+
         // A fresh token: the run's is already cancelled, and the server has to hear this to release a stop
         // waiting on the drain.
         try {
@@ -497,14 +508,18 @@ public sealed class TranscriptRecorder(
         }
     }
 
-    // A transport's task outlives a stop, so a stop has to end the wait here or nothing does.
+    // A transport's task outlives a stop, so a stop has to end the wait here or nothing does. Being given up ends it too: a
+    // single drain waits on the host's drain token, which that leaves alone, and a registration made after it has nothing
+    // left to detach it.
     async Task<int> ConnectAsync(CancellationToken stop, TimeSpan? budget = null) {
-        using var abandon = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        if (Abandoned?.Invoke() == true && HasLostClaim()) throw new OperationCanceledException($"{source.Key} was given up on before its connect");
+
+        using var abandon = CancellationTokenSource.CreateLinkedTokenSource(stop, _givenUp.Token);
 
         var connect = transport.ConnectAsync(source, abandon.Token);
 
         try {
-            return await (budget is { } limit ? connect.WaitAsync(limit, time, stop) : connect.WaitAsync(stop));
+            return await (budget is { } limit ? connect.WaitAsync(limit, time, abandon.Token) : connect.WaitAsync(abandon.Token));
         } catch (Exception ex) when (ex is TimeoutException or OperationCanceledException && !connect.IsCompleted) {
             ConnectAbandoned?.Invoke(connect);
 
@@ -1455,6 +1470,9 @@ public sealed class TranscriptRecorder(
             var commitsOnly = commits.Pending is { Length: > 0 } pending ? TranscriptSpool.BuildTranscriptSpoolBatch(sessionId, agentId, vendor, [], [], pending) : null;
             var spooled     = false;
             foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
+                // An append can stall on the disk, and the rest is no longer this recorder's to spool once that wakes.
+                if (spooled && HasLostClaim()) return null;
+
                 result = transcriptSpool.Append(sessionId,
                     TranscriptSpool.BuildTranscriptSpoolBatch(sessionId, agentId, vendor, chunk.Lines, chunk.LineNumbers!, chunk.ObservedCommits, chunk.MoreFollows),
                     chunk.MoreFollows ? commitsOnly : null);
