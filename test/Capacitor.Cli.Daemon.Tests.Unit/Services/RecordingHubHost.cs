@@ -3,6 +3,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -21,6 +22,7 @@ public sealed class RecordingHubHost : IAsyncDisposable {
 
     readonly Lock _gate = new();
     readonly List<string> _calls = [];
+    readonly List<string> _bearers = [];
     readonly ConcurrentDictionary<string, HubCallerContext> _contexts = new();
 
     WebApplication _app = null!;
@@ -38,6 +40,12 @@ public sealed class RecordingHubHost : IAsyncDisposable {
     /// <summary>Awaited inside <c>WatcherDetach</c>, once the call is recorded.</summary>
     public Func<Task?>? DetachHold { get; set; }
 
+    /// <summary>Awaited inside <c>SendTranscriptBatch2</c>, given the batch's first line, once the call is recorded.</summary>
+    public Func<int?, Task?>? BatchHold { get; set; }
+
+    /// <summary>Whether the hub refuses a negotiate that carries no bearer, as a signed-in server does.</summary>
+    public bool RequiresBearer { get; set; }
+
     /// <summary>What the hub did, in order: <c>connect {session}</c>, <c>detach {session}</c>, <c>drain {session}</c>,
     /// <c>batch {first line}</c>.</summary>
     public IReadOnlyList<string> Calls {
@@ -52,6 +60,16 @@ public sealed class RecordingHubHost : IAsyncDisposable {
     /// <summary>The ids of the connections that called <c>DaemonConnect</c>.</summary>
     public HashSet<string> DaemonConnections { get; } = [];
 
+    /// <summary>How many connections are open.</summary>
+    public int OpenConnections => _contexts.Count;
+
+    /// <summary>The bearer each connection presented, in the order they connected.</summary>
+    public IReadOnlyList<string> Bearers {
+        get {
+            lock (_gate) return [.. _bearers];
+        }
+    }
+
     public static async Task<RecordingHubHost> StartAsync() {
         var host    = new RecordingHubHost();
         var builder = WebApplication.CreateSlimBuilder();
@@ -62,6 +80,15 @@ public sealed class RecordingHubHost : IAsyncDisposable {
             .AddJsonProtocol(o => ServerConnection.ConfigureHubPayload(o.PayloadSerializerOptions));
 
         host._app = builder.Build();
+        host._app.Use(async (context, next) => {
+            if (host.RequiresBearer && context.Request.Headers.Authorization.Count == 0) {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+
+                return;
+            }
+
+            await next();
+        });
         host._app.MapHub<SessionsHub>("/hubs/sessions");
         await host._app.StartAsync();
         host.Url = host._app.Urls.Single();
@@ -69,10 +96,10 @@ public sealed class RecordingHubHost : IAsyncDisposable {
         return host;
     }
 
-    /// <summary>A connection as the daemon builds it, with no credential.</summary>
-    public HubConnection Connection(TempConfigRoot config) => DaemonHub.Build(
+    /// <summary>A connection as the daemon builds it, with no credential unless it is given one.</summary>
+    public HubConnection Connection(TempConfigRoot config, Func<string?>? bearer = null) => DaemonHub.Build(
         new DaemonConfig { Name = "test", ServerUrl = Url, ConfigRoot = config.Root, Profiles = Resolutions.None(config.Root) },
-        () => Task.FromResult<string?>(null), _ => { }, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, TimeProvider.System);
+        () => Task.FromResult(bearer?.Invoke()), _ => { }, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance, TimeProvider.System);
 
     public Task PushStopSourceAsync(string key, string reason = "session_ended") =>
         Hub.Clients.All.SendAsync("StopSource", key, reason);
@@ -121,6 +148,8 @@ public sealed class RecordingHubHost : IAsyncDisposable {
         public override Task OnConnectedAsync() {
             host._contexts[Context.ConnectionId] = Context;
 
+            lock (host._gate) host._bearers.Add(Context.GetHttpContext()?.Request.Headers.Authorization.ToString() ?? "");
+
             return Task.CompletedTask;
         }
 
@@ -156,6 +185,10 @@ public sealed class RecordingHubHost : IAsyncDisposable {
 
         public void WatcherDrainComplete(string sessionId, string? agentId) => host.Record($"drain {sessionId}");
 
-        public void SendTranscriptBatch2(TranscriptBatch batch) => host.Record($"batch {batch.LineNumbers?.FirstOrDefault()}");
+        public async Task SendTranscriptBatch2(TranscriptBatch batch) {
+            host.Record($"batch {batch.LineNumbers?.FirstOrDefault()}");
+
+            if (host.BatchHold?.Invoke(batch.LineNumbers?.FirstOrDefault()) is { } hold) await hold;
+        }
     }
 }

@@ -1,5 +1,7 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Recording;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
@@ -16,6 +18,173 @@ public class ServerRecorderTransportTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
     ServerRecorderTransport Transport(RecordingHubHost hub) => new(hub.Connection(Config), TimeProvider.System, _ => { });
+
+    static TranscriptBatch Batch(string session, int line) => new() { SessionId = session, Lines = ["{}"], LineNumbers = [line] };
+
+    /// <summary>The server's gate is per source, so one stuck batch is that source's alone, and its bound has to read as
+    /// a failed send: the recorder retries a failure and treats a cancellation as its own stop.</summary>
+    [Test]
+    public async Task A_batch_the_server_never_answers_fails_as_a_send_and_the_next_goes_through() {
+        var             time      = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = new ServerRecorderTransport(hub.Connection(Config), time, _ => { });
+        var             release   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.BatchHold = line => line == 3 ? release.Task : null;
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+
+        var stuck = transport.SendBatchAsync(Batch(SessionA, 3), CancellationToken.None);
+        await hub.WaitForAsync(h => h.Calls.Contains("batch 3"), "the batch to reach the server");
+        await Assert.That(stuck.IsCompleted).IsFalse();
+
+        time.Advance(ServerRecorderTransport.SendBudget);
+
+        Exception? failure = null;
+
+        try {
+            await stuck.WithinDeadlineAsync("the send");
+        } catch (Exception ex) {
+            failure = ex;
+        }
+
+        await Assert.That(failure).IsTypeOf<TimeoutException>();
+        await Assert.That(failure!.Message).Contains("batch");
+        await transport.SendBatchAsync(Batch(SessionB, 4), CancellationToken.None).WithinDeadlineAsync("the next batch");
+        await Assert.That(hub.Calls).Contains("batch 4");
+        release.SetResult();
+    }
+
+    [Test]
+    public async Task A_send_stopped_by_its_caller_stays_a_cancellation() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        var             release   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var       stop      = new CancellationTokenSource();
+        hub.BatchHold = _ => release.Task;
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+        var send = transport.SendBatchAsync(Batch(SessionA, 1), stop.Token);
+        await hub.WaitForAsync(h => h.Calls.Contains("batch 1"), "the batch to reach the server");
+
+        await stop.CancelAsync();
+
+        await Assert.That(async () => await send).Throws<OperationCanceledException>();
+        release.SetResult();
+    }
+
+    /// <summary>Left open, the server keeps a connection with no source in its owner's UI topics, and sends it all of them.</summary>
+    [Test]
+    public async Task The_connection_stops_with_its_last_source() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("A's connect");
+        await transport.ConnectAsync(B, CancellationToken.None).WithinDeadlineAsync("B's connect");
+
+        await transport.DetachAsync(A, CancellationToken.None).WithinDeadlineAsync("A's detach");
+        await Assert.That(transport.IsConnected).IsTrue();
+
+        await transport.DetachAsync(B, CancellationToken.None).WithinDeadlineAsync("B's detach");
+        await hub.WaitForAsync(h => h.OpenConnections == 0, "the connection to stop");
+
+        await Assert.That(transport.IsConnected).IsFalse();
+    }
+
+    /// <summary>The source left while the connection was down, so nothing but the connection itself is left to come back.</summary>
+    [Test]
+    public async Task A_connection_that_lost_its_last_source_while_down_stays_down() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+        await hub.CloseCleanlyAsync();
+
+        // Against a connection on its way down the detach can fail, which a host takes in its stride.
+        await transport.DetachAsync(A, CancellationToken.None).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
+        await WaitHarness.PollUntilAsync(() => !transport.IsConnected && hub.OpenConnections == 0);
+    }
+
+    /// <summary>A stop and the start behind it can't overlap, and the client's close can land behind the new start.</summary>
+    [Test]
+    public async Task A_source_behind_the_last_one_starts_the_connection_again() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+
+        for (var round = 0; round < 5; round++) {
+            await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+            await transport.DetachAsync(A, CancellationToken.None).WithinDeadlineAsync("the detach");
+        }
+
+        await transport.ConnectAsync(B, CancellationToken.None).WithinDeadlineAsync("the last connect");
+
+        await Assert.That(transport.IsConnected).IsTrue();
+        await Assert.That(hub.Calls).Contains($"connect {SessionB}");
+    }
+
+    /// <summary>A connection holds the identity it negotiated, so only a new one stops a source sending as the old
+    /// account, and each recorder has to register on it.</summary>
+    [Test]
+    public async Task A_new_sign_in_restarts_the_connection_and_its_recorders_register_again() {
+        string?         bearer    = "first";
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = new ServerRecorderTransport(hub.Connection(Config, () => bearer), TimeProvider.System, _ => { });
+        var             back      = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.Reconnected += () => {
+            back.TrySetResult();
+
+            return Task.CompletedTask;
+        };
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+
+        bearer = "second";
+        transport.Restart();
+
+        await back.Task.WithinDeadlineAsync("the connection to come back");
+        await Assert.That(transport.IsConnected).IsTrue();
+        await Assert.That(hub.Bearers).IsEquivalentTo(["Bearer first", "Bearer second"]);
+    }
+
+    /// <summary>Signed out, a source stays with its recorder and nothing leaves. Signing in again picks it all up.</summary>
+    [Test]
+    public async Task A_sign_out_stops_the_connection_until_a_sign_in() {
+        string?         bearer    = "first";
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = new ServerRecorderTransport(hub.Connection(Config, () => bearer), TimeProvider.System, _ => { });
+        var             back      = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.RequiresBearer = true;
+        transport.Reconnected += () => {
+            back.TrySetResult();
+
+            return Task.CompletedTask;
+        };
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+
+        bearer = null;
+        transport.Restart();
+
+        await hub.WaitForAsync(h => h.OpenConnections == 0, "the connection to stop");
+        await Assert.That(transport.IsConnected).IsFalse();
+
+        bearer = "second";
+
+        await back.Task.WithinDeadlineAsync("the connection to come back");
+        await Assert.That(hub.Bearers).IsEquivalentTo(["Bearer first", "Bearer second"]);
+    }
+
+    [Test]
+    public async Task A_restart_with_no_connection_starts_nothing() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+
+        transport.Restart();
+
+        await Assert.That(hub.Bearers).IsEmpty();
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the first connect");
+        await Assert.That(hub.Bearers.Count).IsEqualTo(1);
+    }
 
     /// <summary>Hub calls on one connection aren't ordered: a detach landing behind the key's next connect would remove
     /// the new registration, and that source would record with no stop path.</summary>

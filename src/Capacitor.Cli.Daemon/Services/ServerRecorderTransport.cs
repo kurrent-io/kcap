@@ -6,9 +6,10 @@ namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
 /// Every source this daemon records, on one hub connection of their own: <c>WatcherConnect</c> takes a connection out of
-/// the UI topics, and the daemon's main connection has to stay in its owner's. It starts with the first source and
-/// outlives each of them, so it comes back by itself: a failed transport through SignalR's own reconnect, and a clean
-/// close from the server, which SignalR takes as final, through a restart here.
+/// the UI topics, and the daemon's main connection has to stay in its owner's. It lives from the first source to the
+/// last, because with none the server keeps it in those topics for good, and while it lives it comes back by itself: a
+/// failed transport through SignalR's own reconnect, and a clean close from the server, which SignalR takes as final,
+/// through a start here.
 /// </summary>
 internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDisposable {
     static readonly TimeSpan FirstRestartDelay = TimeSpan.FromSeconds(1);
@@ -16,6 +17,10 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
 
     // Short of a claim's grace: a host beats a source's claim between attempts, and not while one waits here.
     internal static readonly TimeSpan ConnectionWait = TimeSpan.FromSeconds(15);
+
+    // A batch the server never answers would hold its source's loop for good. Going past this reads as a failed send, so
+    // the recorder sends the lines again, and the server drops a late first copy: it takes nothing at or below its mark.
+    internal static readonly TimeSpan SendBudget = TimeSpan.FromSeconds(60);
 
     readonly HubConnection           _hub;
     readonly TimeProvider            _time;
@@ -30,8 +35,11 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
     // it can land behind the connect and take the new registration with it.
     readonly Dictionary<string, Task> _detaching = new(StringComparer.Ordinal);
 
-    TaskCompletionSource _up = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    bool                 _started;
+    TaskCompletionSource _up      = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    Task?                _supervising;
+    int                  _connecting;
+    bool                 _restart;
 
     public ServerRecorderTransport(HubConnection hub, TimeProvider time, Action<string> log) {
         _hub  = hub;
@@ -54,28 +62,61 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
 
     public bool IsConnected => _hub.State == HubConnectionState.Connected;
 
+    /// <summary>Replaces the connection, which keeps the identity it negotiated with for as long as it lives. A sign-out
+    /// leaves nothing it can come back as, so nothing is sent until there is a sign-in again. Asks and returns: a stop can
+    /// hang on a wedged transport.</summary>
+    public void Restart() {
+        lock (_gate) {
+            _restart = true;
+            _changed.TrySetResult();
+        }
+    }
+
     public async Task<int> ConnectAsync(RecordingSource source, CancellationToken ct) {
         var key = CanonicalKey(source);
 
-        await UntilUpAsync(ct);
+        Task up;
 
-        Task? detaching;
-        lock (_gate) _detaching.TryGetValue(key, out detaching);
+        lock (_gate) {
+            _connecting++;
+            _supervising ??= Task.Run(SuperviseAsync, CancellationToken.None);
+            _changed.TrySetResult();
+            up = _up.Task;
+        }
 
-        if (detaching is not null) await detaching.WaitAsync(ct).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        try {
+            await up.WaitAsync(ConnectionWait, _time, ct);
 
-        ct.ThrowIfCancellationRequested();
+            Task? detaching;
+            lock (_gate) _detaching.TryGetValue(key, out detaching);
 
-        lock (_gate) _held[key] = source.Key;
+            if (detaching is not null) await detaching.WaitAsync(ct).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
-        // No token: given one, InvokeAsync completes the moment it fires, with the server's WatcherConnect still running.
-        return await _hub.InvokeAsync<int>("WatcherConnect", source.SessionId, source.AgentId, CancellationToken.None);
+            ct.ThrowIfCancellationRequested();
+
+            lock (_gate) _held[key] = source.Key;
+
+            // No token: given one, InvokeAsync completes the moment it fires, with the server's WatcherConnect still running.
+            return await _hub.InvokeAsync<int>("WatcherConnect", source.SessionId, source.AgentId, CancellationToken.None);
+        } finally {
+            lock (_gate) {
+                _connecting--;
+                _changed.TrySetResult();
+            }
+        }
     }
 
     public async Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct) {
-        if (batch.Vendor == "cursor") return (await _hub.InvokeAsync<TranscriptBatchAck>("SendTranscriptBatchAcked", batch, ct)).NextLineNumber;
+        using var budget = new CancellationTokenSource(SendBudget, _time);
+        using var either = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
 
-        await _hub.InvokeAsync("SendTranscriptBatch2", batch, ct);
+        try {
+            if (batch.Vendor == "cursor") return (await _hub.InvokeAsync<TranscriptBatchAck>("SendTranscriptBatchAcked", batch, either.Token)).NextLineNumber;
+
+            await _hub.InvokeAsync("SendTranscriptBatch2", batch, either.Token);
+        } catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
+            throw new TimeoutException($"The server did not answer a transcript batch within {SendBudget.TotalSeconds}s.");
+        }
 
         return batch.LineNumbers is { Length: > 0 } sent ? sent[^1] + 1 : 0;
     }
@@ -118,52 +159,93 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
     void Forget(string key, Task detach) {
         lock (_gate) {
             if (_detaching.TryGetValue(key, out var latest) && latest == detach) _detaching.Remove(key);
+
+            _changed.TrySetResult();
         }
     }
 
-    async Task UntilUpAsync(CancellationToken ct) {
-        Task up;
-
-        lock (_gate) {
-            if (!_started) {
-                _started = true;
-                _        = StartAsync(raiseReconnected: false);
-            }
-
-            up = _up.Task;
-        }
-
-        await up.WaitAsync(ConnectionWait, _time, ct);
-    }
-
-    async Task StartAsync(bool raiseReconnected) {
-        var delay = FirstRestartDelay;
+    // The one place the connection starts and stops, so a stop and the start behind it can't overlap. SignalR raises a
+    // close in its own time, which can be behind that start, so what happens next is read from the connection's state.
+    async Task SuperviseAsync() {
+        var delay      = FirstRestartDelay;
+        var registered = false;
 
         while (!_closing.IsCancellationRequested) {
-            try {
-                await _hub.StartAsync(_closing.Token);
-                MarkUp();
-                if (raiseReconnected) RaiseReconnected();
+            Task               changed;
+            bool               wanted, stop;
+            HubConnectionState state;
 
-                return;
-            } catch (OperationCanceledException) when (_closing.IsCancellationRequested) {
-                return;
-            } catch (Exception ex) {
-                Log($"Recording connection failed, retrying in {delay.TotalSeconds}s: {ex.Message}");
+            lock (_gate) {
+                if (_changed.Task.IsCompleted) _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                changed = _changed.Task;
+                wanted  = _connecting > 0 || _held.Count > 0 || _detaching.Count > 0;
+                state   = _hub.State;
+                stop    = state != HubConnectionState.Disconnected && !wanted || state == HubConnectionState.Connected && _restart;
+
+                _restart = false;
+
+                if (stop) MarkDown();
+                else if (state == HubConnectionState.Connected) _up.TrySetResult();
             }
 
-            try {
-                await Task.Delay(delay, _time, _closing.Token);
-            } catch (OperationCanceledException) {
+            if (stop) {
+                registered &= wanted;
+                await StopAsync();
+            } else if (wanted && state == HubConnectionState.Disconnected) {
+                if (await TryStartAsync(registered)) {
+                    delay      = FirstRestartDelay;
+                    registered = true;
+
+                    continue;
+                }
+
+                if (!await WaitAsync(Task.Delay(delay, _time, _closing.Token))) return;
+
+                delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, MaxRestartDelay.TotalSeconds));
+            } else if (!await WaitAsync(changed.WaitAsync(_closing.Token))) {
                 return;
             }
+        }
+    }
 
-            delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, MaxRestartDelay.TotalSeconds));
+    async Task<bool> TryStartAsync(bool raiseReconnected) {
+        try {
+            await _hub.StartAsync(_closing.Token);
+        } catch (Exception ex) {
+            if (!_closing.IsCancellationRequested) Log($"Recording connection failed: {ex.Message}");
+
+            return false;
+        }
+
+        MarkUp();
+        if (raiseReconnected) RaiseReconnected();
+
+        return true;
+    }
+
+    async Task StopAsync() {
+        try {
+            await _hub.StopAsync(CancellationToken.None).WaitAsync(_closing.Token);
+        } catch (Exception ex) when (!_closing.IsCancellationRequested) {
+            Log($"Stopping the recording connection failed: {ex.Message}");
+        } catch (OperationCanceledException) {
+            // Being disposed, which ends the connection anyway.
+        }
+    }
+
+    static async Task<bool> WaitAsync(Task wait) {
+        try {
+            await wait;
+
+            return true;
+        } catch (OperationCanceledException) {
+            return false;
         }
     }
 
     Task OnReconnecting(Exception? ex) {
-        MarkDown();
+        lock (_gate) MarkDown();
         Log($"Recording connection lost, reconnecting: {ex?.Message}");
 
         return Task.CompletedTask;
@@ -178,12 +260,14 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
     }
 
     Task OnClosed(Exception? ex) {
-        MarkDown();
+        lock (_gate) {
+            // Connected by now means this close was an earlier connection's.
+            if (_hub.State != HubConnectionState.Connected) MarkDown();
 
-        if (!_closing.IsCancellationRequested) {
-            Log($"Recording connection closed, restarting it: {ex?.Message}");
-            _ = StartAsync(raiseReconnected: true);
+            _changed.TrySetResult();
         }
+
+        if (ex is not null) Log($"Recording connection closed: {ex.Message}");
 
         return Task.CompletedTask;
     }
@@ -220,10 +304,9 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
         lock (_gate) _up.TrySetResult();
     }
 
+    // Under the gate.
     void MarkDown() {
-        lock (_gate) {
-            if (_up.Task.IsCompleted) _up = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        }
+        if (_up.Task.IsCompleted) _up = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     void Log(string message) {

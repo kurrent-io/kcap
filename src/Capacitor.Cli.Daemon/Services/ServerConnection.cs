@@ -879,6 +879,11 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         Volatile.Read(ref _negotiatedAs) is { } negotiated
      && HubIdentity.Changed(negotiated, await Credentials.ResolveAsync(ct));
 
+    /// <summary>The stored sign-in stopped matching what this hub negotiated as, a sign-out included.</summary>
+    public event Action? SignInChanged;
+
+    public void ReportSignInChanged() => SignInChanged?.Invoke();
+
     void CommitNegotiatedIdentity() => Volatile.Write(ref _negotiatedAs, Volatile.Read(ref _pendingAs));
 
     // Once per change of reason, so a hub retrying every 30 s does not repeat it. A server that takes

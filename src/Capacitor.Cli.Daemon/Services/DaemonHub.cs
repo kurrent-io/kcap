@@ -66,10 +66,12 @@ internal static class DaemonHub {
         hub.On("AgentInstancesChanged", Sink);
         hub.On("DaemonsChanged",        Sink);
         hub.On("WelcomeStateChanged",   Sink);
+        hub.On("DaemonAccountsChanged", Sink);
 
         hub.On<JsonElement>("ActiveSessionAdded",   _ => Sink());
         hub.On<JsonElement>("ActiveSessionChanged", _ => Sink());
         hub.On<JsonElement>("ActiveSessionRemoved", _ => Sink());
+        hub.On<JsonElement>("SessionDeleted",       _ => Sink());
 
         hub.On<JsonElement, JsonElement>("LaunchFailed",        (_, _) => Sink());
         hub.On<JsonElement, JsonElement>("PermissionResponded", (_, _) => Sink());

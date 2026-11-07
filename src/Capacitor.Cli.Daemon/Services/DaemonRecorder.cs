@@ -90,10 +90,14 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             () => {
                 WarnOfMissingTools(config, logger);
 
-                return new ServerRecorderTransport(
-                    DaemonHub.Build(config, async () => (await connection.Credentials.ResolveAsync(default)).Bearer,
-                        report => logger.LogWarning("Server refused the recording connection's bearer — {Report}", report), loggers, time),
+                var refusals = new BearerRefusalLog(report => logger.LogWarning("Server refused the recording connection's bearer — {Report}", report));
+                var transport = new ServerRecorderTransport(
+                    DaemonHub.Build(config, async () => refusals.Presenting((await connection.Credentials.ResolveAsync(default)).Bearer), refusals.Refused, loggers, time),
                     time, message => logger.LogInformation("{Message}", message));
+
+                connection.SignInChanged += transport.Restart;
+
+                return transport;
             },
             (source, log, stop) => new RecorderHousekeeping(
                 source.Recording, source.SkipTitle, parentPid: null,

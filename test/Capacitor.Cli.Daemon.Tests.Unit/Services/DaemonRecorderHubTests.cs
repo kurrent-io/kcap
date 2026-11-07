@@ -53,6 +53,24 @@ public class DaemonRecorderHubTests {
         await recorder.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
     }
 
+    /// <summary>Nothing but the main connection's heartbeat notices a sign-in changing, and every source on this
+    /// connection is sending as whoever it negotiated as.</summary>
+    [Test]
+    public async Task The_recording_connection_follows_a_change_of_sign_in() {
+        await using var hub  = await RecordingHubHost.StartAsync();
+        await using var main = new ServerConnection(DaemonConfigFor(hub), new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
+        await using var recorder = Recorder(hub, main);
+        var source = new RecordedSource("agent-1", SessionA, null, Tmp.CreateFile("t.jsonl", ""), "claude", null, false);
+
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await hub.WaitForAsync(h => h.RecordingConnections.Count == 1, "the recorder's connect");
+
+        main.ReportSignInChanged();
+
+        await hub.WaitForAsync(h => h.RecordingConnections.Count == 2, "the recorder to register on a new connection");
+        await recorder.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+    }
+
     /// <summary>The other way a session ends: the server asks, and waits for the drain before it writes the end.</summary>
     [Test]
     public async Task A_server_stop_drains_the_source_and_lets_it_go() {
