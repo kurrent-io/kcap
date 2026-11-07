@@ -506,12 +506,17 @@ public sealed class TranscriptRecorder(
 
     void CancelRun() => _stop.Cancel();
 
+    // The marker is read only under claims: a watcher holds none, and kcap disable stops one by signal, final drain and all.
+    // Under a daemon it is what an older kcap leaves, with no frame sent and the claim still in place.
     bool HasLostClaim() {
         if (LostClaim) return true;
-        if (Abandoned?.Invoke() != true && (claims is null || claims.Read(source.Key) is not RecorderClaimState.None)) return false;
+
+        if (Abandoned?.Invoke() != true
+         && (claims is null || (claims.Read(source.Key) is not RecorderClaimState.None && !DisabledSessions.IsDisabled(SessionIds.Canonical(source.SessionId)!, context.Server.Config))))
+            return false;
 
         LostClaim = true;
-        context.Log($"The claim on {source.Key} has gone; stopping with no final drain");
+        context.Log($"{source.Key} is no longer this recorder's; stopping with no final drain");
         _stop.Cancel();
 
         return true;
@@ -1256,6 +1261,9 @@ public sealed class TranscriptRecorder(
                 foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
                     // Each send has a budget of its own, so a batch of slow chunks could outlast a claim's grace.
                     context.Beat();
+
+                    // A recorder can stall anywhere in a tick, and what it read before that may no longer be its to send.
+                    if (HasLostClaim()) return newLines;
 
                     if (vendor == "cursor") {
                         // A barrier can appear between chunks, after the initial admission check.

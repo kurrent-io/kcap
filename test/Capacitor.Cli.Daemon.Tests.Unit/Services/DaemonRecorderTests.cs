@@ -698,6 +698,7 @@ public class DaemonRecorderTests {
         await Assert.That(List.Load()).IsEmpty();
         await Assert.That(MarkedForImport).IsFalse();
         await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(Transport.Refused).IsEqualTo(0);
     }
 
     [Test]
@@ -728,6 +729,32 @@ public class DaemonRecorderTests {
         await Assert.That(recorder.ActiveKeys).IsEquivalentTo([bystander.Key]);
         await Assert.That(List.Load().Select(left => left.Key)).IsEquivalentTo([bystander.Key]);
         await recorder.FinishAsync(bystander.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+    }
+
+    /// <summary>An older <c>kcap disable</c> leaves the claim and sends no frame. The recorder stops on the marker, and with
+    /// nothing else coming the claim, the entry and anything spooled are this daemon's to clear.</summary>
+    [Test]
+    public async Task A_marker_with_no_frame_stops_a_source_and_clears_up_behind_it() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Source(Transcript(Prompt, Reply));
+        var spool  = new TranscriptSpool(Config.Root, TimeProvider.System, Url);
+        await using var recorder = NewRecorder(time: time);
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+        spool.Append(Session, """{"lines":["a"],"line_numbers":[0]}""");
+
+        Disable();
+
+        await WaitHarness.PollUntilAsync(() => {
+            time.Advance(TimeSpan.FromSeconds(1));
+
+            return recorder.ActiveKeys.Count == 0 && List.Load().Count == 0;
+        });
+        await WaitHarness.PollUntilAsync(() => Claims.Read(source.Key) is RecorderClaimState.None);
+
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(spool.HasBacklog(Session)).IsFalse();
+        await Assert.That(MarkedForImport).IsFalse();
     }
 
     /// <summary>Claimed ahead of a launch with no recorder yet, so nothing but this lets the claim go.</summary>

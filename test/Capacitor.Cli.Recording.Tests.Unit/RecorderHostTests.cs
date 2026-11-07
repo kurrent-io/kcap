@@ -670,6 +670,68 @@ public class RecorderHostTests {
         await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
     }
 
+    /// <summary>An older <c>kcap disable</c> sends no frame and leaves the claim where it is, then prints that recording
+    /// stopped. The marker is all this recorder hears of that.</summary>
+    [Test]
+    public async Task A_marker_stops_a_recorder_holding_its_claim() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        DisabledSessions.Mark(source.SessionId, Config);
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        await Eventually(() => host.ActiveKeys.Count == 0, "the recorder to stop", TimeSpan.FromSeconds(1));
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(_ended.Last() is { SourceEnded: true, LostClaim: true }).IsTrue();
+        await Assert.That(Spool.HasBacklog(source.SessionId)).IsFalse();
+        await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
+    }
+
+    /// <summary>A recorder can stall anywhere in a tick, and one waking past the tick's check would otherwise send what it
+    /// read. A stale claim nobody answers for is a clean stop on the strength of this.</summary>
+    [Test]
+    public async Task A_recorder_woken_past_its_tick_sends_nothing() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeDrain[source.Key] = () => {
+            entered.TrySetResult();
+
+            return release.Task;
+        };
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+        host.TryAdd(source);
+        await entered.Task.WithinDeadlineAsync("the recorder to stall");
+
+        DisabledSessions.Mark(source.SessionId, Config);
+        release.SetResult();
+        await Eventually(() => host.ActiveKeys.Count == 0, "the recorder to stop", TimeSpan.FromSeconds(1));
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(0);
+    }
+
+    /// <summary>A watcher holds no claims and <c>kcap disable</c> stops it by signal, with its final drain. Reading the
+    /// marker there would change what a watcher does at no gain.</summary>
+    [Test]
+    public async Task A_recorder_with_no_claims_reads_no_marker() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        DisabledSessions.Mark(source.SessionId, Config);
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+
+        await Eventually(() => LinesSent(source.SessionId) == 2, "the next line", TimeSpan.FromSeconds(1));
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+        await host.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+    }
+
     /// <summary>A generated title is cut off here, and handing it over starts a process that posts it on its own.</summary>
     [Test]
     public async Task A_title_cut_off_by_an_abandon_is_handed_to_nobody() {

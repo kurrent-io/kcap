@@ -498,6 +498,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     bool IsDisabled(RecordedSource source) => DisabledSessions.IsDisabled(source.SessionId, _config.ConfigRoot);
 
+    // Its answer is for a command waiting on it, and nobody is here.
+    void Silence(string session) => _ = _transport?.SilenceAsync(session);
+
     void DiscardSpool(string session) =>
         new TranscriptSpool(_server.Config, _time, _server.Url) { FailureLog = message => LogRecorder(session, message) }.Discard(session);
 
@@ -631,8 +634,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
             await _host.Value.FinishAsync(key, CancellationToken.None);
 
-            // A stuck source's last moves come long after the disable that stopped it.
-            if (tracked.Disabled) DiscardSpool(tracked.Source.SessionId);
+            // A stuck source's last moves come long after the disable that stopped it. With no frame behind it, from a kcap
+            // that knows none, the marker is all a recorder heard, and what the frame would have cleared is still here.
+            if (tracked.Disabled || IsDisabled(tracked.Source)) {
+                Silence(tracked.Source.SessionId);
+                ForgetDisabled(tracked.Source);
+            }
 
             if (lostClaim) {
                 _list.Remove(key);
