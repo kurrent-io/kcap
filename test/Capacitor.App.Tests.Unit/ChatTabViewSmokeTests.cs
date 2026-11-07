@@ -127,13 +127,14 @@ public class ChatTabViewSmokeTests {
         /// `show: false` leaves the window unshown, so the view has no template and no
         /// ScrollViewer until Show() is called — the order production takes, where the tab's
         /// first read starts before the workspace view exists.
-        public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null) {
+        public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
+                ChatFindMemory? findMemory = null) {
             Runs = new SessionRuns(Time);
             Terminal = new TerminalTabViewModel("a1", Daemon, Attach.Factory, () => new FakeTerminalSurface(), Time);
             Chat = new ChatTabViewModel(
                 "a1", Daemon, new TerminalChatInput(Terminal, "a1", Daemon, new ScriptedLocalControlOps(), _presence), new NoAttachmentUploader(), TranscriptChat.For("claude"), Opener, Time, Permissions, Runs,
                 sessionId: sessionId, localDaemonOnAppServer: Observable.Return(true),
-                accountReadings: accountReadings, usageClock: Observable.Return(StripReadings.Now));
+                accountReadings: accountReadings, usageClock: Observable.Return(StripReadings.Now), findMemory: findMemory);
             View = new ChatTabView { DataContext = Chat };
             Window = new Window { Content = View, Width = 800, Height = 600 };
             if (!show) return;
@@ -237,7 +238,6 @@ public class ChatTabViewSmokeTests {
     public Task Find_scrolls_to_and_marks_each_match_and_escape_clears_the_marks() => RunOnUiAsync(async () => {
         var host = new Host();
         try {
-            static string Reply(string text) => "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}}";
             var lines = new[] { Reply("The needle is up here.") }
                 .Concat(Enumerable.Repeat(UserLine, 80))
                 .Concat([Reply("And a needle down here.")]).ToArray();
@@ -279,7 +279,6 @@ public class ChatTabViewSmokeTests {
     public Task An_open_search_survives_leaving_the_session_and_coming_back() => RunOnUiAsync(async () => {
         var host = new Host();
         try {
-            static string Reply(string text) => "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}}";
             var lines = new[] { Reply("The needle is up here.") }
                 .Concat(Enumerable.Repeat(UserLine, 80))
                 .Concat([Reply("And a needle down here.")]).ToArray();
@@ -321,6 +320,77 @@ public class ChatTabViewSmokeTests {
             host.Settle();
             await Assert.That(summary.Text).IsEqualTo("2 of 2");
             await Assert.That(CurrentMark(host)?.DataContext).IsSameReferenceAs(host.Chat.Items[^1]);
+        } finally {
+            await host.CloseAsync();
+        }
+    });
+
+    static string Reply(string text) => "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}}";
+
+    /// Pins the rail's round trip: navigating away tears the chat down, and the one built on return
+    /// reopens the search on the match the reader left.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_search_left_open_comes_back_with_the_session() => RunOnUiAsync(async () => {
+        var memory = new ChatFindMemory();
+        var lines = new[] { Reply("The needle is up here.") }
+            .Concat(Enumerable.Repeat(UserLine, 80))
+            .Concat([Reply("And a needle down here.")]).ToArray();
+        var path = Tmp.CreateFile("find.jsonl", lines);
+        var first = new Host(findMemory: memory);
+        try {
+            await first.LoadAsync(path);
+            first.View.OpenFind();
+            first.Window.KeyTextInput("needle");
+            first.Settle();
+            first.View.StepFind(backwards: true);
+            first.Settle();
+            await Assert.That(first.View.FindControl<TextBlock>("FindSummary")!.Text).IsEqualTo("1 of 2");
+        } finally {
+            await first.CloseAsync();
+        }
+
+        var back = new Host(findMemory: memory);
+        try {
+            await back.LoadAsync(path);
+            back.Settle();
+            await Assert.That(back.View.FindControl<Border>("FindBar")!.IsVisible).IsTrue();
+            await Assert.That(back.View.FindControl<TextBox>("FindInput")!.Text).IsEqualTo("needle");
+            await Assert.That(back.View.FindControl<TextBlock>("FindSummary")!.Text).IsEqualTo("1 of 2");
+            var mark = CurrentMark(back);
+            await Assert.That(mark?.DataContext).IsSameReferenceAs(back.Chat.Items[0]);
+            var at = mark!.TranslatePoint(mark.FindMatchBounds(0)!.Value.Center, back.Scroll)!.Value;
+            await Assert.That(at.Y).IsBetween(0, back.Scroll.Viewport.Height);
+        } finally {
+            await back.CloseAsync();
+        }
+    });
+
+    /// Pins that stepping to a match already in full view moves only the mark, not the transcript.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Stepping_to_a_match_in_view_leaves_the_scroll_where_it_is() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            var lines = Enumerable.Repeat(UserLine, 40)
+                .Concat([Reply("One needle here."), Reply("Another needle just below.")])
+                .Concat(Enumerable.Repeat(UserLine, 40)).ToArray();
+            await host.LoadAsync(Tmp.CreateFile("near.jsonl", lines));
+            host.View.OpenFind();
+            host.Window.KeyTextInput("needle");
+            host.Settle();
+            var first = CurrentMark(host);
+            await Assert.That(first).IsNotNull();
+            var offset = host.Scroll.Offset.Y;
+            await Assert.That(offset).IsLessThan(Math.Max(0, host.Scroll.Extent.Height - host.Scroll.Viewport.Height));
+
+            host.View.StepFind(backwards: false);
+            host.Settle();
+
+            var second = CurrentMark(host);
+            await Assert.That(second).IsNotNull();
+            await Assert.That(second).IsNotSameReferenceAs(first);
+            await Assert.That(host.Scroll.Offset.Y).IsEqualTo(offset);
         } finally {
             await host.CloseAsync();
         }

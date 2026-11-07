@@ -90,4 +90,26 @@ public class ChatFindViewModelTests {
         await Assert.That(find.Query).IsEqualTo("  hello ");
         await Assert.That(find.Summary).IsEqualTo("");
     });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_restored_find_lands_on_its_match_once_the_transcript_holds_it() => RunOnUiAsync(async () => {
+        var items = new AvaloniaList<ChatItemViewModel>();
+        var remembered = new List<ChatFindState?>();
+        var find = new ChatFindViewModel(items, remembered.Add);
+        var navigated = new List<ChatFindMatch?>();
+        find.Navigated += navigated.Add;
+        find.Restore(new ChatFindState("needle", 2, 0));
+
+        items.AddRange([new AssistantTextItem("a needle"), new AssistantTextItem("plain")]);
+        await Assert.That(navigated).IsEmpty();
+        await Assert.That(remembered[^1]).IsEqualTo(new ChatFindState("needle", 2, 0));
+
+        items.Add(new AssistantTextItem("the needle we left"));
+        await Assert.That(find.Summary).IsEqualTo("2 of 2");
+        await Assert.That(navigated.Select(m => m?.ItemIndex)).IsEquivalentTo(new int?[] { 2 });
+
+        find.Close();
+        await Assert.That(remembered[^1]).IsNull();
+    });
 }

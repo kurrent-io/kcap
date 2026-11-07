@@ -17,9 +17,13 @@ public sealed class ChatFindViewModel : ReactiveObject {
     bool _isOpen;
     string _query = "";
     int _currentIndex = -1;
+    readonly Action<ChatFindState?>? _remember;
+    (int ItemIndex, int Ordinal)? _returnTo;
 
-    public ChatFindViewModel(IAvaloniaReadOnlyList<ChatItemViewModel> items) {
+    /// <param name="remember">Told the open find after every change, and null once it closes.</param>
+    public ChatFindViewModel(IAvaloniaReadOnlyList<ChatItemViewModel> items, Action<ChatFindState?>? remember = null) {
         _items = items;
+        _remember = remember;
         _items.CollectionChanged += OnItemsChanged;
         NextCommand = ReactiveCommand.Create(Next);
         PreviousCommand = ReactiveCommand.Create(Previous);
@@ -46,6 +50,7 @@ public sealed class ChatFindViewModel : ReactiveObject {
             value ??= "";
             if (_query == value) return;
             _query = value;
+            _returnTo = null;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(ActiveQuery));
             Search(StartIndex);
@@ -81,8 +86,19 @@ public sealed class ChatFindViewModel : ReactiveObject {
         Search(startIndex);
     }
 
+    /// Reopens a find remembered from an earlier visit. Its match is taken back to once the
+    /// transcript holds it, since a returning session's items are still loading.
+    public void Restore(ChatFindState state) {
+        _query = state.Query;
+        _returnTo = state.ItemIndex >= 0 ? (state.ItemIndex, state.Ordinal) : null;
+        IsOpen = true;
+        this.RaisePropertyChanged(nameof(Query));
+        Search(StartIndex);
+    }
+
     public void Close() {
         if (!_isOpen) return;
+        _returnTo = null;
         IsOpen = false;
         SetMatches([], -1);
         Navigated?.Invoke(null);
@@ -94,6 +110,7 @@ public sealed class ChatFindViewModel : ReactiveObject {
 
     void Step(int delta) {
         if (_matches.Count == 0) return;
+        _returnTo = null;
         var next = _currentIndex < 0 ? (delta > 0 ? 0 : _matches.Count - 1)
             : (_currentIndex + delta + _matches.Count) % _matches.Count;
         SetMatches(_matches, next);
@@ -109,8 +126,17 @@ public sealed class ChatFindViewModel : ReactiveObject {
             break;
         }
         if (current < 0 && matches.Count > 0) current = 0;
+        if (ReturnTo(matches) is { } back) current = back;
         SetMatches(matches, current);
-        Navigated?.Invoke(Current);
+        if (_returnTo is null) Navigated?.Invoke(Current);
+    }
+
+    int? ReturnTo(List<ChatFindMatch> matches) {
+        if (_returnTo is not var (itemIndex, ordinal)) return null;
+        var at = matches.FindIndex(m => m.ItemIndex == itemIndex && m.Ordinal == ordinal);
+        if (at < 0) return null;
+        _returnTo = null;
+        return at;
     }
 
     void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e) {
@@ -120,6 +146,11 @@ public sealed class ChatFindViewModel : ReactiveObject {
         var current = was is null ? (matches.Count > 0 ? 0 : -1)
             : matches.FindIndex(m => ReferenceEquals(m.Item, was.Item) && m.Ordinal == was.Ordinal);
         if (current < 0 && matches.Count > 0) current = Math.Min(_currentIndex, matches.Count - 1);
+        if (ReturnTo(matches) is { } back) {
+            SetMatches(matches, back);
+            Navigated?.Invoke(Current);
+            return;
+        }
         SetMatches(matches, current);
     }
 
@@ -155,6 +186,9 @@ public sealed class ChatFindViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(CurrentIndex));
         this.RaisePropertyChanged(nameof(Current));
         this.RaisePropertyChanged(nameof(Summary));
+        _remember?.Invoke(!_isOpen ? null
+            : _returnTo is var (itemIndex, ordinal) ? new ChatFindState(_query, itemIndex, ordinal)
+            : new ChatFindState(_query, Current?.ItemIndex ?? -1, Current?.Ordinal ?? 0));
     }
 
     /// A match in a folded block is shown by unfolding it.

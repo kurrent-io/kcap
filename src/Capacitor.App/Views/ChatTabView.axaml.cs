@@ -143,7 +143,7 @@ public partial class ChatTabView : UserControl {
         _dragView = null;
         _sendSubscription?.Dispose();
         _sendSubscription = null;
-        if (_find is not null) _find.Navigated -= ShowFindMatch;
+        if (_find is not null) _find.Navigated -= OnFindNavigated;
         _find = null;
         _currentFindView?.SetCurrentFind(-1);
         _currentFindView = null;
@@ -661,11 +661,11 @@ public partial class ChatTabView : UserControl {
     public void FocusComposer() => ComposerInput.Focus();
 
     void ObserveFind() {
-        if (_find is not null) _find.Navigated -= ShowFindMatch;
+        if (_find is not null) _find.Navigated -= OnFindNavigated;
         _currentFindView?.SetCurrentFind(-1);
         _currentFindView = null;
         _find = (DataContext as ChatTabViewModel)?.Find;
-        if (_find is not null) _find.Navigated += ShowFindMatch;
+        if (_find is not null) _find.Navigated += OnFindNavigated;
     }
 
     /// A search left open in this chat takes the reader back to its current match, once the
@@ -728,8 +728,21 @@ public partial class ChatTabView : UserControl {
         return first == int.MaxValue ? 0 : first;
     }
 
-    /// Scrolls the match to the middle of the transcript and marks it current. The views of one
-    /// item are walked in order, each holding as many matches as it highlighted.
+    /// Shown once layout has run: a match the transcript's growth lands on arrives before the list
+    /// has realized the new items.
+    void OnFindNavigated(ChatFindMatch? match) {
+        if (match is null) {
+            ShowFindMatch(null);
+            return;
+        }
+        var find = _find;
+        Dispatcher.UIThread.Post(() => {
+            if (ReferenceEquals(_find, find) && ReferenceEquals(find?.Current, match)) ShowFindMatch(match);
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// Marks the match current, scrolling it to the middle of the transcript only when any of it is
+    /// out of view.
     void ShowFindMatch(ChatFindMatch? match) {
         _currentFindView?.SetCurrentFind(-1);
         _currentFindView = null;
@@ -743,23 +756,43 @@ public partial class ChatTabView : UserControl {
         _thumbFraction = null;
         _followTail = false;
         EnsureChatScroll();
+        if (_scroll is null) return;
+        if (Locate(index, match.Ordinal) is { } shown && Within(shown.View, shown.Bounds)) {
+            Mark(shown.View, shown.Ordinal);
+            return;
+        }
         ChatItems.ScrollIntoView(index);
         ChatItems.UpdateLayout();
-        if (ChatItems.ContainerFromIndex(index) is not { } container || _scroll is null) return;
-        var ordinal = match.Ordinal;
+        if (Locate(index, match.Ordinal) is not { } target) return;
+        Mark(target.View, target.Ordinal);
+        if (target.View.TranslatePoint(target.Bounds.Center, _scroll) is not { } center) return;
+        var offset = _scroll.Offset.Y + center.Y - _scroll.Viewport.Height / 2;
+        var max = Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height);
+        _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(offset, 0, max));
+    }
+
+    /// The realized view holding an item's nth match, walking that item's views in order, each
+    /// holding as many matches as it highlighted.
+    (MarkdownView View, int Ordinal, Rect Bounds)? Locate(int index, int ordinal) {
+        if (ChatItems.ContainerFromIndex(index) is not { } container) return null;
         foreach (var view in container.GetSelfAndVisualDescendants().OfType<MarkdownView>()) {
             if (ordinal >= view.FindMatchCount) {
                 ordinal -= view.FindMatchCount;
                 continue;
             }
-            view.SetCurrentFind(ordinal);
-            _currentFindView = view;
-            if (view.FindMatchBounds(ordinal) is { } bounds && view.TranslatePoint(bounds.Center, _scroll) is { } center) {
-                var target = _scroll.Offset.Y + center.Y - _scroll.Viewport.Height / 2;
-                var max = Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height);
-                _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(target, 0, max));
-            }
-            return;
+            return view.FindMatchBounds(ordinal) is { } bounds ? (view, ordinal, bounds) : null;
         }
+        return null;
+    }
+
+    bool Within(Visual view, Rect bounds) =>
+        _scroll is not null
+        && view.TranslatePoint(bounds.TopLeft, _scroll) is { } top
+        && view.TranslatePoint(bounds.BottomRight, _scroll) is { } bottom
+        && top.Y >= 0 && bottom.Y <= _scroll.Viewport.Height;
+
+    void Mark(MarkdownView view, int ordinal) {
+        view.SetCurrentFind(ordinal);
+        _currentFindView = view;
     }
 }
