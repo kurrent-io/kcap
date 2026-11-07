@@ -766,7 +766,11 @@ public partial class ChatTabView : UserControl {
     void ShowFindMatch(ChatFindMatch? match) {
         _currentFindView?.SetCurrentFind(-1);
         _currentFindView = null;
-        if (match is null || ChatItems.Items is null) return;
+        if (match is null) {
+            RefreshSelectionFollowTail();
+            return;
+        }
+        if (ChatItems.Items is null) return;
         var index = match.ItemIndex < ChatItems.Items.Count && ReferenceEquals(ChatItems.Items[match.ItemIndex], match.Item)
             ? match.ItemIndex
             : ChatItems.Items.IndexOf(match.Item);
