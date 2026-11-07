@@ -945,7 +945,7 @@ public partial class WorktreeManager(
         if (status.ExitCode != 0) return "its git status could not be read";
 
         var baseline = ReadDaemonBaseline(worktree.Path);
-        var changes  = ParsePorcelainZ(status.Stdout).Count(entry => !IsDaemonEdit(worktree, baseline, entry));
+        var changes  = GitPorcelain.ParseZ(status.Stdout).Count(entry => !IsDaemonEdit(worktree, baseline, entry));
         if (changes > 0) return $"{changes} uncommitted {(changes == 1 ? "change" : "changes")}";
 
         // An owned branch is deleted with the worktree, so its commits count even with HEAD moved elsewhere.
@@ -995,7 +995,7 @@ public partial class WorktreeManager(
         (await RunGitCaptureResult(worktreePath, GitTimeout, time, sourceReadOnly: true, [],
             "rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}")).ExitCode == 0;
 
-    static bool IsDaemonEdit(WorktreeInfo worktree, Dictionary<string, string>? baseline, (string Code, string Path) entry) {
+    static bool IsDaemonEdit(WorktreeInfo worktree, Dictionary<string, string>? baseline, PorcelainEntry entry) {
         // Unstaged and still exactly as the daemon left it; anything staged is the agent's.
         if (baseline?.GetValueOrDefault(entry.Path) is { } recorded)
             return (entry.Code[0] == ' ' || entry.Code == "??") && SafeStamp(Path.Combine(worktree.Path, entry.Path)) == recorded;
@@ -1027,18 +1027,6 @@ public partial class WorktreeManager(
             var read = left.ReadAtLeast(l, l.Length, throwOnEndOfStream: false);
             if (right.ReadAtLeast(r, r.Length, throwOnEndOfStream: false) != read || !l[..read].SequenceEqual(r[..read])) return false;
             if (read < l.Length) return true;
-        }
-    }
-
-    /// <summary>The entries of <c>git status --porcelain=v1 -z</c>: a two-letter code and the path,
-    /// skipping the original path a rename or copy carries after it.</summary>
-    internal static IEnumerable<(string Code, string Path)> ParsePorcelainZ(string output) {
-        var fields = output.Split('\0', StringSplitOptions.RemoveEmptyEntries);
-        for (var i = 0; i < fields.Length; i++) {
-            if (fields[i].Length < 4) continue;
-            var code = fields[i][..2];
-            yield return (code, fields[i][3..]);
-            if (code[0] is 'R' or 'C') i++;
         }
     }
 
