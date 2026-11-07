@@ -138,9 +138,11 @@ The claim is a new file. It can't reuse the watcher pid file, because `KillWatch
 | A `kcap watch` process | Stops it, as today | Drains, as today |
 | The daemon, heartbeat fresh | Signals nothing | Asks the daemon to finish that source, and waits within the hook's budget |
 | The daemon, heartbeat stale, terminal session | Signals nothing | Takes the claim and drains, as today |
-| The daemon, heartbeat stale, hosted session, a hook from a hosted agent | Signals nothing | Asks its daemon to take the source. If the daemon declines, the hook takes the claim and spawns a watcher, unless the source failed the path check. If the daemon doesn't answer, it does nothing: the daemon's catch-up finishes the source, so its rows keep their stamps |
+| The daemon, heartbeat stale, hosted session, a hook from a hosted agent | Signals nothing | Does nothing. The daemon's catch-up finishes the source, so its rows keep their stamps |
 | The daemon, heartbeat stale, hosted session, a hook from outside one | Signals nothing | Takes the claim and drains, as for a terminal session, so a session resumed by hand while the daemon is down is still recorded |
 | Nobody | Nothing to stop | Drains, as today |
+
+A hook asking for a recorder on a stale hosted claim, from a hosted agent, first asks its daemon to take the source. If the daemon declines, the hook takes the claim and spawns a watcher, unless the source failed the path check. If the daemon doesn't answer, or hasn't yet learned what its server supports, the hook does nothing and leaves the source to the catch-up.
 
 Finishing a source runs the recorder's own final drain for that key and touches no other source, so a subagent stop leaves its parent running and a session end leaves other sessions running. If the hook's budget runs out, the daemon still finishes, because the hook only asked.
 
