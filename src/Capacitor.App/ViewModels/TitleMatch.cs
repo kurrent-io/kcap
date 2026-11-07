@@ -1,25 +1,18 @@
-using System.Globalization;
-
 namespace Capacitor.App.ViewModels;
 
-/// Splits a title on every case-insensitive occurrence of a query, folding case by the user's own
-/// culture: a title is their language, so a Turkish user's "i" finds "İ".
+/// Splits a title on every occurrence of a query, as <see cref="TextMatches"/> finds them.
 public static class TitleMatch {
     public static IReadOnlyList<SnippetRun> Split(string? text, string? filter) {
         if (string.IsNullOrEmpty(text)) return [];
         var query = filter?.Trim() ?? "";
         if (query.Length == 0) return [new SnippetRun(text, false)];
 
-        var compare = CultureInfo.CurrentCulture.CompareInfo;
         var runs = new List<SnippetRun>();
         var at = 0;
-        while (at < text.Length) {
-            // The matched length can differ from the query's under culture folding.
-            var found = compare.IndexOf(text.AsSpan(at), query, CompareOptions.IgnoreCase, out var length);
-            if (found < 0 || length == 0) break;
-            if (found > 0) runs.Add(new SnippetRun(text.Substring(at, found), false));
-            runs.Add(new SnippetRun(text.Substring(at + found, length), true));
-            at += found + length;
+        foreach (var (start, length) in TextMatches.Find(text, query)) {
+            if (start > at) runs.Add(new SnippetRun(text[at..start], false));
+            runs.Add(new SnippetRun(text.Substring(start, length), true));
+            at = start + length;
         }
         if (at < text.Length) runs.Add(new SnippetRun(text[at..], false));
         return runs;

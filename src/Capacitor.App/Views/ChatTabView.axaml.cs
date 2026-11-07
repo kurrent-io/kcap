@@ -22,6 +22,8 @@ public partial class ChatTabView : UserControl {
 
     readonly HashSet<MarkdownView> _selectedMarkdown = [];
     IDisposable? _sendSubscription;
+    ChatFindViewModel? _find;
+    MarkdownView? _currentFindView;
     ScrollViewer? _scroll;
     TextPresenter? _composerPresenter;
     AttachmentDropPaste? _attachments;
@@ -59,6 +61,7 @@ public partial class ChatTabView : UserControl {
         // Tunnel, not bubble: TextBox's own class handler runs first on the bubbling route, where
         // it inserts the newline and marks Enter handled before any instance handler sees it.
         ComposerInput.AddHandler(KeyDownEvent, OnComposerKeyDown, RoutingStrategies.Tunnel);
+        FindInput.AddHandler(KeyDownEvent, OnFindKeyDown, RoutingStrategies.Tunnel);
         // Press and release both: a click's command runs on the release, in a later dispatcher turn
         // than the press, by which time a flag armed on the press alone has been released.
         ChatItems.AddHandler(PointerPressedEvent, OnReaderGesture, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -100,6 +103,8 @@ public partial class ChatTabView : UserControl {
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
         base.OnAttachedToVisualTree(e);
         ObserveSending();
+        ObserveFind();
+        RestoreFind();
         _pointerRoot = TopLevel.GetTopLevel(this);
         _pointerRoot?.AddHandler(PointerReleasedEvent, OnPrimaryReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
         _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, RoutingStrategies.Direct | RoutingStrategies.Bubble, handledEventsToo: true);
@@ -125,6 +130,8 @@ public partial class ChatTabView : UserControl {
         _followTail = true;
         base.OnDataContextChanged(e);
         ObserveSending();
+        ObserveFind();
+        RestoreFind();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
@@ -136,6 +143,10 @@ public partial class ChatTabView : UserControl {
         _dragView = null;
         _sendSubscription?.Dispose();
         _sendSubscription = null;
+        if (_find is not null) _find.Navigated -= ShowFindMatch;
+        _find = null;
+        _currentFindView?.SetCurrentFind(-1);
+        _currentFindView = null;
         _primaryPointer = null;
         _tailDeferred = false;
         _pointerRoot?.RemoveHandler(PointerReleasedEvent, OnPrimaryReleased);
@@ -648,4 +659,107 @@ public partial class ChatTabView : UserControl {
     }
 
     public void FocusComposer() => ComposerInput.Focus();
+
+    void ObserveFind() {
+        if (_find is not null) _find.Navigated -= ShowFindMatch;
+        _currentFindView?.SetCurrentFind(-1);
+        _currentFindView = null;
+        _find = (DataContext as ChatTabViewModel)?.Find;
+        if (_find is not null) _find.Navigated += ShowFindMatch;
+    }
+
+    /// A search left open in this chat takes the reader back to its current match, once the
+    /// returning session's items are laid out.
+    void RestoreFind() {
+        if (_find is not { IsOpen: true, Current: not null } find) return;
+        Dispatcher.UIThread.Post(() => {
+            if (ReferenceEquals(_find, find) && find.Current is { } match) ShowFindMatch(match);
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// Steps the open search, or opens one when there is none to step.
+    public void StepFind(bool backwards) {
+        if (_find is not { ActiveQuery: not null } find) {
+            OpenFind();
+            return;
+        }
+        if (backwards) find.Previous();
+        else find.Next();
+    }
+
+    /// Opens the find bar, or takes the reader back to it, with its query selected for retyping.
+    public void OpenFind() {
+        if (DataContext is not ChatTabViewModel chat) return;
+        chat.Find.Open(FirstVisibleIndex());
+        FindInput.Focus();
+        FindInput.SelectAll();
+    }
+
+    void OnFindKeyDown(object? sender, KeyEventArgs e) {
+        if (_find is null) return;
+        switch (e.Key) {
+            case Key.Enter when e.KeyModifiers == KeyModifiers.Shift:
+                _find.Previous();
+                e.Handled = true;
+                break;
+            case Key.Enter when e.KeyModifiers == KeyModifiers.None:
+                _find.Next();
+                e.Handled = true;
+                break;
+            case Key.Escape when e.KeyModifiers == KeyModifiers.None:
+                _find.Close();
+                e.Handled = true;
+                if (ComposerInput.IsEffectivelyVisible && ComposerInput.IsEffectivelyEnabled) ComposerInput.Focus();
+                else ChatItems.Focus();
+                break;
+        }
+    }
+
+    int FirstVisibleIndex() {
+        EnsureChatScroll();
+        if (_scroll is null) return 0;
+        var first = int.MaxValue;
+        foreach (var container in ChatItems.GetRealizedContainers()) {
+            if (!container.IsVisible || container.TranslatePoint(new Point(0, container.Bounds.Height), _scroll) is not { } bottom) continue;
+            if (bottom.Y <= 0) continue;
+            var index = ChatItems.IndexFromContainer(container);
+            if (index >= 0) first = Math.Min(first, index);
+        }
+        return first == int.MaxValue ? 0 : first;
+    }
+
+    /// Scrolls the match to the middle of the transcript and marks it current. The views of one
+    /// item are walked in order, each holding as many matches as it highlighted.
+    void ShowFindMatch(ChatFindMatch? match) {
+        _currentFindView?.SetCurrentFind(-1);
+        _currentFindView = null;
+        if (match is null || ChatItems.Items is null) return;
+        var index = match.ItemIndex < ChatItems.Items.Count && ReferenceEquals(ChatItems.Items[match.ItemIndex], match.Item)
+            ? match.ItemIndex
+            : ChatItems.Items.IndexOf(match.Item);
+        if (index < 0) return;
+        DropToggleAnchor();
+        CancelSmoothScroll();
+        _thumbFraction = null;
+        _followTail = false;
+        EnsureChatScroll();
+        ChatItems.ScrollIntoView(index);
+        ChatItems.UpdateLayout();
+        if (ChatItems.ContainerFromIndex(index) is not { } container || _scroll is null) return;
+        var ordinal = match.Ordinal;
+        foreach (var view in container.GetSelfAndVisualDescendants().OfType<MarkdownView>()) {
+            if (ordinal >= view.FindMatchCount) {
+                ordinal -= view.FindMatchCount;
+                continue;
+            }
+            view.SetCurrentFind(ordinal);
+            _currentFindView = view;
+            if (view.FindMatchBounds(ordinal) is { } bounds && view.TranslatePoint(bounds.Center, _scroll) is { } center) {
+                var target = _scroll.Offset.Y + center.Y - _scroll.Viewport.Height / 2;
+                var max = Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height);
+                _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(target, 0, max));
+            }
+            return;
+        }
+    }
 }
