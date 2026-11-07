@@ -591,6 +591,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     async Task OnClosed(Exception? ex) {
         _statusNotifier.Pulse();
         _gate.MarkUnregistered();
+        RecordingProbe.Forget();
 
         if (_disposed || _ct.IsCancellationRequested) {
             return;
@@ -646,6 +647,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
                 }
 
                 await SendAccountsChangedSinceConnectAsync();
+                AskWhetherServerRecords();
             }
         );
 
@@ -813,6 +815,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     Task OnReconnecting(Exception? error) {
         Volatile.Write(ref _pendingAs, null);
         _gate.MarkUnregistered();
+        RecordingProbe.Forget();
         _statusNotifier.Pulse();
 
         return Task.CompletedTask;
@@ -878,6 +881,21 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     public async Task<bool> CredentialChangedAsync(CancellationToken ct) =>
         Volatile.Read(ref _negotiatedAs) is { } negotiated
      && HubIdentity.Changed(negotiated, await Credentials.ResolveAsync(ct));
+
+    /// <summary>Whether the server behind this connection can stop a source, asked only of a daemon that would record.</summary>
+    public RecordingProbe RecordingProbe { get; } = new();
+
+    // Off the registration, and off the server's sequential dispatch: nothing waits for this, and a launch reads no
+    // answer as off.
+    void AskWhetherServerRecords() {
+        if (!_config.RecordHostedClaude) return;
+
+        _ = Task.Run(async () => {
+            var answer = await RecordingProbe.AskAsync(() => _hub.InvokeAsync("WatcherDetach", Guid.NewGuid().ToString("N"), null, _ct));
+
+            if (answer == false) LogServerHasNoRecording(_config.ServerUrl);
+        }, CancellationToken.None);
+    }
 
     /// <summary>The stored sign-in stopped matching what this hub negotiated as, a sign-out included.</summary>
     public event Action? SignInChanged;
@@ -1962,6 +1980,9 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to send ACP auto-approval audit for agent {AgentId} (server may not support it)")]
     partial void LogNotifyAcpAutoApprovalFailed(Exception ex, string agentId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Recording is on, but {ServerUrl} can't stop a source: hosted sessions stay on their watchers")]
+    partial void LogServerHasNoRecording(string serverUrl);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Hub method '{Method}' handler threw — invocation dropped")]
     partial void LogHandlerThrew(Exception ex, string method);

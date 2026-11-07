@@ -13,8 +13,8 @@ namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
 /// Records this daemon's hosted Claude sessions in its own process, so a hosted session needs no watcher. Off until
-/// <see cref="DaemonConfig.RecordHostedClaude"/> is set and the server is at <see cref="RecordingServerFloor"/>; while
-/// off it opens no connection and takes no claim.
+/// <see cref="DaemonConfig.RecordHostedClaude"/> is set and the server has said it can stop a source; while off it opens
+/// no connection and takes no claim.
 ///
 /// <para>A source's life is one claim and one list entry around one <see cref="RecorderHost"/> entry. Its claim is taken
 /// under the spawn lock with the live-watcher check inside it, before the list entry and before the host hears of it,
@@ -35,14 +35,19 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     static readonly TimeSpan RestoreRetryGap = TimeSpan.FromSeconds(1);
     static readonly TimeSpan RestoreWindow   = RecorderClaims.Grace + TimeSpan.FromSeconds(5);
 
+    // A hub round trip the connection has already asked for. The boot's resumes wait behind it, and only with a list to
+    // pick up: an answer that takes longer leaves that list for the next boot.
+    internal static readonly TimeSpan AnswerWait = TimeSpan.FromSeconds(10);
+
     /// <summary>Beside the shutdown's report to the server and no longer than it, so it adds nothing to a shutdown. Of
     /// this, 2 seconds stay back for the spool, which is what a host keeps of any bound from 4 seconds up.</summary>
     internal static readonly TimeSpan ShutdownBound = TimeSpan.FromSeconds(5);
 
     readonly DaemonConfig _config;
     readonly CapacitorServer _server;
+    readonly RecordingProbe _serverRecords;
     readonly Func<IRecorderTransport> _connect;
-    readonly Func<RecordedSource, Action<string>, Action, IRecorderHousekeeping> _housekeeping;
+    readonly Func<RecordedSource, Action<string>, Action, Action, IRecorderHousekeeping> _housekeeping;
     readonly TimeProvider _time;
     readonly ILogger _logger;
     readonly RecorderClaims _claims;
@@ -53,21 +58,25 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     readonly CancellationTokenSource _closing = new();
     readonly Lazy<RecorderHost> _host;
 
+    // A first source creates the host, and a stop finding none has to know no source will.
+    readonly Lock _starting = new();
+
     IRecorderTransport? _transport;
     int _stopping;
     int _disposed;
 
     /// <param name="connect">Builds the transport, for the first source. Nothing connects before that.</param>
-    /// <param name="housekeeping">Builds a recorder's housekeeping, given its source, its log and its own stop.</param>
+    /// <param name="housekeeping">Builds a recorder's housekeeping, given its source, its log, its own stop and its beat.</param>
     public DaemonRecorder(
-            DaemonConfig config, CapacitorServer server, Func<IRecorderTransport> connect,
-            Func<RecordedSource, Action<string>, Action, IRecorderHousekeeping> housekeeping, TimeProvider time, ILogger<DaemonRecorder> logger) {
-        _config       = config;
-        _server       = server;
-        _connect      = connect;
-        _housekeeping = housekeeping;
-        _time         = time;
-        _logger       = logger;
+            DaemonConfig config, CapacitorServer server, RecordingProbe serverRecords, Func<IRecorderTransport> connect,
+            Func<RecordedSource, Action<string>, Action, Action, IRecorderHousekeeping> housekeeping, TimeProvider time, ILogger<DaemonRecorder> logger) {
+        _config        = config;
+        _server        = server;
+        _serverRecords = serverRecords;
+        _connect       = connect;
+        _housekeeping  = housekeeping;
+        _time          = time;
+        _logger        = logger;
 
         var paths = WatcherPaths.FromEnvironment(config.ConfigRoot);
         _claims   = new RecorderClaims(paths.Directory, time);
@@ -86,7 +95,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var hookCommand = config.KcapCliPath is { } cli ? GitHookProbe.CommandFor(cli) : null;
 
         return new DaemonRecorder(
-            config, server,
+            config, server, connection.RecordingProbe,
             () => {
                 WarnOfMissingTools(config, logger);
 
@@ -99,16 +108,16 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
                 return transport;
             },
-            (source, log, stop) => new RecorderHousekeeping(
+            (source, log, stop, beat) => new RecorderHousekeeping(
                 source.Recording, source.SkipTitle, parentPid: null,
                 new DaemonRecorderHost(config.ConfigRoot, hookCommand, time, stop, (session, vendor, path) => HandOffTitle(config, logger, session, vendor, path), log),
-                config.ConfigRoot, config.Profiles, harnesses, http, router, time, accounts, config.Home, log, static () => { }),
+                config.ConfigRoot, config.Profiles, harnesses, http, router, time, accounts, config.Home, log, beat),
             time, logger);
     }
 
-    /// <summary>Whether this daemon records hosted Claude now. Read on every use: the server can move past the floor, or
-    /// back under it, and a hook takes a source to a daemon only while this holds.</summary>
-    public bool Enabled => _config.RecordHostedClaude && RecordingServerFloor.Met(ServerVersionStore.Get(_config.ServerUrl, _config.ConfigRoot));
+    /// <summary>Whether this daemon records hosted Claude now. Read on every use: the server's answer goes with its
+    /// connection, and a hook takes a source to a daemon only while this holds.</summary>
+    public bool Enabled => _config.RecordHostedClaude && _serverRecords.Answer == true;
 
     /// <summary>The keys being recorded now.</summary>
     internal IReadOnlyCollection<string> ActiveKeys => _host.IsValueCreated ? _host.Value.ActiveKeys : [];
@@ -219,20 +228,32 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <summary>Picks up what the last daemon left: each source from the line the server answers with, unless a live
     /// watcher holds it now. With recording off it lets all of it go, because a claim nobody is coming back for would
     /// keep a resumed session's hooks from starting a watcher. So it does when the capture scope is left to hooks: a
-    /// source that was in scope when its hook handed it over needn't be now, and its next hook hands it over again.</summary>
+    /// source that was in scope when its hook handed it over needn't be now, and its next hook hands it over again. With
+    /// no answer from the server by <see cref="AnswerWait"/> nothing is decided, and the next boot has the list.</summary>
     /// <param name="leftToHooks">Whether a hook's capture gate decides what this daemon may record.</param>
     public async Task RestoreAsync(Func<Task<bool>> leftToHooks, CancellationToken ct) {
-        var enabled = Enabled;
-
-        if (_config.RecordHostedClaude && !enabled)
-            LogBelowFloor(ServerVersionStore.Get(_config.ServerUrl, _config.ConfigRoot) ?? "unknown", RecordingServerFloor.MinimumVersion);
-
         var left = _list.Load();
         if (left.Count == 0) return;
 
-        var restore = enabled && !await leftToHooks();
+        if (await ServerRecordsAsync(ct) is not { } records) {
+            LogRestoreUnanswered(left.Count);
+
+            return;
+        }
+
+        var restore = records && !await leftToHooks();
 
         await Task.WhenAll(left.Select(source => restore ? RestoreOneAsync(source, ct) : LetGoAsync(source, ct)));
+    }
+
+    async Task<bool?> ServerRecordsAsync(CancellationToken ct) {
+        if (!_config.RecordHostedClaude) return false;
+
+        try {
+            return await _serverRecords.Answered.WaitAsync(AnswerWait, _time, ct);
+        } catch (TimeoutException) {
+            return null;
+        }
     }
 
     /// <summary>Finishes each restored source whose agent didn't come back, once the boot's resumes have run.</summary>
@@ -246,8 +267,10 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// claim and list entry stay.</summary>
     /// <param name="keeps">Whether an agent resumes under the next daemon.</param>
     public async Task StopAsync(Func<string, bool> keeps, CancellationToken ct) {
-        Interlocked.Exchange(ref _stopping, 1);
-        if (!_host.IsValueCreated) return;
+        lock (_starting) {
+            Interlocked.Exchange(ref _stopping, 1);
+            if (!_host.IsValueCreated) return;
+        }
 
         await _host.Value.StopAllAsync(ShutdownBound, ct);
 
@@ -283,7 +306,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         void Log(string message) => LogRecorder(source.Key, message);
 
         return new RecorderContext(
-            _server, _housekeeping(recorded, Log, () => _ = FinishQuietlyAsync(source.Key, CancellationToken.None)), _time, Log, static () => { });
+            _server, _housekeeping(recorded, Log, () => _ = FinishQuietlyAsync(source.Key, CancellationToken.None), () => _claims.Beat(source.Key)), _time, Log, static () => { });
     }
 
     // Under the key's gate. Tracked before the host can hear of it, because the host's first context reads it.
@@ -373,11 +396,13 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var source = tracked.Source;
 
         try {
-            if (_host.Value.TryAdd(source.Recording)) {
-                tracked.Running = true;
-                Warm(source);
+            lock (_starting) {
+                if (Volatile.Read(ref _stopping) == 0 && _host.Value.TryAdd(source.Recording)) {
+                    tracked.Running = true;
+                    Warm(source);
 
-                return true;
+                    return true;
+                }
             }
         } catch (Exception ex) {
             LogStartFailed(ex, source.Key);
@@ -514,9 +539,6 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Information, Message = "Recording {Key}: {Message}")]
     partial void LogRecorder(string key, string message);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Recording is on, but the server's version is {Version} and it needs {Floor}: hosted sessions stay on their watchers")]
-    partial void LogBelowFloor(string version, string floor);
-
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Tool} is not on this daemon's PATH, so recorded sessions report no repository or pull request through it")]
     static partial void LogToolMissing(ILogger logger, string tool);
 
@@ -525,6 +547,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Taking the claim on {Key} failed")]
     partial void LogClaimFailed(Exception ex, string key);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Count} recorded sources are left for the next boot: the server has not said whether it can stop one")]
+    partial void LogRestoreUnanswered(int count);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "No claim on {Key} ahead of its launch: something else has its key, and its hook decides")]
     partial void LogClaimGaveUp(string key);

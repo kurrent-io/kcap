@@ -70,7 +70,8 @@ public sealed class RecordingHubHost : IAsyncDisposable {
         }
     }
 
-    public static async Task<RecordingHubHost> StartAsync() {
+    /// <param name="hasDetach">False for a server from before <c>WatcherDetach</c>.</param>
+    public static async Task<RecordingHubHost> StartAsync(bool hasDetach = true) {
         var host    = new RecordingHubHost();
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
@@ -89,7 +90,10 @@ public sealed class RecordingHubHost : IAsyncDisposable {
 
             await next();
         });
-        host._app.MapHub<SessionsHub>("/hubs/sessions");
+
+        if (hasDetach) host._app.MapHub<SessionsHub>("/hubs/sessions");
+        else host._app.MapHub<OlderSessionsHub>("/hubs/sessions");
+
         await host._app.StartAsync();
         host.Url = host._app.Urls.Single();
 
@@ -142,6 +146,12 @@ public sealed class RecordingHubHost : IAsyncDisposable {
 
     void Record(string call) {
         lock (_gate) _calls.Add(call);
+    }
+
+    sealed class OlderSessionsHub(RecordingHubHost host) : Hub {
+        public void DaemonConnect(DaemonConnect connect) {
+            lock (host._gate) host.DaemonConnections.Add(Context.ConnectionId);
+        }
     }
 
     sealed class SessionsHub(RecordingHubHost host) : Hub {

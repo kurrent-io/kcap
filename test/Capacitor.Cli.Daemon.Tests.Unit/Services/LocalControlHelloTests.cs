@@ -1,6 +1,5 @@
 using System.Net.Sockets;
 using System.Text.Json;
-using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Pty;
@@ -125,11 +124,13 @@ public class LocalControlHelloTests {
         config.RecordHostedClaude = true;
         config.ConfigRoot         = Config.Root;
         config.Profiles           = Resolutions.None(Config.Root);
-        ServerVersionStore.Set(config.ServerUrl, RecordingServerFloor.MinimumVersion, Config.Root, TimeProvider.System);
+
+        var probe = new RecordingProbe();
+        probe.Report(true);
 
         return new DaemonRecorder(
-            config, new CapacitorServer(config.ServerUrl, Config.Root, config.Profiles), () => new FakeRecorderTransport(),
-            (_, _, _) => new FakeRecorderHousekeeping(), TimeProvider.System, NullLogger<DaemonRecorder>.Instance);
+            config, new CapacitorServer(config.ServerUrl, Config.Root, config.Profiles), probe, () => new FakeRecorderTransport(),
+            (_, _, _, _) => new FakeRecorderHousekeeping(), TimeProvider.System, NullLogger<DaemonRecorder>.Instance);
     }
 
     static async Task<LocalFrame?> AskAsync(string sockPath, LocalFrame request, CancellationToken ct) {

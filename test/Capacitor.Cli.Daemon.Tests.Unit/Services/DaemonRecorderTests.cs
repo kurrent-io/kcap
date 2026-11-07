@@ -30,23 +30,30 @@ public class DaemonRecorderTests {
 
     List<RecordedSource> Housekept { get; } = [];
 
+    Action? HousekeepingBeat { get; set; }
+
     DaemonConfig NewConfig(bool on = true) => new() {
         Name = Name, ServerUrl = Url, ConfigRoot = Config.Root, Store = Daemons.Store, Profiles = Resolutions.None(Config.Root), RecordHostedClaude = on,
     };
 
     /// <param name="prepare">What a recorder's preparing waits on, which ignores its token as repository detection does.</param>
-    DaemonRecorder NewRecorder(bool on = true, TimeProvider? time = null, Func<Task>? prepare = null) {
-        ServerVersionStore.Set(Url, RecordingServerFloor.MinimumVersion, Config.Root, TimeProvider.System);
+    /// <param name="probe">The server's answer, which is yes unless the test holds it.</param>
+    DaemonRecorder NewRecorder(bool on = true, TimeProvider? time = null, Func<Task>? prepare = null, RecordingProbe? probe = null) {
+        if (probe is null) {
+            probe = new RecordingProbe();
+            probe.Report(true);
+        }
 
         return new DaemonRecorder(
-            NewConfig(on), new CapacitorServer(Url, Config.Root, Resolutions.None(Config.Root)),
+            NewConfig(on), new CapacitorServer(Url, Config.Root, Resolutions.None(Config.Root)), probe,
             () => {
                 Connections++;
 
                 return Transport;
             },
-            (source, _, _) => {
+            (source, _, _, beat) => {
                 lock (Housekept) Housekept.Add(source);
+                HousekeepingBeat = beat;
 
                 return new FakeRecorderHousekeeping { OnPrepare = prepare };
             },
@@ -613,21 +620,133 @@ public class DaemonRecorderTests {
     }
 
     [Test]
-    public async Task No_recording_on_a_server_below_the_floor() {
-        await using var recorder = NewRecorder();
-        await Assert.That(recorder.Enabled).IsTrue();
-
-        ServerVersionStore.Set(Url, "1.4.1-beta.6", Config.Root, TimeProvider.System);
+    public async Task No_recording_on_a_server_without_it() {
+        var probe = new RecordingProbe();
+        probe.Report(false);
+        await using var recorder = NewRecorder(probe: probe);
 
         await Assert.That(recorder.Enabled).IsFalse();
     }
 
+    /// <summary>A hook takes a source to a daemon only while this holds, and an answer that comes later opens it.</summary>
     [Test]
-    public async Task A_server_of_unknown_version_is_below_the_floor() {
-        await Assert.That(RecordingServerFloor.Met(null)).IsFalse();
-        await Assert.That(RecordingServerFloor.Met("unknown")).IsFalse();
-        await Assert.That(RecordingServerFloor.Met("not a version")).IsFalse();
-        await Assert.That(RecordingServerFloor.Met(RecordingServerFloor.MinimumVersion)).IsTrue();
+    public async Task No_recording_until_the_server_has_answered() {
+        var probe = new RecordingProbe();
+        await using var recorder = NewRecorder(probe: probe);
+        await Assert.That(recorder.Enabled).IsFalse();
+
+        probe.Report(true);
+
+        await Assert.That(recorder.Enabled).IsTrue();
+    }
+
+    /// <summary>The boot's resumes wait behind a restore, which waits for the answer it needs and no longer than this.</summary>
+    [Test]
+    public async Task A_restore_waits_for_the_servers_answer() {
+        var source = Source(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        var probe = new RecordingProbe();
+        await using var recorder = NewRecorder(probe: probe);
+
+        var restore = recorder.RestoreAsync(InScope, CancellationToken.None);
+        await Assert.That(restore.IsCompleted).IsFalse();
+
+        probe.Report(true);
+        await restore.WithinDeadlineAsync("the restore");
+
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
+    /// <summary>No answer decides nothing, so nothing is let go of: the next boot has the list, and a hook the claim.</summary>
+    [Test]
+    public async Task A_restore_with_no_answer_leaves_what_it_found() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Source(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+        await using var recorder = NewRecorder(time: time, probe: new RecordingProbe());
+
+        var restore = recorder.RestoreAsync(InScope, CancellationToken.None);
+        await Assert.That(restore.IsCompleted).IsFalse();
+
+        time.Advance(DaemonRecorder.AnswerWait);
+        await restore.WithinDeadlineAsync("the restore");
+
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+        await Assert.That(Connections).IsEqualTo(0);
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(List.Load().Select(left => left.Key)).IsEquivalentTo([source.Key]);
+    }
+
+    [Test]
+    public async Task A_restore_on_a_server_without_recording_lets_go_of_what_it_found() {
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+        var probe = new RecordingProbe();
+        probe.Report(false);
+        await using var recorder = NewRecorder(probe: probe);
+
+        await recorder.RestoreAsync(InScope, CancellationToken.None).WithinDeadlineAsync("the restore");
+
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>A flag that is off has no use for the answer, which never comes.</summary>
+    [Test]
+    public async Task A_restore_with_the_flag_off_waits_for_nothing() {
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        await using var recorder = NewRecorder(on: false, probe: new RecordingProbe());
+
+        await recorder.RestoreAsync(InScope, CancellationToken.None).WithinDeadlineAsync("the restore");
+
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>A stop with nothing recording leaves no host to refuse the next source, and that source's connection would
+    /// open with the daemon on its way out.</summary>
+    [Test]
+    public async Task A_stop_before_any_source_refuses_the_first_one() {
+        await using var recorder = NewRecorder();
+
+        await recorder.StopAsync(_ => false, CancellationToken.None);
+
+        var source = Source(Transcript(Prompt));
+        await Assert.That(await recorder.TryRecordAsync(source, CancellationToken.None)).IsFalse();
+
+        await Assert.That(Connections).IsEqualTo(0);
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>Housekeeping can run long between a recorder's beats, and a claim going stale lets a hook take a source
+    /// that is recording.</summary>
+    [Test]
+    public async Task A_housekeeping_beat_keeps_its_sources_claim_fresh() {
+        var time    = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var preparing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var claims  = new RecorderClaims(Paths.Directory, time);
+        await using var recorder = NewRecorder(time: time, prepare: () => {
+            preparing.TrySetResult();
+
+            return release.Task;
+        });
+        var source = Source(Transcript(Prompt));
+
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await preparing.Task.WithinDeadlineAsync("the recorder to reach its housekeeping");
+        time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonStale);
+
+        HousekeepingBeat!();
+
+        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        release.SetResult();
     }
 
     [Test]

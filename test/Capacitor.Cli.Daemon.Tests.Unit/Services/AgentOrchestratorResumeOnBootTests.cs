@@ -163,11 +163,12 @@ public class AgentOrchestratorResumeOnBootTests {
             new ResumableFactory { PtyStyle = true },
             configure: c => c.RecordHostedClaude = true,
             recorder: c => {
-                ServerVersionStore.Set(c.ServerUrl, RecordingServerFloor.MinimumVersion, c.ConfigRoot, TimeProvider.System);
+                var probe = new RecordingProbe();
+                probe.Report(true);
 
                 return new DaemonRecorder(
-                    c, new CapacitorServer(c.ServerUrl, c.ConfigRoot, Resolutions.None(c.ConfigRoot)), () => new FakeRecorderTransport(),
-                    (_, _, _) => new FakeRecorderHousekeeping(), new BrokenClock(), NullLogger<DaemonRecorder>.Instance);
+                    c, new CapacitorServer(c.ServerUrl, c.ConfigRoot, Resolutions.None(c.ConfigRoot)), probe, () => new FakeRecorderTransport(),
+                    (_, _, _, _) => new FakeRecorderHousekeeping(), new BrokenClock(), NullLogger<DaemonRecorder>.Instance);
             });
         await using var _ = f.Orch;
         new RecordedSourceList(f.Config.Store.StateDirectory(f.Config.Name), NullLogger.Instance)

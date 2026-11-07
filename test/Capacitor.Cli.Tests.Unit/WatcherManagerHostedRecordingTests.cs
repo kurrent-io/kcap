@@ -34,7 +34,7 @@ public class WatcherManagerHostedRecordingTests {
         await Assert.That(_daemon.Asked).IsEquivalentTo([(new RecordingSource(Session, null, "/t.jsonl", "claude", "/repo"), true)]);
     }
 
-    /// <summary>An older daemon answers no, as does one below the server's floor or with recording off.</summary>
+    /// <summary>An older daemon answers no, as does one whose server can't stop a source or with recording off.</summary>
     [Test]
     public async Task A_hosted_hook_spawns_a_watcher_on_an_older_daemon() {
         await Watchers.EnsureWatcherRunning(Session, "/t.jsonl", agentId: null);

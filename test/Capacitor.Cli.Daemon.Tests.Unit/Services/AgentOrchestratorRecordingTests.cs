@@ -43,7 +43,7 @@ public class AgentOrchestratorRecordingTests {
 
     sealed class Fixture : IAsyncDisposable {
         public Fixture(
-                TempDir tmp, StartingFactory factory, bool on = true, string? serverVersion = RecordingServerFloor.MinimumVersion,
+                TempDir tmp, StartingFactory factory, bool on = true, bool? serverRecords = true,
                 Action<ConfigRoot>? profile = null, IPtyProcessFactory? pty = null, string? localSession = null) {
             Checkout  = tmp.CreateDir("checkout");
             Factory   = factory;
@@ -59,16 +59,17 @@ public class AgentOrchestratorRecordingTests {
                 },
                 recorder: config => {
                     Config = config;
-                    if (serverVersion is not null) ServerVersionStore.Set(config.ServerUrl, serverVersion, config.ConfigRoot, TimeProvider.System);
+                    var probe = new RecordingProbe();
+                    if (serverRecords is { } answer) probe.Report(answer);
 
                     return new DaemonRecorder(
-                        config, new CapacitorServer(config.ServerUrl, config.ConfigRoot, Resolutions.None(config.ConfigRoot)),
+                        config, new CapacitorServer(config.ServerUrl, config.ConfigRoot, Resolutions.None(config.ConfigRoot)), probe,
                         () => {
                             Connections++;
 
                             return Transport;
                         },
-                        (_, _, _) => new FakeRecorderHousekeeping(), TimeProvider.System, NullLogger<DaemonRecorder>.Instance);
+                        (_, _, _, _) => new FakeRecorderHousekeeping(), TimeProvider.System, NullLogger<DaemonRecorder>.Instance);
                 });
         }
 
@@ -337,8 +338,8 @@ public class AgentOrchestratorRecordingTests {
     }
 
     [Test]
-    public async Task No_claim_and_no_capability_on_a_server_below_the_floor() {
-        await using var f = new Fixture(Tmp, new StartingFactory(), serverVersion: "1.4.1-beta.6");
+    public async Task No_claim_and_no_capability_on_a_server_without_recording() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), serverRecords: false);
 
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 
@@ -347,14 +348,16 @@ public class AgentOrchestratorRecordingTests {
         await Assert.That(f.Orch.RecordsHostedSessions).IsFalse();
     }
 
-    /// <summary>A daemon that has never heard from this server can't say it stops sources.</summary>
+    /// <summary>The server's answer can be a while, and no launch waits for it: this one goes on as it always has, and its
+    /// hook hands the session over once the answer is in.</summary>
     [Test]
-    public async Task No_claim_on_a_server_of_unknown_version() {
-        await using var f = new Fixture(Tmp, new StartingFactory(), serverVersion: null);
+    public async Task A_launch_ahead_of_the_servers_answer_takes_no_claim_and_does_not_wait() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), serverRecords: null);
 
-        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch()).WithinDeadlineAsync("the launch");
 
         await Assert.That(f.ClaimFiles).IsEmpty();
+        await Assert.That(f.Orch.RecordsHostedSessions).IsFalse();
     }
 
     [Test]
@@ -410,6 +413,8 @@ public class AgentOrchestratorRecordingTests {
     [Arguments(Forged.UnderAnotherSession)]
     [Arguments(Forged.AnotherProject)]
     public async Task A_transcript_that_is_not_the_agents_is_refused(Forged forged) {
+        Skip.When(forged == Forged.ThroughASymlink && OperatingSystem.IsWindows(), "creating a symlink needs privileges Windows CI lacks");
+
         await using var f = new Fixture(Tmp, new StartingFactory());
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 
