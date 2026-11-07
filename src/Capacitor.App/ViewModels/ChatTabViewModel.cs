@@ -349,10 +349,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     public bool CanSendText => _canSendText.Value;
 
     /// Sends text through the composer's own path without touching the draft or the tray.
-    /// True when the send was accepted.
+    /// False means nothing was sent. An unconfirmed send counts as sent: the text may already
+    /// have reached the agent, so a caller must not retry it.
     public async Task<bool> SendTextAsync(string text) {
         if (!CanSendText) return false;
-        return await SendComposerAsync(text, includeTray: false, bypassRecall: true, ownsDraft: false) == ChatSendOutcome.Accepted;
+        var outcome = await SendComposerAsync(text, includeTray: false, bypassRecall: true, ownsDraft: false);
+        return outcome is ChatSendOutcome.Accepted or ChatSendOutcome.Unconfirmed;
     }
 
     // The opener launches whatever it is handed, so only a resolved image path reaches it: a
