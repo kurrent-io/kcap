@@ -164,7 +164,7 @@ sealed class AdoptionWorld {
         var batch = new AdoptionBatch(Machine, store, new AsideRetirement(Config, "cli-adoption-retire"),
             new AdoptionIntegrations(new ApplicationIntegrationRefresh(Config, Refresh), Bundle.Cli, store, Time),
             new AdoptionPathStep(Probe, new AdoptedLinkInventory(Config), store, Shim, Stable), Notices, Harnesses, Bundle, Stable,
-            folder => UserCanWrite(folder), Admin, ConfirmAsync, Config.Directory, Write);
+            folder => UserCanWrite(folder), Admin, ConfirmAsync, Config.Directory, AdoptionReferenceSites.HomeFiles(new UserHome(Home), Harnesses), Write);
         var launch = new CliAdoptionCoordinator(batch, Time, Write, lifetime);
         launch.FollowDaemon(Activity);
         return launch;

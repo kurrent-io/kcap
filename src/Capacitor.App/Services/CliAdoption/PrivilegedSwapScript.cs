@@ -10,8 +10,8 @@ namespace Capacitor.App.Services.CliAdoption;
 /// that passes to <see cref="AsideRetirement.CheckedAside"/>, so a failed check puts the whole install back. An aside an
 /// earlier run left is deleted if it carries the checked name and checked like a fresh one otherwise. With the whole
 /// install set aside it looks for what this user's own checks cannot see: a process of any account mapping a file of
-/// it, or a launch agent in any home naming it, either of which puts it all back and reports <see cref="InUse"/>. Only
-/// then does it delete anything. Any other word, end of file or no word in time puts the links back. After go it finishes even
+/// it, or a launch agent or one of <see cref="PrivilegedSpec.HomeFiles"/> in any home naming it, any of which puts it
+/// all back and reports <see cref="InUse"/>. Only then does it delete anything. Any other word, end of file or no word in time puts the links back. After go it finishes even
 /// if the app is gone.
 /// <para>Every path reaches it as a positional argument, never as script text. It creates the status file itself, only
 /// inside a real 0700 folder the app's user owns, and writes only through that descriptor: root must not write through
@@ -37,6 +37,8 @@ internal static class PrivilegedSwapScript {
 
             status=$1 control=$2 owner=$3 stage=$4 homes=$5
             shift 5
+            nfiles=$1; shift; k=0
+            while [ $k -lt $nfiles ]; do files[$k]=$1; shift; k=$((k + 1)); done
             nlinks=$1; shift; k=0
             while [ $k -lt $nlinks ]; do links[$k]=$1; olds[$k]=$2; news[$k]=$3; shift 3; k=$((k + 1)); done
             nentries=$1; shift; k=0; m=0
@@ -105,11 +107,20 @@ internal static class PrivilegedSwapScript {
             exec 3<&-
             if [ "$word" != {{Go}} ]; then put_back; say {{Restored}}; exit 0; fi
 
+            # Another account can put a pipe at any of these names, which root would wait on for good: only a regular file
+            # is read, and grep skips one swapped in after that check.
+            names() {
+                local e
+                [ -f "$1" ] || return 1
+                for e in "${look[@]}"; do /usr/bin/grep -qF -D skip -e "$e" -- "$1" 2>/dev/null && return 0; done
+                return 1
+            }
+
             # A process is found by the files it maps, which lsof names with every link resolved, whatever path it
             # was started by. A list without this helper's own process was not read. Asked once the install is set
             # aside, when no process can reach it by its own paths any more.
             in_use() {
-                local i d e plist
+                local i d e home plist
                 local -a look
                 [ $nentries -gt 0 ] || return 1
                 i=0
@@ -134,10 +145,15 @@ internal static class PrivilegedSwapScript {
                     1) ;;
                     *) echo "the process list could not be read"; return 0 ;;
                 esac
-                for plist in "$homes"/*/Library/LaunchAgents/io.kurrent.kcap.daemon.*.plist; do
-                    [ -f "$plist" ] || continue
-                    for e in "${look[@]}"; do
-                        if /usr/bin/grep -qF -e "$e" -- "$plist"; then echo "$plist names $e"; return 0; fi
+                for home in "$homes"/*; do
+                    [ -d "$home" ] && ! [ -L "$home" ] || continue
+                    for plist in "$home"/Library/LaunchAgents/*.plist; do
+                        if names "$plist"; then echo "$plist names the install"; return 0; fi
+                    done
+                    i=0
+                    while [ $i -lt $nfiles ]; do
+                        if names "$home/${files[$i]}"; then echo "$home/${files[$i]} names the install"; return 0; fi
+                        i=$((i + 1))
                     done
                 done
                 return 1
@@ -241,13 +257,16 @@ internal static class PrivilegedSwapScript {
     }
 
     /// <summary>The script's positional arguments: the status file, the control pipe, the uid that must own their
-    /// folder, the staging name's random part, the folder of every account's home, then the links as a count and
+    /// folder, the staging name's random part, the folder of every account's home, the home files as a count and
+    /// paths, then the links as a count and
     /// (path, original, replacement) triples, and the entries as a count and (original, aside, kind d/l/f, marker,
     /// daemon path, daemon identity, link target name, substring count, substrings…) groups, each empty check
     /// skipped.</summary>
     internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec, uint owner) {
         Validate(spec);
-        var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), spec.Staging, spec.Homes, Number(spec.Links.Count) };
+        var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), spec.Staging, spec.Homes, Number(spec.HomeFiles.Count) };
+        args.AddRange(spec.HomeFiles);
+        args.Add(Number(spec.Links.Count));
         foreach (var link in spec.Links) args.AddRange([link.Path, link.Original, link.Replacement]);
         args.Add(Number(spec.Entries.Count));
         foreach (var entry in spec.Entries) {
@@ -285,6 +304,7 @@ internal static class PrivilegedSwapScript {
         Require(spec.ControlFifo, Normal, "control pipe");
         Require(spec.StatusFile, Normal, "status file");
         Require(spec.Homes, Normal, "homes folder");
+        foreach (var file in spec.HomeFiles) Require(file, f => !Path.IsPathRooted(f) && !f.Split('/').Contains(".."), "home file");
         Require(spec.Staging, s => s.Length >= 32 && s.All(char.IsAsciiHexDigitLower), "staging name");
         if (Path.GetDirectoryName(spec.StatusFile) != Path.GetDirectoryName(spec.ControlFifo))
             throw new ArgumentException("The status file and the control pipe must share one folder.", nameof(spec));

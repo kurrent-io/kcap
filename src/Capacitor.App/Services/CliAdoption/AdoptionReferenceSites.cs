@@ -30,6 +30,20 @@ internal static class AdoptionReferenceSites {
     const string LaunchdSite       = "launchd:";
     const string DaemonLabelPrefix = "io.kurrent.kcap.daemon.";
 
+    /// <summary>The files the site read takes from below <paramref name="home"/> for the default harness directories,
+    /// launch agents aside, relative to it: what the privileged helper reads below every account's home.</summary>
+    internal static IReadOnlyList<string> HomeFiles(UserHome home, HarnessRegistry harnesses) {
+        var claude = AccountLayouts.Claude(home, AccountLayouts.DefaultDirectory(HarnessId.Claude, home));
+        string[] files = [
+            .. harnesses.SelectMany(h => h.IntegrationFiles), .. ClaudeHarness.Over(claude).IntegrationFiles,
+            Path.Combine(home.Path, ".gitconfig"), Path.Combine(home.Path, ".config", "git", "config"),
+            Path.Combine(claude.Home, "plugins", "known_marketplaces.json"), Path.Combine(claude.Home, "plugins", "installed_plugins.json"),
+        ];
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(home.Path)) + Path.DirectorySeparatorChar;
+        return [.. files.Select(Path.GetFullPath).Where(f => f.StartsWith(root, StringComparison.Ordinal))
+            .Select(f => f[root.Length..]).Distinct(StringComparer.Ordinal)];
+    }
+
     internal static Task<IReadOnlyList<ReferenceSite>> ReadAsync(
             UserHome home, AccountStore accounts, Launchctl launchctl, CancellationToken ct) =>
         ReadAsync(home, HarnessRegistry.FromEnvironment(home), accounts, launchctl, ct);

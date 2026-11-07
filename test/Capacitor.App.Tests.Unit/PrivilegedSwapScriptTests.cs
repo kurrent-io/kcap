@@ -402,12 +402,35 @@ public class PrivilegedSwapScriptTests {
         await install.AssertUntouchedAsync(spec);
     }
 
-    /// <summary>A launch agent that is not a kcap daemon's names nothing kcap runs.</summary>
+    /// <summary>Any launch agent naming the install keeps it, as the user's own check holds on one, and so does a harness's
+    /// integration file in another account's home.</summary>
     [Test]
-    public async Task Another_launch_agent_naming_the_install_does_not_keep_it() {
+    [Arguments("Library/LaunchAgents/com.example.other.plist")]
+    [Arguments(".claude/settings.json")]
+    public async Task A_site_in_another_home_naming_the_install_keeps_it_on_go(string site) {
         var install = PrivilegedNpmInstall.Create(Tmp);
-        var spec    = install.Spec(Tmp);
-        Tmp.CreateFile(Path.Combine("homes", "other", "Library", "LaunchAgents", "com.example.other.plist"), install.Packages[1]);
+        var spec    = install.Spec(Tmp) with { HomeFiles = [".claude/settings.json"] };
+        var named   = Tmp.CreateFile(Path.Combine("homes", "other", site), $$"""{"command": "{{install.Packages[1]}}/bin/kcap hook"}""");
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        var result = await run.ExitAsync();
+
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped", "in-use"]);
+        await Assert.That(result.Stderr).Contains(named);
+        await install.AssertUntouchedAsync(spec);
+    }
+
+    /// <summary>Another account can put a pipe where a home file belongs: root never opens it, which would wait for a
+    /// writer for good.</summary>
+    [Test]
+    public async Task A_pipe_at_a_home_file_is_skipped() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp) with { HomeFiles = [".claude/settings.json"] };
+        var pipe    = Tmp.CreateDir("homes", "other", ".claude").PathTo("settings.json");
+        var made    = await new ProcessRunner(TimeProvider.System).RunAsync("/usr/bin/mkfifo", [pipe], new RunOptions(null, TimeSpan.FromSeconds(10)), CancellationToken.None);
+        await Assert.That(made.ExitCode).IsEqualTo(0);
         await using var run = Run.Start(Tmp, spec);
 
         await run.WaitForAsync("swapped");

@@ -36,6 +36,20 @@ public class AdoptionReferenceSitesTests {
     HarnessRegistry Harnesses => TestHarnesses.Under(Home);
     AccountStore Accounts => new(Tmp.PathTo("accounts"));
 
+    /// <summary>What another account's home is read for: the same files below a home, relative to it, and nothing outside
+    /// it.</summary>
+    [Test]
+    public async Task Home_files_are_the_sites_below_a_home_relative_to_it() {
+        var files = AdoptionReferenceSites.HomeFiles(Home, Harnesses);
+
+        await Assert.That(files).Contains(Path.Combine(".claude", "settings.json"));
+        await Assert.That(files).Contains(Path.Combine(".claude", "plugins", "installed_plugins.json"));
+        await Assert.That(files).Contains(Path.Combine(".codex", "config.toml"));
+        await Assert.That(files).Contains(".gitconfig");
+        await Assert.That(files.Any(Path.IsPathRooted)).IsFalse();
+        await Assert.That(files.Count).IsEqualTo(files.Distinct().Count());
+    }
+
     OtherCliInstall Npm() {
         var scope    = Tmp.GetResolvedPath("prefix", "lib", "node_modules", "@kurrent");
         var root     = Path.Combine(scope, "kcap");

@@ -7,4 +7,8 @@ namespace Capacitor.App.Services.CliAdoption;
 /// advance. <paramref name="Homes"/> holds every account's home, whose launch agents the helper reads.</summary>
 public sealed record PrivilegedSpec(
     IReadOnlyList<LinkChange> Links, IReadOnlyList<PrivilegedEntry> Entries, string ControlFifo, string StatusFile, TimeSpan GoWait,
-    string Staging, string Homes = "/Users");
+    string Staging, string Homes = "/Users") {
+    /// <summary>The files below a home that can name an install, relative to it, which the helper reads in every
+    /// account's.</summary>
+    public IReadOnlyList<string> HomeFiles { get; init; } = [];
+}

@@ -10,7 +10,7 @@ namespace Capacitor.App.Services.CliAdoption;
 internal sealed class AdoptionPrivilegedStep(
         IAdoptionMachine machine, AdoptionRecordStore store, AsideRetirement retirement, AdoptionDeletion deletion,
         AdoptionPathStep path, IPrivilegedSwap administrator, Func<LifecyclePrompt, CancellationToken, Task<bool>> confirm,
-        AdoptionBundle bundle, string helperFolder, Action<string, (string Key, string? Value)[]> log) {
+        AdoptionBundle bundle, string helperFolder, IReadOnlyList<string> homeFiles, Action<string, (string Key, string? Value)[]> log) {
     internal const string PathNotOnBundle = "path_not_on_bundle";
     internal const string NothingLeft     = "nothing_left";
     internal const string HelperRunning   = "helper_running";
@@ -81,7 +81,9 @@ internal sealed class AdoptionPrivilegedStep(
 
         var folder = Path.Combine(Path.GetFullPath(helperFolder), "cli-adoption-helper-" + Guid.NewGuid().ToString("N"));
         var spec   = new PrivilegedSpec(links, [.. entries.Select(e => Entry(install, retirement.Plan(e)))],
-            Path.Combine(folder, "control"), Path.Combine(folder, "status"), GoWait, RandomNumberGenerator.GetHexString(32, lowercase: true));
+            Path.Combine(folder, "control"), Path.Combine(folder, "status"), GoWait, RandomNumberGenerator.GetHexString(32, lowercase: true)) {
+            HomeFiles = homeFiles,
+        };
         path.Adopt(links);
         PrivilegedResult result;
         try {
