@@ -11,9 +11,7 @@ using Capacitor.Cli.Core.Resume;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
 using Microsoft.AspNetCore.SignalR.Client;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Capacitor.Cli.Core.LocalEdition;
 
 namespace Capacitor.Cli.Daemon.Services;
 
@@ -258,15 +256,6 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     /// <summary>The credential every lane to this server sends: the hub, agent-run events, attachments.</summary>
     internal ICredentialSource Credentials { get; }
 
-    static HttpMessageHandler NoRedirects(HttpMessageHandler handler) {
-        switch (handler) {
-            case HttpClientHandler h:  h.AllowAutoRedirect = false; break;
-            case SocketsHttpHandler s: s.AllowAutoRedirect = false; break;
-        }
-
-        return handler;
-    }
-
     public ServerConnection(
             DaemonConfig config, ICredentialSource credentials, ILoggerFactory loggerFactory,
             ILogger<ServerConnection> logger, TimeProvider time, DaemonStatusNotifier? statusNotifier = null) {
@@ -287,60 +276,18 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             CredentialHealth.ObserveRejection();
         }
 
-        // Checked on every send and every hub negotiation, reconnects included: after a purge the port may belong
-        // to anything.
-        var refusal = config.DestinationRefusal;
-        // It follows redirects itself, so it can check each hop; the handler under it follows none.
-        DelegatingHandler Guarded(HttpMessageHandler inner, Action<string> report) =>
-            new LocalDestinationHandler(config.LocalRoot, config.ServerUrl, refusal, followRedirects: true) {
-                InnerHandler = new BearerRejectionReportHandler(time, report) { InnerHandler = NoRedirects(inner) },
-            };
-
         _eventQueue = new(
             config, credentials, time, loggerFactory.CreateLogger<AgentRunEventQueue>(),
-            new HttpClient(Guarded(LoopbackConnect.Apply(new SocketsHttpHandler()), ReportRejection)));
+            new HttpClient(DaemonHub.Guarded(config, LoopbackConnect.Apply(new SocketsHttpHandler()), time, ReportRejection)));
 
-        var hubUrl = $"{config.ServerUrl.TrimEnd('/')}/hubs/sessions";
-
-        _hub = new HubConnectionBuilder()
-            .WithUrl(
-                hubUrl,
-                options => {
-                    options.AccessTokenProvider = async () => {
-                        var state = await credentials.ResolveAsync(default);
-                        CredentialHealth.Observe(state);
-                        if (HubIdentity.Of(state) is { } identity) Interlocked.CompareExchange(ref _pendingAs, identity, null);
-                        if (state.Bearer is null) LogHubSignInUnavailable(state);
-                        else Volatile.Write(ref _lastUnavailable, null);
-                        return state.Bearer;
-                    };
-                    options.HttpMessageHandlerFactory = inner => Guarded(LoopbackConnect.ForHub(new Uri(hubUrl), inner), ReportHubRejection);
-                    HttpClientExtensions.AddObservationHeaders(options.Headers, config.UpdateCheckOff);
-                    options.WebSocketFactory = (context, ct) => {
-                        LocalDestination.Check(context.Uri, config.LocalRoot, config.ServerUrl, refusal);
-
-                        return BearerRejectionReportHandler.ConnectWebSocketAsync(
-                            context.Uri, context.Options.AccessTokenProvider, time, ReportHubRejection, ct);
-                    };
-                }
-            )
-            .WithAutomaticReconnect(new RetryPolicy())
-            // Forward SignalR client framework logs (HubConnection, JsonHubProtocol,
-            // …) to the daemon's logger factory. Without this, the HubConnectionBuilder
-            // resolves a NullLoggerFactory internally and protocol-level errors
-            // (e.g. "couldn't bind arguments for invocation 'LaunchAgent'" — exactly
-            // what DEV-1665 was) silently disappear, leaving the daemon looking
-            // healthy while it drops every invocation.
-            .ConfigureLogging(b => b.Services.AddSingleton(loggerFactory))
-            .AddJsonProtocol(options => ConfigureHubPayload(options.PayloadSerializerOptions))
-            .Build();
-
-        // Halve KeepAliveInterval (15s → 7s) so the WebSocket stays warm
-        // through cloudflared and the server detects a dead transport sooner.
-        // ServerTimeout stays at the 30s default to keep a safe 2× margin
-        // against mixed-version rollouts where the server may still be on
-        // the default 15s server-side KeepAliveInterval.
-        _hub.KeepAliveInterval = TimeSpan.FromSeconds(7);
+        _hub = DaemonHub.Build(config, async () => {
+            var state = await credentials.ResolveAsync(default);
+            CredentialHealth.Observe(state);
+            if (HubIdentity.Of(state) is { } identity) Interlocked.CompareExchange(ref _pendingAs, identity, null);
+            if (state.Bearer is null) LogHubSignInUnavailable(state);
+            else Volatile.Write(ref _lastUnavailable, null);
+            return state.Bearer;
+        }, ReportHubRejection, loggerFactory, time);
 
         _hub.On<LaunchAgentCommand>("LaunchAgent", cmd => SafeInvoke("LaunchAgent", () => OnLaunchAgent?.Invoke(cmd)));
         _hub.On<string>("StopAgent", agentId => SafeInvoke("StopAgent", () => OnStopAgent?.Invoke(agentId)));
@@ -451,45 +398,11 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         _hub.On<AcpInteractionResolution>("AcpInteractionResolved",
             res => _pendingAcpInteractions.Resolve(res.RequestId, res.Decision));
 
-        RegisterUiBroadcastSinks();
+        DaemonHub.IgnoreUiBroadcasts(_hub);
 
         _hub.Reconnecting += OnReconnecting;
         _hub.Reconnected  += OnReconnected;
         _hub.Closed       += OnClosed;
-    }
-
-    /// <summary>
-    /// Registers no-op client handlers for the UI-only broadcasts a daemon can
-    /// receive on its hub connection. The server adds every
-    /// authenticated connection — daemons included — to its <c>org-members</c>
-    /// UI group in <c>CapacitorHub.OnConnectedAsync</c>, and only removes the
-    /// daemon again inside <c>DaemonConnect</c>. In the window between the
-    /// WebSocket connecting and <c>DaemonConnect</c> completing — which recurs on
-    /// every (re)connect — the daemon receives these broadcasts with no matching
-    /// handler, and SignalR's <c>JsonHubProtocol</c> logs a "Failed to find
-    /// handler" warning plus an argument-bind failure for each one ("Invocation
-    /// provides N argument(s) but target expects 0"). Registering sinks at the
-    /// server's current arities, with <see cref="JsonElement"/> parameters that
-    /// bind to any payload shape, silences the flood even against an
-    /// already-deployed server. The permanent fix is server-side: never add a
-    /// daemon connection to the UI group in the first place.
-    /// </summary>
-    void RegisterUiBroadcastSinks() {
-        static Task Sink() => Task.CompletedTask;
-
-        _hub.On("AgentInstancesChanged", Sink);
-        _hub.On("DaemonsChanged",        Sink);
-        _hub.On("WelcomeStateChanged",   Sink);
-
-        _hub.On<JsonElement>("ActiveSessionAdded",   _ => Sink());
-        _hub.On<JsonElement>("ActiveSessionChanged", _ => Sink());
-        _hub.On<JsonElement>("ActiveSessionRemoved", _ => Sink());
-
-        _hub.On<JsonElement, JsonElement>("LaunchFailed",        (_, _) => Sink());
-        _hub.On<JsonElement, JsonElement>("PermissionResponded", (_, _) => Sink());
-
-        _hub.On<JsonElement, JsonElement, JsonElement, JsonElement, JsonElement>(
-            "PermissionRequested", (_, _, _, _, _) => Sink());
     }
 
     CancellationToken _ct;
@@ -2063,22 +1976,6 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             if (task is not null) await task;
         } catch (Exception ex) {
             LogHandlerThrew(ex, method);
-        }
-    }
-
-    class RetryPolicy : IRetryPolicy {
-        static readonly TimeSpan[] Delays = [
-            TimeSpan.FromSeconds(1),
-            TimeSpan.FromSeconds(2),
-            TimeSpan.FromSeconds(5),
-            TimeSpan.FromSeconds(10),
-            TimeSpan.FromSeconds(30)
-        ];
-
-        public TimeSpan? NextRetryDelay(RetryContext retryContext) {
-            var index = Math.Min(retryContext.PreviousRetryCount, Delays.Length - 1);
-
-            return Delays[index]; // Keeps retrying at 30s intervals after initial backoff
         }
     }
 }
