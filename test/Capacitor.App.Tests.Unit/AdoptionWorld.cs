@@ -502,5 +502,4 @@ sealed class AdoptionWorld {
             return Task.FromResult(new ShimResult(ShimOutcome.Installed, null));
         }
     }
-
 }

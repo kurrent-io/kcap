@@ -529,6 +529,50 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Notifier.Notified[^1]).Contains("was removed");
     }
 
+    /// <summary>The lane proves only the app's own daemon. Another service of the install, rewritten onto the bundle but
+    /// stopped since, names nothing the next run could see, so the install stays the fallback until that service runs
+    /// again.</summary>
+    [Test]
+    public async Task Another_service_that_stopped_after_its_move_keeps_the_install_until_it_runs_again() {
+        var world = new AdoptionWorld(Tmp);
+        var plist = Path.Combine(world.Home, "Library", "LaunchAgents", "io.kurrent.kcap.daemon.flow.plist");
+        var program = world.Install.DaemonBinary;
+        world.Machine.Jobs["flow"] = new LaunchdJob(true, 4300, program);
+        world.Machine.Evidence = _ => {
+            var found = world.Found();
+            var job = world.Machine.Jobs["flow"];
+            ServiceUnitFact flow = new(plist, "flow", program, found.Units[0].StoredPath, null, job.Loaded, job.Pid, job.Loaded ? job.Program : null);
+            return Task.FromResult(found with { Units = [.. found.Units, flow] });
+        };
+        var runsAgain = false;
+        world.Machine.Repoint = _ => {
+            world.WritePlist(world.Bundle.Daemon);
+            world.Machine.Jobs[AdoptionWorld.DaemonName] = new LaunchdJob(true, AdoptionWorld.NewDaemonPid, world.Bundle.Daemon);
+            program = world.Bundle.Daemon;
+            File.WriteAllText(plist, $"<plist><dict><key>ProgramArguments</key><array><string>{program}</string></array></dict></plist>");
+            world.Machine.Jobs["flow"] = new LaunchdJob(true, runsAgain ? 4400 : null, program);
+            return new MutationOutcome.Succeeded();
+        };
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Logged("adoption_repoint").Single()["reason"]).IsEqualTo("unit_stopped:flow");
+        await Assert.That(world.Record.UnprovenMoves.Single().Daemon).IsEqualTo("flow");
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+        await Assert.That(world.Record.Pending).IsTrue();
+
+        runsAgain = true;
+        using (var last = world.Launch()) await world.FirstLookAsync(last);
+
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+        await Assert.That(world.Record.UnprovenMoves).IsEmpty();
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+    }
+
     /// <summary>A fallback the user removed by hand is nothing to keep: the next run lets the unproven move go instead of
     /// asking a repoint about an install that is gone.</summary>
     [Test]

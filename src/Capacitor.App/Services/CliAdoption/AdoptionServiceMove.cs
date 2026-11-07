@@ -56,8 +56,10 @@ internal sealed class AdoptionServiceMove(
             }
             if (await FailureAsync(outcome, proving, ct).ConfigureAwait(false) is { } failure) {
                 log("adoption_repoint", AdoptionEvent.For(install, "failed", failure.Reason));
-                // Not rolled back to the old plist: the CLI already rolls back a bootstrap that fails.
-                if (outcome is not (MutationOutcome.Refused or MutationOutcome.Succeeded)) RecordUnproven(install, failure.Daemon, proving);
+                // Not rolled back to the old plist: the CLI already rolls back a bootstrap that fails. A unit whose plist
+                // already names the bundle is out of the next evidence's sight however the lane did.
+                if (outcome is not (MutationOutcome.Refused or MutationOutcome.Succeeded) || failure.Rewritten)
+                    RecordUnproven(install, failure.Daemon, proving);
                 continue;
             }
             log("adoption_repoint", AdoptionEvent.For(install, "ok"));
@@ -100,30 +102,31 @@ internal sealed class AdoptionServiceMove(
         log("adoption_kept", AdoptionEvent.For(install, reason: $"{MoveUnproven}:{daemon}"));
     }
 
-    // The first reason the move is not proven, with the daemon it concerns. With no unit left to check, as from a record
-    // that lost them, only the lane's proof of the app's own daemon counts.
-    async Task<(string Reason, string? Daemon)?> FailureAsync(MutationOutcome outcome, List<ServiceUnitFact> units, CancellationToken ct) {
+    // The first reason the move is not proven, with the daemon it concerns and whether that unit's plist already names the
+    // bundle. With no unit left to check, as from a record that lost them, only the lane's proof of the app's own daemon
+    // counts.
+    async Task<(string Reason, string? Daemon, bool Rewritten)?> FailureAsync(MutationOutcome outcome, List<ServiceUnitFact> units, CancellationToken ct) {
         var own     = machine.AppDaemonName;
         var ownUnit = own is null ? null : units.Find(u => Running(u) && DaemonStore.Sanitize(u.Name) == DaemonStore.Sanitize(own));
         var blamed  = ownUnit?.Name ?? units.FirstOrDefault()?.Name ?? own;
         switch (outcome) {
-            case MutationOutcome.Refused refused: return (refused.Reason, blamed);
-            case MutationOutcome.Failed failed:   return (failed.Reason ?? $"exit_{failed.ExitCode}", blamed);
+            case MutationOutcome.Refused refused: return (refused.Reason, blamed, false);
+            case MutationOutcome.Failed failed:   return (failed.Reason ?? $"exit_{failed.ExitCode}", blamed, false);
         }
 
-        if ((ownUnit is not null || units.Count == 0) && outcome is not MutationOutcome.Succeeded) return (Describe(outcome), blamed);
+        if ((ownUnit is not null || units.Count == 0) && outcome is not MutationOutcome.Succeeded) return (Describe(outcome), blamed, false);
 
         foreach (var unit in units) {
-            if (!IsBundleDaemon(PlistProgram(unit.PlistPath))) return ($"unit_not_moved:{unit.Name}", unit.Name);
+            if (!IsBundleDaemon(PlistProgram(unit.PlistPath))) return ($"unit_not_moved:{unit.Name}", unit.Name, false);
 
             LaunchdJob job;
             try {
                 job = await machine.ReadJobAsync(unit.Name, ct).ConfigureAwait(false);
             } catch (IOException) {
-                return ($"unit_unknown:{unit.Name}", unit.Name);
+                return ($"unit_unknown:{unit.Name}", unit.Name, true);
             }
-            if (job.Loaded && !IsBundleDaemon(job.Program)) return ($"unit_not_moved:{unit.Name}", unit.Name);
-            if (Running(unit) && job.Pid is null) return ($"unit_stopped:{unit.Name}", unit.Name);
+            if (job.Loaded && !IsBundleDaemon(job.Program)) return ($"unit_not_moved:{unit.Name}", unit.Name, false);
+            if (Running(unit) && job.Pid is null) return ($"unit_stopped:{unit.Name}", unit.Name, true);
         }
 
         return null;
