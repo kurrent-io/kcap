@@ -1,4 +1,7 @@
+using Capacitor.App.Services;
 using Capacitor.App.Services.CliAdoption;
+using Capacitor.App.Services.Mutation;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Install;
 using TUnit.Core.Enums;
 
@@ -48,6 +51,57 @@ public class AdoptionDeletionTests {
 
         await Assert.That(AdoptionDeletion.StillOurs(install, layout.Versions, Aside(layout.Versions))).IsFalse();
         await Assert.That(AdoptionDeletion.StillOurs(install, layout.Current, Aside(layout.Current))).IsFalse();
+    }
+
+    /// <summary>The daemon is checked in versions, the folder holding it; current, which only resolves into versions,
+    /// follows it once versions is gone.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_script_install_nothing_holds_is_retired_whole() {
+        var (layout, install) = await ScriptWithBinariesAsync();
+        var config = new ConfigRoot(Tmp.CreateDir("config"));
+        var store  = new AdoptionRecordStore(config);
+        store.Update(r => r with {
+            CutoverUtc = DateTime.UtcNow.AddMinutes(-5), Installs = [new RecordedInstall(install, InstallState.Pending, null, null, null, null)],
+        });
+        var deletion = new AdoptionDeletion(new Machine(install), store, new AsideRetirement(config, "cli-adoption-retire"),
+            TestHarnesses.Under(new UserHome(Tmp.CreateDir("home"))), Tmp.CreateDir("kcap.app"), (_, _) => { });
+        ProcessFact self = new(Environment.ProcessId, "/Applications/kcap.app/Contents/MacOS/Kcap", null, DateTime.UtcNow);
+
+        await deletion.SettleAsync([install], [self], [], [], CancellationToken.None);
+
+        await Assert.That(store.Load().Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(Directory.GetFileSystemEntries(layout.Root)).IsEmpty();
+    }
+
+    async Task<(ScriptInstallLayout Layout, OtherCliInstall Install)> ScriptWithBinariesAsync() {
+        var (install, layout) = Script();
+        File.WriteAllText(install.CliBinary, "kcap");
+        File.WriteAllText(install.DaemonBinary, "kcap-daemon");
+        var identity = await new EntryIdentity(new ProcessRunner(TimeProvider.System)).OfAsync(install.DaemonBinary, CancellationToken.None);
+        return (layout, install with { Identity = identity! });
+    }
+
+    /// <summary>Reads the install and each identity as they are; nothing else is asked of it.</summary>
+    sealed class Machine(OtherCliInstall install) : IAdoptionMachine {
+        readonly EntryIdentity _identity = new(new ProcessRunner(TimeProvider.System));
+
+        public Task<OtherCliInstall?> ReadInstallAsync(string binary, CancellationToken ct) =>
+            Task.FromResult<OtherCliInstall?>(File.Exists(binary) ? install : null);
+
+        public Task<string?> IdentityAsync(string entry, CancellationToken ct) => _identity.OfAsync(entry, ct);
+
+        public string? StartToken(int pid) => null;
+
+        public Task<AdoptionEvidence> ReadEvidenceAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<LaunchdJob> ReadJobAsync(string unitName, CancellationToken ct) => throw new NotSupportedException();
+        public string? AppDaemonName => throw new NotSupportedException();
+        public Task<MutationOutcome> RepointAsync(OtherCliInstall install, Func<CancellationToken, Task<bool>> stillSame, CancellationToken ct) =>
+            throw new NotSupportedException();
+        public Task ReattachAsync() => throw new NotSupportedException();
+        public IReadOnlyList<ProcessFact> ReadProcesses() => throw new NotSupportedException();
+        public Task<IReadOnlyList<ReferenceSite>> ReadSitesAsync(CancellationToken ct) => throw new NotSupportedException();
+        public bool StillRuns(int pid, string startToken) => throw new NotSupportedException();
+        public Task<bool> WaitForExitAsync(int pid, string? startToken, TimeSpan bound, CancellationToken ct) => throw new NotSupportedException();
     }
 
     [Test, ExcludeOn(OS.Windows)]

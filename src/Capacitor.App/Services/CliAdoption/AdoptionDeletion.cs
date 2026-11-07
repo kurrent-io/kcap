@@ -81,8 +81,9 @@ internal sealed class AdoptionDeletion(
             return EntriesUnknown;
         }
         foreach (var entry in install.OwnedEntries.OrderByDescending(e => HoldsBinaries(install, e))) {
-            // Taken while the entry is still in place, so the daemon is found inside its aside by the same path.
-            var daemonInside = CanonicalPath.IsWithin(install.DaemonBinary, entry)
+            // Taken while the entry is still in place, so the daemon is found inside its aside by the same path. Only the
+            // folder holding it is checked: a script install's current resolves into versions, gone by the time it goes.
+            var daemonInside = Directory.Exists(entry) && new FileInfo(entry).LinkTarget is null && CanonicalPath.IsWithin(install.DaemonBinary, entry)
                 ? Path.GetRelativePath(CanonicalPath.Resolve(entry), CanonicalPath.Resolve(install.DaemonBinary))
                 : null;
             bool retired;
