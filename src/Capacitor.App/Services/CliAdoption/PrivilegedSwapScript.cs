@@ -36,7 +36,8 @@ internal static class PrivilegedSwapScript {
             while [ $k -lt $nlinks ]; do links[$k]=$1; olds[$k]=$2; news[$k]=$3; shift 3; k=$((k + 1)); done
             nentries=$1; shift; k=0; m=0
             while [ $k -lt $nentries ]; do
-                entries[$k]=$1; asides[$k]=$2; kinds[$k]=$3; markers[$k]=$4; first[$k]=$m; c=$5; shift 5
+                entries[$k]=$1; asides[$k]=$2; kinds[$k]=$3; markers[$k]=$4; daemons[$k]=$5; identities[$k]=$6; targets[$k]=$7
+                first[$k]=$m; c=$8; shift 8
                 while [ $c -gt 0 ]; do needs[$m]=$1; shift; m=$((m + 1)); c=$((c - 1)); done
                 last[$k]=$m
                 k=$((k + 1))
@@ -115,6 +116,15 @@ internal static class PrivilegedSwapScript {
 
             ours() {
                 [ "$(kind "$1")" = "${kinds[$2]}" ] || return 1
+                if [ -n "${targets[$2]}" ]; then
+                    local target
+                    target=$(/usr/bin/readlink -- "$1") || return 1
+                    target=${target%/}
+                    [ "${target##*/}" = "${targets[$2]}" ] || return 1
+                fi
+                if [ -n "${daemons[$2]}" ]; then
+                    [ "$(/usr/bin/stat -f '%d:%i:%m:%c' -- "$1/${daemons[$2]}" 2>/dev/null)" = "${identities[$2]}" ] || return 1
+                fi
                 [ -n "${markers[$2]}" ] || return 0
                 [ "${kinds[$2]}" = d ] && [ -f "$1/${markers[$2]}" ] && ! [ -L "$1/${markers[$2]}" ] || return 1
                 local j=${first[$2]}
@@ -157,15 +167,18 @@ internal static class PrivilegedSwapScript {
 
     /// <summary>The script's positional arguments: the status file, the control pipe, the uid that must own their
     /// folder, the staging name's random part, then the links as a count and (path, original, replacement) triples, and
-    /// the entries as a count and (original, aside, kind d/l/f, marker, substring count, substrings…) groups, an empty
-    /// marker meaning a kind check only.</summary>
+    /// the entries as a count and (original, aside, kind d/l/f, marker, daemon path, daemon identity, link target name,
+    /// substring count, substrings…) groups, each empty check skipped.</summary>
     internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec, uint owner) {
         Validate(spec);
         var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), spec.Staging, Number(spec.Links.Count) };
         foreach (var link in spec.Links) args.AddRange([link.Path, link.Original, link.Replacement]);
         args.Add(Number(spec.Entries.Count));
         foreach (var entry in spec.Entries) {
-            args.AddRange([entry.Entry.Original, entry.Entry.Aside, Letter(entry.Kind), entry.Marker ?? "", Number(entry.MarkerContains.Count)]);
+            args.AddRange([
+                entry.Entry.Original, entry.Entry.Aside, Letter(entry.Kind), entry.Marker ?? "",
+                entry.Daemon?.Path ?? "", entry.Daemon?.Identity ?? "", entry.LinkTargetName ?? "", Number(entry.MarkerContains.Count),
+            ]);
             args.AddRange(entry.MarkerContains);
         }
         return args;
@@ -203,8 +216,17 @@ internal static class PrivilegedSwapScript {
             Require(link.Original, _ => true, "link target");
             Require(link.Replacement, Path.IsPathFullyQualified, "link replacement");
         }
-        foreach (var (entry, kind, marker, contains) in spec.Entries) {
+        foreach (var (entry, kind, marker, contains, daemon, linkTarget) in spec.Entries) {
             Require(entry.Original, Normal, "entry");
+            if (daemon is var (daemonPath, identity)) {
+                if (kind != PrivilegedEntryKind.Directory) throw new ArgumentException($"Only a directory holds the daemon, not {entry.Original}.", nameof(spec));
+                Require(daemonPath, p => !Path.IsPathRooted(p) && !p.Split('/').Contains(".."), "daemon path");
+                Require(identity, i => i.Split(':') is { Length: 4 } parts && parts.All(n => n.Length > 0 && n.All(char.IsAsciiDigit)), "daemon identity");
+            }
+            if (linkTarget is not null) {
+                if (kind != PrivilegedEntryKind.Link) throw new ArgumentException($"Only a link has a target, not {entry.Original}.", nameof(spec));
+                Require(linkTarget, t => !t.Contains('/') && t is not ("." or ".."), "link target name");
+            }
             Require(entry.Aside, a => AsideRetirement.IsOwnAside(entry.Original, a, linkAllowed: true), "aside");
             if (string.IsNullOrEmpty(marker)) {
                 if (contains.Count > 0 || ScriptLayoutKind(entry.Original) != kind)

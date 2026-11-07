@@ -190,15 +190,23 @@ internal sealed class AdoptionPrivilegedStep(
         ]
         : install.OwnedEntries;
 
-    // An npm package folder must still hold its own package.json, naming that package at the recorded version.
-    static PrivilegedEntry Entry(OtherCliInstall install, AsideEntry aside) => install.Kind == OtherCliInstallKind.Script
-        ? new PrivilegedEntry(aside, Path.GetFileName(aside.Original) switch {
-            ScriptInstallLayout.VersionsName => PrivilegedEntryKind.Directory,
-            ScriptInstallLayout.CurrentName  => PrivilegedEntryKind.Link,
-            _                                => PrivilegedEntryKind.File,
-        }, null, [])
-        : new PrivilegedEntry(aside, PrivilegedEntryKind.Directory, "package.json",
-            [Quoted("@kurrent/" + Path.GetFileName(aside.Original)), Quoted(install.Version)]);
+    // An npm package folder must still hold its own package.json, naming that package at the recorded version. The
+    // folder holding the daemon must hold the very binary preflight read, which a reinstall of the same version
+    // replaces, and a script install's current must still name its version, which an update moves on.
+    static PrivilegedEntry Entry(OtherCliInstall install, AsideEntry aside) {
+        (string, string)? daemon = Directory.Exists(aside.Original) && new FileInfo(aside.Original).LinkTarget is null
+                && CanonicalPath.IsWithin(install.DaemonBinary, aside.Original)
+            ? (Path.GetRelativePath(CanonicalPath.Resolve(aside.Original), CanonicalPath.Resolve(install.DaemonBinary)), install.Identity)
+            : null;
+        return install.Kind == OtherCliInstallKind.Script
+            ? Path.GetFileName(aside.Original) switch {
+                ScriptInstallLayout.VersionsName => new PrivilegedEntry(aside, PrivilegedEntryKind.Directory, null, [], daemon),
+                ScriptInstallLayout.CurrentName  => new PrivilegedEntry(aside, PrivilegedEntryKind.Link, null, [], LinkTargetName: install.Version),
+                _                                => new PrivilegedEntry(aside, PrivilegedEntryKind.File, null, []),
+            }
+            : new PrivilegedEntry(aside, PrivilegedEntryKind.Directory, "package.json",
+                [Quoted("@kurrent/" + Path.GetFileName(aside.Original)), Quoted(install.Version)], daemon);
+    }
 
     static string Quoted(string value) => $"\"{value}\"";
 

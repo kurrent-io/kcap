@@ -442,14 +442,14 @@ sealed class AdoptionWorld {
             if (!await verify(ct)) return PutBack(swapped);
 
             store.Update(r => r with { Privileged = helper with { GoSent = true } });
-            foreach (var (entry, _, _, _) in spec.Entries) {
+            foreach (var (entry, _, _, _, _, _) in spec.Entries) {
                 if (Path.Exists(entry.Original)) Directory.Move(entry.Original, entry.Aside);
             }
             if (Cut == CutShortAt.WithAsidesLeft) {
-                foreach (var (entry, _, _, _) in spec.Entries) RootOnly(entry.Aside);
+                foreach (var (entry, _, _, _, _, _) in spec.Entries) RootOnly(entry.Aside);
                 return PrivilegedResult.CutShort;
             }
-            foreach (var (entry, _, _, _) in spec.Entries.Where(e => Directory.Exists(e.Entry.Aside))) {
+            foreach (var (entry, _, _, _, _, _) in spec.Entries.Where(e => Directory.Exists(e.Entry.Aside))) {
                 SetFolderModes(entry.Aside, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 Directory.Delete(entry.Aside, recursive: true);
             }

@@ -65,7 +65,7 @@ public class PrivilegedSwapTests {
         await Assert.That(duringVerify.GoSent).IsFalse();
         await Assert.That(linksDuringVerify).IsEquivalentTo(install.Links.Select(l => (string?)l.Replacement));
         await Assert.That(store.Load().Privileged).IsEqualTo(duringVerify with { GoSent = true });
-        foreach (var (entry, _, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Original)).IsFalse();
+        foreach (var (entry, _, _, _, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Original)).IsFalse();
         await Assert.That(Path.Exists(spec.ControlFifo)).IsFalse();
         await Assert.That(Path.Exists(spec.StatusFile)).IsFalse();
     }
@@ -155,7 +155,7 @@ public class PrivilegedSwapTests {
             install.Packages[0], spec, Prompt, _ => Task.FromResult(true), CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(PrivilegedResult.Deleted);
-        foreach (var (entry, _, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Original)).IsFalse();
+        foreach (var (entry, _, _, _, _, _) in spec.Entries) await Assert.That(Path.Exists(entry.Original)).IsFalse();
         foreach (var link in install.Links) await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Replacement);
         await Assert.That(File.Exists(pwned)).IsFalse();
     }
