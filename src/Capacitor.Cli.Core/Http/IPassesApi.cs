@@ -19,4 +19,8 @@ public interface IPassesApi {
     Task<PassAnswerResult> DeclineAsync(string passId, CancellationToken ct = default);
 
     Task<PassReadResult> GetAsync(string passId, CancellationToken ct = default);
+
+    /// <summary>Declares the reminder to follow up a pass as a loose end on the sending session. Throws
+    /// <see cref="CapacitorApiException"/> when the server does not record it.</summary>
+    Task DeclareFollowUpAsync(DeclareLooseEndBody body, CancellationToken ct = default);
 }

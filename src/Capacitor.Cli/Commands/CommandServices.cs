@@ -165,7 +165,9 @@ public static class CommandServices {
         services.AddTransient<McpAnalyticsServer>();
         services.AddTransient<McpArtefactsServer>();
         services.AddTransient<McpKnowledgeServer>();
-        services.AddTransient(sp => new McpPassServer(sp.GetRequiredService<IPassesApi>(), sp.GetRequiredService<CapacitorServer>().Url, sp.GetRequiredService<TimeProvider>()));
+        services.AddTransient(sp => new McpPassServer(
+            sp.GetRequiredService<IPassesApi>(), sp.GetRequiredService<CapacitorServer>().Url, sp.GetRequiredService<TimeProvider>(),
+            () => McpSessionId.TryResolveWithin(null, HarnessRequesterContext.Resolve().SessionId)));
         services.AddTransient(sp => new PassCommand(sp.GetRequiredService<IPassesApi>(), sp.GetRequiredService<CapacitorServer>().Url));
         services.AddTransient(sp => new MessageCommand(sp.GetRequiredService<IPassesApi>(), sp.GetRequiredService<CapacitorServer>().Url));
         services.AddTransient<McpReviewServer>();

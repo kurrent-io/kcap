@@ -63,6 +63,14 @@ internal sealed class PassesApi(ICapacitorHttpClient http, CapacitorServer serve
             : throw new CapacitorApiException(200, "The server's answer could not be read.");
     }
 
+    public async Task DeclareFollowUpAsync(DeclareLooseEndBody body, CancellationToken ct = default) {
+        using var content  = JsonContent.Create(body, CapacitorJsonContext.Default.DeclareLooseEndBody);
+        using var response = await CapacitorApiRequests.SendAsync(
+            http, server, (c, token) => c.PostAsync($"{server.Url}/api/loose-ends/declare", content, token), ct);
+
+        if (!response.IsSuccessStatusCode) throw await CapacitorApiRequests.FailureAsync(response);
+    }
+
     /// <summary>A 409 is an answer too: the call moved nothing, and its body says the pass's state.</summary>
     async Task<PassAnswerResult> AnswerAsync(string passId, string verb, HttpContent? body, CancellationToken ct) {
         using var content  = body;
