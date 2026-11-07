@@ -15,4 +15,8 @@ public sealed record PrivilegedEntry(
     /// <summary>Whether the entry, or the aside it was set aside under and never checked, was there when the app planned
     /// it: only one that was not may be missing for having been deleted already.</summary>
     public bool Present { get; init; } = true;
+
+    /// <summary>For a directory, every name it held when the app planned it: one more, such as a version an update has
+    /// staged, moves the install back.</summary>
+    public IReadOnlyList<string>? Children { get; init; }
 }

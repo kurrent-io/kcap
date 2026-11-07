@@ -204,6 +204,24 @@ public class PrivilegedSwapScriptTests {
         await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Original);
     }
 
+    /// <summary>An update stages its version inside versions before it moves current there: deleting versions then would
+    /// take the new version with it, so the whole install goes back.</summary>
+    [Test]
+    public async Task A_version_staged_since_the_plan_moves_the_install_back() {
+        var (spec, root, link) = ScriptInstall();
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        Tmp.CreateFile("opt kcap/versions/1.5.0/bin/kcap");
+        run.Send("go");
+        await run.ExitAsync();
+
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped", "restored"]);
+        await Assert.That(File.Exists(Path.Combine(root, "versions", "1.5.0", "bin", "kcap"))).IsTrue();
+        await Assert.That(new FileInfo(Path.Combine(root, "current")).LinkTarget).IsEqualTo("versions/1.4.1");
+        await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Original);
+    }
+
     /// <summary>A reinstall of the same version passes the marker check: only the daemon's identity tells it apart, so
     /// a package whose daemon is not the one preflight read moves the whole install back.</summary>
     [Test]
@@ -664,7 +682,9 @@ public class PrivilegedSwapScriptTests {
         var link       = new LinkChange(path, old, bundle);
         var spec = new PrivilegedSpec(
             [link], [.. Layout.Select(e => new PrivilegedEntry(retirement.Plan(Path.Combine(root, e.Name)), e.Kind, null, [],
-                LinkTargetName: e.Kind == PrivilegedEntryKind.Link ? "1.4.1" : null))],
+                LinkTargetName: e.Kind == PrivilegedEntryKind.Link ? "1.4.1" : null) {
+                Children = e.Kind == PrivilegedEntryKind.Directory ? ["1.4.1"] : null,
+            })],
             Tmp.PathTo("helper", "control"), Tmp.PathTo("helper", "status"), TimeSpan.FromSeconds(30), PrivilegedNpmInstall.Staging,
             Tmp.CreateDir("homes"));
         return (spec, root, link);

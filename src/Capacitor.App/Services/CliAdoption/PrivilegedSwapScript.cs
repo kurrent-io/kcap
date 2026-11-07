@@ -41,12 +41,18 @@ internal static class PrivilegedSwapScript {
             while [ $k -lt $nfiles ]; do files[$k]=$1; shift; k=$((k + 1)); done
             nlinks=$1; shift; k=0
             while [ $k -lt $nlinks ]; do links[$k]=$1; olds[$k]=$2; news[$k]=$3; shift 3; k=$((k + 1)); done
-            nentries=$1; shift; k=0; m=0
+            nentries=$1; shift; k=0; m=0; n=0
             while [ $k -lt $nentries ]; do
                 entries[$k]=$1; asides[$k]=$2; kinds[$k]=$3; markers[$k]=$4; daemons[$k]=$5; identities[$k]=$6; targets[$k]=$7
                 present[$k]=$8; first[$k]=$m; c=$9; shift 9
                 while [ $c -gt 0 ]; do needs[$m]=$1; shift; m=$((m + 1)); c=$((c - 1)); done
                 last[$k]=$m
+                kids[$k]=$1; shift; kfirst[$k]=$n
+                if [ "${kids[$k]}" != - ]; then
+                    c=${kids[$k]}
+                    while [ $c -gt 0 ]; do kid[$n]=$1; shift; n=$((n + 1)); c=$((c - 1)); done
+                fi
+                klast[$k]=$n
                 k=$((k + 1))
             done
 
@@ -186,6 +192,11 @@ internal static class PrivilegedSwapScript {
 
             ours() {
                 [ "$(kind "$1")" = "${kinds[$2]}" ] || return 1
+                if [ "${kids[$2]}" != - ]; then
+                    [ "$(/bin/ls -A -- "$1" | /usr/bin/wc -l | /usr/bin/tr -d ' ')" = "${kids[$2]}" ] || return 1
+                    local x=${kfirst[$2]}
+                    while [ $x -lt ${klast[$2]} ]; do exists "$1/${kid[$x]}" || return 1; x=$((x + 1)); done
+                fi
                 if [ -n "${targets[$2]}" ]; then
                     local target
                     target=$(/usr/bin/readlink -- "$1") || return 1
@@ -264,8 +275,8 @@ internal static class PrivilegedSwapScript {
     /// folder, the staging name's random part, the folder of every account's home, the home files as a count and
     /// paths, then the links as a count and
     /// (path, original, replacement) triples, and the entries as a count and (original, aside, kind d/l/f, marker,
-    /// daemon path, daemon identity, link target name, present 1/0, substring count, substrings…) groups, each empty
-    /// check skipped.</summary>
+    /// daemon path, daemon identity, link target name, present 1/0, substring count, substrings…, child count or -,
+    /// children…) groups, each empty check skipped.</summary>
     internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec, uint owner) {
         Validate(spec);
         var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), spec.Staging, spec.Homes, Number(spec.HomeFiles.Count) };
@@ -280,6 +291,8 @@ internal static class PrivilegedSwapScript {
                 Number(entry.MarkerContains.Count),
             ]);
             args.AddRange(entry.MarkerContains);
+            args.Add(entry.Children is { } children ? Number(children.Count) : "-");
+            args.AddRange(entry.Children ?? []);
         }
         return args;
     }
@@ -318,7 +331,8 @@ internal static class PrivilegedSwapScript {
             Require(link.Original, _ => true, "link target");
             Require(link.Replacement, Path.IsPathFullyQualified, "link replacement");
         }
-        foreach (var (entry, kind, marker, contains, daemon, linkTarget) in spec.Entries) {
+        foreach (var privileged in spec.Entries) {
+            var (entry, kind, marker, contains, daemon, linkTarget) = privileged;
             Require(entry.Original, Normal, "entry");
             if (daemon is var (daemonPath, identity)) {
                 if (kind != PrivilegedEntryKind.Directory) throw new ArgumentException($"Only a directory holds the daemon, not {entry.Original}.", nameof(spec));
@@ -339,6 +353,7 @@ internal static class PrivilegedSwapScript {
                     throw new ArgumentException($"The marker of {entry.Original} needs a directory and at least one substring.", nameof(spec));
             }
             foreach (var needed in contains) Require(needed, _ => true, "marker substring");
+            foreach (var child in privileged.Children ?? []) Require(child, c => !c.Contains('/') && c is not ("." or ".."), "child name");
         }
     }
 

@@ -209,7 +209,7 @@ internal sealed class AdoptionPrivilegedStep(
     // An npm package folder must still hold its own package.json, naming that package at the recorded version. The
     // folder holding the daemon must hold the very binary preflight read, which a reinstall of the same version
     // replaces, and a script install's current must still name its version, which an update moves on.
-    static PrivilegedEntry Entry(OtherCliInstall install, AsideEntry aside) {
+    internal static PrivilegedEntry Entry(OtherCliInstall install, AsideEntry aside) {
         (string, string)? daemon = Directory.Exists(aside.Original) && new FileInfo(aside.Original).LinkTarget is null
                 && CanonicalPath.IsWithin(install.DaemonBinary, aside.Original)
             ? (Path.GetRelativePath(CanonicalPath.Resolve(aside.Original), CanonicalPath.Resolve(install.DaemonBinary)), install.Identity)
@@ -222,10 +222,25 @@ internal sealed class AdoptionPrivilegedStep(
             }
             : new PrivilegedEntry(aside, PrivilegedEntryKind.Directory, "package.json",
                 [Quoted("@kurrent/" + Path.GetFileName(aside.Original)), Quoted(install.Version)], daemon);
-        return entry with { Present = Exists(aside.Original) || Exists(aside.Aside) };
+        return entry with {
+            Present  = Exists(aside.Original) || Exists(aside.Aside),
+            Children = Path.GetFileName(aside.Original) == ScriptInstallLayout.VersionsName && install.Kind == OtherCliInstallKind.Script
+                ? Listing(Directory.Exists(aside.Original) ? aside.Original : aside.Aside)
+                : null,
+        };
     }
 
     static string Quoted(string value) => $"\"{value}\"";
+
+    // An update stages its version inside versions before it moves current there. One that cannot be listed expects
+    // nothing, which moves the install back rather than deleting what it could not see.
+    static IReadOnlyList<string> Listing(string folder) {
+        try {
+            return Directory.Exists(folder) ? [.. Directory.EnumerateFileSystemEntries(folder).Select(e => Path.GetFileName(e)!).Order(StringComparer.Ordinal)] : [];
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return [];
+        }
+    }
 
     static bool Exists(string path) => new FileInfo(path).LinkTarget is not null || Path.Exists(path);
 
