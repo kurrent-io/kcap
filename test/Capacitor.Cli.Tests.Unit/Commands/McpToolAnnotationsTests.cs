@@ -17,6 +17,7 @@ public class McpToolAnnotationsTests {
         ("kcap-handoff",        McpHandoffServer.BuildToolsList()),
         ("kcap-pages",          McpArtefactsServer.BuildToolsList()),
         ("kcap-knowledge",      McpKnowledgeServer.BuildToolsList()),
+        ("kcap-pass",           McpPassServer.BuildToolsList()),
         ("kcap-flows",          McpFlowsServer.BuildToolsList()),
         ("kcap-flow-result",    McpFlowResultServer.BuildToolsList()),
         ("kcap-judge",          McpJudgeServer.BuildToolsList()),

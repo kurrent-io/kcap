@@ -561,7 +561,7 @@ switch (command) {
     }
     case "mcp": {
         if (args.Length < 2) {
-            Console.Error.WriteLine("Usage: kcap mcp review|judge|sessions|flows|flow-result|memory|workitems|plans|analytics|pages|knowledge …");
+            Console.Error.WriteLine("Usage: kcap mcp review|judge|sessions|flows|flow-result|memory|workitems|plans|analytics|pages|knowledge|pass …");
             Console.Error.WriteLine("  kcap mcp review [--owner <owner> --repo <repo> --pr <number>]");
             Console.Error.WriteLine("  kcap mcp judge --session <sessionId>");
             Console.Error.WriteLine("  kcap mcp sessions");
@@ -573,6 +573,7 @@ switch (command) {
             Console.Error.WriteLine("  kcap mcp analytics");
             Console.Error.WriteLine("  kcap mcp pages");
             Console.Error.WriteLine("  kcap mcp knowledge");
+            Console.Error.WriteLine("  kcap mcp pass");
 
             return 1;
         }
@@ -625,6 +626,8 @@ switch (command) {
                 return await Run<McpArtefactsServer>().RunAsync();
             case "knowledge":
                 return await Run<McpKnowledgeServer>().RunAsync();
+            case "pass":
+                return await Run<McpPassServer>().RunAsync(config, telemetryStartup);
             default:
                 Console.Error.WriteLine($"Unknown mcp subcommand: {args[1]}");
 
@@ -661,6 +664,11 @@ switch (command) {
     case "page":
     case "artefact":
         return await Run<ArtefactCommand>().HandleAsync(args);
+    // Not in PrintUsage: both answer as an unknown command does while the server does not offer passes.
+    case "pass":
+        return await Run<PassCommand>().HandleAsync(args);
+    case "message":
+        return await Run<MessageCommand>().HandleAsync(args);
     case "cleanup":
         return await Run<CleanupCommand>().HandleCleanup();
     case "uninstall":
@@ -1081,9 +1089,7 @@ switch (command) {
         return await CursorVerifyAppendOnlyCommand.RunAsync(args, time);
 }
 
-Console.Error.WriteLine($"Unknown command: {command}");
-
-return 1;
+return UnknownCommand.Write(Console.Error, command);
 } catch (UnusableServerUrlException ex) {
     // Returned, not exited: every finally, the telemetry flush and each vendor's fail-open catch
     // still run. Not a crash either — the repair is a config edit, so a crash report would file a
