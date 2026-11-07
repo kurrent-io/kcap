@@ -888,6 +888,30 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Platform)).IsTrue();
     }
 
+    /// <summary>A reinstall at the root a cancelled prompt left is another install: the left record lets it go instead
+    /// of reopening an install that is gone, Finish switching is no longer offered, and the reinstall is reported.</summary>
+    [Test]
+    public async Task A_reinstall_over_a_left_install_retires_its_record() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Admin.Answer = PrivilegedResult.Cancelled;
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+        await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
+
+        var reinstalled = world.Install with { Identity = "16777232:777:3:3" };
+        world.Machine.Evidence = _ => Task.FromResult(world.Found() with { Installs = [reinstalled] });
+        world.Admin.Answer = null;
+        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await world.SettledAsync(launch);
+
+        await Assert.That(world.Record.Installs).IsEmpty();
+        await Assert.That(AdoptionWorld.Offered(launch)).IsFalse();
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
+        await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+        await Assert.That(world.Notifier.Notified[^1]).Contains("left it in place");
+    }
+
     [Test]
     public async Task Finish_switching_reruns_the_batch_for_that_install_and_prompts_again() {
         var world = new AdoptionWorld(Tmp);

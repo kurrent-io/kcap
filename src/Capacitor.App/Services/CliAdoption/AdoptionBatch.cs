@@ -19,6 +19,7 @@ internal sealed class AdoptionBatch(
     internal const string EvidenceUnavailable = "evidence_unavailable";
     internal const string MachineSwitched     = "machine_switched";
     internal const string RemovedByHand       = "removed_by_hand";
+    internal const string Replaced            = "replaced";
 
     readonly AdoptionServiceMove _services = new(machine, store, bundle, log);
     readonly AdoptionDeletion    _deletion = new(machine, store, retirement, harnesses, bundle.Root, log);
@@ -79,7 +80,7 @@ internal sealed class AdoptionBatch(
         }
         foreach (var found in evidence.Installs) log("adoption_found", AdoptionEvent.For(found));
 
-        var record   = store.Load();
+        var record   = LetReplacedGo(evidence, store.Load());
         var reopened = finishing && record.Installs.Any(Finishable);
         var plan = AdoptionPreflight.Plan(evidence, reopened ? Reopen(record) : record, bundle.Version, bundle.Cli,
             bundle.InSystemApplications, userCanWrite, stableFolders);
@@ -154,6 +155,18 @@ internal sealed class AdoptionBatch(
     static bool Finishable(RecordedInstall install) => install is {
         State: InstallState.Left, Reason: LeftReason.PromptCancelled or LeftReason.DeletionCutShort or LeftReason.SharedInstallPrivateApp,
     };
+
+    // Fresh evidence finding another install at a root Finish switching would take further means the one recorded is
+    // gone: reopening it would chase an install nothing can switch, so the record lets it go and the new one is reported.
+    AdoptionRecord LetReplacedGo(AdoptionEvidence evidence, AdoptionRecord record) {
+        bool IsReplaced(RecordedInstall i) =>
+            Finishable(i) && evidence.Installs.Any(e => AdoptionPreflight.SameRoot(e, i.Install) && e.Identity != i.Install.Identity);
+        var replaced = record.Installs.Where(IsReplaced).ToList();
+        if (replaced.Count == 0) return record;
+
+        foreach (var gone in replaced) log("adoption_left", AdoptionEvent.For(gone.Install, reason: Replaced));
+        return store.Update(r => r with { Installs = [.. r.Installs.Where(i => !IsReplaced(i))] });
+    }
 
     static AdoptionRecord Reopen(AdoptionRecord record) => record with {
         Installs = [.. record.Installs.Select(i => Finishable(i)
