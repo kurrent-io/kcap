@@ -817,6 +817,24 @@ public class RecorderHostTests {
         await Assert.That(_ended).IsEmpty();
     }
 
+    /// <summary>A first drain over a long backlog can take longer than the threshold before its first send. Given up on, it
+    /// would resume from the same cursor and take as long again, for ever, so what counts is that it gets through its lines.
+    /// Here each line's redaction moves the host's clock on.</summary>
+    [Test]
+    public async Task A_large_backlog_is_not_restarted() {
+        const int Backlog = 500;
+        var source  = Source(Tmp.CreateFile("t.jsonl", string.Concat(Enumerable.Repeat($"{Reply}\n", Backlog))), "a1");
+        var started = _time.GetUtcNow();
+        _clocks[source.Key] = new SlowRedactionClock(_time, TimeSpan.FromMilliseconds(100));
+        var host = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == Backlog, "the backlog");
+
+        await Assert.That(_time.GetUtcNow() - started > RecorderHost.WedgedAfter * 2).IsTrue();
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+        await Assert.That(_transport.Connects).IsEqualTo(1);
+    }
+
     /// <summary>Neither waits on a beat. A backoff is the host's own, and a connect the server never answers is the
     /// transport's to retry while it is down: the source gets the whole threshold again once the transport is back.</summary>
     [Test]
@@ -2555,6 +2573,18 @@ public class RecorderHostTests {
         await Assert.That(perTick.Max()).IsLessThan(PerTickBudget);
         await Assert.That(perTick.Min()).IsGreaterThan(TailCompare);
         await Assert.That(host.ActiveKeys.Count).IsEqualTo(Sources);
+    }
+
+    /// <summary>A record-budget clock that never runs out, and moves <paramref name="host"/> on at every read, so redaction
+    /// takes that long on the host's clock.</summary>
+    sealed class SlowRedactionClock(FakeTimeProvider host, TimeSpan perRead) : TimeProvider {
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() {
+            host.Advance(perRead);
+
+            return 0;
+        }
     }
 
     /// <summary>A fake clock that remembers the timers armed on it and how many connects had been tried by then.</summary>

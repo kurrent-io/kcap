@@ -32,6 +32,10 @@ public sealed class TranscriptRecorder(
     readonly OnceLog _parseErrors  = new(context.Log);
     readonly OnceLog _kiroWarnings = new(context.Log);
 
+    // Each loop over lines ticks it: a large backlog can take longer than a host's threshold before its first send, and a
+    // source restarted for that resumes from the same cursor and takes as long again.
+    readonly ThrottledBeat _progress = new(context.Beat, time);
+
     // The rewrite guard's checkpoint and pending range persist from poll to poll. Only Cursor has one.
     readonly CursorRewriteGuard? _cursorGuard = source.Vendor == "cursor" ? new(context.Server.Config, source.SessionId, time, context.Log) : null;
 
@@ -489,7 +493,7 @@ public sealed class TranscriptRecorder(
             if (ToolCallTracking.TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ToolCallTracking.ClaudePendingToolCallsReplay(State.PendingClaudeToolCalls));
             if (ToolCallTracking.TracksCodexToolCalls(vendor)) replay.Add(ToolCallTracking.CodexWatcherStateReplay(State, isChildWatcher: agentId is not null));
             if (ToolCallTracking.TracksCopilotToolCalls(vendor, TranscriptPath, State.CopilotHostMissing)) replay.Add(new(WindowOnly: false, line => { ToolCallTracking.UpdateCopilotPendingToolCalls(State.PendingCopilotToolCalls, line); return false; }));
-            await TranscriptReplay.ReplayAsync(TranscriptPath, State.LinesProcessed, replay, stop, log);
+            await TranscriptReplay.ReplayAsync(TranscriptPath, State.LinesProcessed, replay, stop, log, _progress.Tick);
         }
     }
 
@@ -739,11 +743,14 @@ public sealed class TranscriptRecorder(
         state.RepositoryFromEvidence = true;
     }
 
-    // No-op when state.EvidenceScanner is null (every non-Claude or already-in-repo session) or already done.
-    internal static async Task ApplyEvidenceScanAsync(WatchState state, string vendor, IReadOnlyList<string> newLines, bool isFinalDrain) {
+    // No-op when state.EvidenceScanner is null (every non-Claude or already-in-repo session) or already done. A line can
+    // probe a repository root, which takes seconds.
+    internal static async Task ApplyEvidenceScanAsync(WatchState state, string vendor, IReadOnlyList<string> newLines, bool isFinalDrain, Action? progress = null) {
         if (state.EvidenceScanner is not { Done: false } scanner) return;
 
         foreach (var line in newLines) {
+            progress?.Invoke();
+
             if (await scanner.OnLineAsync(vendor, line) is { } repo) {
                 ApplyEvidenceRepo(state, repo);
 
@@ -827,6 +834,14 @@ public sealed class TranscriptRecorder(
         }
 
         state.TitleInFlight = false;
+    }
+
+    IEnumerable<string> Progressing(IEnumerable<string> lines) {
+        foreach (var line in lines) {
+            _progress.Tick();
+
+            yield return line;
+        }
     }
 
     void StampLines(IReadOnlyList<string> rawLines, IReadOnlyList<int> lineNumbers) {
@@ -957,7 +972,7 @@ public sealed class TranscriptRecorder(
             // Cut the read itself at a held line: the raw-line consumers below must see what follows
             // it once, on the poll that delivers it.
             var captured = HeldLine.Capture(drainRead.Lines, drainRead.LineNumbers,
-                (reason, count) => log($"Capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"));
+                (reason, count) => log($"Capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"), _progress.Tick);
             if (captured.Consumed < drainRead.Lines.Count) {
                 drainRead = drainRead with {
                     Lines        = drainRead.Lines.GetRange(0, captured.Consumed),
@@ -987,7 +1002,7 @@ public sealed class TranscriptRecorder(
             // Before the USAGE lines go on, which aren't transcript steps. The created_at anchors USAGE recency,
             // and the pending count suppresses idle-end while a long command runs.
             if (vendor == "antigravity") {
-                foreach (var l in newLines) {
+                foreach (var l in Progressing(newLines)) {
                     AntigravityLiveUsage.UpdateAntigravityPendingToolCalls(state, l);
                     if (AntigravityLiveUsage.TryGetAntigravityCreatedAt(l) is { } ca) state.LastAntigravityCreatedAt = ca;
                 }
@@ -1016,13 +1031,13 @@ public sealed class TranscriptRecorder(
             // Raw lines: an oversized function_call_output redacts to a placeholder with no call_id, which would
             // strand the call and pin toolInFlight true for good. Never gated on title phase or threshold.
             if (ToolCallTracking.TracksCodexToolCalls(vendor)) {
-                foreach (var line in drainRead.Lines) {
+                foreach (var line in Progressing(drainRead.Lines)) {
                     ToolCallTracking.UpdateCodexPendingToolCalls(state.PendingCodexToolCalls, line);
                 }
             }
 
             if (ToolCallTracking.TracksCopilotToolCalls(vendor, transcriptPath, state.CopilotHostMissing)) {
-                foreach (var line in drainRead.Lines) {
+                foreach (var line in Progressing(drainRead.Lines)) {
                     ToolCallTracking.UpdateCopilotPendingToolCalls(state.PendingCopilotToolCalls, line);
                 }
             }
@@ -1035,7 +1050,7 @@ public sealed class TranscriptRecorder(
 
             // Capture-loss markers have no tool IDs; local completion tracking needs raw lines.
             if (ToolCallTracking.TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) {
-                foreach (var line in drainRead.Lines) {
+                foreach (var line in Progressing(drainRead.Lines)) {
                     ToolCallTracking.UpdateClaudePendingToolCalls(state.PendingClaudeToolCalls, line);
                 }
             }
@@ -1045,19 +1060,19 @@ public sealed class TranscriptRecorder(
             // oversized Write redacts to a placeholder with no path. Only paths are read.
             if (state.SecondaryRoots is { } secondaryRoots) {
                 var knownRoots = secondaryRoots.Roots.Count;
-                foreach (var line in drainRead.Lines) secondaryRoots.OnLine(vendor, line);
+                foreach (var line in Progressing(drainRead.Lines)) secondaryRoots.OnLine(vendor, line);
                 if (secondaryRoots.Roots.Count > knownRoots) log($"Probing secondary checkouts for a PR: {string.Join(", ", secondaryRoots.Roots)}");
             }
 
             if (vendor == "claude") {
-                foreach (var line in drainRead.Lines) ObserveCreatedPullRequest(state, line);
+                foreach (var line in Progressing(drainRead.Lines)) ObserveCreatedPullRequest(state, line);
             }
 
             // A Codex collab child folds its own turn state, so it can post its stop once done and idle. Raw lines
             // again, in the other direction: a redacted response_item reads as no activity, so a re-engaged child
             // would be reported stopped while working.
             if (vendor == "codex" && agentId is not null) {
-                foreach (var line in drainRead.Lines) {
+                foreach (var line in Progressing(drainRead.Lines)) {
                     state.CodexSubagentTurn.Observe(line);
                 }
             }
@@ -1073,6 +1088,8 @@ public sealed class TranscriptRecorder(
                         using var       scanReader = new StreamReader(scanStream);
 
                         while (await scanReader.ReadLineAsync(ct) is { } scanLine) {
+                            _progress.Tick();
+
                             if (string.IsNullOrWhiteSpace(scanLine)) {
                                 continue;
                             }
@@ -1098,7 +1115,7 @@ public sealed class TranscriptRecorder(
 
                 // Also check new lines (normal path)
                 if (state.FirstUserText is null && newLines.Count > 0) {
-                    foreach (var userText in newLines.Select(line => TranscriptLineText.TryExtractUserText(line, vendor, _parseErrors)).OfType<string>()) {
+                    foreach (var userText in Progressing(newLines).Select(line => TranscriptLineText.TryExtractUserText(line, vendor, _parseErrors)).OfType<string>()) {
                         TranscriptLineText.SetFirstUserText(state, userText, log);
 
                         if (state.FirstUserText is not null) {
@@ -1121,7 +1138,7 @@ public sealed class TranscriptRecorder(
 
             // Count events and capture assistant context for LLM title generation
             if (state is { TitleGenerated: false } && agentId is null && newLines.Count > 0) {
-                foreach (var line in newLines) {
+                foreach (var line in Progressing(newLines)) {
                     if (TranscriptLineText.IsEvent(line, vendor)) {
                         state.EventCount++;
                     }
@@ -1192,7 +1209,7 @@ public sealed class TranscriptRecorder(
                 newLines = KiroLiveUsage.EnrichKiroContextUsage(newLines, transcriptPath, _kiroWarnings);
             }
 
-            await ApplyEvidenceScanAsync(state, vendor, newLines, isFinalDrain);
+            await ApplyEvidenceScanAsync(state, vendor, newLines, isFinalDrain, _progress.Tick);
 
             // Only include repository info when it has changed since last send
             var repoToSend = RepoPayloadChanged(state.Repository, state.LastSentRepository)

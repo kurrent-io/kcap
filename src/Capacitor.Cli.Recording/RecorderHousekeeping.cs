@@ -119,8 +119,13 @@ public sealed class RecorderHousekeeping(
                 GitRepository.FindRoot, root => RepositoryDetection.DetectRepositoryAsync(router, config, root, time),
                 p => p.Owner is not null && p.RepoName is not null);
 
+            // The whole transcript, and a line can probe a repository root, which takes seconds.
+            var progress = new ThrottledBeat(_beat, time);
+
             try {
                 foreach (var line in File.ReadLinesShared(transcriptPath)) {
+                    progress.Tick();
+
                     if (await state.EvidenceScanner.OnLineAsync(vendor, line) is { } repo) {
                         TranscriptRecorder.ApplyEvidenceRepo(state, repo);
 
