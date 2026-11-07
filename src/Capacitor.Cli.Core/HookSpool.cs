@@ -114,6 +114,9 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
         return sb.ToString();
     }
 
+    /// <summary>The single-case directory or file name a session id is kept under, or null for an id the spool refuses.</summary>
+    public static string? KeyFor(string sessionId) => SafeSessionId.IsMatch(sessionId) ? EncodeKey(sessionId) : null;
+
     static string? DecodeKey(string key) {
         var sb = new StringBuilder(key.Length);
 
