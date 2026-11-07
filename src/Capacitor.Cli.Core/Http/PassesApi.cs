@@ -5,6 +5,9 @@ using System.Text.Json;
 namespace Capacitor.Cli.Core.Http;
 
 internal sealed class PassesApi(ICapacitorHttpClient http, CapacitorServer server, TimeProvider time) : IPassesApi {
+    /// <summary>The server gives a generation 60 seconds; this leaves room for the answer to arrive.</summary>
+    internal static readonly TimeSpan WhatElseTimeout = TimeSpan.FromSeconds(90);
+
     public async Task<bool> PassesOfferedAsync(CancellationToken ct = default) {
         using var response = await CapacitorApiRequests.SendAsync(
             http, server, (c, token) => c.GetWithRetryAsync($"{server.Url}/api/users/me/surfaces", time, ct: token), ct, quiet: true);
@@ -61,6 +64,37 @@ internal sealed class PassesApi(ICapacitorHttpClient http, CapacitorServer serve
         return await ReadAsync(response, CapacitorJsonContext.Default.PassDto, ct) is { } pass
             ? new PassReadResult.Found(pass)
             : throw new CapacitorApiException(200, "The server's answer could not be read.");
+    }
+
+    public async Task<PassCatchUpResult> CatchUpAsync(CancellationToken ct = default) {
+        using var response = await CapacitorApiRequests.SendAsync(
+            http, server, (c, token) => c.GetWithRetryAsync($"{server.Url}/api/passes/catch-up", time, ct: token), ct);
+
+        if (response.StatusCode == HttpStatusCode.NotFound) return new PassCatchUpResult.NotOffered();
+        if (response.StatusCode != HttpStatusCode.OK) throw await CapacitorApiRequests.FailureAsync(response);
+
+        return await ReadAsync(response, CapacitorJsonContext.Default.CatchUpDto, ct) is { } catchUp
+            ? new PassCatchUpResult.Answered(catchUp)
+            : throw new CapacitorApiException(200, "The server's answer could not be read.");
+    }
+
+    public async Task<PassWhatElseResult> WhatElseAsync(string passId, CancellationToken ct = default) {
+        using var response = await CapacitorApiRequests.SendAsync(
+            http, server,
+            (c, token) => c.GetOnceAsync($"{server.Url}/api/passes/{Uri.EscapeDataString(passId)}/what-else", time, WhatElseTimeout, token), ct);
+
+        switch (response.StatusCode) {
+            case HttpStatusCode.NotFound:
+                return new PassWhatElseResult.NotFound();
+            case HttpStatusCode.TooManyRequests:
+                return new PassWhatElseResult.Answered(new WhatElseDto("limited", null, null), RetryAfterHeader.Read(response, time));
+            case HttpStatusCode.OK:
+                return await ReadAsync(response, CapacitorJsonContext.Default.WhatElseDto, ct) is { } answer
+                    ? new PassWhatElseResult.Answered(answer, null)
+                    : throw new CapacitorApiException(200, "The server's answer could not be read.");
+            default:
+                throw await CapacitorApiRequests.FailureAsync(response);
+        }
     }
 
     public async Task DeclareFollowUpAsync(DeclareLooseEndBody body, CancellationToken ct = default) {

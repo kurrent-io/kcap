@@ -20,6 +20,11 @@ public interface IPassesApi {
 
     Task<PassReadResult> GetAsync(string passId, CancellationToken ct = default);
 
+    Task<PassCatchUpResult> CatchUpAsync(CancellationToken ct = default);
+
+    /// <summary>Asked once: each call starts a generation the server counts against the caller.</summary>
+    Task<PassWhatElseResult> WhatElseAsync(string passId, CancellationToken ct = default);
+
     /// <summary>Declares the reminder to follow up a pass as a loose end on the sending session. Throws
     /// <see cref="CapacitorApiException"/> when the server does not record it.</summary>
     Task DeclareFollowUpAsync(DeclareLooseEndBody body, CancellationToken ct = default);

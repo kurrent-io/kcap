@@ -85,6 +85,20 @@ sealed class FakePassesApi : IPassesApi {
     public Task<PassReadResult> GetAsync(string passId, CancellationToken ct = default) =>
         Task.FromResult<PassReadResult>(new PassReadResult.NotFound());
 
+    public PassCatchUpResult CatchUpResult { get; init; } = new PassCatchUpResult.Answered(new([], []));
+
+    public PassWhatElseResult WhatElseResult { get; init; } = new PassWhatElseResult.NotFound();
+
+    public ConcurrentQueue<string> WhatElseAsked { get; } = new();
+
+    public Task<PassCatchUpResult> CatchUpAsync(CancellationToken ct = default) => Task.FromResult(CatchUpResult);
+
+    public Task<PassWhatElseResult> WhatElseAsync(string passId, CancellationToken ct = default) {
+        WhatElseAsked.Enqueue(passId);
+
+        return Task.FromResult(WhatElseResult);
+    }
+
     public static PassSendResult AwaitingApproval(string approvalText, params PassSharingGrantDto[] grants) =>
         new PassSendResult.AwaitingApproval(new("p1", "awaiting_approval", [.. grants], approvalText, DateTimeOffset.UnixEpoch, null));
 }

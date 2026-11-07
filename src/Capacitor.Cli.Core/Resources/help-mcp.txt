@@ -320,7 +320,7 @@ mcp pages:
   `kcap login` and a kcap-server with the /api/artefacts endpoints.
 
 mcp pass:
-  Exposes four tools, where the server offers passes; elsewhere it lists none.
+  Exposes six tools, where the server offers passes; elsewhere it lists none.
 
     find_colleague        Colleagues matching a name. Several matches mean
                           the agent asks which one.
@@ -328,6 +328,11 @@ mcp pass:
                           with a brief the user approved.
     message               A short note, optionally about an item, or a reply.
     pass_status           Where a pass or message stands.
+    catch_me_up           The passes the user shared with their agent in
+                          kcap, as a colleague's labelled text; the rest
+                          only as a notice.
+    what_else             What the stored sessions hold that a shared pass's
+                          brief leaves out, each point citing a turn.
 
   When the colleague cannot see the item, the user approves exactly what will
   be shared, in the harness's prompt or in kcap; no tool approves it.

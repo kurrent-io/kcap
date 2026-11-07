@@ -61,7 +61,7 @@
     "kcap-pass": {
       "command": "kcap",
       "args": ["mcp", "pass"],
-      "description": "Pass a work item, session, page or hosted agent to a colleague with a brief, or send them a short message (find_colleague, pass, message, pass_status). Sharing the colleague cannot see yet is approved by the user, never by the agent. Offers no tools where the server does not offer passes."
+      "description": "Pass a work item, session, page or hosted agent to a colleague with a brief, or send them a short message (find_colleague, pass, message, pass_status), and catch up on passes the user shared with their agent (catch_me_up, what_else). Sharing the colleague cannot see yet is approved by the user, never by the agent. Offers no tools where the server does not offer passes."
     }
   }
 }

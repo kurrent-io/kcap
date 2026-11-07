@@ -92,6 +92,8 @@ public static class KcapToolCatalogue {
         // passes; `pass` and `message` are too common to claim by bare name, so they take the server's category
         new("find_colleague",            ToolCategory.Work,     "Found colleague",          "name"),
         new("pass_status",               ToolCategory.Work,     "Checked a pass",           null),
+        new("catch_me_up",               ToolCategory.Work,     "Caught up on passes",      null),
+        new("what_else",                 ToolCategory.Work,     "Asked what else to know",  null),
     ];
 
     static readonly FrozenDictionary<string, KcapToolEntry> ByTool =

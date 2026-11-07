@@ -51,7 +51,7 @@ public static class KcapMcpServers {
             "Read retained facts and curated skills, and fine-tune skills by editing drafts, changing lifecycle or membership, and curating facts. Repo-aware: defaults to the current repo."),
         // A pass that needs sharing holds its call open while the human answers the harness's prompt.
         new("kcap-pass", ["mcp", "pass"], NeedsProjectCwd: false,
-            "Pass a work item, session, page or hosted agent to a colleague with a brief, or send them a short message. Offers no tools where the server does not offer passes.",
+            "Pass a work item, session, page or hosted agent to a colleague with a brief, or send them a short message, and catch up on passes colleagues sent. Offers no tools where the server does not offer passes.",
             ToolTimeout: TimeSpan.FromMinutes(10)),
     ];
 

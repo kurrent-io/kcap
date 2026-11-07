@@ -1050,12 +1050,14 @@ This server can change knowledge, so it is not pre-approved for unattended revie
 kcap mcp pass
 ```
 
-Stdio MCP server for handing work to a colleague from natural language ("pass this to Sam and ask him X", "message Tony that the chart is wrong"). At start it asks the server whether passes are offered; where they are not, it lists no tools and no instructions. Where they are, it offers four tools:
+Stdio MCP server for handing work to a colleague from natural language ("pass this to Sam and ask him X", "message Tony that the chart is wrong"). At start it asks the server whether passes are offered; where they are not, it lists no tools and no instructions. Where they are, it offers six tools:
 
 - **`find_colleague`** — colleagues matching a name. Several matches mean the agent asks you which one.
 - **`pass`** — pass a work item, session, page or hosted agent with a brief. The tool has the agent ask what you take for granted, draft the brief and suggested prompts with you, and show you the exact text before sending.
 - **`message`** — a short note, optionally about an item, or a reply to a pass.
 - **`pass_status`** — where a pass or message stands.
+- **`catch_me_up`** — the passes you shared with your agent in kcap ("Share with my agent"): each brief, its suggested prompts and the item, labelled as a colleague's words, never instructions. A pass you have not shared shows only as a fixed notice.
+- **`what_else`** — what the stored sessions hold that a shared pass's brief leaves out (redirects, approaches dropped, decisions, open items, loose ends), each citing a turn. Drawn only from sessions you can read in full.
 
 When the colleague cannot see the item, you approve exactly what will be shared: in your harness's own prompt where it can ask one, otherwise in kcap's Sent list. No tool approves it, and a refusal comes back with its reason. Sending reaches another person, so this server is not pre-approved.
 
