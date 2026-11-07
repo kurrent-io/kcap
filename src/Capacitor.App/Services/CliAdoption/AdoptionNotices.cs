@@ -121,6 +121,10 @@ internal sealed class AdoptionNotices : IDisposable {
         LeftReason.SharedInstallPrivateApp =>
             "it serves every account on this Mac, and this app is installed for you alone. "
           + $"To finish, move kcap to /Applications, open it and choose {FinishSwitching} in the menu bar.",
+        LeftReason.ServiceOnRemovedInstall =>
+            $"its files are gone, but the kcap daemon service {(cause is null ? "" : $"'{cause}' ")}still starts its daemon from there. "
+          + $"Give that service the app's kcap with kcap daemon service install --replace --verify{(cause is null ? "" : $" --name {cause}")}, "
+          + "then open kcap again to finish switching.",
         LeftReason.SharedInstallInUse =>
             "another account on this Mac still runs kcap from it, or has a kcap daemon service that starts it. "
           + $"Once that account has switched or stopped using it, choose {FinishSwitching} in the menu bar.",

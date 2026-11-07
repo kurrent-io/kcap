@@ -71,7 +71,8 @@ public static class AdoptionPreflight {
     /// <summary>A reason fresh evidence finds again on every launch, and that goes away once the user removes its
     /// cause: an install left for it is planned afresh each time, so the switch finishes once the cause is gone.</summary>
     internal static bool Rederived(LeftReason reason) =>
-        reason is LeftReason.OwnFolderOnPath or LeftReason.OwnFolderOnServicePath or LeftReason.UnsupervisedDaemon;
+        reason is LeftReason.OwnFolderOnPath or LeftReason.OwnFolderOnServicePath or LeftReason.UnsupervisedDaemon
+            or LeftReason.ServiceOnRemovedInstall;
 
     /// One physical link however the folder holding it is spelled.
     internal static string LinkKey(string location) =>

@@ -229,18 +229,36 @@ internal sealed class AdoptionBatch(
 
     // A left install that is gone, while every PATH preflight reads finds the bundle's kcap, was finished by hand. Its
     // notice is recorded as shown, so none is posted.
+    // A service still starting its daemon from the removed files fails until it is reinstalled, which no step here
+    // does, so the install stays left naming that service.
     AdoptionRecord CompleteByHand(AdoptionEvidence evidence, AdoptionRecord record) {
         var gone = record.Installs.Where(i => i.State == InstallState.Left && Gone(i.Install)).Select(i => i.Install).ToList();
         if (gone.Count == 0 || !FindsBundle(evidence)) return record;
 
-        bool Done(RecordedInstall i) => i.State == InstallState.Left && gone.Exists(g => AdoptionPreflight.SameRoot(g, i.Install));
+        string? Service(OtherCliInstall install) => evidence.Units
+            .FirstOrDefault(u => AdoptionServiceMove.Inside(install, u.Program) || AdoptionServiceMove.Inside(install, u.LoadedProgram))?.Name;
+        var broken = gone.Select(i => (Install: i, Service: Service(i))).Where(g => g.Service is not null).ToList();
+        var done   = gone.Where(i => !broken.Exists(b => b.Install == i)).ToList();
+
+        RecordedInstall Next(RecordedInstall i) {
+            if (i.State != InstallState.Left) return i;
+            if (done.Exists(g => AdoptionPreflight.SameRoot(g, i.Install)))
+                return i with { State = InstallState.Switched, Reason = null, HeldBy = null, HolderPid = null, HolderStartToken = null };
+            return broken.Find(b => AdoptionPreflight.SameRoot(b.Install, i.Install)) is { Service: { } service }
+                ? i with { Reason = LeftReason.ServiceOnRemovedInstall, HeldBy = service }
+                : i;
+        }
+        var before = record;
         record = store.Update(r => r with {
-            Installs = [.. r.Installs.Select(i => Done(i)
-                ? i with { State = InstallState.Switched, Reason = null, HeldBy = null, HolderPid = null, HolderStartToken = null }
-                : i)],
-            NoticesShown = [.. r.NoticesShown.Union(gone.Select(AdoptionNotices.SwitchedKey))],
+            Installs     = [.. r.Installs.Select(Next)],
+            NoticesShown = [.. r.NoticesShown.Union(done.Select(AdoptionNotices.SwitchedKey))],
         });
-        foreach (var install in gone) log("adoption_switched", AdoptionEvent.For(install, reason: RemovedByHand));
+        foreach (var install in done) log("adoption_switched", AdoptionEvent.For(install, reason: RemovedByHand));
+        foreach (var (install, service) in broken) {
+            if (before.Installs.Any(i => AdoptionPreflight.SameRoot(i.Install, install) && i is { Reason: LeftReason.ServiceOnRemovedInstall } && i.HeldBy == service))
+                continue;
+            log("adoption_left", AdoptionEvent.For(install, reason: LeftReason.ServiceOnRemovedInstall.ToString()));
+        }
         return record;
     }
 

@@ -136,7 +136,7 @@ internal sealed class AdoptionServiceMove(
 
     static bool Exists(string path) => new FileInfo(path).LinkTarget is not null || Path.Exists(path);
 
-    static bool Inside(OtherCliInstall install, string? path) =>
+    internal static bool Inside(OtherCliInstall install, string? path) =>
         path is not null && install.OwnedEntries.Prepend(install.Root).Any(folder => CanonicalPath.IsWithin(path, folder));
 
     bool IsBundleDaemon(string? path) =>

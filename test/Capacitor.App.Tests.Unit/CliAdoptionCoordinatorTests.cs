@@ -1564,6 +1564,34 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
     }
 
+    /// <summary>Removed by hand before its daemon move ever ran, the install leaves its service starting a daemon that is
+    /// gone: it stays left, naming the service and how to give it the app's kcap, and is switched once that is done.</summary>
+    [Test]
+    public async Task A_left_install_removed_by_hand_under_a_service_names_that_service() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.OtherDaemons.Add(new RunningDaemonFact("manual", 4999, "tok-4999", world.Install.DaemonBinary));
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+        await Assert.That(world.Record.Installs.Single().Reason).IsEqualTo(LeftReason.UnsupervisedDaemon);
+
+        world.Machine.OtherDaemons.Clear();
+        Directory.Delete(world.Root, recursive: true);
+        Directory.Delete(world.Platform, recursive: true);
+        KcapLinkSwap.Replace(world.Link, AdoptionWorld.NpmLinkTarget, world.Bundle.Cli);
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        var left = world.Record.Installs.Single();
+        await Assert.That((left.State, left.Reason, left.HeldBy)).IsEqualTo((InstallState.Left, LeftReason.ServiceOnRemovedInstall, AdoptionWorld.DaemonName));
+        await Assert.That(world.Notifier.Notified[^1]).Contains($"kcap daemon service install --replace --verify --name {AdoptionWorld.DaemonName}");
+        await Assert.That(world.Record.MachineSwitched).IsFalse();
+
+        world.WritePlist(world.Bundle.Daemon);
+        world.Machine.Jobs[AdoptionWorld.DaemonName] = new LaunchdJob(true, AdoptionWorld.NewDaemonPid, world.Bundle.Daemon);
+        using (var last = world.Launch()) await world.FirstLookAsync(last);
+
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(world.Record.MachineSwitched).IsTrue();
+    }
+
     /// <summary>Running it alone before a replacement exists would leave no kcap on that PATH.</summary>
     [Test]
     public async Task No_bare_sudo_npm_uninstall_appears_in_any_notice() {

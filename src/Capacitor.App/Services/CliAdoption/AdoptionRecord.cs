@@ -4,6 +4,7 @@ public enum InstallState { Pending, Left, Switched }
 
 public enum LeftReason {
     OwnFolderOnPath, UnsupervisedDaemon, PromptCancelled, DeletionCutShort, SharedInstallPrivateApp, OwnFolderOnServicePath, SharedInstallInUse,
+    ServiceOnRemovedInstall,
 }
 
 /// <summary>A link on the PATH the app repointed: <paramref name="Original"/> is what it held before.</summary>
