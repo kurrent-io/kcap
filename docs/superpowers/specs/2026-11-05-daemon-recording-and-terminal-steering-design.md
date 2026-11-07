@@ -123,6 +123,8 @@ Not tested: `socketPath` on Windows or Linux, a real daemon or server, a session
 
 **Hosted sessions.** The daemon records a hosted session from launch. A hook from a hosted session never spawns a watcher on a daemon that has the new capability, because a hosted session on a watcher would go unstamped for the rest of its life.
 
+**Capture scope.** The daemon never records what a hook would refuse. A hook's capture gate decides for a profile with an exclusion configured, so the daemon takes no such session at launch, and takes it only when the hook hands it over. A profile it can't read counts as one with an exclusion.
+
 **Handoff for terminal sessions.** `WatcherManager.EnsureWatcherRunning` is the one place hooks ask for a recorder. It first asks the daemon serving the hook's own profile and server to take the session, over local control, behind a new capability. If the daemon is missing, older, or serves another profile, it spawns `kcap watch` as it does today.
 
 **One recorder per source.** A source is one transcript, keyed as `WatcherTracker.GetKey` keys it, so a subagent or child transcript is its own source. A claim per source decides who records it. `WatcherTracker.Register` silently replaces an older connection, so the server won't catch a double recorder and the claim has to hold on the machine.
@@ -136,7 +138,8 @@ The claim is a new file. It can't reuse the watcher pid file, because `KillWatch
 | A `kcap watch` process | Stops it, as today | Drains, as today |
 | The daemon, heartbeat fresh | Signals nothing | Asks the daemon to finish that source, and waits within the hook's budget |
 | The daemon, heartbeat stale, terminal session | Signals nothing | Takes the claim and drains, as today |
-| The daemon, heartbeat stale, hosted session | Signals nothing | Does nothing. The daemon's catch-up finishes the source, so its rows keep their stamps |
+| The daemon, heartbeat stale, hosted session, a hook from a hosted agent | Signals nothing | Does nothing. The daemon's catch-up finishes the source, so its rows keep their stamps |
+| The daemon, heartbeat stale, hosted session, a hook from outside one | Signals nothing | Takes the claim and drains, as for a terminal session, so a session resumed by hand while the daemon is down is still recorded |
 | Nobody | Nothing to stop | Drains, as today |
 
 Finishing a source runs the recorder's own final drain for that key and touches no other source, so a subagent stop leaves its parent running and a session end leaves other sessions running. If the hook's budget runs out, the daemon still finishes, because the hook only asked.
@@ -147,7 +150,7 @@ Finishing a source runs the recorder's own final drain for that key and touches 
 
 **Outages.** A longer outage moves a terminal session to a watcher, and it stays there until it ends. There is no takeover: steering doesn't need the daemon to be the recorder, and a line-position handoff between two recorders isn't worth its risk for a case this rare. An idle session with no hooks firing has nothing new to record, so its gap closes on restart.
 
-**Hub.** The daemon uses the same hub (`/hubs/sessions`) and the same transcript methods, over a connection of its own. `WatcherConnect` takes a connection out of the UI topics, and the daemon's main connection has joined its owner's topic, so recording on that connection would silently cut it off. `StopWatcher` is pushed to a connection with no session in its payload, which works only while a connection carries one session. A second argument won't do, because a SignalR client drops an invocation whose argument count doesn't match its handler, so an older watcher would never stop. The server pushes `StopSource(key, reason)` beside `StopWatcher` instead. An older watcher has no handler for it and ignores it, and the daemon handles only `StopSource`. A daemon needs a server that pushes it before it records.
+**Hub.** The daemon uses the same hub (`/hubs/sessions`) and the same transcript methods, over a connection of its own. `WatcherConnect` takes a connection out of the UI topics, and the daemon's main connection has joined its owner's topic, so recording on that connection would silently cut it off. `StopWatcher` is pushed to a connection with no session in its payload, which works only while a connection carries one session. A second argument won't do, because a SignalR client drops an invocation whose argument count doesn't match its handler, so an older watcher would never stop. The server pushes `StopSource(key, reason)` beside `StopWatcher` instead. An older watcher has no handler for it and ignores it, and the daemon handles only `StopSource`. A daemon needs a server that has these before it records. It finds out by calling `WatcherDetach` for a key it doesn't hold, which does nothing on a server that has it and fails as an unknown method on one that doesn't. A server version won't do, because beta, dev and self-hosted servers don't send one. The server serialises transcript batches per source rather than per connection, so one stuck batch can't hold up the others, and the daemon bounds each send.
 
 **Rollout.** Hosted Claude, then hosted Codex PTY, then terminal Claude, then the other vendors.
 
