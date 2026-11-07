@@ -67,6 +67,12 @@ public class ServerRecorderTransportTests {
     public async Task A_send_gives_up_ahead_of_its_source_reading_as_stuck() =>
         await Assert.That(ServerRecorderTransport.SendBudget < RecorderHost.WedgedAfter).IsTrue();
 
+    /// <summary>A source given up on beats its claim again at once, so the threshold mustn't reach the grace, or a hook could
+    /// take a source its host is about to restart.</summary>
+    [Test]
+    public async Task A_stuck_source_restarts_ahead_of_its_claim_going_stale() =>
+        await Assert.That(RecorderHost.WedgedAfter < RecorderClaims.Grace).IsTrue();
+
     /// <summary>The send failed because the connection went, and a log saying the server was slow would send whoever reads
     /// it the wrong way. It still has to read as a failed send, not a stop.</summary>
     [Test]

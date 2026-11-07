@@ -862,25 +862,33 @@ public class RecorderHostTests {
         await Assert.That(_transport.Connects).IsEqualTo(1);
     }
 
-    /// <summary>Neither waits on a beat. A backoff is the host's own, and a connect the server never answers is the
-    /// transport's to retry while it is down: the source gets the whole threshold again once the transport is back.</summary>
+    /// <summary>Neither waits on a beat. A backoff is the host's own, here with the transport up, so nothing excuses it, and
+    /// each failing connect taking half the threshold, so a watch carried across a backoff into the next attempt would see
+    /// more than the threshold. A connect the server never answers is the transport's to retry while it is down: the
+    /// source gets the whole threshold again once the transport is back.</summary>
     [Test]
     public async Task A_backoff_and_an_unanswered_connect_are_not_wedges() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
-        _transport.IsConnected     = false;
-        _transport.ConnectFailures = 6;
-        var host = NewHost();
+        _transport.ConnectFailures = 8;
+        _transport.OnConnect       = ct => Task.Delay(RecorderHost.WedgedAfter / 2, _time, ct);
+        var started = _time.GetUtcNow();
+        var host    = NewHost();
         host.TryAdd(source);
-        await Eventually(() => _transport.ConnectAttempts == 6, "six backoffs", TimeSpan.FromSeconds(1));
+        await Eventually(() => _ended.Count == 8, "eight failed connects and their backoffs, two of them at the cap", TimeSpan.FromSeconds(1));
 
+        await Assert.That(_time.GetUtcNow() - started > RecorderHost.WedgedAfter).IsTrue();
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+
+        _transport.OnConnect    = null;
+        _transport.IsConnected  = false;
         _transport.ConnectHangs = true;
-        await Eventually(() => _transport.ConnectAttempts == 7, "the connect nobody answers", TimeSpan.FromSeconds(1));
+        await Eventually(() => _transport.ConnectAttempts == 9, "the connect nobody answers", TimeSpan.FromSeconds(1));
         var asked = _time.GetUtcNow();
         await Eventually(() => _time.GetUtcNow() - asked > RecorderHost.WedgedAfter * 2, "the connect to outlast the threshold twice", TimeSpan.FromSeconds(1));
 
         await Assert.That(GivenUp(source.Key)).IsFalse();
-        await Assert.That(_transport.ConnectAttempts).IsEqualTo(7);
-        await Assert.That(_ended.Count).IsEqualTo(6);
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(9);
+        await Assert.That(_ended.Count).IsEqualTo(8);
         await Assert.That(_ended.All(ended => ended.Failure?.Message == "The hub is down.")).IsTrue();
     }
 
