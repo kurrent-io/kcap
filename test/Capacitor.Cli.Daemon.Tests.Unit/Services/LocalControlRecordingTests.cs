@@ -259,7 +259,7 @@ public class LocalControlRecordingTests {
     }
 
     /// <summary>A Claude process that exits with no session-end hook still ends its source, as an agent's exit ends a
-    /// hosted one.</summary>
+    /// hosted one. The claim stays through the grace its end waits out, so a late hook still finds the source here.</summary>
     [Test]
     public async Task A_terminal_source_whose_process_exits_is_finished() {
         await using var f = new Fixture();
@@ -269,8 +269,9 @@ public class LocalControlRecordingTests {
         f.Exited = true;
         f.Recorder.FinishExitedProcesses();
 
-        await WaitHarness.PollUntilAsync(() => f.Recorder.ActiveKeys.Count == 0 && f.Claims.Read(Session) is RecorderClaimState.None && f.Listed.Count == 0);
-        await Assert.That(f.Transport.DrainCompletes).IsEqualTo(1);
+        await WaitHarness.PollUntilAsync(() => f.Recorder.ActiveKeys.Count == 0 && f.Transport.DrainCompletes == 1);
+        await Assert.That(f.Claims.Read(Session)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(await f.FinishAsync(Session)).IsEqualTo(RecordingIpc.Finished);
     }
 
     /// <summary>The previous daemon left the source and this one hasn't picked it up: the host would return at once for a

@@ -349,6 +349,46 @@ public class ClaudeHookCommandTests {
         await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
     }
 
+    /// <summary>The daemon recording the session posted its end when the session's process exited, and this hook came
+    /// after the grace it gave one: a second end would be processed as a second run of the session.</summary>
+    [Test]
+    public async Task A_session_end_the_daemon_has_just_posted_is_not_posted_again() {
+        using var fx = new Fixture(Config.Root);
+        SessionEndRecord.Write(WatcherPaths.FromEnvironment(Config.Root), Sid, DateTimeOffset.UtcNow);
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsFalse();
+    }
+
+    /// <summary>A record long past is an earlier run's, and this run owes its own end.</summary>
+    [Test]
+    public async Task A_daemon_end_record_from_an_earlier_run_does_not_hold_back_this_runs_end() {
+        using var fx = new Fixture(Config.Root);
+        SessionEndRecord.Write(WatcherPaths.FromEnvironment(Config.Root), Sid, DateTimeOffset.UtcNow - SessionEndRecord.Window - TimeSpan.FromMinutes(1));
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+    }
+
+    /// <summary>The degraded arm spools the end it would post, and a spooled second end is a second end all the same.</summary>
+    [Test]
+    public async Task A_session_end_the_daemon_has_just_posted_is_not_spooled_on_the_degraded_arm() {
+        using var fx = new Fixture(Config.Root);
+        SessionEndRecord.Write(WatcherPaths.FromEnvironment(Config.Root), Sid, DateTimeOffset.UtcNow);
+
+        var exit = await new ClaudeHookCommand(Config.Root, Resolutions.At("not-a-url", Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("not-a-url", Config.Root), new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            .HandleWithDeps(fx.Spool, new StringReader(
+                $$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}"""),
+                () => throw new InvalidOperationException("no client is buildable for an unusable URL"));
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.SpoolFiles).IsEmpty();
+    }
+
     /// <summary>Session-end is the only eviction the policy directories get, so what it leaves
     /// behind accumulates for the life of the config dir.</summary>
     [Test]

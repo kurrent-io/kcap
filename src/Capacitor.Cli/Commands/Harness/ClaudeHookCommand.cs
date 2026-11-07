@@ -409,7 +409,10 @@ public sealed class ClaudeHookCommand(
             var unusableUrl = !HookHttp.IsPostable(Url);
             var reason      = unusableUrl ? "unusable server URL" : "auth/client creation exceeded hook budget";
 
-            if (command is "session-start" or "session-end" && sessionId is not null) {
+            if (command == "session-end" && sessionId is not null && watchers.TakeDaemonSessionEnd(sessionId)) {
+                await Console.Error.WriteLineAsync($"[kcap] session-end not spooled: the daemon recording {sessionId} posted it when the session's process exited");
+            }
+            else if (command is "session-start" or "session-end" && sessionId is not null) {
                 await ReportSpoolAsync(spool.Append(sessionId, command, NormalizeForSpool(body, command)),
                                        command, sessionId, reason, unusableUrl);
             }
@@ -1125,6 +1128,11 @@ public sealed class ClaudeHookCommand(
                 EvictPolicyState(sessionId);
                 new PlanReadNudgeLedger(config).Evict(sessionId.Replace("-", ""));
                 new TaskListNudgeLedger(config).Evict(sessionId.Replace("-", ""));
+            }
+
+            if (sessionId is not null && watchers.TakeDaemonSessionEnd(sessionId)) {
+                await Console.Error.WriteLineAsync($"[kcap] session-end not posted: the daemon recording {sessionId} posted it when the session's process exited");
+                return 0;
             }
 
             // Ordering guard: if this session's backlog couldn't fully drain, spool the fresh

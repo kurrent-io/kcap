@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
@@ -25,8 +26,11 @@ namespace Capacitor.Cli.Daemon.Services;
 /// since it is someone else's. A shutdown lets go only of what no agent comes back for: the next boot picks up the rest.</para>
 ///
 /// <para>A terminal session's source has no agent to end it, so its Claude process does: the source finishes once that
-/// process has gone, if no hook finished it first. It is beaten only while the connection is up, because a terminal
-/// session costs nothing on a watcher, and a watcher may reach the server this daemon can't.</para>
+/// process has gone, if no hook finished it first, and the session's end is posted as a watcher's parent monitor posts
+/// it, after a grace that lets a late SessionEnd hook post its own instead. A session its hooks show running in another
+/// process is followed there rather than ended. Each source ends once, by whichever of its hook, its process or the
+/// server gets there first. It is beaten only while the connection is up, because a terminal session costs nothing on
+/// a watcher, and a watcher may reach the server this daemon can't.</para>
 ///
 /// <para>A session a person disabled is refused at every way in, and <see cref="DisableSessionAsync"/> ends what is
 /// already running. Those two meet without a lock, because the marker is on disk before the command asks: whoever takes a
@@ -60,6 +64,10 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <summary>How often a terminal source's process is looked at, as a watcher's parent monitor looks at its own.</summary>
     internal static readonly TimeSpan ProcessCheck = TimeSpan.FromSeconds(5);
 
+    /// <summary>How long after a terminal session's process exits its end waits for the SessionEnd hook, whose detached
+    /// continuation can run that long after the process has gone.</summary>
+    internal static readonly TimeSpan SessionEndGrace = TimeSpan.FromSeconds(15);
+
     readonly DaemonConfig _config;
     readonly CapacitorServer _server;
     readonly RecordingProbe _serverRecords;
@@ -68,6 +76,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     readonly TimeProvider _time;
     readonly ILogger _logger;
     readonly Func<ProcessIncarnation, bool> _processExited;
+    readonly Func<RecordedSource, JsonObject, Task<bool>> _postSessionEnd;
+    readonly WatcherPaths _paths;
     readonly RecorderClaims _claims;
     readonly WatcherLiveness _liveness;
     readonly RecordedSourceList _list;
@@ -89,10 +99,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <param name="connect">Builds the transport, for the first source. Nothing connects before that.</param>
     /// <param name="housekeeping">Builds a recorder's housekeeping, given its source, its log, its own stop and its beat.</param>
     /// <param name="processExited">Whether a terminal source's process has gone, conclusively.</param>
+    /// <param name="postSessionEnd">Posts a terminal session's end, given its source and the end; true once the server has
+    /// it or it is spooled.</param>
     public DaemonRecorder(
             DaemonConfig config, CapacitorServer server, RecordingProbe serverRecords, Func<ISilenceableRecorderTransport> connect,
             Func<RecordedSource, Action<string>, Action, Action, IRecorderHousekeeping> housekeeping, TimeProvider time, ILogger<DaemonRecorder> logger,
-            Func<ProcessIncarnation, bool>? processExited = null) {
+            Func<ProcessIncarnation, bool>? processExited = null, Func<RecordedSource, JsonObject, Task<bool>>? postSessionEnd = null) {
         _config        = config;
         _server        = server;
         _serverRecords = serverRecords;
@@ -100,11 +112,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         _housekeeping  = housekeeping;
         _time          = time;
         _logger        = logger;
-        _processExited = processExited ?? (process => process.HasExited());
+        _processExited  = processExited ?? (process => process.HasExited());
+        _postSessionEnd = postSessionEnd ?? ((_, _) => Task.FromResult(false));
 
-        var paths = WatcherPaths.FromEnvironment(config.ConfigRoot);
-        _claims   = new RecorderClaims(paths.Directory, time, config.Name);
-        _liveness = new WatcherLiveness(paths, time);
+        _paths    = WatcherPaths.FromEnvironment(config.ConfigRoot);
+        _claims   = new RecorderClaims(_paths.Directory, time, config.Name);
+        _liveness = new WatcherLiveness(_paths, time);
         _list     = new RecordedSourceList(config.Store.StateDirectory(config.Name), logger);
         _host     = new Lazy<RecorderHost>(CreateHost);
 
@@ -138,7 +151,11 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 source.Recording, source.SkipTitle, parentPid: null,
                 new DaemonRecorderHost(config.ConfigRoot, hookCommand, time, stop, (session, vendor, path) => HandOffTitle(config, logger, session, vendor, path), log),
                 config.ConfigRoot, config.Profiles, harnesses, http, router, time, accounts, config.Home, log, beat),
-            time, logger);
+            time, logger,
+            postSessionEnd: (source, end) => new SessionEndPoster(
+                    config.ConfigRoot, config.ServerUrl, http, time, message => logger.LogInformation("Recording {Key}: {Message}", source.Key, message),
+                    (session, vendor) => StartCli(config, logger, session, GenerateWhatsDone, session))
+                .PostAsync(source.SessionId, source.Vendor, end, repository: null, "Process-exit"));
     }
 
     /// <summary>Whether this daemon takes new sources now. Read on every use: the server's answer goes with its connection,
@@ -157,6 +174,10 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     /// <summary>Whether a terminal session's process has gone, conclusively. Never signals it.</summary>
     public bool HasExited(ProcessIncarnation process) => _processExited(process);
+
+    /// <summary>Whether the source <paramref name="key"/> names has ended with its process and waits out the grace for its
+    /// session's end.</summary>
+    internal bool AwaitsEnd(string key) => _sources.TryGetValue(key, out var tracked) && tracked.EndPending;
 
     /// <summary>The keys being recorded now.</summary>
     internal IReadOnlyCollection<string> ActiveKeys => _host.IsValueCreated ? _host.Value.ActiveKeys : [];
@@ -248,6 +269,21 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         return true;
     }
 
+    /// <summary>A hook's ask for the final drain of the source <paramref name="key"/> names. The hook posts the session's
+    /// end itself, so a source whose process exited first is left to post none: the hook is in the grace that waits for
+    /// it, and is answered once the drain the exit started is done.</summary>
+    public async Task<bool> FinishForHookAsync(string key, CancellationToken ct) {
+        if (!_sources.TryGetValue(key, out var tracked)) return false;
+
+        if (tracked.TryEnd(EndedBy.Hook)) return await FinishAsync(key, ct, hurried: true);
+        if (tracked.Ended is not EndedBy.Process) return await FinishAsync(key, ct, hurried: true);
+
+        tracked.HookArrived();
+        await tracked.LastAttemptDone.Task.WaitAsync(ct);
+
+        return true;
+    }
+
     /// <summary>Finishes every source of an exited agent, within <paramref name="budget"/>, once: a second call on the
     /// way through a teardown spends none of it on a drain already asked for. Never throws, and what the budget cuts off
     /// carries on: a tail landing behind the session's end reactivates it, and the server's sweep closes it again once
@@ -327,8 +363,10 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     public async Task SettleRestoredAsync(Func<string, bool> agentIsLive) {
         Volatile.Write(ref _agentIsLive, agentIsLive);
 
-        foreach (var tracked in _sources.Values.Where(source => source.Restored && !IsRunning(source.Source, agentIsLive)))
-            _ = FinishQuietlyAsync(tracked.Source.Key, CancellationToken.None);
+        foreach (var tracked in _sources.Values.Where(source => source.Restored && !IsRunning(source.Source, agentIsLive))) {
+            if (tracked.Source.Process is { } process) EndExited(tracked, process);
+            else _ = FinishQuietlyAsync(tracked.Source.Key, CancellationToken.None);
+        }
 
         while (_letGo.TryDequeue(out var left)) await SettleLetGoAsync(left.Source, left.MayImport, agentIsLive);
     }
@@ -389,8 +427,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     /// <summary>Stops every source for a shutdown, within <see cref="ShutdownBound"/>. The next boot picks up what
-    /// <paramref name="keeps"/> says is coming back, each terminal source whose process is still running, and what didn't
-    /// finish: a stuck source hears no callback, so its claim and list entry stay.</summary>
+    /// <paramref name="keeps"/> says is coming back, every terminal source, and what didn't finish: a stuck source hears no
+    /// callback, so its claim and list entry stay. A terminal source whose process is still running resumes there, and one
+    /// whose process has gone gets its session's end there.</summary>
     /// <param name="keeps">Whether an agent resumes under the next daemon.</param>
     public async Task StopAsync(Func<string, bool> keeps, CancellationToken ct) {
         lock (_starting) {
@@ -405,7 +444,14 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         foreach (var tracked in _sources.Values) {
             if (stuck.Contains(tracked.Source.Key) || !tracked.Running) continue;
 
-            if (IsRunning(tracked.Source, keeps)) {
+            // Its end hasn't been decided: the next boot picks the source up, finds its process gone and decides it.
+            if (tracked.EndPending) {
+                tracked.Settled.TrySetResult();
+
+                continue;
+            }
+
+            if (tracked.Source.Process is not null || IsRunning(tracked.Source, keeps)) {
                 if (tracked.Drained) _list.TryAdd(tracked.Source with { Drained = true });
                 tracked.Settled.TrySetResult();
             } else {
@@ -664,9 +710,68 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         foreach (var tracked in _sources.Values) {
             if (tracked.Source.Process is not { } process || !tracked.Running || IsLeaving(tracked) || !_processExited(process)) continue;
 
-            LogProcessExited(tracked.Source.Key, process.Pid);
-            tracked.AgentFinished = true;
-            _ = FinishQuietlyAsync(tracked.Source.Key, CancellationToken.None);
+            // A session resumed in another process runs on there, and that process's next hook may be minutes away.
+            if (tracked.Source.SubagentId is null && LiveClaimant(tracked.Source) is { } claimant && claimant != process) {
+                LogFollowed(tracked.Source.Key, process.Pid, claimant.Pid);
+                tracked.Source = tracked.Source with { Process = claimant };
+                _list.TryAdd(tracked.Source);
+
+                continue;
+            }
+
+            EndExited(tracked, process);
+        }
+    }
+
+    // Whoever ends a source first decides how: this exit loses to a hook or a server stop already under way.
+    void EndExited(Tracked tracked, ProcessIncarnation process) {
+        if (!tracked.TryEnd(EndedBy.Process)) return;
+
+        LogProcessExited(tracked.Source.Key, process.Pid);
+        tracked.AgentFinished = true;
+        _ = FinishQuietlyAsync(tracked.Source.Key, CancellationToken.None);
+    }
+
+    // The session is running in a live process its hooks claimed, which may be another than the one this source follows.
+    ProcessIncarnation? LiveClaimant(RecordedSource source) =>
+        SessionId.Parse(source.SessionId) is { } session
+            ? new AgentSessionNotes(_config.ConfigRoot).LiveClaimant(session, (pid, token) => _processExited(new ProcessIncarnation(pid, token)))
+            : null;
+
+    /// <summary>Posts a terminal session's end once its process has gone and the grace has passed with no SessionEnd hook,
+    /// as a watcher's parent monitor does. The claim and list entry stay until then, so a hook inside the grace finds the
+    /// source here, and a daemon stopping inside it leaves the decision to the next boot.</summary>
+    async Task EndSessionAsync(Tracked tracked) {
+        try {
+            await Task.Delay(SessionEndGrace, _time, _closing.Token);
+        } catch (OperationCanceledException) {
+            return;
+        }
+
+        var source = tracked.Source;
+
+        try {
+            using var _ = await _keys.EnterAsync(source.Key, CancellationToken.None);
+
+            if (Volatile.Read(ref _stopping) != 0) return;
+
+            var reason = SessionEnd.DecideEndReason(parentExited: true, crewFinished: false, wedgedCeiling: false, idle: false, copilotShutdown: false);
+            var action = SessionEnd.DecideSessionEnd(runsOnElsewhere: LiveClaimant(source) is not null, hosted: null, static _ => false);
+
+            var endedAt = _time.GetUtcNow();
+
+            if (tracked.Disabled || IsDisabled(source) || action is not SessionEndAction.Post
+             || !SessionEnd.PostsOwnSessionEnd(reason, source.SubagentId, cursorSuppressesEndPost: false)
+             || !tracked.TryClaimEnd(() => SessionEndRecord.Write(_paths, source.SessionId, endedAt))) {
+                LogNoEndPosted(source.Key);
+            } else if (!await _postSessionEnd(source, SessionEnd.ParentExitEndBody(source.SessionId, source.TranscriptPath, source.Cwd, reason, endedAt, HostedAgent.Terminal))) {
+                LogEndNotPosted(source.Key);
+            }
+
+            Forget(tracked);
+        } catch (Exception ex) {
+            LogFinishFailed(ex, source.Key);
+            Forget(tracked);
         }
     }
 
@@ -696,6 +801,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
         if (Volatile.Read(ref _stopping) != 0 && !ended.LostClaim) return;
 
+        tracked.TryEnd(EndedBy.Itself);
         tracked.Ending = true;
         _ = Task.Run(() => SettleAsync(tracked, ended.LostClaim));
     }
@@ -705,7 +811,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var key = tracked.Source.Key;
 
         try {
-            using var _ = await _keys.EnterAsync(key, CancellationToken.None);
+            using var gate = await _keys.EnterAsync(key, CancellationToken.None);
 
             await _host.Value.FinishAsync(key, CancellationToken.None);
 
@@ -716,15 +822,21 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 ForgetDisabled(tracked.Source);
             }
 
+            tracked.LastAttemptDone.TrySetResult();
+
             if (lostClaim) {
                 _list.Remove(key);
                 _sources.TryRemove(key, out var _);
                 tracked.Settled.TrySetResult();
+            } else if (tracked.Ended is EndedBy.Process && tracked.Source.SubagentId is null && !tracked.Disabled && Volatile.Read(ref _stopping) == 0) {
+                tracked.EndPending = true;
+                _ = Task.Run(() => EndSessionAsync(tracked));
             } else {
                 Forget(tracked);
             }
         } catch (Exception ex) {
             LogFinishFailed(ex, key);
+            tracked.LastAttemptDone.TrySetResult();
             tracked.Settled.TrySetResult();
         }
     }
@@ -746,7 +858,13 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     /// <summary>Finishes a title through the CLI beside this binary: a recorder's process path would name the daemon.</summary>
-    static void HandOffTitle(DaemonConfig config, ILogger logger, string sessionId, string vendor, string transcriptPath) {
+    static void HandOffTitle(DaemonConfig config, ILogger logger, string sessionId, string vendor, string transcriptPath) =>
+        StartCli(config, logger, sessionId, TitleGeneration.HandOffCommand, sessionId, vendor, transcriptPath);
+
+    const string GenerateWhatsDone = "generate-whats-done";
+
+    /// <summary>Starts a detached <c>kcap</c> command from the CLI beside this binary, with this daemon's server and config.</summary>
+    static void StartCli(DaemonConfig config, ILogger logger, string sessionId, params string[] arguments) {
         try {
             var psi = new ProcessStartInfo(config.KcapCliPath ?? config.CapacitorPath) {
                 RedirectStandardOutput = true,
@@ -759,15 +877,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                     [ConfigRoot.ConfigDirEnvVar] = config.ConfigRoot.Directory,
                 },
             };
-            psi.ArgumentList.Add(TitleGeneration.HandOffCommand);
-            psi.ArgumentList.Add(sessionId);
-            psi.ArgumentList.Add(vendor);
-            psi.ArgumentList.Add(transcriptPath);
+            foreach (var argument in arguments) psi.ArgumentList.Add(argument);
 
             using var process = Process.Start(WindowsLaunchCommand.Apply(psi, config.Binaries));
 
             if (process is null) {
-                LogTitleHandOffFailed(logger, null, sessionId);
+                LogCliStartFailed(logger, null, arguments[0], sessionId);
 
                 return;
             }
@@ -777,14 +892,55 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             process.StandardOutput.Close();
             process.StandardError.Close();
         } catch (Exception ex) {
-            LogTitleHandOffFailed(logger, ex, sessionId);
+            LogCliStartFailed(logger, ex, arguments[0], sessionId);
         }
     }
 
     enum ClaimOutcome { Contended, Taken, HeldByWatcher, Disabled }
 
+    enum EndedBy { None, Hook, Process, Itself }
+
     sealed class Tracked(RecordedSource source) {
+        int _ended;
+
         public RecordedSource Source { get; set; } = source;
+
+        /// <summary>Who ended this source, taken once: a hook's finish, its process exiting, or the source itself, at a
+        /// server stop, an idle end or a lost claim.</summary>
+        public EndedBy Ended => (EndedBy)Volatile.Read(ref _ended);
+
+        public bool TryEnd(EndedBy by) => Interlocked.CompareExchange(ref _ended, (int)by, (int)EndedBy.None) == (int)EndedBy.None;
+
+        readonly Lock _endGate = new();
+        bool _hookCame;
+        bool _endClaimed;
+
+        /// <summary>A SessionEnd hook came after the process exit ended the source, so the hook posts the end, unless this
+        /// daemon has already claimed it, in which case the hook finds the record.</summary>
+        public void HookArrived() {
+            lock (_endGate) {
+                if (!_endClaimed) _hookCame = true;
+            }
+        }
+
+        /// <summary>Claims the end for this daemon, writing what a later hook reads, unless a hook came first. One lock with
+        /// <see cref="HookArrived"/>, so between them exactly one of the two posts it.</summary>
+        public bool TryClaimEnd(Action record) {
+            lock (_endGate) {
+                if (_hookCame) return false;
+
+                _endClaimed = true;
+                record();
+
+                return true;
+            }
+        }
+
+        /// <summary>Its process exited and its end waits out the grace.</summary>
+        public bool EndPending { get; set; }
+
+        /// <summary>Its last attempt has ended, the final drain included.</summary>
+        public TaskCompletionSource LastAttemptDone { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>The host has it. False from the claim to the agent's start.</summary>
         public bool Running { get; set; }
@@ -855,6 +1011,15 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Looking for terminal processes that have exited failed")]
     partial void LogProcessCheckFailed(Exception ex);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Handing the title of {SessionId} to the CLI failed")]
-    static partial void LogTitleHandOffFailed(ILogger logger, Exception? ex, string sessionId);
+    [LoggerMessage(Level = LogLevel.Information, Message = "The terminal process {Pid} of {Key} has exited and the session runs on in {Claimant}; following that")]
+    partial void LogFollowed(string key, int pid, int claimant);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "No session end posted for {Key}: a hook posts it, the session was disabled, or it runs on elsewhere")]
+    partial void LogNoEndPosted(string key);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The session end of {Key} was neither posted nor spooled")]
+    partial void LogEndNotPosted(string key);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Starting the CLI's {Command} for {SessionId} failed")]
+    static partial void LogCliStartFailed(ILogger logger, Exception? ex, string command, string sessionId);
 }

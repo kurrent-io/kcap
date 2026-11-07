@@ -871,7 +871,7 @@ internal partial class AgentOrchestrator {
     /// <summary>A hook's ask for a source's final drain. A hook that stops waiting has still asked, so the drain runs
     /// with nobody left to answer. This daemon's own stop is what ends the wait, and the drain outlives that too.</summary>
     public async Task HandleLocalFinishSourceAsync(string key, Stream stream, CancellationToken ct) {
-        var finished = _recorder is { } recorder && await recorder.FinishAsync(key, ct, hurried: true);
+        var finished = _recorder is { } recorder && await recorder.FinishForHookAsync(key, ct);
 
         try {
             await FrameCodec.WriteAsync(stream, LocalFrame.FinishSourceAck(finished ? RecordingIpc.Finished : RecordingIpc.NotHeld), ct);

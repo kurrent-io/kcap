@@ -358,6 +358,10 @@ public sealed partial class WatcherManager(
         }
     }
 
+    /// <summary>Whether the daemon has just posted <paramref name="sessionId"/>'s end itself, because its process exited
+    /// and this SessionEnd hook came after the grace it waited. Answers once, and costs a stat when it hasn't.</summary>
+    public bool TakeDaemonSessionEnd(string sessionId) => SessionEndRecord.TryTake(paths, sessionId, time.GetUtcNow());
+
     internal bool PidAlive(string key) => _liveness.PidAlive(key);
 
     internal bool IsWatcherAlive(string key) => _liveness.IsWatcherAlive(key);
