@@ -64,7 +64,7 @@ static class RepoExclusion {
 
             // An ownerless origin keys by its local identity and its remote's path; an origin with an owner by its path alone.
             return LocalRepository.IsLocal(owner) && GitRepoKey.ExclusionKeys(cwd, config) is { Count: > 1 } keys
-                && keys.Contains($"{owner}/{name}", StringComparer.Ordinal);
+                && keys.Contains($"{owner}/{name}", PathComparison.Comparer);
         } catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) {
             return false;
         }
