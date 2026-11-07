@@ -251,38 +251,40 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).IsEqualTo(Clean);
     }
 
-    /// <summary>The mirror isn't recording and isn't stopped, so "Recording stopped" alone would leave out what a person
-    /// most needs to know. It says so and goes no further: nothing here failed.</summary>
+    const string StillRunning = "This agent is still running, and its live output keeps reaching the server until it ends. Stop the agent to end it.";
+
+    /// <summary>A live agent's output isn't recording and isn't stopped, whichever runtime carries it, so "Recording stopped"
+    /// alone would leave out what a person most needs to know. It says so and goes no further: nothing here failed.</summary>
     [Test]
-    public async Task Disable_says_so_when_a_live_agents_terminal_goes_on() {
+    public async Task Disable_says_so_when_a_live_agent_keeps_sending() {
         Claim(Session);
-        _daemon.Answer = new(RecordingDisable.Stopped, TerminalLive: true);
+        _daemon.Answer = new(RecordingDisable.Stopped, AgentLive: true);
 
         await Assert.That(await Run()).IsEqualTo(0);
 
         await Assert.That(Printed).StartsWith(Clean);
-        await Assert.That(Printed).Contains("The agent's remote terminal keeps streaming to the server until the agent ends. Stop the agent to end it.");
+        await Assert.That(Printed).Contains(StillRunning);
     }
 
     [Test]
-    public async Task Disable_says_nothing_of_a_terminal_with_no_live_agent() {
+    public async Task Disable_says_nothing_of_an_agent_with_none_live() {
         Claim(Session);
         _daemon.Answer = new(RecordingDisable.Stopped);
 
         await Run();
 
-        await Assert.That(Printed).DoesNotContain("remote terminal");
+        await Assert.That(Printed).DoesNotContain("still running");
     }
 
-    /// <summary>With no claim the daemon is asked all the same, or a hosted session on a watcher would never hear of this.
-    /// That daemon's server says nothing about this session, because it holds none of it.</summary>
+    /// <summary>With no claim the daemon is asked all the same, or a hosted session on a watcher, and every ACP session,
+    /// would never hear of this. That daemon's server says nothing about this session, because it holds none of it.</summary>
     [Test]
-    public async Task Disable_mentions_a_live_terminal_with_no_claim() {
-        _daemon.Answer = new(RecordingDisable.NotHeld, TerminalLive: true, Server: "https://other.example");
+    public async Task Disable_mentions_a_live_agent_with_no_claim() {
+        _daemon.Answer = new(RecordingDisable.NotHeld, AgentLive: true, Server: "https://other.example");
 
         await Assert.That(await Run()).IsEqualTo(0);
 
-        await Assert.That(Printed).Contains("remote terminal");
+        await Assert.That(Printed).Contains(StillRunning);
         await Assert.That(Printed).DoesNotContain("other.example");
     }
 

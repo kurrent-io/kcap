@@ -11,7 +11,7 @@ namespace Capacitor.Cli.Commands;
 /// confirm stays unconfirmed, and running this again is no cure for a send that landed: its deletion can answer 404 with
 /// the stream revived.</summary>
 class DisableCommand(ConfigRoot config, WatcherManager watchers) {
-    const string TerminalGoesOn = "The agent's remote terminal keeps streaming to the server until the agent ends. Stop the agent to end it.";
+    const string AgentGoesOn = "This agent is still running, and its live output keeps reaching the server until it ends. Stop the agent to end it.";
 
     /// <param name="sessions">Resolved only once recording has stopped: a profile with no usable server still gets that far.</param>
     public async Task<int> Handle(string sessionId, Func<ISessionsApi> sessions, TextWriter stdout, TextWriter stderr) {
@@ -53,7 +53,7 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers) {
 
         foreach (var caveat in caveats) await stdout.WriteLineAsync(caveat);
 
-        if (stopped.TerminalLive) await stdout.WriteLineAsync(TerminalGoesOn);
+        if (stopped.AgentLive) await stdout.WriteLineAsync(AgentGoesOn);
 
         return exit;
     }

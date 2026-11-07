@@ -254,10 +254,10 @@ public class AgentOrchestratorRecordingTests {
 
     static DisableSessionAckDto AckOf(LocalFrame reply) => JsonSerializer.Deserialize(reply.Text, RecordingIpcJsonContext.Default.DisableSessionAckDto)!;
 
-    /// <summary>The mirror isn't recording and stays up, so the answer says so, and only for an agent still running this
-    /// session. A private agent has no mirror, and one that has exited has stopped sending.</summary>
+    /// <summary>A PTY agent's mirror isn't recording and stays up, so the answer says so, and only for an agent still
+    /// running this session. A private agent has no mirror, and one that has exited has stopped sending.</summary>
     [Test]
-    public async Task The_disable_frame_says_when_a_live_agents_terminal_goes_on() {
+    public async Task The_disable_frame_says_when_a_pty_agent_keeps_sending() {
         await using var f = new Fixture(Tmp, new StartingFactory());
         var pty   = new ScriptedPtyProcess();
         var agent = f.Orch.SeedAgentForTest("live", pty: pty);
@@ -273,13 +273,63 @@ public class AgentOrchestratorRecordingTests {
 
         var ended = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
 
-        await Assert.That(live.TerminalLive).IsTrue();
-        await Assert.That(other.TerminalLive).IsFalse();
-        await Assert.That(ended.TerminalLive).IsFalse();
+        await Assert.That(live.AgentLive).IsTrue();
+        await Assert.That(other.AgentLive).IsFalse();
+        await Assert.That(ended.AgentLive).IsFalse();
+    }
+
+    /// <summary>An ACP agent has no terminal: its transcript goes through a forwarder no disable stops, and the answer has
+    /// to cover it. Its session is known only to its runtime.</summary>
+    [Test]
+    public async Task The_disable_frame_says_when_an_acp_agent_keeps_sending() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        var agent = f.Orch.SeedAgentForTest("acp", runtime: new FakeAcpRuntime { AcpSessionId = Moved });
+        AgentOrchestratorHarness.BindTranscript(agent);
+
+        var live  = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        var other = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Resumed, stream, CancellationToken.None)));
+
+        await Assert.That(live.AgentLive).IsTrue();
+        await Assert.That(other.AgentLive).IsFalse();
+    }
+
+    /// <summary>The forwarder appears once the server has bound the transcript, and what the agent has done by then goes
+    /// out with it, so an agent still binding is about to send.</summary>
+    [Test]
+    public async Task An_acp_agent_not_bound_yet_counts_as_sending() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        f.Orch.SeedAgentForTest("acp", runtime: new FakeAcpRuntime { AcpSessionId = Moved });
+
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+
+        await Assert.That(ack.AgentLive).IsTrue();
+    }
+
+    /// <summary>Its teardown has begun, so nothing more is coming that a person could stop it for.</summary>
+    [Test]
+    public async Task An_acp_agent_being_torn_down_is_not_said_to_be_live() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        var agent = f.Orch.SeedAgentForTest("acp", runtime: new FakeAcpRuntime { AcpSessionId = Moved });
+        AgentOrchestratorHarness.BindTranscript(agent);
+        agent.CleanupStarted = 1;
+
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+
+        await Assert.That(ack.AgentLive).IsFalse();
     }
 
     [Test]
-    public async Task A_private_agent_has_no_terminal_to_mention() {
+    public async Task A_private_acp_agent_has_nothing_to_mention() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        f.Orch.SeedAgentForTest("acp", isPrivate: true, runtime: new FakeAcpRuntime { AcpSessionId = Moved });
+
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+
+        await Assert.That(ack.AgentLive).IsFalse();
+    }
+
+    [Test]
+    public async Task A_private_agent_has_nothing_to_mention() {
         await using var f = new Fixture(Tmp, new StartingFactory());
         var pty   = new ScriptedPtyProcess();
         var agent = f.Orch.SeedAgentForTest("private", isPrivate: true, pty: pty);
@@ -291,13 +341,13 @@ public class AgentOrchestratorRecordingTests {
         pty.Exit();
         await loop.WithinDeadlineAsync("the read loop");
 
-        await Assert.That(ack.TerminalLive).IsFalse();
+        await Assert.That(ack.AgentLive).IsFalse();
     }
 
     /// <summary>With recording off a hosted session sits on a watcher and no claim exists, which is most hosted sessions.
     /// The mirror runs all the same, so the answer can't turn on this daemon holding anything.</summary>
     [Test]
-    public async Task A_live_terminal_is_said_with_recording_off() {
+    public async Task A_live_agent_is_said_with_recording_off() {
         await using var f = new Fixture(Tmp, new StartingFactory(), on: false);
         var pty   = new ScriptedPtyProcess();
         var agent = f.Orch.SeedAgentForTest("live", pty: pty);

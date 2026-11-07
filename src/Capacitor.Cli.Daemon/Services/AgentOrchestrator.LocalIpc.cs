@@ -813,7 +813,7 @@ internal partial class AgentOrchestrator {
             RecordingDisable.Stopped      => RecordingIpc.Stopped,
             RecordingDisable.SendInFlight => RecordingIpc.SendInFlight,
             _                             => RecordingIpc.NotHeld,
-        }, HostsLiveTerminal(sessionId), _config.ServerUrl);
+        }, HostsLiveOutput(sessionId), _config.ServerUrl);
 
         try {
             await FrameCodec.WriteAsync(stream, LocalFrame.DisableSessionAck(JsonSerializer.Serialize(answer, RecordingIpcJsonContext.Default.DisableSessionAckDto)), ct);
@@ -822,9 +822,13 @@ internal partial class AgentOrchestrator {
         }
     }
 
-    // The terminal mirror isn't recording and a disable leaves it up, so the person has to be told.
-    bool HostsLiveTerminal(string sessionId) =>
-        SessionIds.Canonical(sessionId) is { } session && _agents.Values.Any(agent => agent is { CloudSink: not null, IsCleanupStarted: false } && IsSessionOf(agent, session));
+    // A disable leaves a live agent's output going, whichever runtime carries it, so the person has to be told: a PTY's
+    // terminal mirror, or an ACP agent's transcript, whose forwarder starts at the bind and sends what came before it.
+    bool HostsLiveOutput(string sessionId) =>
+        SessionIds.Canonical(sessionId) is { } session && _agents.Values.Any(agent =>
+            agent is { IsServerSilent: false, IsCleanupStarted: false }
+         && (agent.CloudSink is not null || agent.Runtime is IAcpTranscriptSource)
+         && SessionIdsOf(agent).Any(id => SessionIds.Canonical(id) == session));
 
     /// <summary>Attach an existing agent to a local client (used by <c>kcap agent attach</c>).</summary>
     public Task HandleLocalAttachAsync(string agentId, Stream stream, CancellationToken ct, bool reportRuntime = false) {

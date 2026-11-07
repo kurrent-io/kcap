@@ -140,8 +140,8 @@ public class RecordingIpcTests {
         await Assert.That(await finish).IsFalse();
     }
 
-    static string Ack(string status, bool terminalLive = false, string? server = null) =>
-        JsonSerializer.Serialize(new DisableSessionAckDto(status, terminalLive, server), RecordingIpcJsonContext.Default.DisableSessionAckDto);
+    static string Ack(string status, bool agentLive = false, string? server = null) =>
+        JsonSerializer.Serialize(new DisableSessionAckDto(status, agentLive, server), RecordingIpcJsonContext.Default.DisableSessionAckDto);
 
     [Test]
     [Arguments(RecordingIpc.Stopped, RecordingDisable.Stopped)]
@@ -157,17 +157,17 @@ public class RecordingIpcTests {
 
     /// <summary>Both of these end up in what the command prints.</summary>
     [Test]
-    public async Task A_disable_carries_the_live_terminal_and_the_daemons_server() {
+    public async Task A_disable_carries_the_live_agent_and_the_daemons_server() {
         await using var daemon = Daemon(RecordingIpc.DisableCapability);
-        daemon.Answer = Ack(RecordingIpc.NotHeld, terminalLive: true, server: "https://other.example");
+        daemon.Answer = Ack(RecordingIpc.NotHeld, agentLive: true, server: "https://other.example");
 
-        await Assert.That(await Disable()).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.NotHeld, TerminalLive: true, Server: "https://other.example"));
+        await Assert.That(await Disable()).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.NotHeld, AgentLive: true, Server: "https://other.example"));
     }
 
     /// <summary>The command tells a person what this says, so an answer it can't read says nothing.</summary>
     [Test]
     [Arguments("not json")]
-    [Arguments("""{"status":"an_answer_from_a_newer_daemon","terminal_live":false,"server":null}""")]
+    [Arguments("""{"status":"an_answer_from_a_newer_daemon","agent_live":false,"server":null}""")]
     public async Task A_disable_answer_it_does_not_know_is_no_answer(string answer) {
         await using var daemon = Daemon(RecordingIpc.DisableCapability);
         daemon.Answer = answer;

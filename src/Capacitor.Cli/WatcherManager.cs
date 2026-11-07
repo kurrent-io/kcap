@@ -144,7 +144,7 @@ public sealed partial class WatcherManager(
     /// stops as <see cref="KillWatcher"/> stops one. A daemon's sources are found by their claims, because it leaves no pid
     /// file, and it is asked to stop rather than signalled, a daemon of any profile included: the claim says who holds the
     /// source. This profile's daemon hears of it as well, with or without a claim, because only it can say a live agent's
-    /// terminal goes on, and a hosted session on a watcher has no claim.</summary>
+    /// output goes on, and neither a hosted session on a watcher nor an ACP session has a claim.</summary>
     public async Task<RecordingStopReport> StopRecordingAsync(string sessionId, TextWriter? stderr = null) {
         var report = await StopDaemonsAsync(sessionId);
 
@@ -186,7 +186,7 @@ public sealed partial class WatcherManager(
 
         return new RecordingStopReport(
             outcome,
-            TerminalLive: answers.Any(answer => answer.Answer.TerminalLive),
+            AgentLive: answers.Any(answer => answer.Answer.AgentLive),
             OtherServer: answers.FirstOrDefault(answer => answer.Held && IsAnotherServer(answer.Answer.Server)).Answer?.Server,
             Unreadable: keys is null);
     }

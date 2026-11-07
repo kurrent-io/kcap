@@ -737,7 +737,7 @@ The command exits `1`, and says why, when it can't promise the data is gone:
 
 Running the command again doesn't settle any of the first two: a later run has nobody left to ask, and says so.
 
-Disabling stops recording, not a live agent. A hosted agent's remote terminal keeps streaming to the server until the agent ends, and the command says so when one is running the session. Stop the agent to end it.
+Disabling stops recording, not a live agent. While a hosted agent is running the session, its live output keeps reaching the server until it ends: a terminal agent's remote terminal, or the transcript of an agent hosted over ACP. The command says so when one is running. Stop the agent to end it.
 
 ### Error extraction
 

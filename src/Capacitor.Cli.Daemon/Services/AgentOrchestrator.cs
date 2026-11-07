@@ -6641,8 +6641,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>Whether a person disabled the session this agent runs, whose recorder knows nothing of what else the
     /// daemon sends for it.</summary>
     bool RunsDisabledSession(AgentInstance agent) =>
-        new[] { agent.SessionId, agent.VendorSession, agent.ResumedSessionId, (agent.Runtime as IAcpTranscriptSource)?.AcpSessionId }
-            .Any(id => SessionIds.Canonical(id) is { } session && DisabledSessions.IsDisabled(session, _config.ConfigRoot));
+        SessionIdsOf(agent).Any(id => SessionIds.Canonical(id) is { } session && DisabledSessions.IsDisabled(session, _config.ConfigRoot));
+
+    /// <summary>Every id this agent's session goes by, an ACP agent's being known only to its runtime.</summary>
+    static string?[] SessionIdsOf(AgentInstance agent) =>
+        [agent.SessionId, agent.VendorSession, agent.ResumedSessionId, (agent.Runtime as IAcpTranscriptSource)?.AcpSessionId];
 
     internal static HarnessTitlePost? NativeTitleFor(TitleAgentView agent) =>
         agent is { Vendor: "claude", TranscriptPath: { } path } && ClaudeNativeTitle.TryExtractWithKind(path) is { } title

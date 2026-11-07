@@ -231,7 +231,7 @@ public class LocalControlHelloTests {
 
             var answer = await RecordingIpc.DisableAsync(h.Daemons.Store, "hello-join", session, ct);
 
-            await Assert.That(answer).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.Stopped, TerminalLive: false, Server: h.Config.ServerUrl));
+            await Assert.That(answer).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.Stopped, AgentLive: false, Server: h.Config.ServerUrl));
             await Assert.That(Recorder.ActiveKeys).IsEmpty();
 
             // The silence would refuse a final drain, so seeing no drain proves nothing. No attempt being refused does.

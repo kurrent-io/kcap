@@ -11,8 +11,9 @@ already on its way may still have landed, the daemon did not confirm it
 stopped, or the daemon sends to another server. Running it again can't
 confirm what an earlier run could not.
 
-A hosted agent's remote terminal keeps streaming to the server until the
-agent ends, and the command says so. Stop the agent to end it.
+While a hosted agent is running the session, its live output keeps
+reaching the server until it ends, and the command says so. Stop the
+agent to end it.
 
 Arguments:
   sessionId               Session ID (defaults to KCAP_SESSION_ID

@@ -71,9 +71,9 @@ public static class RecordingIpc {
                 return new(RecordingDisable.Unanswered);
 
             return ack.Status switch {
-                Stopped      => new(RecordingDisable.Stopped, ack.TerminalLive, ack.Server),
-                SendInFlight => new(RecordingDisable.SendInFlight, ack.TerminalLive, ack.Server),
-                NotHeld      => new(RecordingDisable.NotHeld, ack.TerminalLive, ack.Server),
+                Stopped      => new(RecordingDisable.Stopped, ack.AgentLive, ack.Server),
+                SendInFlight => new(RecordingDisable.SendInFlight, ack.AgentLive, ack.Server),
+                NotHeld      => new(RecordingDisable.NotHeld, ack.AgentLive, ack.Server),
                 _            => new(RecordingDisable.Unanswered),
             };
         } catch (Exception ex) when (IsNoAnswer(ex)) {

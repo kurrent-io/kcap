@@ -28,7 +28,7 @@ This will:
 
 If the command exits 1 it could not promise the data is gone. Tell the user what it printed. Running it again won't confirm it.
 
-If it says the agent's remote terminal keeps streaming, tell the user: that goes on until the agent stops.
+If it says the agent is still running, tell the user: its live output keeps reaching the server until the agent stops.
 
 ## Requirements
 
