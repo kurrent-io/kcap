@@ -22,8 +22,8 @@ internal sealed class AdoptionPrivilegedStep(
     internal static readonly TimeSpan SettleWait = GoWait + TimeSpan.FromMinutes(1);
 
     /// <summary>Settles the helper run the record names, which a quit or crash left unfinished: waits for it to exit,
-    /// then reads the files as <see cref="SettleFromFiles"/> does, without a prompt. One still running past the wait
-    /// keeps its record: its files are half done, and a second helper would race it.</summary>
+    /// then reads the files as <see cref="SettleFromFiles"/> does, without a prompt. One that may still be running past
+    /// the wait keeps its record: its files are half done, and a second helper would race it.</summary>
     /// <returns>False while that helper still runs.</returns>
     public async Task<bool> SettleAsync(CancellationToken ct) {
         if (store.Load().Privileged is not { } helper) return true;

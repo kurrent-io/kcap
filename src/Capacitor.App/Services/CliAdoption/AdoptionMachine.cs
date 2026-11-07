@@ -62,7 +62,7 @@ internal sealed class AdoptionMachine(
             if (!Exists(pid) || startToken is not null && !StillThatProcess(pid, startToken)) return true;
             await Task.Delay(ExitPoll, time, ct).ConfigureAwait(false);
         }
-        return !(Exists(pid) && startToken is not null && ProcessStartToken.Matches(pid, startToken) == true);
+        return !Exists(pid) || startToken is not null && !StillThatProcess(pid, startToken);
     }
 
     // A start identity that cannot be read, as a root process's may not be, says nothing either way.

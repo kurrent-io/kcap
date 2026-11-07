@@ -381,7 +381,7 @@ sealed class AdoptionWorld {
         public Task<bool> WaitForExitAsync(int pid, string? startToken, TimeSpan bound, CancellationToken ct) {
             Waits.Add((pid, startToken, bound));
             WhileWaiting?.Invoke();
-            if (Lingering.Contains(pid) && startToken is not null) return Task.FromResult(false);
+            if (Lingering.Contains(pid)) return Task.FromResult(false);
             Alive.Remove(pid);
             return Task.FromResult(true);
         }
