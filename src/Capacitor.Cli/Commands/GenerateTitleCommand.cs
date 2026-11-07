@@ -13,7 +13,7 @@ namespace Capacitor.Cli.Commands;
 /// process instead of dropping it. It reads the transcript itself: the prompt never goes on a command line.
 /// </summary>
 sealed class GenerateTitleCommand(ConfigRoot config, ProfileContext profiles, HarnessRegistry harnesses, ICapacitorHttpClient http, TimeProvider time) {
-    public const string Name = "generate-title";
+    public const string Name = TitleGeneration.HandOffCommand;
 
     public async Task<int> HandleAsync(string baseUrl, string sessionId, string vendor, string transcriptPath) {
         var logDir = config.Path("logs");

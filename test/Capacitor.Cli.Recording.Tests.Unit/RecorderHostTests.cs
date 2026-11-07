@@ -1764,6 +1764,26 @@ public class RecorderHostTests {
         await Eventually(() => host.ActiveKeys.Count == 0, "the drain");
     }
 
+    /// <summary>A hook asking for the finish has only seconds of its own, so a hurried finish doesn't wait out a title
+    /// either, on a recorder still tailing as much as on one in a backoff.</summary>
+    [Test]
+    public async Task A_hurried_finish_does_not_wait_out_a_title() {
+        var source  = new RecordingSource(Guid.NewGuid().ToString("N"), null, Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "claude", null);
+        var handed  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blocked = new TaskCompletionSource<ClaudeCliResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _titles[source.Key]   = _ => blocked.Task;
+        _handOffs[source.Key] = () => handed.TrySetResult();
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _transport.Connects == 1, "the connect", TimeSpan.FromSeconds(1));
+        await Eventually(() => LinesSent(source.SessionId) == 2, "the lines", TimeSpan.FromSeconds(1));
+        var finish = host.FinishAsync(source.Key, CancellationToken.None, hurried: true);
+
+        await Eventually(() => handed.Task.IsCompleted, "the hand-off", TimeSpan.FromSeconds(1));
+        await finish.WithinDeadlineAsync("the finish");
+    }
+
     /// <summary>The stop lands after the failed recorder has gone and before the backoff's wait begins, where no
     /// recorder is listening and a stop heard only during the wait would be lost.</summary>
     [Test]

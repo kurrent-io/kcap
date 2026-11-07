@@ -12,6 +12,10 @@ namespace Capacitor.Cli.Core;
 /// import paths and by the daemon's title resolution.
 /// </summary>
 public static partial class TitleGeneration {
+    /// <summary>The <c>kcap</c> verb that finishes a title for a recorder that can't: it takes the session, the vendor
+    /// and the transcript's path, never the prompt.</summary>
+    public const string HandOffCommand = "generate-title";
+
     internal static readonly string TitlePromptTemplate = EmbeddedResources.Load("prompt-title.txt");
 
     /// <summary>

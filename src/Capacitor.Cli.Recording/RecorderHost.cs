@@ -145,10 +145,12 @@ public sealed class RecorderHost {
     /// <summary>Stops the source <paramref name="key"/> names, makes its final drain, and returns once it has left
     /// <see cref="ActiveKeys"/>. A key nothing records is already finished. <paramref name="ct"/> bounds this wait
     /// only: cancelling it throws here and leaves the drain running.</summary>
-    public async Task FinishAsync(string key, CancellationToken ct) {
+    /// <param name="hurried">Whoever asks won't wait long, so the drain doesn't either, as for a server stop.</param>
+    public async Task FinishAsync(string key, CancellationToken ct, bool hurried = false) {
         if (!_entries.TryGetValue(key, out var entry)) return;
 
-        entry.CancelRun();
+        if (hurried) entry.Hurry();
+        else entry.CancelRun();
 
         await entry.Done.WaitAsync(ct);
     }
