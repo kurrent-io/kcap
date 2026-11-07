@@ -1575,6 +1575,24 @@ public class ClaudeHookCommandTests {
         await Assert.That(time.TimerAtSend).IsEqualTo(TimeSpan.FromSeconds(1));
     }
 
+    /// <summary>Client creation spends the hook budget first, so the POST gets what is left of it, never a fresh second
+    /// that would outlive the manifest timeout; with nothing left it is not sent.</summary>
+    [Test, NotInParallel]
+    [Arguments(1200, true)]
+    [Arguments(1600, false)]
+    public async Task SlowClientCreation_ClampsThePromptRequest(int clientCreationMs, bool posts) {
+        using var absent = new TempDir();
+        using var fx = new Fixture(Config.Root) { RespondJson = """{"pass_notices":"v1"}""", PassNoticesCapable = true };
+        var sid = Guid.NewGuid().ToString();
+        await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(sid.Replace("-", ""), absent)));
+
+        var time = new TickingTimeProvider(TimeSpan.FromMilliseconds(3));
+        await fx.PassNoticesAsync(PromptPayload(sid), new StringWriter(), new HookClock(time), TimeSpan.FromMilliseconds(clientCreationMs));
+
+        await Assert.That(PassNoticePosts(fx)).IsEqualTo(posts ? 1 : 0);
+        if (posts) await Assert.That(time.TimerAtSend!.Value).IsLessThanOrEqualTo(TimeSpan.FromMilliseconds(300));
+    }
+
     /// <summary>A session-end the hook never forwards still ends the session locally, so no later prompt asks.</summary>
     [Test, NotInParallel]
     [Arguments(true, false)]
@@ -2421,9 +2439,13 @@ public class ClaudeHookCommandTests {
         }
 
         /// <summary>One pass-notices prompt hook invocation, posting through the stub client.</summary>
-        public Task<int> PassNoticesAsync(string stdin, TextWriter stdout, HookClock? clock = null) =>
+        /// <param name="clientCreation">How long client creation takes on <paramref name="clock"/>, which must then tick.</param>
+        public Task<int> PassNoticesAsync(string stdin, TextWriter stdout, HookClock? clock = null, TimeSpan clientCreation = default) =>
             new ClaudeHookCommand(Config, Profiles, _clock = clock ?? new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
-                .HandlePassNoticesCore(new StringReader(stdin), _ => Task.FromResult<HttpClient?>(Client), stdout);
+                .HandlePassNoticesCore(new StringReader(stdin), _ => {
+                    if (clientCreation > TimeSpan.Zero) ((TickingTimeProvider) _clock!.Time).Advance(clientCreation);
+                    return Task.FromResult<HttpClient?>(Client);
+                }, stdout);
 
         /// <summary>One plan-edit hook invocation, posting through the stub client.</summary>
         public Task<int> PlanEditAsync(string stdin) =>
@@ -2499,6 +2521,8 @@ public class ClaudeHookCommandTests {
         public TimeSpan? TimerAtSend { get; private set; }
 
         public void MarkSend() => TimerAtSend = t_lastTimer;
+
+        public void Advance(TimeSpan by) => _inner.Advance(by);
 
         public override long TimestampFrequency => _inner.TimestampFrequency;
 

@@ -189,7 +189,10 @@ public sealed class ClaudeHookCommand(
             var budget = clock.Budget(ToolHookCeiling);
             if (await clientWithin(budget.Remaining) is not { } client) return 0;
 
-            using var timeout = new CancellationTokenSource(ClaudePassNotices.ClientTimeout, clock.Time);
+            var window = budget.Remaining < ClaudePassNotices.ClientTimeout ? budget.Remaining : ClaudePassNotices.ClientTimeout;
+            if (window <= TimeSpan.Zero) return 0;
+
+            using var timeout = new CancellationTokenSource(window, clock.Time);
             using var content = new StringContent(ClaudePassNotices.Request(sessionId), Encoding.UTF8, "application/json");
             using var resp    = await client.PostAsync($"{Url}/hooks/pass-notices", content, timeout.Token);
             if (!resp.IsSuccessStatusCode) return 0;
