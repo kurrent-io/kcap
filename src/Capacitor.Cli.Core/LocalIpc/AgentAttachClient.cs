@@ -228,7 +228,13 @@ public sealed class AgentAttachClient : IAsyncDisposable {
         } finally { _writeLock.Release(); }
     }
 
-    void CloseTransport() { try { _stream?.Dispose(); } catch { } try { _socket?.Dispose(); } catch { } }
+    // The daemon's attach loop ends only on EOF from this side. Shutting down the send side is what
+    // guarantees it sees one: on Windows AF_UNIX a bare close does not reliably wake a pending peer read.
+    void CloseTransport() {
+        try { _socket?.Shutdown(SocketShutdown.Send); } catch { }
+        try { _stream?.Dispose(); } catch { }
+        try { _socket?.Dispose(); } catch { }
+    }
 
     public async Task SendInputAsync(byte[] bytes) {
         if (!_attachedReadWrite || _detachRequested || _cause is not null) return;

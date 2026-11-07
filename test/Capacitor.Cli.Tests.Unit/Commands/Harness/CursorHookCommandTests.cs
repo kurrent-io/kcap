@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Tests.Unit.Capture;
 using Capacitor.Cli.Tests.Unit.SessionStartMemory;
 using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Core.Config;
@@ -251,6 +252,164 @@ public class CursorHookCommandTests {
         await Assert.That(transcriptIdx).IsGreaterThanOrEqualTo(0);
         await Assert.That(sessionEndIdx).IsGreaterThanOrEqualTo(0);
         await Assert.That(transcriptIdx).IsLessThan(sessionEndIdx);
+    }
+
+    /// <summary>Nothing reads the transcript after the session-end drain unless a watcher is still connected, and a
+    /// running watcher may not be, so whatever the hook could not send, or could not tell it sent, is left to an import.</summary>
+    [Test, NotInParallel]
+    [Arguments(EndDrain.Complete, false, true)]
+    [Arguments(EndDrain.Held, true, true)]
+    [Arguments(EndDrain.HeldWithWatcherRunning, true, true)]
+    [Arguments(EndDrain.OutOfTime, true, false)]
+    [Arguments(EndDrain.PostFails, true, true)]
+    [Arguments(EndDrain.IncompleteFinalRecord, true, true)]
+    [Arguments(EndDrain.BarrierPending, true, true)]
+    [Arguments(EndDrain.WatermarkFails, true, true)]
+    [Arguments(EndDrain.OutOfTimeBeforeDrain, true, false)]
+    [Arguments(EndDrain.EarlierEventSpooled, true, false)]
+    public async Task A_tail_the_session_end_drain_may_have_left_unsent_is_flagged_for_import(
+            EndDrain drain, bool flagged, bool endAttempted) {
+        var sid   = Guid.NewGuid().ToString("N");
+        var clock = new JumpingFakeClock();
+        var fails = drain is EndDrain.PostFails or EndDrain.EarlierEventSpooled;
+        using var fx = new Fixture(Config.Root, fails ? HttpStatusCode.InternalServerError : HttpStatusCode.OK) {
+            Clock           = clock,
+            WatermarkStatus = drain == EndDrain.WatermarkFails ? HttpStatusCode.InternalServerError : HttpStatusCode.NotFound,
+            WatermarkRead   = () => {
+                if (drain is EndDrain.Held or EndDrain.HeldWithWatcherRunning) clock.JumpOnReading(MidFirstTry, TimeSpan.FromSeconds(1.2));
+                // The line's redaction budget starts after the jump, so only the hook's runs out.
+                if (drain == EndDrain.OutOfTime) clock.JumpOnReading(1, CursorHookCommand.Ceiling - HookBudget.Safety);
+            }
+        };
+        if (drain == EndDrain.IncompleteFinalRecord) await File.WriteAllTextAsync(fx.TranscriptPath, TranscriptLine + "\n{\"role\":\"user\",\"mess");
+        else await fx.WriteTranscript(TranscriptLine);
+        if (drain == EndDrain.HeldWithWatcherRunning) StartWatcherRecord(sid);
+        if (drain == EndDrain.BarrierPending) new CursorMarkers(Config.Root, clock).CreateBarrier(sid, clock.GetUtcNow());
+        if (drain == EndDrain.EarlierEventSpooled) fx.Spool.Append(sid, "session-start/cursor", $$"""{"hook_event_name":"sessionStart","session_id":"{{sid}}"}""");
+        // The hook's clock starts on its first reading; the second is its first look at the budget.
+        if (drain == EndDrain.OutOfTimeBeforeDrain) clock.JumpOnReading(2, CursorHookCommand.Ceiling - HookBudget.Safety);
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        await Assert.That(NeedsImport(sid)).IsEqualTo(flagged);
+        await Assert.That(capture.GetCapturedError().Contains($"kcap import --session {sid}")).IsEqualTo(flagged);
+        await Assert.That(fx.RouteOrder.Contains("session-end/cursor")).IsEqualTo(endAttempted);
+    }
+
+    /// <summary>The hard cap abandons the drain without awaiting it, so nothing after that point runs; the session
+    /// must already be flagged by then.</summary>
+    [Test]
+    public async Task A_session_end_drain_the_hard_cap_abandons_leaves_the_session_flagged_for_import() {
+        var sid  = Guid.NewGuid().ToString("N");
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fx = new Fixture(Config.Root) { HoldWatermark = hold.Task };
+        await fx.WriteTranscript(TranscriptLine);
+
+        var call = fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+        await fx.WatermarkEntered.Task;
+        fx.Clock.Advance(CursorHookCommand.Ceiling);
+        await call;
+
+        await Assert.That(NeedsImport(sid)).IsTrue();
+    }
+
+    /// <summary>The marker records a loss some earlier reader found; this drain sending its own tail does not undo that.</summary>
+    [Test]
+    public async Task A_complete_session_end_drain_keeps_a_marker_it_did_not_set() {
+        var sid = Guid.NewGuid().ToString("N");
+        new TranscriptSpool(Config.Root, TimeProvider.System, Fixture.StubUrl).MarkNeedsImport(sid, "an earlier loss");
+        using var fx = new Fixture(Config.Root);
+        await fx.WriteTranscript(TranscriptLine);
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        await Assert.That(fx.RouteOrder).Contains("transcript");
+        await Assert.That(NeedsImport(sid)).IsTrue();
+    }
+
+    /// <summary>With no marker on disk, the hint is the only trace of the tail, so it goes out before a drain the
+    /// hard cap may abandon.</summary>
+    [Test, NotInParallel]
+    public async Task A_session_end_drain_that_cannot_write_its_marker_names_the_import_before_it_starts() {
+        var sid  = Guid.NewGuid().ToString("N");
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fx = new Fixture(Config.Root) { HoldWatermark = hold.Task };
+        await fx.WriteTranscript(TranscriptLine);
+        BlockMarkers();
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        var call = fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+        await fx.WatermarkEntered.Task;
+        fx.Clock.Advance(CursorHookCommand.Ceiling);
+        await call;
+
+        await Assert.That(capture.GetCapturedError()).Contains($"kcap import --session {sid}");
+    }
+
+    [Test, NotInParallel]
+    public async Task A_short_session_end_drain_that_cannot_write_its_marker_names_the_import_once() {
+        var sid   = Guid.NewGuid().ToString("N");
+        var clock = new JumpingFakeClock();
+        using var fx = new Fixture(Config.Root) {
+            Clock         = clock,
+            WatermarkRead = () => clock.JumpOnReading(MidFirstTry, TimeSpan.FromSeconds(1.2))
+        };
+        await fx.WriteTranscript(TranscriptLine);
+        BlockMarkers();
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        var hints = capture.GetCapturedError().Split('\n').Count(line => line.Contains($"kcap import --session {sid}"));
+        await Assert.That(hints).IsEqualTo(1);
+    }
+
+    /// <summary>A short drain whose flag saying what it left cannot be written keeps the flag it put down first.</summary>
+    [Test, NotInParallel]
+    public async Task A_short_session_end_drain_keeps_its_first_flag_when_the_specific_one_cannot_be_written() {
+        var sid   = Guid.NewGuid().ToString("N");
+        var clock = new JumpingFakeClock();
+        using var fx = new Fixture(Config.Root) {
+            Clock         = clock,
+            WatermarkRead = () => clock.JumpOnReading(MidFirstTry, TimeSpan.FromSeconds(1.2))
+        };
+        await fx.WriteTranscript(TranscriptLine);
+        // A directory where the shared marker goes fails only that write.
+        var spoolDirectory = new TranscriptSpool(Config.Root, TimeProvider.System, Fixture.StubUrl).DirectoryPath;
+        Directory.CreateDirectory(Path.Combine(spoolDirectory, $"{sid}.needs-import"));
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        await Assert.That(NeedsImport(sid)).IsTrue();
+    }
+
+    // A file where the spool directory goes fails every marker write.
+    void BlockMarkers() => File.WriteAllText(Config.Root.Path(TranscriptSpool.DirectoryName), "");
+
+    bool NeedsImport(string sid) => new TranscriptSpool(Config.Root, TimeProvider.System, Fixture.StubUrl).NeedsImport(sid);
+
+    public enum EndDrain {
+        Complete, Held, HeldWithWatcherRunning, OutOfTime, PostFails, IncompleteFinalRecord, BarrierPending, WatermarkFails,
+        OutOfTimeBeforeDrain, EarlierEventSpooled
+    }
+
+    const string TranscriptLine = """{"role":"user","message":{"content":[{"type":"text","text":"final prompt"}]}}""";
+
+    // The first try of the line has started and has yet to end.
+    const int MidFirstTry = 3;
+
+    void StartWatcherRecord(string key) {
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        Directory.CreateDirectory(paths.Directory);
+        File.WriteAllText(paths.PidFile(key), $"{Environment.ProcessId}\n");
+        WatcherHeartbeat.Touch(paths.StartedFile(key), DateTimeOffset.UtcNow);
     }
 
     [Test]
@@ -991,6 +1150,7 @@ public class CursorHookCommandTests {
         public Uri?           MemoryIndexRequestUri { get; private set; }
 
         public HttpClient Client                { get; }
+        public string     TranscriptPath        => _transcriptPath;
         public string     TranscriptPathEscaped => _transcriptPath.Replace(@"\", @"\\");
 
         // The backfill holds a non-newline-terminated final line on every mid-session
@@ -1042,7 +1202,12 @@ public class CursorHookCommandTests {
 
                     // GET watermark — return 404 so transcript backfill is a no-op without
                     // tripping the fail-open path.
-                    if (req.Method == HttpMethod.Get) return new HttpResponseMessage(HttpStatusCode.NotFound);
+                    if (req.Method == HttpMethod.Get) {
+                        WatermarkRead?.Invoke();
+                        WatermarkEntered.TrySetResult();
+                        if (HoldWatermark is { } hold) await hold;
+                        return new HttpResponseMessage(WatermarkStatus);
+                    }
 
                     if (SpendOnPost > TimeSpan.Zero) Clock.Advance(SpendOnPost);
 
@@ -1059,9 +1224,19 @@ public class CursorHookCommandTests {
 
         /// <summary>The hook's one clock. Fake, so its budget expires only when a test advances
         /// this — no test here can lose its budget to a loaded runner's scheduling.</summary>
-        public FakeTimeProvider Clock { get; } = new();
+        public FakeTimeProvider Clock { get; init; } = new();
 
         public HostedAgent Hosted { get; init; } = HostedAgent.Terminal;
+
+        /// <summary>Runs when the transcript watermark is read, just before the drain encodes.</summary>
+        public Action? WatermarkRead { get; init; }
+
+        public HttpStatusCode WatermarkStatus { get; init; } = HttpStatusCode.NotFound;
+
+        /// <summary>When set, the watermark read waits on this, having signalled <see cref="WatermarkEntered"/>.</summary>
+        public Task? HoldWatermark { get; init; }
+
+        public TaskCompletionSource WatermarkEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>The checkout the hook acts on when a payload carries no workspace root.</summary>
         public string Workdir { get; init; } = AppContext.BaseDirectory;

@@ -56,6 +56,92 @@ public class TerminalSendGateTests {
         });
     }
 
+    /// A resubmit is one more Enter for what the last delivery left in the composer.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_resubmit_writes_one_more_cr_after_the_delivery() {
+        await RunOnUiAsync(async () => {
+            var (_, _, time, vm, client) = await BuildAttachedAsync();
+            await Assert.That(vm.TrySendText("hello")).IsTrue();
+            time.Advance(Delay);
+            await vm.PendingDeliveryForTesting!;
+
+            await Assert.That(await vm.ResubmitAsync(CancellationToken.None)).IsTrue();
+            await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString)).IsEquivalentTo(
+                ["\x1b[200~hello\x1b[201~", "\r", "\r"], CollectionOrdering.Matching);
+        });
+    }
+
+    /// A delivery still waiting out its delay owns the next Enter; one sent early would submit its
+    /// paste inside the window the delay is there to clear.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_resubmit_is_withheld_while_a_delivery_is_in_flight() {
+        await RunOnUiAsync(async () => {
+            var (_, _, time, vm, client) = await BuildAttachedAsync();
+            await Assert.That(vm.TrySendText("hello")).IsTrue();
+            await WaitUntilAsync(() => client.SentInput.Count == 1, what: "paste written");
+
+            await Assert.That(await vm.ResubmitAsync(CancellationToken.None)).IsFalse();
+            time.Advance(Delay);
+            await vm.PendingDeliveryForTesting!;
+            await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString)).IsEquivalentTo(
+                ["\x1b[200~hello\x1b[201~", "\r"], CollectionOrdering.Matching);
+        });
+    }
+
+    /// The terminal answers the agent's own queries (a cursor position report, say) with no one
+    /// typing; those replies leave the composer as it was, so they do not withhold the Enter.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_resubmit_still_goes_after_the_terminal_answers_a_query() {
+        await RunOnUiAsync(async () => {
+            var (_, _, time, vm, client) = await BuildAttachedAsync();
+            await Assert.That(vm.TrySendText("hello")).IsTrue();
+            time.Advance(Delay);
+            await vm.PendingDeliveryForTesting!;
+            ((FakeTerminalSurface)vm.Surface!).RaiseInput("\x1b[5;1R"u8.ToArray(), reply: true);
+
+            await Assert.That(await vm.ResubmitAsync(CancellationToken.None)).IsTrue();
+            await WaitUntilAsync(() => client.SentInput.Count == 4, what: "reply and resubmit written");
+            await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString)).IsEquivalentTo(
+                ["\x1b[200~hello\x1b[201~", "\r", "\x1b[5;1R", "\r"], CollectionOrdering.Matching);
+        });
+    }
+
+    /// Typed at the agent from the terminal pane, rather than through the composer.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_resubmit_is_withheld_once_the_viewer_typed_in_the_terminal() {
+        await RunOnUiAsync(async () => {
+            var (_, _, time, vm, client) = await BuildAttachedAsync();
+            await Assert.That(vm.TrySendText("hello")).IsTrue();
+            time.Advance(Delay);
+            await vm.PendingDeliveryForTesting!;
+            ((FakeTerminalSurface)vm.Surface!).RaiseInput("x"u8.ToArray());
+
+            await Assert.That(await vm.ResubmitAsync(CancellationToken.None)).IsFalse();
+        });
+    }
+
+    /// Keys typed at the agent after the delivery may sit in its composer, and the Enter would send
+    /// them as well, so the resubmit is withheld.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_resubmit_is_withheld_once_keys_were_typed_after_the_delivery() {
+        await RunOnUiAsync(async () => {
+            var (_, _, time, vm, client) = await BuildAttachedAsync();
+            await Assert.That(vm.TrySendText("hello")).IsTrue();
+            time.Advance(Delay);
+            await vm.PendingDeliveryForTesting!;
+            await Assert.That(await vm.SendRawAsync("x"u8.ToArray(), CancellationToken.None)).IsTrue();
+
+            await Assert.That(await vm.ResubmitAsync(CancellationToken.None)).IsFalse();
+            await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString)).IsEquivalentTo(
+                ["\x1b[200~hello\x1b[201~", "\r", "x"], CollectionOrdering.Matching);
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_second_send_is_refused_while_one_is_in_flight_then_goes_through() {

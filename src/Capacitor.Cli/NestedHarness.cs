@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Processes;
 
 namespace Capacitor.Cli;
 
@@ -89,5 +90,5 @@ public static class NestedHarness {
     }
 
     static bool Is(IReadOnlyList<string> names, IReadOnlyList<string> executables) =>
-        names.Any(name => executables.Any(executable => ProcessHelpers.MatchesAgentName(name, executable)));
+        names.Any(name => executables.Any(executable => AgentProcessNames.Matches(name, executable)));
 }

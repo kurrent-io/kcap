@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Daemon.Services;
 
@@ -10,8 +11,16 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// configured allowlist, because admitting what it cannot identify is an allowlist that restricts
 /// nothing.
 /// </summary>
+[ParallelLimiter<SubprocessLimit>]
 public class AgentCaptureScopeTests {
-    [TempHome] public required TempHome Home { get; init; }
+    [TempHome]       public required TempHome       Home   { get; init; }
+    [TempConfigRoot] public required TempConfigRoot Config { get; init; }
+
+    const string Server = "https://kcap.example";
+
+    [Before(Test)]
+    public void ReportToAServerThatStoresLocalRepositories() =>
+        ServerVersionStore.Set(Server, LocalRepositorySupport.MinimumServerVersion, Config.Root, TimeProvider.System);
 
     static Profile WithScope(
             string[]? allowedPaths = null, string[]? excludedPaths = null,
@@ -42,13 +51,13 @@ public class AgentCaptureScopeTests {
         var root = Home.Path;
 
         await Assert.That(AgentCaptureScope.IsOutOfScope(
-            Path.Combine(root, "widgets"), WithScope(allowedPaths: [root]), Home)).IsFalse();
+            Path.Combine(root, "widgets"), WithScope(allowedPaths: [root]), Home, Config.Root, Server)).IsFalse();
     }
 
     [Test]
     public async Task An_origin_outside_every_allowed_root_is_out_of_scope() {
         await Assert.That(AgentCaptureScope.IsOutOfScope(
-            "/somewhere/else", WithScope(allowedPaths: [Home.Path]), Home)).IsTrue();
+            "/somewhere/else", WithScope(allowedPaths: [Home.Path]), Home, Config.Root, Server)).IsTrue();
     }
 
     // The denylist subtracts within the allowlist, so a client subtree under an allowed root is
@@ -59,7 +68,7 @@ public class AgentCaptureScopeTests {
         var inner = Path.Combine(root, "client-x");
 
         await Assert.That(AgentCaptureScope.IsOutOfScope(
-            inner, WithScope(allowedPaths: [root], excludedPaths: [inner]), Home)).IsTrue();
+            inner, WithScope(allowedPaths: [root], excludedPaths: [inner]), Home, Config.Root, Server)).IsTrue();
     }
 
     // A launch whose origin the daemon cannot name is the case the whole gate exists for: it must
@@ -67,13 +76,13 @@ public class AgentCaptureScopeTests {
     [Test]
     public async Task An_origin_that_is_null_is_out_of_scope_against_an_allowlist() {
         await Assert.That(AgentCaptureScope.IsOutOfScope(
-            null, WithScope(allowedPaths: [Home.Path]), Home)).IsTrue();
+            null, WithScope(allowedPaths: [Home.Path]), Home, Config.Root, Server)).IsTrue();
     }
 
     [Test]
     public async Task An_origin_that_is_null_is_in_scope_when_only_a_denylist_is_set() {
         await Assert.That(AgentCaptureScope.IsOutOfScope(
-            null, WithScope(excludedPaths: ["/work/secrets"]), Home)).IsFalse();
+            null, WithScope(excludedPaths: ["/work/secrets"]), Home, Config.Root, Server)).IsFalse();
     }
 
     // A temp directory is not a git repository, so no owner/repo key resolves — which an
@@ -81,7 +90,45 @@ public class AgentCaptureScopeTests {
     [Test]
     public async Task A_non_repository_origin_is_out_of_scope_against_a_repo_allowlist() {
         await Assert.That(AgentCaptureScope.IsOutOfScope(
-            Home.Path, WithScope(allowedRepos: ["acme/widgets"]), Home)).IsTrue();
+            Home.Path, WithScope(allowedRepos: ["acme/widgets"]), Home, Config.Root, Server)).IsTrue();
+    }
+
+    // A hosted agent launched in a repository with no remote reads the key its hooks would.
+    [Test]
+    public async Task A_repository_with_no_remote_is_judged_by_its_folder_entry() {
+        using var repo = GitRepo.Create();
+        var entry = LocalRepository.FolderEntryPrefix + Path.GetFileName(repo.Path);
+
+        await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(allowedRepos: [entry]), Home, Config.Root, Server)).IsFalse();
+        await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(excludedRepos: [entry]), Home, Config.Root, Server)).IsTrue();
+        await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(allowedRepos: ["acme/widgets"]), Home, Config.Root, Server)).IsTrue();
+    }
+
+    // Reporting to a server not known to store it, the launch's session would carry no repository, so the
+    // folder entry cannot admit it; the session is still captured, so the entry still excludes it.
+    [Test]
+    public async Task For_a_server_not_known_to_store_local_repositories_the_folder_entry_admits_nothing_and_still_excludes() {
+        using var repo = GitRepo.Create();
+        var entry = LocalRepository.FolderEntryPrefix + Path.GetFileName(repo.Path);
+
+        await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(allowedRepos: [entry]), Home, Config.Root, "https://never-seen.example"))
+            .IsTrue();
+        await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(excludedRepos: [entry]), Home, Config.Root, "https://never-seen.example"))
+            .IsTrue();
+    }
+
+    // An origin with no owner is listed by its remote's path as well as its local identity, so an entry naming the
+    // path still decides, whatever the server stores.
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_origin_with_no_owner_is_still_judged_by_its_remote_path(bool serverStoresLocalRepositories) {
+        using var repo = GitRepo.Create();
+        repo.AddRemote("ssh://git.example/demo.git");
+        var server = serverStoresLocalRepositories ? Server : "https://never-seen.example";
+
+        await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(excludedRepos: ["demo"]), Home, Config.Root, server)).IsTrue();
+        await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(allowedRepos: ["demo"]), Home, Config.Root, server)).IsFalse();
     }
 
     // Repo lists are only consulted when configured; with none set an unresolvable repo is
@@ -89,6 +136,6 @@ public class AgentCaptureScopeTests {
     [Test]
     public async Task A_non_repository_origin_is_in_scope_when_no_repo_list_is_set() {
         await Assert.That(AgentCaptureScope.IsOutOfScope(
-            Home.Path, WithScope(allowedPaths: [Home.Path]), Home)).IsFalse();
+            Home.Path, WithScope(allowedPaths: [Home.Path]), Home, Config.Root, Server)).IsFalse();
     }
 }

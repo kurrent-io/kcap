@@ -82,7 +82,7 @@ public class AgentOrchestratorParticipantLedgerTests {
 
         var outcome = await orch.DeliverInputAsync(agent, "round 2: check the lock order", null);
 
-        await Assert.That(outcome).IsEqualTo(InputDeliveryOutcome.Delivered);
+        await Assert.That(outcome.Kind).IsEqualTo(InputDeliveryKind.Delivered);
         var participant = Participants().TryRead("reviewer-1")!.Participant!;
         await Assert.That(participant.LastRoundInput).Contains("round 2: check the lock order");
         await Assert.That(participant.LastRoundAt).IsNotNull();

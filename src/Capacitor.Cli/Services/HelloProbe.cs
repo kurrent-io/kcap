@@ -18,6 +18,9 @@ public sealed record HelloProbeResult(bool WellFormed, int? ProtocolVersion, str
 
     /// <summary>What the daemon advertised; empty when the reply carried no capabilities.</summary>
     public IReadOnlyList<string> Capabilities { get; init; } = [];
+
+    /// <summary>The answering daemon's process id; null when the reply did not carry one.</summary>
+    public int? Pid { get; init; }
 }
 
 /// <summary>
@@ -58,6 +61,7 @@ static class HelloProbe {
                 return new HelloProbeResult(true, dto.ProtocolVersion, dto.DaemonVersion, dto.DaemonName) {
                     Reachable    = true,
                     Capabilities = dto.Capabilities ?? [],
+                    Pid          = dto.Pid,
                 };
             } catch {
                 return ReachableNotWellFormed;

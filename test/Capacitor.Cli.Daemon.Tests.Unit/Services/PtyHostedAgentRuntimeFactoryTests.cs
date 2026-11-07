@@ -271,6 +271,32 @@ public class PtyHostedAgentRuntimeFactoryTests {
         }
     }
 
+    /// <summary>A resume that pastes nothing still holds the agent's first message until its terminal
+    /// is ready, as a launch prompt would be held.</summary>
+    [Test]
+    public async Task A_resume_without_a_prompt_holds_its_first_message_until_the_tui_is_ready() {
+        var (factory, _, process) = NewPasteFactory();
+        var start = await factory.StartAsync(
+            BuildClaudeLaunchContext(null) with { Prompt = "", ResumeSessionId = "0e61520e-4920-47e7-8b93-8ece488d010b" }, CancellationToken.None);
+
+        try {
+            await Assert.That(PastesALaunchPrompt(start)).IsFalse();
+
+            _ = PumpAsync(start.Runtime);
+            var message = start.Runtime.SendUserInputAsync("carry on");
+            await Task.Delay(300);
+            await Assert.That(process.Writes).IsEmpty();
+
+            process.Emit("\x1b[?2004hwelcome back");
+            await message.WaitAsync(TimeSpan.FromSeconds(10));
+
+            await Assert.That(string.Join("|", process.Writes)).IsEqualTo("\x1b[200~carry on\x1b[201~|\r");
+        } finally {
+            process.Exit();
+            await start.Runtime.DisposeAsync();
+        }
+    }
+
     [Test]
     public async Task A_slash_command_stays_on_the_command_line() {
         var (factory, pty, process) = NewPasteFactory();
@@ -446,6 +472,18 @@ public class PtyHostedAgentRuntimeFactoryTests {
 
         await Assert.That(claude.SessionStartMeansComposerUp).IsTrue();
         await Assert.That(codex.SessionStartMeansComposerUp).IsFalse();
+    }
+
+    /// <summary>Codex turns bracketed paste on at terminal setup, ahead of its first frame, so for it
+    /// the mode proves nothing and its launch prompt keeps the quiet window.</summary>
+    [Test]
+    public async Task Only_claude_reads_bracketed_paste_as_its_composer_mounting() {
+        var config = new DaemonConfig { ClaudePath = "claude", CodexPath = "codex", ServerUrl = "", CapacitorPath = "kcap" };
+        IHostedAgentLauncher claude = new ClaudeLauncher(config, TestHarnesses.Under(Home), NullLogger<ClaudeLauncher>.Instance);
+        IHostedAgentLauncher codex  = new CodexLauncher(config, TestHarnesses.Under(Home), NullLogger<CodexLauncher>.Instance);
+
+        await Assert.That(claude.BracketedPasteMeansComposerUp).IsTrue();
+        await Assert.That(codex.BracketedPasteMeansComposerUp).IsFalse();
     }
 
     /// <summary>A hold has no time limit, so the daemon log has to say why an agent sits idle.</summary>

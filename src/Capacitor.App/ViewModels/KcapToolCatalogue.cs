@@ -89,6 +89,11 @@ public static class KcapToolCatalogue {
         new("schedule_wakeup",           ToolCategory.Flow,     "Scheduled wake-up",        "prompt"),
         new("list_wakeups",              ToolCategory.Flow,     "Listed wake-ups",          null),
         new("cancel_wakeup",             ToolCategory.Flow,     "Cancelled wake-up",        null),
+        // passes; `pass` and `message` are too common to claim by bare name, so they take the server's category
+        new("find_colleague",            ToolCategory.Work,     "Found colleague",          "name"),
+        new("pass_status",               ToolCategory.Work,     "Checked a pass",           null),
+        new("catch_me_up",               ToolCategory.Work,     "Caught up on passes",      null),
+        new("what_else",                 ToolCategory.Work,     "Asked what else to know",  null),
     ];
 
     static readonly FrozenDictionary<string, KcapToolEntry> ByTool =
@@ -107,6 +112,7 @@ public static class KcapToolCatalogue {
         ["kcap-analytics"] = ToolCategory.Session,
         ["kcap-review"]    = ToolCategory.Session,
         ["kcap-flows"]     = ToolCategory.Flow,
+        ["kcap-pass"]      = ToolCategory.Work,
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     public static KcapToolEntry? Match(string? toolName) {

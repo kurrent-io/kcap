@@ -892,9 +892,9 @@
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="COST" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Cost}" Classes="factValue"
                                                      ToolTip.Tip="Estimated from list prices" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="CONTEXT" Classes="factLabel" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="PEAK CONTEXT" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ContextUse}" Classes="factValue"
-                                                     ToolTip.Tip="Peak context use" />
+                                                     ToolTip.Tip="Highest use this session. Compaction does not lower it" />
                             </Grid>
                         </Border>
                     </StackPanel>
