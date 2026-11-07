@@ -13,8 +13,8 @@ namespace Capacitor.App.Services.CliAdoption;
 internal sealed class AdoptionBatch(
         IAdoptionMachine machine, AdoptionRecordStore store, AsideRetirement retirement, AdoptionIntegrations integrations,
         AdoptionPathStep path, AdoptionNotices notices, HarnessRegistry harnesses, AdoptionBundle bundle,
-        IReadOnlyList<string> stableFolders, Func<string, bool> userCanWrite, IPrivilegedSwap administrator, string helperFolder,
-        Action<string, (string Key, string? Value)[]> log)
+        IReadOnlyList<string> stableFolders, Func<string, bool> userCanWrite, IPrivilegedSwap administrator,
+        Func<LifecyclePrompt, CancellationToken, Task<bool>> confirm, string helperFolder, Action<string, (string Key, string? Value)[]> log)
     : IDisposable {
     internal const string EvidenceUnavailable = "evidence_unavailable";
     internal const string MachineSwitched     = "machine_switched";
@@ -50,7 +50,7 @@ internal sealed class AdoptionBatch(
     });
 
     AdoptionPrivilegedStep Privileged =>
-        _privileged ??= new(machine, store, retirement, _deletion, path, administrator, bundle, helperFolder, log);
+        _privileged ??= new(machine, store, retirement, _deletion, path, administrator, confirm, bundle, helperFolder, log);
 
     /// <summary>The launch's own run.</summary>
     public Task<bool> RunOnceAsync(CancellationToken ct) => RunAsync(prompt: true, finishing: false, ct);
@@ -118,7 +118,7 @@ internal sealed class AdoptionBatch(
         if (prompt) {
             foreach (var install in moved.Where(i => _rootOwned.Contains(Key(i)))) {
                 var planned = plan.Installs.FirstOrDefault(p => AdoptionPreflight.SameRoot(p.Install, install));
-                await Privileged.RunAsync(install, planned, evidence, unfinished, ct).ConfigureAwait(false);
+                await Privileged.RunAsync(install, planned, evidence, unfinished, explain: !finishing, ct).ConfigureAwait(false);
             }
         }
 

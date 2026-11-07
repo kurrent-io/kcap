@@ -101,6 +101,7 @@ public sealed class LifecyclePromptViewModel : ReactiveObject {
         LifecyclePrompt.KindReloadService => "Reload the daemon service",
         LifecyclePrompt.KindRename        => "Rename daemon",
         LifecyclePrompt.KindRemoveProfile => "Remove profile",
+        LifecyclePrompt.KindRemoveSharedInstall => "Remove the shared kcap install",
         LifecyclePrompt.KindSetup         => "Reopen setup",
         LifecyclePrompt.KindUninstall     => "Uninstall kcap",
         LifecyclePrompt.KindWindowsService       => "Run kcap as a Windows service",

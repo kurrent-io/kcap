@@ -796,6 +796,65 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(prompt).Contains("Every account on this Mac shares");
     }
 
+    /// <summary>macOS shows its own wording in the administrator prompt, so the app says what it removes and why that
+    /// takes a password before the prompt opens.</summary>
+    [Test]
+    public async Task The_app_explains_the_password_before_the_administrator_prompt() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        var promptsWhenExplained = -1;
+        world.Explain = _ => {
+            promptsWhenExplained = world.Admin.Prompts.Count;
+            return true;
+        };
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        var explained = world.Explained.Single();
+        await Assert.That(explained.Kind).IsEqualTo(LifecyclePrompt.KindRemoveSharedInstall);
+        await Assert.That(explained.Disclosure).Contains($"npm install of kcap {AdoptionWorld.Version} at {world.Root}");
+        await Assert.That(explained.Disclosure).Contains("administrator password");
+        await Assert.That(promptsWhenExplained).IsEqualTo(0);
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
+    }
+
+    /// <summary>Not now changes nothing the helper would have, and leaves the install as a cancelled prompt does.</summary>
+    [Test]
+    public async Task Declining_the_explanation_leaves_the_install_without_a_prompt() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Explain = _ => false;
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        var left = world.Record.Installs.Single();
+        await Assert.That(left.State).IsEqualTo(InstallState.Left);
+        await Assert.That(left.Reason).IsEqualTo(LeftReason.PromptCancelled);
+        await Assert.That(world.Admin.Prompts).IsEmpty();
+        await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
+        await Assert.That(Target(world.Link)).IsEqualTo(AdoptionWorld.NpmLinkTarget);
+        await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+        await Assert.That(world.Notifier.Notified.Single()).Contains(FinishSwitching);
+    }
+
+    /// <summary>Finish switching is the user asking for the prompt, so it opens with no explanation in front of it.</summary>
+    [Test]
+    public async Task Finish_switching_raises_the_prompt_without_explaining_again() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Explain = _ => false;
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await world.SettledAsync(launch);
+
+        await Assert.That(world.Explained.Count).IsEqualTo(1);
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+    }
+
     /// <summary>A dismissed prompt changes nothing the helper would have, and is never raised again unasked: not by a
     /// recheck or an idle report, nor on the next launch, which still offers Finish switching.</summary>
     [Test]

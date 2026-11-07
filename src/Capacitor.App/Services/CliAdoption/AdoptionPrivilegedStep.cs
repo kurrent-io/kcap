@@ -9,8 +9,8 @@ namespace Capacitor.App.Services.CliAdoption;
 /// pass lets it delete. A launch settles a helper an earlier one left before anything else reads or deletes.</summary>
 internal sealed class AdoptionPrivilegedStep(
         IAdoptionMachine machine, AdoptionRecordStore store, AsideRetirement retirement, AdoptionDeletion deletion,
-        AdoptionPathStep path, IPrivilegedSwap administrator, AdoptionBundle bundle, string helperFolder,
-        Action<string, (string Key, string? Value)[]> log) {
+        AdoptionPathStep path, IPrivilegedSwap administrator, Func<LifecyclePrompt, CancellationToken, Task<bool>> confirm,
+        AdoptionBundle bundle, string helperFolder, Action<string, (string Key, string? Value)[]> log) {
     internal const string PathNotOnBundle = "path_not_on_bundle";
     internal const string NothingLeft     = "nothing_left";
 
@@ -38,8 +38,11 @@ internal sealed class AdoptionPrivilegedStep(
     /// the ones this launch found still finding the install.</summary>
     /// <param name="unfinished">Entries whose aside an earlier run could not delete: the helper deletes them; null when
     /// the retirement record could not be read, which holds the install.</param>
+    /// <param name="explain">Says why the password is needed before the prompt asks for it, and leaves the install as a
+    /// cancelled prompt does when the user declines: unasked, macOS shows a prompt that names only a script.</param>
     public async Task RunAsync(
-            OtherCliInstall install, InstallPlan? plan, AdoptionEvidence evidence, IReadOnlyList<string>? unfinished, CancellationToken ct) {
+            OtherCliInstall install, InstallPlan? plan, AdoptionEvidence evidence, IReadOnlyList<string>? unfinished,
+            bool explain, CancellationToken ct) {
         if (store.Load().CutoverUtc is not { } cutover) return;
 
         var links   = plan?.Links ?? [];
@@ -55,6 +58,11 @@ internal sealed class AdoptionPrivilegedStep(
         }
         if (await HolderAsync(install, cutover, unfinished, ct).ConfigureAwait(false) is { } holder) {
             deletion.Hold(install, holder);
+            return;
+        }
+        if (explain && !await confirm(Explanation(install), ct).ConfigureAwait(false)) {
+            log("adoption_privileged", AdoptionEvent.For(install, "declined"));
+            Leave(install, LeftReason.PromptCancelled);
             return;
         }
 
@@ -116,6 +124,14 @@ internal sealed class AdoptionPrivilegedStep(
         Leave(install, LeftReason.DeletionCutShort);
         return InstallState.Left;
     }
+
+    // macOS shows its own wording in the administrator prompt, which may leave out Prompt's text altogether.
+    internal static LifecyclePrompt Explanation(OtherCliInstall install) => new(
+        LifecyclePrompt.KindRemoveSharedInstall, null, null, false,
+        $"kcap now uses the app's own command-line tool. The {AdoptionNotices.Name(install)} at {install.Root} serves every "
+      + "account on this Mac, so removing it takes an administrator password. macOS asks for it next, for a script started by "
+      + "kcap that points the kcap command at the app and removes that install. Not now keeps it until you choose "
+      + $"{AdoptionNotices.FinishSwitching} in the menu bar.");
 
     internal static string Prompt(OtherCliInstall install) =>
         $"kcap wants to remove the {AdoptionNotices.Name(install)} at {install.Root} and use its own command-line tool instead. "

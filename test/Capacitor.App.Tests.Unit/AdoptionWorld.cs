@@ -87,6 +87,16 @@ sealed class AdoptionWorld {
     public BehaviorSubject<DaemonActivity?> Activity { get; } = new(null);
     public Func<string, bool> UserCanWrite { get; set; } = _ => true;
     public Administrator Admin { get; }
+
+    /// <summary>The app's own explanations before an administrator prompt, in order; <see cref="Explain"/> answers them.</summary>
+    public List<LifecyclePrompt> Explained { get; } = [];
+
+    public Func<LifecyclePrompt, bool> Explain { get; set; } = _ => true;
+
+    Task<bool> ConfirmAsync(LifecyclePrompt prompt, CancellationToken ct) {
+        Explained.Add(prompt);
+        return Task.FromResult(Explain(prompt));
+    }
     public AdoptionNotices? Notices { get; private set; }
 
     public AdoptionRecord Record => new AdoptionRecordStore(Config).Load();
@@ -154,7 +164,7 @@ sealed class AdoptionWorld {
         var batch = new AdoptionBatch(Machine, store, new AsideRetirement(Config, "cli-adoption-retire"),
             new AdoptionIntegrations(new ApplicationIntegrationRefresh(Config, Refresh), Bundle.Cli, store, Time),
             new AdoptionPathStep(Probe, new AdoptedLinkInventory(Config), store, Shim, Stable), Notices, Harnesses, Bundle, Stable,
-            folder => UserCanWrite(folder), Admin, Config.Directory, Write);
+            folder => UserCanWrite(folder), Admin, ConfirmAsync, Config.Directory, Write);
         var launch = new CliAdoptionCoordinator(batch, Time, Write, lifetime);
         launch.FollowDaemon(Activity);
         return launch;

@@ -115,7 +115,7 @@ internal sealed class AdoptionNotices : IDisposable {
           + $"Stop it with kcap daemon stop{(cause is null ? "" : $" --name {cause}")} --keep-agents, then open kcap again to finish switching. "
           + "A daemon older than 1.3.1 ends its agents when it stops whatever the flag says, so let their work finish first.",
         LeftReason.PromptCancelled =>
-            $"the administrator prompt was cancelled. To finish, choose {FinishSwitching} in the menu bar.",
+            $"removing it takes an administrator password, which was not given. To finish, choose {FinishSwitching} in the menu bar.",
         LeftReason.DeletionCutShort =>
             $"removing it was cut short, and only an administrator can remove the rest. To finish, choose {FinishSwitching} in the menu bar.",
         LeftReason.SharedInstallPrivateApp =>
