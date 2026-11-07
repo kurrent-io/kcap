@@ -1575,6 +1575,22 @@ public class ClaudeHookCommandTests {
         await Assert.That(time.TimerAtSend).IsEqualTo(TimeSpan.FromSeconds(1));
     }
 
+    /// <summary>A session-end the hook never forwards still ends the session locally, so no later prompt asks.</summary>
+    [Test, NotInParallel]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    public async Task SessionEnd_DisarmsPassNotices_BeforeItsEarlyExits(bool disabledSession, bool clientUnavailable) {
+        using var fx = new Fixture(Config.Root);
+        var sid = Guid.NewGuid().ToString("N");
+        var sessions = new PassNoticeSessions(Config.Root);
+        sessions.Arm(sid, fx.MemoryServerUrl);
+        if (disabledSession) DisabledSessions.Mark(sid, Config.Root);
+
+        await fx.EnterAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{sid}}","cwd":"/repo","reason":"exit"}""", clientUnavailable);
+
+        await Assert.That(sessions.IsArmed(sid)).IsFalse();
+    }
+
     [Test, NotInParallel]
     public async Task Emits_OnlyServerTexts() {
         using var absent = new TempDir();
@@ -2388,10 +2404,13 @@ public class ClaudeHookCommandTests {
         }
 
         /// <summary>One hook invocation from its entry point, through what both arms share.</summary>
-        public Task<int> EnterAsync(string stdin) {
+        /// <param name="clientUnavailable">Client creation fails, which sends the hook down the arm that never reaches HandleCore.</param>
+        public Task<int> EnterAsync(string stdin, bool clientUnavailable = false) {
             StubMemoryServer();
             return new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
-                .HandleWithDeps(Spool, new StringReader(stdin), () => Task.FromResult(new AuthAttempt(Client, AuthStatus.Ok)));
+                .HandleWithDeps(Spool, new StringReader(stdin), () => clientUnavailable
+                    ? Task.FromException<AuthAttempt>(new HttpRequestException("unreachable"))
+                    : Task.FromResult(new AuthAttempt(Client, AuthStatus.Ok)));
         }
 
         /// <summary>One plan-read hook invocation, posting through the stub client.</summary>

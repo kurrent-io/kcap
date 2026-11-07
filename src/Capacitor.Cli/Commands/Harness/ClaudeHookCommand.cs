@@ -346,6 +346,9 @@ public sealed class ClaudeHookCommand(
 
         if (command == "session-end" && SessionEndFence.ShouldHold(hosted, sessionId)) return 0;
 
+        // Ahead of the disabled, exclusion and auth gates, each of which can return before HandleCore.
+        if (command == "session-end" && sessionId is not null) new PassNoticeSessions(config).Disarm(sessionId);
+
         var budget = clock.Budget(Ceiling(command));
         HookTiming.Mark("parse");
 
@@ -1190,7 +1193,6 @@ public sealed class ClaudeHookCommand(
                 EvictPolicyState(sessionId);
                 new PlanReadNudgeLedger(config).Evict(sessionId.Replace("-", ""));
                 new TaskListNudgeLedger(config).Evict(sessionId.Replace("-", ""));
-                new PassNoticeSessions(config).Disarm(sessionId.Replace("-", ""));
             }
 
             // Ordering guard: if this session's backlog couldn't fully drain, spool the fresh
