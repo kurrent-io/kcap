@@ -807,18 +807,24 @@ internal partial class AgentOrchestrator {
     /// server's command runs on, and the recorder answers within its own bound. A command that stops waiting has still
     /// asked, and the stop has already happened.</summary>
     public async Task HandleLocalDisableSessionAsync(string sessionId, Stream stream, CancellationToken ct) {
-        var answer = _recorder is { } recorder ? await recorder.DisableSessionAsync(sessionId, ct) : RecordingDisable.NotHeld;
+        var outcome = _recorder is { } recorder ? await recorder.DisableSessionAsync(sessionId, ct) : RecordingDisable.NotHeld;
+
+        var answer = new DisableSessionAckDto(outcome switch {
+            RecordingDisable.Stopped      => RecordingIpc.Stopped,
+            RecordingDisable.SendInFlight => RecordingIpc.SendInFlight,
+            _                             => RecordingIpc.NotHeld,
+        }, HostsLiveTerminal(sessionId), _config.ServerUrl);
 
         try {
-            await FrameCodec.WriteAsync(stream, LocalFrame.DisableSessionAck(answer switch {
-                RecordingDisable.Stopped      => RecordingIpc.Stopped,
-                RecordingDisable.SendInFlight => RecordingIpc.SendInFlight,
-                _                             => RecordingIpc.NotHeld,
-            }), ct);
+            await FrameCodec.WriteAsync(stream, LocalFrame.DisableSessionAck(JsonSerializer.Serialize(answer, RecordingIpcJsonContext.Default.DisableSessionAckDto)), ct);
         } catch (IOException) {
             // The command's budget ran out first.
         }
     }
+
+    // The terminal mirror isn't recording and a disable leaves it up, so the person has to be told.
+    bool HostsLiveTerminal(string sessionId) =>
+        SessionIds.Canonical(sessionId) is { } session && _agents.Values.Any(agent => agent is { CloudSink: not null, IsCleanupStarted: false } && IsSessionOf(agent, session));
 
     /// <summary>Attach an existing agent to a local client (used by <c>kcap agent attach</c>).</summary>
     public Task HandleLocalAttachAsync(string agentId, Stream stream, CancellationToken ct, bool reportRuntime = false) {

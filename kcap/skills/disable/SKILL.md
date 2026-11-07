@@ -26,7 +26,9 @@ This will:
 2. Prevent all future hook events from being sent for this session
 3. Delete all session data from the server (event streams and read models)
 
-If the command exits 1 it could not promise the data is gone: a send may still reach the server, or the daemon did not confirm it stopped. Tell the user what it printed, and run it again as it says to delete what landed.
+If the command exits 1 it could not promise the data is gone. Tell the user what it printed. Running it again won't confirm it.
+
+If it says the agent's remote terminal keeps streaming, tell the user: that goes on until the agent stops.
 
 ## Requirements
 

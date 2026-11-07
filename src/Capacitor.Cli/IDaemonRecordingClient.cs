@@ -15,5 +15,5 @@ public interface IDaemonRecordingClient {
 
     /// <summary>Asks <paramref name="daemonName"/>, which a claim names, to stop every source of a session a person
     /// disabled, with no final drain.</summary>
-    Task<RecordingDisable> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct);
+    Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct);
 }

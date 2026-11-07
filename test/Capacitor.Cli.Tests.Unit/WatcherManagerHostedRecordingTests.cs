@@ -168,7 +168,7 @@ public class WatcherManagerHostedRecordingTests {
             }
         }
 
-        public Task<RecordingDisable> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(RecordingDisable.Unanswered);
+        public Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(new RecordingDisableAnswer(RecordingDisable.Unanswered));
 
         public async Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) {
             lock (_asked) _asked.Add((source, skipTitle));

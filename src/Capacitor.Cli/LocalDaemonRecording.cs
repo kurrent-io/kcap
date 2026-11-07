@@ -19,6 +19,6 @@ public sealed class LocalDaemonRecording(DaemonStore store, HostedAgent hosted, 
     public Task<bool> FinishSourceAsync(string key, CancellationToken ct) =>
         daemonName is { Length: > 0 } name ? RecordingIpc.FinishAsync(store, name, key, ct) : Task.FromResult(false);
 
-    public Task<RecordingDisable> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) =>
+    public Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) =>
         RecordingIpc.DisableAsync(store, daemonName, sessionId, ct);
 }

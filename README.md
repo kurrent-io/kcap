@@ -726,7 +726,18 @@ kcap disable <sessionId>     # specific session
 
 This is irreversible on the server side; the local transcript file is untouched.
 
-A session the daemon records stops at once with its subagents, with no final drain, and the command waits a few seconds for the daemon to confirm that before it deletes anything. It exits `1`, and says why, when it can't promise the data is gone: the server had not answered a send from just before recording stopped, so that send may still arrive, or the daemon did not confirm it stopped. Running `kcap disable <sessionId>` again deletes whatever landed.
+A session the daemon records stops at once with its subagents, with no final drain, and the command waits a few seconds for the daemon to confirm that before it deletes anything. A daemon on another profile that holds the session is asked and stops too.
+
+The command exits `1`, and says why, when it can't promise the data is gone:
+
+- A batch already on its way when recording stopped had no answer from the server, so it may still have landed.
+- The daemon recording the session did not confirm it stopped, so more may have reached the server.
+- The daemon that held the session sends to another server, where nothing was deleted. Run `kcap disable` under the profile for that server.
+- The session could not be marked disabled, or kcap could not read what records it.
+
+Running the command again doesn't settle any of the first two: a later run has nobody left to ask, and says so.
+
+Disabling stops recording, not a live agent. A hosted agent's remote terminal keeps streaming to the server until the agent ends, and the command says so when one is running the session. Stop the agent to end it.
 
 ### Error extraction
 

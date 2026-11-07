@@ -191,6 +191,67 @@ public class AgentOrchestratorRecordingTests {
         await Assert.That(f.ListedSources.Select(source => source.SessionId)).DoesNotContain(Moved);
     }
 
+    static DisableSessionAckDto AckOf(LocalFrame reply) => JsonSerializer.Deserialize(reply.Text, RecordingIpcJsonContext.Default.DisableSessionAckDto)!;
+
+    /// <summary>The mirror isn't recording and stays up, so the answer says so, and only for an agent still running this
+    /// session. A private agent has no mirror, and one that has exited has stopped sending.</summary>
+    [Test]
+    public async Task The_disable_frame_says_when_a_live_agents_terminal_goes_on() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        var pty   = new ScriptedPtyProcess();
+        var agent = f.Orch.SeedAgentForTest("live", pty: pty);
+        agent.SessionId = Moved;
+        var loop = f.Orch.ReadAgentOutputForTest(agent);
+        await WaitHarness.PollUntilAsync(() => agent.CloudSink is not null);
+
+        var live  = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        var other = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Resumed, stream, CancellationToken.None)));
+
+        pty.Exit();
+        await loop.WithinDeadlineAsync("the read loop");
+
+        var ended = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+
+        await Assert.That(live.TerminalLive).IsTrue();
+        await Assert.That(other.TerminalLive).IsFalse();
+        await Assert.That(ended.TerminalLive).IsFalse();
+    }
+
+    [Test]
+    public async Task A_private_agent_has_no_terminal_to_mention() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        var pty   = new ScriptedPtyProcess();
+        var agent = f.Orch.SeedAgentForTest("private", isPrivate: true, pty: pty);
+        agent.SessionId = Moved;
+        var loop = f.Orch.ReadAgentOutputForTest(agent);
+
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+
+        pty.Exit();
+        await loop.WithinDeadlineAsync("the read loop");
+
+        await Assert.That(ack.TerminalLive).IsFalse();
+    }
+
+    /// <summary>With recording off a hosted session sits on a watcher and no claim exists, which is most hosted sessions.
+    /// The mirror runs all the same, so the answer can't turn on this daemon holding anything.</summary>
+    [Test]
+    public async Task A_live_terminal_is_said_with_recording_off() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), on: false);
+        var pty   = new ScriptedPtyProcess();
+        var agent = f.Orch.SeedAgentForTest("live", pty: pty);
+        agent.SessionId = Moved;
+        var loop = f.Orch.ReadAgentOutputForTest(agent);
+        await WaitHarness.PollUntilAsync(() => agent.CloudSink is not null);
+
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+
+        pty.Exit();
+        await loop.WithinDeadlineAsync("the read loop");
+
+        await Assert.That(ack).IsEqualTo(new DisableSessionAckDto(RecordingIpc.NotHeld, true, f.Config.ServerUrl));
+    }
+
     /// <summary>From the frame down, as a command reaches it.</summary>
     [Test]
     public async Task The_disable_frame_stops_what_this_daemon_records() {
@@ -201,7 +262,8 @@ public class AgentOrchestratorRecordingTests {
 
         var reply = await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(session, stream, CancellationToken.None)).WithinDeadlineAsync("the answer");
 
-        await Assert.That((reply.Type, reply.Text)).IsEqualTo((FrameType.DisableSessionAck, RecordingIpc.Stopped));
+        await Assert.That(reply.Type).IsEqualTo(FrameType.DisableSessionAck);
+        await Assert.That(AckOf(reply).Status).IsEqualTo(RecordingIpc.Stopped);
         await Assert.That(f.ClaimFiles).IsEmpty();
         await Assert.That(f.ListedSources).IsEmpty();
     }

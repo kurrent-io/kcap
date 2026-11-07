@@ -566,7 +566,7 @@ public class WatcherManagerClaimTests : IDisposable {
 
         public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
 
-        public Task<RecordingDisable> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(RecordingDisable.Unanswered);
+        public Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(new RecordingDisableAnswer(RecordingDisable.Unanswered));
 
         public async Task<bool> FinishSourceAsync(string key, CancellationToken ct) {
             lock (_asked) _asked.Add(key);

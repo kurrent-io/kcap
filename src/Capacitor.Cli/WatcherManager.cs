@@ -6,6 +6,7 @@ using System.Text.Json;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 
 using Capacitor.Cli.Core.Http;
@@ -22,7 +23,8 @@ public sealed partial class WatcherManager(
     // Two local round trips and a claim. A hook past this starts a watcher, and the spawn lock settles who records.
     static readonly TimeSpan HandOffBudget = TimeSpan.FromSeconds(2);
 
-    // Past the daemon's own bound, so its answer that a send is still out arrives rather than reading as no answer.
+    // Past the daemon's own bound, so its answer that a send is still out arrives rather than reading as no answer. With no
+    // claim nothing turns on the answer, so that case keeps to HandOffBudget.
     internal static readonly TimeSpan DisableBudget = TimeSpan.FromSeconds(8);
 
     readonly IDaemonRecordingClient _daemonRecording = daemonRecording ?? NoDaemonRecording.Instance;
@@ -140,45 +142,62 @@ public sealed partial class WatcherManager(
 
     /// <summary>Stops everything recording a session a person disabled, its subagents' sources included. Each watcher
     /// stops as <see cref="KillWatcher"/> stops one. A daemon's sources are found by their claims, because it leaves no pid
-    /// file, and it is asked to stop rather than signalled.</summary>
-    /// <returns><see cref="RecordingDisable.Stopped"/>, or what keeps that from being said.</returns>
-    public async Task<RecordingDisable> StopRecordingAsync(string sessionId, TextWriter? stderr = null) {
-        var stopped = await StopDaemonsAsync(sessionId);
+    /// file, and it is asked to stop rather than signalled, a daemon of any profile included: the claim says who holds the
+    /// source. This profile's daemon hears of it as well, with or without a claim, because only it can say a live agent's
+    /// terminal goes on, and a hosted session on a watcher has no claim.</summary>
+    public async Task<RecordingStopReport> StopRecordingAsync(string sessionId, TextWriter? stderr = null) {
+        var report = await StopDaemonsAsync(sessionId);
 
         await KillWatcher(sessionId, stderr);
 
-        if (Directory.Exists(paths.Directory)) {
-            foreach (var pidFile in Directory.GetFiles(paths.Directory, $"{sessionId}-*.pid")) await KillWatcher(Path.GetFileNameWithoutExtension(pidFile), stderr);
+        try {
+            if (Directory.Exists(paths.Directory)) {
+                foreach (var pidFile in Directory.GetFiles(paths.Directory, $"{sessionId}-*.pid")) await KillWatcher(Path.GetFileNameWithoutExtension(pidFile), stderr);
+            }
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return report with { Unreadable = true };
         }
 
-        return stopped;
+        return report;
     }
 
-    async Task<RecordingDisable> StopDaemonsAsync(string sessionId) {
-        var claims = _claims.KeysOf(sessionId).Select(key => (Key: key, Holder: _claims.Holder(key), Fresh: _claims.Read(key) is RecorderClaimState.DaemonFresh)).ToArray();
+    async Task<RecordingStopReport> StopDaemonsAsync(string sessionId) {
+        var keys   = _claims.KeysOf(sessionId);
+        var claims = (keys ?? []).Select(key => (Key: key, Holder: _claims.Holder(key), Fresh: _claims.Read(key) is RecorderClaimState.DaemonFresh)).ToArray();
 
-        if (claims.Length == 0) return RecordingDisable.Stopped;
+        var asked = claims.GroupBy(claim => claim.Holder).Select(holder => (Name: holder.Key, Held: true, Fresh: holder.Any(claim => claim.Fresh))).ToList();
+        var own   = DaemonNameResolver.Resolve([], profiles.DaemonName);
 
-        using var budget = new CancellationTokenSource(DisableBudget, time);
+        if (asked.All(daemon => daemon.Name != own)) asked.Add((own, false, false));
 
-        var answers = await Task.WhenAll(claims.GroupBy(claim => claim.Holder).Select(async holder => (
-            Answer: holder.Key is { } name ? await AskToDisableAsync(name, sessionId, budget.Token) : RecordingDisable.Unanswered,
-            Fresh: holder.Any(claim => claim.Fresh))));
+        using var budget = new CancellationTokenSource(claims.Length > 0 ? DisableBudget : HandOffBudget, time);
+
+        var answers = await Task.WhenAll(asked.Select(async daemon => (
+            daemon.Held, daemon.Fresh,
+            Answer: daemon.Name is { } name ? await AskToDisableAsync(name, sessionId, budget.Token) : new RecordingDisableAnswer(RecordingDisable.Unanswered))));
 
         // Whatever was said: a recorder with no claim stops at its next tick, a daemon's that can't answer included.
         foreach (var claim in claims) _claims.Release(claim.Key);
 
         // A stale claim with nobody answering is a daemon that has gone, and the marker refuses it if it comes back.
-        return answers.Any(answer => answer is { Answer: RecordingDisable.Unanswered, Fresh: true }) ? RecordingDisable.Unanswered
-            : answers.Any(answer => answer.Answer is RecordingDisable.SendInFlight) ? RecordingDisable.SendInFlight
+        var outcome = answers.Any(answer => answer is { Answer.Outcome: RecordingDisable.Unanswered, Fresh: true }) ? RecordingDisable.Unanswered
+            : answers.Any(answer => answer.Answer.Outcome is RecordingDisable.SendInFlight) ? RecordingDisable.SendInFlight
             : RecordingDisable.Stopped;
+
+        return new RecordingStopReport(
+            outcome,
+            TerminalLive: answers.Any(answer => answer.Answer.TerminalLive),
+            OtherServer: answers.FirstOrDefault(answer => answer.Held && IsAnotherServer(answer.Answer.Server)).Answer?.Server,
+            Unreadable: keys is null);
     }
 
-    async Task<RecordingDisable> AskToDisableAsync(string daemonName, string sessionId, CancellationToken ct) {
+    bool IsAnotherServer(string? server) => server is not null && ServerIdentity.Canonicalize(server) != ServerIdentity.Canonicalize(Url);
+
+    async Task<RecordingDisableAnswer> AskToDisableAsync(string daemonName, string sessionId, CancellationToken ct) {
         try {
             return await _daemonRecording.DisableSessionAsync(daemonName, sessionId, ct).WaitAsync(ct);
         } catch {
-            return RecordingDisable.Unanswered;
+            return new RecordingDisableAnswer(RecordingDisable.Unanswered);
         }
     }
 

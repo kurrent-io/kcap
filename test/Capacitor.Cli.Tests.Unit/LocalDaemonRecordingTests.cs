@@ -66,8 +66,12 @@ public class LocalDaemonRecordingTests {
     /// <summary><c>kcap disable</c> runs in a terminal as often as not, so the claim says who to ask, not the environment.</summary>
     [Test]
     public async Task A_disable_asks_the_daemon_it_is_told_to_from_outside_an_agent() {
-        await using var daemon = new FakeRecordingDaemon(Daemons.Store.SocketPath(DaemonName), RecordingIpc.DisableCapability) { Answer = RecordingIpc.Stopped };
+        await using var daemon = new FakeRecordingDaemon(Daemons.Store.SocketPath(DaemonName), RecordingIpc.DisableCapability) {
+            Answer = JsonSerializer.Serialize(new DisableSessionAckDto(RecordingIpc.Stopped, false, null), RecordingIpcJsonContext.Default.DisableSessionAckDto),
+        };
 
-        await Assert.That(await Client(HostedAgent.Terminal, daemonName: null).DisableSessionAsync(DaemonName, "session-1", CancellationToken.None)).IsEqualTo(RecordingDisable.Stopped);
+        var answer = await Client(HostedAgent.Terminal, daemonName: null).DisableSessionAsync(DaemonName, "session-1", CancellationToken.None);
+
+        await Assert.That(answer.Outcome).IsEqualTo(RecordingDisable.Stopped);
     }
 }

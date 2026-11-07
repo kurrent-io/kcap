@@ -25,6 +25,8 @@ public class LocalControlHelloTests {
 
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
+    [TempDir] public required TempDir Tmp { get; init; }
+
     sealed class NoopHostLifetime : IHostApplicationLifetime {
         public CancellationToken ApplicationStarted  => CancellationToken.None;
         public CancellationToken ApplicationStopping => CancellationToken.None;
@@ -120,6 +122,10 @@ public class LocalControlHelloTests {
         }
     }
 
+    FakeRecorderTransport Transport { get; } = new() { IsConnected = true };
+
+    DaemonRecorder? Recorder { get; set; }
+
     DaemonRecorder Recording(DaemonConfig config) {
         config.RecordHostedClaude = true;
         config.ConfigRoot         = Config.Root;
@@ -128,8 +134,8 @@ public class LocalControlHelloTests {
         var probe = new RecordingProbe();
         probe.Report(true);
 
-        return new DaemonRecorder(
-            config, new CapacitorServer(config.ServerUrl, Config.Root, config.Profiles), probe, () => new FakeRecorderTransport(),
+        return Recorder = new DaemonRecorder(
+            config, new CapacitorServer(config.ServerUrl, Config.Root, config.Profiles), probe, () => Transport,
             (_, _, _, _) => new FakeRecorderHousekeeping(), TimeProvider.System, NullLogger<DaemonRecorder>.Instance);
     }
 
@@ -204,9 +210,34 @@ public class LocalControlHelloTests {
             await Assert.That(await CapabilitiesAsync(h.SockPath, ct)).Contains(RecordingIpc.DisableCapability);
 
             var disable = await AskAsync(h.SockPath, LocalFrame.DisableSession("session-1"), ct);
+            var answer  = JsonSerializer.Deserialize(disable!.Text, RecordingIpcJsonContext.Default.DisableSessionAckDto);
 
-            await Assert.That((disable!.Type, disable.Text)).IsEqualTo((FrameType.DisableSessionAck, RecordingIpc.NotHeld));
+            await Assert.That(disable.Type).IsEqualTo(FrameType.DisableSessionAck);
+            await Assert.That(answer).IsEqualTo(new DisableSessionAckDto(RecordingIpc.NotHeld, false, h.Config.ServerUrl));
         });
+    }
+
+    /// <summary>The two halves of <c>kcap disable</c> joined at the wire: the call the command makes, over the real socket,
+    /// to a daemon recording the session. The rest of the command is in an executable this project can't reference.</summary>
+    [Test]
+    public async Task A_disable_over_the_socket_stops_what_the_daemon_records() {
+        const string session = "0123456789abcdef0123456789abcdef";
+
+        await RunAsync("hello-join", async (h, ct) => {
+            var transcript = Tmp.CreateFile("t.jsonl", """{"type":"user","message":{"content":"Summarise the README"}}""" + "\n");
+            var source     = new RecordedSource("agent-1", session, null, transcript, "claude", null, false);
+            await Recorder!.TryRecordAsync(source, ct);
+            await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+            var answer = await RecordingIpc.DisableAsync(h.Daemons.Store, "hello-join", session, ct);
+
+            await Assert.That(answer).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.Stopped, TerminalLive: false, Server: h.Config.ServerUrl));
+            await Assert.That(Recorder.ActiveKeys).IsEmpty();
+
+            // The silence would refuse a final drain, so seeing no drain proves nothing. No attempt being refused does.
+            await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
+            await Assert.That(Transport.Refused).IsEqualTo(0);
+        }, recording: true);
     }
 
     [Test]

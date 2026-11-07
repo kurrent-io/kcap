@@ -1,5 +1,7 @@
+using System.Runtime.Versioning;
 using Capacitor.Cli.Core.LocalEdition;
 using Microsoft.Extensions.Time.Testing;
+using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
 
@@ -300,4 +302,19 @@ public class RecorderClaimsTests {
     [Test]
     public async Task A_missing_directory_has_no_keys() =>
         await Assert.That(new RecorderClaims(Tmp.PathTo("never-made"), _time).KeysOf(Key)).IsEmpty();
+
+    /// <summary>"No claim" and "couldn't look" are different answers, and <c>kcap disable</c> prints its clean line on the
+    /// first.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task Keys_that_cannot_be_listed_are_no_answer() {
+        Claims.TryTake(Key, "daemon-a", isHosted: true);
+        File.SetUnixFileMode(Directory, UnixFileMode.None);
+
+        try {
+            await Assert.That(Claims.KeysOf(Key)).IsNull();
+        } finally {
+            File.SetUnixFileMode(Directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
 }

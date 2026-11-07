@@ -62,18 +62,22 @@ public static class RecordingIpc {
 
     /// <summary>Stops every source of a session a person disabled, with no final drain, on the daemon holding them. A
     /// daemon too old for the frame has said nothing about what it is doing, so it answers as one that can't be reached.</summary>
-    public static async Task<RecordingDisable> DisableAsync(DaemonStore store, string daemonName, string sessionId, CancellationToken ct) {
+    public static async Task<RecordingDisableAnswer> DisableAsync(DaemonStore store, string daemonName, string sessionId, CancellationToken ct) {
         try {
-            if (await CapabilitiesAsync(store, daemonName, ct) is not { } capabilities || !capabilities.Contains(DisableCapability)) return RecordingDisable.Unanswered;
+            if (await CapabilitiesAsync(store, daemonName, ct) is not { } capabilities || !capabilities.Contains(DisableCapability)) return new(RecordingDisable.Unanswered);
 
-            return await ExchangeAsync(store, daemonName, LocalFrame.DisableSession(sessionId), ct) switch {
-                { Type: FrameType.DisableSessionAck, Text: Stopped }      => RecordingDisable.Stopped,
-                { Type: FrameType.DisableSessionAck, Text: SendInFlight } => RecordingDisable.SendInFlight,
-                { Type: FrameType.DisableSessionAck, Text: NotHeld }      => RecordingDisable.NotHeld,
-                _                                                         => RecordingDisable.Unanswered,
+            if (await ExchangeAsync(store, daemonName, LocalFrame.DisableSession(sessionId), ct) is not { Type: FrameType.DisableSessionAck, Text: var json }
+             || JsonSerializer.Deserialize(json, RecordingIpcJsonContext.Default.DisableSessionAckDto) is not { } ack)
+                return new(RecordingDisable.Unanswered);
+
+            return ack.Status switch {
+                Stopped      => new(RecordingDisable.Stopped, ack.TerminalLive, ack.Server),
+                SendInFlight => new(RecordingDisable.SendInFlight, ack.TerminalLive, ack.Server),
+                NotHeld      => new(RecordingDisable.NotHeld, ack.TerminalLive, ack.Server),
+                _            => new(RecordingDisable.Unanswered),
             };
         } catch (Exception ex) when (IsNoAnswer(ex)) {
-            return RecordingDisable.Unanswered;
+            return new(RecordingDisable.Unanswered);
         }
     }
 

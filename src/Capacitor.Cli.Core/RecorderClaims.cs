@@ -89,14 +89,17 @@ public sealed class RecorderClaims(string directory, TimeProvider time) {
     public string? Holder(string key) => Contents(key)?.Holder;
 
     /// <summary>The keys claimed for a session: its own, and each of its subagents', whose files name the session first.</summary>
-    public IReadOnlyList<string> KeysOf(string sessionId) {
+    /// <returns>Null when the directory can't be read, which says nothing about whether a claim exists.</returns>
+    public IReadOnlyList<string>? KeysOf(string sessionId) {
         try {
             return [
                 ..Directory.GetFiles(directory, $"{sessionId}.claim").Concat(Directory.GetFiles(directory, $"{sessionId}-*.claim"))
                     .Select(file => Path.GetFileNameWithoutExtension(file))
             ];
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+        } catch (DirectoryNotFoundException) {
             return [];
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return null;
         }
     }
 

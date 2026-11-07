@@ -11,5 +11,5 @@ public sealed class NoDaemonRecording : IDaemonRecordingClient {
 
     public Task<bool> FinishSourceAsync(string key, CancellationToken ct) => Task.FromResult(false);
 
-    public Task<RecordingDisable> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(RecordingDisable.Unanswered);
+    public Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(new RecordingDisableAnswer(RecordingDisable.Unanswered));
 }
