@@ -47,34 +47,36 @@ internal sealed class AdoptionPrivilegedStep(
     /// the retirement record could not be read, which holds the install.</param>
     /// <param name="explain">Says why the password is needed before the prompt asks for it, and leaves the install as a
     /// cancelled prompt does when the user declines: unasked, macOS shows a prompt that names only a script.</param>
-    public async Task RunAsync(
+    /// <returns>True when a helper cut short left every entry in place: pending, with nothing this session's other runs
+    /// would prompt for.</returns>
+    public async Task<bool> RunAsync(
             OtherCliInstall install, InstallPlan? plan, AdoptionEvidence evidence, IReadOnlyList<string>? unfinished,
             bool explain, CancellationToken ct) {
-        if (store.Load().CutoverUtc is not { } cutover) return;
+        if (store.Load().CutoverUtc is not { } cutover) return false;
 
         var links   = plan?.Links ?? [];
         var entries = Entries(install);
         if (links.Count == 0 && !entries.Any(e => Exists(e) || retirement.HasAside(e))) {
             log("adoption_retired", AdoptionEvent.For(install, "ok", NothingLeft));
             deletion.Switch(install, []);
-            return;
+            return false;
         }
         if (!bundle.InSystemApplications) {
             Leave(install, LeftReason.SharedInstallPrivateApp);
-            return;
+            return false;
         }
         if (store.Load().Privileged is not null) {
             deletion.Hold(install, HelperRunning);
-            return;
+            return false;
         }
         if (await HolderAsync(install, cutover, unfinished, ct).ConfigureAwait(false) is { } holder) {
             deletion.Hold(install, holder);
-            return;
+            return false;
         }
         if (explain && !await confirm(Explanation(install), ct).ConfigureAwait(false)) {
             log("adoption_privileged", AdoptionEvent.For(install, "declined"));
             Leave(install, LeftReason.PromptCancelled);
-            return;
+            return false;
         }
 
         var folder = Path.Combine(Path.GetFullPath(helperFolder), "cli-adoption-helper-" + Guid.NewGuid().ToString("N"));
@@ -96,6 +98,7 @@ internal sealed class AdoptionPrivilegedStep(
             _                          => "cut_short",
         }));
 
+        var inPlace = false;
         switch (result) {
             case PrivilegedResult.Deleted:
                 deletion.Switch(install, []);
@@ -112,10 +115,12 @@ internal sealed class AdoptionPrivilegedStep(
                 Leave(install, LeftReason.SharedInstallInUse);
                 break;
             case PrivilegedResult.CutShort:
-                if (SettleFromFiles(install, store.Load().Privileged?.GoSent ?? false) == InstallState.Pending) path.Release(links);
+                inPlace = SettleFromFiles(install, store.Load().Privileged?.GoSent ?? false) == InstallState.Pending;
+                if (inPlace) path.Release(links);
                 break;
         }
         store.Update(r => r with { Privileged = null });
+        return inPlace;
     }
 
     /// <summary>What a helper that ended without its outcome left, read from the files. Every entry in place, with

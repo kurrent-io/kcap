@@ -403,6 +403,9 @@ sealed class AdoptionWorld {
             /// With the links swapped, before go.
             BeforeGo,
 
+            /// Once go is recorded, before anything is set aside.
+            AfterGo,
+
             /// After go, with every entry set aside and only root able to remove it.
             WithAsidesLeft,
 
@@ -444,6 +447,7 @@ sealed class AdoptionWorld {
             if (!await verify(ct)) return PutBack(swapped);
 
             store.Update(r => r with { Privileged = helper with { GoSent = true } });
+            if (Cut == CutShortAt.AfterGo) return PrivilegedResult.CutShort;
             if (Answer == PrivilegedResult.InUse) {
                 PutBack(swapped);
                 return PrivilegedResult.InUse;

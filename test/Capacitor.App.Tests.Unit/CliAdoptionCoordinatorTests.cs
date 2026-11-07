@@ -1183,7 +1183,8 @@ public class CliAdoptionCoordinatorTests {
     }
 
     /// <summary>A helper that ends before go has set nothing aside: with every file in place the install is pending, a
-    /// working state with its link on the bundle, and the next launch's prompt finishes it with no link left to swap.</summary>
+    /// working state with its link on the bundle. Finish switching is offered meanwhile, and the next launch's prompt
+    /// finishes it with no link left to swap.</summary>
     [Test]
     public async Task A_helper_cut_short_before_go_with_everything_in_place_stays_pending() {
         var world = new AdoptionWorld(Tmp);
@@ -1200,7 +1201,7 @@ public class CliAdoptionCoordinatorTests {
             await Assert.That(Target(world.Link)).IsEqualTo(world.Bundle.Cli);
             await Assert.That(Directory.Exists(world.Platform)).IsTrue();
             await Assert.That(world.Notifier.Notified).IsEmpty();
-            await Assert.That(AdoptionWorld.Offered(launch)).IsFalse();
+            await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
         }
 
         world.Admin.Cut = AdoptionWorld.Administrator.CutShortAt.Never;
@@ -1209,6 +1210,30 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Admin.Specs[1].Links).IsEmpty();
         await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
         await Assert.That(Directory.Exists(world.Platform)).IsFalse();
+    }
+
+    /// <summary>A helper stopped after go but before it set anything aside left every entry in place: Finish switching
+    /// is offered, and takes it behind a new prompt, without waiting for the next launch.</summary>
+    [Test]
+    public async Task A_helper_cut_short_after_go_with_everything_in_place_is_offered_Finish_switching() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Admin.Cut = AdoptionWorld.Administrator.CutShortAt.AfterGo;
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        var settled = world.Logged("adoption_privileged").Single(e => e["result"] == "settled");
+        await Assert.That((settled["reason"], settled["go_sent"])).IsEqualTo(("in_place", "true"));
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Pending);
+        await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
+
+        world.Admin.Cut = AdoptionWorld.Administrator.CutShortAt.Never;
+        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await world.SettledAsync(launch);
+
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(2);
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(AdoptionWorld.Offered(launch)).IsFalse();
     }
 
     /// <summary>A helper that deleted everything but never reported it, after go, left nothing to finish.</summary>

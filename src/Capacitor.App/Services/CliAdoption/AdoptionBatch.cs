@@ -47,7 +47,8 @@ internal sealed class AdoptionBatch(
 
     /// <summary>Whether an install waits on <see cref="FinishAsync"/>: left behind a cancelled administrator prompt, a
     /// deletion cut short or another account still using it, left for the app being installed for one user, once it
-    /// runs from /Applications, or root-owned and kept from its prompt by a daemon move a later run made.</summary>
+    /// runs from /Applications, or root-owned and kept from its prompt by a daemon move a later run made or a helper cut
+    /// short with every entry in place.</summary>
     public bool FinishOffered => _awaitingPrompt || store.Load().Installs.Any(i => i.State == InstallState.Left && i.Reason switch {
         LeftReason.PromptCancelled or LeftReason.DeletionCutShort or LeftReason.SharedInstallInUse => true,
         LeftReason.SharedInstallPrivateApp                                                         => bundle.InSystemApplications,
@@ -130,7 +131,8 @@ internal sealed class AdoptionBatch(
         if (prompt) {
             foreach (var install in moved.Where(i => _rootOwned.Contains(Key(i)))) {
                 var planned = plan.Installs.FirstOrDefault(p => AdoptionPreflight.SameRoot(p.Install, install));
-                await Privileged.RunAsync(install, planned, evidence, unfinished, explain: !finishing, ct).ConfigureAwait(false);
+                if (await Privileged.RunAsync(install, planned, evidence, unfinished, explain: !finishing, ct).ConfigureAwait(false))
+                    _awaitingPrompt = true;
             }
         }
 
