@@ -1,3 +1,5 @@
+using Capacitor.Cli.Core.Auth;
+
 namespace Capacitor.Cli.Core;
 
 /// <summary>
@@ -69,4 +71,26 @@ public static class DisabledSessions {
             return false;
         }
     }
+
+    // Beside the marker rather than in it, so neither fact's write can overwrite the other.
+    static string OtherServersPath(string sessionId, ConfigRoot config) => Path.Combine(GetDisabledDir(config), $"{sessionId}.other-server");
+
+    /// <summary>Records a server a daemon sent this session to, which a deletion from this profile never reaches. Nothing
+    /// clears it: nothing here can tell when that server's copy goes, and the daemon holds no claim to say so next time.</summary>
+    public static void MarkOnOtherServer(string sessionId, string server, ConfigRoot config) {
+        if (OtherServers(sessionId, config).Any(known => SameServer(known, server))) return;
+
+        Directory.CreateDirectory(GetDisabledDir(config));
+        File.AppendAllText(OtherServersPath(sessionId, config), server + "\n");
+    }
+
+    public static IReadOnlyList<string> OtherServers(string sessionId, ConfigRoot config) {
+        try {
+            return File.ReadAllLines(OtherServersPath(sessionId, config)).Where(line => line.Length > 0).ToArray();
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return [];
+        }
+    }
+
+    public static bool SameServer(string a, string b) => (ServerIdentity.Canonicalize(a) ?? a) == (ServerIdentity.Canonicalize(b) ?? b);
 }

@@ -735,6 +735,8 @@ The command exits `1`, and says why, when something stays unconfirmed:
 - A watcher recording the session could not be stopped, the session could not be marked disabled, or kcap could not read what records it.
 - A daemon that recorded the session or hosts its agent sends to another server, where nothing was deleted. Run `kcap disable` under the profile for that server.
 - An earlier run deleted the session before it could confirm recording had stopped. Anything that landed after that deletion may still be on the server, and kcap can't tell or remove it from here; the server's administrator can check. Every later run says so.
+- An earlier run found a daemon sending the session to another server. This command can't delete data there, and every later run names that server. Run `kcap disable` under the profile for that server.
+- kcap could not record one of the two facts above, so later runs won't say it.
 
 A server that can't be reached is no failure: the local steps are done, the command says the server data was not deleted, and it exits `0` unless something above applies. Run it again to delete. A profile with no usable server URL exits `2` after the same local steps.
 

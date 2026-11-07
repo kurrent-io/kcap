@@ -13,6 +13,9 @@ another server. A server it can't reach exits 0 with the data kept; run
 it again to delete. Once a deletion ran before recording was confirmed
 stopped, every later run says that what landed after it may still be on
 the server, out of kcap's reach; the server's administrator can check.
+Once a run found a daemon sending the session to another server, every
+later run names that server, where this command can't delete. A run
+that can't record either of these for later runs says so.
 
 It does not stop a live hosted agent's own output and tools, which keep
 reaching the server until the agent ends, or the agent's status and

@@ -46,8 +46,8 @@ public class DisableCommandTests : IDisposable {
 
     Task<int> Run(TimeProvider? time = null) => RunOn(Session, time);
 
-    Task<int> RunOn(string session, TimeProvider? time = null, HostedAgent? hosted = null, Func<string, string?>? getEnv = null) =>
-        new DisableCommand(Config.Root, Manager(time ?? _time), hosted ?? HostedAgent.Terminal) { GetEnv = getEnv ?? (_ => null) }.Handle(session, Api, _out, _err);
+    Task<int> RunOn(string session, TimeProvider? time = null, HostedAgent? hosted = null, Func<string, string?>? getEnv = null, TextWriter? stdout = null) =>
+        new DisableCommand(Config.Root, Manager(time ?? _time), hosted ?? HostedAgent.Terminal) { GetEnv = getEnv ?? (_ => null) }.Handle(session, Api, stdout ?? _out, _err);
 
     ISessionsApi Api() => _sessions.Unusable is { } unusable ? throw unusable : _sessions;
 
@@ -545,6 +545,89 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).Contains("sends to https://b.example, and nothing was deleted there");
     }
 
+    const string OtherServer = "https://other.example";
+
+    const string FoundEarlier = $"An earlier kcap disable found a daemon sending this session to {OtherServer}. This command can't delete data there";
+
+    /// <summary>The first run lets go of the claims, so the daemon that sent the session elsewhere holds none of it the next
+    /// time and says nothing of that server. The data there is still there, and only the marker remembers it.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Every_later_run_after_one_found_another_server_names_it(bool found) {
+        Claim(Session);
+        _daemon.Answer = new(RecordingDisable.Stopped, Server: OtherServer);
+        await Run();
+        _daemon.Answer = new(RecordingDisable.NotHeld, Server: OtherServer);
+        if (!found) _sessions.Answer = new DeleteSessionResponse.NotFound();
+
+        foreach (var _ in Enumerable.Range(0, 2)) {
+            _out.GetStringBuilder().Clear();
+
+            await Assert.That(await Run()).IsEqualTo(1);
+
+            await Assert.That(Printed).StartsWith(found ? Clean : $"Session {Session} disabled. No server data found");
+            await Assert.That(Printed).Contains(FoundEarlier);
+        }
+    }
+
+    /// <summary>A run that finds the server itself says so in its own line, the first run and any after it alike.</summary>
+    [Test]
+    public async Task A_run_that_finds_the_other_server_itself_names_it_once() {
+        _daemon.Answer = new(RecordingDisable.Stopped, Server: OtherServer);
+
+        foreach (var _ in Enumerable.Range(0, 2)) {
+            _out.GetStringBuilder().Clear();
+            Claim(Session);
+
+            await Assert.That(await Run()).IsEqualTo(1);
+
+            await Assert.That(Printed).Contains($"sends to {OtherServer}, and nothing was deleted there");
+            await Assert.That(Printed).DoesNotContain("An earlier kcap disable found");
+        }
+    }
+
+    /// <summary>Only what this run keeps can be named by the next, so a run that couldn't keep the server says so.</summary>
+    [Test]
+    public async Task A_server_that_cannot_be_kept_for_later_runs_is_said() {
+        Config.CreateDir("disabled", $"{Session}.other-server");
+        Claim(Session);
+        _daemon.Answer = new(RecordingDisable.Stopped, Server: OtherServer);
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).Contains($"kcap could not record that a daemon sends this session to {OtherServer}");
+        await Assert.That(Printed).Contains("so a later kcap disable won't name that server.");
+    }
+
+    /// <summary>Only what this run keeps can be said by the next, so a run that couldn't keep its unconfirmed deletion says
+    /// so. The marker is there already and can't be written, which leaves the mark itself standing.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task An_unconfirmed_deletion_that_cannot_be_kept_for_later_runs_is_said() {
+        File.SetUnixFileMode(Config.CreateFile(Path.Combine("disabled", Session)), UnixFileMode.UserRead);
+        Claim(Session);
+        _daemon.Answer = new(RecordingDisable.SendInFlight);
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).DoesNotContain("could not mark");
+        await Assert.That(Printed).Contains("kcap could not record that this deletion ran before recording was confirmed stopped");
+        await Assert.That(Printed).Contains("so a later kcap disable won't say so.");
+    }
+
+    /// <summary>A stdout that has gone away fails the deletion's line, and what later runs speak from is kept all the same.</summary>
+    [Test]
+    public async Task What_later_runs_need_is_kept_ahead_of_a_line_that_cannot_be_printed() {
+        Claim(Session);
+        _daemon.Answer = new(RecordingDisable.SendInFlight, Server: OtherServer);
+
+        await Assert.That(async () => await RunOn(Session, stdout: new ClosedPipeWriter())).Throws<IOException>();
+
+        await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
+        await Assert.That(DisabledSessions.OtherServers(Session, Config.Root)).IsEquivalentTo([OtherServer]);
+    }
+
     /// <summary>One that holds none of it and hosts nothing says nothing about where the session went.</summary>
     [Test]
     public async Task A_daemon_of_another_server_with_none_of_it_says_nothing() {
@@ -714,6 +797,15 @@ public class DisableCommandTests : IDisposable {
         var command = new GenerateTitleCommand(Config.Root, Resolutions.None(Config.Root), TestHarnesses.Under(home), new FixedCapacitorHttpClient(), TimeProvider.System);
 
         await Assert.That(await command.GenerateAsync("http://127.0.0.1:1", Session, "claude", Config.Root.Path("no-such-transcript.jsonl"))).IsEqualTo(0);
+    }
+
+    /// <summary>A stdout whose reader has gone away.</summary>
+    sealed class ClosedPipeWriter : TextWriter {
+        public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+
+        public override void Write(char value) => throw new IOException("Broken pipe");
+
+        public override void Write(string? value) => throw new IOException("Broken pipe");
     }
 
     sealed class FakeSessions : ISessionsApi {

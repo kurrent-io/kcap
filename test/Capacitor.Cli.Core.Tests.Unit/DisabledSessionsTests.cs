@@ -46,6 +46,28 @@ public class DisabledSessionsTests {
         await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
     }
 
+    /// <summary>A run can leave both facts, in either order, and neither write may cost the other.</summary>
+    [Test]
+    public async Task Each_fact_a_disable_keeps_survives_the_other() {
+        DisabledSessions.Mark(Session, Config.Root);
+        DisabledSessions.MarkOnOtherServer(Session, "https://a.example", Config.Root);
+        DisabledSessions.MarkDeletedUnconfirmed(Session, Config.Root);
+        DisabledSessions.MarkOnOtherServer(Session, "https://b.example", Config.Root);
+
+        await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
+        await Assert.That(DisabledSessions.OtherServers(Session, Config.Root)).IsEquivalentTo(["https://a.example", "https://b.example"]);
+        await Assert.That(DisabledSessions.IsDisabledByPerson(Session, Config.Root)).IsTrue();
+    }
+
+    /// <summary>The same server under another spelling is the same server, and is named once.</summary>
+    [Test]
+    public async Task A_server_found_again_is_kept_once() {
+        DisabledSessions.MarkOnOtherServer(Session, "https://a.example", Config.Root);
+        DisabledSessions.MarkOnOtherServer(Session, "HTTPS://A.EXAMPLE:443/", Config.Root);
+
+        await Assert.That(DisabledSessions.OtherServers(Session, Config.Root)).IsEquivalentTo(["https://a.example"]);
+    }
+
     /// <summary>A spool keeps the spelling of the hook that wrote it, and the person's marker has the canonical one.</summary>
     [Test]
     public async Task A_persons_disable_is_found_under_a_vendors_spelling() {

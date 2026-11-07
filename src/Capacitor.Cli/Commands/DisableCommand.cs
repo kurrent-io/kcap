@@ -21,6 +21,7 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
     /// <param name="sessions">Resolved only once recording has stopped: a profile with no usable server still gets that far.</param>
     public async Task<int> Handle(string sessionId, Func<ISessionsApi> sessions, TextWriter stdout, TextWriter stderr) {
         var earlier    = DisabledSessions.WasDeletedUnconfirmed(sessionId, config);
+        var elsewhere  = DisabledSessions.OtherServers(sessionId, config);
         var markFailed = Failure(() => DisabledSessions.Mark(sessionId, config));
         var marked     = markFailed is null;
 
@@ -34,15 +35,19 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
         var caveats = Caveats(stopped, markFailed);
         var exit    = 0;
 
+        if (stopped.OtherServer is { } other && Failure(() => DisabledSessions.MarkOnOtherServer(sessionId, other, config)) is { } unkept)
+            caveats.Add($"kcap could not record that a daemon sends this session to {other} ({unkept}), so a later kcap disable won't name that server.");
+
         try {
             switch (await sessions().DeleteSessionAsync(sessionId)) {
                 case DeleteSessionResponse.Deleted:
+                    // After the deletion, which a send still on its way can land behind, and ahead of a line that may not print.
+                    if (!confirmed && Failure(() => DisabledSessions.MarkDeletedUnconfirmed(sessionId, config)) is { } unrecorded)
+                        caveats.Add($"kcap could not record that this deletion ran before recording was confirmed stopped ({unrecorded}), so a later kcap disable won't say so.");
+
                     await stdout.WriteLineAsync(!marked ? $"Server data for session {sessionId} deleted."
                         : sure ? $"Session {sessionId} disabled. Recording stopped and server data deleted."
                         : $"Session {sessionId} disabled. Server data deleted.");
-
-                    // After the deletion, which is what a send still on its way can land behind.
-                    if (!confirmed) Failure(() => DisabledSessions.MarkDeletedUnconfirmed(sessionId, config));
 
                     break;
                 case DeleteSessionResponse.NotFound:
@@ -66,6 +71,12 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
         }
 
         if (earlier) caveats.Add(EarlierDeletion);
+
+        // This run's own line already names the server it found.
+        foreach (var server in elsewhere) {
+            if (stopped.OtherServer is not { } found || !DisabledSessions.SameServer(server, found))
+                caveats.Add($"An earlier kcap disable found a daemon sending this session to {server}. This command can't delete data there; run kcap disable under the profile for that server.");
+        }
 
         foreach (var caveat in caveats) await stdout.WriteLineAsync(caveat);
 
