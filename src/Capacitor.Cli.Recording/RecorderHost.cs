@@ -352,7 +352,8 @@ public sealed class RecorderHost {
             if (sourceEnded && recorder is { LostClaim: false }) recorder.RetireAckCursor();
 
             _attemptEnded?.Invoke(new RecorderAttemptEnded(
-                source, sourceEnded, recorder?.LostClaim == true, recorder?.EndedIdle == true, context is null ? [] : [..context.Housekeeping.SpawnedChildKeys], failure));
+                source, sourceEnded, recorder?.LostClaim == true, recorder?.EndedIdle == true, context is null ? [] : [..context.Housekeeping.SpawnedChildKeys], failure,
+                recorder?.LeftLines == true));
         } catch (Exception ex) {
             Log(first, $"Telling the owner how an attempt at {source.Key} ended failed: {ex.Message}");
         }

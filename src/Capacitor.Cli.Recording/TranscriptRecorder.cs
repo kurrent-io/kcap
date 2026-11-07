@@ -111,6 +111,10 @@ public sealed class TranscriptRecorder(
     /// resumes from the server's cursor, so nothing more goes out from here, a final drain included.</summary>
     public bool LostClaim { get; private set; }
 
+    /// <summary>The final drain left lines it neither sent nor spooled. They are still in the transcript, and a held
+    /// line ends the drain with no failure to say so.</summary>
+    public bool LeftLines { get; private set; }
+
     internal HeldLineRedaction HeldLine { get; } =
         new(new HeldLineStore(context.Server.Config, source.SessionId, source.AgentId), time, context.RedactionClock, context.Log);
 
@@ -332,6 +336,7 @@ public sealed class TranscriptRecorder(
             if (State.FinalDrainHeldIncompleteLine || (ct.IsCancellationRequested && !lastLineComplete)) {
                 // Keyed on the session even for a subagent: the spool and `kcap import` work at session level.
                 log("Final transcript line still incomplete at consume time; held back and flagging needs-import");
+                LeftLines = true;
                 MarkForImport(_spool, "shutdown final drain: last transcript line never completed (no newline, unparseable)");
             }
 
@@ -339,9 +344,11 @@ public sealed class TranscriptRecorder(
             // up, so this runs whatever the connection state: a cheap no-op when nothing is undelivered. It is the
             // last chance to act before the process exits, and spooling keeps the tail for a later drain to replay.
             FollowMovedTranscript();
-            await SpoolUndeliveredTranscriptTailAsync(
+            var spooled = await SpoolUndeliveredTranscriptTailAsync(
                 _spool, State.LinesProcessed, State.Commits, CancellationToken.None,
                 ShutdownTailRedactionDeadline - time.GetElapsedTime(shutdownStarted), State.LineOffsets);
+
+            LeftLines |= spooled is not (null or TranscriptSpool.AppendResult.Appended);
 
             try {
                 await context.Housekeeping.AfterFinalDrainAsync(State, finalDrained, shutdownStarted, ct);

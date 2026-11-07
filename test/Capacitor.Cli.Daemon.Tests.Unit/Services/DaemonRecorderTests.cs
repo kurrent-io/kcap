@@ -15,6 +15,7 @@ public class DaemonRecorderTests {
     const string Session = "0123456789abcdef0123456789abcdef";
     const string Prompt  = """{"type":"user","message":{"content":"Summarise the README"}}""";
     const string Reply   = """{"type":"assistant","message":{"content":[{"type":"text","text":"Done."}]}}""";
+    const string HeldLine = """{"type":"assistant","message":{"content":[{"type":"text","text":"key ghp_0123456789abcdefghijklmnopqrstuvwxyz"}]}}""";
 
     static readonly Func<Task<RecordingScope>> InScope = () => Task.FromResult(new RecordingScope(false, _ => true));
 
@@ -585,6 +586,18 @@ public class DaemonRecorderTests {
 
         await Assert.That(MarkedForImport).IsFalse();
         await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>A hold ends the final drain with no failure, and the line and everything behind it went nowhere.</summary>
+    [Test]
+    public async Task A_source_held_at_a_redaction_timeout_is_not_drained() {
+        var source = Source(Transcript(Prompt, HeldLine));
+
+        await using var stopping = NewRecorder(time: new SwitchableRedactionClock { Exhausted = true });
+        await stopping.TryRecordAsync(source, CancellationToken.None);
+        await stopping.StopAsync(_ => true, CancellationToken.None).WithinDeadlineAsync("the stop");
+
+        await Assert.That(List.Load().Single().Drained).IsFalse();
     }
 
     /// <summary>A stuck source never reached its final drain, so its tail is what the mark is for.</summary>

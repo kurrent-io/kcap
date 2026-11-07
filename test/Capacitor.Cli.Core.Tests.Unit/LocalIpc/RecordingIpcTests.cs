@@ -66,6 +66,16 @@ public class RecordingIpcTests {
         await Assert.That(await Record()).IsEqualTo(RecordingHandOver.Declined);
     }
 
+    /// <summary>A decline lets a hook take the claim and start a recorder, and an answer this build can't read says
+    /// nothing of the kind: the daemon that gave it may be recording.</summary>
+    [Test]
+    public async Task An_answer_it_does_not_know_is_no_answer() {
+        await using var daemon = Daemon(RecordingIpc.Capability);
+        daemon.Answer = "an_answer_from_a_newer_daemon";
+
+        await Assert.That(await Record()).IsEqualTo(RecordingHandOver.Unanswered);
+    }
+
     [Test]
     public async Task A_source_that_is_not_the_agents_is_disowned() {
         await using var daemon = Daemon(RecordingIpc.Capability);

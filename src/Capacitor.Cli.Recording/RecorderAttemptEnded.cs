@@ -9,5 +9,7 @@ namespace Capacitor.Cli.Recording;
 /// <param name="SpawnedChildKeys">The child sources this attempt started. The next attempt knows only those it starts
 /// itself, so nothing else will stop these.</param>
 /// <param name="Failure">What failed the attempt or its final drain; null when nothing did.</param>
+/// <param name="LeftLines">Its final drain left lines it neither sent nor spooled. A redaction hold ends that way with no
+/// <paramref name="Failure"/>, so nothing else says those lines are still to go.</param>
 public sealed record RecorderAttemptEnded(
-    RecordingSource Source, bool SourceEnded, bool LostClaim, bool EndedIdle, IReadOnlyCollection<string> SpawnedChildKeys, Exception? Failure);
+    RecordingSource Source, bool SourceEnded, bool LostClaim, bool EndedIdle, IReadOnlyCollection<string> SpawnedChildKeys, Exception? Failure, bool LeftLines = false);

@@ -36,9 +36,8 @@ public static class RecordingIpc {
 
             return await ExchangeAsync(store, daemonName, LocalFrame.RecordSource(json), ct) switch {
                 { Type: FrameType.RecordSourceAck, Text: Recording }    => RecordingHandOver.Taken,
+                { Type: FrameType.RecordSourceAck, Text: Refused }      => RecordingHandOver.Declined,
                 { Type: FrameType.RecordSourceAck, Text: NotTheAgents } => RecordingHandOver.Disowned,
-                { Type: FrameType.RecordSourceAck, Text: NotYet }       => RecordingHandOver.Unanswered,
-                { Type: FrameType.RecordSourceAck }                     => RecordingHandOver.Declined,
                 _                                                       => RecordingHandOver.Unanswered,
             };
         } catch (Exception ex) when (IsNoAnswer(ex)) {

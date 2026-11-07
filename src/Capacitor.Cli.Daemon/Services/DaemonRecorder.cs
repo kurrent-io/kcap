@@ -527,7 +527,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     internal void OnAttemptEnded(RecorderAttemptEnded ended) {
         if (!ended.SourceEnded || !_sources.TryGetValue(ended.Source.Key, out var tracked)) return;
 
-        if (ended.Failure is null && !ended.LostClaim) tracked.Drained = true;
+        if (ended is { Failure: null, LostClaim: false, LeftLines: false }) tracked.Drained = true;
 
         if (Volatile.Read(ref _stopping) != 0 && !ended.LostClaim) return;
 
@@ -626,7 +626,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         /// <summary>Its agent has exited and its finish has been asked for.</summary>
         public bool AgentFinished { get; set; }
 
-        /// <summary>Its final drain ended without a failure.</summary>
+        /// <summary>Its final drain ended with no failure and nothing left behind.</summary>
         public bool Drained { get; set; }
 
         public TaskCompletionSource Settled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
