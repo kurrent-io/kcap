@@ -6,7 +6,7 @@ namespace Capacitor.App.Services.CliAdoption;
 /// <summary>Moves an install's daemon services onto the bundle's daemon through the mutation lane, and only at a safe
 /// point: the daemon reports nothing in flight, and the install is still the one preflight recorded. An agent waiting
 /// on its user does not hold the move, since the repoint keeps it for the new daemon to resume; one the daemon does not
-/// report as waiting does. The app's restart recovery is held for the whole request, so it does not start a daemon of
+/// report as waiting does, and so does any agent of a daemon that cannot keep them. The app's restart recovery is held for the whole request, so it does not start a daemon of
 /// its own while the service is between binaries.</summary>
 internal sealed class AdoptionRepoint(DaemonMutationLane lane, Func<DaemonActivity?> activity, ExpectedDaemonRestart expected) {
     public const string Busy           = "busy";
