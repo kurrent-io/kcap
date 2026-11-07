@@ -18,6 +18,9 @@ public sealed partial class WatcherManager(
     // As long as a hook waits for a watcher to exit after asking it to stop.
     static readonly TimeSpan FinishSourceBudget = TimeSpan.FromSeconds(5);
 
+    // Two local round trips and a claim. A hook past this starts a watcher, and the spawn lock settles who records.
+    static readonly TimeSpan HandOffBudget = TimeSpan.FromSeconds(2);
+
     readonly IDaemonRecordingClient _daemonRecording = daemonRecording ?? NoDaemonRecording.Instance;
     readonly RecorderClaims         _claims          = new(paths.Directory, time);
     readonly WatcherLiveness        _liveness        = new(paths, time);
@@ -280,6 +283,12 @@ public sealed partial class WatcherManager(
             return; // fast path: no lock needed to observe an already-healthy watcher.
         }
 
+        // Outside the spawn lock: the daemon takes that lock to claim the source, and would lose it to this hook.
+        if (_claims.Read(key) is RecorderClaimState.None
+         && await HandToDaemonAsync(new RecordingSource(sessionIdOverride ?? key, agentId, transcriptPath, vendor, cwd), skipTitle)) {
+            return;
+        }
+
         // Both the reap of a wedged watcher and the spawn run under the per-key spawn lock: a
         // hook arriving between the reap's pid-file delete and the new pid file would otherwise
         // see "no pid" and spawn a second watcher.
@@ -313,6 +322,18 @@ public sealed partial class WatcherManager(
                     RunsAs = runsAs,
                 });
         });
+    }
+
+    /// <summary>Whether the daemon took the source. However it fails to, the hook arranges a recorder itself: a watcher
+    /// costs a hosted session its stamps, and nothing at all would cost it its transcript.</summary>
+    async Task<bool> HandToDaemonAsync(RecordingSource source, bool skipTitle) {
+        using var budget = new CancellationTokenSource(HandOffBudget, time);
+
+        try {
+            return await _daemonRecording.TryRecordAsync(source, skipTitle, budget.Token).WaitAsync(budget.Token);
+        } catch {
+            return false;
+        }
     }
 
     /// <summary>Lets go of a daemon's stale claim on a terminal session, for the hook about to record it, under the

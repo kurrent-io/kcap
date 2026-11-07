@@ -486,6 +486,8 @@ public class WatcherManagerClaimTests : IDisposable {
             }
         }
 
+        public Task<bool> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) => Task.FromResult(false);
+
         public async Task<bool> FinishSourceAsync(string key, CancellationToken ct) {
             lock (_asked) _asked.Add(key);
 
