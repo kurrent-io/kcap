@@ -18,8 +18,10 @@ sealed class EventStoringTranscriptServer : IDisposable {
     readonly WireMockServer                     _server = WireMockServer.Start();
     readonly Dictionary<string, SortedSet<int>> _stored = new(StringComparer.Ordinal);
     readonly List<int>                          _posted = [];
+    readonly HashSet<string>                    _ended  = new(StringComparer.Ordinal);
     readonly Lock                               _gate   = new();
     int                                         _sessionEnds;
+    int                                         _hiddenReadsAfterEnd;
 
     public EventStoringTranscriptServer() {
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
@@ -29,10 +31,21 @@ sealed class EventStoringTranscriptServer : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
             .RespondWith(Response.Create().WithCallback(Transcript));
         _server.Given(Request.Create().WithPath("/hooks/session-end*").UsingPost())
-            .RespondWith(Response.Create().WithCallback(_ => {
-                lock (_gate) _sessionEnds++;
+            .RespondWith(Response.Create().WithCallback(request => {
+                using var doc = JsonDocument.Parse(request.Body ?? "{}");
+                lock (_gate) {
+                    _sessionEnds++;
+                    if (doc.RootElement.TryGetProperty("session_id", out var id) && id.GetString() is { } session) _ended.Add(session);
+                }
                 return Json(200, "{}");
             }));
+    }
+
+    /// <summary>How many more <c>last-line</c> reads of an ended session answer 404, as a server whose session
+    /// projection trails its event store does.</summary>
+    public int HiddenReadsAfterEnd {
+        get { lock (_gate) return _hiddenReadsAfterEnd; }
+        set { lock (_gate) _hiddenReadsAfterEnd = value; }
     }
 
     public string Url => _server.Url!;
@@ -111,6 +124,10 @@ sealed class EventStoringTranscriptServer : IDisposable {
 
         lock (_gate) {
             if (!_stored.TryGetValue(session, out var stored)) return Json(404, "");
+            if (_hiddenReadsAfterEnd > 0 && _ended.Contains(session)) {
+                _hiddenReadsAfterEnd--;
+                return Json(404, "");
+            }
             return stored.Count == 0 ? Json(204, "") : Json(200, $$"""{"last_line_number":{{stored.Max}}}""");
         }
     }

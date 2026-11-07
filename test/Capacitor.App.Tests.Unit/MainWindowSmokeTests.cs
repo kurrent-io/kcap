@@ -1106,7 +1106,7 @@ public class MainWindowSmokeTests {
 
     /// The vendor mark, the status word, and the age share one baseline. The age has no extra
     /// padding, or it sits below that line. The row carries the only tip, and it names the
-    /// harness and the model; no child shows a tip of its own.
+    /// harness and the model; no child shows a tip of its own. A screen reader finds the mark by the harness's name.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Vendor_mark_and_running_time_share_the_status_line() {
@@ -1134,6 +1134,8 @@ public class MainWindowSmokeTests {
                     Glyph: Center(glyph),
                     Meta: Center(meta),
                     VendorName: AutomationProperties.GetName(vendor),
+                    VendorPeer: Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(vendor) is var peer && peer.IsControlElement()
+                        ? peer.GetName() : null,
                     VendorLeft: Left(vendor),
                     MarkLeft: Left(mark),
                     MarkRight: Right(mark),
@@ -1149,6 +1151,7 @@ public class MainWindowSmokeTests {
                 return result;
             });
             await Assert.That(seen.VendorName).IsEqualTo("Claude Code");
+            await Assert.That(seen.VendorPeer).IsEqualTo("Claude Code");
             await Assert.That(seen.ChildTips).IsEqualTo(0);
             await Assert.That(seen.RowTipIsStatus).IsTrue();
             await Assert.That(seen.RowTip).Contains("Claude Code\nHarness");
@@ -1554,6 +1557,37 @@ public class MainWindowSmokeTests {
 
             flyout.Hide();
             Dispatcher.UIThread.RunJobs();
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
+    /// The menu takes focus when it opens, so Escape closes it and hands focus back to its button.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Escape_closes_the_rail_help_menu() => AvaloniaSession.RunOnUiAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap());
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, openFeedback: null);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var rail = window.FindDescendantOfType<SessionRailView>()!;
+            var help = rail.FindControl<Button>("RailHelpButton")!;
+            var flyout = (Flyout)help.Flyout!;
+            flyout.ShowAt(help);
+            Dispatcher.UIThread.RunJobs();
+            var docs = rail.FindControl<Button>("RailHelpDocsButton")!;
+            var focused = TopLevel.GetTopLevel(docs)?.FocusManager?.GetFocusedElement() as Button;
+            await Assert.That(focused?.FindAncestorOfType<FlyoutPresenter>()).IsNotNull();
+
+            focused!.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            Dispatcher.UIThread.RunJobs();
+
+            await Assert.That(flyout.IsOpen).IsFalse();
+            await Assert.That(help.IsFocused).IsTrue();
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();

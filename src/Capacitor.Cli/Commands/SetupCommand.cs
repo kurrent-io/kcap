@@ -807,6 +807,10 @@ sealed class SetupCommand(
         string  provider;
         bool    loginComplete = false; // Discovery authenticates inline; skip the Step-2 login.
 
+        // Set by the local edition alone: what earlier setups of this installation were answered, and whether it existed.
+        LocalSetupAnswers? remembered  = null;
+        var                localReused = false;
+
         // Only a bare run asks: a named server, --local or --org has already chosen.
         if (serverUrlArg is null && local is null && requestedWorkspace is null && !noPrompt && AnsiConsole.Profile.Capabilities.Interactive) {
             switch (ChooseEdition()) {
@@ -854,14 +858,17 @@ sealed class SetupCommand(
             // A named server can be one still being created, which the provisioner says to re-run setup against.
             if (!await WaitForWorkspaceAsync(serverUrl, NewWorkspaceWait)) return 1;
         } else if (local is not null) {
-            var (exit, committed) = await new LocalSetupTerminal(localInstallers, local, _json,
+            var terminal = new LocalSetupTerminal(localInstallers, local, _json,
                 local.WindowsService
                     ? progress => WindowsServiceStepAsync(progress, line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}"))
-                    : null).RunAsync();
+                    : null);
+            var (exit, committed) = await terminal.RunAsync();
 
             if (committed is null) return exit;
 
             (serverUrl, provider, loginComplete) = (committed.ServerUrl, AuthProvider.None, true);
+            remembered  = LocalSetupAnswers.For(config, committed.InstallationId);
+            localReused = terminal.Reused;
         } else {
             var discovered = await RunDiscoveryAsync(args, forceDevice, requestedWorkspace);
             if (discovered is null) return 1;
@@ -973,12 +980,11 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // A local server records every session as shared with its one user, whatever the profile says,
-        // so there is no audience to ask about and no reason to overwrite what the profile holds.
+        // A local server has one user, so there is no audience to ask about.
         var serverIsLocal = local is not null || LocalEndpoints.Read(localRoot).Classify(serverUrl) is LocalEndpointClass.Local;
 
         // Step 3: Default session visibility
-        if (!serverIsLocal) AnsiConsole.Write(new Rule("[yellow]Step 3/6 — Default session visibility[/]").LeftJustified());
+        AnsiConsole.Write(new Rule("[yellow]Step 3/6 — Default session visibility[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Visibility);
 
         string defaultVisibility;
@@ -993,9 +999,17 @@ sealed class SetupCommand(
                       .Profiles.GetValueOrDefault(activeProfile)?.DefaultVisibility ?? "org_public");
 
         if (serverIsLocal) {
-            defaultVisibility = (GetArg(args, "--default-visibility")
-                              ?? (await AppConfig.LoadProfileConfig(config)).Profiles.GetValueOrDefault(activeProfile)?.DefaultVisibility
-                              ?? "org_public").ToLowerInvariant();
+            var flagged = GetArg(args, "--default-visibility")?.ToLowerInvariant();
+
+            defaultVisibility = flagged
+                             ?? remembered?.Visibility
+                             ?? LocalVisibility.For((await AppConfig.LoadProfileConfig(config)).Profiles.GetValueOrDefault(activeProfile)?.DefaultVisibility
+                                                    ?? LocalVisibility.Default).ToLowerInvariant();
+
+            // Kept so a later run without the flag does not read the value as one nobody chose.
+            if (flagged is not null && remembered is not null) (remembered = remembered with { Visibility = flagged }).Save(config);
+
+            await Console.Out.WriteLineAsync($"  Default visibility: {defaultVisibility} (not asked: a local installation has one user)");
         } else if (noPrompt) {
             defaultVisibility = (GetArg(args, "--default-visibility")
                               ?? (museAssistant ? MuseAssistantPosture.DefaultVisibility
@@ -1058,12 +1072,17 @@ sealed class SetupCommand(
         if (detectedSummary is not null)
             await Console.Out.WriteLineAsync($"  Detected harnesses: {detectedSummary}");
 
-        bool installAgents;
+        bool  installAgents;
+        bool? harnessAnswer = null;
 
         if (skipHarnesses) {
             // The one answer to the consent question below that no per-vendor flag spells.
             installAgents = false;
+            harnessAnswer = false;
             AnsiConsole.MarkupLine("  [dim]Skipping harnesses (--skip-harnesses).[/]");
+        } else if (SetupDecisions.RepeatsHarnessDecline(detected, noPrompt, remembered?.Harnesses)) {
+            installAgents = false;
+            AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(RememberedHarnessDeclineLine)}[/]");
         } else if (browserAgents is { } answered) {
             // Asked and answered in the browser minutes ago, so this step applies rather than
             // re-asks — the flow settles its Agents step on the decision being recorded, not on the
@@ -1081,7 +1100,12 @@ sealed class SetupCommand(
             // Set explicitly: NoPrompt alone does not imply InstallAgents, so leaving it to the
             // Options default would make --no-prompt stop installing agents.
             installAgents = SetupDecisions.DecideInstallAgents(detected, noPrompt, PromptYesNo);
+
+            if (!noPrompt && detectedSummary is not null) harnessAnswer = installAgents;
         }
+
+        if (remembered is not null && harnessAnswer is { } harnessesAnswered)
+            (remembered = remembered with { Harnesses = harnessesAnswered }).Save(config);
 
         var stepOptions = new CodingAgentsStep.Options(
             SkipClaude:  skipClaude,
@@ -1210,7 +1234,11 @@ sealed class SetupCommand(
             if (gitConfigChanged) installedPaths.Add(gitHook.ConfigFilePath);
         }
 
-        if (CodexTrustReminder(installResult) is { } codexTrust) WriteLine(codexTrust);
+        // Ticking Codex is consent to kcap's hooks running there, and codex exec never asks for it itself.
+        var codexHookTrust = installResult.CodexHooksInstalled
+            ? await new CodexHookTrustSeeder(harnesses, home, time).SeedAsync(codex, CancellationToken.None)
+            : (CodexHookTrustSeed?)null;
+        if (CodexTrustReminder(installResult, codexHookTrust) is { } codexTrust) WriteLine(codexTrust);
 
         // A run that ends early from here on has still changed these, so it lists them on the way out.
         void ListChangedBeforeExit() {
@@ -1394,7 +1422,7 @@ sealed class SetupCommand(
                 () => HeadlessHarnesses(daemonName, CancellationToken.None),
                 Environment.GetEnvironmentVariable,
                 canAskIntelligence ? IntelligenceQuestions ?? new IntelligenceQuestions() : null,
-                line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}")).RunAsync(local);
+                line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}")).RunAsync(local, existing: localReused);
 
             _json?.Completed(outcome: intelligence?.Mode ?? "skipped");
 
@@ -1445,11 +1473,13 @@ sealed class SetupCommand(
             BrowserFinished:     browserAnswers.FlowStillLive,
             BrowserHandoffPrompt: browserAnswers.HandoffPrompt,
             BrowserBackground:   browserAnswers.Background,
-            Skip:                importSkip,
+            // A skip flag replaces what an earlier setup of this installation left out; without one that is left out again.
+            Skip:                SetupDecisions.LeftOutOfImport(importSkip, remembered?.LeftOut),
             Intelligence:        intelligence,
             ImportOutcomes:      local?.ImportOutcomes,
             // A run that cannot ask imports what the flags chose; it never opens a prompt to find out.
-            ChooseProjects:      AnsiConsole.Profile.Capabilities.Interactive ? ChooseProjectsPrompt : null));
+            ChooseProjects:      AnsiConsole.Profile.Capabilities.Interactive ? ChooseProjectsPrompt : null,
+            LeftOut:             remembered is { } answers ? leftOut => (answers with { LeftOut = leftOut }).Save(config) : null));
 
         _json?.Completed(outcome: importResult.Ran ? "ran" : "skipped");
 
@@ -1459,7 +1489,7 @@ sealed class SetupCommand(
 
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[bold]Server[/]",     Markup.Escape(serverUrl));
-        if (!serverIsLocal) grid.AddRow("[bold]Visibility[/]", Markup.Escape(defaultVisibility));
+        grid.AddRow("[bold]Visibility[/]", Markup.Escape(defaultVisibility));
         grid.AddRow("[bold]Daemon[/]",     Markup.Escape(daemonName));
         if (museAssistant) grid.AddRow("[bold]Posture[/]", MuseAssistantPosture.SummaryValue);
 
@@ -1639,8 +1669,11 @@ sealed class SetupCommand(
     /// <summary>Verbatim, pinned by <c>SetupCommandTests</c>.</summary>
     internal const string ImportPrompt = "Import past sessions from this machine?";
 
+    internal const string RememberedHarnessDeclineLine =
+        "Not installing kcap into these harnesses: an earlier setup of this installation was told not to. Run kcap setup --local at a terminal to be asked again.";
+
     internal const string ChooseProjectsTitle =
-        "Which projects should this import include? Unticking one leaves it out of this import only.";
+        "Which projects should this import include? Unticking one leaves it out of the import, not out of recording.";
 
     /// <summary>Said whenever a project is left out, so it is not read as a setting that stops recording it.</summary>
     internal const string LeftOutNote =
@@ -1747,7 +1780,8 @@ sealed class SetupCommand(
         ImportSkip?                   Skip = null,
         IntelligenceSetupResponse?    Intelligence = null,
         bool?                         ImportOutcomes = null,
-        Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? ChooseProjects = null);
+        Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? ChooseProjects = null,
+        Action<ImportSkip>?           LeftOut = null);
 
     /// <summary><see cref="RunId"/> and <see cref="Handoff"/> are null whenever the foreground pass
     /// never ran (browser-answered, skipped, declined or <c>--no-prompt</c>). <see cref="PasteBlock"/>
@@ -1870,9 +1904,13 @@ sealed class SetupCommand(
             AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(cost)}[/]");
 
         if (!skip.IsEmpty) {
-            AnsiConsole.MarkupLine($"  Leaving out of this import only: {Markup.Escape(string.Join(", ", skip.Labels))}.");
+            var leftOutFor = inputs.LeftOut is null ? "this import only" : "this import and later setup runs of this installation";
+            AnsiConsole.MarkupLine($"  Leaving out of {leftOutFor}: {Markup.Escape(string.Join(", ", skip.Labels))}.");
             AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(LeftOutNote)}[/]");
         }
+
+        // Recorded once the import is certain to run, empty included, so ticking a project again is remembered too.
+        inputs.LeftOut?.Invoke(skip);
 
         // Naming sends excerpts to a model provider, so it runs only on a yes given after the disclosure:
         // an unattended run, or a run that cannot ask, imports without it.
@@ -1966,9 +2004,9 @@ sealed class SetupCommand(
     /// <summary>How long the server's background work on an import takes at its daily pace, or null when there is nothing
     /// to say.</summary>
     internal static string? ImportCostLine(int sessions, IntelligenceSetupResponse intelligence) =>
-        sessions <= 0 || intelligence.DaysFor(sessions) is not { } days ? null
+        sessions <= 0 || intelligence.DurationFor(sessions) is not { } duration ? null
         : $"The server works through {sessions:N0} imported session{(sessions == 1 ? "" : "s")} at up to "
-        + $"{intelligence.BacklogSessionTouchesPerDay:N0} a day: about {days} day{(days == 1 ? "" : "s")}.";
+        + $"{intelligence.BacklogSessionTouchesPerDay:N0} a day: {duration}.";
 
     static void PrintDiscovery(int repos, int attributed, int unmatched) =>
         AnsiConsole.MarkupLine(
@@ -3298,16 +3336,18 @@ sealed class SetupCommand(
     }
 
     /// <summary>
-    /// Codex runs only hooks the user has trusted, so installed hooks record nothing until then. Codex offers
-    /// no command that trusts them: only its interactive prompt, <c>/hooks</c>, or the desktop app's settings,
-    /// and a per-run bypass flag. Null when this run installed no Codex hooks.
+    /// Codex runs only hooks it trusts. When kcap could not have Codex trust them, the line names the routes that
+    /// still work: its interactive prompt, <c>/hooks</c>, the desktop app's settings, or a per-run bypass flag.
+    /// Null when this run installed no Codex hooks.
     /// </summary>
-    internal static string? CodexTrustReminder(CodingAgentsStep.Result result) => result.CodexHooksInstalled
-        ? "  [yellow]![/] Codex records nothing until you trust the kcap hooks, and [cyan]codex exec[/] never shows "
+    internal static string? CodexTrustReminder(CodingAgentsStep.Result result, CodexHookTrustSeed? seed) =>
+        !result.CodexHooksInstalled ? null
+        : seed is CodexHookTrustSeed.Trusted or CodexHookTrustSeed.AlreadyTrusted
+            ? "  [green]✓[/] Codex trusts the kcap hooks, so [cyan]codex exec[/] records too"
+        : "  [yellow]![/] Codex records nothing until you trust the kcap hooks, and [cyan]codex exec[/] never shows "
         + "the trust prompt. Run [cyan]codex[/] once and accept it (or trust them in /hooks), or in the Codex desktop app "
-        + "use Settings → Hooks. A script that only runs [cyan]codex exec[/] can pass "
-        + "[cyan]--dangerously-bypass-hook-trust[/] to each run instead."
-        : null;
+        + "use Settings > Hooks. A script that only runs [cyan]codex exec[/] can pass "
+        + "[cyan]--dangerously-bypass-hook-trust[/] to each run instead.";
 
     /// <summary>
     /// The closing list of everything outside kcap's own config that this run changed, so nothing it

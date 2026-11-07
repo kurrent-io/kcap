@@ -13,6 +13,7 @@ using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.RepoEvidence;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
@@ -823,7 +824,7 @@ class ImportCommand(
     /// we wrap around it.
     /// </summary>
     internal static string FormatSkippedReasonMarkup(string sessionId, string reason) =>
-        $"[red]✗[/] Skipping [cyan]{Markup.Escape(sessionId)}[/] [[{Markup.Escape(reason)}]]";
+        $"[red]✗[/] Skipping [cyan]{Markup.Escape(SessionIds.Display(sessionId))}[/] [[{Markup.Escape(reason)}]]";
 
     /// <summary>
     /// Builds the Spectre markup for the "✓ Loading {sid}... N lines [verb]"
@@ -831,7 +832,7 @@ class ImportCommand(
     /// brackets around <paramref name="verb"/> are doubled.
     /// </summary>
     internal static string FormatLoadedSummaryMarkup(string sessionId, int lines, string verb) =>
-        $"[green]✓[/] Loading [cyan]{Markup.Escape(sessionId)}[/]... {lines} lines [[{Markup.Escape(verb)}]]";
+        $"[green]✓[/] Loading [cyan]{Markup.Escape(SessionIds.Display(sessionId))}[/]... {lines} lines [[{Markup.Escape(verb)}]]";
 
     public async Task<int> HandleImport(
             string?                       filterCwd,
@@ -1101,6 +1102,12 @@ class ImportCommand(
         // --- Scope picker ---
         var profile = profiles.Effective;
 
+        // A local server's one user never chose an audience, so an unstamped import there would land org_public. A
+        // hosted server applies its own org-visibility policy to an unstamped session, which a stamp would override.
+        if (defaultVisibility is null
+            && LocalEndpoints.Read(LocalRoot.FromEnvironment(home)).Classify(baseUrl) is LocalEndpointClass.Local)
+            defaultVisibility = LocalVisibility.For(profile?.DefaultVisibility ?? LocalVisibility.Default);
+
         if (scope is null) {
             var distinct = resolved.Values
                 .Where(v => v is not null)
@@ -1212,7 +1219,7 @@ class ImportCommand(
 
         var visibilityDesc = forcePrivate
             ? "private (--private)"
-            : $"{profile?.DefaultVisibility ?? "org_public"} (from profile)";
+            : defaultVisibility is { } stamped ? $"{stamped} (from profile)" : "the server's default";
 
         if (!ImportScopePrompt.PromptConfirm(
                 console.Ansi,
@@ -1275,7 +1282,7 @@ class ImportCommand(
                     }
                 );
         } else {
-            display.Line($"Probing {totalAfterScope} sessions...");
+            display.Line($"Probing {totalAfterScope} session{(totalAfterScope == 1 ? "" : "s")}...");
 
             classificationsPerSource = await Task.WhenAll(
                 sources.Select(async (s, idx) => await s.ClassifyAsync(filteredPerSource[idx], classifyCtx, CancellationToken.None))
@@ -1514,8 +1521,8 @@ class ImportCommand(
         var       partitionFailed    = new ConcurrentBag<string>();
 
         void WarnSession(string sessionId, string message) => display.Line(
-            $"! {sessionId}: {message}",
-            $"[yellow]![/] [cyan]{Markup.Escape(sessionId)}[/] {Markup.Escape(message)}"
+            $"! {SessionIds.Display(sessionId)}: {message}",
+            $"[yellow]![/] [cyan]{Markup.Escape(SessionIds.Display(sessionId))}[/] {Markup.Escape(message)}"
         );
 
         var events = new ChainWorkerEvents {
@@ -1529,7 +1536,7 @@ class ImportCommand(
             OnSessionErrored = (_, sid, reason) => {
                 if (selectedIds?.Contains(sid) == true) partitionFailed.Add(sid);
 
-                display.Line($"Skipping {sid} [{reason}]", FormatSkippedReasonMarkup(sid, reason));
+                display.Line($"Skipping {SessionIds.Display(sid)} [{reason}]", FormatSkippedReasonMarkup(sid, reason));
             },
             OnSessionWarning = (_, sid, message) => WarnSession(sid, message),
             OnSessionEnded = (_, c, outcome, lines) => {
@@ -1542,7 +1549,7 @@ class ImportCommand(
                     : "new";
 
                 display.Line(
-                    $"Loading {c.SessionId}... {lines} lines [{verb}]",
+                    $"Loading {SessionIds.Display(c.SessionId)}... {lines} lines [{verb}]",
                     FormatLoadedSummaryMarkup(c.SessionId, lines, verb)
                 );
             },
@@ -1752,7 +1759,9 @@ class ImportCommand(
         }
 
         if (chains.Count > 0) {
-            display.BeginPhase($"Importing {chains.Sum(c => c.Count)} sessions");
+            var importing = chains.Sum(c => c.Count);
+
+            display.BeginPhase($"Importing {importing} session{(importing == 1 ? "" : "s")}");
 
             if (display.Tty) {
                 var r = default(ImportChainsResult);
@@ -1817,7 +1826,7 @@ class ImportCommand(
                                     // Subagent lines don't advance the parent bar; show a stripe
                                     // and swap the description while the subagent streams.
                                     slots[slot].IsIndeterminate = true;
-                                    slots[slot].Description     = $"{display.Indented}  [bold]Slot {slot + 1}[/] — [dim]↳[/] subagent [cyan]{Markup.Escape(aid)}[/] (parent {Markup.Escape(sid)})";
+                                    slots[slot].Description     = $"{display.Indented}  [bold]Slot {slot + 1}[/] — [dim]↳[/] subagent [cyan]{Markup.Escape(aid)}[/] (parent {Markup.Escape(SessionIds.Display(sid))})";
                                 },
                                 OnSubagentFinished = (slot, _, _, _) => {
                                     // Revert to the parent's "Loading" description and resume the
@@ -1875,7 +1884,7 @@ class ImportCommand(
                             }
 
                             string LoadingDesc(int slot, string sid, string verb) =>
-                                $"{display.Indented}  [bold]Slot {slot + 1}[/] — Loading [cyan]{Markup.Escape(sid)}[/] ({verb})";
+                                $"{display.Indented}  [bold]Slot {slot + 1}[/] — Loading [cyan]{Markup.Escape(SessionIds.Display(sid))}[/] ({verb})";
                         }
                     );
                 importResult = r!;
@@ -2016,19 +2025,19 @@ class ImportCommand(
                                         case ImportOutcome.Loaded:
                                         case ImportOutcome.Resumed:
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[green]✓[/] Loading [cyan]{Markup.Escape(c.SessionId)}[/] ({c.Vendor.VendorId})"
+                                                $"{display.Indented}[green]✓[/] Loading [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] ({c.Vendor.VendorId})"
                                             );
 
                                             break;
                                         case ImportOutcome.Skipped:
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[yellow]~[/] Skipping [cyan]{Markup.Escape(c.SessionId)}[/] (already current)"
+                                                $"{display.Indented}[yellow]~[/] Skipping [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (already current)"
                                             );
 
                                             break;
                                         case ImportOutcome.Failed:
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[red]✗[/] Failed [cyan]{Markup.Escape(c.SessionId)}[/]"
+                                                $"{display.Indented}[red]✗[/] Failed [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/]"
                                             );
 
                                             break;
@@ -2038,13 +2047,13 @@ class ImportCommand(
                                             // lifecycle-only repair, etc.), not always "nested
                                             // under parent".
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[grey]·[/] Already loaded [cyan]{Markup.Escape(c.SessionId)}[/] (no new content)"
+                                                $"{display.Indented}[grey]·[/] Already loaded [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (no new content)"
                                             );
 
                                             break;
                                         case null:
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[grey]·[/] Refreshed [cyan]{Markup.Escape(c.SessionId)}[/] (repository backfill, already loaded)"
+                                                $"{display.Indented}[grey]·[/] Refreshed [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (repository backfill, already loaded)"
                                             );
 
                                             break;
@@ -2065,31 +2074,35 @@ class ImportCommand(
                         switch (resolved) {
                             case ImportOutcome.Loaded:
                             case ImportOutcome.Resumed:
-                                display.Line($"Loading {c.SessionId} ({c.Vendor.VendorId})");
+                                display.Line($"Loading {SessionIds.Display(c.SessionId)} ({c.Vendor.VendorId})");
 
                                 break;
                             case ImportOutcome.Skipped:
-                                display.Line($"Skipping {c.SessionId} (already current)");
+                                display.Line($"Skipping {SessionIds.Display(c.SessionId)} (already current)");
 
                                 break;
                             case ImportOutcome.Failed:
-                                display.Line($"Failed {c.SessionId}");
+                                display.Line($"Failed {SessionIds.Display(c.SessionId)}");
 
                                 break;
                             case null when outcome is ImportOutcome.Skipped:
                                 // See the Tty branch above.
-                                display.Line($"Already loaded {c.SessionId} (no new content)");
+                                display.Line($"Already loaded {SessionIds.Display(c.SessionId)} (no new content)");
 
                                 break;
                             case null:
-                                display.Line($"Refreshed {c.SessionId} (repository backfill, already loaded)");
+                                display.Line($"Refreshed {SessionIds.Display(c.SessionId)} (repository backfill, already loaded)");
 
                                 break;
                         }
                     }
                 );
             }
-            routedLedger.Save();
+            try {
+                await routedLedger.ConfirmAsync(httpClient, time, CancellationToken.None);
+            } finally {
+                routedLedger.Save();
+            }
         }
 
         await RecordImportedRepositoriesAsync(classifications, selectedIds, sessionCwds, display);
@@ -2158,14 +2171,14 @@ class ImportCommand(
 
                                 for (var i = seenT; i < tList.Count; i++) {
                                     var (sid, reason) = tList[i];
-                                    console.Ansi.MarkupLine($"{display.Indented}[red]✗[/] title failed for [cyan]{Markup.Escape(sid)}[/]: {Markup.Escape(reason)}");
+                                    console.Ansi.MarkupLine($"{display.Indented}[red]✗[/] title failed for [cyan]{Markup.Escape(SessionIds.Display(sid))}[/]: {Markup.Escape(reason)}");
                                 }
 
                                 seenT = tList.Count;
 
                                 for (var i = seenS; i < sList.Count; i++) {
                                     var (sid, reason) = sList[i];
-                                    console.Ansi.MarkupLine($"{display.Indented}[red]✗[/] summary failed for [cyan]{Markup.Escape(sid)}[/]: {Markup.Escape(reason)}");
+                                    console.Ansi.MarkupLine($"{display.Indented}[red]✗[/] summary failed for [cyan]{Markup.Escape(SessionIds.Display(sid))}[/]: {Markup.Escape(reason)}");
                                 }
 
                                 seenS = sList.Count;
@@ -2188,10 +2201,10 @@ class ImportCommand(
                 }
 
                 foreach (var (sid, reason) in titleFailures)
-                    display.Line($"  ✗ title failed for {sid}: {reason}");
+                    display.Line($"  ✗ title failed for {SessionIds.Display(sid)}: {reason}");
 
                 foreach (var (sid, reason) in summaryFailures)
-                    display.Line($"  ✗ summary failed for {sid}: {reason}");
+                    display.Line($"  ✗ summary failed for {SessionIds.Display(sid)}: {reason}");
             }
         }
 
@@ -3399,6 +3412,7 @@ class ImportCommand(
 
         try {
             await Task.WhenAll(workers);
+            await ledger.ConfirmAsync(httpClient, time, ct);
         } finally {
             ledger.Save();
         }
@@ -3871,14 +3885,14 @@ class ImportCommand(
                     lost.Add(sessionId);
 
                     await display.Terminal.Error.WriteLineAsync(
-                        $"{display.Indented}! visibility={visibility} failed for {sessionId}: HTTP {(int)resp.StatusCode}"
+                        $"{display.Indented}! visibility={visibility} failed for {SessionIds.Display(sessionId)}: HTTP {(int)resp.StatusCode}"
                     );
                 }
             } catch (Exception ex) {
                 lost.Add(sessionId);
 
                 await display.Terminal.Error.WriteLineAsync(
-                    $"{display.Indented}! visibility={visibility} failed for {sessionId}: {ex.Message}"
+                    $"{display.Indented}! visibility={visibility} failed for {SessionIds.Display(sessionId)}: {ex.Message}"
                 );
             }
         }
