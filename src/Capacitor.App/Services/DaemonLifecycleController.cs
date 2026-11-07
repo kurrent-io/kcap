@@ -122,6 +122,8 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     readonly BehaviorSubject<bool>         _isMovingToService  = new(false);
     IDisposable? _snapshots;
     DaemonInfoDto? _latestDaemon;
+    // The attach's latest snapshot, judged again once that attach's capabilities arrive.
+    DaemonStatusDto? _latestSnapshot;
     string? _reportedMismatch; // under _lock: the identity mismatch last reported, so a reattach does not repeat it
     bool _mismatchWaitsForIdle; // under _lock: the last report was held back by running agents
     int  _latestActiveAgents;
@@ -253,15 +255,22 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
         _subscription = _client.Status.Subscribe(OnAttachStatus);
         _snapshots    = _client.Snapshots.Subscribe(snap => {
             _latestActiveAgents = snap.Daemon.ActiveAgents;
-            var busy = snap.Busy ?? (snap.Daemon.ActiveAgents > 0 || snap.Pending is { Count: > 0 });
+            Volatile.Write(ref _latestSnapshot, snap);
+            var activity = ActivityOf(snap);
+            var busy = activity.Busy;
             _latestBusy = busy;
-            SetActivity(new DaemonActivity(snap.Daemon.ActiveAgents, busy, DaemonActivity.QuietIn(snap, ResumesAgents())));
+            SetActivity(activity);
             Volatile.Write(ref _latestDaemon, snap.Daemon);
             bool idleNow;
             lock (_lock) idleNow = _mismatchWaitsForIdle && !busy;
             if (idleNow) _ = CheckAttachedIdentityAsync();
         });
         _ = CacheVersionAsync(); // never faults
+    }
+
+    DaemonActivity ActivityOf(DaemonStatusDto snap) {
+        var busy = snap.Busy ?? (snap.Daemon.ActiveAgents > 0 || snap.Pending is { Count: > 0 });
+        return new DaemonActivity(snap.Daemon.ActiveAgents, busy, DaemonActivity.QuietIn(snap, ResumesAgents()));
     }
 
     async Task CacheVersionAsync() {
@@ -280,7 +289,10 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     void OnAttachStatus(AttachStatus status) {
         bool isFirstTerminalOutcome;
 
-        if (status.State != AttachState.Connected) SetActivity(null);
+        if (status.State != AttachState.Connected) {
+            Volatile.Write(ref _latestSnapshot, null);
+            SetActivity(null);
+        }
 
         lock (_lock) {
             _generation++;
@@ -292,6 +304,8 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
             isFirstTerminalOutcome = status.State != AttachState.Connecting && !_armClaimed;
             if (isFirstTerminalOutcome) _armClaimed = true;
         }
+        // A snapshot can land before the capabilities of the attach it belongs to, so it was judged without them.
+        if (status.State == AttachState.Connected && Volatile.Read(ref _latestSnapshot) is { } latest) SetActivity(ActivityOf(latest));
 
         if (status.State == AttachState.Connected) {
             WithdrawMovingToWindowsService();

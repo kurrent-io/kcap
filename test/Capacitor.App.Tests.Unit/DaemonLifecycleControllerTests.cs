@@ -1825,6 +1825,23 @@ public class DaemonLifecycleControllerTests {
         await Assert.That(h.Surface.Prompts.Single().Kind).IsEqualTo(LifecyclePrompt.KindRepair);
     }
 
+    /// <summary>A snapshot can land before the attach status that says its daemon keeps agents across a restart: judged
+    /// again once that arrives, an idle agent reads quiet without waiting for another snapshot.</summary>
+    [Test]
+    public async Task A_snapshot_before_its_capabilities_is_judged_again_once_they_arrive() {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(state: "running", jobPid: 100, daemonPid: 100));
+        h.Start();
+        var snap = FakeDaemonClientService.Snap(daemon: "daemon-a", active: 1, serverUrl: h.CanonicalServer ?? "http://localhost:9999");
+
+        h.Client.SnapshotsSubject.OnNext(snap with { Pending = [], Agents = [snap.Agents[0] with { AwaitingInput = true }] });
+        var before = h.Controller.LatestActivity?.Quiet;
+        h.Client.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [DaemonLifecycleController.ResumeCapability]));
+
+        await Assert.That(before).IsFalse();
+        await Assert.That(h.Controller.LatestActivity?.Quiet).IsTrue();
+    }
+
     [Test]
     public async Task Activity_is_cleared_when_the_attach_drops() {
         await using var h = new Harness();
