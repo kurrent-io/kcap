@@ -71,6 +71,17 @@ public class RecordingIpcTests {
         await Assert.That(await Finish()).IsFalse();
     }
 
+    /// <summary>A hook asks only of a daemon with a claim. One that has since stopped taking new sources still holds that
+    /// one, and only it can finish it.</summary>
+    [Test]
+    public async Task A_finish_needs_no_capability() {
+        await using var daemon = Daemon("status/1");
+        daemon.Answer = RecordingIpc.Finished;
+
+        await Assert.That(await Finish()).IsTrue();
+        await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.FinishSource]);
+    }
+
     /// <summary>The caller's budget ran out: the asking is done, and a hook has to move on.</summary>
     [Test]
     public async Task A_wait_cut_short_answers_no() {
