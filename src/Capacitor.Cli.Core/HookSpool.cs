@@ -669,6 +669,22 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
     public void DeleteExpired() => partition.DeleteExpired(time);
 
+    /// <summary>Forgets everything held for a session a person disabled, so none of it can be delivered. What can't be
+    /// removed stays for the next drain pass, which discards it again.</summary>
+    public void Discard(string sessionId) {
+        if (!SafeSessionId.IsMatch(sessionId) || !Directory.Exists(DirectoryPath)) return;
+
+        var key = EncodeKey(sessionId);
+
+        foreach (var pattern in new[] { $"{key}.jsonl", $"{key}.*.draining", $"{key}.ordered-*" }) {
+            try {
+                foreach (var file in Directory.GetFiles(DirectoryPath, pattern)) File.Delete(file);
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                // Left for the next pass.
+            }
+        }
+    }
+
     // Filename-safe superset of the old dashless-GUID form. The filename IS the session id --
     // LifecycleSpoolDrain posts it verbatim as session_id for session-needs-import -- so the key may
     // be widened but never transformed (hashing would fabricate an id on the wire). Excludes '.', '/'

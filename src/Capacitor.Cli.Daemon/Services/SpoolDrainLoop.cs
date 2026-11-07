@@ -91,7 +91,7 @@ internal sealed class SpoolDrainLoop {
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, cap.Token);
 
                 await LifecycleSpoolDrain.RunAsync(
-                    _markers, client, _baseUrl, _lifecycle, _transcript, currentSessionId: null, Budget, _time,
+                    _configRoot, _markers, client, _baseUrl, _lifecycle, _transcript, currentSessionId: null, Budget, _time,
                     cts.Token,
                     onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid));
             }

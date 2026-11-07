@@ -46,7 +46,7 @@ public class HookSpoolTests {
             Task<DrainOutcome> Post(string body) { seen.Add(body); return Task.FromResult(DrainOutcome.Delivered); }
             var spool = new HookSpool(config.Root, TimeProvider.System, server);
             if (ordered)
-                await LifecycleSpoolDrain.RunAsync(spool, new TranscriptSpool(config.Root, TimeProvider.System, server),
+                await LifecycleSpoolDrain.RunAsync(config.Root, spool, new TranscriptSpool(config.Root, TimeProvider.System, server),
                     currentSessionId: null, (_, body) => Post(body), Post, TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None);
             else
                 await spool.DrainAllAsync(null, (_, body) => Post(body), TimeSpan.FromSeconds(5), CancellationToken.None);
@@ -288,5 +288,31 @@ public class HookSpoolTests {
         await spool.DrainAllAsync(SidA, (_, _) => Task.FromResult(outcome), TimeSpan.FromSeconds(5), CancellationToken.None);
 
         await Assert.That(spool.IsPolicySnapshotDelivered(SidA, "abc123")).IsFalse();
+    }
+
+    [Test]
+    public async Task A_discard_leaves_the_session_nothing_to_deliver() {
+        using var tmp = new TempDir();
+        const string sid   = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string other = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        var spool = new HookSpool(tmp.Path, time: TimeProvider.System);
+        spool.Append(sid, "session-start", "{}");
+        spool.Append(other, "session-start", "{}");
+        tmp.CreateFile($"{sid}.0-0.draining", "{}");
+        tmp.CreateFile($"{sid}.ordered-0-0", "{}");
+
+        spool.Discard(sid);
+
+        await Assert.That(spool.HasBacklog(sid)).IsFalse();
+        await Assert.That(spool.SessionIdsWithBacklog()).IsEquivalentTo([other]);
+    }
+
+    [Test]
+    public async Task A_discard_of_a_session_with_nothing_held_does_nothing() {
+        using var tmp = new TempDir();
+
+        new HookSpool(tmp.PathTo("never-made"), time: TimeProvider.System).Discard("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        await Assert.That(Directory.Exists(tmp.PathTo("never-made"))).IsFalse();
     }
 }
