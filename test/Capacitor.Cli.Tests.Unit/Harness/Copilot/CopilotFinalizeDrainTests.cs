@@ -284,6 +284,38 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         await Assert.That(SessionEndBodies()).IsEmpty();
     }
 
+    [Test]
+    public async Task EndsNothing_OfADisabledSession() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-disabled";
+        StubServer(sessionId);
+        StubSessionEnd();
+        DisabledSessions.Mark(sessionId, Config.Root);
+
+        await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"));
+
+        await Assert.That(SessionEndBodies()).IsEmpty();
+    }
+
+    // The wait for a watcher can run past a person's disable.
+    [Test]
+    public async Task EndsNothing_WhenDisabledWhileAWatcherStops() {
+        using var tmp = new TempDir();
+        const string sessionId = "test-finalize-disabled-stopping";
+        StubServer(sessionId);
+        StubSessionEnd();
+        await MarkWatcherAlive(sessionId);
+
+        var run = Finalizer().RunAsync(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), EndBody,
+            pollBudget: TimeSpan.FromMilliseconds(300), pollInterval: TimeSpan.FromMilliseconds(50), watcherStopGrace: TimeSpan.FromSeconds(30));
+
+        DisabledSessions.Mark(sessionId, Config.Root);
+        File.Delete(WatcherPaths.FromEnvironment(Config.Root).PidFile(sessionId));
+        await run;
+
+        await Assert.That(SessionEndBodies()).IsEmpty();
+    }
+
     // A watcher the hook is stopping sends no end of its own.
     [Test]
     public async Task EndsTheSession_OnceAWatcherBeingStoppedHasGone() {
