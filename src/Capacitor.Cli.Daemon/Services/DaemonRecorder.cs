@@ -499,7 +499,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     // Under the key's gate. Tracked before the host can hear of it, because the host's first context reads it.
     async Task<Tracked?> TakeAsync(RecordedSource source, CancellationToken ct) {
         for (var attempt = 1; attempt <= TakeAttempts; attempt++) {
-            switch (await TakeOnceAsync(source)) {
+            switch ((await TakeOnceAsync(source)).Outcome) {
                 case ClaimOutcome.Taken when _list.TryAdd(source): return _sources[source.Key] = new Tracked(source);
                 case ClaimOutcome.Taken:
                     _claims.Release(source.Key);
@@ -514,16 +514,20 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         return null;
     }
 
-    async Task<ClaimOutcome> TakeOnceAsync(RecordedSource source) {
-        if (IsDisabled(source)) return ClaimOutcome.Disabled;
+    /// <returns>How it went, and whether the claim on disk was already this daemon's.</returns>
+    async Task<(ClaimOutcome Outcome, bool WasOwn)> TakeOnceAsync(RecordedSource source) {
+        if (IsDisabled(source)) return (ClaimOutcome.Disabled, false);
 
         var key = source.Key;
 
         // What stays if the lock is never taken: a lost lock says nothing about who holds the source.
         var outcome = ClaimOutcome.Contended;
+        var wasOwn  = false;
 
         try {
             await _liveness.WithSpawnLock(key, () => {
+                wasOwn = _claims.Holder(key) == _config.Name;
+
                 // Any live pid, a wedged one's too: a claim would stop a hook from reaping it, and it could still send.
                 outcome = _liveness.PidAlive(key) ? ClaimOutcome.HeldByWatcher
                     : _claims.TryTake(key, _config.Name, isHosted: !source.IsTerminal) ? ClaimOutcome.Taken
@@ -535,7 +539,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             LogClaimFailed(ex, key);
         }
 
-        return outcome;
+        return (outcome, wasOwn);
     }
 
     // The claim goes now, for the hooks of what is resuming. The entry stays until the settling, so a kill ahead of that
@@ -623,7 +627,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var started = _time.GetTimestamp();
 
         while (true) {
-            var outcome = await TakeOnceAsync(source);
+            var (outcome, wasOwn) = await TakeOnceAsync(source);
 
             if (outcome is ClaimOutcome.Disabled) {
                 ForgetDisabled(source);
@@ -636,7 +640,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 var resumed = source with { Drained = false };
                 if (source.Drained) _list.TryAdd(resumed);
 
-                Start(_sources[source.Key] = new Tracked(resumed) { Restored = true });
+                // A claim gone while this daemon was down was taken by a hook, which recorded the session from there and
+                // posted whatever end it had.
+                Start(_sources[source.Key] = new Tracked(resumed) { Restored = true, MayPostEnd = wasOwn });
 
                 return;
             }
@@ -717,7 +723,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             // A session resumed in another process runs on there, and that process's next hook may be minutes away.
             if (tracked.Source.SubagentId is null && LiveClaimant(tracked.Source) is { } claimant && claimant != process) {
                 LogFollowed(tracked.Source.Key, process.Pid, claimant.Pid);
-                tracked.Source = tracked.Source with { Process = claimant };
+                tracked.Source     = tracked.Source with { Process = claimant };
+                tracked.MayPostEnd = true;
                 _list.TryAdd(tracked.Source);
 
                 continue;
@@ -832,7 +839,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 _list.Remove(key);
                 _sources.TryRemove(key, out var _);
                 tracked.Settled.TrySetResult();
-            } else if (tracked.Ended is EndedBy.Process && tracked.Source.SubagentId is null && !tracked.Disabled && Volatile.Read(ref _stopping) == 0) {
+            } else if (tracked is { Ended: EndedBy.Process, MayPostEnd: true, Disabled: false, Source.SubagentId: null } && Volatile.Read(ref _stopping) == 0) {
                 tracked.EndPending = true;
                 _ = Task.Run(() => EndSessionAsync(tracked));
             } else {
@@ -945,6 +952,10 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 return true;
             }
         }
+
+        /// <summary>The end of the process it follows is this daemon's to post if no hook does. False for one a restore
+        /// found with no claim of this daemon's left on disk.</summary>
+        public bool MayPostEnd { get; set; } = true;
 
         /// <summary>Its process exited and its end waits out the grace.</summary>
         public bool EndPending { get; set; }

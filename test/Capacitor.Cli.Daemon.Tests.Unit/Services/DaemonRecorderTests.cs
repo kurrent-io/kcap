@@ -342,6 +342,27 @@ public class DaemonRecorderTests {
         await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
     }
 
+    /// <summary>A claim gone while the daemon was down was taken by a hook, which recorded the session from there and posted
+    /// its end. The daemon finishes what it left, but an end of its own would be a false one, as late as its next boot.</summary>
+    [Test]
+    public async Task A_restored_terminal_source_whose_claim_was_taken_gets_no_end() {
+        var source = Terminal(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Exited.Add(4242);
+
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Stepping(time, () => List.Load().Count == 0 && recorder.ActiveKeys.Count == 0);
+        time.Advance(DaemonRecorder.SessionEndGrace * 2);
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+    }
+
     /// <summary>The daemon died inside the grace and came back: what still runs is picked up from the server's position,
     /// and what ended while it was away gets the tail it missed and is finished.</summary>
     [Test]
