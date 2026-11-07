@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -15,7 +17,8 @@ namespace Capacitor.Cli.Commands;
 /// instructions, so a tenant without the feature never hears of it. A pass that needs sharing is approved only by the
 /// human: through the harness's own prompt when it has one, otherwise in kcap. No tool here approves.</para>
 /// </summary>
-sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider time) {
+/// <param name="sendingSession">The harness session this server runs in, null when none can be identified.</param>
+sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider time, Func<string?> sendingSession) {
     internal const string ServerName = "kcap-pass";
 
     internal const string WaitingForApproval = "Waiting for your approval in kcap";
@@ -28,6 +31,10 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
 
     /// <summary>How long the human has to answer the harness's prompt before the pass is left for them in kcap.</summary>
     internal static readonly TimeSpan ApprovalBudget = TimeSpan.FromMinutes(5);
+
+    internal const string SendingSessionNotOwned = "sending_session_not_owned";
+
+    readonly ConcurrentDictionary<string, string> _names = new(StringComparer.Ordinal);
 
     public async Task<int> RunAsync(ConfigRoot config, TelemetryStartup startup) {
         var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);
@@ -128,7 +135,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         try {
             return toolName switch {
                 "find_colleague" => await FindColleagueAsync(id, arguments, budget.Token),
-                "pass"           => await SendAsync(id, PassBody(arguments), elicit, budget.Token),
+                "pass"           => await SendAsync(id, PassBody(arguments) with { SendingSessionId = sendingSession() }, elicit, budget.Token),
                 "message"        => await SendAsync(id, MessageBody(arguments), elicit, budget.Token),
                 "pass_status"    => await StatusAsync(id, arguments, budget.Token),
                 _                => ToolResult(id, $"Error: unknown tool {toolName}.", isError: true)
@@ -147,8 +154,10 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         var candidates = await passes.SearchColleaguesAsync(name, ct);
 
         var people = new JsonArray();
-        foreach (var candidate in candidates)
+        foreach (var candidate in candidates) {
             people.Add((JsonNode?)new JsonObject { ["recipient_id"] = candidate.Id, ["name"] = candidate.DisplayName ?? candidate.Id });
+            if (candidate.DisplayName is { Length: > 0 } display) _names[candidate.Id] = display;
+        }
 
         var result = new JsonObject { ["candidates"] = people };
 
@@ -185,12 +194,18 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
     }
 
     /// <summary>A failure during the send may follow a pass the server stored, and the send carries no idempotency key, so
-    /// the agent is told not to send again.</summary>
+    /// the agent is told not to send again. A sending session the server will not take is refused before anything is
+    /// stored, so the pass goes again without it, and without a follow-up reminder.</summary>
     async Task<string> SendAsync(JsonNode id, StartPassBody body, Elicit? elicit, CancellationToken ct) {
         PassSendResult result;
 
         try {
             result = await passes.SendAsync(body, ct);
+
+            if (result is PassSendResult.Refused { Refusal.Code: SendingSessionNotOwned } && body.SendingSessionId is not null) {
+                body   = body with { SendingSessionId = null };
+                result = await passes.SendAsync(body, ct);
+            }
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             return SendUnknown(id, "the server did not answer in time");
         } catch (CapacitorApiException ex) {
@@ -198,8 +213,9 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         }
 
         return result switch {
-            PassSendResult.Sent sent => ToolResult(id, Outcome("sent", sent.Pass.PassId, "Sent.", sent.Pass.Grants).ToJsonString()),
-            PassSendResult.AwaitingApproval awaiting => await ApproveAsync(id, awaiting.Pass, elicit),
+            PassSendResult.Sent sent => ToolResult(
+                id, (await FollowUpAsync(Outcome("sent", sent.Pass.PassId, "Sent.", sent.Pass.Grants), body, sent.Pass.FollowUpNotBefore)).ToJsonString()),
+            PassSendResult.AwaitingApproval awaiting => await ApproveAsync(id, awaiting.Pass, body, elicit),
             PassSendResult.Refused refused => Refusal(id, refused.Refusal),
             PassSendResult.NotFound => ToolResult(id, "Not sent: no such item, or not one you can see.", isError: true),
             _ => throw new InvalidOperationException("Unknown send result")
@@ -212,7 +228,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
 
     /// <summary>Only the human answers. Without a prompt in the harness, or with no answer to it, the pass waits for
     /// them in kcap.</summary>
-    async Task<string> ApproveAsync(JsonNode id, StartPassResponseDto pass, Elicit? elicit) {
+    async Task<string> ApproveAsync(JsonNode id, StartPassResponseDto pass, StartPassBody body, Elicit? elicit) {
         if (elicit is null) return Waiting(id, pass);
 
         JsonObject? answer;
@@ -244,11 +260,47 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         }
 
         return result switch {
-            PassAnswerResult.Answered answered => ToolResult(id, Answered(pass.PassId, answered.Answer).ToJsonString()),
+            PassAnswerResult.Answered answered => ToolResult(
+                id, (await FollowUpAsync(Answered(pass.PassId, answered.Answer), body, answered.Answer.FollowUpNotBefore)).ToJsonString()),
             PassAnswerResult.Refused refused   => Refusal(id, refused.Refusal),
             _                                  => throw new InvalidOperationException("Unknown answer result")
         };
     }
+
+    /// <summary>The server names a follow-up time only for a pass whose sending session it took, and a message carries
+    /// none; the reminder is that session's own loose end. It failing leaves the pass sent, so the agent hears it as a note, not an error.</summary>
+    async Task<JsonObject> FollowUpAsync(JsonObject result, StartPassBody body, DateTimeOffset? notBefore) {
+        if (notBefore is not { } due || body.ReminderOff == true || body.SendingSessionId is not { } session) return result;
+
+        var text = FollowUpText(body.ItemKind, _names.GetValueOrDefault(body.RecipientId), time.GetLocalNow());
+
+        try {
+            using var budget = new CancellationTokenSource(RequestBudget, time);
+
+            await passes.DeclareFollowUpAsync(new DeclareLooseEndBody(text, session, due), budget.Token);
+            result["follow_up"] = $"A reminder to follow up comes due {ShortDate(TimeZoneInfo.ConvertTime(due, time.LocalTimeZone))}.";
+        } catch (CapacitorApiException ex) {
+            result["note"] = $"The reminder to follow up was not saved: {ex.Message}";
+        } catch (OperationCanceledException) {
+            result["note"] = "The reminder to follow up was not saved: the server did not answer in time.";
+        }
+
+        return result;
+    }
+
+    static string FollowUpText(string? itemKind, string? recipientName, DateTimeOffset sentAt) {
+        var item = itemKind switch {
+            "work_item"    => "a work item",
+            "session"      => "a session",
+            "page"         => "a Page",
+            "hosted_agent" => "a hosted agent",
+            _              => "an item"
+        };
+
+        return $"You passed {item} to {recipientName ?? "a colleague"} on {ShortDate(sentAt)}. If you haven't had feedback, follow up.";
+    }
+
+    static string ShortDate(DateTimeOffset at) => at.ToString("d MMM", CultureInfo.InvariantCulture);
 
     /// <summary>The server's approval text, then each sharing write by name, so the human sees exactly what they
     /// approve.</summary>

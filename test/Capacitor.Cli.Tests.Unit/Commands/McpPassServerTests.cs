@@ -17,7 +17,9 @@ public class McpPassServerTests {
 
     static readonly PassSharingGrantDto SessionGrant = new("session", "s-1", "Sam can see this session", "send messages for you to approve");
 
-    static McpPassServer Server(IPassesApi api, string url = Url) => new(api, url, TimeProvider.System);
+    const string SendingSession = "0f8fad5bd9cb469fa165708677289a3c";
+
+    static McpPassServer Server(IPassesApi api, string url = Url) => new(api, url, TimeProvider.System, () => SendingSession);
 
     static string Request(int id, string method, JsonObject? parameters = null) {
         var request = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = method };
@@ -67,7 +69,7 @@ public class McpPassServerTests {
     public async Task SurfacesNeverAnswer_InitializeAnsweredWithinOfferBudget() {
         var time = new FakeTimeProvider();
 
-        var (init, tools) = await StartAsync(new McpPassServer(new FakePassesApi { OfferedHangs = true }, Url, time),
+        var (init, tools) = await StartAsync(new McpPassServer(new FakePassesApi { OfferedHangs = true }, Url, time, () => SendingSession),
                                              () => time.Advance(McpPassServer.OfferedBudget));
 
         await Assert.That(init["serverInfo"]!["name"]!.GetValue<string>()).IsEqualTo("kcap-pass");
@@ -123,7 +125,7 @@ public class McpPassServerTests {
             AnswerFails = lost == "failed" ? new CapacitorApiException(null, "Cannot reach the server") : null
         };
 
-        var call = new McpPassServer(api, Url, time).HandleToolCallAsync(
+        var call = new McpPassServer(api, Url, time, () => SendingSession).HandleToolCallAsync(
             9, Call("pass", PassArguments()), (_, _) => Task.FromResult<JsonObject?>(new JsonObject { ["action"] = "accept" }));
         time.Advance(McpPassServer.RequestBudget);
         var response = await call.WaitAsync(TimeSpan.FromSeconds(10));
@@ -171,6 +173,122 @@ public class McpPassServerTests {
         await Assert.That(Text(response)).Contains($"{Url}/passes?tab=sent");
         await Assert.That(api.Approved).IsEmpty();
         await Assert.That(api.Declined).IsEmpty();
+    }
+
+    static readonly DateTimeOffset SentAt = new(2026, 10, 30, 9, 0, 0, TimeSpan.Zero);
+
+    static readonly DateTimeOffset FollowUpDue = SentAt.AddDays(2);
+
+    static PassSendResult SentWithFollowUp() => new PassSendResult.Sent(new("p1", "sent", [], null, null, FollowUpDue));
+
+    /// The pass's colleague is Jonny, learned through find_colleague as an agent would; the clock reads 30 Oct in UTC.
+    static async Task<string> PassToJonnyAsync(FakePassesApi api, JsonObject arguments, McpPassServer.Elicit? elicit = null) {
+        var time = new FakeTimeProvider(SentAt);
+        time.SetLocalTimeZone(TimeZoneInfo.Utc);
+        var server = new McpPassServer(api, Url, time, () => SendingSession);
+
+        await server.HandleToolCallAsync(9, Call("find_colleague", new JsonObject { ["name"] = "Jonny" }), null);
+
+        return await server.HandleToolCallAsync(9, Call("pass", arguments), elicit);
+    }
+
+    static JsonObject PageToJonny() => new() {
+        ["recipient_id"] = "github:7", ["kind"] = "look", ["item_kind"] = "page", ["item_id"] = "pg-1", ["brief"] = "Check the chart",
+    };
+
+    /// <summary>A pass the server answers with a follow-up time, sent straight or once the human approves, declares one
+    /// loose end on the calling session, due then, in the reminder's own words.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Pass_DeclaresLooseEndWithNotBefore(bool approved) {
+        var api = new FakePassesApi {
+            Colleagues   = [new("github:7", "Jonny", null)],
+            SendResult   = approved ? FakePassesApi.AwaitingApproval(ApprovalText, SessionGrant) : SentWithFollowUp(),
+            AnswerResult = new PassAnswerResult.Answered(new("sent", "sent", [], FollowUpDue, null))
+        };
+
+        var response = await PassToJonnyAsync(api, PageToJonny(), (_, _) => Task.FromResult<JsonObject?>(new JsonObject { ["action"] = "accept" }));
+
+        await Assert.That(IsError(response)).IsFalse();
+        await Assert.That(api.Sent.Single().SendingSessionId).IsEqualTo(SendingSession);
+        await Assert.That(api.FollowUps.ToArray()).IsEquivalentTo(new[] {
+            new DeclareLooseEndBody("You passed a Page to Jonny on 30 Oct. If you haven't had feedback, follow up.", SendingSession, FollowUpDue)
+        });
+        await Assert.That(Text(response)).Contains("follow_up");
+    }
+
+    /// <summary>With the reminder turned off nothing is declared, even if a server names a follow-up time anyway.</summary>
+    [Test]
+    public async Task Pass_ReminderOff_DeclaresNothing() {
+        var api = new FakePassesApi { Colleagues = [new("github:7", "Jonny", null)], SendResult = SentWithFollowUp() };
+        var arguments = PageToJonny();
+        arguments["reminder_off"] = true;
+
+        var response = await PassToJonnyAsync(api, arguments);
+
+        await Assert.That(IsError(response)).IsFalse();
+        await Assert.That(api.Sent.Single().ReminderOff == true).IsTrue();
+        await Assert.That(api.FollowUps).IsEmpty();
+    }
+
+    /// <summary>A message carries no sending session and creates no reminder, even if a server names a follow-up time.</summary>
+    [Test]
+    public async Task Message_DeclaresNothing() {
+        var api = new FakePassesApi { SendResult = SentWithFollowUp() };
+
+        var response = await Server(api).HandleToolCallAsync(
+            9, Call("message", new JsonObject { ["recipient_id"] = "github:2", ["text"] = "The chart is wrong" }), elicit: null);
+
+        await Assert.That(IsError(response)).IsFalse();
+        await Assert.That(api.Sent.Single().SendingSessionId).IsNull();
+        await Assert.That(api.FollowUps).IsEmpty();
+    }
+
+    /// <summary>The reminder failing to save leaves the pass a success, with the failure as a note.</summary>
+    [Test]
+    public async Task Pass_LooseEndFails_PassStillSent() {
+        var api = new FakePassesApi {
+            Colleagues = [new("github:7", "Jonny", null)], SendResult = SentWithFollowUp(),
+            FollowUpFails = new CapacitorApiException(500, "Server error")
+        };
+
+        var response = await PassToJonnyAsync(api, PageToJonny());
+
+        await Assert.That(api.FollowUps.Count).IsEqualTo(1);
+        await Assert.That(IsError(response)).IsFalse();
+        await Assert.That(Text(response)).Contains("Sent.");
+        await Assert.That(Text(response)).Contains("The reminder to follow up was not saved: Server error");
+    }
+
+    /// <summary>The server refuses a sending session the caller does not own before storing anything, so the pass is sent
+    /// again without it and succeeds, with no reminder.</summary>
+    [Test]
+    public async Task Pass_SendingSessionRefused_SentWithoutIt() {
+        var api = new FakePassesApi {
+            FirstSendResults = new([new PassSendResult.Refused(new(McpPassServer.SendingSessionNotOwned, "sending_session_id must name a session you own"))])
+        };
+
+        var response = await Server(api).HandleToolCallAsync(9, Call("pass", PassArguments()), elicit: null);
+
+        await Assert.That(IsError(response)).IsFalse();
+        await Assert.That(api.Sent.Select(b => b.SendingSessionId).ToArray()).IsEquivalentTo(new[] { SendingSession, null });
+        await Assert.That(api.FollowUps).IsEmpty();
+    }
+
+    /// <summary>The reminder reaches the loose-end route as its declare body, with the due time as not_before.</summary>
+    [Test]
+    public async Task PassesApi_DeclareFollowUp_PostsLooseEnd() {
+        using var stub = WireMockServer.Start();
+        stub.Given(WireMock.RequestBuilders.Request.Create().WithPath("/api/loose-ends/declare").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.OK).WithBody("""{"declaration_id":"d1","created":true}"""));
+
+        await Api(stub.Urls[0]).DeclareFollowUpAsync(new DeclareLooseEndBody("Follow up the pass", SendingSession, FollowUpDue));
+
+        var body = JsonNode.Parse(stub.LogEntries.Single().RequestMessage.Body!)!;
+        await Assert.That(body["text"]!.GetValue<string>()).IsEqualTo("Follow up the pass");
+        await Assert.That(body["session_id"]!.GetValue<string>()).IsEqualTo(SendingSession);
+        await Assert.That(body["not_before"]!.GetValue<DateTimeOffset>()).IsEqualTo(FollowUpDue);
     }
 
     /// <summary>The server's 422 refusal reaches the agent with its reason and where the item's sharing is changed.</summary>
