@@ -1561,6 +1561,20 @@ public class ClaudeHookCommandTests {
         await Assert.That(PassNoticePosts(fx)).IsEqualTo(1);
     }
 
+    /// <summary>The prompt's own wait, not whatever is left of the hook budget.</summary>
+    [Test, NotInParallel]
+    public async Task PromptRequest_TimesOutAfterOneSecond() {
+        using var absent = new TempDir();
+        using var fx = new Fixture(Config.Root) { RespondJson = """{"pass_notices":"v1"}""", PassNoticesCapable = true };
+        var sid = Guid.NewGuid().ToString();
+        await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(sid.Replace("-", ""), absent)));
+
+        var time = new TickingTimeProvider(TimeSpan.FromMilliseconds(3));
+        await fx.PassNoticesAsync(PromptPayload(sid), new StringWriter(), new HookClock(time));
+
+        await Assert.That(time.TimerAtSend).IsEqualTo(TimeSpan.FromSeconds(1));
+    }
+
     [Test, NotInParallel]
     public async Task Emits_OnlyServerTexts() {
         using var absent = new TempDir();
@@ -2388,8 +2402,8 @@ public class ClaudeHookCommandTests {
         }
 
         /// <summary>One pass-notices prompt hook invocation, posting through the stub client.</summary>
-        public Task<int> PassNoticesAsync(string stdin, TextWriter stdout) =>
-            new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+        public Task<int> PassNoticesAsync(string stdin, TextWriter stdout, HookClock? clock = null) =>
+            new ClaudeHookCommand(Config, Profiles, _clock = clock ?? new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
                 .HandlePassNoticesCore(new StringReader(stdin), _ => Task.FromResult<HttpClient?>(Client), stdout);
 
         /// <summary>One plan-edit hook invocation, posting through the stub client.</summary>
