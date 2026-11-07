@@ -1166,8 +1166,12 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     /// <para>Best-effort by contract: every step is contained, and a failure in one does not skip the
     /// rest. Nothing here retries — the caller is holding a shutdown open.</para>
     /// </summary>
-    public virtual async Task ReportAgentEndedForShutdownAsync(
-            string agentId, string? sessionId, string status, string reason, int? exitCode, CancellationToken ct) {
+    public Task ReportAgentEndedForShutdownAsync(
+            string agentId, string? sessionId, string status, string reason, int? exitCode, CancellationToken ct) =>
+        SendShutdownReportAsync(agentId, sessionId, status, reason, exitCode, endSession: !EndsNoSession(agentId, sessionId), ct);
+
+    protected virtual async Task SendShutdownReportAsync(
+            string agentId, string? sessionId, string status, string reason, int? exitCode, bool endSession, CancellationToken ct) {
         await SafeShutdownStepAsync(
             () => _hub.InvokeAsync("AgentStatusChanged", new AgentStatusChanged(agentId, status, sessionId), cancellationToken: ct),
             agentId, "status");
@@ -1175,9 +1179,11 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         await SafeShutdownStepAsync(
             () => _eventQueue.PostDirectAsync(agentId, new AgentRunStopped(reason, exitCode), ct), agentId, "run-stopped");
 
-        await SafeShutdownStepAsync(
-            () => _hub.InvokeAsync<EndAgentSessionResult>("EndAgentSession", agentId, reason, cancellationToken: ct),
-            agentId, "session-end");
+        if (endSession) {
+            await SafeShutdownStepAsync(
+                () => _hub.InvokeAsync<EndAgentSessionResult>("EndAgentSession", agentId, reason, cancellationToken: ct),
+                agentId, "session-end");
+        }
 
         await SafeShutdownStepAsync(
             () => _hub.InvokeAsync("AgentUnregistered", BuildAgentUnregistered(agentId, reason), cancellationToken: ct),
@@ -1274,7 +1280,19 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     /// <c>kcap generate-whats-done {sessionId}</c> locally — matching the
     /// behaviour of the CLI session-end handler for the local-claude case.
     /// </summary>
-    public virtual Task<EndAgentSessionResult> EndAgentSessionAsync(string agentId, string reason)
+    public Task<EndAgentSessionResult> EndAgentSessionAsync(string agentId, string reason) =>
+        EndsNoSession(agentId, null) ? Task.FromResult(new EndAgentSessionResult()) : SendEndAgentSessionAsync(agentId, reason);
+
+    /// <summary>Whether a person disabled a session the agent ran, given the session a caller knows it by. Both ways to the
+    /// server's <c>EndAgentSession</c> ask here, because it finds the session through the agent's run, which a deletion
+    /// leaves, and its end would bring the deleted stream back. Set by the orchestrator, which knows what each agent ran.</summary>
+    internal Func<string, string?, bool> EndsNoSession { get; set; } = (_, _) => false;
+
+    /// <summary>Whether a person disabled this session, for what goes out about it apart from the recorder. Set by the
+    /// orchestrator beside <see cref="EndsNoSession"/>.</summary>
+    internal Func<string, bool> IsDisabledByPerson { get; set; } = _ => false;
+
+    protected virtual Task<EndAgentSessionResult> SendEndAgentSessionAsync(string agentId, string reason)
         => ConnectionRetry.InvokeWithConnectionRetryAsync(
             () => _hub.InvokeAsync<EndAgentSessionResult>("EndAgentSession", agentId, reason, cancellationToken: _ct),
             () => IsReady,

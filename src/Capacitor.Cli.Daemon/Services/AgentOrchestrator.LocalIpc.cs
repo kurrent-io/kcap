@@ -422,6 +422,7 @@ internal partial class AgentOrchestrator {
             return RefuseRename(SessionRenameReasons.Malformed);
         if (!_agents.TryGetValue(agentId, out var agent)) return RefuseRename(SessionRenameReasons.UnknownAgent);
         if (agent.IsPrivate) return RefuseRename(SessionRenameReasons.PrivateAgent);
+        if (RunsDisabledSession(agent)) return RefuseRename(SessionRenameReasons.NoSession);
         if (dto.ExpectedUserSubject is not { } expected || expected != UserSubject)
             return RefuseRename(SessionRenameReasons.IdentityMismatch);
         if ((agent.SessionId ?? (agent.Runtime as IAcpTranscriptSource)?.AcpSessionId) is not { Length: > 0 } sessionId)

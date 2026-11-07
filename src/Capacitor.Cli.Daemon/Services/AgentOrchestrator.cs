@@ -917,6 +917,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         _harnesses         = harnesses;
         _server            = server;
         _server.OnCredentialResolved = ObserveCredential;
+        _server.EndsNoSession        = RanDisabledSession;
+        _server.IsDisabledByPerson   = IsDisabled;
         _worktreeManager   = worktreeManager;
         _repoMatcher       = repoMatcher;
         _ptyFactory        = ptyFactory;
@@ -4313,14 +4315,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             //
             // PrivateLocal agents have no server-side session to end (deny-all).
             //
-            // §2.7 B6 arm-A: a PARKED reviewer (ParkReviewerAsync got a durable Parked ack, which stamped
-            // ReviewerParkedResumableReason here) completes EVERY local-teardown step EXCEPT this hosted
-            // session-end — its Codex app-server thread must survive for a later thread/resume, and the
-            // server's B5 close authority owns the eventual close. Every other teardown step (the ACP
-            // final-drain above, UnregisterAcpBinding + CleanupAgentAsync below) still runs, so the slot
-            // is freed exactly as a reap frees it. A disabled session gets no end either: the server finds it through the
-            // agent's run, which its deletion leaves, and the end would bring the deleted stream back.
-            if (!agent.IsServerSilent && !RunsDisabledSession(agent) && agent.PendingEndReason != ReviewerParkedResumableReason) {
+            // A parked reviewer (ParkReviewerAsync got a durable Parked ack, which stamped
+            // ReviewerParkedResumableReason here) skips only this hosted session-end: its Codex app-server thread has to
+            // survive for a later thread/resume, and the server closes it. Every other teardown step still runs, so the
+            // slot is freed exactly as a reap frees it.
+            if (!agent.IsServerSilent && agent.PendingEndReason != ReviewerParkedResumableReason) {
                 var endTask = _server.EndAgentSessionAsync(agent.Id, agent.PendingEndReason);
 
                 try {
@@ -6600,12 +6599,15 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     TitleResolveLoop BuildTitleResolveLoop() => new(
         SnapshotAgentsForTitles,
         (agentId, title) => { if (_agents.TryGetValue(agentId, out var agent)) SetResolvedTitle(agent, title); },
-        _titleServer,
+        new DisabledSessionTitles(_titleServer, IsDisabled),
         NativeTitleFor,
         GenerateTitleForAsync,
-        _server.UpdateTitleAsync,
+        PostGeneratedTitleAsync,
         _time,
         _logger);
+
+    internal Task<bool> PostGeneratedTitleAsync(string sessionId, string title, CancellationToken ct) =>
+        IsDisabled(sessionId) ? Task.FromResult(false) : _server.UpdateTitleAsync(sessionId, title, ct);
 
     /// Builds and publishes the loop without starting its timer, so a test can drive its ticks.
     internal TitleResolveLoop PublishTitleLoopForTest() => _titleLoop = BuildTitleResolveLoop();
@@ -6640,8 +6642,16 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     /// <summary>Whether a person disabled the session this agent runs, whose recorder knows nothing of what else the
     /// daemon sends for it.</summary>
-    bool RunsDisabledSession(AgentInstance agent) =>
-        SessionIdsOf(agent).Any(id => id is not null && DisabledSessions.IsDisabledByPerson(id, _config.ConfigRoot));
+    bool RunsDisabledSession(AgentInstance agent) => SessionIdsOf(agent).Any(IsDisabled);
+
+    /// <summary>Whether a person disabled a session this agent ran, by whatever still knows of it: the caller, the agent
+    /// while it lives, and its ledger entry once it doesn't.</summary>
+    bool RanDisabledSession(string agentId, string? sessionId) =>
+        IsDisabled(sessionId)
+     || _agents.TryGetValue(agentId, out var agent) && RunsDisabledSession(agent)
+     || (ResumeLedger?.TryRead(agentId) ?? ParticipantLedger?.TryRead(agentId)) is { } entry && (IsDisabled(entry.SessionId) || IsDisabled(entry.VendorSession));
+
+    bool IsDisabled(string? session) => session is not null && DisabledSessions.IsDisabledByPerson(session, _config.ConfigRoot);
 
     /// <summary>Every id this agent's session goes by, an ACP agent's being known only to its runtime.</summary>
     static string?[] SessionIdsOf(AgentInstance agent) =>

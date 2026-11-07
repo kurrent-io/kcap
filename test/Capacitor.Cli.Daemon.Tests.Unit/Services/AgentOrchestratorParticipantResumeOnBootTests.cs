@@ -153,6 +153,37 @@ public class AgentOrchestratorParticipantResumeOnBootTests {
         await Assert.That(f.Factory.Contexts).IsEmpty();
     }
 
+    /// <summary>A resume that fails reports through the same call as a shutdown, from a ledger entry with no agent behind
+    /// it, under the id the entry knows the session by.</summary>
+    [Test]
+    [Arguments("session-reviewer-1")]
+    [Arguments("vendor-session-1")]
+    public async Task A_disabled_sessions_failed_resume_ends_no_session(string marked) {
+        ConfigRoot? root = null;
+        var f = Build(configure: config => root = config.ConfigRoot);
+        await using var _ = f.Orch;
+        Participant(f, "reviewer-1", predecessor: "instance-between");
+        DisabledSessions.Mark(marked, root!);
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Server.ShutdownReports.Single().Reason).StartsWith("resume_failed:");
+        await Assert.That(f.Server.ShutdownSessionEnds).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_failed_resume_of_any_other_session_ends_it() {
+        var f = Build();
+        await using var _ = f.Orch;
+        Participant(f, "reviewer-1", predecessor: "instance-between");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Server.ShutdownSessionEnds).IsEquivalentTo(new[] { "reviewer-1" });
+    }
+
     [Test]
     public async Task A_failed_participant_resume_never_runs_kcap_continue() {
         var f = Build(new ReviewerFactory { Fails = true });

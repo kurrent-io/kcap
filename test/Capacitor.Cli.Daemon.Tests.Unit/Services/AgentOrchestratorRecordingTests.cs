@@ -192,18 +192,24 @@ public class AgentOrchestratorRecordingTests {
     }
 
     sealed class CountingTitles : ITitleServerPort {
-        int _calls;
+        int _calls, _pushes;
 
         public int Calls => Volatile.Read(ref _calls);
 
+        public int Pushes => Volatile.Read(ref _pushes);
+
+        public Action? OnRead { get; set; }
+
         public Task<string?> GetTitleAsync(string sessionId, CancellationToken ct) {
             Interlocked.Increment(ref _calls);
+            OnRead?.Invoke();
 
             return Task.FromResult<string?>(null);
         }
 
         public Task<HarnessTitleOutcome> PushTitleAsync(string sessionId, HarnessTitlePost post, CancellationToken ct) {
             Interlocked.Increment(ref _calls);
+            Interlocked.Increment(ref _pushes);
 
             return Task.FromResult(HarnessTitleOutcome.Posted);
         }
@@ -235,6 +241,38 @@ public class AgentOrchestratorRecordingTests {
         await f.Orch.PublishTitleLoopForTest().TickAsync(CancellationToken.None);
 
         await Assert.That(titles.Calls).IsEqualTo(0);
+    }
+
+    /// <summary>A tick works from one snapshot of its agents, so a person can disable a session between that and the push.
+    /// The control is what proves this tick would have pushed.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_title_tick_under_way_pushes_nothing_after_a_disable(bool disabled) {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        var titles = new CountingTitles();
+        f.Orch.TitleServerForTest = titles;
+        var agent = f.Orch.SeedAgentForTest("titled", vendor: "claude");
+        agent.SessionId      = Moved;
+        agent.TranscriptPath = Tmp.CreateFile("titled.jsonl", """{"type":"custom-title","customTitle":"Mine","sessionId":"s"}""" + "\n");
+        if (disabled) titles.OnRead = () => DisabledSessions.Mark(Moved, f.Config.ConfigRoot);
+
+        await f.Orch.PublishTitleLoopForTest().TickAsync(CancellationToken.None);
+
+        await Assert.That(titles.Pushes).IsEqualTo(disabled ? 0 : 1);
+    }
+
+    /// <summary>A generated title comes a model run after the tick's snapshot.</summary>
+    [Test]
+    public async Task A_title_generated_ahead_of_a_disable_is_not_sent() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+
+        await Assert.That(await f.Orch.PostGeneratedTitleAsync(Moved, "Before", CancellationToken.None)).IsTrue();
+
+        DisabledSessions.Mark(Moved, f.Config.ConfigRoot);
+
+        await Assert.That(await f.Orch.PostGeneratedTitleAsync(Moved, "After", CancellationToken.None)).IsFalse();
+        await Assert.That(f.Server.UpdatedTitles).IsEquivalentTo(new[] { "Before" });
     }
 
     /// <summary>The server finds an agent's session through its run stream, which a deletion leaves, and writes the end to
