@@ -169,6 +169,11 @@ if (isHook && args.Contains("--claude")) {
         return titled;
     }
 
+    // Every prompt waits on this hook, so a session never armed leaves before the profile's git probes.
+    if (args.Contains(ClaudePassNotices.Flag)
+     && (ClaudePassNotices.SessionIdOf(claudeHookBody) is not { } promptSession || !new PassNoticeSessions(config).IsArmed(promptSession)))
+        return 0;
+
     ClaudeSessionEnv.Persist(claudeHookBody, Environment.GetEnvironmentVariable(ClaudeSessionEnv.EnvFileVar), Console.Error);
 
     if (ClaudeSessionEndHandoff.ShouldHandOff(args, claudeHookBody) && SessionEndFence.ShouldHold(HostedAgent.FromEnvironment(), ClaudeSessionEndHandoff.SessionIdOf(claudeHookBody)))
@@ -1006,6 +1011,9 @@ switch (command) {
         }
         if (args.Contains("--claude") && args.Contains("--plan-edit")) {
             return await Run<ClaudeHookCommand>().HandlePlanEdit(new StringReader(claudeHookBody!));
+        }
+        if (args.Contains("--claude") && args.Contains(ClaudePassNotices.Flag)) {
+            return await Run<ClaudeHookCommand>().HandlePassNotices(new StringReader(claudeHookBody!));
         }
         if (args.Contains("--claude")) await Run<ClaudeHookCommand>().RelaySessionStartAsync(claudeHookBody!);
 

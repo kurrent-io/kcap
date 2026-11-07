@@ -99,9 +99,9 @@ public sealed class ClaudeHookCommand(
         );
     }
 
-    /// <summary>The <c>timeout</c> <c>kcap/hooks/hooks.json</c> gives the synchronous PostToolUse entries: they block the
-    /// agent's tool call, so it is shorter than the other events', and <see cref="HookBudget.Safety"/> comes
-    /// out of it.</summary>
+    /// <summary>The <c>timeout</c> <c>kcap/hooks/hooks.json</c> gives the synchronous PostToolUse entries and the
+    /// pass-notices UserPromptSubmit: they block the agent's tool call or the prompt, so it is shorter than the
+    /// other events', and <see cref="HookBudget.Safety"/> comes out of it.</summary>
     static readonly TimeSpan ToolHookCeiling = TimeSpan.FromSeconds(3);
 
     /// <summary>
@@ -150,6 +150,51 @@ public sealed class ClaudeHookCommand(
 
             await (stdout ?? Console.Out).WriteLineAsync(ClaudePlanRead.RenderHookOutput(nudge));
             ledger.Record(read.SessionId, read.Path);
+            return 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// <c>kcap hook --claude --pass-notices</c>: a synchronous UserPromptSubmit, asked only for a session whose
+    /// SessionStart ack said this server delivers pass notices at its prompts. Every failure emits nothing: the
+    /// notice stays in the recipient's inbox, and the prompt must never wait past the client timeout for it.
+    /// </summary>
+    public async Task<int> HandlePassNotices(TextReader stdin, TextWriter? stdout = null) {
+        HttpClient? client = null;
+        try {
+            return await HandlePassNoticesCore(stdin, async cap => {
+                if (!HookHttp.IsPostable(Url)) return null;
+                var created = await BoundedAuth.CreateClientWithinAsync(
+                    () => http.ForHookAsync(), cap, clock.Time, () => RefreshTokenHandoff.Spawn(config, profiles.Name, starter));
+                return client = created?.Client;
+            }, stdout);
+        } finally {
+            client?.Dispose();
+        }
+    }
+
+    internal async Task<int> HandlePassNoticesCore(
+            TextReader stdin, Func<TimeSpan, Task<HttpClient?>> clientWithin, TextWriter? stdout = null) {
+        try {
+            var body = await stdin.ReadToEndAsync();
+            if (ClaudePassNotices.SessionIdOf(body) is not { } sessionId) return 0;
+            if (!new PassNoticeSessions(config).IsArmedFor(sessionId, Url)) return 0;
+            if (DisabledSessions.IsDisabled(sessionId, config)) return 0;
+
+            var budget = clock.Budget(ToolHookCeiling);
+            if (await clientWithin(budget.Remaining) is not { } client) return 0;
+
+            using var timeout = new CancellationTokenSource(ClaudePassNotices.ClientTimeout, clock.Time);
+            using var content = new StringContent(ClaudePassNotices.Request(sessionId), Encoding.UTF8, "application/json");
+            using var resp    = await client.PostAsync($"{Url}/hooks/pass-notices", content, timeout.Token);
+            if (!resp.IsSuccessStatusCode) return 0;
+
+            var notices = ClaudePassNotices.ReadNotices(await resp.Content.ReadAsStringAsync(timeout.Token));
+            if (notices.Count == 0) return 0;
+
+            await (stdout ?? Console.Out).WriteLineAsync(ClaudePassNotices.RenderHookOutput(notices));
             return 0;
         } catch {
             return 0;

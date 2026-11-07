@@ -179,6 +179,15 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap hook --claude --pass-notices --no-update-check",
+            "timeout": 3
+          }
+        ]
       }
     ]
   }

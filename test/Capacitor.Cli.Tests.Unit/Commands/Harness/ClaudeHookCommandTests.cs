@@ -1492,6 +1492,11 @@ public class ClaudeHookCommandTests {
     static string StartPayload(string sid, TempDir absent, string source = "startup") =>
         $$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(absent)}}","source":"{{source}}"}""";
 
+    static string PromptPayload(string sid) =>
+        new JsonObject { ["hook_event_name"] = "UserPromptSubmit", ["session_id"] = sid, ["cwd"] = "/repo", ["prompt"] = "go on" }.ToJsonString();
+
+    static int PassNoticePosts(Fixture fx) => fx.Sent.Count(s => s.StartsWith("/hooks/pass-notices|", StringComparison.Ordinal));
+
     /// <summary>The capability rides the live start whatever the other opt-outs say, and never the spooled replay.</summary>
     [Test, NotInParallel]
     [Arguments(false)]
@@ -1508,6 +1513,74 @@ public class ClaudeHookCommandTests {
 
         var spooled = JsonNode.Parse(JsonNode.Parse((await File.ReadAllTextAsync(fx.SpoolFiles.Single())).Split('\n')[0])!["body"]!.GetValue<string>())!;
         await Assert.That(spooled["pass_notices"]).IsNull();
+    }
+
+    /// <summary>A start whose ack never carried the field, or a later start of the same session whose ack dropped
+    /// it, leaves the prompt asking nothing. The armed row is the control: the same prompt does ask.</summary>
+    [Test, NotInParallel]
+    [Arguments(new[] { "{}" }, 0)]
+    [Arguments(new[] { """{"pass_notices":"v1"}""", "{}" }, 0)]
+    [Arguments(new[] { """{"pass_notices":"v2"}""" }, 0)]
+    [Arguments(new[] { """{"pass_notices":"v1"}""" }, 1)]
+    public async Task AckWithoutPassNotices_NoServerCall(string[] acks, int expectedPosts) {
+        using var absent = new TempDir();
+        using var fx = new Fixture(Config.Root);
+        var sid = Guid.NewGuid().ToString();
+
+        foreach (var ack in acks) {
+            fx.RespondJson = ack;
+            await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(sid.Replace("-", ""), absent, source: "resume")));
+        }
+
+        fx.RespondJson = """{"notices":[]}""";
+        await fx.PassNoticesAsync(PromptPayload(sid), new StringWriter());
+
+        await Assert.That(PassNoticePosts(fx)).IsEqualTo(expectedPosts);
+    }
+
+    [Test, NotInParallel]
+    public async Task ServerTimeout_PromptNotBlocked() {
+        using var absent = new TempDir();
+        using var fx = new Fixture(Config.Root) { RespondJson = """{"pass_notices":"v1"}""" };
+        var sid = Guid.NewGuid().ToString();
+        await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(sid.Replace("-", ""), absent)));
+
+        fx.RespondJson = """{"notices":["A colleague passed you a Page. Tell your user to open their kcap inbox."]}""";
+        fx.HoldOnPost  = TimeSpan.FromSeconds(30);
+        var stdout = new StringWriter();
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        var exit = await fx.PassNoticesAsync(PromptPayload(sid), stdout);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(System.Diagnostics.Stopwatch.GetElapsedTime(started)).IsLessThan(TimeSpan.FromSeconds(10));
+        await Assert.That(stdout.ToString()).IsEqualTo("");
+        await Assert.That(PassNoticePosts(fx)).IsEqualTo(1);
+    }
+
+    [Test, NotInParallel]
+    public async Task Emits_OnlyServerTexts() {
+        using var absent = new TempDir();
+        using var fx = new Fixture(Config.Root) { RespondJson = """{"pass_notices":"v1"}""" };
+        var sid = Guid.NewGuid().ToString();
+        await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(sid.Replace("-", ""), absent)));
+
+        string[] texts = [
+            "A colleague passed you a Page. Tell your user to open their kcap inbox.",
+            "A colleague sent you a message. Tell your user to open their kcap inbox.",
+        ];
+        fx.RespondJson = new JsonObject { ["notices"] = new JsonArray(texts.Select(t => (JsonNode) t).ToArray()) }.ToJsonString();
+        var stdout = new StringWriter();
+
+        await fx.PassNoticesAsync(PromptPayload(sid), stdout);
+
+        var output = JsonNode.Parse(stdout.ToString())!["hookSpecificOutput"]!;
+        await Assert.That(output["hookEventName"]!.GetValue<string>()).IsEqualTo("UserPromptSubmit");
+        await Assert.That(output["additionalContext"]!.GetValue<string>()).IsEqualTo(string.Join("\n", texts));
+
+        var posted = JsonNode.Parse(fx.Sent.Single(s => s.StartsWith("/hooks/pass-notices|", StringComparison.Ordinal)).Split('|', 2)[1])!;
+        await Assert.That(posted["session_id"]!.GetValue<string>()).IsEqualTo(sid.Replace("-", ""));
+        await Assert.That(posted["capability"]!.GetValue<string>()).IsEqualTo("v1");
     }
 
     /// <summary>Redirects <see cref="Console.Out"/> to a buffer for the duration of
@@ -2310,6 +2383,11 @@ public class ClaudeHookCommandTests {
                 .HandlePlanReadCore(new StringReader(stdin), _ => Task.FromResult<HttpClient?>(Client), stdout);
         }
 
+        /// <summary>One pass-notices prompt hook invocation, posting through the stub client.</summary>
+        public Task<int> PassNoticesAsync(string stdin, TextWriter stdout) =>
+            new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+                .HandlePassNoticesCore(new StringReader(stdin), _ => Task.FromResult<HttpClient?>(Client), stdout);
+
         /// <summary>One plan-edit hook invocation, posting through the stub client.</summary>
         public Task<int> PlanEditAsync(string stdin) =>
             new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
@@ -2427,6 +2505,17 @@ public class ClaudeHookCommandTests {
         var hook     = manifest["hooks"]!["SessionEnd"]![0]!["hooks"]![0]!;
 
         await Assert.That(hook["async"]?.GetValue<bool>()).IsTrue();
+    }
+
+    /// <summary>Only a synchronous hook's context reaches the agent, and nothing else asks for the notices.</summary>
+    [Test]
+    public async Task The_pass_notices_hook_runs_synchronously_on_every_prompt() {
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "kcap", "hooks", "hooks.json")))!;
+        var hook     = manifest["hooks"]!["UserPromptSubmit"]!.AsArray()
+            .SelectMany(e => e!["hooks"]!.AsArray())
+            .Single(h => h!["command"]!.GetValue<string>().Contains(ClaudePassNotices.Flag, StringComparison.Ordinal))!;
+
+        await Assert.That(hook["async"]?.GetValue<bool>() ?? false).IsFalse();
     }
 
     static string RepoRoot([CallerFilePath] string here = "") {
