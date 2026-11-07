@@ -272,6 +272,60 @@ public class ChatTabViewSmokeTests {
         }
     });
 
+    /// Pins that leaving a session and coming back, whether the view is swapped to another chat or
+    /// taken out of the window, keeps the search open on the match the reader was at.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_open_search_survives_leaving_the_session_and_coming_back() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            static string Reply(string text) => "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}}";
+            var lines = new[] { Reply("The needle is up here.") }
+                .Concat(Enumerable.Repeat(UserLine, 80))
+                .Concat([Reply("And a needle down here.")]).ToArray();
+            await host.LoadAsync(Tmp.CreateFile("find.jsonl", lines));
+            var summary = host.View.FindControl<TextBlock>("FindSummary")!;
+            host.View.OpenFind();
+            host.Window.KeyTextInput("needle");
+            host.Settle();
+            host.View.StepFind(backwards: true);
+            host.Settle();
+            await Assert.That(summary.Text).IsEqualTo("1 of 2");
+
+            async Task AssertIntact() {
+                await Assert.That(host.View.FindControl<Border>("FindBar")!.IsVisible).IsTrue();
+                await Assert.That(host.View.FindControl<TextBox>("FindInput")!.Text).IsEqualTo("needle");
+                await Assert.That(summary.Text).IsEqualTo("1 of 2");
+                var marks = host.View.GetVisualDescendants().OfType<MarkdownView>()
+                    .Where(v => MarkdownViewHarness.Runs(v).Any(r => ReferenceEquals(r.Background, host.Window.FindResource("KcapSelectionBrush"))))
+                    .ToList();
+                await Assert.That(marks.Count).IsEqualTo(1);
+                await Assert.That(marks[0].DataContext).IsSameReferenceAs(host.Chat.Items[0]);
+                var at = marks[0].TranslatePoint(marks[0].FindMatchBounds(0)!.Value.Center, host.Scroll)!.Value;
+                await Assert.That(at.Y).IsBetween(0, host.Scroll.Viewport.Height);
+            }
+
+            host.View.DataContext = null;
+            host.Settle();
+            host.View.DataContext = host.Chat;
+            host.Settle();
+            await AssertIntact();
+
+            host.Window.Content = null;
+            host.Settle();
+            host.Window.Content = host.View;
+            host.Settle();
+            await AssertIntact();
+
+            host.View.StepFind(backwards: false);
+            host.Settle();
+            await Assert.That(summary.Text).IsEqualTo("2 of 2");
+            await Assert.That(CurrentMark(host)?.DataContext).IsSameReferenceAs(host.Chat.Items[^1]);
+        } finally {
+            await host.CloseAsync();
+        }
+    });
+
     static MarkdownView? CurrentMark(Host host) {
         var selection = host.Window.FindResource("KcapSelectionBrush");
         return host.View.GetVisualDescendants().OfType<MarkdownView>().FirstOrDefault(view =>

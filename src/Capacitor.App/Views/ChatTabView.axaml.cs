@@ -104,6 +104,7 @@ public partial class ChatTabView : UserControl {
         base.OnAttachedToVisualTree(e);
         ObserveSending();
         ObserveFind();
+        RestoreFind();
         _pointerRoot = TopLevel.GetTopLevel(this);
         _pointerRoot?.AddHandler(PointerReleasedEvent, OnPrimaryReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
         _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, RoutingStrategies.Direct | RoutingStrategies.Bubble, handledEventsToo: true);
@@ -130,6 +131,7 @@ public partial class ChatTabView : UserControl {
         base.OnDataContextChanged(e);
         ObserveSending();
         ObserveFind();
+        RestoreFind();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
@@ -143,6 +145,7 @@ public partial class ChatTabView : UserControl {
         _sendSubscription = null;
         if (_find is not null) _find.Navigated -= ShowFindMatch;
         _find = null;
+        _currentFindView?.SetCurrentFind(-1);
         _currentFindView = null;
         _primaryPointer = null;
         _tailDeferred = false;
@@ -663,6 +666,25 @@ public partial class ChatTabView : UserControl {
         _currentFindView = null;
         _find = (DataContext as ChatTabViewModel)?.Find;
         if (_find is not null) _find.Navigated += ShowFindMatch;
+    }
+
+    /// A search left open in this chat takes the reader back to its current match, once the
+    /// returning session's items are laid out.
+    void RestoreFind() {
+        if (_find is not { IsOpen: true, Current: not null } find) return;
+        Dispatcher.UIThread.Post(() => {
+            if (ReferenceEquals(_find, find) && find.Current is { } match) ShowFindMatch(match);
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// Steps the open search, or opens one when there is none to step.
+    public void StepFind(bool backwards) {
+        if (_find is not { ActiveQuery: not null } find) {
+            OpenFind();
+            return;
+        }
+        if (backwards) find.Previous();
+        else find.Next();
     }
 
     /// Opens the find bar, or takes the reader back to it, with its query selected for retyping.

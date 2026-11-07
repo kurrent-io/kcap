@@ -298,20 +298,28 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, toggle) });
     }
 
-    // ⌘F on macOS; Ctrl+F elsewhere yields to a focused terminal, where it is a shell key.
+    // ⌘F and ⌘G on macOS. Off macOS Ctrl+F and F3 yield to a focused terminal, where they are shell
+    // and TUI keys.
     void BindFindShortcut() {
-        var open = ReactiveCommand.Create(OpenFind);
-        KeyBindings.Add(ShortcutLabels.UsesCommandKey
-            ? new KeyBinding { Gesture = new KeyGesture(Key.F, KeyModifiers.Meta), Command = open }
-            : new KeyBinding { Gesture = new KeyGesture(Key.F, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, open) });
+        var open = ReactiveCommand.Create(() => FindTarget()?.OpenFind());
+        var next = ReactiveCommand.Create(() => FindTarget()?.StepFind(backwards: false));
+        var previous = ReactiveCommand.Create(() => FindTarget()?.StepFind(backwards: true));
+        if (ShortcutLabels.UsesCommandKey) {
+            KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.F, KeyModifiers.Meta), Command = open });
+            KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.G, KeyModifiers.Meta), Command = next });
+            KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.G, KeyModifiers.Meta | KeyModifiers.Shift), Command = previous });
+        } else {
+            KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.F, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, open) });
+        }
+        KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.F3), Command = new UnlessTerminalFocused(this, next) });
+        KeyBindings.Add(new KeyBinding { Gesture = new KeyGesture(Key.F3, KeyModifiers.Shift), Command = new UnlessTerminalFocused(this, previous) });
     }
 
     /// The chat holding focus, else the first one showing: a subagent pane opens beside its parent's.
-    void OpenFind() {
+    ChatTabView? FindTarget() {
         var focused = FocusManager?.GetFocusedElement() as Visual;
-        var chat = focused?.GetSelfAndVisualAncestors().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible)
+        return focused?.GetSelfAndVisualAncestors().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible)
             ?? this.GetVisualDescendants().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible);
-        chat?.OpenFind();
     }
 
     // ⌘K everywhere on macOS. Off macOS Ctrl+K is a terminal key, so it yields to a focused terminal.
