@@ -1178,6 +1178,123 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
+    static PtyHostedAgentRuntime ComposerSignalRuntime(FakeTimeProvider time, RecordingScriptedPtyProcess pty) =>
+        new("claude", pty, time, approvalsDisabled: false, bracketedPasteMeansComposerUp: true,
+            awaitsSessionStart: true, confirmsLaunchPrompt: true);
+
+    /// <summary>Waits in real time, without moving the fake clock, so a paste that needed the quiet
+    /// window to pass cannot happen here.</summary>
+    static async Task WaitWithoutAdvancingAsync(Func<bool> done) {
+        for (var i = 0; i < 100 && !done(); i++) await Task.Delay(10);
+    }
+
+    /// <summary>Bracketed paste on is the composer mounted, so output still coming after it holds
+    /// nothing up: no quiet window is waited out.</summary>
+    [Test]
+    public async Task A_composer_signal_pastes_while_output_is_still_coming() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = ComposerSignalRuntime(time, pty);
+
+        runtime.DeliverLaunchPrompt("build it");
+        var pump = new CountingPump(runtime);
+        runtime.NoteSessionStarted();
+        await pump.EmitAsync(pty, ReadyBanner);
+
+        for (var i = 0; i < 8 && pty.Writes.Count == 0; i++) {
+            time.Advance(TimeSpan.FromMilliseconds(250));
+            await Task.Delay(20);
+            await pump.EmitAsync(pty, "redraw");
+        }
+        await WaitWithoutAdvancingAsync(() => pty.Writes.Count >= 1);
+
+        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        pty.Exit();
+    }
+
+    /// <summary>SessionStart can fire before the composer mounts, and a paste then is dropped whole,
+    /// so the prompt waits for bracketed paste after it however quiet the screen is.</summary>
+    [Test]
+    public async Task A_composer_signal_holds_the_paste_past_session_start_until_bracketed_paste_turns_on() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = ComposerSignalRuntime(time, pty);
+
+        runtime.DeliverLaunchPrompt("build it");
+        var pump = new CountingPump(runtime);
+        await pump.EmitAsync(pty, "loading");
+        runtime.NoteSessionStarted();
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow * 4);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        await pump.EmitAsync(pty, ReadyBanner);
+        // Output keeps coming between slices, so a paste here cannot be a quiet window running out.
+        for (var slice = 0; slice < 8 && pty.Writes.Count == 0; slice++) {
+            time.Advance(TimeSpan.FromMilliseconds(250));
+            await Task.Delay(20);
+            await pump.EmitAsync(pty, "redraw");
+        }
+        await WaitWithoutAdvancingAsync(() => pty.Writes.Count >= 1);
+
+        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        pty.Exit();
+    }
+
+    /// <summary>The composer can unmount while the delivery waits for the input lane, so the mode is
+    /// read again once the lane is held, and a paste waits for it to come back on.</summary>
+    [Test]
+    public async Task A_composer_signal_is_rechecked_once_the_lane_is_held() {
+        var time    = new FakeTimeProvider();
+        var pty     = new GatedRawPty();
+        var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false,
+            bracketedPasteMeansComposerUp: true, awaitsSessionStart: true);
+
+        runtime.DeliverLaunchPrompt("build it");
+        var pump = new CountingPump(runtime);
+        await pump.EmitAsync(pty.Inner, "loading");
+        runtime.NoteSessionStarted();
+
+        var parked = runtime.SendRawInputAsync([0x1b]);
+        await pty.RawWriteEntered.WaitAsync(TimeSpan.FromSeconds(5));
+        await pump.EmitAsync(pty.Inner, ReadyBanner);
+        await AdvanceAsync(time, TimeSpan.FromSeconds(1));
+        await pump.EmitAsync(pty.Inner, "\x1b[?2004l");
+
+        pty.ReleaseRawWrites();
+        await parked.WaitAsync(TimeSpan.FromSeconds(5));
+        await AdvanceAsync(time, TimeSpan.FromSeconds(1));
+        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\x1b");
+
+        await pump.EmitAsync(pty.Inner, ReadyBanner);
+        await StepAsync(time, TimeSpan.FromSeconds(2), () => pty.Inner.Writes.Count >= 2);
+        await Assert.That(pty.Inner.Writes[1]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        pty.Inner.Exit();
+    }
+
+    /// <summary>A startup dialog mounts an input too, so bracketed paste on before SessionStart is no
+    /// composer; once the hook arrives with the mode still on, the paste goes at once.</summary>
+    [Test]
+    public async Task A_composer_signal_still_waits_for_session_start() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        var runtime = ComposerSignalRuntime(time, pty);
+
+        runtime.DeliverLaunchPrompt("build it");
+        var pump = new CountingPump(runtime);
+        await pump.EmitAsync(pty, "\x1b[?2004htrust this folder?");
+
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptMaxWait * 2);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        runtime.NoteSessionStarted();
+        time.Advance(TimeSpan.FromMilliseconds(250));
+        await WaitWithoutAdvancingAsync(() => pty.Writes.Count >= 1);
+
+        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        pty.Exit();
+    }
+
     /// <summary>The retry Enter must never answer a screen ahead of the REPL, so its wait starts from
     /// the paste, not from the launch.</summary>
     [Test]

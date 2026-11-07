@@ -464,33 +464,38 @@ public class MainWindowViewModelTests {
     }
 
     [Test]
-    [Arguments(false, false, false, true, null, RailRecovery.None)]
-    [Arguments(false, false, true, true, MainWindowViewModel.LocalStoppedText, RailRecovery.StartLocalServer)]
-    [Arguments(false, false, true, false, MainWindowViewModel.LocalStoppedText, RailRecovery.None)]
-    [Arguments(false, true, true, false, MainWindowViewModel.LocalStartingText, RailRecovery.None)]
-    [Arguments(true, false, true, true, MainWindowViewModel.LocalUpdateFailedText, RailRecovery.None)]
+    [Arguments(false, false, false, true, null, RailRecovery.None, null)]
+    [Arguments(false, false, true, true, MainWindowViewModel.LocalStoppedText, RailRecovery.StartLocalServer, StatusColors.InProgress)]
+    [Arguments(false, false, true, false, MainWindowViewModel.LocalStoppedText, RailRecovery.None, StatusColors.InProgress)]
+    [Arguments(false, true, true, false, MainWindowViewModel.LocalStartingText, RailRecovery.None, StatusColors.Pending)]
+    [Arguments(true, false, true, true, MainWindowViewModel.LocalUpdateFailedText, RailRecovery.None, StatusColors.Disrupted)]
     public async Task LocalServerAlertFor_names_a_stopped_server_and_offers_start_when_the_launcher_does(
-            bool updateFailed, bool starting, bool stopped, bool canStart, string? text, RailRecovery recovery) {
+            bool updateFailed, bool starting, bool stopped, bool canStart, string? text, RailRecovery recovery, string? tone) {
         var alert = MainWindowViewModel.LocalServerAlertFor(updateFailed, starting, stopped, canStart);
         await Assert.That(alert?.Text).IsEqualTo(text);
+        await Assert.That(alert?.Tone).IsEqualTo(tone);
         await Assert.That(alert?.Recovery ?? RailRecovery.None).IsEqualTo(recovery);
     }
 
     /// A stopped server whose installation is gone, is being changed by another kcap, or whose port another program
-    /// holds never carries Start, and its hover says why.
+    /// holds never carries Start, and its hover says why. Only an installation missing its server's files is red: it
+    /// cannot run until it is reinstalled.
     [Test]
-    [Arguments(LocalServerCondition.Changing, MainWindowViewModel.LocalChangingText)]
-    [Arguments(LocalServerCondition.Uninstalled, MainWindowViewModel.LocalRemovedText)]
-    [Arguments(LocalServerCondition.Purged, MainWindowViewModel.LocalRemovedText)]
-    [Arguments(LocalServerCondition.NotInstalled, MainWindowViewModel.LocalRemovedText)]
-    [Arguments(LocalServerCondition.FilesMissing, MainWindowViewModel.LocalNeedsAttentionText)]
-    [Arguments(LocalServerCondition.Interrupted, MainWindowViewModel.LocalNeedsAttentionText)]
-    [Arguments(LocalServerCondition.PortTaken, MainWindowViewModel.LocalPortTakenText)]
-    [Arguments(LocalServerCondition.Restarting, MainWindowViewModel.LocalRestartingText)]
-    public async Task LocalServerAlertFor_names_a_gone_or_changing_installation_without_start(LocalServerCondition condition, string text) {
+    [Arguments(LocalServerCondition.Changing, MainWindowViewModel.LocalChangingText, StatusColors.Pending)]
+    [Arguments(LocalServerCondition.Uninstalled, MainWindowViewModel.LocalRemovedText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.Purged, MainWindowViewModel.LocalRemovedText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.NotInstalled, MainWindowViewModel.LocalRemovedText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.FilesMissing, MainWindowViewModel.LocalNeedsAttentionText, StatusColors.Disrupted)]
+    [Arguments(LocalServerCondition.Interrupted, MainWindowViewModel.LocalNeedsAttentionText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.Unreadable, MainWindowViewModel.LocalNeedsAttentionText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.PortTaken, MainWindowViewModel.LocalPortTakenText, StatusColors.InProgress)]
+    [Arguments(LocalServerCondition.Restarting, MainWindowViewModel.LocalRestartingText, StatusColors.Pending)]
+    public async Task LocalServerAlertFor_names_a_gone_or_changing_installation_without_start(
+            LocalServerCondition condition, string text, string tone) {
         var alert = MainWindowViewModel.LocalServerAlertFor(updateFailed: false, starting: false, stopped: true, canStart: true, condition);
 
         await Assert.That(alert!.Text).IsEqualTo(text);
+        await Assert.That(alert.Tone).IsEqualTo(tone);
         await Assert.That(alert.Recovery).IsEqualTo(RailRecovery.None);
         await Assert.That(alert.Detail).IsEqualTo(condition.Explanation);
     }

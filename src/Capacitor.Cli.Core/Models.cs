@@ -1167,6 +1167,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(FindRepoForRemoteRequest))]
 [JsonSerializable(typeof(BorrowProbeResult))]
 [JsonSerializable(typeof(SendInputCommand))]
+[JsonSerializable(typeof(SendInputAcked))]
 [JsonSerializable(typeof(SendRawInputCommand))]
 [JsonSerializable(typeof(ResizeTerminalCommand))]
 [JsonSerializable(typeof(PrepareEvalCommand))]
@@ -1328,6 +1329,15 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.PublishArtefactBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.PublishArtefactVersionBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.SetArtefactVisibilityBody))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.UserSurfacesDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.UserCandidatesDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.StartPassBody))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.StartPassResponseDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassRefusalDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.ApprovePassBody))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassApprovalResponseDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.DeclareLooseEndBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.VisibilityOptionsResponse))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupRequest))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupResponse))]
@@ -2362,7 +2372,10 @@ public readonly record struct DaemonConnect(
         bool                                        SupportsResumeInPlace = false,
         // Relays a deny's Message to the agent. False from a daemon predating it; the server then
         // tells the person their reason was not delivered.
-        bool                                        SupportsDenyMessage = false
+        bool                                        SupportsDenyMessage = false,
+        // Answers each SendInput carrying a dispatch id with SendInputAcked once taken, and ignores a resend
+        // of one already taken. An older server ignores it and sends each input once.
+        bool                                        SupportsInputAcks = false
     );
 
 public sealed record UnattendedVendorCapability(

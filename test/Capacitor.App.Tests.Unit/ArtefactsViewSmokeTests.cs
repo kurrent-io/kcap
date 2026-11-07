@@ -18,8 +18,9 @@ public class ArtefactsViewSmokeTests {
     static IEnumerable<string> Texts(Window window) =>
         window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text ?? "");
 
-    /// The right pane swaps the reader's prompt for the page viewer. A page that is not found never reaches
-    /// Ready, so no NativeWebView is built under the headless platform.
+    /// The right pane swaps the reader's prompt for the page viewer, and with no documents to list the viewer
+    /// takes the whole width. A page that is not found never reaches Ready, so no NativeWebView is built under
+    /// the headless platform.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task An_opened_page_shows_the_viewer_in_the_right_pane() => RunOnUiAsync(async () => {
@@ -46,6 +47,8 @@ public class ArtefactsViewSmokeTests {
         await Assert.That(Texts(window)).Contains("This page is gone, or you can't see it.");
         await Assert.That(Texts(window).Any(t => t == "No documents yet.")).IsFalse();
         await Assert.That(window.GetVisualDescendants().OfType<NativeWebView>().Any()).IsFalse();
+        var viewer = window.GetVisualDescendants().OfType<PageViewer>().Single();
+        await Assert.That(viewer.Bounds.Width).IsEqualTo(window.Bounds.Width);
         window.Close();
         await vm.TeardownAsync();
     });

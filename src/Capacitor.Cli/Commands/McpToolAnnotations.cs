@@ -21,6 +21,9 @@ record McpToolAnnotations(bool? ReadOnlyHint = null, bool? DestructiveHint = nul
     /// <summary>Replaces a whole list, minting identities for entries that carry none, so a repeat is not a no-op.</summary>
     public static readonly McpToolAnnotations Replace = new(ReadOnlyHint: false, DestructiveHint: true, IdempotentHint: false, OpenWorldHint: false);
 
+    /// <summary>Delivers something to another person, who reads it on their own.</summary>
+    public static readonly McpToolAnnotations Send = new(ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: false, OpenWorldHint: true);
+
     /// <summary>Starts or messages a separate hosted agent that then acts on its own.</summary>
     public static readonly McpToolAnnotations Launch = new(ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: false, OpenWorldHint: true);
 }

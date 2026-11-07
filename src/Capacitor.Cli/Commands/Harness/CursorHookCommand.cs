@@ -485,24 +485,6 @@ public sealed class CursorHookCommand(
                 return EmptyOrNull();
             }
 
-            // Ordering guard: if a transient drain failure left this session's backlog in place,
-            // spool the fresh event so an earlier queued event (e.g. sessionStart) is not overtaken.
-            if (sessionId is not null && mapping.SpoolOnFailure && spool.HasBacklog(sessionId)) {
-                spool.Append(sessionId, mapping.RouteSegment, normalized);
-                return EmptyOrNull();
-            }
-
-            if (BudgetExpired()) {
-                // Drain consumed the budget; preserve the fresh event so the
-                // next invocation can still deliver it. Without this the new
-                // canonical event would be lost when the spool replay backlog
-                // is large or the server is slow.
-                if (mapping.SpoolOnFailure && sessionId is not null) {
-                    spool.Append(sessionId, mapping.RouteSegment, normalized);
-                }
-                return EmptyOrNull();
-            }
-
             // For sessionEnd the server's HandleSessionEnd clears the per-session
             // CursorAttachmentsFifo before transcript_line normalization could
             // consume any still-queued beforeSubmitPrompt attachments. Drain the
@@ -514,14 +496,48 @@ public sealed class CursorHookCommand(
                                && sessionId is not null
                                && !string.IsNullOrEmpty(transcriptPath);
 
-            if (drainBeforePost && !BudgetExpired()) {
-                // Task 10 (D2): this IS the sessionEnd pre-end drain — the hook is the
-                // last component that will ever observe this transcript, so a valid
-                // newline-less final record must be consumed rather than held forever.
-                await CursorTranscriptBackfill.RunAsync(
+            // Ordering guard: if a transient drain failure left this session's backlog in place,
+            // spool the fresh event so an earlier queued event (e.g. sessionStart) is not overtaken.
+            if (sessionId is not null && mapping.SpoolOnFailure && spool.HasBacklog(sessionId)) {
+                spool.Append(sessionId, mapping.RouteSegment, normalized);
+                if (drainBeforePost) FlagTailForImport(sessionId, firstUnsent: null);
+                return EmptyOrNull();
+            }
+
+            if (BudgetExpired()) {
+                // Drain consumed the budget; preserve the fresh event so the
+                // next invocation can still deliver it. Without this the new
+                // canonical event would be lost when the spool replay backlog
+                // is large or the server is slow.
+                if (mapping.SpoolOnFailure && sessionId is not null) {
+                    spool.Append(sessionId, mapping.RouteSegment, normalized);
+                }
+                if (drainBeforePost) FlagTailForImport(sessionId!, firstUnsent: null);
+                return EmptyOrNull();
+            }
+
+            if (drainBeforePost) {
+                // The hard cap abandons this drain without awaiting it, so the flag goes down first and
+                // comes off once the drain has sent everything or put down the flag that says what it did not.
+                // Without a flag on disk, the hint is all that survives an abandoned drain, so it goes out now.
+                var transcriptSpool = new TranscriptSpool(config, clock.Time, Url);
+                var hinted          = !transcriptSpool.MarkNeedsImport(sessionId!, "session end: final drain did not finish", Environment.ProcessId);
+                if (hinted) PrintImportHint(sessionId!, "the transcript tail may not have been sent");
+
+                // Unless a connected watcher is still running, the hook is the last reader of this
+                // transcript, so a valid newline-less final record must be consumed rather than held forever.
+                var drained = await CursorTranscriptBackfill.RunAsync(
                     _markers,
                     client, Url, sessionId!, transcriptPath,
                     budget: BudgetExpired, clock.Time, ct, finalDrain: true);
+
+                // Only a watcher connected when the end lands is stopped and sends what is left, and a
+                // running one may be disconnected with nothing on disk saying so: flag every tail left.
+                // A line redaction held gets no second try here: it can take about 1.4 s of the hook's
+                // 2 s, and overrunning spools the end instead.
+                // The provisional flag stays when the one saying what was left could not be written.
+                if (!drained.TailUnsent || FlagTailForImport(sessionId!, drained.FirstUnsentLine, hinted))
+                    transcriptSpool.ClearNeedsImport(sessionId!, Environment.ProcessId);
             }
 
             if (BudgetExpired()) {
@@ -971,6 +987,18 @@ public sealed class CursorHookCommand(
             }
         } catch { }
     }
+
+    bool FlagTailForImport(string sessionId, int? firstUnsent, bool hinted = false) {
+        var (what, reason) = firstUnsent is { } line
+            ? ($"line {line} and later were not sent", $"session end: line {line} and later not sent")
+            : ("the transcript tail may not have been sent", "session end: transcript tail may not have been sent");
+        if (!hinted) PrintImportHint(sessionId, what);
+
+        return new TranscriptSpool(config, clock.Time, Url).MarkNeedsImport(sessionId, reason);
+    }
+
+    static void PrintImportHint(string sessionId, string what) =>
+        Console.Error.WriteLine($"Cursor final drain for {sessionId}: {what}; to send it, run: kcap import --session {sessionId}");
 
     /// <summary>True when the server took the post, false when a later drain should retry it, and null
     /// when the server refused it for good — a status <see cref="HookSpool.IsRetryable"/> rejects, such as
