@@ -1337,6 +1337,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.ApprovePassBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassApprovalResponseDto))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassDto))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Http.DeclareLooseEndBody))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.VisibilityOptionsResponse))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupRequest))]
 [JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupResponse))]

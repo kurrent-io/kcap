@@ -11,6 +11,9 @@ sealed class FakePassesApi : IPassesApi {
 
     public PassSendResult SendResult { get; init; } = new PassSendResult.Sent(new("p1", "sent", [], null, null, null));
 
+    /// Answered to the first sends in order, before <see cref="SendResult"/> answers the rest.
+    public ConcurrentQueue<PassSendResult> FirstSendResults { get; init; } = new();
+
     public PassAnswerResult AnswerResult { get; init; } =
         new PassAnswerResult.Answered(new("sent", "sent", [], null, null));
 
@@ -19,6 +22,11 @@ sealed class FakePassesApi : IPassesApi {
     public ConcurrentQueue<(string PassId, string Via)> Approved { get; } = new();
 
     public ConcurrentQueue<string> Declined { get; } = new();
+
+    public ConcurrentQueue<DeclareLooseEndBody> FollowUps { get; } = new();
+
+    /// Thrown by the follow-up declaration once it is recorded.
+    public Exception? FollowUpFails { get; init; }
 
     public Exception? OfferedFails { get; init; }
 
@@ -42,7 +50,15 @@ sealed class FakePassesApi : IPassesApi {
     public Task<PassSendResult> SendAsync(StartPassBody body, CancellationToken ct = default) {
         Sent.Enqueue(body);
 
-        return SendFails is { } fails ? Task.FromException<PassSendResult>(fails) : Task.FromResult(SendResult);
+        if (SendFails is { } fails) return Task.FromException<PassSendResult>(fails);
+
+        return Task.FromResult(FirstSendResults.TryDequeue(out var first) ? first : SendResult);
+    }
+
+    public Task DeclareFollowUpAsync(DeclareLooseEndBody body, CancellationToken ct = default) {
+        FollowUps.Enqueue(body);
+
+        return FollowUpFails is { } fails ? Task.FromException(fails) : Task.CompletedTask;
     }
 
     public Task<PassAnswerResult> ApproveAsync(string passId, string via, CancellationToken ct = default) {
