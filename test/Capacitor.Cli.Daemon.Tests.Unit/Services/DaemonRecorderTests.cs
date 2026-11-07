@@ -444,6 +444,35 @@ public class DaemonRecorderTests {
         await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
     }
 
+    /// <summary>Another daemon took the claim while this one's agent was starting. The launch failing here lets go of
+    /// nothing that daemon holds.</summary>
+    [Test]
+    public async Task A_launch_that_never_ran_leaves_a_claim_another_daemon_took() {
+        await using var recorder = NewRecorder();
+        var source = Source(Transcript(Prompt));
+        await Assert.That(await recorder.ClaimAsync(source, CancellationToken.None)).IsTrue();
+
+        Claims.Release(source.Key);
+        Claims.TryTake(source.Key, "daemon-b", isHosted: true);
+        recorder.ReleaseClaim(source);
+
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo("daemon-b");
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>A claim that can't be read may be this daemon's own, and a launch that never ran lets go of it.</summary>
+    [Test]
+    public async Task A_launch_that_never_ran_lets_go_of_a_claim_that_cannot_be_read() {
+        await using var recorder = NewRecorder();
+        var source = Source(Transcript(Prompt));
+        await recorder.ClaimAsync(source, CancellationToken.None);
+
+        await File.WriteAllTextAsync(Claims.ClaimFile(source.Key), "garbled");
+        recorder.ReleaseClaim(source);
+
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+    }
+
     /// <summary>With no claim, a host's recorder reads its source as lost and silently records nothing, so the source
     /// must not reach it. Here the claim is another daemon's, still beating.</summary>
     [Test]
@@ -1175,6 +1204,28 @@ public class DaemonRecorderTests {
 
         await Assert.That(Transport.Batches).IsEmpty();
         await Assert.That(MarkedForImport).IsFalse();
+    }
+
+    /// <summary>A disable lets go of this daemon's claims and no other's. Stuck short of its next look, the recorder has not
+    /// yet seen that another daemon took its source.</summary>
+    [Test]
+    public async Task A_disable_leaves_a_claim_another_daemon_took() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var stuck  = new Stuck();
+        var source = Source(Transcript(Prompt, Reply));
+        await using var recorder = NewRecorder(time: time, prepare: stuck.Prepare);
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await stuck.Entered.WithinDeadlineAsync("the recorder to get stuck");
+
+        Claims.Release(source.Key);
+        Claims.TryTake(source.Key, "daemon-b", isHosted: true);
+        var disable = recorder.DisableSessionAsync(Session, CancellationToken.None);
+        time.Advance(DaemonRecorder.DisableBound);
+        await disable.WithinDeadlineAsync("the answer");
+        stuck.Release();
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+
+        await Assert.That(Claims.Holder(source.Key)).IsEqualTo("daemon-b");
     }
 
     /// <summary>A source that wakes long after the disable can reach the spool between its check and its write.</summary>

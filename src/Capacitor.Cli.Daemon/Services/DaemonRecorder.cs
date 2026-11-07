@@ -398,7 +398,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         foreach (var tracked in held) {
             if (tracked.Running) {
                 ended.Add(_host.Value.AbandonAsync(tracked.Source.Key));
-                _claims.Release(tracked.Source.Key);
+                LetGoOfClaim(tracked.Source.Key);
                 _list.Remove(tracked.Source.Key);
             } else {
                 Forget(tracked);
@@ -849,9 +849,15 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var key = tracked.Source.Key;
 
         _sources.TryRemove(key, out var _);
-        _claims.Release(key);
+        LetGoOfClaim(key);
         _list.Remove(key);
         tracked.Settled.TrySetResult();
+    }
+
+    // A claim naming another daemon stays: that daemon took the source and may be recording it. One that can't be read
+    // may be this daemon's, and left behind it would hold the source until it went stale.
+    void LetGoOfClaim(string key) {
+        if (_claims.Keeps(key)) _claims.Release(key);
     }
 
     /// <summary>A recorder's git and gh run on this process's PATH, which is the user's terminal PATH on a Mac and the
