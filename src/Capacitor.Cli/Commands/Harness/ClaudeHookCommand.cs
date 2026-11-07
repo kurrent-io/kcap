@@ -926,9 +926,9 @@ public sealed class ClaudeHookCommand(
                 return 0;
             }
 
-            // The coordination-notices and next-work capabilities go on postBody only, never on the
-            // spooled `body`: a replay renders nothing, so a spooled capability would let the server
-            // mark notices delivered, or run the feed, for output no agent ever sees. Each opt-out is
+            // The capabilities go on postBody only, never on the spooled `body`: a replay renders
+            // nothing and arms no prompt, so a spooled capability would let the server mark notices
+            // delivered, run the feed, or route passes for output no agent ever sees. Each opt-out is
             // read from the effective profile, which also covers KCAP_URL users. The feed's guidance
             // names kcap-workitems tools, so without them it is neither requested nor rendered.
             var audience                    = SessionStartAudience.From(hosted);
@@ -936,15 +936,16 @@ public sealed class ClaudeHookCommand(
             var nextWorkDisabled            = activeProfile?.DisableNextWorkNudge is true
                                            || !WorkItemsNudgeEmitter.ToolsRegisteredFor(HarnessId.Claude, harnesses, audience: audience);
             JsonNode? capabilityNode = null;
-            if (!coordinationNoticesDisabled || !nextWorkDisabled) {
-                try {
-                    capabilityNode = JsonNode.Parse(body);
-                    if (capabilityNode is not null && !coordinationNoticesDisabled)
+            try {
+                capabilityNode = JsonNode.Parse(body);
+                if (capabilityNode is not null) {
+                    capabilityNode["pass_notices"] = AotJsonString(ClaudePassNotices.CapabilityVersion);
+                    if (!coordinationNoticesDisabled)
                         capabilityNode["coordination_notices"] = AotJsonString(CoordinationNoticesEmitter.CapabilityVersion);
-                } catch {
-                    // Best effort — never fail the hook building the capability field.
-                    capabilityNode = null;
                 }
+            } catch {
+                // Best effort — never fail the hook building the capability field.
+                capabilityNode = null;
             }
 
             // kick off the team-memory index fetch in PARALLEL with the hook POST so
@@ -1030,6 +1031,13 @@ public sealed class ClaudeHookCommand(
                 responseNode = JsonNode.Parse(responseBody);
             } catch {
                 // Best effort — envelope is optional; don't fail the hook.
+            }
+
+            // Every start re-decides: a resume whose ack drops the field must stop the prompts asking.
+            if (sessionId is not null) {
+                var passNotices = new PassNoticeSessions(config);
+                if (ClaudePassNotices.AckDelivers(responseNode)) passNotices.Arm(sessionId, Url);
+                else passNotices.Disarm(sessionId);
             }
 
             // Plan-content POST from response-resolved slug (only if not already injected).
@@ -1133,6 +1141,7 @@ public sealed class ClaudeHookCommand(
                 EvictPolicyState(sessionId);
                 new PlanReadNudgeLedger(config).Evict(sessionId.Replace("-", ""));
                 new TaskListNudgeLedger(config).Evict(sessionId.Replace("-", ""));
+                new PassNoticeSessions(config).Disarm(sessionId.Replace("-", ""));
             }
 
             // Ordering guard: if this session's backlog couldn't fully drain, spool the fresh

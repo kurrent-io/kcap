@@ -1487,6 +1487,29 @@ public class ClaudeHookCommandTests {
         await Assert.That(spooledBody!["coordination_notices"]).IsNull();
     }
 
+    // ── Prompt-time pass notices: declared at SessionStart, asked at each prompt the ack armed ───
+
+    static string StartPayload(string sid, TempDir absent, string source = "startup") =>
+        $$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(absent)}}","source":"{{source}}"}""";
+
+    /// <summary>The capability rides the live start whatever the other opt-outs say, and never the spooled replay.</summary>
+    [Test, NotInParallel]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task SessionStart_DeclaresPassNoticesCapability(bool otherCapabilitiesOff) {
+        using var absent = new TempDir();
+        var profile = otherCapabilitiesOff ? new Profile { DisableCoordinationNotices = true, DisableNextWorkNudge = true } : null;
+        using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError, profile);
+
+        await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(Guid.NewGuid().ToString("N"), absent)));
+
+        var posted = fx.Sent.Single(s => s.StartsWith("/hooks/session-start|", StringComparison.Ordinal));
+        await Assert.That(JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!["pass_notices"]?.GetValue<string>()).IsEqualTo("v1");
+
+        var spooled = JsonNode.Parse(JsonNode.Parse((await File.ReadAllTextAsync(fx.SpoolFiles.Single())).Split('\n')[0])!["body"]!.GetValue<string>())!;
+        await Assert.That(spooled["pass_notices"]).IsNull();
+    }
+
     /// <summary>Redirects <see cref="Console.Out"/> to a buffer for the duration of
     /// <paramref name="action"/> (a fresh <see cref="StringWriter"/> with <c>NewLine = "\n"</c> so
     /// the captured bytes are platform-independent), restoring the original writer even if
