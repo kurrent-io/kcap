@@ -7,6 +7,9 @@ namespace Capacitor.Cli.Daemon.Services;
 internal sealed record RecordingScope(bool LeftToHooks, Func<string?, bool> MayImport) {
     public static readonly RecordingScope Open = new(false, static _ => true);
 
-    /// <summary>A config that can't be read may exclude anything: unknown lists are not absent lists.</summary>
-    public static readonly RecordingScope Unknown = new(true, static _ => false);
+    /// <summary>A config that can't be read may exclude anything: unknown lists are not absent lists. Nothing is decided
+    /// about a source under this, and a config that reads at the next boot does.</summary>
+    public static readonly RecordingScope Unknown = new(true, static _ => false) { Readable = false };
+
+    public bool Readable { get; private init; } = true;
 }

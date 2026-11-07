@@ -3747,8 +3747,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
-    /// <summary>Whether this daemon records hosted sessions now, which is what a hook is told.</summary>
-    internal bool RecordsHostedSessions => _recorder?.Enabled == true;
+    /// <summary>Whether this daemon answers a hook's hand-over.</summary>
+    internal bool RecordingIsOn => _recorder?.IsOn == true;
 
     /// <summary>Claims a Claude session whose id is known ahead of its process. Null when this daemon won't record it, and
     /// the launch goes on as it always has: its hook hands over the session once there is an id, or starts a watcher.</summary>

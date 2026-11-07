@@ -61,11 +61,10 @@ public class AgentOrchestratorRecordingTests {
                 },
                 recorder: config => {
                     Config = config;
-                    var probe = new RecordingProbe();
-                    if (serverRecords is { } answer) probe.Report(answer);
+                    if (serverRecords is { } answer) Probe.Report(answer);
 
                     return new DaemonRecorder(
-                        config, new CapacitorServer(config.ServerUrl, config.ConfigRoot, Resolutions.None(config.ConfigRoot)), probe,
+                        config, new CapacitorServer(config.ServerUrl, config.ConfigRoot, Resolutions.None(config.ConfigRoot)), Probe,
                         () => {
                             Connections++;
 
@@ -82,6 +81,7 @@ public class AgentOrchestratorRecordingTests {
         public AgentOrchestrator Orch { get; }
         public DaemonConfig Config { get; private set; } = null!;
         public int Connections { get; private set; }
+        public RecordingProbe Probe { get; } = new();
 
         public RecorderClaims Claims => new(WatcherPaths.FromEnvironment(Config.ConfigRoot).Directory, TimeProvider.System);
 
@@ -96,8 +96,11 @@ public class AgentOrchestratorRecordingTests {
         public bool MarkedForImport => new TranscriptSpool(Config.ConfigRoot, TimeProvider.System, Config.ServerUrl).NeedsImport(LeftSession);
 
         /// <summary>What a hard-killed daemon leaves of a session in <paramref name="cwd"/>, whose agent isn't coming back.</summary>
-        public void LeaveBehind(string cwd) =>
+        public void LeaveBehind(string cwd) {
             List.TryAdd(new RecordedSource("gone", LeftSession, null, Path.Combine(cwd, "left.jsonl"), "claude", cwd, false));
+            Directory.CreateDirectory(ClaimsDirectory);
+            Claims.TryTake(LeftSession, Config.Name, isHosted: true);
+        }
 
         public string Projects => new ClaudePaths(Config.Home, null).Projects;
 
@@ -234,6 +237,9 @@ public class AgentOrchestratorRecordingTests {
         await f.Orch.ResumeOnBootAsync(CancellationToken.None).WithinDeadlineAsync("the boot's resumes");
 
         await Assert.That(f.MarkedForImport).IsFalse();
+        await Assert.That(f.Connections).IsEqualTo(0);
+        await Assert.That(f.ListedSources.Count).IsEqualTo(1);
+        await Assert.That(f.ClaimFiles).IsEmpty();
     }
 
     /// <summary>The daemon takes a session ahead of its hooks only where no hook could refuse it: with an exclusion
@@ -445,19 +451,18 @@ public class AgentOrchestratorRecordingTests {
         await Assert.That(f.Factory.Runtime).IsNotNull();
         await Assert.That(f.ClaimFiles).IsEmpty();
         await Assert.That(f.Connections).IsEqualTo(0);
-        await Assert.That(f.Orch.RecordsHostedSessions).IsFalse();
-        await Assert.That(LocalControlCapabilities.Advertised(f.Orch.RecordsHostedSessions)).IsEqualTo(LocalControlCapabilities.Current);
+        await Assert.That(f.Orch.RecordingIsOn).IsFalse();
+        await Assert.That(LocalControlCapabilities.Advertised(f.Orch.RecordingIsOn)).IsEqualTo(LocalControlCapabilities.Current);
     }
 
     [Test]
-    public async Task No_claim_and_no_capability_on_a_server_without_recording() {
+    public async Task No_claim_on_a_server_without_recording() {
         await using var f = new Fixture(Tmp, new StartingFactory(), serverRecords: false);
 
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 
         await Assert.That(f.ClaimFiles).IsEmpty();
         await Assert.That(f.Connections).IsEqualTo(0);
-        await Assert.That(f.Orch.RecordsHostedSessions).IsFalse();
     }
 
     /// <summary>The server's answer can be a while, and no launch waits for it: this one goes on as it always has, and its
@@ -469,15 +474,70 @@ public class AgentOrchestratorRecordingTests {
         await f.Orch.HandleLaunchAgentForTest(f.Launch()).WithinDeadlineAsync("the launch");
 
         await Assert.That(f.ClaimFiles).IsEmpty();
-        await Assert.That(f.Orch.RecordsHostedSessions).IsFalse();
     }
 
     [Test]
     public async Task A_recording_daemon_advertises_it() {
         await using var f = new Fixture(Tmp, new StartingFactory());
 
-        await Assert.That(f.Orch.RecordsHostedSessions).IsTrue();
-        await Assert.That(LocalControlCapabilities.Advertised(f.Orch.RecordsHostedSessions)).Contains(RecordingIpc.Capability);
+        await Assert.That(LocalControlCapabilities.Advertised(f.Orch.RecordingIsOn)).Contains(RecordingIpc.Capability);
+    }
+
+    /// <summary>The capability says the frame gets an answer, and only the frame can say what this daemon holds.</summary>
+    [Test]
+    [Arguments(null)]
+    [Arguments(false)]
+    public async Task A_daemon_with_the_flag_on_advertises_it_whatever_its_server_said(bool? serverRecords) {
+        await using var f = new Fixture(Tmp, new StartingFactory(), serverRecords: serverRecords);
+
+        await Assert.That(LocalControlCapabilities.Advertised(f.Orch.RecordingIsOn)).Contains(RecordingIpc.Capability);
+    }
+
+    /// <summary>The main connection dropped, so the answer went with it while every source goes on. Nothing has been
+    /// decided, and the next hook after the probe answers hands over.</summary>
+    [Test]
+    public async Task A_hook_between_answers_is_told_not_yet() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), serverRecords: null);
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        var reply = await HandOverAsync(f, Handed(f));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.NotYet);
+        await Assert.That(f.ClaimFiles).IsEmpty();
+    }
+
+    /// <summary>A resume's first hook can beat its publish, and a refusal here would take a claim its restore is owed.</summary>
+    [Test]
+    public async Task A_hook_of_an_agent_not_here_yet_is_told_not_yet_between_answers() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), serverRecords: null);
+
+        var reply = await HandOverAsync(f, Handed(f, agentId: "nobody"));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.NotYet);
+    }
+
+    [Test]
+    public async Task A_hook_on_a_server_without_recording_is_refused() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), serverRecords: false);
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        var reply = await HandOverAsync(f, Handed(f));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
+    }
+
+    /// <summary>A daemon holding the source is the one thing a hook needs to know, and the server's answer has no say in it.</summary>
+    [Test]
+    public async Task A_source_held_here_is_taken_between_answers() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        await WaitHarness.PollUntilAsync(() => f.Transport.Connects == 1);
+        var session = SessionIds.Canonical(f.Factory.Context!.PinnedSessionId)!;
+
+        f.Probe.Forget();
+        var reply = await HandOverAsync(f, Handed(f, session: session, subagent: null));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Recording);
     }
 
     static async Task<LocalFrame> AnswerAsync(Func<Stream, Task> handle) {

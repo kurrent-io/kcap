@@ -17,6 +17,9 @@ public static class RecordingIpc {
     public const string Finished  = "finished";
     public const string NotHeld   = "not_held";
 
+    /// <summary>The daemon's server hasn't said whether it can stop a source, so nothing is decided about this one.</summary>
+    public const string NotYet = "not_yet";
+
     /// <summary>The refusal of a source that isn't the asking agent's.</summary>
     public const string NotTheAgents = "not_the_agents";
 
@@ -34,6 +37,7 @@ public static class RecordingIpc {
             return await ExchangeAsync(store, daemonName, LocalFrame.RecordSource(json), ct) switch {
                 { Type: FrameType.RecordSourceAck, Text: Recording }    => RecordingHandOver.Taken,
                 { Type: FrameType.RecordSourceAck, Text: NotTheAgents } => RecordingHandOver.Disowned,
+                { Type: FrameType.RecordSourceAck, Text: NotYet }       => RecordingHandOver.Unanswered,
                 { Type: FrameType.RecordSourceAck }                     => RecordingHandOver.Declined,
                 _                                                       => RecordingHandOver.Unanswered,
             };

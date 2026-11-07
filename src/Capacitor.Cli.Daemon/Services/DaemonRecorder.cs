@@ -63,6 +63,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     readonly Lock _starting = new();
 
     IRecorderTransport? _transport;
+    Func<string, bool>? _agentIsLive;
     int _stopping;
     int _disposed;
 
@@ -118,9 +119,19 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             time, logger);
     }
 
-    /// <summary>Whether this daemon records hosted Claude now. Read on every use: the server's answer goes with its
-    /// connection, and a hook takes a source to a daemon only while this holds.</summary>
-    public bool Enabled => _config.RecordHostedClaude && _serverRecords.Answer == true;
+    /// <summary>Whether this daemon takes new sources now. Read on every use: the server's answer goes with its connection,
+    /// and what is already recording carries on without it.</summary>
+    public bool Enabled => IsOn && _serverRecords.Answer == true;
+
+    /// <summary>Whether recording is switched on here at all, whatever the server has said.</summary>
+    public bool IsOn => _config.RecordHostedClaude;
+
+    /// <summary>Recording is on and the server hasn't answered, or its answer went with a connection. Nothing that turns
+    /// on what it supports can be decided yet, and the next answer settles it.</summary>
+    public bool Undecided => IsOn && _serverRecords.Answer is null;
+
+    /// <summary>Whether <paramref name="key"/> is this daemon's to record, and not on its way out.</summary>
+    public bool Holds(string key) => _sources.TryGetValue(key, out var tracked) && !IsLeaving(tracked);
 
     /// <summary>The keys being recorded now.</summary>
     internal IReadOnlyCollection<string> ActiveKeys => _host.IsValueCreated ? _host.Value.ActiveKeys : [];
@@ -232,7 +243,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// watcher holds it now. With recording off it lets all of it go, because a claim nobody is coming back for would
     /// keep a resumed session's hooks from starting a watcher. So it does when the capture scope is left to hooks: a
     /// source that was in scope when its hook handed it over needn't be now, and its next hook hands it over again. With
-    /// no answer from the server by <see cref="AnswerWait"/> nothing is decided, and the next boot has the list.
+    /// no answer from the server by <see cref="AnswerWait"/> nothing is decided, and the answer does this when it lands.
     /// <see cref="SettleRestoredAsync"/> finishes what this lets go of.</summary>
     /// <param name="currentScope">Read only with something to pick up.</param>
     public async Task RestoreAsync(Func<Task<RecordingScope>> currentScope, CancellationToken ct) {
@@ -242,13 +253,36 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         if (await ServerRecordsAsync(ct) is not { } records) {
             LogRestoreUnanswered(left.Count);
 
+            var closing = _closing.Token;
+            _ = Task.Run(() => RestoreOnAnswerAsync(currentScope, closing), CancellationToken.None);
+
             return;
         }
 
+        await RestoreLeftAsync(left, records, currentScope, ct);
+    }
+
+    async Task RestoreLeftAsync(IReadOnlyList<RecordedSource> left, bool records, Func<Task<RecordingScope>> currentScope, CancellationToken ct) {
         var scope   = await currentScope();
         var restore = records && !scope.LeftToHooks;
 
         await Task.WhenAll(left.Select(source => restore ? RestoreOneAsync(source, ct) : LetGoAsync(source, scope, ct)));
+    }
+
+    // The probe keeps asking past the boot's wait, so the answer can land long after the settling.
+    async Task RestoreOnAnswerAsync(Func<Task<RecordingScope>> currentScope, CancellationToken closing) {
+        try {
+            var records = await _serverRecords.Answered.WaitAsync(closing);
+            if (Volatile.Read(ref _stopping) != 0) return;
+
+            await RestoreLeftAsync(_list.Load(), records, currentScope, closing);
+
+            if (Volatile.Read(ref _agentIsLive) is { } agentIsLive) await SettleRestoredAsync(agentIsLive);
+        } catch (OperationCanceledException) {
+            // The daemon is closing, and the next boot has the list.
+        } catch (Exception ex) {
+            LogLateRestoreFailed(ex);
+        }
     }
 
     async Task<bool?> ServerRecordsAsync(CancellationToken ct) {
@@ -265,6 +299,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// of that has no agent back has no hook coming and nothing to drain it, so it is marked for import, which is all that
     /// says its tail was lost.</summary>
     public async Task SettleRestoredAsync(Func<string, bool> agentIsLive) {
+        Volatile.Write(ref _agentIsLive, agentIsLive);
+
         foreach (var tracked in _sources.Values.Where(source => source.Restored && !agentIsLive(source.Source.AgentId)))
             _ = FinishQuietlyAsync(tracked.Source.Key, CancellationToken.None);
 
@@ -288,8 +324,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         foreach (var tracked in _sources.Values) {
             if (stuck.Contains(tracked.Source.Key) || !tracked.Running) continue;
 
-            if (keeps(tracked.Source.AgentId)) tracked.Settled.TrySetResult();
-            else Forget(tracked);
+            if (keeps(tracked.Source.AgentId)) {
+                if (tracked.Drained) _list.TryAdd(tracked.Source with { Drained = true });
+                tracked.Settled.TrySetResult();
+            } else {
+                Forget(tracked);
+            }
         }
     }
 
@@ -364,7 +404,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         if (_sources.ContainsKey(source.Key)) return;
 
         _claims.ReleaseIfHeldBy(source.Key, _config.Name);
-        _letGo.Enqueue((source, scope.MayImport(source.Cwd)));
+
+        if (scope.Readable) _letGo.Enqueue((source, scope.MayImport(source.Cwd)));
+        else LogScopeUnreadable(source.Key);
     }
 
     async Task SettleLetGoAsync(RecordedSource source, bool mayImport, Func<string, bool> agentIsLive) {
@@ -373,7 +415,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         // A hook got here first, and the entry is its recorder's.
         if (_sources.ContainsKey(source.Key)) return;
 
-        if (mayImport && !agentIsLive(source.AgentId) && !_liveness.PidAlive(source.Key)) MarkForImport(source);
+        if (mayImport && !source.Drained && !agentIsLive(source.AgentId) && !_liveness.PidAlive(source.Key)) MarkForImport(source);
 
         _list.Remove(source.Key);
     }
@@ -413,7 +455,11 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             var outcome = await TakeOnceAsync(source.Key);
 
             if (outcome is ClaimOutcome.Taken) {
-                Start(_sources[source.Key] = new Tracked(source) { Restored = true });
+                // What it sends from here is unsent again, so a kill behind this can't read as drained.
+                var resumed = source with { Drained = false };
+                if (source.Drained) _list.TryAdd(resumed);
+
+                Start(_sources[source.Key] = new Tracked(resumed) { Restored = true });
 
                 return;
             }
@@ -480,6 +526,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     // On the source's own loop, so nothing here waits for the source. A failed attempt is retried, and nothing is decided.
     internal void OnAttemptEnded(RecorderAttemptEnded ended) {
         if (!ended.SourceEnded || !_sources.TryGetValue(ended.Source.Key, out var tracked)) return;
+
+        if (ended.Failure is null && !ended.LostClaim) tracked.Drained = true;
 
         if (Volatile.Read(ref _stopping) != 0 && !ended.LostClaim) return;
 
@@ -578,6 +626,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         /// <summary>Its agent has exited and its finish has been asked for.</summary>
         public bool AgentFinished { get; set; }
 
+        /// <summary>Its final drain ended without a failure.</summary>
+        public bool Drained { get; set; }
+
         public TaskCompletionSource Settled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
@@ -593,8 +644,14 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Taking the claim on {Key} failed")]
     partial void LogClaimFailed(Exception ex, string key);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "{Count} recorded sources are left for the next boot: the server has not said whether it can stop one")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Count} recorded sources are waiting: the server has not said whether it can stop one")]
     partial void LogRestoreUnanswered(int count);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Picking up what the last daemon left failed once the server answered")]
+    partial void LogLateRestoreFailed(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Key} is left for the next boot: the capture scope can't be read, so nothing can say whether it may be imported")]
+    partial void LogScopeUnreadable(string key);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "No claim on {Key} ahead of its launch: something else has its key, and its hook decides")]
     partial void LogClaimGaveUp(string key);

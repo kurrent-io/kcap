@@ -745,9 +745,16 @@ internal partial class AgentOrchestrator {
     }
 
     async Task<string> RecordHandedSourceAsync(RecordSourceDto source, CancellationToken ct) {
-        if (_recorder is not { Enabled: true } recorder || !IsClaude(source.Vendor)
-         || !_agents.TryGetValue(source.AgentId, out var agent) || agent.IsPrivate || !IsClaude(agent.Vendor) || agent.IsCleanupStarted
-         || SessionIds.Canonical(source.SessionId) is not { } session) return RecordingIpc.Refused;
+        if (_recorder is not { } recorder || !IsClaude(source.Vendor) || SessionIds.Canonical(source.SessionId) is not { } session) return RecordingIpc.Refused;
+
+        var handed = new RecordedSource(source.AgentId, session, SessionIds.Canonical(source.SubagentId), source.TranscriptPath, "claude", source.Cwd, source.SkipTitle);
+
+        // A source held here stays this daemon's whatever its server last said, and a hook told otherwise would take its
+        // claim and start a second recorder. Short of that, no answer from the server decides nothing.
+        if (recorder.Holds(handed.Key)) return RecordingIpc.Recording;
+        if (recorder.Undecided) return RecordingIpc.NotYet;
+
+        if (!recorder.Enabled || !_agents.TryGetValue(source.AgentId, out var agent) || agent.IsPrivate || !IsClaude(agent.Vendor) || agent.IsCleanupStarted) return RecordingIpc.Refused;
 
         var paths = ClaudePathsFor(agent.Account);
 
@@ -756,10 +763,7 @@ internal partial class AgentOrchestrator {
 
         if (RefusalOf(source, agent, session, paths, transcript.Project) is { } refusal) return Disown(agent, source, refusal);
 
-        var recording = await recorder.TryRecordAsync(
-            new RecordedSource(agent.Id, session, SessionIds.Canonical(source.SubagentId), transcript.Path, "claude", source.Cwd, source.SkipTitle), ct);
-
-        return recording ? RecordingIpc.Recording : RecordingIpc.Refused;
+        return await recorder.TryRecordAsync(handed with { TranscriptPath = transcript.Path }, ct) ? RecordingIpc.Recording : RecordingIpc.Refused;
     }
 
     string Disown(AgentInstance agent, RecordSourceDto source, string refusal) {

@@ -544,6 +544,83 @@ public class DaemonRecorderTests {
         await Assert.That(List.Load()).IsEmpty();
     }
 
+    /// <summary>With no verdict there's no mark, and dropping the entry would leave nothing to say a tail was lost. The
+    /// claim still goes, for the hooks of what resumes. A config that reads at the next boot decides.</summary>
+    [Test]
+    public async Task A_source_under_an_unreadable_config_waits_for_the_next_boot() {
+        var source = LeftBehind();
+
+        await using (var first = NewRecorder()) {
+            await first.RestoreAsync(() => Task.FromResult(RecordingScope.Unknown), CancellationToken.None);
+            await first.SettleRestoredAsync(_ => false);
+        }
+
+        await Assert.That(MarkedForImport).IsFalse();
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load().Select(left => left.Key)).IsEquivalentTo([source.Key]);
+
+        await using var second = NewRecorder();
+        await second.RestoreAsync(LeftToHooks(), CancellationToken.None);
+        await second.SettleRestoredAsync(_ => false);
+
+        await Assert.That(MarkedForImport).IsTrue();
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>Nothing is unsent, and a marker re-posts on every drain pass until it ages out.</summary>
+    [Test]
+    public async Task A_source_drained_at_a_graceful_stop_is_not_marked() {
+        var source = Source(Transcript(Prompt, Reply));
+
+        await using (var stopping = NewRecorder()) {
+            await stopping.TryRecordAsync(source, CancellationToken.None);
+            await stopping.StopAsync(_ => true, CancellationToken.None).WithinDeadlineAsync("the stop");
+        }
+
+        await Assert.That(List.Load().Single().Drained).IsTrue();
+
+        await using var next = NewRecorder();
+        await next.RestoreAsync(LeftToHooks(), CancellationToken.None);
+        await next.SettleRestoredAsync(_ => false);
+
+        await Assert.That(MarkedForImport).IsFalse();
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>A stuck source never reached its final drain, so its tail is what the mark is for.</summary>
+    [Test]
+    public async Task A_source_stuck_at_a_stop_is_marked() {
+        var stuck  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var source = Source(Transcript(Prompt, Reply));
+
+        await using (var stopping = NewRecorder(prepare: () => stuck.Task)) {
+            await stopping.TryRecordAsync(source, CancellationToken.None);
+            await stopping.StopAsync(_ => true, new CancellationToken(canceled: true)).WithinDeadlineAsync("the stop");
+            await Assert.That(List.Load().Single().Drained).IsFalse();
+
+            await using var next = NewRecorder();
+            await next.RestoreAsync(LeftToHooks(), CancellationToken.None);
+            await next.SettleRestoredAsync(_ => false);
+
+            await Assert.That(MarkedForImport).IsTrue();
+            stuck.SetResult();
+        }
+    }
+
+    /// <summary>The next tail is unsent again, so a kill behind this restore must not read as drained.</summary>
+    [Test]
+    public async Task A_restored_source_reads_as_undrained() {
+        var source = Source(Transcript(Prompt, Reply)) with { Drained = true };
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+
+        await Assert.That(List.Load().Single().Drained).IsFalse();
+    }
+
     /// <summary>The entry stays until then, so a kill ahead of the settling leaves the next boot the same decision.</summary>
     [Test]
     public async Task A_source_let_go_stays_on_the_list_until_the_settling() {
@@ -836,6 +913,66 @@ public class DaemonRecorderTests {
         await Assert.That(Connections).IsEqualTo(0);
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
         await Assert.That(List.Load().Select(left => left.Key)).IsEquivalentTo([source.Key]);
+    }
+
+    /// <summary>The probe goes on asking, so an answer can land long after the boot gave up on it, and a hard-killed
+    /// source's tail shouldn't have to wait for the next boot. One restore comes of it, however many answers follow.</summary>
+    [Test]
+    public async Task A_first_yes_after_the_boot_restores_once() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = LeftBehind();
+        var probe  = new RecordingProbe();
+        await using var recorder = NewRecorder(time: time, probe: probe);
+
+        var restore = recorder.RestoreAsync(InScope, CancellationToken.None);
+        time.Advance(DaemonRecorder.AnswerWait);
+        await restore.WithinDeadlineAsync("the restore");
+        await recorder.SettleRestoredAsync(_ => true);
+
+        probe.Report(true);
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Contains(source.Key) && Transport.Connects == 1);
+
+        probe.Forget();
+        probe.Report(true);
+        await Assert.That(Connections).IsEqualTo(1);
+        await Assert.That(Transport.ConnectAttempts).IsEqualTo(1);
+    }
+
+    /// <summary>The boot's settling ran long ago, and nothing else ends a source no agent came back for.</summary>
+    [Test]
+    public async Task A_late_restore_finishes_a_source_whose_agent_did_not_come_back() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = LeftBehind();
+        var probe  = new RecordingProbe();
+        await using var recorder = NewRecorder(time: time, probe: probe);
+
+        var restore = recorder.RestoreAsync(InScope, CancellationToken.None);
+        time.Advance(DaemonRecorder.AnswerWait);
+        await restore.WithinDeadlineAsync("the restore");
+        await recorder.SettleRestoredAsync(_ => false);
+
+        probe.Report(true);
+
+        await WaitHarness.PollUntilAsync(() => Transport.Detached.Contains(source.Key) && Claims.Read(source.Key) is RecorderClaimState.None && List.Load().Count == 0);
+    }
+
+    [Test]
+    public async Task A_late_no_lets_go_of_what_the_boot_left() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = LeftBehind();
+        var probe  = new RecordingProbe();
+        await using var recorder = NewRecorder(time: time, probe: probe);
+
+        var restore = recorder.RestoreAsync(InScope, CancellationToken.None);
+        time.Advance(DaemonRecorder.AnswerWait);
+        await restore.WithinDeadlineAsync("the restore");
+        await recorder.SettleRestoredAsync(_ => false);
+
+        probe.Report(false);
+
+        await WaitHarness.PollUntilAsync(() => Claims.Read(source.Key) is RecorderClaimState.None && List.Load().Count == 0);
+        await Assert.That(MarkedForImport).IsTrue();
+        await Assert.That(Connections).IsEqualTo(0);
     }
 
     [Test]

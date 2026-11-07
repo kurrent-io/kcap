@@ -57,7 +57,7 @@ public enum FrameType : byte {
     HandoffOutcomeQuery = 35, // Text = the successor's session id
     // In-place resume probe — one-shot; answered on ResumeProbeReply.
     ResumeProbe = 36, // Text = ResumeProbeRequestDto JSON
-    // Recording — one-shot, and sent only to a daemon advertising RecordingIpc.Capability.
+    // Recording — one-shot. RecordSource goes only to a daemon advertising RecordingIpc.Capability.
     RecordSource = 37, // Text = RecordSourceDto JSON; answered on RecordSourceAck
     FinishSource = 38, // Text = the source's key; answered on FinishSourceAck
     // daemon → client

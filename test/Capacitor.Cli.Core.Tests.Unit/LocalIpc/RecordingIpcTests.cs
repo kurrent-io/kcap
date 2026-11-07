@@ -48,6 +48,16 @@ public class RecordingIpcTests {
         await Assert.That(sent).IsEqualTo(Source);
     }
 
+    /// <summary>Its server's answer went with a dropped connection, and its sources are still recording. A stale claim on
+    /// one of them is what a sleep leaves, so a hook reading this as a decline would start a second recorder.</summary>
+    [Test]
+    public async Task A_daemon_between_answers_gives_no_answer() {
+        await using var daemon = Daemon(RecordingIpc.Capability);
+        daemon.Answer = RecordingIpc.NotYet;
+
+        await Assert.That(await Record()).IsEqualTo(RecordingHandOver.Unanswered);
+    }
+
     [Test]
     public async Task A_refusal_declines() {
         await using var daemon = Daemon(RecordingIpc.Capability);

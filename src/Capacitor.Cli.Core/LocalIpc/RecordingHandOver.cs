@@ -12,6 +12,7 @@ public enum RecordingHandOver {
     /// <summary>The daemon is up and says the source isn't the asking agent's, so a claim on its key may be another agent's.</summary>
     Disowned,
 
-    /// <summary>No daemon answered in time. Down is how a daemon restarts, so its catch-up may still be coming.</summary>
+    /// <summary>No daemon answered in time, or one that can't say yet: down is how a daemon restarts, and one between
+    /// answers from its server is still recording. Either way its catch-up may be coming.</summary>
     Unanswered,
 }
