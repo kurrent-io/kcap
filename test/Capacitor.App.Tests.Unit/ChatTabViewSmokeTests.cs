@@ -2492,6 +2492,36 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// Page Up and Page Down typed in the composer page the transcript and leave focus in the
+    /// composer; paging back down to the end resumes following.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Paging_from_the_composer_scrolls_the_transcript() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            await host.LoadAsync(Tmp.CreateFile("page-composer.jsonl", Enumerable.Repeat(UserLine, 60).ToArray()));
+            host.Settle();
+            await Assert.That(host.AtBottom()).IsTrue();
+            var start = host.Scroll.Offset.Y;
+
+            host.Composer.Focus();
+            Dispatcher.UIThread.RunJobs();
+            host.Press(PhysicalKey.PageUp);
+            host.Settle();
+            host.Settle();
+
+            await Assert.That(host.AtBottom()).IsFalse();
+            await Assert.That(host.Scroll.Offset.Y).IsLessThan(start - host.Scroll.Viewport.Height / 2);
+            await Assert.That(host.Composer.IsFocused).IsTrue();
+
+            host.Press(PhysicalKey.PageDown);
+            host.Settle();
+            host.Settle();
+            await Assert.That(host.AtBottom()).IsTrue();
+            await host.CloseAsync();
+        });
+    }
+
     /// The chip strip's whole wiring: it is collapsed with an empty tray, a staged file renders a
     /// chip carrying its name and size, and the chip's own button takes that file back out.
     [Test]
