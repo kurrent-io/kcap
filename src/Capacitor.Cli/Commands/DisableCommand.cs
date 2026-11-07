@@ -28,8 +28,9 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
         var live      = stopped.AgentLive || RunsHostedAgent(sessionId);
         var confirmed = marked && stopped.Confirmed;
 
-        // "Recording stopped" is earned: everything that could record answered, and nothing's output goes on.
-        var sure    = confirmed && !live;
+        // "Recording stopped" is earned: everything that could record answered, nothing's output goes on, and no other
+        // server holds what this deletion can't reach.
+        var sure    = confirmed && !live && stopped.OtherServer is null;
         var caveats = Caveats(stopped, markFailed);
         var exit    = 0;
 
@@ -102,7 +103,7 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
         });
 
         if (stopped.OtherServer is { } other)
-            caveats.Add($"The daemon that held this session sends to {other}, and nothing was deleted there. Run kcap disable under the profile for that server.");
+            caveats.Add($"A daemon that recorded this session or hosts its agent sends to {other}, and nothing was deleted there. Run kcap disable under the profile for that server.");
 
         return caveats;
     }

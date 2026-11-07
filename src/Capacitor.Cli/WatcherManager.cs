@@ -190,9 +190,14 @@ public sealed partial class WatcherManager(
         return new RecordingStopReport(
             OutcomeOf(answers.Select(answer => (answer.Daemon, answer.Answer.Outcome)).ToList()),
             AgentLive: answers.Any(answer => answer.Answer.AgentLive),
-            OtherServer: answers.FirstOrDefault(answer => answer.Daemon.Held && IsAnotherServer(answer.Answer.Server)).Answer?.Server,
+            OtherServer: answers.FirstOrDefault(answer => HadTheSession(answer.Daemon, answer.Answer) && IsAnotherServer(answer.Answer.Server)).Answer?.Server,
             Unreadable: keys is null || known is null);
     }
+
+    // A claim, a stop it made or an agent it hosts: a daemon under another config root has no claim here, and its answer is
+    // all that says the session reached its server.
+    static bool HadTheSession(AskedDaemon daemon, RecordingDisableAnswer answer) =>
+        daemon.Held || answer.AgentLive || answer.Outcome is RecordingDisable.Stopped or RecordingDisable.SendInFlight or RecordingDisable.StillStopping;
 
     // A daemon a claim names that hasn't answered may be recording the session. Any other with no socket has nothing to
     // record with, and a stale claim nobody answers for is a daemon that has gone.

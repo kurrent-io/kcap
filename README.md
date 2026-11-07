@@ -726,14 +726,14 @@ kcap disable <sessionId>     # specific session
 
 This is irreversible on the server side; the local transcript file is untouched.
 
-A session the daemon records stops at once with its subagents, with no final drain. Every daemon on this machine is asked, whatever its profile, and the command waits a few seconds for their answers before it deletes anything. The first line says `Recording stopped` only when every daemon that could be recording answered, no watcher outlived the stop, and no live agent's output goes on.
+A session the daemon records stops at once with its subagents, with no final drain. Every daemon on this machine is asked, whatever its profile, and the command waits a few seconds for their answers before it deletes anything. The first line says `Recording stopped` only when every daemon that could be recording answered, no watcher outlived the stop, no live agent's output goes on, and no daemon holds the session for another server.
 
 The command exits `1`, and says why, when something stays unconfirmed:
 
 - A batch already on its way when recording stopped had no answer from the server, so it may still have landed, or the daemon was still stopping the session when the command stopped waiting.
 - The daemon recording the session did not confirm it stopped, or another daemon on this machine did not answer.
 - A watcher recording the session could not be stopped, the session could not be marked disabled, or kcap could not read what records it.
-- The daemon that held the session sends to another server, where nothing was deleted. Run `kcap disable` under the profile for that server.
+- A daemon that recorded the session or hosts its agent sends to another server, where nothing was deleted. Run `kcap disable` under the profile for that server.
 - An earlier run deleted the session before it could confirm recording had stopped. Anything that landed after that deletion may still be on the server, and kcap can't tell or remove it from here; the server's administrator can check. Every later run says so.
 
 A server that can't be reached is no failure: the local steps are done, the command says the server data was not deleted, and it exits `0` unless something above applies. Run it again to delete. A profile with no usable server URL exits `2` after the same local steps.

@@ -4,7 +4,8 @@ namespace Capacitor.Cli;
 /// can. Everything here is something <c>kcap disable</c> has to say out loud.</summary>
 /// <param name="Outcome">What the daemons said.</param>
 /// <param name="AgentLive">A live hosted agent's output goes on reaching the server.</param>
-/// <param name="OtherServer">The daemon that held the session sends to this server, not the one the command deletes from.</param>
+/// <param name="OtherServer">A daemon that held the session, or hosts its agent, sends to this server, not the one the
+/// command deletes from.</param>
 /// <param name="Unreadable">The directory of claims, pid files or daemons couldn't be read, so nothing here knows what
 /// records the session.</param>
 /// <param name="WatcherLeft">A watcher of the session outlived the attempt to stop it.</param>

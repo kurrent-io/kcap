@@ -528,15 +528,44 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).Contains("https://other.example");
     }
 
+    /// <summary>A daemon under another config root has no claim here, and its answer is all that says it held the session
+    /// or hosts its agent, on a server this run never reaches.</summary>
+    [Test]
+    [Arguments(RecordingDisable.Stopped, false)]
+    [Arguments(RecordingDisable.SendInFlight, false)]
+    [Arguments(RecordingDisable.StillStopping, false)]
+    [Arguments(RecordingDisable.NotHeld, true)]
+    public async Task A_daemon_with_the_session_on_another_server_says_so_with_no_claim(RecordingDisable outcome, bool agentLive) {
+        _daemon.Names = ["daemon-b"];
+        _daemon.Answers["daemon-b"] = new(outcome, AgentLive: agentLive, Server: "https://b.example");
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).Contains("sends to https://b.example, and nothing was deleted there");
+    }
+
+    /// <summary>One that holds none of it and hosts nothing says nothing about where the session went.</summary>
+    [Test]
+    public async Task A_daemon_of_another_server_with_none_of_it_says_nothing() {
+        _daemon.Names = ["daemon-b"];
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.NotHeld, Server: "https://b.example");
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
     /// <summary>With no claim the daemon is asked all the same, or a hosted session on a watcher, and every ACP session,
     /// would never hear of this.</summary>
     [Test]
     public async Task Disable_mentions_a_live_agent_with_no_claim() {
-        _daemon.Answer = new(RecordingDisable.NotHeld, AgentLive: true);
+        _daemon.Answer = new(RecordingDisable.NotHeld, AgentLive: true, Server: ServerUrl);
 
         await Assert.That(await Run()).IsEqualTo(0);
 
         await Assert.That(Printed).Contains(StillRunning);
+        await Assert.That(Printed).DoesNotContain("sends to");
     }
 
     [Test]
