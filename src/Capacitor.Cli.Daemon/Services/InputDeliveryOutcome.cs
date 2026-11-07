@@ -8,8 +8,11 @@ internal enum InputDeliveryKind { Delivered, QuitRequested, Dropped }
 /// <summary>One delivery attempt's result. <see cref="Reason"/> carries an
 /// <see cref="AgentOrchestrator.SendInputDropReason"/> token when the input was dropped — it is what
 /// a caller reports to whoever typed the message; <see cref="Error"/> is the runtime's own message
-/// for the fault behind it, for a log rather than a wire token.</summary>
-internal readonly record struct InputDeliveryOutcome(InputDeliveryKind Kind, string? Reason = null, string? Error = null) {
+/// for the fault behind it, for a log rather than a wire token. A delivered dispatch's
+/// <see cref="Written"/> completes once the runtime has written it, which can be long after delivery
+/// returns.</summary>
+internal readonly record struct InputDeliveryOutcome(
+        InputDeliveryKind Kind, string? Reason = null, string? Error = null, Task? Written = null) {
     public static readonly InputDeliveryOutcome Delivered     = new(InputDeliveryKind.Delivered);
     public static readonly InputDeliveryOutcome QuitRequested = new(InputDeliveryKind.QuitRequested);
 

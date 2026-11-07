@@ -89,6 +89,24 @@ public class MacAppRemovalTests {
         await Assert.That(File.ReadAllText(profile)).IsEqualTo("export A=1\n");
     }
 
+    /// <summary>The CLI's uninstall runs first and deletes the config directory, inventory included.</summary>
+    [Test, RunOn(OS.MacOs), UnsupportedOSPlatform("windows")]
+    public async Task An_adopted_link_goes_after_the_cli_deleted_the_inventory() {
+        var bundle = Bundle();
+        var home   = new UserHome(Tmp.CreateDir("home"));
+        var config = new ConfigRoot(Tmp.CreateDir("config"));
+        var link   = Path.Combine(Tmp.CreateDir("nvm-bin"), "kcap");
+        File.CreateSymbolicLink(link, Path.Combine(bundle, "Contents", "MacOS", "kcap"));
+        new AdoptedLinkInventory(config).Add(link);
+        var removal = new MacAppRemoval(new NoProcesses(), home, config, bundle, updaterFiles: null);
+
+        Directory.Delete(config.Directory, recursive: true);
+        var left = await removal.RemoveLinksAsync(CancellationToken.None);
+
+        await Assert.That(left).IsEmpty();
+        await Assert.That(new FileInfo(link).Exists).IsFalse();
+    }
+
     [Test]
     public async Task Deletes_support_files_named_by_the_bundle_id() {
         var bundle  = Bundle();

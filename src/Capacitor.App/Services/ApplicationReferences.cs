@@ -15,7 +15,7 @@ public interface IApplicationReferences : IAsyncDisposable {
     Task RollbackAsync(Action restoreBundles);
 }
 
-internal sealed partial class ApplicationReferences(IProcessRunner runner, UserHome home, DaemonStore store, TimeProvider time,
+internal sealed partial class ApplicationReferences(IProcessRunner runner, UserHome home, DaemonStore store, TimeProvider time, ConfigRoot config,
         Func<string, CancellationToken, Task<bool>>? keepAgents = null,
         Func<string, CancellationToken, Task<bool>>? ready = null,
         string? domainOverride = null, IReadOnlyList<string>? shimFolders = null) : IApplicationReferences {
@@ -79,7 +79,7 @@ internal sealed partial class ApplicationReferences(IProcessRunner runner, UserH
                 if (after.ExitCode == 0) throw new IOException($"Daemon '{name}' is still loaded.");
             }
         }
-        foreach (var folder in shimFolders ?? KcapLinkFolders.For(home)) {
+        foreach (var folder in shimFolders ?? KcapLinkFolders.WithAdopted(home, config)) {
             var path = Path.Combine(folder, "kcap");
             var info = new FileInfo(path);
             if (info.LinkTarget is not { } original) continue;

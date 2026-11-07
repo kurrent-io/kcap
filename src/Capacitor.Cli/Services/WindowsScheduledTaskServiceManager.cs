@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Services;
 

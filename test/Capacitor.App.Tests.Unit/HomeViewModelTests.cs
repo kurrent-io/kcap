@@ -2873,6 +2873,23 @@ public class HomeViewModelTests {
             .Contains("consent policy denied");
 
     [Test]
+    public async Task A_full_daemon_reads_as_a_notice_without_the_hub_lead() {
+        var text = HomeViewModel.FriendlyLaunchFailure(
+            "An unexpected error occurred invoking 'RequestLaunchAgentV2' on the server. HubException: "
+            + "Daemon 'sbx-claude-ai_cloud' is full (10 of 10 in use). Stop an agent or wait for one to finish.");
+
+        await Assert.That(text).IsEqualTo(
+            "sbx-claude-ai_cloud is already running 10 of 10 agents. Stop one, or wait for one to finish, to start another.");
+        await Assert.That(HomeViewModel.IsAtCapacityNotice(text)).IsTrue();
+    }
+
+    [Test]
+    public async Task Any_hub_refusal_loses_the_transport_lead() =>
+        await Assert.That(HomeViewModel.FriendlyLaunchFailure(
+                "An unexpected error occurred invoking 'RequestLaunchAgentV2' on the server. HubException: Machine is offline."))
+            .IsEqualTo("Machine is offline.");
+
+    [Test]
     public async Task A_cancelled_launch_reads_as_cancelled() =>
         await Assert.That(HomeViewModel.FriendlyLaunchFailure(WireTokens.LaunchCancelled)).IsEqualTo("The launch was cancelled.");
 

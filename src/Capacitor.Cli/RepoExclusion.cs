@@ -31,7 +31,19 @@ static class RepoExclusion {
 
         var key = await ResolveKeyAsync(router, config, body, time, budget);
 
-        return RepoScope.IsOutOfScope(key, allowedRepos, excludedRepos);
+        // A repository with no remote the server is not sent is still captured, and one whose origin names no owner can be
+        // listed by its remote's path, so each list is matched against every key the checkout has. A repository the payload
+        // names is the session's own, so only a detected one, or the local identity enrichment gave this checkout, gains its
+        // other keys.
+        List<string> allowKeys   = key is null ? [] : [key];
+        List<string> excludeKeys = [..allowKeys];
+
+        if (Cwd(body) is { } cwd) {
+            if (hasAllowlist && NamesThisCheckout(body, config, cwd) && GitRepoKey.ForCheckout(cwd) is { } remote) allowKeys.Add(remote);
+            if (hasDenylist) excludeKeys.AddRange(GitRepoKey.ExclusionKeys(cwd, config));
+        }
+
+        return RepoScope.IsOutOfScope(allowKeys, excludeKeys, allowedRepos, excludedRepos);
     }
 
     /// <summary>
@@ -41,6 +53,32 @@ static class RepoExclusion {
     /// </summary>
     public static bool IsOutsideAllowlist(string? repoKey, IReadOnlyList<string>? allowedRepos)
         => RepoScope.IsOutsideAllowlist(repoKey, allowedRepos);
+
+    /// <summary>Whether the payload names no repository, or names this checkout by the local identity an origin with no owner
+    /// has. A cached local identity for an origin that has since gained an owner does not count.</summary>
+    static bool NamesThisCheckout(string body, ConfigRoot config, string cwd) {
+        try {
+            if (JsonNode.Parse(body)?["repository"] is not JsonObject repository
+             || repository["owner"]?.GetValue<string>() is not { } owner
+             || repository["repo_name"]?.GetValue<string>() is not { } name) return true;
+
+            // An ownerless origin keys by its local identity and its remote's path; an origin with an owner by its path alone.
+            // Ordinal, so a name differing in case is never folded into this checkout. The owner hash folds case as
+            // PathComparison does, per platform rather than per volume, so this check is only as distinct as that identity.
+            return LocalRepository.IsLocal(owner) && GitRepoKey.ExclusionKeys(cwd, config) is { Count: > 1 } keys
+                && keys.Contains($"{owner}/{name}", StringComparer.Ordinal);
+        } catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) {
+            return false;
+        }
+    }
+
+    static string? Cwd(string body) {
+        try {
+            return JsonNode.Parse(body)?["cwd"]?.GetValue<string>();
+        } catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) {
+            return null;
+        }
+    }
 
     /// <summary><c>owner/repo</c> for the session, or null when it cannot be determined.</summary>
     static async Task<string?> ResolveKeyAsync(

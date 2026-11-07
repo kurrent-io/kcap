@@ -1,4 +1,5 @@
 using System.Text;
+using Capacitor.Cli.Core;
 using Spectre.Console;
 
 namespace Capacitor.Cli.Commands;
@@ -44,7 +45,7 @@ public static partial class ImportScopePrompt {
     public static string[] BuildOrgChoices(IReadOnlyList<(string Owner, string Name)> discoveredRepos) {
         var owners = discoveredRepos
             .Select(r => r.Owner)
-            .Where(o => !string.IsNullOrEmpty(o))
+            .Where(o => !string.IsNullOrEmpty(o) && !LocalRepository.IsLocal(o))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 

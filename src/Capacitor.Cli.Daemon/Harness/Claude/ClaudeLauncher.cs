@@ -120,6 +120,11 @@ internal sealed partial class ClaudeLauncher(
     /// startup screen a release adds.</summary>
     public bool SessionStartMeansComposerUp => true;
 
+    /// <summary>Ink turns bracketed paste on as an input mounts and off as it unmounts. A startup
+    /// dialog mounts one too, which is what the SessionStart hold is for; SessionStart alone is not
+    /// enough either, as it can fire before the composer mounts and a paste then is dropped.</summary>
+    public bool BracketedPasteMeansComposerUp => true;
+
     public LaunchArgs BuildArgs(LauncherContext ctx) {
         var args = new List<string>();
         string? mcpConfigPath = null;

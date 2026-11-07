@@ -25,6 +25,7 @@ using Capacitor.Cli.Core.PullRequests;
 using Capacitor.Cli.Core.WorkItems;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
+using TUnit.Assertions.Enums;
 using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
 
 namespace Capacitor.App.Tests.Unit;
@@ -2132,6 +2133,35 @@ public class MainWindowSmokeTests {
         await Assert.That(yield.CanExecute(null)).IsFalse();
         await Assert.That(passedThrough.Handled).IsFalse();
         await Assert.That(host.Vm.IsSearchOpen).IsFalse();
+    });
+
+    /// Ctrl+PageDown and Ctrl+PageUp reach the rail even while the terminal has focus.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Ctrl_page_keys_step_through_the_rail_from_a_focused_terminal() => AvaloniaSession.RunOnUiAsync(async () => {
+        FakeDaemonClientService? service = null;
+        var opened = new List<string>();
+        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id), openLocal: opened.Add);
+        service = host.Service;
+        const string id = "0123456789abcdef0123456789abcdef";
+        var now = DateTime.UtcNow;
+        foreach (var (agent, minutesAgo) in new[] { ("newer", 1), (id, 2), ("older", 3) }) {
+            host.Directory.Rows.AddOrUpdate(AgentRow.FromLocal(
+                new AgentStatusDto(agent, "agent", "claude", "/repo", "Running", null, null, null, now.AddMinutes(-minutesAgo), null, null),
+                new RepoIdentity("path:/repo", "repo")));
+        }
+        host.Vm.OpenSession(id);
+        service.Agents.AddOrUpdate(WorkspaceFixtures.Agent(id, "claude", true, "/repo/myproj", sessionId: id));
+        host.Settle();
+        ((WorkspaceViewModel)host.Vm.CurrentWorkspace!).ShowTerminalCommand.Execute().Subscribe();
+        host.Settle();
+        await Assert.That(host.Window.GetVisualDescendants().OfType<TerminalControl>().Single().Focus()).IsTrue();
+
+        host.Window.KeyPressQwerty(PhysicalKey.PageDown, RawInputModifiers.Control);
+        host.Window.KeyPressQwerty(PhysicalKey.PageUp, RawInputModifiers.Control);
+        host.Settle();
+
+        await Assert.That(opened).IsEquivalentTo(["older", "newer"], CollectionOrdering.Matching);
     });
 
     [Test]
