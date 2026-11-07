@@ -123,6 +123,18 @@ public class WatcherManagerClaimTests : IDisposable {
         await Assert.That(_daemon.Holders.Single()).IsEqualTo("daemon-b");
     }
 
+    /// <summary>The hook marks the end it posted, so the daemon finds it posted and takes nothing over.</summary>
+    [Test]
+    public async Task A_posted_end_is_marked_so_nobody_takes_it_over() {
+        Claims.TryTake(Key, "daemon-b", isHosted: false);
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsTrue();
+
+        Watchers.SessionEndPosted(Key, Claude);
+        _time.Advance(SessionEndRecord.TakeOver * 2);
+
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Key, Claude, _time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+    }
+
     /// <summary>A daemon holding the session as a terminal one posts the end itself if its process exits with no hook in
     /// time, so the hook and the daemon race for one record, and the second to try posts nothing.</summary>
     [Test]
@@ -148,7 +160,8 @@ public class WatcherManagerClaimTests : IDisposable {
     /// <summary>The daemon lets its claim go once it has posted, and the record it left is what holds a later hook back.</summary>
     [Test]
     public async Task A_session_end_the_daemon_already_posted_is_held_back_with_its_claim_gone() {
-        SessionEndRecord.TryClaim(Paths, Key, Claude, DateTimeOffset.UtcNow);
+        SessionEndRecord.TryClaim(Paths, Key, Claude, _time.GetUtcNow());
+        SessionEndRecord.MarkPosted(Paths, Key, Claude, _time.GetUtcNow());
 
         await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsFalse();
     }

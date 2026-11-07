@@ -357,12 +357,27 @@ public class ClaudeHookCommandTests {
     public async Task A_session_end_the_daemon_posted_for_this_process_is_not_posted_again() {
         using var fx = new Fixture(Config.Root) { EndingProcess = Claude };
         SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+        SessionEndRecord.MarkPosted(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
 
         var exit = await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsFalse();
         await Assert.That(fx.Spool.HasBacklog(Sid)).IsFalse();
+    }
+
+    /// <summary>A claim nobody marked posted for longer than any hook takes lost its claimer, so this hook takes it over,
+    /// posts, and marks it posted so nobody posts it after.</summary>
+    [Test]
+    public async Task A_hook_takes_over_a_stale_unposted_claim_and_marks_it_posted() {
+        using var fx = new Fixture(Config.Root) { EndingProcess = Claude };
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1));
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow)).IsEqualTo(SessionEndTurn.Done);
     }
 
     /// <summary>A resumed run in another process owes its own end, however soon after the first it comes.</summary>
@@ -381,6 +396,7 @@ public class ClaudeHookCommandTests {
     public async Task A_session_end_the_daemon_posted_for_this_process_is_not_spooled_on_the_degraded_arm() {
         using var fx = new Fixture(Config.Root);
         SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+        SessionEndRecord.MarkPosted(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
 
         var exit = await new ClaudeHookCommand(Config.Root, Resolutions.At("not-a-url", Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("not-a-url", Config.Root), new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => Claude)
             .HandleWithDeps(fx.Spool, new StringReader(

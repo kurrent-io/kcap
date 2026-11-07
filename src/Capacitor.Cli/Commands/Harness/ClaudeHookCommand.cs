@@ -417,8 +417,10 @@ public sealed class ClaudeHookCommand(
                 await Console.Error.WriteLineAsync($"[kcap] session-end not spooled: the daemon recording {sessionId} posted it when the session's process exited");
             }
             else if (command is "session-start" or "session-end" && sessionId is not null) {
-                await ReportSpoolAsync(spool.Append(sessionId, command, NormalizeForSpool(body, command)),
-                                       command, sessionId, reason, unusableUrl);
+                var spooled = spool.Append(sessionId, command, NormalizeForSpool(body, command));
+                if (spooled && command == "session-end") watchers.SessionEndPosted(sessionId, _endingProcess.Value);
+
+                await ReportSpoolAsync(spooled, command, sessionId, reason, unusableUrl);
             }
             else if (command == "subagent-stop" && sessionId is not null && agentId is not null) {
                 await ReportSpoolAsync(spool.Append(sessionId, "subagent-stop", NormalizeForSpool(body, command)),
@@ -1143,7 +1145,7 @@ public sealed class ClaudeHookCommand(
             // session-end so a stranded session-start always reaches the server before it.
             if (CurrentSessionHasBacklog(spool, sessionId)) {
                 if (sessionId is not null) {
-                    spool.Append(sessionId, "session-end", body);
+                    if (spool.Append(sessionId, "session-end", body)) watchers.SessionEndPosted(sessionId, _endingProcess.Value);
                     await Console.Error.WriteLineAsync($"[kcap] session-end spooled (ordering guard); will retry on the next kcap hook ({sessionId})");
                 }
                 return 0;
@@ -1165,14 +1167,18 @@ public sealed class ClaudeHookCommand(
                 resp?.Dispose();
                 if (retryable) {
                     if (sessionId is not null) {
-                        await ReportSpoolAsync(spool.Append(sessionId, "session-end", body),
-                                               "session-end", sessionId, FailureReason(code), unusableUrl: false);
+                        var spooled = spool.Append(sessionId, "session-end", body);
+                        if (spooled) watchers.SessionEndPosted(sessionId, _endingProcess.Value);
+
+                        await ReportSpoolAsync(spooled, "session-end", sessionId, FailureReason(code), unusableUrl: false);
                     } else {
                         await Console.Error.WriteLineAsync("[kcap] session-end transient failure but session_id missing — cannot spool; event dropped");
                     }
                 }
                 return 0;
             }
+
+            if (sessionId is not null) watchers.SessionEndPosted(sessionId, _endingProcess.Value);
 
             try {
                 var node = JsonNode.Parse(await resp.Content.ReadAsStringAsync());

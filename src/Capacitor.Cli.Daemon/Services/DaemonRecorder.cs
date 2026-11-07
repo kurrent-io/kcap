@@ -768,13 +768,14 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             : null;
 
     /// <summary>Posts a terminal session's end once its process has gone and the grace has passed with no SessionEnd hook,
-    /// as a watcher's parent monitor does, unless the hook claimed that process's end first. The claim and list entry stay
+    /// as a watcher's parent monitor does, unless someone else claimed that run's end first. A claim that is never marked
+    /// posted is taken over once it is old enough, so the decision waits on one moments old. The claim and list entry stay
     /// until then, so a hook inside the grace finds the source, and a daemon stopping inside it leaves the decision to the
-    /// next boot. A session resumed in another process within the grace is followed there instead: that process's
-    /// SessionStart found this claim fresh and started nothing.</summary>
+    /// next boot. A session resumed in another process meanwhile is followed there instead: that process's SessionStart
+    /// found this claim fresh and started nothing.</summary>
     async Task EndSessionAsync(Tracked tracked) {
-        for (var waited = TimeSpan.Zero; waited < SessionEndGrace;) {
-            var step = SessionEndGrace - waited < ProcessCheck ? SessionEndGrace - waited : ProcessCheck;
+        for (var waited = TimeSpan.Zero;;) {
+            var step = waited < SessionEndGrace && SessionEndGrace - waited < ProcessCheck ? SessionEndGrace - waited : ProcessCheck;
 
             try {
                 await Task.Delay(step, _time, _closing.Token);
@@ -787,19 +788,26 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             // A resumed run's own hook got here first and the source follows it already.
             if (!IsCurrent(tracked)) return;
 
-            if (waited < SessionEndGrace && LiveClaimant(tracked.Source) is { } resumed) {
+            if (waited < SessionEndGrace) {
+                if (LiveClaimant(tracked.Source) is not { } resumed) continue;
+
                 await FollowAsync(tracked, resumed);
 
                 return;
             }
-        }
 
+            if (await DecideEndAsync(tracked)) return;
+        }
+    }
+
+    // False while another's claim on the end is too new to take over.
+    async Task<bool> DecideEndAsync(Tracked tracked) {
         var source = tracked.Source;
 
         try {
             using var _ = await _keys.EnterAsync(source.Key, CancellationToken.None);
 
-            if (Volatile.Read(ref _stopping) != 0 || !IsCurrent(tracked)) return;
+            if (Volatile.Read(ref _stopping) != 0 || !IsCurrent(tracked)) return true;
 
             var claimant = LiveClaimant(source);
 
@@ -807,11 +815,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 case SessionEndAction.RunsOnElsewhere:
                     FollowLocked(tracked, claimant!);
 
-                    return;
-                case SessionEndAction.Post:
-                    await PostEndAsync(tracked);
-
-                    break;
+                    return true;
+                case SessionEndAction.Post when !await PostEndAsync(tracked):
+                    return false;
             }
 
             Forget(tracked);
@@ -819,20 +825,39 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             LogFinishFailed(ex, source.Key);
             Forget(tracked);
         }
+
+        return true;
     }
 
-    async Task PostEndAsync(Tracked tracked) {
+    // False while another's claim on the end is too new to take over. A post that reached neither the server nor the spool
+    // leaves its claim unmarked, for whoever comes next to take over.
+    async Task<bool> PostEndAsync(Tracked tracked) {
         var source  = tracked.Source;
         var reason  = SessionEnd.DecideEndReason(parentExited: true, crewFinished: false, wedgedCeiling: false, idle: false, copilotShutdown: false);
         var endedAt = _time.GetUtcNow();
 
         if (tracked.Disabled || IsDisabled(source) || source.Process is not { } exited
-         || !SessionEnd.PostsOwnSessionEnd(reason, source.SubagentId, cursorSuppressesEndPost: false)
-         || !SessionEndRecord.TryClaim(_paths, source.SessionId, exited, endedAt)) {
+         || !SessionEnd.PostsOwnSessionEnd(reason, source.SubagentId, cursorSuppressesEndPost: false)) {
             LogNoEndPosted(source.Key);
-        } else if (!await _postSessionEnd(source, SessionEnd.ParentExitEndBody(source.SessionId, source.TranscriptPath, source.Cwd, reason, endedAt, HostedAgent.Terminal))) {
-            LogEndNotPosted(source.Key);
+
+            return true;
         }
+
+        switch (SessionEndRecord.TryClaim(_paths, source.SessionId, exited, endedAt)) {
+            case SessionEndTurn.Pending:
+                return false;
+            case SessionEndTurn.Done:
+                LogNoEndPosted(source.Key);
+
+                return true;
+        }
+
+        if (await _postSessionEnd(source, SessionEnd.ParentExitEndBody(source.SessionId, source.TranscriptPath, source.Cwd, reason, endedAt, HostedAgent.Terminal)))
+            SessionEndRecord.MarkPosted(_paths, source.SessionId, exited, _time.GetUtcNow());
+        else
+            LogEndNotPosted(source.Key);
+
+        return true;
     }
 
     async Task FollowAsync(Tracked ended, ProcessIncarnation resumed) {

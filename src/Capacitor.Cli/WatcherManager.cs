@@ -360,16 +360,22 @@ public sealed partial class WatcherManager(
 
     /// <summary>Whether this SessionEnd hook posts the end of <paramref name="process"/>'s run of the session. A daemon
     /// holding it as a terminal session posts that end itself if the process exits with no hook in time, so with that claim
-    /// on disk the two race for one record; with none, only a record the daemon already left holds the hook back. A hook
-    /// that can't name its process posts.</summary>
+    /// on disk the two race for one record; with none, only a record the daemon already left has a say. A hook that can't
+    /// name its process posts. One that posts follows with <see cref="SessionEndPosted"/>.</summary>
     public bool ClaimSessionEnd(string sessionId, ProcessIncarnation? process) {
         if (process is null) return true;
 
         var key = new RecordingSource(sessionId, null, "", "claude", null).Key;
 
-        return _claims.Read(key) is not RecorderClaimState.None && !_claims.IsHosted(key)
-            ? SessionEndRecord.TryClaim(paths, sessionId, process, time.GetUtcNow())
-            : !SessionEndRecord.Exists(paths, sessionId, process);
+        if (_claims.Read(key) is RecorderClaimState.None || _claims.IsHosted(key))
+            if (!SessionEndRecord.Exists(paths, sessionId, process)) return true;
+
+        return SessionEndRecord.TryClaim(paths, sessionId, process, time.GetUtcNow()) is SessionEndTurn.Yours;
+    }
+
+    /// <summary>The end this hook claimed has reached the server or the spool, so nobody takes the claim over.</summary>
+    public void SessionEndPosted(string sessionId, ProcessIncarnation? process) {
+        if (process is not null) SessionEndRecord.MarkPosted(paths, sessionId, process, time.GetUtcNow());
     }
 
     internal bool PidAlive(string key) => _liveness.PidAlive(key);

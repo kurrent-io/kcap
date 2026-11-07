@@ -206,7 +206,7 @@ public class DaemonRecorderTests {
         await Assert.That(end["reason"]?.GetValue<string>()).IsEqualTo("parent_exited");
         await Assert.That(end["session_id"]?.GetValue<string>()).IsEqualTo(Session);
         await Assert.That(end.ContainsKey("agent_host_id")).IsFalse();
-        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsFalse();
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
     }
 
     /// <summary>The SessionEnd hook's continuation runs detached and can land after the process has gone. Its finish
@@ -225,7 +225,8 @@ public class DaemonRecorderTests {
         await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
 
         await Assert.That(await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the hook's finish")).IsTrue();
-        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsTrue();
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Yours);
+        SessionEndRecord.MarkPosted(Paths, Session, source.Process!, time.GetUtcNow());
         await Stepping(time, () => List.Load().Count == 0);
 
         await Assert.That(EndCount).IsEqualTo(0);
@@ -416,6 +417,43 @@ public class DaemonRecorderTests {
         await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
     }
 
+    /// <summary>The hook claimed the end and was killed before its post landed. Its claim never says posted, so once it
+    /// is older than any hook takes the daemon posts the end itself; the server appends nothing for a second one.</summary>
+    [Test]
+    public async Task A_hooks_claim_left_unposted_is_taken_over_by_the_daemon() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow());
+
+        await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
+    }
+
+    /// <summary>A daemon killed between its claim of the end and its post left the claim, the list entry and its own
+    /// recorder claim. The next boot finds the claim old and unposted, and posts the end.</summary>
+    [Test]
+    public async Task A_daemon_killed_between_its_claim_and_its_post_posts_the_end_at_the_next_boot() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Terminal(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: false);
+        Exited.Add(4242);
+        SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow() - TimeSpan.FromSeconds(5));
+
+        await using var recorder = NewRecorder(time: time);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
+    }
+
     /// <summary>A daemon stopping inside the grace hasn't decided the end, so it keeps the claim and the entry, and the
     /// next boot finds the process gone and posts it.</summary>
     [Test]
@@ -446,7 +484,8 @@ public class DaemonRecorderTests {
     }
 
     /// <summary>The hook's finish inside the grace leaves the end to the hook, which claims that process's end before it
-    /// posts. A daemon that stops and boots again before deciding finds the claim and posts no second end.</summary>
+    /// posts and marks it posted after. A daemon that stops and boots again before deciding finds it posted and posts no
+    /// second end.</summary>
     [Test]
     public async Task An_end_the_hook_claimed_before_a_restart_is_not_posted_again() {
         var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
@@ -461,6 +500,7 @@ public class DaemonRecorderTests {
             await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
             await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the hook's finish");
             SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow());
+            SessionEndRecord.MarkPosted(Paths, Session, source.Process!, time.GetUtcNow());
             await recorder.StopAsync(_ => false, CancellationToken.None).WithinDeadlineAsync("the stop");
         }
 
