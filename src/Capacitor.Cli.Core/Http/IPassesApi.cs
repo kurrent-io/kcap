@@ -4,7 +4,8 @@ namespace Capacitor.Cli.Core.Http;
 /// <see cref="ISessionsApi"/> for the no-URL-composition, no-status-inspection contract every API interface in this
 /// namespace follows.</summary>
 public interface IPassesApi {
-    /// <summary>Whether the server offers passes to this caller. A server without the surfaces route answers no.</summary>
+    /// <summary>Whether the server offers passes to this caller. A server without the surfaces route answers no. Writes nothing
+    /// to stderr, a lapsed login included: a command hidden while the answer is no prints only its own answer.</summary>
     Task<bool> PassesOfferedAsync(CancellationToken ct = default);
 
     /// <summary>Colleagues matching <paramref name="query"/>, best first.</summary>

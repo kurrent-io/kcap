@@ -1,21 +1,47 @@
 using System.Text.RegularExpressions;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Auth;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
+using Microsoft.Extensions.DependencyInjection;
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
+using WireMock.Server;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
 public class PassCommandTests {
+    [TempConfigRoot] public required TempConfigRoot Config { get; init; }
+
     const string Url = "https://kcap.test";
 
     sealed record Run(int Exit, string Out, string Error);
 
-    static async Task<Run> PassAsync(FakePassesApi api, bool interactive, params string[] args) {
+    static async Task<Run> PassAsync(IPassesApi api, bool interactive, params string[] args) => await PassAsync(api, Url, interactive, args);
+
+    static async Task<Run> PassAsync(IPassesApi api, string url, bool interactive, params string[] args) {
         var (output, error) = (new StringWriter(), new StringWriter());
-        var exit = await new PassCommand(api, Url).HandleAsync(["pass", .. args], new PassTerminal(output, error, interactive, () => "y"));
+        var exit = await new PassCommand(api, url).HandleAsync(["pass", .. args], new PassTerminal(output, error, interactive, () => "y"));
 
         return new(exit, output.ToString(), error.ToString());
     }
+
+    /// <summary>The real client against <paramref name="stub"/>, a server that needs a login, with none stored.</summary>
+    ServiceProvider RealClient(WireMockServer stub) {
+        Respond(stub, "/auth/config", 200, """{"provider":"GitHubApp"}""");
+        var url      = stub.Urls[0];
+        var profiles = Resolutions.At(url, Config.Root);
+
+        return new ServiceCollection()
+            .AddSingleton(Config.Root).AddSingleton(profiles).AddSingleton(new CapacitorServer(url, Config.Root, profiles))
+            .AddCapacitorHttp(ProfileOverrides.None, MachineAuth.None)
+            .BuildServiceProvider();
+    }
+
+    static void Respond(WireMockServer stub, string path, int status, string body) =>
+        stub.Given(Request.Create().WithPath(path))
+            .RespondWith(Response.Create().WithStatusCode(status).WithHeader("Content-Type", "application/json").WithBody(body));
 
     /// <summary>With nobody at a terminal, a pass that needs sharing is left for approval in kcap, even though the
     /// reader would have answered yes.</summary>
@@ -86,6 +112,23 @@ public class PassCommandTests {
         await Assert.That(run.Out).IsEmpty();
         await Assert.That(run.Exit).IsEqualTo(unknownExit);
         await Assert.That(api.Sent).IsEmpty();
+    }
+
+    /// <summary>With no login, the real client's surfaces read is refused, and the command still prints only the
+    /// unknown-command answer: no re-auth hint reaches stderr ahead of it.</summary>
+    [Test, NotInParallel]
+    public async Task PassCommand_NoLogin_RealClient_PrintsOnlyUnknownCommand() {
+        using var stub = WireMockServer.Start();
+        Respond(stub, "/api/users/me/surfaces", 401, """{"error":"Not logged in"}""");
+        await using var sp = RealClient(stub);
+
+        using var console = ConsoleOutput.StartErrorCapture();
+        var run = await PassAsync(sp.GetRequiredService<IPassesApi>(), stub.Urls[0], interactive: true, "Sam", "--session", "s-1");
+
+        await Assert.That(stub.LogEntries.Count(e => e.RequestMessage.Path == "/api/users/me/surfaces")).IsGreaterThanOrEqualTo(1);
+        await Assert.That(console.GetCapturedError()).IsEmpty();
+        await Assert.That(run.Error).IsEqualTo($"Unknown command: pass{Environment.NewLine}");
+        await Assert.That(run.Out).IsEmpty();
     }
 
     /// <summary>Neither command appears in the command list, and neither has a help page.</summary>

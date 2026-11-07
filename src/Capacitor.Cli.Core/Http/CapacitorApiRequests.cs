@@ -10,10 +10,14 @@ namespace Capacitor.Cli.Core.Http;
 /// <see cref="FailureAsync"/>.
 /// </summary>
 static class CapacitorApiRequests {
+    /// <param name="quiet">Leaves stderr untouched: no re-auth hint, and an unusable server URL is a failure
+    /// rather than a refusal the host prints. For a caller whose whole output is its own answer.</param>
     public static async Task<HttpResponseMessage> SendAsync(
             ICapacitorHttpClient http, CapacitorServer server,
-            Func<HttpClient, CancellationToken, Task<HttpResponseMessage>> send, CancellationToken ct) {
-        using var client = await http.ForCommandAsync(ct);
+            Func<HttpClient, CancellationToken, Task<HttpResponseMessage>> send, CancellationToken ct, bool quiet = false) {
+        if (quiet && !server.Usable) throw new CapacitorApiException(null, server.UnusableHint);
+
+        using var client = quiet ? await http.ForBackgroundAsync(ct) : await http.ForCommandAsync(ct);
 
         try {
             return await send(client, ct);

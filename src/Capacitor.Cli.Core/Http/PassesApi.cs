@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Core.Http;
 internal sealed class PassesApi(ICapacitorHttpClient http, CapacitorServer server, TimeProvider time) : IPassesApi {
     public async Task<bool> PassesOfferedAsync(CancellationToken ct = default) {
         using var response = await CapacitorApiRequests.SendAsync(
-            http, server, (c, token) => c.GetWithRetryAsync($"{server.Url}/api/users/me/surfaces", time, ct: token), ct);
+            http, server, (c, token) => c.GetWithRetryAsync($"{server.Url}/api/users/me/surfaces", time, ct: token), ct, quiet: true);
 
         if (response.StatusCode == HttpStatusCode.NotFound) return false;
         if (response.StatusCode != HttpStatusCode.OK) throw await CapacitorApiRequests.FailureAsync(response);
