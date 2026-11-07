@@ -29,6 +29,10 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
     const int RepointDeferredExit = 3;
 
     internal static readonly TimeSpan DetachedConfirmWindow = TimeSpan.FromSeconds(10);
+
+    // A repoint is the bundle daemon's first launch, which macOS checks before it runs: 35s on a fresh VM, against a
+    // fraction of a second for the same daemon's next start.
+    internal static readonly TimeSpan RepointConfirmWindow = TimeSpan.FromSeconds(60);
     internal static readonly TimeSpan DetachedPollInterval  = TimeSpan.FromSeconds(1);
 
     readonly DaemonStore _store;
@@ -569,7 +573,7 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         bool Runs(int pid) => ExecutableOf(pid) is { } exe && PathComparison.Equal(CanonicalPath.Resolve(exe), daemon);
 
         var stale = predecessor is { Reachable: true, Pid: { } old, InstanceId: { } instance } && !Runs(old) ? instance : null;
-        var waited = await AwaitFullEvidenceAsync(request, observation, null, ct, stale).ConfigureAwait(false);
+        var waited = await AwaitFullEvidenceAsync(request, observation, null, ct, stale, RepointConfirmWindow).ConfigureAwait(false);
         if (waited is not null) return waited;
 
         return await ClassifyServiceSuccessAsync(request, executor, observation, ct, requirePositiveSpawnType: true, runsExpected: Runs)
@@ -618,8 +622,8 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
     // `staleInstance` is an instance that must not be the one answering.
     async Task<MutationOutcome?> AwaitFullEvidenceAsync(
             MutationRequest request, IDaemonObservation observation, Func<MutationOutcome?>? preCheck, CancellationToken ct,
-            string? staleInstance = null) {
-        var deadline = _time.GetUtcNow() + DetachedConfirmWindow;
+            string? staleInstance = null, TimeSpan? window = null) {
+        var deadline = _time.GetUtcNow() + (window ?? DetachedConfirmWindow);
         while (true) {
             if (preCheck?.Invoke() is { } early) return early;
 

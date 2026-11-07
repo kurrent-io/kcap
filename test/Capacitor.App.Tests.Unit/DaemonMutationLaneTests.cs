@@ -1879,6 +1879,27 @@ public class DaemonMutationLaneTests {
         await Assert.That(outcome).IsEqualTo(new MutationOutcome.Succeeded());
     }
 
+    /// The bundle daemon's first launch can take far longer than a restart, so its successor is waited for past the
+    /// window a detached start gets.
+    [Test]
+    public async Task A_repoint_waits_for_a_successor_slower_than_a_detached_start() {
+        var time = new FakeTimeProvider();
+        var start = time.GetUtcNow();
+        var cli = Repointed();
+        var observation = new ScriptedObservation {
+            Sequence = new Queue<ObservedEvidence?>([MatchingEvidence(pid: 100, instanceId: "inst-old")]),
+            Behavior = (_, _) => Task.FromResult<ObservedEvidence?>(
+                time.GetUtcNow() - start > DaemonMutationLane.DetachedConfirmWindow + TimeSpan.FromSeconds(15)
+                    ? MatchingEvidence(pid: 200, instanceId: "inst-new")
+                    : null),
+        };
+        await using var lane = RepointLane(cli, observation, pid => pid == 200 ? BundleDaemon : OldDaemon, time);
+
+        var outcome = await Drive(lane.RunAsync(RepointReq(), CancellationToken.None), time, DaemonMutationLane.DetachedPollInterval);
+
+        await Assert.That(outcome).IsEqualTo(new MutationOutcome.Succeeded());
+    }
+
     /// The instance that answered before the repoint, still on the old binary, is never taken for its successor.
     [Test]
     public async Task A_repoint_answered_only_by_the_old_instance_is_a_skew() {
