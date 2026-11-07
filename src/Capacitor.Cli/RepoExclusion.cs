@@ -63,6 +63,8 @@ static class RepoExclusion {
              || repository["repo_name"]?.GetValue<string>() is not { } name) return true;
 
             // An ownerless origin keys by its local identity and its remote's path; an origin with an owner by its path alone.
+            // Ordinal: on a case-sensitive volume two checkouts differing only in case share an owner hash, and only the
+            // name's case tells them apart.
             return LocalRepository.IsLocal(owner) && GitRepoKey.ExclusionKeys(cwd, config) is { Count: > 1 } keys
                 && keys.Contains($"{owner}/{name}", StringComparer.Ordinal);
         } catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) {
