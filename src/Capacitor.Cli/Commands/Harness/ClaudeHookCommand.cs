@@ -349,8 +349,9 @@ public sealed class ClaudeHookCommand(
 
         if (command == "session-end" && SessionEndFence.ShouldHold(hosted, sessionId)) return 0;
 
-        // Ahead of the disabled, exclusion and auth gates, each of which can return before HandleCore.
-        if (command == "session-end" && sessionId is not null) new PassNoticeSessions(config).Disarm(sessionId);
+        // Ahead of the disabled, exclusion and auth gates, each of which can return before HandleCore. A start
+        // clears it too: only an accepting ack sets it again.
+        if (command is "session-end" or "session-start" && sessionId is not null) new PassNoticeSessions(config).Disarm(sessionId);
 
         var budget = clock.Budget(Ceiling(command));
         HookTiming.Mark("parse");
@@ -652,6 +653,9 @@ public sealed class ClaudeHookCommand(
         // an entry point in its own right, and a budget is nothing but a ceiling read off the shared
         // clock, so both name the same deadline.
         var budget = clock.Budget(Ceiling(command));
+
+        // Ahead of every gate below; only an accepting ack sets it again.
+        if (command == "session-start" && nativeSessionId is not null) new PassNoticeSessions(config).Disarm(nativeSessionId.Replace("-", ""));
 
         // Inject home_dir and the hosted run into all hook payloads, and normalize IDs.
         try {
@@ -1042,9 +1046,6 @@ public sealed class ClaudeHookCommand(
             }
 
             var startSnapshot = sessionId is null ? null : spool.RunStartSnapshot(sessionId);
-
-            // Cleared before every start and set again only by an accepting ack, so a start that fails stops the prompts asking.
-            if (sessionId is not null) new PassNoticeSessions(config).Disarm(sessionId);
 
             HttpResponseMessage? resp = null;
             try {

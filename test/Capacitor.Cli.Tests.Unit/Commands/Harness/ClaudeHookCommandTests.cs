@@ -1614,18 +1614,21 @@ public class ClaudeHookCommandTests {
         if (posts) await Assert.That(time.TimerAtSend!.Value).IsLessThanOrEqualTo(TimeSpan.FromMilliseconds(300));
     }
 
-    /// <summary>A session-end the hook never forwards still ends the session locally, so no later prompt asks.</summary>
+    /// <summary>A session-end or a new start the hook never forwards still clears the marker locally, so no later
+    /// prompt asks without an accepting ack.</summary>
     [Test, NotInParallel]
-    [Arguments(true, false)]
-    [Arguments(false, true)]
-    public async Task SessionEnd_DisarmsPassNotices_BeforeItsEarlyExits(bool disabledSession, bool clientUnavailable) {
+    [Arguments("SessionEnd", true, false)]
+    [Arguments("SessionEnd", false, true)]
+    [Arguments("SessionStart", true, false)]
+    [Arguments("SessionStart", false, true)]
+    public async Task Hook_DisarmsPassNotices_BeforeItsEarlyExits(string hookEvent, bool disabledSession, bool clientUnavailable) {
         using var fx = new Fixture(Config.Root);
         var sid = Guid.NewGuid().ToString("N");
         var sessions = new PassNoticeSessions(Config.Root);
         sessions.Arm(sid, fx.MemoryServerUrl);
         if (disabledSession) DisabledSessions.Mark(sid, Config.Root);
 
-        await fx.EnterAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{sid}}","cwd":"/repo","reason":"exit"}""", clientUnavailable);
+        await fx.EnterAsync($$"""{"hook_event_name":"{{hookEvent}}","session_id":"{{sid}}","cwd":"/repo","reason":"exit","source":"resume"}""", clientUnavailable);
 
         await Assert.That(sessions.IsArmed(sid)).IsFalse();
     }
