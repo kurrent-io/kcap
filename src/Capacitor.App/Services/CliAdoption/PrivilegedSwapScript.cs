@@ -11,7 +11,8 @@ namespace Capacitor.App.Services.CliAdoption;
 /// the links back. After go it finishes even if the app is gone.
 /// <para>Every path reaches it as a positional argument, never as script text. It creates the status file itself, only
 /// inside a real 0700 folder the app's user owns, and writes only through that descriptor: root must not write through
-/// a path someone else controls.</para>
+/// a path someone else controls. It holds that folder as its working directory and opens both channel files by name
+/// inside it, so a rename or a link put at the folder's path after the check redirects neither.</para>
 /// </summary>
 internal static class PrivilegedSwapScript {
     internal const string Swapped  = "swapped";
@@ -45,19 +46,23 @@ internal static class PrivilegedSwapScript {
             kind() { if [ -L "$1" ]; then echo l; elif [ -d "$1" ]; then echo d; elif [ -e "$1" ]; then echo f; else echo -; fi; }
 
             if exists "$status"; then echo "kcap: $status is in the way" >&2; exit 2; fi
-            # The folder can still change before the open below; the file is only ever created, with fixed content.
             dir=${status%/*}
-            [ -d "$dir" ] && ! [ -L "$dir" ] && [ "$(/usr/bin/stat -f '%u %Lp' -- "$dir")" = "$owner 700" ] \
+            # A link put at the folder's path between these checks is followed, into a folder the check of . refuses.
+            [ -d "$dir" ] && ! [ -L "$dir" ] && cd -P -- "$dir" && [ "$(/usr/bin/stat -f '%u %Lp' .)" = "$owner 700" ] \
                 || { echo "kcap: $dir is not a private folder of user $owner" >&2; exit 2; }
             set -C
-            exec 5>"$status" || exit 2
+            exec 5>"${status##*/}" || exit 2
             set +C
             [ -f /dev/fd/5 ] || exit 2
             say() { echo "$1" >&5; }
             say $$
 
-            [ -p "$control" ] && ! [ -L "$control" ] && exec 4<>"$control" && exec 3<"$control" && exec 4<&- && [ -p /dev/fd/3 ] \
-                || { echo "kcap: $control is not the control pipe" >&2; say {{Restored}}; exit 3; }
+            # Read-only, so nothing is ever created through a link put at its name. The app holds the write end open, so
+            # this returns at once; the watchdog ends a helper whose app died first.
+            ( sleep {{wait}}; kill -TERM $$ ) </dev/null >/dev/null 2>&1 & watchdog=$!
+            [ -p "${control##*/}" ] && ! [ -L "${control##*/}" ] && exec 3<"${control##*/}" && [ -p /dev/fd/3 ]; opened=$?
+            kill $watchdog 2>/dev/null
+            [ $opened = 0 ] || { echo "kcap: $control is not the control pipe" >&2; say {{Restored}}; exit 3; }
 
             relink() {
                 [ -L "$1" ] && [ "$(/usr/bin/readlink -- "$1")" = "$2" ] || return 1
