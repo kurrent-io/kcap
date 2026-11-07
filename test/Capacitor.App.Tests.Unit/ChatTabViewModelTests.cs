@@ -2152,7 +2152,7 @@ public class ChatTabViewModelTests {
             var input = new ScriptedInput { CanResubmitValue = true };
             var h = new Harness(TranscriptChat.For("claude"), input: input);
             var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
-            await h.PushAsync(Dto(path) with { AwaitingInput = false });
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
             await SendAsync(h, input, "look");
             var queued = h.Chat.QueuedMessages.Single();
 
@@ -2182,7 +2182,7 @@ public class ChatTabViewModelTests {
             await SendAsync(h, input, "look");
             var queued = h.Chat.QueuedMessages.Single();
 
-            await h.PushAsync(Dto(path) with { AwaitingInput = false });
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
             await TickForAsync(h, ChatTabViewModel.PickupWait);
             await h.PushAsync(Dto(path) with { AwaitingInput = true });
             await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
@@ -2190,6 +2190,30 @@ public class ChatTabViewModelTests {
             await Assert.That(input.Resubmits).IsEqualTo(0);
             await Assert.That(queued.IsNotPickedUp).IsFalse();
             await Assert.That(h.Chat.QueuedMessages).Contains(queued);
+            await h.TeardownAsync();
+        });
+    }
+
+    /// The submit clears the agent's wait even when its Enter only became a newline, so working
+    /// that no turn attests is not a turn: the row still gets its second Enter.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_unattested_wait_cleared_by_the_submit_does_not_stop_the_resubmit() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = false });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(queued.IsNotPickedUp).IsTrue();
             await h.TeardownAsync();
         });
     }
@@ -2203,12 +2227,12 @@ public class ChatTabViewModelTests {
             var input = new ScriptedInput { CanResubmitValue = true };
             var h = new Harness(TranscriptChat.For("claude"), input: input);
             var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
-            await h.PushAsync(Dto(path) with { AwaitingInput = false });
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
             await SendAsync(h, input, "look");
             var queued = h.Chat.QueuedMessages.Single();
 
             await h.PushAsync(Dto(path) with { AwaitingInput = true });
-            await h.PushAsync(Dto(path) with { AwaitingInput = false });
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
             await TickForAsync(h, ChatTabViewModel.PickupWait);
             await h.PushAsync(Dto(path) with { AwaitingInput = true });
             await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
