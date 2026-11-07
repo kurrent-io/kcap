@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
@@ -18,11 +20,16 @@ public class LocalControlRecordingTests {
 
     static readonly ProcessIncarnation Claude = new(4242, "test:claude");
 
+    [TempDir] public required TempDir Tmp { get; init; }
+
     sealed class Fixture : IAsyncDisposable {
-        public Fixture(bool on = true, bool? serverRecords = true) {
+        public Fixture(bool on = true, bool? serverRecords = true, AccountStore? accounts = null) {
             Orch = AgentOrchestratorHarness.BuildOrchestrator(
                 new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
-                configure: c => c.RecordHostedClaude = on,
+                configure: c => {
+                    c.RecordHostedClaude = on;
+                    c.Accounts           = accounts;
+                },
                 recorder: config => {
                     Config = config;
                     if (serverRecords is { } answer) Probe.Report(answer);
@@ -41,7 +48,8 @@ public class LocalControlRecordingTests {
 
         public bool Exited { get; set; }
 
-        public string ClaudeHome => Path.Combine(Config.Home.Path, ".claude-work");
+        /// <summary>The daemon's own Claude directory.</summary>
+        public string ClaudeHome => new ClaudePaths(Config.Home, null).Home;
 
         public string Projects => new ClaudePaths(Config.Home, ClaudeHome).Projects;
 
@@ -64,9 +72,12 @@ public class LocalControlRecordingTests {
             Session, null, transcript ?? Transcript(), "claude", "/repo", false,
             Config.ProfileNameOrNull!, Config.ServerUrl, Config.ConfigRoot.Directory, WatcherDir, ClaudeHome, Claude.Pid, Claude.StartToken);
 
-        public async Task<string> HandOverAsync(RecordTerminalSourceDto source) {
+        public Task<string> HandOverAsync(RecordTerminalSourceDto source) =>
+            HandOverAsync(JsonSerializer.Serialize(source, RecordingIpcJsonContext.Default.RecordTerminalSourceDto));
+
+        public async Task<string> HandOverAsync(string payload) {
             using var stream = new MemoryStream();
-            await Orch.HandleLocalRecordTerminalSourceAsync(JsonSerializer.Serialize(source, RecordingIpcJsonContext.Default.RecordTerminalSourceDto), stream, CancellationToken.None);
+            await Orch.HandleLocalRecordTerminalSourceAsync(payload, stream, CancellationToken.None);
             stream.Position = 0;
 
             var ack = await FrameCodec.ReadAsync(stream, CancellationToken.None);
@@ -158,6 +169,36 @@ public class LocalControlRecordingTests {
         await Assert.That(await f.HandOverAsync(f.Source(outside))).IsEqualTo(RecordingIpc.Refused);
         await Assert.That(f.Claims.Read(Session)).IsEqualTo(RecorderClaimState.None);
     }
+
+    /// <summary>The daemon reads the transcript under the Claude directory the hook names, so that has to be one it would
+    /// read itself: its own, or a registered Claude account's.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_hook_naming_a_claude_directory_no_claude_account_has_is_refused(bool registeredForCodex) {
+        var accounts = new AccountStore(Tmp.PathTo("accounts"));
+        await using var f = new Fixture(accounts: accounts);
+        var work = Directory.CreateDirectory(Path.Combine(f.Config.Home.Path, ".claude-work")).FullName;
+        if (registeredForCodex) Register(accounts, HarnessId.Codex, work);
+        var transcript = f.Transcript(directory: Path.Combine(new ClaudePaths(f.Config.Home, work).Projects, "-repo"));
+
+        await Assert.That(await f.HandOverAsync(f.Source(transcript) with { ClaudeHome = work })).IsEqualTo(RecordingIpc.Refused);
+        await Assert.That(f.Claims.Read(Session)).IsEqualTo(RecorderClaimState.None);
+    }
+
+    [Test]
+    public async Task A_hook_naming_a_registered_claude_accounts_directory_is_recorded() {
+        var accounts = new AccountStore(Tmp.PathTo("accounts"));
+        await using var f = new Fixture(accounts: accounts);
+        var work = Directory.CreateDirectory(Path.Combine(f.Config.Home.Path, ".claude-work")).FullName;
+        Register(accounts, HarnessId.Claude, work);
+        var transcript = f.Transcript(directory: Path.Combine(new ClaudePaths(f.Config.Home, work).Projects, "-repo"));
+
+        await Assert.That(await f.HandOverAsync(f.Source(transcript) with { ClaudeHome = work })).IsEqualTo(RecordingIpc.Recording);
+    }
+
+    static void Register(AccountStore accounts, HarnessId vendor, string directory) =>
+        accounts.Mutate(r => (r with { Accounts = [.. r.Accounts, new VendorAccount($"{vendor}-work", vendor, AccountDirectory.Normalize(directory), "Work", DateTimeOffset.UnixEpoch)] }, 0));
 
     /// <summary>A link under the projects is how a path outside them reads as inside.</summary>
     [Test]

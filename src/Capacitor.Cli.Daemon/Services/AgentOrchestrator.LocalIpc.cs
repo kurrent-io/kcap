@@ -2,8 +2,10 @@ using System.Collections.Frozen;
 using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
@@ -802,8 +804,8 @@ internal partial class AgentOrchestrator {
 
     /// <summary>A terminal session's hook handing over a source. Refused unless the hook resolved this daemon's own
     /// profile, server and directories, the session's Claude process is running, and the transcript is that session's
-    /// under the Claude projects of the account the hook resolved. The hook then starts a watcher, as it does for any
-    /// source the daemon won't take.</summary>
+    /// under the Claude projects the hook resolved, which are this daemon's own or a registered account's. The hook then
+    /// starts a watcher, as it does for any source the daemon won't take.</summary>
     public async Task HandleLocalRecordTerminalSourceAsync(string payload, Stream stream, CancellationToken ct) {
         RecordTerminalSourceDto? source = null;
 
@@ -856,7 +858,15 @@ internal partial class AgentOrchestrator {
 
         if (!SameDirectory(source.WatcherDir, WatcherPaths.FromEnvironment(_config.ConfigRoot).Directory)) return "the hook keeps its claims in another directory";
 
-        return Path.IsPathFullyQualified(source.ClaudeHome) ? null : "the hook named no Claude directory";
+        return ClaudeHomes().Any(home => SameDirectory(source.ClaudeHome, home)) ? null : "the hook reads a Claude directory that is neither this daemon's nor a registered account's";
+    }
+
+    // Where this daemon would read a Claude transcript itself: its own Claude directory and each registered account's.
+    IEnumerable<string> ClaudeHomes() {
+        yield return ClaudePathsFor(null).Home;
+
+        foreach (var account in _config.Accounts?.TryLoad()?.Accounts ?? [])
+            if (account.Vendor == HarnessId.Claude) yield return AccountLayouts.Claude(_config.Home, account.Directory).Home;
     }
 
     static bool SameDirectory(string hook, string own) =>
