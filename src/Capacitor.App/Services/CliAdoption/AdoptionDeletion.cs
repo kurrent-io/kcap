@@ -50,7 +50,7 @@ internal sealed class AdoptionDeletion(
 
             // Read while the files are there: a link's old target resolves into the install only until it is gone.
             var links = store.Load().Links.Where(l => Into(l, install)).ToList();
-            if (Retire(install) is { } failure) {
+            if (Retire(install, ct) is { } failure) {
                 Hold(install, failure);
                 continue;
             }
@@ -75,15 +75,19 @@ internal sealed class AdoptionDeletion(
     }
 
     // A record that lost the entries an install owns cannot say what deleting it means.
-    string? Retire(OtherCliInstall install) {
+    string? Retire(OtherCliInstall install, CancellationToken ct) {
         if (install.OwnedEntries.Count == 0) {
             log("adoption_retired", AdoptionEvent.For(install, "failed", EntriesUnknown));
             return EntriesUnknown;
         }
         foreach (var entry in install.OwnedEntries.OrderByDescending(e => HoldsBinaries(install, e))) {
+            // Taken while the entry is still in place, so the daemon is found inside its aside by the same path.
+            var daemonInside = CanonicalPath.IsWithin(install.DaemonBinary, entry)
+                ? Path.GetRelativePath(CanonicalPath.Resolve(entry), CanonicalPath.Resolve(install.DaemonBinary))
+                : null;
             bool retired;
             try {
-                retired = retirement.Retire(entry, aside => StillOurs(install, entry, aside));
+                retired = retirement.Retire(entry, aside => StillOurs(install, entry, aside) && SameDaemon(install, aside, daemonInside, ct));
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 log("adoption_retired", AdoptionEvent.For(install, "failed", ex.Message));
                 return RetireFailed;
@@ -151,6 +155,10 @@ internal sealed class AdoptionDeletion(
         var current = Path.Combine(Path.GetDirectoryName(versions)!, ScriptInstallLayout.CurrentName);
         return new FileInfo(current).LinkTarget is null && !Path.Exists(current) || NamesVersion(current, version);
     }
+
+    // A reinstall of the same version passes every layout check; only the daemon's own identity tells it apart.
+    bool SameDaemon(OtherCliInstall install, string aside, string? daemonInside, CancellationToken ct) =>
+        daemonInside is null || machine.IdentityAsync(Path.Join(aside, daemonInside), ct).GetAwaiter().GetResult() == install.Identity;
 
     static bool NamesVersion(string link, string version) =>
         new FileInfo(link).LinkTarget is { } target && Path.GetFileName(target.TrimEnd('/', '\\')) == version;

@@ -227,6 +227,15 @@ sealed class AdoptionWorld {
         /// <summary>Every install reads as unreadable, as one mid <c>npm install -g</c> does.</summary>
         public bool InstallsUnreadable { get; set; }
 
+        /// <summary>The identity of an entry: a world install's daemon, where it was laid out or inside an aside of its
+        /// platform package, keeps the install's.</summary>
+        public Func<string, string?> Identity { get; set; } = path => File.Exists(path)
+            ? world._installs.Find(n => path == n.Install.DaemonBinary
+                || Path.GetFileName(path) == "kcap-daemon" && path.StartsWith(n.Platform + ".retired-", StringComparison.Ordinal))?.Install.Identity
+            : null;
+
+        public Task<string?> IdentityAsync(string entry, CancellationToken ct) => Task.FromResult(Identity(entry));
+
         public int EvidenceReads { get; private set; }
         public int ProcessReads { get; private set; }
         public int SiteReads { get; private set; }

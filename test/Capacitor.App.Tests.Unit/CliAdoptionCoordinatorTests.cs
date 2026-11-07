@@ -566,6 +566,22 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Machine.EvidenceReads).IsEqualTo(1);
     }
 
+    /// <summary>A same-version reinstall between the identity check and the rename passes every layout check: only its
+    /// daemon's identity tells it apart, so it goes back and the install is held as changed.</summary>
+    [Test]
+    public async Task A_same_version_reinstall_found_after_the_rename_is_put_back() {
+        var world = new AdoptionWorld(Tmp);
+        var reinstalled = world.Machine.Identity;
+        world.Machine.Identity = path => path.Contains(".retired-", StringComparison.Ordinal) ? "16777232:9999:2:2" : reinstalled(path);
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+        await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+        await Assert.That(world.Logged("adoption_retired").Any(e => e["reason"] == AdoptionDeletion.Changed)).IsTrue();
+    }
+
     /// <summary>A launchctl answer that cannot be read says nothing about what is installed: reading it as "nothing
     /// found" would let a later batch skip the install it could not see.</summary>
     [Test]

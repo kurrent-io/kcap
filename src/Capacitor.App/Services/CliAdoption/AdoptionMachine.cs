@@ -21,6 +21,8 @@ internal sealed class AdoptionMachine(
     public Task<OtherCliInstall?> ReadInstallAsync(string binary, CancellationToken ct) =>
         OtherCliInstallReader.FromBinaryAsync(binary, _identity, ct);
 
+    public Task<string?> IdentityAsync(string entry, CancellationToken ct) => _identity.OfAsync(entry, ct);
+
     public async Task<LaunchdJob> ReadJobAsync(string unitName, CancellationToken ct) {
         var result = await _launchctl.PrintAsync(LabelPrefix + unitName, ct).ConfigureAwait(false);
         return LaunchdPrint.Classify(result.ExitCode, result.Stdout, result.Stderr) == LabelProbe.Loaded

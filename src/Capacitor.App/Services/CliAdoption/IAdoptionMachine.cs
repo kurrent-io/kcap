@@ -10,6 +10,9 @@ internal interface IAdoptionMachine {
     /// <summary>The install <paramref name="binary"/> belongs to as it is now; null when it is gone or unreadable.</summary>
     Task<OtherCliInstall?> ReadInstallAsync(string binary, CancellationToken ct);
 
+    /// <summary>The identity <see cref="EntryIdentity"/> reads for <paramref name="entry"/>; null when it cannot be read.</summary>
+    Task<string?> IdentityAsync(string entry, CancellationToken ct);
+
     /// <summary>Throws <see cref="IOException"/> when launchd's answer cannot be read.</summary>
     Task<LaunchdJob> ReadJobAsync(string unitName, CancellationToken ct);
 
