@@ -148,12 +148,12 @@
                     <Panel VerticalAlignment="Top">
                         <views:AppIcon Classes="noticeIcon kcapSpinning" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapMutedBrush}"
                                        IsVisible="{Binding LocalServer.IsStarting, FallbackValue=False}" />
-                        <!-- Red only once a start has failed; a server that is merely stopped needs the user, nothing broke. -->
+                        <!-- Red only when something broke; a server that is merely stopped needs the user. -->
                         <views:AppIcon x:Name="LocalServerIcon" Classes="noticeIcon" Size="16" Kind="ServerOff" Foreground="{StaticResource KcapWarningBrush}">
                             <views:AppIcon.IsVisible>
                                 <MultiBinding Converter="{x:Static BoolConverters.And}" FallbackValue="True">
                                     <Binding Path="LocalServer.IsStarting" Converter="{x:Static BoolConverters.Not}" FallbackValue="True" />
-                                    <Binding Path="LocalServer.Message" Converter="{x:Static StringConverters.IsNullOrEmpty}" />
+                                    <Binding Path="LocalServer.Failed" Converter="{x:Static BoolConverters.Not}" FallbackValue="True" />
                                 </MultiBinding>
                             </views:AppIcon.IsVisible>
                         </views:AppIcon>
@@ -161,7 +161,7 @@
                             <views:AppIcon.IsVisible>
                                 <MultiBinding Converter="{x:Static BoolConverters.And}" FallbackValue="False">
                                     <Binding Path="LocalServer.IsStarting" Converter="{x:Static BoolConverters.Not}" FallbackValue="True" />
-                                    <Binding Path="LocalServer.Message" Converter="{x:Static StringConverters.IsNotNullOrEmpty}" />
+                                    <Binding Path="LocalServer.Failed" FallbackValue="False" />
                                 </MultiBinding>
                             </views:AppIcon.IsVisible>
                         </views:AppIcon>
