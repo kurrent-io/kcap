@@ -185,4 +185,22 @@ public class RepositoryDetectionLocalTests {
         await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, null, ["demo"], TimeProvider.System)).IsTrue();
         await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, ["demo"], null, TimeProvider.System)).IsFalse();
     }
+
+    // Enrichment names the checkout by its local identity, which is still this checkout, while a payload naming another
+    // repository decides alone.
+    [Test]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    public async Task An_allowlist_names_an_enriched_ownerless_origin_by_its_remote_path(bool namesThisCheckout, bool outOfScope) {
+        using var repo = GitRepo.Create();
+        repo.AddRemote("ssh://git.example/demo.git");
+        var local = LocalRepository.Of(Config.Root, repo.Path)!.Value;
+        var body  = JsonSerializer.Serialize(new {
+            cwd        = repo.Path,
+            repository = namesThisCheckout ? new { owner = local.Owner, repo_name = local.Name } : new { owner = "acme", repo_name = "other" }
+        });
+
+        await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, ["demo"], null, TimeProvider.System))
+            .IsEqualTo(outOfScope);
+    }
 }

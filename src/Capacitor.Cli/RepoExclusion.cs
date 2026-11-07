@@ -33,12 +33,13 @@ static class RepoExclusion {
 
         // A repository with no remote the server is not sent is still captured, and one whose origin names no owner can be
         // listed by its remote's path, so each list is matched against every key the checkout has. A repository the payload
-        // names is the session's own, so only a detected one gains the checkout's other keys.
+        // names is the session's own, so only a detected one, or the local identity enrichment gave this checkout, gains its
+        // other keys.
         List<string> allowKeys   = key is null ? [] : [key];
         List<string> excludeKeys = [..allowKeys];
 
         if (Cwd(body) is { } cwd) {
-            if (hasAllowlist && !NamesRepository(body) && GitRepoKey.ForCheckout(cwd) is { } remote) allowKeys.Add(remote);
+            if (hasAllowlist && NamesThisCheckout(body, config, cwd) && GitRepoKey.ForCheckout(cwd) is { } remote) allowKeys.Add(remote);
             if (hasDenylist) excludeKeys.AddRange(GitRepoKey.ExclusionKeys(cwd, config));
         }
 
@@ -53,10 +54,15 @@ static class RepoExclusion {
     public static bool IsOutsideAllowlist(string? repoKey, IReadOnlyList<string>? allowedRepos)
         => RepoScope.IsOutsideAllowlist(repoKey, allowedRepos);
 
-    static bool NamesRepository(string body) {
+    /// <summary>Whether the repository the payload names, if any, is this checkout: none, or its own local identity.</summary>
+    static bool NamesThisCheckout(string body, ConfigRoot config, string cwd) {
         try {
-            return JsonNode.Parse(body)?["repository"] is JsonObject repository
-                && repository["owner"] is not null && repository["repo_name"] is not null;
+            if (JsonNode.Parse(body)?["repository"] is not JsonObject repository
+             || repository["owner"]?.GetValue<string>() is not { } owner
+             || repository["repo_name"]?.GetValue<string>() is not { } name) return true;
+
+            return LocalRepository.IsLocal(owner) && LocalRepository.Of(config, cwd) is { } local
+                && string.Equals(local.Owner, owner, StringComparison.Ordinal) && string.Equals(local.Name, name, StringComparison.Ordinal);
         } catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) {
             return false;
         }
