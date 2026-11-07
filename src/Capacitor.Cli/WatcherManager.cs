@@ -180,7 +180,7 @@ public sealed partial class WatcherManager(
         foreach (var name in owed.Concat([own]).Concat(known ?? []).Distinct()) {
             if (asked.Any(daemon => (daemon.Name ?? DisabledSessions.Nobody) == name)) continue;
 
-            asked.Add(new AskedDaemon(name == DisabledSessions.Nobody ? null : name, Held: owed.Contains(name), Owed: owed.Contains(name), Fresh: false));
+            asked.Add(new AskedDaemon(name == DisabledSessions.Nobody ? null : name, Held: false, Owed: owed.Contains(name), Fresh: false));
         }
 
         // A daemon finishing a stop needs longer than one that holds nothing, and a person waits on the slowest.
@@ -196,7 +196,7 @@ public sealed partial class WatcherManager(
             try {
                 DisabledSessions.Owe(sessionId, stillOwed, config);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                // The person hears what the marker couldn't hold; there is no marker to write it to.
+                // Without it, the next run asks only whoever it finds for itself.
             }
         }
 
@@ -215,7 +215,7 @@ public sealed partial class WatcherManager(
     // Tied to the session by a claim or an earlier run, a daemon that hasn't answered may be recording it. Any other with no
     // socket has nothing to record with, and a stale claim nobody answers for is a daemon that has gone.
     static RecordingStopOutcome OutcomeOf(IReadOnlyList<(AskedDaemon Daemon, RecordingDisable Outcome)> answers) =>
-        answers.Any(answer => answer.Outcome is RecordingDisable.Silent ? answer.Daemon.Held
+        answers.Any(answer => answer.Outcome is RecordingDisable.Silent ? answer.Daemon.Held || answer.Daemon.Owed
                             : answer.Outcome is RecordingDisable.NoSocket && (answer.Daemon.Fresh || answer.Daemon.Owed))
             ? RecordingStopOutcome.HolderUnconfirmed
       : answers.Any(answer => answer.Outcome is RecordingDisable.Silent) ? RecordingStopOutcome.DaemonSilent

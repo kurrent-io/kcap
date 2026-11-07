@@ -291,6 +291,23 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).DoesNotContain("did not confirm");
     }
 
+    /// <summary>An answer owed from an earlier run says nothing about which daemon held the session, so a second run
+    /// can't call it the holder, while still not reading clean.</summary>
+    [Test]
+    public async Task A_daemon_owing_an_answer_is_not_called_the_holder() {
+        _daemon.Names = ["daemon-b"];
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.Silent);
+        await Run();
+        _out.GetStringBuilder().Clear();
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.NoSocket);
+        _sessions.Answer = new DeleteSessionResponse.NotFound();
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).DoesNotContain("held this session");
+        await Assert.That(Printed).Contains("did not confirm");
+    }
+
     /// <summary>The stop can be cut short with the deletion still to come, so what is owed is down before the claims go.</summary>
     [Test]
     public async Task What_a_daemon_owes_is_recorded_ahead_of_the_deletion() {
