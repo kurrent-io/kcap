@@ -1,14 +1,14 @@
 namespace Capacitor.Cli.Core.Tests.Unit.Workspace;
 
-/// <summary>Real time for the first <paramref name="freeReads"/> timestamp reads, then an hour later
-/// for every read after: a budget that runs out at a chosen step of the work. Its timers never fire,
-/// so a slow host cannot time a step out and move where the budget runs out.</summary>
-sealed class StallingClock(int freeReads) : TimeProvider {
+/// <summary>Real time, except that the timestamp reads <paramref name="stalls"/> picks (counted from 1)
+/// read an hour later: a budget that runs out at a chosen step of the work. Its timers never fire, so a
+/// slow host cannot time a step out and move where the budget runs out.</summary>
+sealed class StallingClock(Func<int, bool> stalls) : TimeProvider {
     int _reads;
 
     public override long GetTimestamp() {
         var now = base.GetTimestamp();
-        return Interlocked.Increment(ref _reads) <= freeReads ? now : now + (long) (TimestampFrequency * 3600);
+        return stalls(Interlocked.Increment(ref _reads)) ? now + (long) (TimestampFrequency * 3600) : now;
     }
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) => new Silent();

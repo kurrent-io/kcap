@@ -46,12 +46,25 @@ public class WorkspaceBoundsTests {
         // The smallest budget that still reads status: everything after it runs out.
         WorkspaceSnapshot? snapshot = null;
         for (var free = 1; free < 40 && snapshot is null; free++) {
-            var clock = new StallingClock(free);
+            var clock = new StallingClock(read => read > free);
             snapshot = await new WorkspaceSnapshotter(new WorkspaceGit(clock), clock).TakeAsync(repo.Path, TimeSpan.FromSeconds(1.5));
         }
 
         await Assert.That(snapshot).IsNotNull();
         await Assert.That(snapshot!.Truncated).IsTrue();
         await Assert.That(snapshot.Entries["dirty.txt"].Hash).IsNull();
+    }
+
+    [Test]
+    public async Task A_HEAD_that_could_not_be_read_is_not_taken_for_an_unborn_branch() {
+        using var repo = GitRepo.CreateWithCommit("ws-head");
+        // The second read is the HEAD lookup's deadline; an unborn branch would read no reflog at all,
+        // and every commit the reflog has would then look gained at the span's close.
+        var clock = new StallingClock(read => read == 2);
+
+        var snapshot = await new WorkspaceSnapshotter(new WorkspaceGit(clock), clock).TakeAsync(repo.Path, TimeSpan.FromSeconds(1.5));
+
+        await Assert.That(snapshot!.HeadReflog).IsEqualTo(-1);
+        await Assert.That(snapshot.Truncated).IsTrue();
     }
 }

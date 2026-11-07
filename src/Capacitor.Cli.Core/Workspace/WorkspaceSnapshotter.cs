@@ -33,10 +33,14 @@ public sealed class WorkspaceSnapshotter(WorkspaceGit git, TimeProvider time, Wo
         var truncated = false;
 
         var headRun = await git.RunAsync(toplevel, Left(), "rev-parse", "--verify", "-q", "HEAD");
-        if (headRun.TimedOut) truncated = true;
-        var head = headRun.Ok ? headRun.Stdout.Trim() : WorkspaceSnapshot.Unborn;
+        var head    = headRun.Ok ? headRun.Stdout.Trim() : WorkspaceSnapshot.Unborn;
+        // Only a clean "no such ref" is an unborn branch. Taking a failed run for one would read every
+        // commit the reflog has as gained during the span.
+        var headKnown = headRun.Ok || headRun is { TimedOut: false, ExitCode: 1, Stderr.Length: 0 };
 
-        var headReflog = head == WorkspaceSnapshot.Unborn ? 0 : await ReflogLengthAsync(toplevel, "HEAD", Left());
+        var headReflog = !headKnown ? -1
+                       : head == WorkspaceSnapshot.Unborn ? 0
+                       : await ReflogLengthAsync(toplevel, "HEAD", Left());
         var stashReflog = await ReflogLengthAsync(toplevel, "refs/stash", Left());
 
         var status = await git.RunAsync(toplevel, Left(), "status", "--porcelain=v1", "-z", "--untracked-files=all");
@@ -68,7 +72,7 @@ public sealed class WorkspaceSnapshotter(WorkspaceGit git, TimeProvider time, Wo
             HeadReflog  = headReflog,
             StashReflog = stashReflog,
             Entries     = entries,
-            Truncated   = truncated || hasher.Truncated || (headReflog < 0 && head != WorkspaceSnapshot.Unborn) || stashReflog < 0,
+            Truncated   = truncated || hasher.Truncated || headReflog < 0 || stashReflog < 0,
         };
     }
 
