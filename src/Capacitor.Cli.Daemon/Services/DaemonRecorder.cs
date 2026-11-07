@@ -512,13 +512,15 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     bool IsRunning(RecordedSource source, Func<string, bool> agentIsLive) =>
         source.Process is { } process ? !_processExited(process) : source.AgentId is { } agentId && agentIsLive(agentId);
 
-    RecorderContext ContextFor(RecordingSource source) {
+    // Housekeeping beats through its attempt, so a long pass counts as the source's and stops beating the claim once the host
+    // gives that attempt up.
+    RecorderContext ContextFor(RecordingSource source, Action beat) {
         var recorded = _sources[source.Key].Source;
 
         void Log(string message) => LogRecorder(source.Key, message);
 
         return new RecorderContext(
-            _server, _housekeeping(recorded, Log, () => _ = FinishQuietlyAsync(source.Key, CancellationToken.None), () => _claims.Beat(source.Key)), _time, Log, static () => { });
+            _server, _housekeeping(recorded, Log, () => _ = FinishQuietlyAsync(source.Key, CancellationToken.None), beat), _time, Log, static () => { });
     }
 
     // Under the key's gate. Tracked before the host can hear of it, because the host's first context reads it.

@@ -2069,14 +2069,18 @@ public class DaemonRecorderTests {
         await Assert.That(List.Load()).IsEmpty();
     }
 
-    /// <summary>Housekeeping can run long between a recorder's beats, and a claim going stale lets a hook take a source
-    /// that is recording.</summary>
+    /// <summary>Housekeeping can run long between a recorder's beats. Its beat keeps the claim fresh, or a hook could take a
+    /// source that is recording, and counts as the source's, or the host would give the attempt up as stuck and build the
+    /// next one's housekeeping. The two stretches outlast the grace and the threshold with its backoff together, and
+    /// neither does alone, so only that beat keeps both.</summary>
     [Test]
-    public async Task A_housekeeping_beat_keeps_its_sources_claim_fresh() {
-        var time    = new FakeTimeProvider(DateTimeOffset.UtcNow);
+    public async Task A_housekeeping_beat_keeps_its_source_claimed_and_its_attempt_going() {
+        var time      = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var preparing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var claims  = new RecorderClaims(Paths.Directory, time);
+        var release   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var claims    = new RecorderClaims(Paths.Directory, time);
+        var before    = RecorderClaims.Grace / 2;
+        var after     = RecorderHost.WedgedAfter - TimeSpan.FromSeconds(10);
         await using var recorder = NewRecorder(time: time, prepare: () => {
             preparing.TrySetResult();
 
@@ -2086,12 +2090,15 @@ public class DaemonRecorderTests {
 
         await recorder.TryRecordAsync(source, CancellationToken.None);
         await preparing.Task.WithinDeadlineAsync("the recorder to reach its housekeeping");
-        time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
-        await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonStale);
+        time.Advance(before);
 
         HousekeepingBeat!();
+        var beat = time.GetUtcNow();
+        await Stepping(time, () => time.GetUtcNow() - beat >= after);
 
+        await Assert.That(before + after > RecorderClaims.Grace && before + after > RecorderHost.WedgedAfter + TimeSpan.FromSeconds(5)).IsTrue();
         await Assert.That(claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(Housekept.Count).IsEqualTo(1);
         release.SetResult();
     }
 

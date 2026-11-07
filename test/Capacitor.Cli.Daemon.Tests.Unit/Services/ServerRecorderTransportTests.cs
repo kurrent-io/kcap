@@ -61,6 +61,12 @@ public class ServerRecorderTransportTests {
     public async Task A_send_gives_up_ahead_of_its_claim_going_stale() =>
         await Assert.That(ServerRecorderTransport.SendBudget < RecorderClaims.Grace).IsTrue();
 
+    /// <summary>A send is the longest a healthy source goes between beats, so one using its whole budget mustn't read as a
+    /// source stuck where no token reaches.</summary>
+    [Test]
+    public async Task A_send_gives_up_ahead_of_its_source_reading_as_stuck() =>
+        await Assert.That(ServerRecorderTransport.SendBudget < RecorderHost.WedgedAfter).IsTrue();
+
     /// <summary>The send failed because the connection went, and a log saying the server was slow would send whoever reads
     /// it the wrong way. It still has to read as a failed send, not a stop.</summary>
     [Test]

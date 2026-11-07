@@ -129,6 +129,14 @@ public sealed class TranscriptRecorder(
         _stop.Cancel();
     }
 
+    /// <summary>Stops this recorder for a host that no longer waits on it, off the caller's thread: what it is in may never
+    /// return. <see cref="Abandoned"/> is what refuses it the rest.</summary>
+    internal void Supersede() {
+        Unsubscribe();
+        _stop.CancelOffThread();
+        _titleCts.CancelOffThread();
+    }
+
     public void Dispose() {
         Unsubscribe();
 
@@ -423,7 +431,7 @@ public sealed class TranscriptRecorder(
     /// count whenever it moves, rewinds included. Reconnect and drain both publish, so the count is read and
     /// written under one lock: a count read earlier can never land after a newer one.</summary>
     internal void PublishAckedLines(WatchState state) {
-        if (source.AgentId is not null || source.Vendor != "codex") return;
+        if (source.AgentId is not null || source.Vendor != "codex" || Abandoned?.Invoke() == true) return;
 
         lock (_ackCursorGate) {
             var count = state.LinesProcessed;
@@ -611,6 +619,9 @@ public sealed class TranscriptRecorder(
     }
 
     Task<IReadOnlyList<string>> DrainNewLinesGatedAsync(bool isFinalDrain, CancellationToken ct) {
+        // A recorder woken from housekeeping its host gave up on would otherwise read, title and capture for nobody.
+        if (Abandoned?.Invoke() == true && HasLostClaim()) return Task.FromResult<IReadOnlyList<string>>([]);
+
         context.Housekeeping.RefreshTranscript(TranscriptPath);
 
         return GatedDrainNewLinesAsync(_cursorRewindGate, State, ct, isFinalDrain, _cursorGuard, OnCursorRewriteDetected);
@@ -793,6 +804,8 @@ public sealed class TranscriptRecorder(
 
     async Task SendInitialTitleAsync(string sessionId, string title) {
         try {
+            if (HasLostClaim()) return;
+
             await transport.SendTitleAsync(sessionId, title, CancellationToken.None);
             context.Log($"Initial title sent: {title}");
         } catch (Exception ex) {
@@ -802,10 +815,13 @@ public sealed class TranscriptRecorder(
 
     async Task PostTitleAsync(WatchState state, ClaudeCliResult title) {
         try {
-            await transport.UpdateTitleAsync(
-                source.SessionId, title.Result, title.Model, title.InputTokens, title.OutputTokens, title.CacheReadTokens, title.CacheWriteTokens, CancellationToken.None);
-            context.Log($"LLM title generated: {title.Result}");
-            state.TitleGenerated = true;
+            // A generation can finish long after its recorder was given up on.
+            if (!HasLostClaim()) {
+                await transport.UpdateTitleAsync(
+                    source.SessionId, title.Result, title.Model, title.InputTokens, title.OutputTokens, title.CacheReadTokens, title.CacheWriteTokens, CancellationToken.None);
+                context.Log($"LLM title generated: {title.Result}");
+                state.TitleGenerated = true;
+            }
         } catch (Exception ex) {
             context.Log($"LLM title send failed: {ex.Message}");
         }
@@ -1258,26 +1274,31 @@ public sealed class TranscriptRecorder(
 
                 int? cursorAckNextLine = null;
 
-                foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                    // Each send has a budget of its own, so a batch of slow chunks could outlast a claim's grace.
-                    context.Beat();
+                try {
+                    foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
+                        // Each send has a budget of its own, so a batch of slow chunks could outlast a claim's grace.
+                        context.Beat();
 
-                    // A recorder can stall anywhere in a tick, and what it read before that may no longer be its to send.
-                    if (HasLostClaim()) return newLines;
+                        // A recorder can stall anywhere in a tick, and what it read before that may no longer be its to send.
+                        if (HasLostClaim()) return newLines;
 
-                    if (vendor == "cursor") {
-                        // A barrier can appear between chunks, after the initial admission check.
-                        if (_markers.IsQuarantined(sessionId)
-                         || _markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)) {
-                            return newLines;
+                        if (vendor == "cursor") {
+                            // A barrier can appear between chunks, after the initial admission check.
+                            if (_markers.IsQuarantined(sessionId)
+                             || _markers.BarrierPending(sessionId, time.GetUtcNow(), CursorMarkers.DefaultBarrierBound)) {
+                                return newLines;
+                            }
+
+                            var ack = await transport.SendBatchAsync(chunk, ct);
+                            cursorAckNextLine = ack;
+                            if (chunk.LineNumbers!.Length > 0 && ack <= chunk.LineNumbers[^1]) break;
+                        } else {
+                            await transport.SendBatchAsync(chunk, ct);
                         }
-
-                        var ack = await transport.SendBatchAsync(chunk, ct);
-                        cursorAckNextLine = ack;
-                        if (chunk.LineNumbers!.Length > 0 && ack <= chunk.LineNumbers[^1]) break;
-                    } else {
-                        await transport.SendBatchAsync(chunk, ct);
                     }
+                } finally {
+                    // A send can use its whole budget, failed or not, and what follows the drain has budgets of its own.
+                    context.Beat();
                 }
 
                 if (newLines.Count > 0) {
