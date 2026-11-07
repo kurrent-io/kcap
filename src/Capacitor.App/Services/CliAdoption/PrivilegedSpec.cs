@@ -8,7 +8,6 @@ namespace Capacitor.App.Services.CliAdoption;
 public sealed record PrivilegedSpec(
     IReadOnlyList<LinkChange> Links, IReadOnlyList<PrivilegedEntry> Entries, string ControlFifo, string StatusFile, TimeSpan GoWait,
     string Staging, string Homes = "/Users") {
-    /// <summary>The files below a home that can name an install, relative to it, which the helper reads in every
-    /// account's.</summary>
-    public IReadOnlyList<string> HomeFiles { get; init; } = [];
+    /// <summary>What can name an install below a home, which the helper reads in every account's.</summary>
+    public HomeSites Sites { get; init; } = HomeSites.None;
 }

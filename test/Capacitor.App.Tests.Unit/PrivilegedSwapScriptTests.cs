@@ -464,7 +464,7 @@ public class PrivilegedSwapScriptTests {
     [Arguments(".claude/settings.json")]
     public async Task A_site_in_another_home_naming_the_install_keeps_it_on_go(string site) {
         var install = PrivilegedNpmInstall.Create(Tmp);
-        var spec    = install.Spec(Tmp) with { HomeFiles = [".claude/settings.json"] };
+        var spec    = install.Spec(Tmp) with { Sites = new HomeSites([".claude/settings.json"], null, []) };
         var named   = Tmp.CreateFile(Path.Combine("homes", "other", site), $$"""{"command": "{{install.Packages[1]}}/bin/kcap hook"}""");
         await using var run = Run.Start(Tmp, spec);
 
@@ -477,12 +477,36 @@ public class PrivilegedSwapScriptTests {
         await install.AssertUntouchedAsync(spec);
     }
 
+    /// <summary>A harness directory another account registered outside its default is read for the same files; one the
+    /// registry names in a form the helper cannot read plainly keeps the install rather than go unread.</summary>
+    [Test]
+    [Arguments("names it", true)]
+    [Arguments("escaped", true)]
+    [Arguments("names nothing", false)]
+    public async Task A_harness_directory_another_account_registered_is_read(string registered, bool kept) {
+        var install  = PrivilegedNpmInstall.Create(Tmp);
+        var spec     = install.Spec(Tmp) with { Sites = new HomeSites([], ".config/kcap/accounts/accounts.json", ["settings.json"]) };
+        var work     = Tmp.CreateDir("homes", "other", "work-claude").Path;
+        var listed   = registered == "escaped" ? work.Replace("work-claude", "work\\u002Dclaude") : work;
+        Tmp.CreateFile("homes/other/.config/kcap/accounts/accounts.json",
+            $$"""{"accounts": [{"vendor": "Claude", "directory": "{{listed}}"}]}""");
+        Tmp.CreateFile("homes/other/work-claude/settings.json", registered == "names nothing" ? "{}" : $$"""{"command": "{{install.Packages[1]}}/bin/kcap"}""");
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        await run.ExitAsync();
+
+        string[] words = kept ? ["swapped", "in-use"] : ["swapped", "deleted"];
+        await Assert.That(run.Words()).IsEquivalentTo(words);
+    }
+
     /// <summary>Another account can put a pipe where a home file belongs: root never opens it, which would wait for a
     /// writer for good.</summary>
     [Test]
     public async Task A_pipe_at_a_home_file_is_skipped() {
         var install = PrivilegedNpmInstall.Create(Tmp);
-        var spec    = install.Spec(Tmp) with { HomeFiles = [".claude/settings.json"] };
+        var spec    = install.Spec(Tmp) with { Sites = new HomeSites([".claude/settings.json"], null, []) };
         var pipe    = Tmp.CreateDir("homes", "other", ".claude").PathTo("settings.json");
         var made    = await new ProcessRunner(TimeProvider.System).RunAsync("/usr/bin/mkfifo", [pipe], new RunOptions(null, TimeSpan.FromSeconds(10)), CancellationToken.None);
         await Assert.That(made.ExitCode).IsEqualTo(0);

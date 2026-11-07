@@ -30,8 +30,31 @@ internal static class AdoptionReferenceSites {
     const string LaunchdSite       = "launchd:";
     const string DaemonLabelPrefix = "io.kurrent.kcap.daemon.";
 
-    /// <summary>The files the site read takes from below <paramref name="home"/> for the default harness directories,
-    /// launch agents aside, relative to it: what the privileged helper reads below every account's home.</summary>
+    /// <summary>What the site read takes from below <paramref name="home"/>, launch agents aside, as the privileged helper
+    /// reads it in every account's home: the default harness directories' files relative to the home, and the
+    /// account registry's harness directories. <paramref name="registry"/> counts only below the home.</summary>
+    internal static HomeSites HomeSites(UserHome home, HarnessRegistry harnesses, string registry) {
+        var relative = Below(home.Path, [registry]);
+        return new HomeSites(HomeFiles(home, harnesses), relative.Count == 1 ? relative[0] : null, AccountFiles(home));
+    }
+
+    // A directory other than the default, so each layout names its files inside it.
+    static IReadOnlyList<string> AccountFiles(UserHome home) {
+        var probe  = Path.Combine(home.Path, ".kcap-account-layout");
+        var claude = AccountLayouts.Claude(home, probe);
+        string[] files = [
+            .. ClaudeHarness.Over(claude).IntegrationFiles, .. CodexHarness.Over(AccountLayouts.Codex(home, probe)).IntegrationFiles,
+            Path.Combine(claude.Home, "plugins", "known_marketplaces.json"), Path.Combine(claude.Home, "plugins", "installed_plugins.json"),
+        ];
+        return Below(probe, files);
+    }
+
+    static List<string> Below(string folder, IEnumerable<string> files) {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + Path.DirectorySeparatorChar;
+        return [.. files.Select(Path.GetFullPath).Where(f => f.StartsWith(root, StringComparison.Ordinal))
+            .Select(f => f[root.Length..]).Distinct(StringComparer.Ordinal)];
+    }
+
     internal static IReadOnlyList<string> HomeFiles(UserHome home, HarnessRegistry harnesses) {
         var claude = AccountLayouts.Claude(home, AccountLayouts.DefaultDirectory(HarnessId.Claude, home));
         string[] files = [
@@ -39,9 +62,7 @@ internal static class AdoptionReferenceSites {
             Path.Combine(home.Path, ".gitconfig"), Path.Combine(home.Path, ".config", "git", "config"),
             Path.Combine(claude.Home, "plugins", "known_marketplaces.json"), Path.Combine(claude.Home, "plugins", "installed_plugins.json"),
         ];
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(home.Path)) + Path.DirectorySeparatorChar;
-        return [.. files.Select(Path.GetFullPath).Where(f => f.StartsWith(root, StringComparison.Ordinal))
-            .Select(f => f[root.Length..]).Distinct(StringComparer.Ordinal)];
+        return Below(home.Path, files);
     }
 
     internal static Task<IReadOnlyList<ReferenceSite>> ReadAsync(

@@ -10,7 +10,7 @@ namespace Capacitor.App.Services.CliAdoption;
 /// that passes to <see cref="AsideRetirement.CheckedAside"/>, so a failed check puts the whole install back. An aside an
 /// earlier run left is deleted if it carries the checked name and checked like a fresh one otherwise. With the whole
 /// install set aside it looks for what this user's own checks cannot see: a process of any account mapping a file of
-/// it, or a launch agent or one of <see cref="PrivilegedSpec.HomeFiles"/> in any home naming it, any of which puts it
+/// it, or a launch agent or one of <see cref="PrivilegedSpec.Sites"/> in any home naming it, any of which puts it
 /// all back and reports <see cref="InUse"/>. Only then does it delete anything. Any other word, end of file or no word in time puts the links back. After go it finishes even
 /// if the app is gone.
 /// <para>Every path reaches it as a positional argument, never as script text. It creates the status file itself, only
@@ -39,6 +39,8 @@ internal static class PrivilegedSwapScript {
             shift 5
             nfiles=$1; shift; k=0
             while [ $k -lt $nfiles ]; do files[$k]=$1; shift; k=$((k + 1)); done
+            registry=$1; nkinds=$2; shift 2; k=0
+            while [ $k -lt $nkinds ]; do accountfiles[$k]=$1; shift; k=$((k + 1)); done
             nlinks=$1; shift; k=0
             while [ $k -lt $nlinks ]; do links[$k]=$1; olds[$k]=$2; news[$k]=$3; shift 3; k=$((k + 1)); done
             nentries=$1; shift; k=0; m=0; n=0
@@ -161,6 +163,22 @@ internal static class PrivilegedSwapScript {
                         if names "$home/${files[$i]}"; then echo "$home/${files[$i]} names the install"; return 0; fi
                         i=$((i + 1))
                     done
+                    [ -n "$registry" ] && [ -f "$home/$registry" ] || continue
+                    # Only a plain absolute path is read; an escaped one could name a folder kcap cannot see, so it keeps
+                    # the install.
+                    while IFS= read -r d; do
+                        case "$d" in
+                            *\\*) echo "$home/$registry lists a folder that cannot be read"; return 0 ;;
+                            /*) ;;
+                            *) echo "$home/$registry lists a folder that cannot be read"; return 0 ;;
+                        esac
+                        i=0
+                        while [ $i -lt $nkinds ]; do
+                            if names "$d/${accountfiles[$i]}"; then echo "$d/${accountfiles[$i]} names the install"; return 0; fi
+                            i=$((i + 1))
+                        done
+                    done < <(/usr/bin/grep -o -D skip -e '"directory"[[:space:]]*:[[:space:]]*"[^"]*"' -- "$home/$registry" 2>/dev/null \
+                        | /usr/bin/sed -e 's/^"directory"[[:space:]]*:[[:space:]]*"//' -e 's/"$//')
                 done
                 return 1
             }
@@ -273,14 +291,17 @@ internal static class PrivilegedSwapScript {
 
     /// <summary>The script's positional arguments: the status file, the control pipe, the uid that must own their
     /// folder, the staging name's random part, the folder of every account's home, the home files as a count and
-    /// paths, then the links as a count and
+    /// paths, the account registry's path or nothing, the account files as a count and paths, then the links as a count
+    /// and
     /// (path, original, replacement) triples, and the entries as a count and (original, aside, kind d/l/f, marker,
     /// daemon path, daemon identity, link target name, present 1/0, substring count, substrings…, child count or -,
     /// children…) groups, each empty check skipped.</summary>
     internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec, uint owner) {
         Validate(spec);
-        var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), spec.Staging, spec.Homes, Number(spec.HomeFiles.Count) };
-        args.AddRange(spec.HomeFiles);
+        var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), spec.Staging, spec.Homes, Number(spec.Sites.Files.Count) };
+        args.AddRange(spec.Sites.Files);
+        args.AddRange([spec.Sites.Registry ?? "", Number(spec.Sites.AccountFiles.Count)]);
+        args.AddRange(spec.Sites.AccountFiles);
         args.Add(Number(spec.Links.Count));
         foreach (var link in spec.Links) args.AddRange([link.Path, link.Original, link.Replacement]);
         args.Add(Number(spec.Entries.Count));
@@ -322,7 +343,8 @@ internal static class PrivilegedSwapScript {
         Require(spec.ControlFifo, Normal, "control pipe");
         Require(spec.StatusFile, Normal, "status file");
         Require(spec.Homes, Normal, "homes folder");
-        foreach (var file in spec.HomeFiles) Require(file, f => !Path.IsPathRooted(f) && !f.Split('/').Contains(".."), "home file");
+        foreach (var file in spec.Sites.Files.Concat(spec.Sites.AccountFiles).Concat(spec.Sites.Registry is { } r ? [r] : []))
+            Require(file, f => !Path.IsPathRooted(f) && !f.Split('/').Contains(".."), "home file");
         Require(spec.Staging, s => s.Length >= 32 && s.All(char.IsAsciiHexDigitLower), "staging name");
         if (Path.GetDirectoryName(spec.StatusFile) != Path.GetDirectoryName(spec.ControlFifo))
             throw new ArgumentException("The status file and the control pipe must share one folder.", nameof(spec));

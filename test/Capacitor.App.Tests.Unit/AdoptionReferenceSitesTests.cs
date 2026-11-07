@@ -50,6 +50,21 @@ public class AdoptionReferenceSitesTests {
         await Assert.That(files.Count).IsEqualTo(files.Distinct().Count());
     }
 
+    /// <summary>The registry counts only below the home, and each registered directory is read for both layouts' files,
+    /// relative to it.</summary>
+    [Test]
+    public async Task Home_sites_name_the_registry_below_the_home_and_the_account_files() {
+        var sites   = AdoptionReferenceSites.HomeSites(Home, Harnesses, Path.Combine(Home.Path, ".config", "kcap", "accounts", "accounts.json"));
+        var outside = AdoptionReferenceSites.HomeSites(Home, Harnesses, Tmp.PathTo("elsewhere", "accounts.json"));
+
+        await Assert.That(sites.Registry).IsEqualTo(Path.Combine(".config", "kcap", "accounts", "accounts.json"));
+        await Assert.That(outside.Registry).IsNull();
+        await Assert.That(sites.AccountFiles).Contains("settings.json");
+        await Assert.That(sites.AccountFiles).Contains("config.toml");
+        await Assert.That(sites.AccountFiles).Contains(Path.Combine("plugins", "installed_plugins.json"));
+        await Assert.That(sites.AccountFiles.Any(Path.IsPathRooted)).IsFalse();
+    }
+
     OtherCliInstall Npm() {
         var scope    = Tmp.GetResolvedPath("prefix", "lib", "node_modules", "@kurrent");
         var root     = Path.Combine(scope, "kcap");

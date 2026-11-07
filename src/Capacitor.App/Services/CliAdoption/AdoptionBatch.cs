@@ -14,7 +14,7 @@ internal sealed class AdoptionBatch(
         IAdoptionMachine machine, AdoptionRecordStore store, AsideRetirement retirement, AdoptionIntegrations integrations,
         AdoptionPathStep path, AdoptionNotices notices, HarnessRegistry harnesses, AdoptionBundle bundle,
         IReadOnlyList<string> stableFolders, Func<string, bool> userCanWrite, IPrivilegedSwap administrator,
-        Func<LifecyclePrompt, CancellationToken, Task<bool>> confirm, string helperFolder, IReadOnlyList<string> homeFiles,
+        Func<LifecyclePrompt, CancellationToken, Task<bool>> confirm, string helperFolder, HomeSites homeSites,
         Action<string, (string Key, string? Value)[]> log)
     : IDisposable {
     internal const string EvidenceUnavailable = "evidence_unavailable";
@@ -59,7 +59,7 @@ internal sealed class AdoptionBatch(
     });
 
     AdoptionPrivilegedStep Privileged =>
-        _privileged ??= new(machine, store, retirement, _deletion, path, administrator, confirm, bundle, helperFolder, homeFiles, log);
+        _privileged ??= new(machine, store, retirement, _deletion, path, administrator, confirm, bundle, helperFolder, homeSites, log);
 
     /// <summary>The launch's own run.</summary>
     public Task<bool> RunOnceAsync(CancellationToken ct) => RunAsync(prompt: true, finishing: false, ct);
