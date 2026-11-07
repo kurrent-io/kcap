@@ -54,6 +54,9 @@ partial class SessionsCommand(
                     await Console.Error.WriteLineAsync($"The server could not resolve this repository ({(int)response.StatusCode}).");
                     reported = true;
                 }
+            }, onUnreachable: ex => {
+                HttpClientExtensions.WriteUnreachableError(baseUrl, ex);
+                reported = true;
             });
             label    = LocalRepository.Label(repo.Owner, repo.RepoName);
 

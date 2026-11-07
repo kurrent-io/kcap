@@ -117,6 +117,20 @@ public class AgentCaptureScopeTests {
             .IsTrue();
     }
 
+    // An origin with no owner is listed by its remote's path as well as its local identity, so an entry naming the
+    // path still decides, whatever the server stores.
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_origin_with_no_owner_is_still_judged_by_its_remote_path(bool serverStoresLocalRepositories) {
+        using var repo = GitRepo.Create();
+        repo.AddRemote("ssh://git.example/demo.git");
+        var server = serverStoresLocalRepositories ? Server : "https://never-seen.example";
+
+        await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(excludedRepos: ["demo"]), Home, Config.Root, server)).IsTrue();
+        await Assert.That(AgentCaptureScope.IsOutOfScope(repo.Path, WithScope(allowedRepos: ["demo"]), Home, Config.Root, server)).IsFalse();
+    }
+
     // Repo lists are only consulted when configured; with none set an unresolvable repo is
     // irrelevant and the path rules decide alone.
     [Test]

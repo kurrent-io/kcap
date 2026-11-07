@@ -15,15 +15,17 @@ public static class RepositoryHashes {
 
     public static Task<string?> ForAsync(
             HttpClient client, string baseUrl, string owner, string name, Func<HttpResponseMessage, Task>? onFailure = null,
-            CancellationToken ct = default) =>
-        ForAsync((url, token) => client.GetAsync(url, token), baseUrl, owner, name, onFailure, ct);
+            Action<HttpRequestException>? onUnreachable = null, CancellationToken ct = default) =>
+        ForAsync((url, token) => client.GetAsync(url, token), baseUrl, owner, name, onFailure, onUnreachable, ct);
 
     /// <param name="get">Sends a GET to the absolute URL it is given.</param>
     /// <param name="onFailure">Sees a refused or failed lookup before it reads as unresolved, so a caller can tell an
     /// older server's 404 from a sign-in it must renew or a server that failed.</param>
+    /// <param name="onUnreachable">Sees a lookup that never reached the server.</param>
     public static async Task<string?> ForAsync(
             Func<string, CancellationToken, Task<HttpResponseMessage>> get, string baseUrl, string owner, string name,
             Func<HttpResponseMessage, Task>? onFailure = null,
+            Action<HttpRequestException>? onUnreachable = null,
             CancellationToken ct = default) {
         if (!LocalRepository.IsLocal(owner)) return RepoHashHelper.ComputeRepoHash(owner, name);
 
@@ -38,8 +40,12 @@ public static class RepositoryHashes {
 
             var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct));
 
-            return body?["repo_hash"] is JsonValue value && value.TryGetValue(out string? hash) && hash.Length > 0 ? hash : null;
-        } catch (Exception e) when (e is HttpRequestException or JsonException or InvalidOperationException
+            // The hash names files on this machine, so a value of any other shape is never used.
+            return body?["repo_hash"] is JsonValue value && value.TryGetValue(out string? hash) && RepoHashHelper.IsRepoHash(hash) ? hash : null;
+        } catch (HttpRequestException e) {
+            onUnreachable?.Invoke(e);
+            return null;
+        } catch (Exception e) when (e is JsonException or InvalidOperationException
                                      || (e is OperationCanceledException && !ct.IsCancellationRequested)) {
             return null;
         }

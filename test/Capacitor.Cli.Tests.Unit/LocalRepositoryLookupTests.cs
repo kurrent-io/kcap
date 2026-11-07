@@ -19,7 +19,7 @@ namespace Capacitor.Cli.Tests.Unit;
 public class LocalRepositoryLookupTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
-    const string Bound = "bound-local-hash";
+    const string Bound = "0b0d10ca15a5e0e1";
 
     [Before(Test)]
     public Task ReportToAServerThatStoresLocalRepositories() {
@@ -113,7 +113,8 @@ public class LocalRepositoryLookupTests {
         var       cwd    = new CwdRepository(Config.Root, repo.Path, new GitProviderRouter(), clock);
 
         var lookup = cwd.GetHashAsync(server.Client(), ResolvingServer.BaseUrl).AsTask();
-        for (var i = 0; i < 300 && !server.Resolves.Any(); i++) await Task.Delay(20);
+        // The lookup's timeout starts before its request is sent, so the clock moves only once the request has arrived.
+        await server.ResolveReceived.WaitAsync(TimeSpan.FromSeconds(30));
         clock.Advance(CwdRepository.ResolveTimeout);
 
         await Assert.That(await lookup.WaitAsync(TimeSpan.FromSeconds(10))).IsNull();
@@ -130,11 +131,11 @@ public class LocalRepositoryLookupTests {
 
         await cwd.GetHashAsync(server.Client(), ResolvingServer.BaseUrl);
         await cwd.GetHashAsync(server.Client(), ResolvingServer.BaseUrl);
-        await Assert.That(server.Resolves.Count()).IsEqualTo(1);
+        await Assert.That(server.Resolves.Count).IsEqualTo(1);
 
         clock.Advance(CwdRepository.ResolvedLifetime);
         await Assert.That(await cwd.GetHashAsync(server.Client(), ResolvingServer.BaseUrl)).IsEqualTo(Bound);
-        await Assert.That(server.Resolves.Count()).IsEqualTo(2);
+        await Assert.That(server.Resolves.Count).IsEqualTo(2);
     }
 
     /// <summary>Only an older server's 404 reads as unresolved; a refused sign-in or a failed server is reported as the

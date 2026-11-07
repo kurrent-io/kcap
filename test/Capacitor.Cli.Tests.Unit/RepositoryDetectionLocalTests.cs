@@ -174,4 +174,36 @@ public class RepositoryDetectionLocalTests {
         await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, [entry], null, TimeProvider.System)).IsTrue();
         await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, null, [entry], TimeProvider.System)).IsTrue();
     }
+
+    // A hook names the repository by the same keys a launch does, so an entry naming the remote's path still decides.
+    [Test]
+    public async Task An_origin_with_no_owner_is_still_judged_by_its_remote_path() {
+        using var repo = GitRepo.Create();
+        repo.AddRemote("ssh://git.example/demo.git");
+        var body = JsonSerializer.Serialize(new Dictionary<string, string> { ["cwd"] = repo.Path });
+
+        await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, null, ["demo"], TimeProvider.System)).IsTrue();
+        await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, ["demo"], null, TimeProvider.System)).IsFalse();
+    }
+
+    // Enrichment names an ownerless checkout by its local identity, so the allowlist still sees its remote's path. A payload
+    // naming another repository decides alone, and a cached local identity for an origin that has since gained an owner
+    // does not reach that origin's entry.
+    [Test]
+    [Arguments("ssh://git.example/demo.git", "this checkout", "demo", false)]
+    [Arguments("ssh://git.example/demo.git", "another repository", "demo", true)]
+    [Arguments("git@github.com:acme/widgets.git", "this checkout", "acme/widgets", true)]
+    public async Task An_allowlist_judges_an_enriched_payload_by_what_the_checkout_is_now(
+            string origin, string names, string allowed, bool outOfScope) {
+        using var repo = GitRepo.Create();
+        var local = LocalRepository.Of(Config.Root, repo.Path)!.Value;
+        repo.AddRemote(origin);
+        var body = JsonSerializer.Serialize(new {
+            cwd        = repo.Path,
+            repository = names == "this checkout" ? new { owner = local.Owner, repo_name = local.Name } : new { owner = "acme", repo_name = "other" }
+        });
+
+        await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, [allowed], null, TimeProvider.System))
+            .IsEqualTo(outOfScope);
+    }
 }

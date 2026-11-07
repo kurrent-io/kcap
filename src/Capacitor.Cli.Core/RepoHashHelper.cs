@@ -44,6 +44,9 @@ public static partial class RepoHashHelper {
         return true;
     }
 
+    /// <summary>Whether <paramref name="value"/> has the shape every repository hash has, 16 lowercase hex characters.</summary>
+    public static bool IsRepoHash(string? value) => value is not null && Hash().IsMatch(value);
+
     [GeneratedRegex("^[0-9a-f]{16}$")]
     private static partial Regex Hash();
 }

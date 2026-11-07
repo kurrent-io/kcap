@@ -59,8 +59,8 @@ internal static class AgentCaptureScope {
         if (allowedRepos is not { Length: > 0 } && excludedRepos is not { Length: > 0 }) return false;
 
         return RepoScope.IsOutOfScope(
-            allowedRepos is { Length: > 0 } ? GitRepoKey.ForCheckout(originCheckout, config, serverUrl) : null,
-            excludedRepos is { Length: > 0 } ? GitRepoKey.ForExclusion(originCheckout, config) : null,
+            allowedRepos is { Length: > 0 } ? GitRepoKey.ScopeKeys(originCheckout, config, serverUrl) : [],
+            excludedRepos is { Length: > 0 } ? GitRepoKey.ExclusionKeys(originCheckout, config) : [],
             allowedRepos, excludedRepos);
     }
 }
