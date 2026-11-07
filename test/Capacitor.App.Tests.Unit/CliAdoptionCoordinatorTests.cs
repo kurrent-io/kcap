@@ -374,6 +374,24 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Notifier.Notified.Count).IsEqualTo(2);
     }
 
+    /// <summary>A second daemon running from the install is named once the first is stopped: another cause is another
+    /// outcome, recorded and told on its own.</summary>
+    [Test]
+    public async Task A_left_install_names_the_next_daemon_once_the_first_is_stopped() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.OtherDaemons.Add(new RunningDaemonFact("manual", 4999, "tok-4999", world.Install.DaemonBinary));
+        world.Machine.OtherDaemons.Add(new RunningDaemonFact("spare", 5999, "tok-5999", world.Install.DaemonBinary));
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+        world.Machine.OtherDaemons.RemoveAt(0);
+        using (var next = world.Launch()) await world.FirstLookAsync(next);
+
+        await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo("spare");
+        await Assert.That(world.Notifier.Notified.Count).IsEqualTo(2);
+        await Assert.That(world.Notifier.Notified[0]).Contains("kcap daemon stop --name manual");
+        await Assert.That(world.Notifier.Notified[1]).Contains("kcap daemon stop --name spare");
+    }
+
     /// <summary>The lane proves only the app's daemon answering; the service file must name the bundle's daemon too.</summary>
     [Test]
     public async Task A_repoint_that_leaves_the_service_file_on_the_old_daemon_is_not_a_move() {

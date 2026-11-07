@@ -68,7 +68,10 @@ internal sealed class AdoptionNotices : IDisposable {
 
     internal static string SwitchedKey(OtherCliInstall install) => "switched:" + install.Root;
 
-    internal static string LeftKey(OtherCliInstall install, LeftReason reason) => $"left:{install.Root}:{reason}";
+    /// <param name="cause">Part of the key for a reason found again on each launch, whose notice names its cause: another
+    /// cause is another outcome to tell.</param>
+    internal static string LeftKey(OtherCliInstall install, LeftReason reason, string? cause) =>
+        AdoptionPreflight.Rederived(reason) && cause is not null ? $"left:{install.Root}:{reason}:{cause}" : $"left:{install.Root}:{reason}";
 
     internal static string ReportedKey(OtherCliInstall install) => "reported:" + install.Root;
 

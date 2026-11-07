@@ -86,6 +86,7 @@ public class AdoptionNoticesTests {
         await Assert.That(daemon).Contains("open kcap again to finish switching");
         foreach (var reason in Enum.GetValues<LeftReason>())
             await Assert.That(AdoptionNotices.Left(install, reason, "x")).DoesNotContain("npm uninstall");
-        await Assert.That(AdoptionNotices.LeftKey(install, LeftReason.UnsupervisedDaemon)).IsEqualTo("left:/Users/u/.kcap:UnsupervisedDaemon");
+        await Assert.That(AdoptionNotices.LeftKey(install, LeftReason.UnsupervisedDaemon, "manual")).IsEqualTo("left:/Users/u/.kcap:UnsupervisedDaemon:manual");
+        await Assert.That(AdoptionNotices.LeftKey(install, LeftReason.PromptCancelled, "manual")).IsEqualTo("left:/Users/u/.kcap:PromptCancelled");
     }
 }

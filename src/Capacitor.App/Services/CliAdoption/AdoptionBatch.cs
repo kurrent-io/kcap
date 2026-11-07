@@ -136,7 +136,8 @@ internal sealed class AdoptionBatch(
             foreach (var plan in plans) {
                 var at = installs.FindIndex(i => AdoptionPreflight.SameRoot(i.Install, plan.Install));
                 if (plan.Left is { } reason) {
-                    if (at >= 0 && installs[at] is { State: InstallState.Left } kept && kept.Install.Identity == plan.Install.Identity) continue;
+                    if (at >= 0 && installs[at] is { State: InstallState.Left } kept && kept.Install.Identity == plan.Install.Identity
+                     && kept.Reason == reason && (!AdoptionPreflight.Rederived(reason) || kept.HeldBy == plan.Cause)) continue;
                     left.Add(plan);
                 }
                 var next = plan.Left is null
@@ -195,7 +196,7 @@ internal sealed class AdoptionBatch(
                     notices.Post(AdoptionNotices.SwitchedKey(install), AdoptionNotices.Switched(install, removed: false));
                     break;
                 case InstallState.Left when recorded.Reason is { } reason:
-                    notices.Post(AdoptionNotices.LeftKey(install, reason), AdoptionNotices.Left(install, reason, recorded.HeldBy));
+                    notices.Post(AdoptionNotices.LeftKey(install, reason, recorded.HeldBy), AdoptionNotices.Left(install, reason, recorded.HeldBy));
                     break;
             }
         }
