@@ -30,6 +30,23 @@ public static class SessionFactText {
         return Unknown;
     }
 
+    /// The context in use now, "compacted" while a compaction awaits its next reading, or null when
+    /// the server reports neither.
+    public static string? CurrentContext(SessionStatsDto? stats) {
+        if (stats is null) return null;
+        if (stats.AwaitingContextReading) return "compacted";
+        var tokens = stats.CurrentContextTokens;
+        var window = stats.CurrentContextWindow;
+        var pct = stats.CurrentContextPercent;
+        if (tokens is > 0 && window is > 0)
+            return $"{Count(tokens.Value)} / {Count(window.Value)} ({Math.Round(pct ?? 100.0 * tokens.Value / window.Value)}%)";
+        if (pct is { } p) return $"{Math.Round(p)}% ctx";
+        if (tokens is > 0) return $"{Count(tokens.Value)} ctx";
+        return null;
+    }
+
+    public static double? CurrentContextPercent(SessionStatsDto? stats) => stats?.CurrentContextPercent;
+
     /// Who sees the session, and how much of it when anyone else does.
     public static string SessionSharing(SessionSummaryDto summary) {
         var audience = summary.Visibility ?? DefaultAudience(summary.DefaultVisibility);
