@@ -731,7 +731,12 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         IsLaunching = true;
         try {
             if (!_originChecked && !await CheckOriginAsync(plan)) return;
-            if (ProbedStart is not { } start || _checkout is not { } checkout) return;
+            if (ProbedStart is not { } start || _checkout is not { } checkout || _choices.AccountPending) return;
+            // The account can go while origin answers.
+            if (_choices.AccountRefusal is { } refusedAfterOrigin) {
+                Error = _accountError = refusedAfterOrigin;
+                return;
+            }
             var draft = _choices.Capture(Text, Tray.Snapshot());
             IReadOnlyList<string>? attachmentIds = null;
             if (draft.Attachments.Count > 0) {
@@ -777,7 +782,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
                 _daemon.DaemonName, checkout, draft.Vendor, draft.Text, draft.Model, draft.Effort,
                 HomeViewModel.PermissionModeFor(draft.Vendor, draft.PermissionMode!), attachmentIds,
                 HomeViewModel.CodexPostureFor(draft.Vendor, draft.CodexPosture!.Sandbox, draft.CodexPosture.Approval),
-                Handoff: start with { SourceSessionId = _session.SessionId }, AccountId: draft.AccountId);
+                Handoff: start with { SourceSessionId = _session.SessionId }, AccountId: draft.Account?.Id);
             // Captured before the call: a navigation while it is in flight must keep the launch from opening.
             var generation = _navigationGeneration();
             var launchEpoch = _laneEpoch;

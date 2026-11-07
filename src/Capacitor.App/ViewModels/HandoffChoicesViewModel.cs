@@ -22,6 +22,9 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     readonly AppStateStore? _state;
     readonly BehaviorSubject<(string Vendor, string AccountId)?> _accountCatalogKey = new(null);
     IReadOnlyDictionary<string, string>? _accountMemory;
+    // Picks made before the stored memory loaded, replayed over it so the older read cannot win.
+    List<(string HostId, string Vendor, string RepoPath, bool Remote, string? AccountId)>? _earlyPicks = [];
+    (string Vendor, HandoffAccountChoice Choice)? _restored;
     Task _accountMemoryWrites = Task.CompletedTask;
     AccountSupport _support;
     AccountsSnapshotDto? _snapshot;
@@ -39,9 +42,9 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         _repoPath = repoPath ?? "";
         _state = state;
         _accounts = new AccountChooser(
-            (hostId, vendor, path) => AccountMemory.Lookup(_accountMemory, hostId, vendor, path), RememberAccount);
+            (hostId, vendor, path, remote) => AccountMemory.Lookup(_accountMemory, hostId, vendor, path, remote), RememberAccount);
         _accounts.Changed += PublishAccountChoice;
-        _accounts.EnterTarget(_repoPath, _selectedVendor);
+        _accounts.EnterTarget(_repoPath, _selectedVendor, remote: false);
 
         // ObserveOn before ToProperty: snapshots arrive on the daemon client's own thread.
         var options = daemon.Snapshots.Select(s => HostedHarnessCatalog.Build(s.Daemon.SupportedVendors));
@@ -66,7 +69,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
 
         if (readings is null) {
             _accounts.SetSupport(AccountSupport.Unsupported, fetchFailed: false);
-            _accounts.SetMemoryLoaded(true);
+            MemoryLoaded(null);
         } else {
             // A daemon that can hand off can also launch on a named account, so its accounts stream
             // alone decides whether there is a choice.
@@ -93,21 +96,27 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
                 .Subscribe(usage => AccountUsageById = usage)
                 .DisposeWith(_disposables);
-            if (state is null) _accounts.SetMemoryLoaded(true);
+            if (state is null) MemoryLoaded(null);
             else
                 Observable.FromAsync(state.LoadAsync)
                     .ObserveOn(RxSchedulers.MainThreadScheduler)
-                    .Subscribe(loaded => {
-                        _accountMemory = loaded.AccountByRepo;
-                        _accounts.SetMemoryLoaded(true);
-                    }, ex => {
+                    .Subscribe(loaded => MemoryLoaded(loaded.AccountByRepo), ex => {
                         Console.Error.WriteLine($"kcap: hand-off account memory: {ex.Message}");
-                        _accounts.SetMemoryLoaded(true);
+                        MemoryLoaded(null);
                     })
                     .DisposeWith(_disposables);
         }
 
         RetryAccountsCommand = ReactiveCommand.Create(() => { });
+    }
+
+    void MemoryLoaded(IReadOnlyDictionary<string, string>? stored) {
+        var memory = stored;
+        foreach (var (hostId, vendor, repoPath, remote, accountId) in _earlyPicks ?? [])
+            memory = AccountMemory.With(memory, hostId, vendor, repoPath, remote, accountId);
+        _earlyPicks = null;
+        _accountMemory = memory;
+        _accounts.SetMemoryLoaded(true);
     }
 
     static AccountSupport SupportOf(AttachStatus status) => status.State switch {
@@ -140,6 +149,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         EffectiveModelCatalog.TryGetValue(vendor, out var models) ? models : HostedHarnessCatalog.ModelChoicesFor(vendor);
 
     public Task ChooseHarnessAsync(string vendor) {
+        _restored = null;
         SetVendor(vendor);
         return Task.CompletedTask;
     }
@@ -221,6 +231,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     /// completes once the choice is persisted.
     public Task PickAccountAsync(string? accountId) {
         var defaultRow = _accounts.Rows.Any(c => c.Row.IsDefault && c.Row.Id == accountId);
+        _restored = null;
         _accounts.Pick(defaultRow ? null : accountId);
         return _accountMemoryWrites;
     }
@@ -231,7 +242,15 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     public void SetRepository(string? repoPath) {
         if (repoPath is not { Length: > 0 } path || PlatformPaths.Comparer.Equals(path, _repoPath)) return;
         _repoPath = path;
-        _accounts.EnterTarget(path, SelectedVendor);
+        _accounts.EnterTarget(path, SelectedVendor, remote: false);
+        ReapplyRestored();
+    }
+
+    /// A returned draft's account outlasts the target changes that would otherwise drop it, until
+    /// the person picks an account or an agent themselves.
+    void ReapplyRestored() {
+        if (_restored is { } restored && string.Equals(restored.Vendor, SelectedVendor, StringComparison.OrdinalIgnoreCase))
+            _accounts.Restore(restored.Choice.Id);
     }
 
     /// The chips a draft was sent with. The vendor goes through the same check a snapshot does.
@@ -240,7 +259,10 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         Revalidate(Harnesses);
         if (string.Equals(SelectedVendor, draft.Vendor, StringComparison.OrdinalIgnoreCase)) {
             SelectedModel = draft.Model;
-            if (draft.AccountId is { } account) _accounts.Pick(account);
+            if (draft.Account is { } account) {
+                _restored = (draft.Vendor, account);
+                ReapplyRestored();
+            }
         }
         SelectedEffort = draft.Effort;
         if (draft.PermissionMode is { } mode) SelectedPermissionMode = mode;
@@ -253,12 +275,19 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     public HandoffDraft Capture(string text, IReadOnlyList<StagedAttachment> attachments) =>
         new(text, attachments, SelectedVendor, SelectedModel, SelectedEffort, SelectedPermissionMode,
             new CodexLaunchPosture(SelectedCodexSandbox, SelectedCodexApproval),
-            _accounts.State == AccountSelectionState.ExplicitValid ? _accounts.SelectedAccountId : null, null);
+            AccountChoice(), null);
+
+    /// An unavailable pick keeps its id, so the launch refuses it rather than falling back to the default.
+    HandoffAccountChoice? AccountChoice() => _accounts.State switch {
+        AccountSelectionState.Pending => null,
+        AccountSelectionState.ExplicitValid or AccountSelectionState.ExplicitInvalid => new(_accounts.SelectedAccountId),
+        _ => new(null),
+    };
 
     /// Read against the latest snapshot rather than the chooser: an upload is long enough for the
     /// account to have gone from under the draft.
     public string? AccountErrorFor(HandoffDraft draft) {
-        if (draft.AccountId is not { } id) return null;
+        if (draft.Account?.Id is not { } id) return null;
         var listed = _snapshot is not null && Services.AccountRows.For(_snapshot, draft.Vendor).Any(r => r.Id == id);
         if (listed && _support == AccountSupport.Supported) return null;
         var label = _snapshot?.Accounts?.FirstOrDefault(a => a.Id == id)?.Label ?? SelectedAccountLabel ?? id;
@@ -270,7 +299,9 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         var changed = !string.Equals(vendor, SelectedVendor, StringComparison.OrdinalIgnoreCase);
         if (changed) SelectedModel = "";
         SelectedVendor = vendor;
-        if (changed) _accounts.EnterTarget(_repoPath, vendor);
+        if (!changed) return;
+        _accounts.EnterTarget(_repoPath, vendor, remote: false);
+        ReapplyRestored();
     }
 
     void Revalidate(IReadOnlyList<HarnessOption> options) {
@@ -293,15 +324,16 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     }
 
     /// Written in call order: the chooser also forgets an entry from inside its recompute.
-    void RememberAccount(string hostId, string vendor, string repoPath, string? accountId) {
-        _accountMemory = AccountMemory.With(_accountMemory, hostId, vendor, repoPath, accountId);
+    void RememberAccount(string hostId, string vendor, string repoPath, bool remote, string? accountId) {
+        _accountMemory = AccountMemory.With(_accountMemory, hostId, vendor, repoPath, remote, accountId);
+        _earlyPicks?.Add((hostId, vendor, repoPath, remote, accountId));
         if (_state is not { } state) return;
         _accountMemoryWrites = WriteAfterAsync(_accountMemoryWrites);
 
         async Task WriteAfterAsync(Task previous) {
             await previous.ConfigureAwait(false);
             await state.UpdateAsync(s => s with {
-                AccountByRepo = AccountMemory.With(s.AccountByRepo, hostId, vendor, repoPath, accountId),
+                AccountByRepo = AccountMemory.With(s.AccountByRepo, hostId, vendor, repoPath, remote, accountId),
             }).ConfigureAwait(false);
         }
     }

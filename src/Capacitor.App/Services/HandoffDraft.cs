@@ -4,12 +4,12 @@ using Capacitor.Cli.Core;
 namespace Capacitor.App.Services;
 
 /// A hand-off composer's contents as the chips showed them: PermissionMode and CodexPosture are the
-/// chip values, not what the launch sent. AccountId is null for the daemon's default account. Error is
-/// the failure that handed the draft back.
+/// chip values, not what the launch sent. Account is null when the choice had not resolved when the
+/// draft was taken. Error is the failure that handed the draft back.
 public sealed record HandoffDraft(
     string Text, IReadOnlyList<StagedAttachment> Attachments, string Vendor, string Model, string? Effort,
     string? PermissionMode, CodexLaunchPosture? CodexPosture,
-    string? AccountId,
+    HandoffAccountChoice? Account,
     string? Error) {
     /// A later draft for the same source: both prompts and every file stay, and the later chips and error win.
     public HandoffDraft MergedWith(HandoffDraft later) => later with {

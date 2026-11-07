@@ -1414,6 +1414,67 @@ public class HandoffComposerViewModelTests {
         await Assert.That(vm.Error).IsNull();
     });
 
+    /// The draft is taken after origin answers, so an account gone by then must still refuse, not fall back to the default.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_account_that_goes_while_origin_answers_is_refused() => Run(async rig => {
+        rig.UseAccounts();
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+        var vm = await rig.ReadyAsync();
+        await vm.Choices.PickAccountAsync("a2");
+        rig.Ops.Answer = request => {
+            if (!request.LocalOnly) rig.Accounts.OnNext(AccountsSnapshot(Home));
+            return Reply(AttachedStart);
+        };
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests).IsEmpty();
+        await Assert.That(vm.Error).IsEqualTo("work is not available on this machine. Use the default account or pick another.");
+    });
+
+    static async Task<AppStateStore> RememberedAsync(TempDir tmp, string accountId) {
+        var store = new AppStateStore(tmp.PathTo("app-state.json"));
+        await store.UpdateAsync(s => s with {
+            AccountByRepo = new Dictionary<string, string> { [AccountMemory.KeyFor("host-1", "claude", Checkout, remote: false)] = accountId },
+        });
+        return store;
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_returned_draft_sent_on_the_default_account_keeps_it_over_a_remembered_one() => Run(async rig => {
+        using var tmp = new TempDir();
+        rig.Memory = await RememberedAsync(tmp, "a2");
+        rig.UseAccounts();
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+        rig.Drafts.KeepFailed(SessionId, new HandoffDraft("again", [], "claude", "", null, null, null, new HandoffAccountChoice(null), null));
+        var vm = await rig.ReadyAsync();
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests.Single().AccountId).IsNull();
+    });
+
+    /// The draft comes back before the checkout is found, and finding it must not swap the account for the one remembered there.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_returned_draft_keeps_its_account_once_the_checkout_is_found() => Run(async rig => {
+        using var tmp = new TempDir();
+        rig.Memory = await RememberedAsync(tmp, "a1");
+        rig.UseAccounts();
+        rig.Session = rig.Session with { Cwd = "/elsewhere/widgets" };
+        rig.Candidates.Add(Checkout);
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+        rig.Drafts.KeepFailed(SessionId, new HandoffDraft("again", [], "claude", "", null, null, null, new HandoffAccountChoice("a2"), null));
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(vm.ProbedStart).IsNotNull();
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests.Single().AccountId).IsEqualTo("a2");
+    });
+
     // ---- resume ----
 
     const string Machine = "machine-1";

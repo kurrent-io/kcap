@@ -81,6 +81,16 @@ public sealed class AccountChooser {
 
     public void UseDefault() => Pick(null);
 
+    /// A choice a returned draft carried: held like a pick, but not remembered again.
+    public void Restore(string? accountId) {
+        if (OffersAccounts) {
+            _picked   = true;
+            _pickedId = accountId;
+        }
+
+        Recompute();
+    }
+
     bool OffersAccounts =>
         string.Equals(_vendor, HarnessId.Claude.VendorId, StringComparison.OrdinalIgnoreCase)
      || string.Equals(_vendor, HarnessId.Codex.VendorId, StringComparison.OrdinalIgnoreCase);
