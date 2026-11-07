@@ -92,7 +92,8 @@ internal sealed class AdoptionNotices : IDisposable {
           + "Remove that folder from PATH in your shell profile, then open kcap again to finish switching.",
         LeftReason.UnsupervisedDaemon =>
             $"the kcap daemon {(cause is null ? "" : $"'{cause}' ")}runs from it, and its service did not start it. "
-          + $"Stop it with kcap daemon stop{(cause is null ? "" : $" --name {cause}")} --keep-agents, then open kcap again to finish switching.",
+          + $"Stop it with kcap daemon stop{(cause is null ? "" : $" --name {cause}")} --keep-agents, then open kcap again to finish switching. "
+          + "A daemon older than 1.3.1 ends its agents when it stops whatever the flag says, so let their work finish first.",
         LeftReason.PromptCancelled         => "the administrator prompt was cancelled.",
         LeftReason.DeletionCutShort        => "removing it was cut short.",
         LeftReason.SharedInstallPrivateApp => "it serves every account on this Mac, and this app is installed for you alone.",
