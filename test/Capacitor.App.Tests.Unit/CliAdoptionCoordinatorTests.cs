@@ -916,6 +916,34 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Platform)).IsTrue();
     }
 
+    /// <summary>Another account still using the shared install keeps it, with its links put back and a notice saying
+    /// why; Finish switching, once that account has stopped, removes it.</summary>
+    [Test]
+    public async Task A_shared_install_another_account_still_uses_is_kept_for_Finish_switching() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Admin.Answer = PrivilegedResult.InUse;
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        var left = world.Record.Installs.Single();
+        await Assert.That(left.State).IsEqualTo(InstallState.Left);
+        await Assert.That(left.Reason).IsEqualTo(LeftReason.SharedInstallInUse);
+        await Assert.That(world.Record.Privileged).IsNull();
+        await Assert.That(Target(world.Link)).IsEqualTo(AdoptionWorld.NpmLinkTarget);
+        await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+        await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
+        await Assert.That(world.Notifier.Notified.Single()).Contains("another account").And.Contains(FinishSwitching);
+
+        world.Admin.Answer = null;
+        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await world.SettledAsync(launch);
+
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(2);
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(Directory.Exists(world.Platform)).IsFalse();
+    }
+
     /// <summary>An install made writable after a cancelled prompt is the user's to remove: Finish switching takes it
     /// without a second prompt, rather than handing a helper links this run already swapped.</summary>
     [Test]

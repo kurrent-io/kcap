@@ -42,12 +42,13 @@ internal sealed class AdoptionBatch(
     /// the daemon turning idle settles. A refusal the daemon or the install gave waits for a recheck instead.</summary>
     public bool AwaitingIdle => _awaitingIdle;
 
-    /// <summary>Whether an install waits on <see cref="FinishAsync"/>: left behind a cancelled administrator prompt or
-    /// a deletion cut short, or left for the app being installed for one user, once it runs from /Applications.</summary>
+    /// <summary>Whether an install waits on <see cref="FinishAsync"/>: left behind a cancelled administrator prompt, a
+    /// deletion cut short or another account still using it, or left for the app being installed for one user, once it
+    /// runs from /Applications.</summary>
     public bool FinishOffered => store.Load().Installs.Any(i => i.State == InstallState.Left && i.Reason switch {
-        LeftReason.PromptCancelled or LeftReason.DeletionCutShort => true,
-        LeftReason.SharedInstallPrivateApp                        => bundle.InSystemApplications,
-        _                                                         => false,
+        LeftReason.PromptCancelled or LeftReason.DeletionCutShort or LeftReason.SharedInstallInUse => true,
+        LeftReason.SharedInstallPrivateApp                                                         => bundle.InSystemApplications,
+        _                                                                                          => false,
     });
 
     AdoptionPrivilegedStep Privileged =>
@@ -155,7 +156,8 @@ internal sealed class AdoptionBatch(
     public void Dispose() => notices.Dispose();
 
     static bool Finishable(RecordedInstall install) => install is {
-        State: InstallState.Left, Reason: LeftReason.PromptCancelled or LeftReason.DeletionCutShort or LeftReason.SharedInstallPrivateApp,
+        State: InstallState.Left,
+        Reason: LeftReason.PromptCancelled or LeftReason.DeletionCutShort or LeftReason.SharedInstallPrivateApp or LeftReason.SharedInstallInUse,
     };
 
     // Fresh evidence finding another install at a root Finish switching would take further means the one recorded is

@@ -84,6 +84,20 @@ public class PrivilegedSwapTests {
         await install.AssertUntouchedAsync(spec);
     }
 
+    /// <summary>The helper's own report that another account uses the install, after go, with the links put back.</summary>
+    [Test]
+    public async Task An_install_another_account_uses_is_reported_in_use() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        Tmp.CreateFile(Path.Combine("homes", "other", "Library", "LaunchAgents", "io.kurrent.kcap.daemon.default.plist"), install.Packages[1]);
+
+        var result = await new PrivilegedSwap(new Elevated(), Store()).RunAsync(
+            install.Packages[0], spec, Prompt, _ => Task.FromResult(true), CancellationToken.None);
+
+        await Assert.That(result).IsEqualTo(PrivilegedResult.InUse);
+        await install.AssertUntouchedAsync(spec);
+    }
+
     [Test]
     public async Task A_cancelled_prompt_changes_nothing_and_every_path_travels_as_an_argument() {
         var install = PrivilegedNpmInstall.Create(Tmp);

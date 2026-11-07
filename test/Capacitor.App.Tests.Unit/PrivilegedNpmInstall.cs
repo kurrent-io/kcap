@@ -39,14 +39,16 @@ internal sealed record PrivilegedNpmInstall(string Scope, string Sibling, IReadO
         return dir;
     }
 
-    /// <summary>Each package must still hold its own name and the recorded version.</summary>
+    /// <summary>Each package must still hold its own name and the recorded version. The homes folder is the test's
+    /// own, empty unless a test puts a launch agent in it.</summary>
     public PrivilegedSpec Spec(TempDir tmp, TimeSpan? goWait = null, string helper = "helper") {
         var retirement = new AsideRetirement(new ConfigRoot(tmp.CreateDir("config")), "cli-adoption-retire");
         return new PrivilegedSpec(
             Links,
             [.. Packages.Select(p => new PrivilegedEntry(
                 retirement.Plan(p), PrivilegedEntryKind.Directory, "package.json", [$"\"@kurrent/{Path.GetFileName(p)}\"", $"\"{Version}\""]))],
-            tmp.PathTo(helper, "control"), tmp.PathTo(helper, "status"), goWait ?? TimeSpan.FromSeconds(30), Staging);
+            tmp.PathTo(helper, "control"), tmp.PathTo(helper, "status"), goWait ?? TimeSpan.FromSeconds(30), Staging,
+            tmp.CreateDir("homes"));
     }
 
     public async Task AssertUntouchedAsync(PrivilegedSpec spec) {

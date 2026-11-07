@@ -2,7 +2,9 @@ namespace Capacitor.App.Services.CliAdoption;
 
 public enum InstallState { Pending, Left, Switched }
 
-public enum LeftReason { OwnFolderOnPath, UnsupervisedDaemon, PromptCancelled, DeletionCutShort, SharedInstallPrivateApp, OwnFolderOnServicePath }
+public enum LeftReason {
+    OwnFolderOnPath, UnsupervisedDaemon, PromptCancelled, DeletionCutShort, SharedInstallPrivateApp, OwnFolderOnServicePath, SharedInstallInUse,
+}
 
 /// <summary>A link on the PATH the app repointed: <paramref name="Original"/> is what it held before.</summary>
 public sealed record LinkChange(string Path, string Original, string Replacement);

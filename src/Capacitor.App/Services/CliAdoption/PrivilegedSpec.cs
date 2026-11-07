@@ -4,7 +4,7 @@ namespace Capacitor.App.Services.CliAdoption;
 /// control pipe share one folder, which must be this user's own, mode 0700, or the helper refuses to start.
 /// <paramref name="GoWait"/> bounds its wait for go. <paramref name="Staging"/> is random hex the helper puts in the
 /// name it makes each new link under before renaming it over the old one, so nobody can plant anything there in
-/// advance.</summary>
+/// advance. <paramref name="Homes"/> holds every account's home, whose launch agents the helper reads.</summary>
 public sealed record PrivilegedSpec(
     IReadOnlyList<LinkChange> Links, IReadOnlyList<PrivilegedEntry> Entries, string ControlFifo, string StatusFile, TimeSpan GoWait,
-    string Staging);
+    string Staging, string Homes = "/Users");

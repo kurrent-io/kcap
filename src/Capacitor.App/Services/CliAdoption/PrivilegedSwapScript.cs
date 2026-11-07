@@ -6,7 +6,9 @@ namespace Capacitor.App.Services.CliAdoption;
 /// <summary>
 /// The bash script one administrator prompt runs as root. It writes its pid to the status file, replaces each link
 /// still holding its original target, reports <see cref="Swapped"/> and waits for one word on the control pipe. On
-/// <see cref="Go"/> it sets every entry aside and checks each against its expected kind and its own marker,
+/// <see cref="Go"/> it first looks for what this user's own checks cannot see: a process of any account mapping a file
+/// of the install, or a launch agent in any home naming it, either of which puts the links back and reports
+/// <see cref="InUse"/>. Then it sets every entry aside and checks each against its expected kind and its own marker,
 /// renaming each that passes to <see cref="AsideRetirement.CheckedAside"/>, before deleting any, so a failed check puts
 /// the whole install back. An aside an earlier run left is deleted if it carries the checked name and checked like a
 /// fresh one otherwise. Any other word, end of file or no word in time puts the links back. After go it finishes even
@@ -22,6 +24,7 @@ internal static class PrivilegedSwapScript {
     internal const string Deleted  = "deleted";
     internal const string Go       = "go";
     internal const string PutBack  = "put-back";
+    internal const string InUse    = "in-use";
 
     internal static string Render(PrivilegedSpec spec) {
         Validate(spec);
@@ -32,8 +35,8 @@ internal static class PrivilegedSwapScript {
             trap '' HUP PIPE
             umask 022
 
-            status=$1 control=$2 owner=$3 stage=$4
-            shift 4
+            status=$1 control=$2 owner=$3 stage=$4 homes=$5
+            shift 5
             nlinks=$1; shift; k=0
             while [ $k -lt $nlinks ]; do links[$k]=$1; olds[$k]=$2; news[$k]=$3; shift 3; k=$((k + 1)); done
             nentries=$1; shift; k=0; m=0
@@ -101,6 +104,48 @@ internal static class PrivilegedSwapScript {
             IFS= read -r -t {{wait}} word <&3 || word=
             exec 3<&-
             if [ "$word" != {{Go}} ]; then put_back; say {{Restored}}; exit 0; fi
+
+            # A process is found by the files it maps, which lsof names with every link resolved, whatever path it
+            # was started by. A list without this helper's own process was not read.
+            in_use() {
+                local i d e plist
+                local -a look
+                [ $nentries -gt 0 ] || return 1
+                i=0
+                while [ $i -lt $nentries ]; do
+                    for e in "${entries[$i]}" "${asides[$i]}" "${asides[$i]}.ok"; do
+                        look[${#look[@]}]=$e
+                        d=$(cd -P -- "${e%/*}" 2>/dev/null && pwd -P) && look[${#look[@]}]=$d/${e##*/}
+                    done
+                    i=$((i + 1))
+                done
+                /usr/sbin/lsof -nPw -b -d txt -Fpn 2>/dev/null | /usr/bin/awk -v self="p$$" '
+                    BEGIN { for (i = 1; i < ARGC; i++) look[i] = ARGV[i]; n = ARGC - 1; ARGC = 1 }
+                    $0 == self { seen = 1 }
+                    /^p/ { pid = substr($0, 2); next }
+                    /^n/ {
+                        f = substr($0, 2)
+                        for (i = 1; i <= n; i++) if (f == look[i] || index(f, look[i] "/") == 1) { print "process " pid " runs " f; found = 1; exit }
+                    }
+                    END { exit (found ? 0 : (seen ? 1 : 2)) }' "${look[@]}"
+                case $? in
+                    0) return 0 ;;
+                    1) ;;
+                    *) echo "the process list could not be read"; return 0 ;;
+                esac
+                for plist in "$homes"/*/Library/LaunchAgents/io.kurrent.kcap.daemon.*.plist; do
+                    [ -f "$plist" ] || continue
+                    for e in "${look[@]}"; do
+                        if /usr/bin/grep -qF -e "$e" -- "$plist"; then echo "$plist names $e"; return 0; fi
+                    done
+                done
+                return 1
+            }
+
+            if why=$(in_use); then
+                echo "kcap: $why" >&2
+                put_back; say {{InUse}}; exit 0
+            fi
 
             move_back() {
                 local i=$nentries back=0 from
@@ -194,12 +239,13 @@ internal static class PrivilegedSwapScript {
     }
 
     /// <summary>The script's positional arguments: the status file, the control pipe, the uid that must own their
-    /// folder, the staging name's random part, then the links as a count and (path, original, replacement) triples, and
-    /// the entries as a count and (original, aside, kind d/l/f, marker, daemon path, daemon identity, link target name,
-    /// substring count, substrings…) groups, each empty check skipped.</summary>
+    /// folder, the staging name's random part, the folder of every account's home, then the links as a count and
+    /// (path, original, replacement) triples, and the entries as a count and (original, aside, kind d/l/f, marker,
+    /// daemon path, daemon identity, link target name, substring count, substrings…) groups, each empty check
+    /// skipped.</summary>
     internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec, uint owner) {
         Validate(spec);
-        var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), spec.Staging, Number(spec.Links.Count) };
+        var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), spec.Staging, spec.Homes, Number(spec.Links.Count) };
         foreach (var link in spec.Links) args.AddRange([link.Path, link.Original, link.Replacement]);
         args.Add(Number(spec.Entries.Count));
         foreach (var entry in spec.Entries) {
@@ -236,6 +282,7 @@ internal static class PrivilegedSwapScript {
         // An unnormalised path, such as <link>//status, would let the script's folder check see past a link.
         Require(spec.ControlFifo, Normal, "control pipe");
         Require(spec.StatusFile, Normal, "status file");
+        Require(spec.Homes, Normal, "homes folder");
         Require(spec.Staging, s => s.Length >= 32 && s.All(char.IsAsciiHexDigitLower), "staging name");
         if (Path.GetDirectoryName(spec.StatusFile) != Path.GetDirectoryName(spec.ControlFifo))
             throw new ArgumentException("The status file and the control pipe must share one folder.", nameof(spec));

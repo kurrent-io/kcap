@@ -92,6 +92,7 @@ internal sealed class AdoptionPrivilegedStep(
             PrivilegedResult.Deleted   => "deleted",
             PrivilegedResult.PutBack   => "put_back",
             PrivilegedResult.Cancelled => "cancelled",
+            PrivilegedResult.InUse     => "in_use",
             _                          => "cut_short",
         }));
 
@@ -105,6 +106,10 @@ internal sealed class AdoptionPrivilegedStep(
             case PrivilegedResult.Cancelled:
                 path.Release(links);
                 Leave(install, LeftReason.PromptCancelled);
+                break;
+            case PrivilegedResult.InUse:
+                path.Release(links);
+                Leave(install, LeftReason.SharedInstallInUse);
                 break;
             case PrivilegedResult.CutShort:
                 if (SettleFromFiles(install, store.Load().Privileged?.GoSent ?? false) == InstallState.Pending) path.Release(links);

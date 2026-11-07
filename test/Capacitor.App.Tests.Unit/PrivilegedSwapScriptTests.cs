@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
 using TUnit.Core.Enums;
@@ -353,6 +354,69 @@ public class PrivilegedSwapScriptTests {
         if (!passes) await Assert.That(File.ReadAllText(Path.Combine(left.Original, "package.json"))).Contains("1.5.0");
     }
 
+    /// <summary>A process of any account mapping a file of the install keeps it, however it was started: this one runs
+    /// through a link outside the install, the path a process listing would show.</summary>
+    [Test]
+    public async Task A_process_running_from_the_install_keeps_it_on_go() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        var daemon  = Tmp.CopyExecutable("/bin/sleep", Path.GetRelativePath(Tmp.Path, Path.Combine(install.Packages[1], "bin", "kcap-daemon")));
+        var signed  = await new ProcessRunner(TimeProvider.System).RunAsync(
+            "/usr/bin/codesign", ["--force", "--sign", "-", daemon], new RunOptions(null, TimeSpan.FromSeconds(30)), CancellationToken.None);
+        await Assert.That(signed.ExitCode).IsEqualTo(0);
+        var started = Tmp.CreateDir("service").PathTo("kcap-daemon");
+        File.CreateSymbolicLink(started, daemon);
+        using var running = Process.Start(new ProcessStartInfo(started, "60") { UseShellExecute = false })!;
+        try {
+            await using var run = Run.Start(Tmp, spec);
+
+            await run.WaitForAsync("swapped");
+            run.Send("go");
+            var result = await run.ExitAsync();
+
+            await Assert.That(result.ExitCode).IsEqualTo(0);
+            await Assert.That(run.Words()).IsEquivalentTo(["swapped", "in-use"]);
+            await Assert.That(result.Stderr).Contains($"process {running.Id} runs");
+            await install.AssertUntouchedAsync(spec);
+        } finally {
+            running.Kill();
+        }
+    }
+
+    /// <summary>Another account's daemon service names the install in its launch agent, which only root can read.</summary>
+    [Test]
+    public async Task A_launch_agent_in_any_home_naming_the_install_keeps_it_on_go() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        var plist   = Path.Combine(spec.Homes, "other", "Library", "LaunchAgents", "io.kurrent.kcap.daemon.default.plist");
+        Tmp.CreateFile(Path.GetRelativePath(Tmp.Path, plist), $"<string>{Path.Combine(install.Packages[1], "bin", "kcap")}</string>");
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        var result = await run.ExitAsync();
+
+        await Assert.That(result.ExitCode).IsEqualTo(0);
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped", "in-use"]);
+        await Assert.That(result.Stderr).Contains(plist);
+        await install.AssertUntouchedAsync(spec);
+    }
+
+    /// <summary>A launch agent that is not a kcap daemon's names nothing kcap runs.</summary>
+    [Test]
+    public async Task Another_launch_agent_naming_the_install_does_not_keep_it() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        Tmp.CreateFile(Path.Combine("homes", "other", "Library", "LaunchAgents", "com.example.other.plist"), install.Packages[1]);
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        await run.ExitAsync();
+
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped", "deleted"]);
+    }
+
     /// <summary>Root creates the status file, so a folder that is a link, is not 0700 or is not this user's ends the run
     /// before it writes anything.</summary>
     [Test]
@@ -541,7 +605,8 @@ public class PrivilegedSwapScriptTests {
         var spec = new PrivilegedSpec(
             [link], [.. Layout.Select(e => new PrivilegedEntry(retirement.Plan(Path.Combine(root, e.Name)), e.Kind, null, [],
                 LinkTargetName: e.Kind == PrivilegedEntryKind.Link ? "1.4.1" : null))],
-            Tmp.PathTo("helper", "control"), Tmp.PathTo("helper", "status"), TimeSpan.FromSeconds(30), PrivilegedNpmInstall.Staging);
+            Tmp.PathTo("helper", "control"), Tmp.PathTo("helper", "status"), TimeSpan.FromSeconds(30), PrivilegedNpmInstall.Staging,
+            Tmp.CreateDir("homes"));
         return (spec, root, link);
     }
 

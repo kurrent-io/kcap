@@ -391,8 +391,9 @@ sealed class AdoptionWorld {
     /// <summary>macOS's administrator prompt and the root helper behind it, run as this user: the helper records its
     /// pid, swaps each link still holding its original target, and asks verify; only a true answer records go, sets
     /// every entry aside under the name it gives one it checked and deletes it. Each spec must be one the real helper
-    /// would take. <see cref="Answer"/> <see cref="PrivilegedResult.Cancelled"/> dismisses the prompt; <see cref="Cut"/>
-    /// has the helper end without reporting its outcome.</summary>
+    /// would take. <see cref="Answer"/> <see cref="PrivilegedResult.Cancelled"/> dismisses the prompt, and
+    /// <see cref="PrivilegedResult.InUse"/> has go find another account using the install; <see cref="Cut"/> has the
+    /// helper end without reporting its outcome.</summary>
     internal sealed class Administrator(AdoptionWorld world) : IPrivilegedSwap {
         public const int HelperPid = 4700;
 
@@ -443,6 +444,10 @@ sealed class AdoptionWorld {
             if (!await verify(ct)) return PutBack(swapped);
 
             store.Update(r => r with { Privileged = helper with { GoSent = true } });
+            if (Answer == PrivilegedResult.InUse) {
+                PutBack(swapped);
+                return PrivilegedResult.InUse;
+            }
             var checkedAsides = spec.Entries.Select(e => AsideRetirement.CheckedAside(e.Entry.Aside)).ToList();
             foreach (var ((entry, _, _, _, _, _), checkedAside) in spec.Entries.Zip(checkedAsides)) {
                 if (Path.Exists(entry.Aside)) Directory.Move(entry.Aside, checkedAside);
