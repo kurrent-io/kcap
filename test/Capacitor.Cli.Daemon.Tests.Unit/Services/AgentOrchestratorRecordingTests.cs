@@ -61,8 +61,7 @@ public class AgentOrchestratorRecordingTests {
                 },
                 recorder: config => {
                     Config = config;
-                    Probe = new RecordingProbe();
-                    var probe = Probe;
+                    var probe = new RecordingProbe();
                     if (serverRecords is { } answer) probe.Report(answer);
 
                     return new DaemonRecorder(
@@ -83,7 +82,6 @@ public class AgentOrchestratorRecordingTests {
         public AgentOrchestrator Orch { get; }
         public DaemonConfig Config { get; private set; } = null!;
         public int Connections { get; private set; }
-        public RecordingProbe Probe { get; private set; } = null!;
 
         public RecorderClaims Claims => new(WatcherPaths.FromEnvironment(Config.ConfigRoot).Directory, TimeProvider.System);
 
@@ -548,6 +546,22 @@ public class AgentOrchestratorRecordingTests {
 
         await Assert.That(reply.Text).IsEqualTo(RecordingIpc.NotTheAgents);
         await Assert.That(f.ClaimFiles.Any(claim => claim.Contains(Moved))).IsFalse();
+    }
+
+    /// <summary>The recorder reads the file the check saw, not a name a link could be swapped under later.</summary>
+    [Test]
+    public async Task A_handed_transcript_is_recorded_from_where_it_resolves() {
+        Skip.When(OperatingSystem.IsWindows(), "creating a symlink needs privileges Windows CI lacks");
+
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        var resolved = f.TranscriptOf(Moved, null);
+        var project  = Directory.CreateDirectory(Path.GetDirectoryName(resolved)!).FullName;
+
+        var reply = await HandOverAsync(f, Handed(f, subagent: null, transcript: Path.Combine(f.Link("linked", project), $"{Moved}.jsonl")));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Recording);
+        await Assert.That(f.ListedSources.Single(source => source.SessionId == Moved).TranscriptPath).IsEqualTo(CanonicalPath.Resolve(resolved));
     }
 
     /// <summary>A project directory Claude spelled its own way still holds the agent's own session.</summary>

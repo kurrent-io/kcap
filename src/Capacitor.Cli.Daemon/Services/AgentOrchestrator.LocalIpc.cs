@@ -749,24 +749,26 @@ internal partial class AgentOrchestrator {
          || !_agents.TryGetValue(source.AgentId, out var agent) || agent.IsPrivate || !IsClaude(agent.Vendor) || agent.IsCleanupStarted
          || SessionIds.Canonical(source.SessionId) is not { } session) return RecordingIpc.Refused;
 
-        if (RefusalOf(source, agent, session) is { } refusal) {
-            LogHandedSourceRefused(agent.Id, source.TranscriptPath, refusal);
+        var paths = ClaudePathsFor(agent.Account);
 
-            return RecordingIpc.NotTheAgents;
-        }
+        if (HandedTranscript.Locate(source.TranscriptPath, session, source.SubagentId, paths.Projects) is not { } transcript)
+            return Disown(agent, source, "it is not a transcript of that session under the agent's Claude projects");
+
+        if (RefusalOf(source, agent, session, paths, transcript.Project) is { } refusal) return Disown(agent, source, refusal);
 
         var recording = await recorder.TryRecordAsync(
-            new RecordedSource(agent.Id, session, SessionIds.Canonical(source.SubagentId), source.TranscriptPath, "claude", source.Cwd, source.SkipTitle), ct);
+            new RecordedSource(agent.Id, session, SessionIds.Canonical(source.SubagentId), transcript.Path, "claude", source.Cwd, source.SkipTitle), ct);
 
         return recording ? RecordingIpc.Recording : RecordingIpc.Refused;
     }
 
-    string? RefusalOf(RecordSourceDto source, AgentInstance agent, string session) {
-        var paths = ClaudePathsFor(agent.Account);
+    string Disown(AgentInstance agent, RecordSourceDto source, string refusal) {
+        LogHandedSourceRefused(agent.Id, source.TranscriptPath, refusal);
 
-        if (HandedTranscript.ProjectOf(source.TranscriptPath, session, source.SubagentId, paths.Projects) is not { } project)
-            return "it is not a transcript of that session under the agent's Claude projects";
+        return RecordingIpc.NotTheAgents;
+    }
 
+    string? RefusalOf(RecordSourceDto source, AgentInstance agent, string session, ClaudePaths paths, string project) {
         if (_agents.Values.Any(other => other.Id != agent.Id && IsSessionOf(other, session))) return "that session is another agent's";
 
         if (!IsSessionOf(agent, session) && !IsProjectOf(agent, paths, project)) return "that session is neither the agent's nor in its project";
