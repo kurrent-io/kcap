@@ -10,7 +10,8 @@ namespace Capacitor.Cli;
 /// one its caller names, because it runs from a terminal as often as from an agent.</summary>
 /// <param name="daemonName">What the daemon put in its agent's environment; null outside a hosted agent.</param>
 /// <param name="terminal">How a hook outside any hosted agent hands a session over; null hands none over.</param>
-public sealed class LocalDaemonRecording(DaemonStore store, HostedAgent hosted, string? daemonName, TerminalHandOff? terminal = null) : IDaemonRecordingClient {
+public sealed class LocalDaemonRecording(
+        DaemonStore store, HostedAgent hosted, string? daemonName, TerminalHandOff? terminal = null, TimeProvider? time = null) : IDaemonRecordingClient {
     public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, int? follows, CancellationToken ct) {
         if (source.Vendor != "claude") return Task.FromResult(RecordingHandOver.Unanswered);
 
@@ -23,7 +24,10 @@ public sealed class LocalDaemonRecording(DaemonStore store, HostedAgent hosted, 
         // A hosted run that names no agent isn't a terminal session, and gets a watcher like any source no daemon takes.
         if (hosted.IsHosted || terminal is null) return Task.FromResult(RecordingHandOver.Unanswered);
 
-        return RecordingIpc.RecordTerminalAsync(store, terminal.DaemonName, () => terminal.Describe(source, skipTitle, follows), ct);
+        // Every terminal session's start comes through here, so a daemon with recording off costs it no socket I/O.
+        if (!DaemonRecordingMarker.Exists(store, terminal.DaemonName)) return Task.FromResult(RecordingHandOver.Declined);
+
+        return RecordingIpc.RecordTerminalAsync(store, terminal.DaemonName, () => terminal.Describe(source, skipTitle, follows), time ?? TimeProvider.System, ct);
     }
 
     public Task<RecordingFinish> FinishSourceAsync(string key, string? holder, CancellationToken ct) =>

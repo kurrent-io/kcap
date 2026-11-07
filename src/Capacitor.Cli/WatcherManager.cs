@@ -28,6 +28,9 @@ public sealed partial class WatcherManager(
     // Two local round trips and a claim. A hook past this starts a watcher, and the spawn lock settles who records.
     internal static readonly TimeSpan HandOffBudget = TimeSpan.FromSeconds(2);
 
+    // Kept back from a caller's remaining budget for the watcher it may still have to start.
+    internal static readonly TimeSpan SpawnReserve = TimeSpan.FromMilliseconds(500);
+
     // Past the daemon's own bound, so its answer that a send is still out arrives rather than reading as no answer. With no
     // claim nothing turns on the answer, so that case keeps to HandOffBudget.
     internal static readonly TimeSpan DisableBudget = TimeSpan.FromSeconds(8);
@@ -369,7 +372,8 @@ public sealed partial class WatcherManager(
             string  vendor            = "claude",
             int?    parentPid         = null,
             TextWriter? stderr        = null,
-            WatcherRun? runsAs        = null
+            WatcherRun? runsAs        = null,
+            TimeSpan?   handOffWithin = null
         ) {
         if (agentId is null) ClaimAgentProcess(key, vendor, transcriptPath, cwd);
 
@@ -381,7 +385,7 @@ public sealed partial class WatcherManager(
 
         // Outside the spawn lock: the daemon takes that lock to claim the source, and would lose it to this hook. A stale
         // claim goes too: nothing may be coming back for it, and a daemon that is up can take it over.
-        var handOver = await HandToDaemonAsync(new RecordingSource(sessionIdOverride ?? key, agentId, transcriptPath, vendor, cwd), skipTitle, parentPid);
+        var handOver = await HandToDaemonAsync(new RecordingSource(sessionIdOverride ?? key, agentId, transcriptPath, vendor, cwd), skipTitle, parentPid, handOffWithin);
 
         if (handOver is RecordingHandOver.Taken) return;
 
@@ -427,8 +431,13 @@ public sealed partial class WatcherManager(
 
     /// <summary>How the daemon answered. However it fails to take the source, the hook arranges a recorder itself: a
     /// watcher costs a hosted session its stamps, and nothing at all would cost it its transcript.</summary>
-    async Task<RecordingHandOver> HandToDaemonAsync(RecordingSource source, bool skipTitle, int? follows) {
-        using var budget = new CancellationTokenSource(HandOffBudget, time);
+    /// <param name="within">What the caller has left: the hand-off keeps <see cref="SpawnReserve"/> of it for the spawn,
+    /// and is skipped when nothing is left past that.</param>
+    async Task<RecordingHandOver> HandToDaemonAsync(RecordingSource source, bool skipTitle, int? follows, TimeSpan? within) {
+        var wait = within is { } left && left - SpawnReserve < HandOffBudget ? left - SpawnReserve : HandOffBudget;
+        if (wait <= TimeSpan.Zero) return RecordingHandOver.Unanswered;
+
+        using var budget = new CancellationTokenSource(wait, time);
 
         try {
             return await _daemonRecording.TryRecordAsync(source, skipTitle, follows, budget.Token).WaitAsync(budget.Token);

@@ -109,7 +109,7 @@ public static class CommandServices {
         // Shared by every hook lane and carrying no per-run state, unlike the commands below.
         services.AddSingleton<IDaemonRecordingClient>(sp => new LocalDaemonRecording(
             sp.GetRequiredService<DaemonStore>(), sp.GetRequiredService<HostedAgent>(), Environment.GetEnvironmentVariable(DaemonNameResolver.NameVar),
-            TerminalHandOffFor(sp)));
+            TerminalHandOffFor(sp), sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<WatcherManager>();
 
         services.AddTransient<AccountsCommand>();

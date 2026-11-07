@@ -37,6 +37,10 @@ public static class RecordingIpc {
     /// <summary>The refusal of a source that isn't the asking agent's.</summary>
     public const string NotTheAgents = "not_the_agents";
 
+    /// <summary>How long a terminal hook waits for the hello. A daemon that is up answers in well under a millisecond,
+    /// and one stopped, starved or swapped out would otherwise spend the hook's whole hand-off on it.</summary>
+    public static readonly TimeSpan TerminalHelloWait = TimeSpan.FromMilliseconds(250);
+
     /// <summary>How the daemon took <paramref name="source"/>.</summary>
     public static async Task<RecordingHandOver> RecordAsync(DaemonStore store, string daemonName, RecordSourceDto source, CancellationToken ct) {
         try {
@@ -55,9 +59,16 @@ public static class RecordingIpc {
     /// said it takes terminal sessions, so one that doesn't costs the hook its hello and nothing more; null from it hands
     /// nothing over.</summary>
     public static async Task<RecordingHandOver> RecordTerminalAsync(
-            DaemonStore store, string daemonName, Func<RecordTerminalSourceDto?> describe, CancellationToken ct) {
+            DaemonStore store, string daemonName, Func<RecordTerminalSourceDto?> describe, TimeProvider time, CancellationToken ct) {
         try {
-            if (await CapabilitiesAsync(store, daemonName, ct) is not { } capabilities) return RecordingHandOver.Unanswered;
+            IReadOnlyList<string>? capabilities;
+
+            using (var wait = new CancellationTokenSource(TerminalHelloWait, time))
+            using (var hello = CancellationTokenSource.CreateLinkedTokenSource(ct, wait.Token)) {
+                capabilities = await CapabilitiesAsync(store, daemonName, hello.Token);
+            }
+
+            if (capabilities is null) return RecordingHandOver.Unanswered;
             if (!capabilities.Contains(TerminalCapability) || describe() is not { } source) return RecordingHandOver.Declined;
 
             var json = JsonSerializer.Serialize(source, RecordingIpcJsonContext.Default.RecordTerminalSourceDto);

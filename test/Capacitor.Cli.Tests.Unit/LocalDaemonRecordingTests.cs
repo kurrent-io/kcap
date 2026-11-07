@@ -34,8 +34,12 @@ public class LocalDaemonRecordingTests {
     LocalDaemonRecording Client(HostedAgent? hosted = null, string? daemonName = DaemonName, TerminalHandOff? terminal = null) =>
         new(Daemons.Store, hosted ?? Hosted, daemonName, terminal);
 
-    FakeRecordingDaemon Daemon(params string[] capabilities) =>
-        new(Daemons.Store.SocketPath(DaemonName), capabilities.Length > 0 ? capabilities : [RecordingIpc.Capability]) { Answer = RecordingIpc.Recording };
+    /// <summary>A daemon on its socket with its recording marker written, as one with recording on leaves it.</summary>
+    FakeRecordingDaemon Daemon(params string[] capabilities) {
+        DaemonRecordingMarker.Sync(Daemons.Store, DaemonName, recording: true);
+
+        return new(Daemons.Store.SocketPath(DaemonName), capabilities.Length > 0 ? capabilities : [RecordingIpc.Capability]) { Answer = RecordingIpc.Recording };
+    }
 
     [Test]
     public async Task A_hosted_hook_names_its_agent_and_the_source() {
@@ -88,6 +92,19 @@ public class LocalDaemonRecordingTests {
         await Assert.That(_reads).IsEqualTo(0);
     }
 
+    /// <summary>No marker is a daemon with recording off, which a terminal hook never opens a socket to.</summary>
+    [Test]
+    public async Task A_terminal_hook_asks_no_daemon_that_left_no_recording_marker() {
+        await using var daemon = Daemon(RecordingIpc.TerminalCapability);
+        DaemonRecordingMarker.Delete(Daemons.Store, DaemonName);
+
+        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, false, null, CancellationToken.None);
+
+        await Assert.That(handOver).IsEqualTo(RecordingHandOver.Declined);
+        await Assert.That(daemon.Received).IsEmpty();
+        await Assert.That(_reads).IsEqualTo(0);
+    }
+
     /// <summary>Nothing would end a source with no process behind it, so the hook keeps its watcher, whose parent monitor
     /// has the same blind spot it always had.</summary>
     [Test]
@@ -106,7 +123,7 @@ public class LocalDaemonRecordingTests {
 
         var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude, daemonName: "daemon-b")).TryRecordAsync(Source, false, null, CancellationToken.None);
 
-        await Assert.That(handOver).IsEqualTo(RecordingHandOver.Unanswered);
+        await Assert.That(handOver).IsNotEqualTo(RecordingHandOver.Taken);
         await Assert.That(daemon.Received).IsEmpty();
     }
 

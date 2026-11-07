@@ -393,7 +393,7 @@ public sealed class ClaudeHookCommand(
                      source.Equals("compact", StringComparison.OrdinalIgnoreCase));
                 try {
                     await watchers.EnsureWatcherRunning(sessionId, transcriptPath,
-                        agentId: null, cwd: cwd, skipTitle: isResumeOrCompact);
+                        agentId: null, cwd: cwd, skipTitle: isResumeOrCompact, handOffWithin: budget.Remaining);
                 } catch { }
             }
 
@@ -831,7 +831,7 @@ public sealed class ClaudeHookCommand(
             //    Idempotent — safe to call even if the POST subsequently fails.
             if (sessionId is not null && transcriptPath is not null) {
                 await watchers.EnsureWatcherRunning(sessionId, transcriptPath,
-                    agentId: null, cwd: sessionCwd, skipTitle: isResumeOrCompact);
+                    agentId: null, cwd: sessionCwd, skipTitle: isResumeOrCompact, handOffWithin: budget.Remaining);
             }
             HookTiming.Mark("watcher");
 
@@ -1284,7 +1284,7 @@ public sealed class ClaudeHookCommand(
 
                 if (sessionId is not null && agentId is not null && transcriptPath is not null) {
                     var agentTranscriptPath = ClaudeSubagentFiles.TranscriptPath(transcriptPath, agentId);
-                    await watchers.EnsureWatcherRunning($"{sessionId}-{agentId}", agentTranscriptPath, agentId, sessionId);
+                    await watchers.EnsureWatcherRunning($"{sessionId}-{agentId}", agentTranscriptPath, agentId, sessionId, handOffWithin: budget.Remaining);
                 }
 
                 break;
@@ -1296,7 +1296,7 @@ public sealed class ClaudeHookCommand(
                 var sessionCwd     = node?["cwd"]?.GetValue<string>();
 
                 if (sessionId is not null && transcriptPath is not null) {
-                    await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, cwd: sessionCwd);
+                    await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, cwd: sessionCwd, handOffWithin: budget.Remaining);
                 }
                 HookTiming.Mark("watcher");
 

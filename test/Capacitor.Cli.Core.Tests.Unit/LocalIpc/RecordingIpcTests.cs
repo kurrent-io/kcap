@@ -22,12 +22,12 @@ public class RecordingIpcTests {
 
     int _described;
 
-    Task<RecordingHandOver> RecordTerminal(RecordTerminalSourceDto? source = null, CancellationToken ct = default) =>
+    Task<RecordingHandOver> RecordTerminal(RecordTerminalSourceDto? source = null, CancellationToken ct = default, TimeProvider? time = null) =>
         RecordingIpc.RecordTerminalAsync(Daemons.Store, DaemonName, () => {
             _described++;
 
             return source ?? Terminal;
-        }, ct);
+        }, time ?? TimeProvider.System, ct);
 
     Task<RecordingDisableAnswer> Disable(CancellationToken ct = default) => RecordingIpc.DisableAsync(Daemons.Store, DaemonName, "session-1", ct);
 
@@ -79,6 +79,24 @@ public class RecordingIpcTests {
         await Assert.That(await RecordTerminal()).IsEqualTo(RecordingHandOver.Declined);
 
         await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.Hello]);
+        await Assert.That(_described).IsEqualTo(0);
+    }
+
+    /// <summary>A hello is the whole of what a daemon with recording off costs a hook, so it is bounded on its own, well
+    /// inside the hook's hand-off.</summary>
+    [Test]
+    public async Task A_hello_nobody_answers_is_given_up_at_its_own_wait() {
+        using var silent = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.Unix, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Unspecified);
+        silent.Bind(new System.Net.Sockets.UnixDomainSocketEndPoint(Daemons.Store.SocketPath(DaemonName)));
+        silent.Listen(4);
+        var accepted = silent.AcceptAsync();
+        var time     = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+
+        var record = RecordTerminal(time: time);
+        using var connection = await accepted.WithinDeadlineAsync("the hook to connect");
+        time.Advance(RecordingIpc.TerminalHelloWait);
+
+        await Assert.That(await record.WithinDeadlineAsync("the hello's wait")).IsEqualTo(RecordingHandOver.Unanswered);
         await Assert.That(_described).IsEqualTo(0);
     }
 

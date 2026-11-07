@@ -35,13 +35,17 @@ public class WatcherManagerHandoffTests {
     WatcherManager Hook(string daemonName = OwnDaemon, string profile = "default") => new(
         Config.Root, Resolutions.At(Url, Config.Root), new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, Spawner, _time,
         new LocalDaemonRecording(Daemons.Store, HostedAgent.Terminal, daemonName: null,
-            new TerminalHandOff(daemonName, profile, Url, Config.Root.Directory, Paths.Directory, _ => "/home/claude", Follow)),
+            new TerminalHandOff(daemonName, profile, Url, Config.Root.Directory, Paths.Directory, _ => "/home/claude", Follow), _time),
         HostedAgent.Terminal);
 
     static ProcessIncarnation Follow(int? follows) => follows is { } pid ? new ProcessIncarnation(pid, "test:followed") : Claude;
 
-    FakeRecordingDaemon Daemon(string name, params string[] capabilities) =>
-        new(Daemons.Store.SocketPath(name), capabilities) { Answer = RecordingIpc.Recording };
+    /// <summary>A daemon on its socket, which has written its recording marker as one with recording on does at boot.</summary>
+    FakeRecordingDaemon Daemon(string name, params string[] capabilities) {
+        DaemonRecordingMarker.Sync(Daemons.Store, name, recording: true);
+
+        return new FakeRecordingDaemon(Daemons.Store.SocketPath(name), capabilities) { Answer = RecordingIpc.Recording };
+    }
 
     Task Ensure(WatcherManager hook) => hook.EnsureWatcherRunning(Session, Transcript, agentId: null, cwd: "/repo");
 
@@ -155,7 +159,7 @@ public class WatcherManagerHandoffTests {
         var hook = new WatcherManager(
             Config.Root, Resolutions.At(Url, Config.Root), new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, spawner, _time,
             new LocalDaemonRecording(Daemons.Store, HostedAgent.Terminal, daemonName: null,
-                new TerminalHandOff(OwnDaemon, "default", Url, Config.Root.Directory, Paths.Directory, _ => "/home/claude", _ => Claude)),
+                new TerminalHandOff(OwnDaemon, "default", Url, Config.Root.Directory, Paths.Directory, _ => "/home/claude", _ => Claude), _time),
             HostedAgent.Terminal);
 
         Claims.TryTake(Session, OwnDaemon, isHosted: false);
@@ -193,9 +197,11 @@ public class WatcherManagerHandoffTests {
         await Assert.That(Spawner.Keys).IsEquivalentTo([Session]);
     }
 
-    /// <summary>A silent daemon on the hello itself: the hook has nothing to go on and moves on within the same budget.</summary>
+    /// <summary>A daemon stopped, starved or swapped out takes the connection and says nothing. One that is up answers a
+    /// hello in well under a millisecond, so the hello gets a fraction of the hand-off, not all of it.</summary>
     [Test]
-    public async Task A_daemon_silent_on_its_hello_never_blocks_the_hook_past_its_budget() {
+    public async Task A_daemon_silent_on_its_hello_costs_the_hook_only_the_hellos_wait() {
+        DaemonRecordingMarker.Sync(Daemons.Store, OwnDaemon, recording: true);
         using var silent = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.Unix, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Unspecified);
         silent.Bind(new System.Net.Sockets.UnixDomainSocketEndPoint(Daemons.Store.SocketPath(OwnDaemon)));
         silent.Listen(4);
@@ -203,9 +209,48 @@ public class WatcherManagerHandoffTests {
 
         var hook = Ensure(Hook());
         using var connection = await accepted.WithinDeadlineAsync("the hook to connect");
-        _time.Advance(WatcherManager.HandOffBudget);
+        _time.Advance(RecordingIpc.TerminalHelloWait);
         await hook.WithinDeadlineAsync("the hook's way past the daemon");
 
         await Assert.That(Spawner.Keys).IsEquivalentTo([Session]);
+    }
+
+    /// <summary>With recording off the daemon writes no marker, and every terminal session's start then spawns its
+    /// watcher with no socket opened, even with the daemon up and listening.</summary>
+    [Test]
+    public async Task With_recording_off_a_terminal_hook_opens_no_socket() {
+        await using var daemon = new FakeRecordingDaemon(Daemons.Store.SocketPath(OwnDaemon), "status/1");
+
+        await Ensure(Hook());
+
+        await Assert.That(Spawner.Keys).IsEquivalentTo([Session]);
+        await Assert.That(daemon.Received).IsEmpty();
+    }
+
+    /// <summary>A hung daemon with its marker present costs at most what the caller can spare past the spawn, here well
+    /// under the full hand-off budget.</summary>
+    [Test]
+    public async Task A_hung_daemon_costs_a_hook_no_more_than_it_can_spare() {
+        await using var daemon = Daemon(OwnDaemon, RecordingIpc.TerminalCapability);
+        daemon.Answer = null;
+        var within = WatcherManager.SpawnReserve + TimeSpan.FromMilliseconds(700);
+
+        var hook = Hook().EnsureWatcherRunning(Session, Transcript, agentId: null, handOffWithin: within);
+        await daemon.Asked.WithinDeadlineAsync("the hook to ask the daemon");
+        _time.Advance(TimeSpan.FromMilliseconds(700));
+        await hook.WithinDeadlineAsync("the hook's way past the daemon at its cap");
+
+        await Assert.That(Spawner.Keys).IsEquivalentTo([Session]);
+    }
+
+    /// <summary>A hook down to its spawn reserve asks nothing and starts its watcher.</summary>
+    [Test]
+    public async Task A_hook_with_nothing_to_spare_past_its_spawn_asks_no_daemon() {
+        await using var daemon = Daemon(OwnDaemon, RecordingIpc.TerminalCapability);
+
+        await Hook().EnsureWatcherRunning(Session, Transcript, agentId: null, handOffWithin: WatcherManager.SpawnReserve);
+
+        await Assert.That(Spawner.Keys).IsEquivalentTo([Session]);
+        await Assert.That(daemon.Received).IsEmpty();
     }
 }

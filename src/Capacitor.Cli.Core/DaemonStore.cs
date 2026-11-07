@@ -64,6 +64,7 @@ public sealed partial class DaemonStore(string directory) {
     const string StartExtension = "start";
     const string RestartPendingExtension = "restart-pending";
     const string VersionExtension = "version";
+    const string RecordingExtension = "recording";
     const string SocketExtension = "sock";
     const string ServiceLockExtension = "service-lock";
     const string ServiceLockHolderExtension = "service-lock-holder";
@@ -95,6 +96,9 @@ public sealed partial class DaemonStore(string directory) {
     /// socket round-trip.
     /// </summary>
     public string VersionPath(string daemonName) => File(daemonName, VersionExtension);
+
+    /// <summary>Present while the daemon of that name runs with recording on. Read by a hook before it opens the socket.</summary>
+    public string RecordingMarkerPath(string daemonName) => File(daemonName, RecordingExtension);
 
     /// <summary>Local control socket, colocated with the lock/pid files. macOS caps the whole path at
     /// 103 chars, and a long temp directory plus a long name silently stops binding.</summary>

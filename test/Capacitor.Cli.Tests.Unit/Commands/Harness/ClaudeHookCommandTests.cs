@@ -211,6 +211,39 @@ public class ClaudeHookCommandTests {
             .Contains("approval policy degraded");
     }
 
+    /// <summary>The degraded arm runs late, with little of the session-start budget left before Claude kills the hook. A
+    /// daemon that takes the hand-over and never answers must not spend what the watcher's start needs: on a clock nothing
+    /// moves, any wait on the daemon here would never end.</summary>
+    [Test, ExcludeOn(TUnit.Core.Enums.OS.Windows)] // Unix-domain socket path
+    public async Task A_late_degraded_session_start_starts_its_watcher_without_waiting_on_a_hung_daemon() {
+        using var fx      = new Fixture(Config.Root);
+        using var daemons = new TempDaemonStore();
+        var time     = new FakeTimeProvider();
+        var clock    = new HookClock(time);
+        var profiles = Resolutions.At("http://127.0.0.1:1", Config.Root);
+        var paths    = new WatcherPaths(Tmp.CreateDir("watchers"));
+        var spawner  = new FakeWatcherSpawner();
+        time.Advance(ClaudeHookCommand.SessionStartCeiling - HookBudget.Safety - TimeSpan.FromMilliseconds(300));
+
+        DaemonRecordingMarker.Sync(daemons.Store, "daemon-a", recording: true);
+        await using var daemon = new FakeRecordingDaemon(daemons.Store.SocketPath("daemon-a"), Core.LocalIpc.RecordingIpc.TerminalCapability);
+        var watchers = new WatcherManager(
+            Config.Root, profiles, new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, paths, spawner, time,
+            new LocalDaemonRecording(daemons.Store, HostedAgent.Terminal, daemonName: null,
+                new TerminalHandOff("daemon-a", "default", "http://127.0.0.1:1", Config.Root.Directory, paths.Directory, _ => Home.Path, _ => new ProcessIncarnation(4242, "test:claude")), time),
+            HostedAgent.Terminal);
+
+        var exit = await new ClaudeHookCommand(Config.Root, profiles, clock, Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), watchers, FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            .HandleWithDeps(fx.Spool, new StringReader(
+                $$"""{"hook_event_name":"SessionStart","session_id":"{{Sid}}","transcript_path":"/t/{{Sid}}.jsonl","cwd":"/tmp"}"""),
+                () => Task.FromException<AuthAttempt>(new HttpRequestException("auth is down")))
+            .WithinDeadlineAsync("the degraded arm");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(spawner.Keys).IsEquivalentTo([Sid]);
+        await Assert.That(daemon.Received).IsEmpty();
+    }
+
     /// <summary>The degraded arm spools the end without reaching the stamp the posted path applies, and its replay
     /// may land after a resume, so it carries the run identity too.</summary>
     [Test]
