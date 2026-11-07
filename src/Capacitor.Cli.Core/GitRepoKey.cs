@@ -21,18 +21,30 @@ public static class GitRepoKey {
     public static string? ForCheckout(string? path, ConfigRoot config, string? serverUrl) =>
         ForCheckout(path, dir => LocalRepositorySupport.IdentityFor(config, serverUrl, dir));
 
-    /// <summary>The key a deny list is matched against: a repository with no remote keys by its local identity
-    /// whatever the server stores, since a session that reports no repository is still captured.</summary>
-    public static string? ForExclusion(string? path, ConfigRoot config) => ForCheckout(path, dir => LocalRepository.Of(config, dir));
+    static string? ForCheckout(string? path, Func<string, (string Owner, string Name)?> local) =>
+        Keys(path, local) is [var first, ..] ? first : null;
 
-    static string? ForCheckout(string? path, Func<string, (string Owner, string Name)?> local) {
-        if (string.IsNullOrWhiteSpace(path) || GitRepository.FindRoot(path) is not { } root) return null;
+    /// <summary>Every key a list may name this checkout by, for <see cref="RepoScope"/>: its remote's path, and, for an
+    /// origin that names no owner, its local identity too, so an entry naming either still matches.</summary>
+    public static IReadOnlyList<string> ScopeKeys(string? path, ConfigRoot config, string? serverUrl) =>
+        Keys(path, dir => LocalRepositorySupport.IdentityFor(config, serverUrl, dir));
 
-        var url = ConfigPathFor(root) is { } configPath ? GitRemoteReader.ReadOriginUrlFromConfig(configPath) : null;
+    /// <summary>The same keys a deny list is matched against, the local identity whatever the server stores.</summary>
+    public static IReadOnlyList<string> ExclusionKeys(string? path, ConfigRoot config) => Keys(path, dir => LocalRepository.Of(config, dir));
 
-        if (GitUrlParser.ParseRemoteUrl(url) is { Owner: not null, RepoName: not null }) return ForCheckout(path);
+    static IReadOnlyList<string> Keys(string? path, Func<string, (string Owner, string Name)?> local) {
+        if (string.IsNullOrWhiteSpace(path) || GitRepository.FindRoot(path) is not { } root) return [];
 
-        return local(path) is { } identity ? $"{identity.Owner}/{identity.Name}" : null;
+        var url    = ConfigPathFor(root) is { } configPath ? GitRemoteReader.ReadOriginUrlFromConfig(configPath) : null;
+        var remote = ForCheckout(path);
+
+        if (GitUrlParser.ParseRemoteUrl(url) is { Owner: not null, RepoName: not null }) return remote is null ? [] : [remote];
+
+        var keys = new List<string>(2);
+        if (local(path) is { } identity) keys.Add($"{identity.Owner}/{identity.Name}");
+        if (remote is not null) keys.Add(remote);
+
+        return keys;
     }
 
     public static string? ForCheckout(string? path) {

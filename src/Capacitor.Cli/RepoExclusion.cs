@@ -31,10 +31,12 @@ static class RepoExclusion {
 
         var key = await ResolveKeyAsync(router, config, body, time, budget);
 
-        // A repository with no remote the server is not sent is still captured, so a deny list still names it.
-        var excludeKey = key is null && hasDenylist && Cwd(body) is { } cwd ? GitRepoKey.ForExclusion(cwd, config) : key;
+        // A repository with no remote the server is not sent is still captured, and one whose origin names no owner can be
+        // listed by its remote's path, so the deny list is matched against every key the checkout has.
+        List<string> excludeKeys = key is null ? [] : [key];
+        if (hasDenylist && Cwd(body) is { } cwd) excludeKeys.AddRange(GitRepoKey.ExclusionKeys(cwd, config));
 
-        return RepoScope.IsOutOfScope(key, excludeKey, allowedRepos, excludedRepos);
+        return RepoScope.IsOutOfScope(key is null ? [] : [key], excludeKeys, allowedRepos, excludedRepos);
     }
 
     /// <summary>

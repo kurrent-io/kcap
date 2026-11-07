@@ -10,11 +10,11 @@ public class RepositoryHashesTests {
 
     [Test]
     public async Task A_local_repository_is_resolved_by_the_server() {
-        var server = new ResolvingServer("bound-hash-01");
+        var server = new ResolvingServer("0b0d10ca15a5e0e1");
 
         var hash = await RepositoryHashes.ForAsync(server.Client(), ResolvingServer.BaseUrl, Local, "demo");
 
-        await Assert.That(hash).IsEqualTo("bound-hash-01");
+        await Assert.That(hash).IsEqualTo("0b0d10ca15a5e0e1");
         await Assert.That(server.Resolves.Single()).IsEqualTo($"/api/repositories/resolve?owner={Uri.EscapeDataString(Local)}&name=demo");
     }
 
@@ -34,4 +34,30 @@ public class RepositoryHashesTests {
     public async Task A_server_that_cannot_resolve_leaves_no_hash(HttpStatusCode status) =>
         await Assert.That(await RepositoryHashes.ForAsync(new ResolvingServer("x", status).Client(), ResolvingServer.BaseUrl, Local, "demo"))
             .IsNull();
+
+    /// <summary>The hash names files on this machine, so a server answer of any other shape is read as no hash at all.</summary>
+    [Test]
+    [Arguments("../../etc/passwd")]
+    [Arguments("0B0D10CA15A5E0E1")]
+    [Arguments("0b0d10ca15a5e0e")]
+    public async Task A_resolved_value_that_is_not_a_repository_hash_leaves_no_hash(string answered) =>
+        await Assert.That(await RepositoryHashes.ForAsync(new ResolvingServer(answered).Client(), ResolvingServer.BaseUrl, Local, "demo"))
+            .IsNull();
+
+    /// <summary>A lookup that never reached the server is reported as that, apart from an older server's answer.</summary>
+    [Test]
+    public async Task A_lookup_that_cannot_reach_the_server_says_so() {
+        HttpRequestException? unreachable = null;
+        using var client = new HttpClient(new Unreachable());
+
+        var hash = await RepositoryHashes.ForAsync(client, ResolvingServer.BaseUrl, Local, "demo", onUnreachable: e => unreachable = e);
+
+        await Assert.That(hash).IsNull();
+        await Assert.That(unreachable).IsNotNull();
+    }
+
+    sealed class Unreachable : HttpMessageHandler {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new HttpRequestException("connection refused");
+    }
 }

@@ -17,17 +17,16 @@ public static class RepoScope {
     /// </summary>
     public static bool IsOutOfScope(
             string? repoKey, IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) =>
-        IsOutOfScope(repoKey, repoKey, allowedRepos, excludedRepos);
+        IsOutOfScope(repoKey is null ? [] : [repoKey], repoKey is null ? [] : [repoKey], allowedRepos, excludedRepos);
 
-    /// <summary>The same, with the deny list matched against <paramref name="excludeKey"/>, which can name a repository
-    /// the session reports none for.</summary>
+    /// <summary>The same for a checkout a list can name by more than one key: the allowlist admits it when it names any
+    /// of <paramref name="allowKeys"/>, and the deny list excludes it when it names any of <paramref name="excludeKeys"/>.</summary>
     public static bool IsOutOfScope(
-            string? allowKey, string? excludeKey, IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) {
-        if (IsOutsideAllowlist(allowKey, allowedRepos)) return true;
+            IReadOnlyList<string> allowKeys, IReadOnlyList<string> excludeKeys,
+            IReadOnlyList<string>? allowedRepos, IReadOnlyList<string>? excludedRepos) {
+        if (allowedRepos is { Count: > 0 } && !allowKeys.Any(key => Names(allowedRepos, key))) return true;
 
-        return excludeKey is not null
-            && excludedRepos is { Count: > 0 }
-            && Names(excludedRepos, excludeKey);
+        return excludedRepos is { Count: > 0 } && excludeKeys.Any(key => Names(excludedRepos, key));
     }
 
     /// <summary>

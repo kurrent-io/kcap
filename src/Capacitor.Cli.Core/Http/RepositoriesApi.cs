@@ -24,7 +24,7 @@ internal sealed class RepositoriesApi(ICapacitorHttpClient http, CapacitorServer
             async response => {
                 if (response.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)) throw await FailureAsync(response);
             },
-            ct);
+            ct: ct);
 
     public async Task<CurationResult> GetPromotedCurationAsync(string repoHash, int limit, CancellationToken ct = default) {
         using var response = await SendAsync(

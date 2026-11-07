@@ -174,4 +174,14 @@ public class RepositoryDetectionLocalTests {
         await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, [entry], null, TimeProvider.System)).IsTrue();
         await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, null, [entry], TimeProvider.System)).IsTrue();
     }
+
+    // A hook names the repository by the same keys a launch does, so an entry naming the remote's path still excludes it.
+    [Test]
+    public async Task An_origin_with_no_owner_is_still_excluded_by_its_remote_path() {
+        using var repo = GitRepo.Create();
+        repo.AddRemote("ssh://git.example/demo.git");
+        var body = JsonSerializer.Serialize(new Dictionary<string, string> { ["cwd"] = repo.Path });
+
+        await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, null, ["demo"], TimeProvider.System)).IsTrue();
+    }
 }
