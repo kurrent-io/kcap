@@ -610,20 +610,23 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         RefreshQueuedSend();
     }
 
-    /// An attested turn seen after a send from an idle prompt, or after the agent went idle behind a
-    /// send made mid-turn, began after the send. The turn already running at a mid-turn send does not
-    /// count, and neither does working without attestation: the submit alone clears the wait, even
-    /// when its Enter only became a newline. A live subagent does not make the agent's own prompt busy.
+    /// An attested turn seen once the agent was idle with a row unechoed, whether at the send or after
+    /// the turn a mid-turn send queued behind, began after the send. The turn already running at a
+    /// mid-turn send does not count, and neither does working without attestation: the submit alone
+    /// clears the wait, even when its Enter only became a newline.
     void NoteTurnStarts() {
         var working = !_ended && SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
-        var waits = !_ended && _awaitingInput == true;
+        var idle = !working || AgentPromptWaits;
         var attested = working && _turnAttested;
         foreach (var queued in Tracked) {
             if (queued.IsForeign || queued.Acknowledged) continue;
-            if (!working || waits) queued.SawIdle = true;
-            else if (attested && (queued.SentIdle || queued.SawIdle)) queued.TurnSeen = true;
+            if (idle) queued.SawIdle = true;
+            else if (attested && queued.SawIdle) queued.TurnSeen = true;
         }
     }
+
+    /// The agent's own prompt waits for input; a live subagent does not make it busy.
+    bool AgentPromptWaits => !_ended && _awaitingInput == true;
 
     bool AgentIsIdle => !_ended && !SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
 
@@ -1535,6 +1538,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         var queued = new QueuedChatMessage(snapshot, ownsDraft ? edits : -1, _inputGeneration, CurrentOffset, chipIds) {
             SendOrder = ++_nextSendOrder,
             SentIdle = AgentIsIdle && _awaitingInput == true && !HasTerminalMenu,
+            SawIdle = AgentIsIdle || AgentPromptWaits,
             SenderIdentity = sender is null ? null : sender with { Ids = sender.Ids.ToArray() },
         };
         if (!queued.HasBaseline) Interlocked.Increment(ref _baselineVersion);
