@@ -229,6 +229,28 @@ public class TranscriptRecorderTests {
         await Assert.That(stopping).IsTrue();
     }
 
+    /// <summary>A watcher has one connection and no retry around it: it carries on, and the next reconnect tries again.</summary>
+    [Test]
+    public async Task A_bare_recorder_outlives_a_failed_re_registration() {
+        var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        using var recorder = new TranscriptRecorder(
+            new RecordingSource(Sid, null, path, "claude", null), _transport, new NoStamps(), TimeProvider.System,
+            new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, _ => { }, () => { }));
+        using var stop = new CancellationTokenSource();
+        var run = recorder.RunAsync(stop.Token);
+        await Eventually(() => _transport.Connects == 1);
+
+        _transport.ConnectFailures = 1;
+        await _transport.RaiseReconnectedAsync();
+        await _transport.RaiseReconnectedAsync();
+
+        await Eventually(() => _transport.Connects == 2);
+        await Assert.That(run.IsCompleted).IsFalse();
+
+        await stop.CancelAsync();
+        await run.WithinDeadlineAsync("the run");
+    }
+
     [Test]
     public async Task A_log_that_throws_does_not_reach_the_transports_other_subscribers() {
         var path = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");

@@ -43,6 +43,7 @@ public sealed class TranscriptRecorder(
     readonly CancellationTokenSource _titleCts = new();
 
     long _shutdownRequestedAt;
+    Exception? _registrationLost;
     int  _stopRequested;
     bool _subscribed;
 
@@ -97,6 +98,11 @@ public sealed class TranscriptRecorder(
 
     /// <summary>The transcript went idle and the recorder ended its source.</summary>
     public bool EndedIdle { get; private set; }
+
+    /// <summary>Whether a re-registration that failed fails the run. A host retries a run, and that registers the source
+    /// again; a source left unregistered has no stop path until the next reconnect, which on a connection shared by
+    /// every source can be days away. A watcher has no retry around it, so it carries on to that reconnect.</summary>
+    internal bool FailsOnLostRegistration { get; init; }
 
     /// <summary>A Copilot <c>session.shutdown</c> stayed the transcript's last line.</summary>
     public bool EndedOnCopilotShutdown { get; private set; }
@@ -169,6 +175,9 @@ public sealed class TranscriptRecorder(
                 context.Beat();
 
                 if (HasLostClaim()) break;
+
+                if (Volatile.Read(ref _registrationLost) is { } lost && !stop.IsCancellationRequested)
+                    throw new IOException($"Re-registering failed: {lost.Message}", lost);
 
                 // No point re-reading the file or attempting sends that will fail; the transport reconnects.
                 if (!transport.IsConnected) {
@@ -538,6 +547,8 @@ public sealed class TranscriptRecorder(
             // Already finished.
         } catch (Exception ex) {
             TryLog($"Re-register after reconnect failed: {ex.Message}");
+
+            if (FailsOnLostRegistration) Volatile.Write(ref _registrationLost, ex);
         }
     }
 

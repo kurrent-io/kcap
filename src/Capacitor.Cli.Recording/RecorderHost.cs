@@ -158,8 +158,9 @@ public sealed class RecorderHost {
     // A log or beat that throws, as the daemon's file log can, would otherwise fail the recorder at its first line.
     TranscriptRecorder Create(RecordingSource source, RecorderContext first, RecorderContext context) =>
         new(source, _transport, _stampers(source), _time, context with { Log = Guarded(context.Log), Beat = Beats(source, context.Beat) }, _claims) {
-            OpenTranscript   = _openTranscript,
-            ConnectAbandoned = connect => _ = DetachOnceLandedAsync(source, connect, first),
+            OpenTranscript          = _openTranscript,
+            ConnectAbandoned        = connect => _ = DetachOnceLandedAsync(source, connect, first),
+            FailsOnLostRegistration = true,
         };
 
     // Guarded apart, because the heartbeat file and the claim fail apart: a backoff has to keep beating the claim, or a

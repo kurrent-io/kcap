@@ -655,6 +655,42 @@ public class RecorderHostTests {
         await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
     }
 
+    /// <summary>A send the transport gave up on is a failed send: the same lines go again, and a first copy that lands
+    /// late is dropped by the server, which takes nothing at or below its mark.</summary>
+    [Test]
+    public async Task A_batch_that_timed_out_is_sent_again() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "a1");
+        var sends  = 0;
+        _transport.OnSend = _ => Interlocked.Increment(ref sends) == 1 ? throw new TimeoutException("No answer.") : Task.CompletedTask;
+        var host = NewHost();
+
+        host.TryAdd(source);
+
+        await Eventually(() => LinesSent(source.SessionId) == 2, "the lines to go again", TimeSpan.FromSeconds(1));
+
+        await Assert.That(_transport.Batches[0].LineNumbers).IsEquivalentTo([0, 1]);
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
+    /// <summary>With no registration the server has no stop path to this source, and the next reconnect can be days off.
+    /// A rollout makes every source fail this at once, so each goes back through its own retry.</summary>
+    [Test]
+    public async Task A_failed_re_registration_fails_the_attempt_and_registers_again() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first attempt", TimeSpan.FromSeconds(1));
+
+        _transport.ConnectFailures = 1;
+        await _transport.RaiseReconnectedAsync();
+
+        await Eventually(() => _transport.Connects == 2, "the source to register again", TimeSpan.FromSeconds(1));
+
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(_ended.Count(ended => ended.Failure is not null)).IsEqualTo(1);
+    }
+
     [Test]
     public async Task A_source_that_ends_cleanly_is_not_retried() {
         var stopped = Source(Tmp.CreateFile("stopped.jsonl", $"{Prompt}\n"), "a1");
