@@ -200,6 +200,39 @@ public class LocalControlRecordingTests {
     static void Register(AccountStore accounts, HarnessId vendor, string directory) =>
         accounts.Mutate(r => (r with { Accounts = [.. r.Accounts, new VendorAccount($"{vendor}-work", vendor, AccountDirectory.Normalize(directory), "Work", DateTimeOffset.UnixEpoch)] }, 0));
 
+    /// <summary>The record's types promise nothing about what a peer on the socket sends, and a field it leaves out
+    /// arrives as null. The hand-over is refused before anything reads it.</summary>
+    [Test]
+    [Arguments("session_id")]
+    [Arguments("transcript_path")]
+    [Arguments("vendor")]
+    [Arguments("profile")]
+    [Arguments("server_url")]
+    [Arguments("config_dir")]
+    [Arguments("watcher_dir")]
+    [Arguments("claude_home")]
+    [Arguments("process_token")]
+    public async Task A_hand_over_missing_a_field_is_refused(string field) {
+        await using var f = new Fixture();
+        var json = JsonSerializer.SerializeToNode(f.Source(), RecordingIpcJsonContext.Default.RecordTerminalSourceDto)!.AsObject();
+        await Assert.That(json.ContainsKey(field)).IsTrue();
+        json[field] = null;
+
+        await Assert.That(await f.HandOverAsync(json.ToJsonString())).IsEqualTo(RecordingIpc.Refused);
+        await Assert.That(f.Claims.Read(Session)).IsEqualTo(RecorderClaimState.None);
+    }
+
+    /// <summary>No process the source could end with: the hook's own lookup never names one of these.</summary>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    public async Task A_hand_over_naming_no_process_to_follow_is_refused(int pid) {
+        await using var f = new Fixture();
+
+        await Assert.That(await f.HandOverAsync(f.Source() with { ProcessId = pid })).IsEqualTo(RecordingIpc.Refused);
+        await Assert.That(f.Claims.Read(Session)).IsEqualTo(RecorderClaimState.None);
+    }
+
     /// <summary>A link under the projects is how a path outside them reads as inside.</summary>
     [Test]
     public async Task A_transcript_linked_in_from_outside_the_projects_is_refused() {

@@ -815,7 +815,7 @@ internal partial class AgentOrchestrator {
             // Refused below.
         }
 
-        var answer = source is null ? RecordingIpc.Refused : await RecordTerminalSourceAsync(source, ct);
+        var answer = source is null || !IsComplete(source) ? RecordingIpc.Refused : await RecordTerminalSourceAsync(source, ct);
 
         try {
             await FrameCodec.WriteAsync(stream, LocalFrame.RecordSourceAck(answer), ct);
@@ -823,6 +823,12 @@ internal partial class AgentOrchestrator {
             // The hook's budget ran out first. Of this take and its spawn, whichever reached the spawn lock first records the source.
         }
     }
+
+    // The record's types say nothing of what came over the socket: a field sent as null arrives as null.
+    static bool IsComplete(RecordTerminalSourceDto source) =>
+        source.ProcessId > 1
+     && new[] { source.SessionId, source.TranscriptPath, source.Vendor, source.Profile, source.ServerUrl, source.ConfigDir, source.WatcherDir, source.ClaudeHome, source.ProcessToken }
+            .All(field => !string.IsNullOrEmpty(field));
 
     // There is no agent to tie the source to. The socket is the user's own, so whoever asks could start a watcher on any
     // file; what is checked here is that this daemon records what that hook's watcher would have, to the same server, under
