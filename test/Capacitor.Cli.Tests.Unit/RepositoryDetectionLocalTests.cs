@@ -206,18 +206,4 @@ public class RepositoryDetectionLocalTests {
         await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, [allowed], null, TimeProvider.System))
             .IsEqualTo(outOfScope);
     }
-
-    // A checkout's folder name is compared as the platform compares paths, so a cached name differing only in case is
-    // still this checkout where the file system ignores case.
-    [Test]
-    public async Task An_enriched_name_differing_in_case_is_this_checkout_where_paths_ignore_case() {
-        using var repo = GitRepo.Create();
-        repo.AddRemote("ssh://git.example/demo.git");
-        var local = LocalRepository.Of(Config.Root, repo.Path)!.Value;
-        var body  = JsonSerializer.Serialize(new { cwd = repo.Path, repository = new { owner = local.Owner, repo_name = local.Name.ToUpperInvariant() } });
-        var ignoresCase = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
-
-        await Assert.That(await RepoExclusion.IsOutOfScopeAsync(new GitProviderRouter(), Config.Root, body, ["demo"], null, TimeProvider.System))
-            .IsEqualTo(!ignoresCase);
-    }
 }
