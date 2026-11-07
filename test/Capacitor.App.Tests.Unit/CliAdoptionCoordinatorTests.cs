@@ -1286,7 +1286,7 @@ public class CliAdoptionCoordinatorTests {
     }
 
     /// <summary>Finish switching takes a root-owned install whose daemon moved on the idle report behind its prompt,
-    /// without waiting for the next launch.</summary>
+    /// without waiting for the next launch, and explains it first: no prompt this session got that far.</summary>
     [Test]
     public async Task Finish_switching_prompts_for_a_root_owned_install_moved_on_the_idle_report() {
         var world = new AdoptionWorld(Tmp);
@@ -1302,6 +1302,7 @@ public class CliAdoptionCoordinatorTests {
         await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
         await world.SettledAsync(launch);
 
+        await Assert.That(world.Explained.Count).IsEqualTo(1);
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
         await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
         await Assert.That(AdoptionWorld.Offered(launch)).IsFalse();

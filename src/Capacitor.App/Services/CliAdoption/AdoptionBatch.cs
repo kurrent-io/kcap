@@ -135,7 +135,7 @@ internal sealed class AdoptionBatch(
             _heldAtPrompt.Clear();
             foreach (var install in moved.Where(i => _rootOwned.Contains(Key(i)))) {
                 var planned = plan.Installs.FirstOrDefault(p => AdoptionPreflight.SameRoot(p.Install, install));
-                if (await Privileged.RunAsync(install, planned, evidence, unfinished, explain: !finishing, ct).ConfigureAwait(false))
+                if (await Privileged.RunAsync(install, planned, evidence, unfinished, ct).ConfigureAwait(false))
                     _awaitingPrompt = true;
                 else if (store.Load().Installs.FirstOrDefault(i => AdoptionPreflight.SameRoot(i.Install, install)) is
                          { State: InstallState.Pending, HeldBy: not null })

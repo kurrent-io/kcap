@@ -15,6 +15,9 @@ internal sealed class AdoptionPrivilegedStep(
     internal const string NothingLeft     = "nothing_left";
     internal const string HelperRunning   = "helper_running";
 
+    // Installs this session already explained; any other is explained before its prompt, Finish switching's included.
+    readonly HashSet<string> _explained = new(PathComparison.Comparer);
+
     /// The helper waits this long for go, which follows the login shell's PATH probe and every deletion check.
     internal static readonly TimeSpan GoWait = TimeSpan.FromMinutes(2);
 
@@ -45,13 +48,14 @@ internal sealed class AdoptionPrivilegedStep(
     /// the ones this launch found still finding the install.</summary>
     /// <param name="unfinished">Entries whose aside an earlier run could not delete: the helper deletes them; null when
     /// the retirement record could not be read, which holds the install.</param>
-    /// <param name="explain">Says why the password is needed before the prompt asks for it, and leaves the install as a
-    /// cancelled prompt does when the user declines: unasked, macOS shows a prompt that names only a script.</param>
+    /// <remarks>The first time this session, says why the password is needed before the prompt asks for it, and leaves
+    /// the install as a cancelled prompt does when the user declines: unasked, macOS shows a prompt that names only a
+    /// script.</remarks>
     /// <returns>True when a helper cut short left every entry in place: pending, with nothing this session's other runs
     /// would prompt for.</returns>
     public async Task<bool> RunAsync(
             OtherCliInstall install, InstallPlan? plan, AdoptionEvidence evidence, IReadOnlyList<string>? unfinished,
-            bool explain, CancellationToken ct) {
+            CancellationToken ct) {
         if (store.Load().CutoverUtc is not { } cutover) return false;
 
         var links   = plan?.Links ?? [];
@@ -73,7 +77,7 @@ internal sealed class AdoptionPrivilegedStep(
             deletion.Hold(install, holder);
             return false;
         }
-        if (explain && !await confirm(Explanation(install), ct).ConfigureAwait(false)) {
+        if (_explained.Add(CanonicalPath.Resolve(install.Root)) && !await confirm(Explanation(install), ct).ConfigureAwait(false)) {
             log("adoption_privileged", AdoptionEvent.For(install, "declined"));
             Leave(install, LeftReason.PromptCancelled);
             return false;
