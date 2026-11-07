@@ -28,11 +28,12 @@ internal sealed class ServerRecorderTransport : ISilenceableRecorderTransport, I
     // Short of a claim's grace: a source beats its claim between sends, and a send using all of this mustn't let it go stale.
     internal static readonly TimeSpan SendBudget = TimeSpan.FromSeconds(45);
 
-    readonly HubConnection           _hub;
-    readonly TimeProvider            _time;
-    readonly Action<string>          _log;
-    readonly CancellationTokenSource _closing = new();
-    readonly Lock                    _gate    = new();
+    readonly HubConnection                _hub;
+    readonly TimeProvider                 _time;
+    readonly Action<string>               _log;
+    readonly Func<RecordingSource, bool>? _mayRegister;
+    readonly CancellationTokenSource      _closing = new();
+    readonly Lock                         _gate    = new();
 
     // Each key this connection holds, as the server spells it, with the spelling its recorder knows it by.
     readonly Dictionary<string, string> _held = new(StringComparer.Ordinal);
@@ -51,10 +52,12 @@ internal sealed class ServerRecorderTransport : ISilenceableRecorderTransport, I
     int                  _connecting;
     bool                 _restart;
 
-    public ServerRecorderTransport(HubConnection hub, TimeProvider time, Action<string> log) {
-        _hub  = hub;
-        _time = time;
-        _log  = log;
+    /// <param name="mayRegister">Whether a source is still this daemon's to register, asked again as its connect goes out.</param>
+    public ServerRecorderTransport(HubConnection hub, TimeProvider time, Action<string> log, Func<RecordingSource, bool>? mayRegister = null) {
+        _hub         = hub;
+        _time        = time;
+        _log         = log;
+        _mayRegister = mayRegister;
 
         DaemonHub.IgnoreUiBroadcasts(hub);
         hub.On<string, string>("StopSource", OnStopSource);
@@ -114,6 +117,10 @@ internal sealed class ServerRecorderTransport : ISilenceableRecorderTransport, I
             if (detaching is not null) await detaching.WaitAsync(ct).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
             ct.ThrowIfCancellationRequested();
+
+            // A connect parked on the connection can wake after a hook took its source for a watcher. Registering would move
+            // the watcher's session onto this connection, and the server's stop for it would never reach the watcher.
+            if (_mayRegister?.Invoke(source) == false) throw new IOException($"{source.Key} is no longer this daemon's to register");
 
             lock (_gate) {
                 RefuseIfSilenced(source.SessionId);

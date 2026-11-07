@@ -133,7 +133,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var accounts    = config.Accounts ?? Core.Accounts.AccountStore.Beside(config.Store);
         var hookCommand = config.KcapCliPath is { } cli ? GitHookProbe.CommandFor(cli) : null;
 
-        return new DaemonRecorder(
+        DaemonRecorder? recorder = null;
+
+        recorder = new DaemonRecorder(
             config, server, connection.RecordingProbe,
             () => {
                 WarnOfMissingTools(config, logger);
@@ -141,7 +143,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 var refusals = new BearerRefusalLog(report => logger.LogWarning("Server refused the recording connection's bearer — {Report}", report));
                 var transport = new ServerRecorderTransport(
                     DaemonHub.Build(config, async () => refusals.Presenting((await connection.Credentials.ResolveAsync(default)).Bearer), refusals.Refused, loggers, time),
-                    time, message => logger.LogInformation("{Message}", message));
+                    time, message => logger.LogInformation("{Message}", message), source => recorder!._claims.Keeps(source.Key));
 
                 connection.SignInChanged += transport.Restart;
 
@@ -156,6 +158,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                     config.ConfigRoot, config.ServerUrl, http, time, message => logger.LogInformation("Recording {Key}: {Message}", source.Key, message),
                     (session, vendor) => StartCli(config, logger, session, GenerateWhatsDone, session))
                 .PostAsync(source.SessionId, source.Vendor, end, repository: null, "Process-exit"));
+
+        return recorder;
     }
 
     /// <summary>Whether this daemon takes new sources now. Read on every use: the server's answer goes with its connection,

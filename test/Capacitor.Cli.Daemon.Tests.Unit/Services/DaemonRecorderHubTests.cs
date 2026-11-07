@@ -1,3 +1,5 @@
+using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Services;
@@ -154,6 +156,29 @@ public class DaemonRecorderHubTests {
         await recorder.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
     }
 
+    /// <summary>A claim can go while the connection is down, to a hook that takes the source for a watcher. The connect
+    /// that was waiting registers nothing once the connection comes back.</summary>
+    [Test]
+    public async Task A_connect_that_outwaits_its_claim_registers_nothing() {
+        await using var hub         = await RecordingHubHost.StartAsync();
+        var             credentials = new SwitchableCredentials();
+        await using var main        = new ServerConnection(DaemonConfigFor(hub), credentials, NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
+        await using var recorder    = Recorder(hub, main);
+        hub.RequiresBearer = true;
+        var source = new RecordedSource("agent-1", SessionA, null, Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "claude", null, false);
+
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await hub.WaitForAsync(h => h.Refusals > 0, "the signed-out connection to be turned away");
+
+        new RecorderClaims(WatcherPaths.FromEnvironment(Config.Root).Directory, TimeProvider.System).Release(source.Key);
+        credentials.Bearer = "signed-in";
+
+        await hub.WaitForAsync(h => h.Bearers.Count > 0, "the connection to come up");
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+
+        await Assert.That(hub.Calls).DoesNotContain($"connect {SessionA}");
+    }
+
     /// <summary>The other way a session ends: the server asks, and waits for the drain before it writes the end.</summary>
     [Test]
     public async Task A_server_stop_drains_the_source_and_lets_it_go() {
@@ -297,5 +322,14 @@ public class DaemonRecorderHubTests {
         await WaitHarness.PollUntilAsync(() => recorder.DisableSessionAsync(SessionA, CancellationToken.None).Result is RecordingDisable.NotHeld);
 
         await Assert.That(stillOnItsWay).IsEqualTo(RecordingDisable.SendInFlight);
+    }
+
+    sealed class SwitchableCredentials : ICredentialSource {
+        public string? Bearer { get; set; }
+
+        public Task<CredentialState> ResolveAsync(CancellationToken ct = default) =>
+            Task.FromResult(new CredentialState(Bearer, Bearer is null ? AuthStatus.NoAuthRequired : AuthStatus.Ok));
+
+        public Task<CredentialState> RotateAsync(string? refused, CancellationToken ct = default) => ResolveAsync(ct);
     }
 }

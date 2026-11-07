@@ -278,6 +278,29 @@ public class ServerRecorderTransportTests {
         await Assert.That(hub.Bearers).IsEquivalentTo(["Bearer first", "Bearer second"]);
     }
 
+    /// <summary>A connect can wait out a sign-out and wake after a hook took its source for a watcher. Registering then
+    /// would move the watcher's session onto this connection, and the server's stop for it would never reach the watcher.</summary>
+    [Test]
+    public async Task A_connect_that_outwaits_its_claim_registers_nothing() {
+        string?         bearer    = null;
+        var             keeps     = true;
+        var             time      = new TimerLog(DateTimeOffset.UtcNow);
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = new ServerRecorderTransport(hub.Connection(Config, () => bearer), time, _ => { }, _ => keeps);
+        hub.RequiresBearer = true;
+
+        var connect = transport.ConnectAsync(A, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => hub.Refusals > 0 && time.Due.Contains(TimeSpan.FromSeconds(1)));
+
+        keeps  = false;
+        bearer = "first";
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        await Assert.That(async () => await connect.WithinDeadlineAsync("the connect")).Throws<IOException>();
+        await Assert.That(hub.Bearers).IsEquivalentTo(["Bearer first"]);
+        await Assert.That(hub.Calls).DoesNotContain($"connect {SessionA}");
+    }
+
     [Test]
     public async Task A_restart_with_no_connection_starts_nothing() {
         await using var hub       = await RecordingHubHost.StartAsync();
