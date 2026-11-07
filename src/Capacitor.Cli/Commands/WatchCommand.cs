@@ -38,6 +38,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Workspace;
 
 namespace Capacitor.Cli.Commands;
 
@@ -1972,6 +1973,8 @@ partial class WatchCommand(
     /// </summary>
     static readonly TimeSpan ParentExitPostBudget = TimeSpan.FromSeconds(15);
 
+    static readonly TimeSpan WorkspaceEndCap = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// Codex has no session-end hook and the desktop app's single long-lived
     /// `codex app-server` process is the watchdog's parent PID for EVERY
@@ -2486,6 +2489,9 @@ partial class WatchCommand(
                 Log(time, $"Parent-exit OpenCode subagent teardown failed: {ex.Message}");
             }
         }
+
+        // A vendor without turn hooks opened its span at SessionStart, and a vendor with them may have died mid-turn.
+        await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceEndCap);
 
         var endHook = ParentExitEndBody(sessionId, transcriptPath, cwd, reason, time.GetUtcNow(), HostedAgent.FromEnvironment());
 

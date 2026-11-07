@@ -9,6 +9,8 @@ using Capacitor.Cli.Core.Harness;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -333,6 +335,8 @@ sealed class GeminiHookCommand(
             return 0;
         }
 
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
+
         // Started in PARALLEL with the POST below, not before it — the lifecycle POST is the
         // latency-critical path. Remaining() already subtracts its own safety margin; do not subtract
         // again here (double-subtraction was a real defect in the Copilot adapter).
@@ -378,6 +382,8 @@ sealed class GeminiHookCommand(
         => AgentHookPoster.ShouldSpawnAfter(o, baseUrl);
 
     async Task<int> HandleSessionEnd(JsonNode node, string sessionId, string? cwd) {
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+
         var transcriptPath = TryGetString(node, "transcript_path");
 
         // Kill watcher + inline-drain BEFORE the POST so the server computes

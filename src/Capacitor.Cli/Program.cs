@@ -1014,6 +1014,9 @@ switch (command) {
         if (args.Contains("--claude") && args.Contains("--plan-edit")) {
             return await Run<ClaudeHookCommand>().HandlePlanEdit(new StringReader(claudeHookBody!));
         }
+        if (args.Contains("--claude") && args.Contains(ClaudeWorkspaceSpanEvent.Flag)) {
+            return await Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!));
+        }
         if (args.Contains("--claude") && args.Contains(ClaudePassNotices.Flag)) {
             return await Run<ClaudeHookCommand>().HandlePassNotices(new StringReader(claudeHookBody!));
         }

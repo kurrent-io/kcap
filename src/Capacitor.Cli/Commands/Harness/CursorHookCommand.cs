@@ -12,6 +12,9 @@ using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.PrDetection;
 
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
+
 namespace Capacitor.Cli.Commands.Harness;
 
 /// <summary>
@@ -420,6 +423,8 @@ public sealed class CursorHookCommand(
                     return EmptyOrNull();
                 }
 
+                await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, workspaceRoot, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
+
                 // Task 9: spawn (or heal) this session's tailing Cursor watcher FIRST —
                 // live transcript capture must never be lost even if the repo-enrichment call
                 // below (or the eventual POST) is slow or fails. Idempotent; a no-op once alive.
@@ -492,6 +497,8 @@ public sealed class CursorHookCommand(
             // long enough for the final user line to attach. For every other
             // event we keep post-then-backfill so lifecycle metadata reaches the
             // server before any new transcript context.
+            if (eventName == "sessionEnd") await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+
             var drainBeforePost = eventName == "sessionEnd"
                                && sessionId is not null
                                && !string.IsNullOrEmpty(transcriptPath);

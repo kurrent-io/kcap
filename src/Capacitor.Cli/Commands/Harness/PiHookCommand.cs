@@ -8,6 +8,8 @@ using Capacitor.Cli.Core.Harness;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -153,6 +155,8 @@ sealed class PiHookCommand(
             return 0;
         }
 
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
+
         // Scope root: the git root stamped onto `forwarded` when found, else the payload cwd — read
         // back from `enriched` so the fallback matches what the server received. Never process-cwd.
         var scopeRoot = ScopeRootFrom(enriched, cwd);
@@ -194,6 +198,8 @@ sealed class PiHookCommand(
     }
 
     async Task<int> HandleSessionEnd(string sessionId, string file, string? cwd, string? reason) {
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+
         // Kill watcher + inline-drain BEFORE the POST so the server computes
         // stats over the full transcript — capped so a slow drain can't starve
         // the session-end POST (mirror of ClaudeHookCommand).

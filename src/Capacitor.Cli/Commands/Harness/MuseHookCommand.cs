@@ -9,6 +9,9 @@ using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.PrDetection;
 using Capacitor.Cli.SessionStartMemory;
 
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
+
 namespace Capacitor.Cli.Commands.Harness;
 
 /// <summary>
@@ -130,6 +133,8 @@ sealed class MuseHookCommand(
 
         if (await IsRepoExcludedAsync(sessionId, cwd, activeProfile, budget)) return;
 
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
+
         // Spawn before the POST, as Claude does: a hook Muse kills mid-POST must not take capture with it.
         var log = Paths.ResolveSessionLog(session.ToString("D"), today);
         if (log is not null && HookHttp.IsPostable(Url)) {
@@ -237,6 +242,8 @@ sealed class MuseHookCommand(
     /// would take the only copy of the end with it; a watcher is a detached process. Only a session with
     /// no log, which has nothing to drain, is posted directly.</summary>
     async Task HandleSessionEnd(JsonNode node, Guid session, string? cwd, DateOnly today) {
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(session.ToString("N"), WorkspaceSpanHook.EndBudget);
+
         var sessionId = session.ToString("N");
         var budget    = clock.Budget(SessionEndCeiling);
 

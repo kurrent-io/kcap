@@ -10,6 +10,8 @@ using Capacitor.Cli.Core.Harness;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -280,6 +282,8 @@ sealed class CopilotHookCommand(
             return 0;
         }
 
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).OpenAsync(sessionId, cwd, WorkspaceOpen.Turn, WorkspaceSpanHook.StartBudget, drain: false);
+
         // Resolved from the lifecycle POST outcome below and consulted by the memory orchestrator just
         // before it commits the once-per-session lease. MUST be set on every path that reaches the
         // await, or the fetch task can never complete — hence the finally.
@@ -350,6 +354,8 @@ sealed class CopilotHookCommand(
             string   sessionId,
             string?  cwd
         ) {
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+
         var transcriptPath = GivenTranscriptPath(node) ?? TranscriptPathFor(dashedSessionId);
 
         var forwarded = new JsonObject {

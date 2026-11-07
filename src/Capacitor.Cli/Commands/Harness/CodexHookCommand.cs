@@ -13,6 +13,8 @@ using Capacitor.Cli.Core.Policy;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -39,7 +41,7 @@ namespace Capacitor.Cli.Commands.Harness;
 ///                       bridge errors: deny + exit nonzero). Otherwise the approval policy and judge
 ///                       answer allow or deny; failing that, POST /hooks/permission-record
 ///                       (fire-and-forget; CLI emits no decision so Codex's own prompt takes over).
-///   UserPromptSubmit  → swallowed (neither vendor consumes them)
+///   UserPromptSubmit  → opens the turn's workspace span; Stop closes it
 ///   PreToolUse        → a matching deny rule denies the call, in every launch mode; else nothing
 ///   PostToolUse       → swallowed (a hosted agent's tool-settled notice still goes to its daemon)
 /// </remarks>
@@ -280,11 +282,11 @@ sealed class CodexHookCommand(
         try {
             return eventName switch {
                 "SessionStart"      => await HandleSessionStart(node, activeProfile, clock.Budget(Ceiling), env),
-                "Stop"              => await HandleStop(node, env),
+                "Stop"              => await HandleStopWithSpansAsync(node, env),
                 "PermissionRequest" => await HandlePermissionRequest(node, env),
                 "PreToolUse"        => await HandlePreToolUse(node, env),
-                "UserPromptSubmit"
-                  or "PostToolUse"  => 0,
+                "UserPromptSubmit"  => await OpenSpanAsync(node),
+                "PostToolUse"       => 0,
                 _                   => 0
             };
         } catch (Exception ex) {
@@ -299,6 +301,29 @@ sealed class CodexHookCommand(
             EmitFallbackOutput(env, eventName);
             return 0;
         }
+    }
+
+    WorkspaceSpanHook Spans(CodexHookEnvironment? env = null) => new(config, profiles, http, clock.Time, env?.Stderr);
+
+    /// <summary>A prompt opens the turn's workspace span. A subagent's hooks name it in <c>agent_id</c> and
+    /// run inside the parent's turn, so they take none.</summary>
+    async Task<int> OpenSpanAsync(JsonNode node) {
+        if (SubagentIdOf(node) is null)
+            await Spans().OpenAsync(TryGetString(node, "session_id"), TryGetString(node, "cwd"), WorkspaceOpen.Turn, clock.Budget(Ceiling).Remaining);
+        return 0;
+    }
+
+    /// <summary>The span closes before the stop handshake, so it reads the tree as the turn left it, and the
+    /// spool drains after it, so a slow server never holds Codex's stdout.</summary>
+    async Task<int> HandleStopWithSpansAsync(JsonNode node, CodexHookEnvironment env) {
+        var main  = SubagentIdOf(node) is null;
+        var spans = Spans(env);
+        if (main) await spans.CloseAsync(TryGetString(node, "session_id"), clock.Budget(Ceiling).Remaining, drain: false);
+
+        var exit = await HandleStop(node, env);
+
+        if (main) await spans.DrainAsync(clock.Budget(Ceiling).Remaining);
+        return exit;
     }
 
     // Retires a prompt the daemon still holds once it was answered in Codex's terminal. A finished

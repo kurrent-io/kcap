@@ -8,6 +8,7 @@ using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Muse;
 
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands;
 
@@ -280,7 +281,10 @@ internal sealed class AgentHookPoster(
 
         // An empty spool posts nothing, and resolving a credential only to find that out is a token
         // read, or a refresh, on the hook's path.
-        if (sessionId is null && !lifecycle.SessionIdsWithBacklog().Any() && !transcript.SessionIdsWithBacklog().Any()) return;
+        var workspace = new WorkspaceSpool(config, Url, time, Stderr.WriteLine);
+        workspace.DeleteExpired();
+        var workspacePending = workspace.HasPending && !workspace.IsPaused;
+        if (sessionId is null && !lifecycle.SessionIdsWithBacklog().Any() && !transcript.SessionIdsWithBacklog().Any() && !workspacePending) return;
 
         var budget = TimeSpan.FromSeconds(1.5);
 
@@ -298,6 +302,10 @@ internal sealed class AgentHookPoster(
                     new CursorMarkers(config, time), client, Url!, lifecycle, transcript, sessionId, budget,
                     time, cts.Token,
                     onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr));
+
+                // Second, so a closed span never takes the lifecycle backlog's budget.
+                if (workspacePending && !cts.IsCancellationRequested)
+                    await workspace.DrainAsync(client, Url!, budget, cts.Token);
             }
         } catch {
             // Best-effort — a drain hiccup must never disrupt the vendor's own hook.

@@ -14,6 +14,7 @@ using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Plans;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -54,6 +55,12 @@ public sealed class ClaudeHookCommand(
         "session-start" => SessionStartCeiling,
         _               => TimeSpan.FromSeconds(5),
     };
+
+    /// <summary>What a session end may spend closing workspace spans, out of the detached continuation's
+    /// budget the session-end POST also needs.</summary>
+    static readonly TimeSpan WorkspaceEndCap = TimeSpan.FromSeconds(4);
+
+    static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
 
     /// <summary>The session-start POST and the memory and flows fetches share what is left after
     /// <see cref="HookBudget.Safety"/>; must match the session-start timeout in <c>kcap/hooks/hooks.json</c>.</summary>
@@ -254,6 +261,33 @@ public sealed class ClaudeHookCommand(
     }
 
     /// <summary>
+    /// <c>kcap hook --claude --workspace-span</c>: synchronous entries on UserPromptSubmit, Stop and an
+    /// <c>EnterWorktree</c> PostToolUse. Synchronous because a baseline must be taken before the turn's
+    /// first tool can edit anything, and its own entry so the catch-all PostToolUse, which is asynchronous,
+    /// never opens a span late.
+    /// </summary>
+    public Task<int> HandleWorkspaceSpan(TextReader stdin) =>
+        HandleWorkspaceSpanCore(stdin, new WorkspaceSpanHook(config, profiles, http, clock.Time));
+
+    internal async Task<int> HandleWorkspaceSpanCore(TextReader stdin, WorkspaceSpanHook spans) {
+        try {
+            var body = await stdin.ReadToEndAsync();
+            if (ClaudeWorkspaceSpanEvent.Parse(body) is not { } evt) return 0;
+            if (ClaudeHelperRun.IsHelperSessionId(evt.SessionId)) return 0;
+
+            var budget = clock.Budget(Ceiling(evt.Command));
+            if (await ShouldSuppressCaptureAsync(evt.SessionId, body, evt.Command, profiles.Effective, budget)) return 0;
+
+            if (evt.Open is { } mode) await spans.OpenAsync(evt.SessionId, evt.Dir, mode, budget.Remaining);
+            else await spans.CloseAsync(evt.SessionId, budget.Remaining);
+
+            return 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    /// <summary>
     /// <c>kcap hook --claude --task-list</c>: a synchronous PostToolUse on Claude's own task tools, on
     /// writes that may touch a workflow ledger, on subagent dispatches, and on the kcap-plans writes.
     /// While the session has written no kcap plan tasks it reminds the agent to keep them, once when the
@@ -398,6 +432,10 @@ public sealed class ClaudeHookCommand(
         // notices above have had their chance to post.
         if (command is "post-tool-use" or "post-tool-use-failure")
             return 0;
+
+        // The turn's Stop normally closed every span already; this catches a session that ended mid-turn.
+        if (command == "session-end" && agentId is null)
+            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, Min(budget.Remaining, WorkspaceEndCap));
 
         var clientCap = budget.Remaining;
 

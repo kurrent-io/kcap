@@ -114,6 +114,16 @@
         ]
       },
       {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap hook --claude --workspace-span --no-update-check",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -157,6 +167,15 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap hook --claude --workspace-span --no-update-check",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PermissionRequest": [
@@ -186,6 +205,15 @@
             "type": "command",
             "command": "kcap hook --claude --pass-notices --no-update-check",
             "timeout": 3
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap hook --claude --workspace-span --no-update-check",
+            "timeout": 5
           }
         ]
       }
