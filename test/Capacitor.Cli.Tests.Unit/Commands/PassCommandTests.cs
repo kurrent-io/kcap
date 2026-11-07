@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -31,11 +32,20 @@ public class PassCommandTests {
         await Assert.That(run.Exit).IsEqualTo(0);
     }
 
-    /// <summary>While the server does not offer passes, the command's whole answer is the unknown-command answer, and
-    /// it asks the server nothing more.</summary>
+    /// <summary>While the server does not offer passes, or cannot say whether it does (refused login, server error,
+    /// unreachable), the command's whole answer is the unknown-command answer, and it asks the server nothing more.</summary>
     [Test]
-    public async Task PassCommand_SurfacesFalse_OutputEqualsUnknownCommand() {
-        var api = new FakePassesApi { Offered = false };
+    [Arguments("not offered")]
+    [Arguments("login refused")]
+    [Arguments("server error")]
+    [Arguments("unreachable")]
+    public async Task PassCommand_SurfacesFalse_OutputEqualsUnknownCommand(string surfaces) {
+        var api = surfaces switch {
+            "not offered"   => new FakePassesApi { Offered = false },
+            "login refused" => new FakePassesApi { OfferedFails = new CapacitorApiException(401, "Not logged in") },
+            "server error"  => new FakePassesApi { OfferedFails = new CapacitorApiException(500, "Server error") },
+            _               => new FakePassesApi { OfferedFails = new CapacitorApiException(null, "Cannot reach the server") }
+        };
         var unknown = new StringWriter();
         var unknownExit = UnknownCommand.Write(unknown, "pass");
 

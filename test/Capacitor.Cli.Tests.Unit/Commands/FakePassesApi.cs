@@ -20,7 +20,10 @@ sealed class FakePassesApi : IPassesApi {
 
     public ConcurrentQueue<string> Declined { get; } = new();
 
-    public Task<bool> PassesOfferedAsync(CancellationToken ct = default) => Task.FromResult(Offered);
+    public Exception? OfferedFails { get; init; }
+
+    public Task<bool> PassesOfferedAsync(CancellationToken ct = default) =>
+        OfferedFails is { } fails ? Task.FromException<bool>(fails) : Task.FromResult(Offered);
 
     public Task<IReadOnlyList<UserCandidateDto>> SearchColleaguesAsync(string query, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<UserCandidateDto>>(Colleagues);

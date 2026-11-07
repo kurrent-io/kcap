@@ -5,14 +5,13 @@ namespace Capacitor.Cli.Commands;
 /// <summary>What <c>kcap pass</c> and <c>kcap message</c> share: the server's say on whether either exists, picking the
 /// recipient, and sending. Sharing is approved only by an answer typed at a terminal; there is no flag for it.</summary>
 static class PassSending {
-    /// <summary>Null when passes are offered; otherwise the exit code, having answered as for an unknown command.</summary>
+    /// <summary>Null when passes are offered; otherwise the exit code, having answered as for an unknown command. A server
+    /// that cannot say is treated as not offering them, so the command's existence is never revealed by an error.</summary>
     public static async Task<int?> HiddenAsync(IPassesApi passes, string command, PassTerminal terminal) {
         try {
             if (await passes.PassesOfferedAsync()) return null;
-        } catch (CapacitorApiException ex) {
-            await terminal.Error.WriteLineAsync(ex.Message);
-
-            return 1;
+        } catch (CapacitorApiException) {
+            // Fall through to the unknown-command answer.
         }
 
         return UnknownCommand.Write(terminal.Error, command);
