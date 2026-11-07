@@ -259,10 +259,7 @@ sealed class GeminiHookCommand(
         // Mirror the Claude/Codex/Copilot disabled-session fast path: `kcap
         // disable` must stop every POST and watcher restart for the session. Suppression is not
         // silence — these paths are not stderr-free (Program.cs drains the spool before dispatch).
-        if (DisabledSessions.IsDisabled(sessionId, config)) {
-            if (eventName == "SessionEnd") DisabledSessions.RemoveMarker(sessionId, config);
-            return 0;
-        }
+        if (DisabledSessions.IsDisabled(sessionId, config)) return 0;
 
         // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
         // `case "hook":` before dispatch — no longer wired here (removes the double-wire).

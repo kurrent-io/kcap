@@ -94,25 +94,21 @@ public class CodexSessionStartVisibilityTests : IDisposable {
 
         var stdout = new StringWriter();
 
-        try {
-            var exit = await new CodexHookCommand(Config.Root, Resolutions.At(_server.Url!, Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient()), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
-                .Handle(new StringReader(payload), new CodexHookEnvironment(stdout, TextWriter.Null, Skip: false, HostedAppServer: false));
-            await Assert.That(exit).IsEqualTo(0);
+        var exit = await new CodexHookCommand(Config.Root, Resolutions.At(_server.Url!, Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient()), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            .Handle(new StringReader(payload), new CodexHookEnvironment(stdout, TextWriter.Null, Skip: false, HostedAppServer: false));
+        await Assert.That(exit).IsEqualTo(0);
 
-            // No /hooks/session-start/codex POST.
-            var requests = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-start/codex").UsingPost());
-            await Assert.That(requests.Count).IsEqualTo(0);
+        // No /hooks/session-start/codex POST.
+        var requests = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-start/codex").UsingPost());
+        await Assert.That(requests.Count).IsEqualTo(0);
 
-            // Codex's SessionStart parser rejects empty stdout.
-            var doc = System.Text.Json.JsonDocument.Parse(stdout.ToString());
-            await Assert.That(doc.RootElement.GetProperty("continue").GetBoolean()).IsTrue();
+        // Codex's SessionStart parser rejects empty stdout.
+        var doc = System.Text.Json.JsonDocument.Parse(stdout.ToString());
+        await Assert.That(doc.RootElement.GetProperty("continue").GetBoolean()).IsTrue();
 
-            // Subsequent Stop on the same session must take the disabled-session
-            // fast path (no /hooks call, no watcher refresh) — that's how
-            // per-turn Stop hooks stay cheap for excluded sessions.
-            await Assert.That(DisabledSessions.IsDisabled(excludedSessionId, Config.Root)).IsTrue();
-        } finally {
-            DisabledSessions.RemoveMarker(excludedSessionId, Config.Root);
-        }
+        // Subsequent Stop on the same session must take the disabled-session
+        // fast path (no /hooks call, no watcher refresh) — that's how
+        // per-turn Stop hooks stay cheap for excluded sessions.
+        await Assert.That(DisabledSessions.IsDisabled(excludedSessionId, Config.Root)).IsTrue();
     }
 }

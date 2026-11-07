@@ -105,12 +105,13 @@ public class ClaudeSessionStartClaimTests {
         await Assert.That(AgentSessions.OnThisMachine(Config.Root).LiveClaimant(SessionId.Parse(Session)!)).IsNull();
     }
 
-    /// <summary>A terminal session's end closes its marker. A daemon resumes a hosted session under the same id with
-    /// nobody asking, and the marker is all that keeps that from recording what the person disabled.</summary>
+    /// <summary>The server's deletion is permanent, so nothing about the session's end lifts this. Whether a session was
+    /// ever hosted can't be read from the hook's environment either: a hosted session resumed by hand ends in a terminal,
+    /// and a daemon can resume it after that.</summary>
     [Test]
-    [Arguments(false, false)]
-    [Arguments(true, true)]
-    public async Task Only_a_hosted_session_keeps_its_disabled_marker_past_its_end(bool isHosted, bool kept) {
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_disabled_session_keeps_its_marker_past_its_end(bool isHosted) {
         DisabledSessions.Mark(Session, Config.Root);
         var profiles = Resolutions.None(Config.Root);
         var http     = new FixedCapacitorHttpClient();
@@ -122,7 +123,7 @@ public class ClaudeSessionStartClaimTests {
         var suppressed = await command.ShouldSuppressCaptureAsync(Session, "{}", "session-end", profiles.Effective, clock.Budget(ClaudeHookCommand.SessionStartCeiling));
 
         await Assert.That(suppressed).IsTrue();
-        await Assert.That(DisabledSessions.IsDisabled(Session, Config.Root)).IsEqualTo(kept);
+        await Assert.That(DisabledSessions.IsDisabled(Session, Config.Root)).IsTrue();
     }
 
     [Test]

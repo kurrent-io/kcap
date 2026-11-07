@@ -241,10 +241,7 @@ sealed class MuseHookCommand(
         var sessionId = session.ToString("N");
         var budget    = clock.Budget(SessionEndCeiling);
 
-        if (DisabledSessions.IsDisabled(sessionId, config)) {
-            DisabledSessions.RemoveMarker(sessionId, config);
-            return;
-        }
+        if (DisabledSessions.IsDisabled(sessionId, config)) return;
 
         var forwarded = new JsonObject {
             ["hook_event_name"] = "SessionEnd",

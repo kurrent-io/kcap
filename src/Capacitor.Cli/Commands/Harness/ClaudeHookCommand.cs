@@ -526,20 +526,11 @@ public sealed class ClaudeHookCommand(
     static string FailureReason(int statusCode) =>
         statusCode == 0 ? "no response within the hook budget" : $"HTTP {statusCode}";
 
-    // A terminal session's end closes its marker. A daemon resumes a hosted session by itself, under the same id, and the
-    // marker is all that keeps that from recording again.
-    void SettleDisabled(string sessionId, string? command) {
-        if (command == "session-end" && !hosted.IsHosted) DisabledSessions.RemoveMarker(sessionId, config);
-    }
-
     internal async Task<bool> ShouldSuppressCaptureAsync(
             string? canonicalSessionId, string body, string? command, Profile? activeProfile, HookBudget budget) {
         if (ClaudeHelperRun.IsHelperSessionId(canonicalSessionId)) return true;
 
-        if (canonicalSessionId is not null && DisabledSessions.IsDisabled(canonicalSessionId, config)) {
-            SettleDisabled(canonicalSessionId, command);
-            return true;
-        }
+        if (canonicalSessionId is not null && DisabledSessions.IsDisabled(canonicalSessionId, config)) return true;
 
         return command is not null
             && await IsSessionExcludedAsync(activeProfile, body, budget);
@@ -634,11 +625,7 @@ public sealed class ClaudeHookCommand(
         try {
             var disabledSessionId = JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
 
-            if (disabledSessionId is not null && DisabledSessions.IsDisabled(disabledSessionId, config)) {
-                SettleDisabled(disabledSessionId, command);
-
-                return 0;
-            }
+            if (disabledSessionId is not null && DisabledSessions.IsDisabled(disabledSessionId, config)) return 0;
         } catch {
             // Best effort — don't fail if JSON parsing fails.
         }
