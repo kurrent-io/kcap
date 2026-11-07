@@ -45,6 +45,21 @@ public class HookSpoolTests {
         await Assert.That(spool.HasBacklog(SidA)).IsFalse();
     }
 
+    /// <summary>This drain delivers only its own temps, so what the ordered drain left of the session goes on entry.</summary>
+    [Test]
+    public async Task the_fifo_drain_discards_what_the_ordered_drain_left_of_a_disabled_session() {
+        using var config = new TempConfigRoot();
+        var spool = new HookSpool(config.Root, TimeProvider.System, "http://s");
+        spool.Append(SidA, "session-start", """{"n":1}""");
+        var ordered = Path.Combine(spool.DirectoryPath, $"{SidA}.ordered-1-1");
+        await File.WriteAllTextAsync(ordered, "{\"route\":\"session-end\",\"body\":{}}\n");
+        DisabledSessions.Mark(SidA, config.Root);
+
+        await spool.DrainAllAsync(null, (_, _) => Task.FromResult(DrainOutcome.Delivered), TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        await Assert.That(File.Exists(ordered)).IsFalse();
+    }
+
     [Test]
     public async Task the_fifo_drain_posts_no_more_of_a_session_disabled_during_its_pass() {
         using var config = new TempConfigRoot();

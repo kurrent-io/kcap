@@ -110,5 +110,8 @@ public class CodexSessionStartVisibilityTests : IDisposable {
         // fast path (no /hooks call, no watcher refresh) — that's how
         // per-turn Stop hooks stay cheap for excluded sessions.
         await Assert.That(DisabledSessions.IsDisabled(excludedSessionId, Config.Root)).IsTrue();
+
+        // An exclusion, which no drain reads as a person's disable.
+        await Assert.That(DisabledSessions.IsDisabledByPerson(excludedSessionId, Config.Root)).IsFalse();
     }
 }
