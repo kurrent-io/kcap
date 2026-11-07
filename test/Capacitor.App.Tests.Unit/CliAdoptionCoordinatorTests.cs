@@ -888,6 +888,25 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Platform)).IsTrue();
     }
 
+    /// <summary>An install made writable after a cancelled prompt is the user's to remove: Finish switching takes it
+    /// without a second prompt, rather than handing a helper links this run already swapped.</summary>
+    [Test]
+    public async Task An_install_made_writable_after_a_cancelled_prompt_is_switched_without_one() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Admin.Answer = PrivilegedResult.Cancelled;
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        world.UserCanWrite = _ => true;
+        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await world.SettledAsync(launch);
+
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(Directory.Exists(world.Platform)).IsFalse();
+    }
+
     /// <summary>A reinstall at the root a cancelled prompt left is another install: the left record lets it go instead
     /// of reopening an install that is gone, Finish switching is no longer offered, and the reinstall is reported.</summary>
     [Test]

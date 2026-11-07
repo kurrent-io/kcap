@@ -98,6 +98,8 @@ internal sealed class AdoptionBatch(
 
         var pending = record.Installs.Where(i => i.State == InstallState.Pending).Select(i => i.Install).ToList();
         if (pending.Count == 0) return Finish([]);
+        // From this run's plan alone: an install made writable since an earlier run is the user's to remove.
+        _rootOwned.Clear();
         foreach (var install in pending.Where(i => NeedsAdministrator(i, plan))) _rootOwned.Add(Key(install));
 
         if (!await IntegrateAsync(pending, record.CutoverUtc, ct).ConfigureAwait(false)) return Finish([]);
