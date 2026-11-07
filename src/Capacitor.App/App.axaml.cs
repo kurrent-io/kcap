@@ -2429,7 +2429,7 @@ public partial class App : Application {
         // autoOfferSuppressed: Start() always runs — Offerable/manual install must keep working in Incomplete mode; only the once-ever auto-offer dialog is skipped.
         var shimOffer = new ShimOfferCoordinator(
             Task.WhenAll(lifecycle.PhaseClosed, _updateHandedOver.Task, _adoption?.FirstLook ?? Task.CompletedTask), probe, CliPathInstallers.Create(probe, _userHome), _appState, surface, shimTarget,
-            _shutdown.Token, autoActionsPermanentlyClosed, _wizardPathLink);
+            _shutdown.Token, autoActionsPermanentlyClosed, _wizardPathLink, () => _adoption?.FoundInstall == true);
 
         // The delegate below and the claims store must share one root: TryConsume takes the config
         // lock this delegate then reads under.
@@ -2459,7 +2459,7 @@ public partial class App : Application {
         var batch     = new AdoptionBatch(machine, store, new AsideRetirement(_config, "cli-adoption-retire"),
             new AdoptionIntegrations(new ApplicationIntegrationRefresh(_config, runner), bundle.Cli, store, _time),
             new AdoptionPathStep(probe, new AdoptedLinkInventory(_config), store, shim, folders),
-            new AdoptionNotices(_noticeWindow, store), _appState, harnesses, bundle, folders, WritableFolder.Check, LifecycleLog.Write);
+            new AdoptionNotices(_noticeWindow, store), harnesses, bundle, folders, WritableFolder.Check, LifecycleLog.Write);
         return new CliAdoptionCoordinator(batch, _time, LifecycleLog.Write, _shutdown.Token);
     }
 

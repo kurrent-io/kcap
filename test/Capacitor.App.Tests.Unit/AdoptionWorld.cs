@@ -77,7 +77,6 @@ sealed class AdoptionWorld {
     public RefreshRunner Refresh { get; } = new();
     public HarnessRegistry Harnesses { get; }
     public ScriptedMachine Machine { get; }
-    public MemoryAppState AppState { get; } = new();
     public RecordingNotifier Notifier { get; } = new();
     public BehaviorSubject<IAppNotifier?> Window { get; }
     public BehaviorSubject<DaemonActivity?> Activity { get; } = new(null);
@@ -143,13 +142,13 @@ sealed class AdoptionWorld {
     /// <summary>A harness session that started an hour before any cutover this world records.</summary>
     public ProcessFact OldSession(int pid) => new(pid, "/opt/homebrew/bin/codex", null, Time.GetUtcNow().UtcDateTime.AddHours(-1));
 
-    public CliAdoptionCoordinator Launch(IAppStateStore? appState = null, CancellationToken lifetime = default) {
+    public CliAdoptionCoordinator Launch(CancellationToken lifetime = default) {
         var store = new AdoptionRecordStore(Config);
         Notices = new AdoptionNotices(Window, store);
         var batch = new AdoptionBatch(Machine, store, new AsideRetirement(Config, "cli-adoption-retire"),
             new AdoptionIntegrations(new ApplicationIntegrationRefresh(Config, Refresh), Bundle.Cli, store, Time),
-            new AdoptionPathStep(Probe, new AdoptedLinkInventory(Config), store, Shim, Stable), Notices, appState ?? AppState,
-            Harnesses, Bundle, Stable, folder => UserCanWrite(folder), Write);
+            new AdoptionPathStep(Probe, new AdoptedLinkInventory(Config), store, Shim, Stable), Notices, Harnesses, Bundle, Stable,
+            folder => UserCanWrite(folder), Write);
         var launch = new CliAdoptionCoordinator(batch, Time, Write, lifetime);
         launch.FollowDaemon(Activity);
         return launch;
@@ -326,22 +325,6 @@ sealed class AdoptionWorld {
         public Task<ShimResult> InstallAsync(string target, CancellationToken ct) {
             if (new FileInfo(link).LinkTarget is null) File.CreateSymbolicLink(link, target);
             return Task.FromResult(new ShimResult(ShimOutcome.Installed, null));
-        }
-    }
-
-    internal sealed class MemoryAppState : IAppStateStore {
-        readonly Lock _lock = new();
-        AppState _state = new();
-
-        public AppState State {
-            get { lock (_lock) return _state; }
-        }
-
-        public Task<AppState> LoadAsync() => Task.FromResult(State);
-
-        public Task<bool> UpdateAsync(Func<AppState, AppState> mutate) {
-            lock (_lock) _state = mutate(_state);
-            return Task.FromResult(true);
         }
     }
 }

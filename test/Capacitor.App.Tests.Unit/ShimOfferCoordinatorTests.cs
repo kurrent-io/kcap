@@ -57,7 +57,7 @@ public class ShimOfferCoordinatorTests {
         public Harness(
                 bool immediatePhaseClosed = false, bool noTarget = false, bool noInstaller = false,
                 bool autoOfferSuppressed = false, Task<string?>? pendingLink = null, Task? firstLook = null,
-                FakeAppStateStore? store = null) {
+                FakeAppStateStore? store = null, Func<bool>? autoOfferHeld = null) {
             Store       = store ?? new FakeAppStateStore();
             Target      = noTarget ? null : Path.Combine(TempDir, "target-cli");
             Destination = Path.Combine(_tmp.CreateDir(".local", "bin"), "kcap");
@@ -68,7 +68,7 @@ public class ShimOfferCoordinatorTests {
             if (firstLook is not null) phaseClosed = Task.WhenAll(phaseClosed, firstLook);
             Coordinator = new ShimOfferCoordinator(
                 phaseClosed, Probe, noInstaller ? null : Installer, Store, Surface, Target, CancellationToken.None,
-                autoOfferSuppressed, pendingLink);
+                autoOfferSuppressed, pendingLink, autoOfferHeld);
             Coordinator.Offerable.Subscribe(OfferableValues.Add);
         }
 
@@ -108,9 +108,8 @@ public class ShimOfferCoordinatorTests {
                 LoginPath = "/usr/bin:/bin", KcapOnLoginPath = null,
             };
         };
-        var store = new FakeAppStateStore();
-        using var adoption = world.Launch(store);
-        using var h = new Harness(immediatePhaseClosed: true, firstLook: adoption.FirstLook, store: store);
+        using var adoption = world.Launch();
+        using var h = new Harness(immediatePhaseClosed: true, firstLook: adoption.FirstLook, autoOfferHeld: () => adoption.FoundInstall);
         var probed = false;
         h.Probe.KcapOnPathBehavior = _ => { probed = true; return Task.FromResult<bool?>(false); };
         h.Coordinator.Start();
@@ -125,7 +124,7 @@ public class ShimOfferCoordinatorTests {
 
         await Task.Delay(100); // give a wrongly-firing auto-offer dialog every chance to appear
         await Assert.That(h.Surface.Prompts).IsEmpty();
-        await Assert.That(store.State.ShimOffered).IsTrue();
+        await Assert.That(h.Store.State.ShimOffered).IsFalse();
         await Assert.That(new FileInfo(Path.Combine(world.Home, ".local", "bin", "kcap")).LinkTarget).IsEqualTo(world.Bundle.Cli);
     }
 
@@ -289,6 +288,28 @@ public class ShimOfferCoordinatorTests {
         // The once-ever offer claim must survive a suppressed run — a later complete-gate run still auto-offers.
         await Assert.That(h.Store.State.ShimOffered).IsFalse();
         await Assert.That(h.Store.State.ShimDenied).IsFalse();
+    }
+
+    /// <summary>A launch whose CLI takeover found an install holds the offer without using it up: a later launch that
+    /// finds none still offers.</summary>
+    [Test]
+    public async Task A_held_offer_is_made_on_a_later_launch() {
+        var store = new FakeAppStateStore();
+        using (var held = new Harness(immediatePhaseClosed: true, store: store, autoOfferHeld: () => true)) {
+            held.Probe.KcapOnPathBehavior = _ => Task.FromResult<bool?>(false);
+            held.Coordinator.Start();
+
+            await WaitUntilAsync(() => held.OfferableValues.Contains(true), what: "the item to become visible");
+            await Task.Delay(100); // give a wrongly-firing auto-offer dialog every chance to appear
+            await Assert.That(held.Surface.Prompts).IsEmpty();
+        }
+        await Assert.That(store.State.ShimOffered).IsFalse();
+
+        using var later = new Harness(immediatePhaseClosed: true, store: store);
+        later.Probe.KcapOnPathBehavior = _ => Task.FromResult<bool?>(false);
+        later.Coordinator.Start();
+
+        await WaitUntilAsync(() => later.Surface.Prompts.Count > 0, what: "the offer on the later launch");
     }
 
     // Manual install is a separate code path from the suppressed auto-offer — it must still work.

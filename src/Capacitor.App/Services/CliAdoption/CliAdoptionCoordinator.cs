@@ -39,6 +39,9 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
 
     public Task FirstLook => _firstLook.Task;
 
+    /// <inheritdoc cref="AdoptionBatch.FoundInstall"/>
+    public bool FoundInstall => _batch?.FoundInstall == true;
+
     /// <summary>The run started last, the first one or a recheck.</summary>
     internal Task Settled {
         get { lock (_lock) return _settled; }

@@ -17,8 +17,12 @@ public class CliAdoptionCoordinatorTests {
     [Test]
     public async Task A_user_owned_npm_install_is_switched_end_to_end_and_noticed_once() {
         var world = new AdoptionWorld(Tmp);
+        bool found;
 
-        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+        using (var launch = world.Launch()) {
+            await world.FirstLookAsync(launch);
+            found = launch.FoundInstall;
+        }
 
         await Assert.That(Target(world.Link)).IsEqualTo(world.Bundle.Cli);
         await Assert.That(world.PlistProgram()).IsEqualTo(world.Bundle.Daemon);
@@ -26,7 +30,7 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Platform)).IsFalse();
         await Assert.That(world.Refresh.Calls).IsEqualTo(1);
         await Assert.That(world.Machine.Reattaches).IsEqualTo(1);
-        await Assert.That(world.AppState.State.ShimOffered).IsTrue();
+        await Assert.That(found).IsTrue();
 
         var record = world.Record;
         await Assert.That(record.Installs.Single().State).IsEqualTo(InstallState.Switched);
@@ -583,9 +587,9 @@ public class CliAdoptionCoordinatorTests {
     }
 
     /// <summary>A batch held over an install it found changes nothing, so the ordinary offer to put kcap on PATH must not
-    /// follow it either.</summary>
+    /// follow it either, this launch.</summary>
     [Test]
-    public async Task A_batch_held_over_a_found_install_suppresses_the_shim_offer() {
+    public async Task A_batch_held_over_a_found_install_holds_the_shim_offer() {
         var world = new AdoptionWorld(Tmp);
         var newer = world.Install with { Root = Path.Combine(world.Home, ".kcap"), Version = "9.0.0" };
         world.Machine.Evidence = _ => Task.FromResult(world.Found() with { Installs = [newer] });
@@ -594,7 +598,7 @@ public class CliAdoptionCoordinatorTests {
         await world.FirstLookAsync(launch);
 
         await Assert.That(world.Logged("adoption_held").Single()["reason"]).IsEqualTo(AdoptionPreflight.NewerInstall);
-        await Assert.That(world.AppState.State.ShimOffered).IsTrue();
+        await Assert.That(launch.FoundInstall).IsTrue();
     }
 
     /// <summary>A launchctl answer that cannot be read says nothing about what is installed: reading it as "nothing
@@ -610,7 +614,7 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Logged("adoption_held").Single()["reason"]).IsEqualTo("evidence_unavailable");
         await Assert.That(world.RecordWritten).IsFalse();
         await Assert.That(world.Refresh.Calls).IsEqualTo(0);
-        await Assert.That(world.AppState.State.ShimOffered).IsFalse();
+        await Assert.That(launch.FoundInstall).IsFalse();
     }
 
     /// <summary>The install stays as it is, and the ordinary offer to put kcap on PATH does not follow a batch held over it.</summary>
@@ -629,7 +633,7 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.RecordWritten).IsFalse();
         await Assert.That(world.Refresh.Calls).IsEqualTo(0);
         await Assert.That(world.Machine.Repoints).IsEqualTo(0);
-        await Assert.That(world.AppState.State.ShimOffered).IsTrue();
+        await Assert.That(launch.FoundInstall).IsTrue();
         await Assert.That(world.Notifier.Notified).IsEmpty();
     }
 

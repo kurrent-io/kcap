@@ -9,7 +9,7 @@ namespace Capacitor.App.Services.CliAdoption;
 /// still carries the holders an earlier launch found.</summary>
 internal sealed class AdoptionBatch(
         IAdoptionMachine machine, AdoptionRecordStore store, AsideRetirement retirement, AdoptionIntegrations integrations,
-        AdoptionPathStep path, AdoptionNotices notices, IAppStateStore appState, HarnessRegistry harnesses, AdoptionBundle bundle,
+        AdoptionPathStep path, AdoptionNotices notices, HarnessRegistry harnesses, AdoptionBundle bundle,
         IReadOnlyList<string> stableFolders, Func<string, bool> userCanWrite, Action<string, (string Key, string? Value)[]> log)
     : IDisposable {
     internal const string EvidenceUnavailable = "evidence_unavailable";
@@ -18,7 +18,12 @@ internal sealed class AdoptionBatch(
     readonly AdoptionServiceMove _services = new(machine, bundle, log);
     readonly AdoptionDeletion    _deletion = new(machine, store, retirement, harnesses, bundle.Root, log);
     volatile bool _awaitingDaemon;
+    volatile bool _foundInstall;
     volatile bool _awaitingIdle;
+
+    /// <summary>Whether a run this launch found an install to take over, held or not: the ordinary offer to put kcap on
+    /// PATH waits for a launch that finds none, without that wait using up the one offer.</summary>
+    public bool FoundInstall => _foundInstall;
 
     /// <summary>Whether the last launch run left a daemon move waiting for a safe point: running it again from fresh
     /// evidence is what moves it.</summary>
@@ -44,8 +49,7 @@ internal sealed class AdoptionBatch(
 
         var record = store.Load();
         var plan = AdoptionPreflight.Plan(evidence, record, bundle.Version, bundle.Cli, bundle.InSystemApplications, userCanWrite, stableFolders);
-        // A held batch still found an install, so the ordinary offer to put kcap on PATH must not follow it.
-        if (plan.Installs.Count > 0) await appState.UpdateAsync(s => s.ShimOffered ? s : s with { ShimOffered = true }).ConfigureAwait(false);
+        if (plan.Installs.Count > 0) _foundInstall = true;
         if (plan.HoldReason is { } hold) {
             log("adoption_held", [("reason", hold)]);
             return false;
