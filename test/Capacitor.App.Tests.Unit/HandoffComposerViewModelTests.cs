@@ -4,6 +4,7 @@ using System.Reactive.Threading.Tasks;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
+using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
@@ -56,6 +57,10 @@ public class HandoffComposerViewModelTests {
         public string? MachineId;
         /// The epochs ParkSignedOut was asked to park, which signs the lane out as the real one does.
         public List<int> Parked { get; } = [];
+        /// The local daemon's accounts; null until a test offers them.
+        public BehaviorSubject<AccountsSnapshotDto?> Accounts { get; } = new(null);
+        public bool OffersAccounts;
+        public AppStateStore? Memory;
 
         void Park(int epoch) {
             Parked.Add(epoch);
@@ -117,7 +122,9 @@ public class HandoffComposerViewModelTests {
                 _ => Task.FromResult<IReadOnlyList<string>>(Candidates),
                 Drafts, Lane, Uploader, Directory,
                 () => Generation, Open,
-                Close, Reopen, Notifier, AppServerUrl, onUnauthorized: Park, time: Time, localMachineId: () => MachineId);
+                Close, Reopen, Notifier, AppServerUrl, onUnauthorized: Park, time: Time, localMachineId: () => MachineId,
+                accounts: OffersAccounts ? new AccountReadings(Accounts, Observable.Return<IReadOnlyList<DaemonAccountsDto>>([]), Observable.Return(DateTimeOffset.UnixEpoch)) : null,
+                accountMemory: Memory);
             _built.Add(vm);
             return vm;
         }
@@ -135,8 +142,25 @@ public class HandoffComposerViewModelTests {
             Sessions.Dispose();
             Failures.Dispose();
             Lane.Dispose();
+            Accounts.Dispose();
+        }
+
+        /// A claude session over a daemon that streams accounts, before any snapshot arrives.
+        public void UseAccounts() {
+            OffersAccounts = true;
+            Session = Session with { Vendor = "claude" };
+            Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null,
+                ["input/1", "input/2", HandoffWire.Capability, HandoffWire.LocalProbeCapability, AccountsService.Capability]));
         }
     }
+
+    static AccountViewDto Account(string id, string label) => new(id, "claude", "/u/." + label, "/u/." + label, label, "recording");
+
+    static AccountsSnapshotDto AccountsSnapshot(params AccountViewDto[] accounts) =>
+        new("host-1", 1, accounts, [new("claude", "/u/.claude", "/u/.claude")]);
+
+    static readonly AccountViewDto Home = Account("a1", "home");
+    static readonly AccountViewDto Work = Account("a2", "work");
 
     static StagedAttachment Chip(string name) => new(name, "image/png", new byte[] { 1, 2, 3 });
 
@@ -1225,8 +1249,8 @@ public class HandoffComposerViewModelTests {
         const string second = "fedcba9876543210fedcba9876543210";
         var a = Chip("a.png");
         var b = Chip("b.png");
-        rig.Drafts.Hold(SessionId, LaunchedId, new HandoffDraft("first", [a], "codex", "", null, null, null, null));
-        rig.Drafts.Hold(SessionId, second, new HandoffDraft("second", [b], "claude", "", null, null, null, null));
+        rig.Drafts.Hold(SessionId, LaunchedId, new HandoffDraft("first", [a], "codex", "", null, null, null, null, null));
+        rig.Drafts.Hold(SessionId, second, new HandoffDraft("second", [b], "claude", "", null, null, null, null, null));
         rig.Failures.OnNext(new LaunchFailure(LaunchedId, "handoff_start_changed: moved"));
         rig.Failures.OnNext(new LaunchFailure(second, "handoff_start_changed: moved"));
 
@@ -1265,8 +1289,8 @@ public class HandoffComposerViewModelTests {
         const string second = "fedcba9876543210fedcba9876543210";
         var first = Enumerable.Range(0, 7).Select(i => Chip($"a{i}.png")).ToArray();
         var later = Enumerable.Range(0, 7).Select(i => Chip($"b{i}.png")).ToArray();
-        rig.Drafts.Hold(SessionId, LaunchedId, new HandoffDraft("first", first, "codex", "", null, null, null, null));
-        rig.Drafts.Hold(SessionId, second, new HandoffDraft("second", later, "codex", "", null, null, null, null));
+        rig.Drafts.Hold(SessionId, LaunchedId, new HandoffDraft("first", first, "codex", "", null, null, null, null, null));
+        rig.Drafts.Hold(SessionId, second, new HandoffDraft("second", later, "codex", "", null, null, null, null, null));
         rig.Failures.OnNext(new LaunchFailure(LaunchedId, "handoff_start_changed: moved"));
         rig.Failures.OnNext(new LaunchFailure(second, "handoff_start_changed: moved"));
 
@@ -1300,13 +1324,94 @@ public class HandoffComposerViewModelTests {
     public Task Files_waiting_past_the_tray_limit_keep_a_launch_error() => Run(async rig => {
         var vm = await rig.ReadyAsync();
         vm.Tray.AddAll([.. Enumerable.Range(0, InputWire.MaxAttachmentsPerPrompt).Select(i => Chip($"a{i}.png"))]);
-        rig.Drafts.KeepFailed(SessionId, new HandoffDraft("", [Chip("b.png")], "codex", "", null, null, null, null));
+        rig.Drafts.KeepFailed(SessionId, new HandoffDraft("", [Chip("b.png")], "codex", "", null, null, null, null, null));
         rig.Uploader.Next = new UploadOutcome(UploadKind.Unreachable, [], "the upload failed");
         vm.Text = "carry on";
 
         await vm.StartCommand.Execute();
 
         await Assert.That(vm.Error).IsEqualTo($"the upload failed. 1 more files come back once this message is sent ({AttachmentTray.CapReason})");
+    });
+
+    // ---- account ----
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Without_an_accounts_stream_the_strip_offers_no_account() => Run(async rig => {
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(vm.Choices.AccountSection).IsFalse();
+        await vm.StartCommand.Execute();
+        await Assert.That(rig.Launch.Requests.Single().AccountId).IsNull();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_picked_account_is_what_the_hand_off_launches_on() => Run(async rig => {
+        rig.UseAccounts();
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(vm.Choices.AccountSection).IsTrue();
+        await Assert.That(vm.Choices.AccountRows.Select(r => r.Row.Id).ToArray()).Contains("a2");
+        await vm.Choices.PickAccountAsync("a2");
+        await Assert.That(vm.Choices.SelectedAccountLabel).IsEqualTo("work");
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests.Single().AccountId).IsEqualTo("a2");
+    });
+
+    /// Start waits for the choice: launching before the snapshot would run under a default nobody chose.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Start_waits_for_the_accounts_to_load() => Run(async rig => {
+        rig.UseAccounts();
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(vm.Choices.AccountPendingText).IsEqualTo("Loading accounts…");
+        await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsFalse();
+
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+
+        await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsTrue();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_account_picked_for_a_checkout_is_offered_again_by_the_next_composer() => Run(async rig => {
+        using var tmp = new TempDir();
+        rig.Memory = new AppStateStore(tmp.PathTo("app-state.json"));
+        rig.UseAccounts();
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+        var first = await rig.ReadyAsync();
+        await first.Choices.PickAccountAsync("a2");
+        first.Dispose();
+
+        var second = rig.Build();
+        await second.InitializeAsync(CancellationToken.None);
+        await second.Choices.WhenAnyValue(x => x.SelectedAccountLabel).Where(l => l is not null).FirstAsync().Timeout(TimeSpan.FromSeconds(5));
+
+        await Assert.That(second.Choices.SelectedAccountLabel).IsEqualTo("work");
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_account_the_daemon_stops_listing_is_refused_by_name_and_nothing_launches() => Run(async rig => {
+        rig.UseAccounts();
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+        var vm = await rig.ReadyAsync();
+        await vm.Choices.PickAccountAsync("a2");
+
+        rig.Accounts.OnNext(AccountsSnapshot(Home));
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests).IsEmpty();
+        await Assert.That(vm.Error).IsEqualTo("work is not available on this machine. Use the default account or pick another.");
+
+        await vm.Choices.PickAccountAsync(null);
+
+        await Assert.That(vm.Error).IsNull();
     });
 
     // ---- resume ----
@@ -1471,7 +1576,7 @@ public class HandoffComposerViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public Task An_earlier_failed_draft_is_restored_after_a_resume_launch() => Run(async rig => {
         OfferResume(rig);
-        rig.Launch.During = _ => rig.Drafts.KeepFailed(SessionId, new HandoffDraft("earlier", [], "codex", "", null, null, null, null));
+        rig.Launch.During = _ => rig.Drafts.KeepFailed(SessionId, new HandoffDraft("earlier", [], "codex", "", null, null, null, null, null));
         var vm = await rig.ReadyAsync();
         vm.Text = "carry on";
 

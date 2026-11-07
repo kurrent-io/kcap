@@ -3,24 +3,45 @@ using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// The hand-off strip's chips. A hand-off always launches on this machine's daemon, so the agents
-/// and models are the local daemon's, and no account is offered.
+/// The hand-off strip's chips. A hand-off always launches on this machine's daemon, so the agents,
+/// models and accounts are the local daemon's. An account picked here is remembered beside the
+/// launcher's, under the checkout the hand-off starts in.
 public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, IDisposable {
     readonly CompositeDisposable _disposables = new();
     readonly ObservableAsPropertyHelper<IReadOnlyList<HarnessOption>> _harnesses;
     readonly ObservableAsPropertyHelper<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>> _catalog;
+    readonly AccountChooser _accounts;
+    readonly AppStateStore? _state;
+    readonly BehaviorSubject<(string Vendor, string AccountId)?> _accountCatalogKey = new(null);
+    IReadOnlyDictionary<string, string>? _accountMemory;
+    Task _accountMemoryWrites = Task.CompletedTask;
+    AccountSupport _support;
+    AccountsSnapshotDto? _snapshot;
+    string _repoPath;
 
-    /// sessionVendor is the ended session's own agent, kept while this daemon hosts it.
+    /// sessionVendor is the ended session's own agent, kept while this daemon hosts it; repoPath is
+    /// where it ran, until the composer names the checkout the hand-off starts in.
+    /// <param name="readings">The local daemon's accounts snapshot and the usage clock; null offers no account.</param>
+    /// <param name="state">Where the launcher remembers an account per repository; null remembers nothing.</param>
     public HandoffChoicesViewModel(
             IDaemonClientService daemon, string? sessionVendor,
-            IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? serverCatalog = null) {
+            IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? serverCatalog = null,
+            string? repoPath = null, AccountReadings? readings = null, AppStateStore? state = null) {
         _selectedVendor = string.IsNullOrWhiteSpace(sessionVendor) ? HomeViewModel.DefaultVendor : sessionVendor;
+        _repoPath = repoPath ?? "";
+        _state = state;
+        _accounts = new AccountChooser(
+            (hostId, vendor, path) => AccountMemory.Lookup(_accountMemory, hostId, vendor, path), RememberAccount);
+        _accounts.Changed += PublishAccountChoice;
+        _accounts.EnterTarget(_repoPath, _selectedVendor);
 
         // ObserveOn before ToProperty: snapshots arrive on the daemon client's own thread.
         var options = daemon.Snapshots.Select(s => HostedHarnessCatalog.Build(s.Daemon.SupportedVendors));
@@ -34,15 +55,67 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             .DisposeWith(_disposables);
 
         _catalog = daemon.Snapshots
-            .Select(s => VendorModelMaps.FromStatus(s.Daemon.VendorModels))
-            .StartWith((IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>?) null)
-            .CombineLatest(serverCatalog ?? Observable.Return(ServerVendorModelCatalog.Empty), HomeViewModel.MergeCatalogs)
+            .Select(s => (Models: VendorModelMaps.FromStatus(s.Daemon.VendorModels), ByAccount: VendorModelMaps.FromStatus(s.Daemon.VendorModelsByAccount)))
+            .StartWith((Models: null, ByAccount: null))
+            .CombineLatest(serverCatalog ?? Observable.Return(ServerVendorModelCatalog.Empty), _accountCatalogKey.DistinctUntilChanged(),
+                (machine, server, account) => HomeViewModel.WithAccountCatalog(
+                    HomeViewModel.MergeCatalogs(machine.Models, server), machine.ByAccount, account))
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .ToProperty(this, x => x.EffectiveModelCatalog, ServerVendorModelCatalog.Empty)
             .DisposeWith(_disposables);
 
+        if (readings is null) {
+            _accounts.SetSupport(AccountSupport.Unsupported, fetchFailed: false);
+            _accounts.SetMemoryLoaded(true);
+        } else {
+            // A daemon that can hand off can also launch on a named account, so its accounts stream
+            // alone decides whether there is a choice.
+            daemon.Status
+                .Select(SupportOf)
+                .DistinctUntilChanged()
+                .ObserveOn(RxSchedulers.MainThreadScheduler)
+                .Subscribe(support => {
+                    _support = support;
+                    _accounts.SetSupport(support, fetchFailed: false);
+                })
+                .DisposeWith(_disposables);
+            readings.Local
+                .ObserveOn(RxSchedulers.MainThreadScheduler)
+                .Subscribe(snapshot => {
+                    _snapshot = snapshot;
+                    _accounts.SetSnapshot(snapshot);
+                })
+                .DisposeWith(_disposables);
+            readings.Local
+                .CombineLatest(this.WhenAnyValue(x => x.SelectedVendor), readings.Clock, HomeViewModel.ProjectUsage)
+                .DistinctUntilChanged(EqualityComparer<IReadOnlyDictionary<string, AccountUsageView>>.Create(
+                    (a, b) => HomeViewModel.UsageEquals(a!, b!), d => d.Count))
+                .ObserveOn(RxSchedulers.MainThreadScheduler)
+                .Subscribe(usage => AccountUsageById = usage)
+                .DisposeWith(_disposables);
+            if (state is null) _accounts.SetMemoryLoaded(true);
+            else
+                Observable.FromAsync(state.LoadAsync)
+                    .ObserveOn(RxSchedulers.MainThreadScheduler)
+                    .Subscribe(loaded => {
+                        _accountMemory = loaded.AccountByRepo;
+                        _accounts.SetMemoryLoaded(true);
+                    }, ex => {
+                        Console.Error.WriteLine($"kcap: hand-off account memory: {ex.Message}");
+                        _accounts.SetMemoryLoaded(true);
+                    })
+                    .DisposeWith(_disposables);
+        }
+
         RetryAccountsCommand = ReactiveCommand.Create(() => { });
     }
+
+    static AccountSupport SupportOf(AttachStatus status) => status.State switch {
+        AttachState.Connected => status.Capabilities?.Contains(AccountsService.Capability) == true
+            ? AccountSupport.Supported
+            : AccountSupport.Unsupported,
+        _ => AccountSupport.Unknown,
+    };
 
     public IReadOnlyList<HarnessOption> Harnesses => _harnesses.Value;
 
@@ -100,20 +173,75 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         set => this.RaiseAndSetIfChanged(ref _selectedCodexApproval, value);
     }
 
-    public bool AccountSection => false;
-    public IReadOnlyList<AccountChoice> AccountRows => [];
-    public string? SelectedAccountLabel => null;
-    public string? AccountPendingText => null;
+    bool _accountSection;
+    public bool AccountSection {
+        get => _accountSection;
+        private set => this.RaiseAndSetIfChanged(ref _accountSection, value);
+    }
+
+    IReadOnlyList<AccountChoice> _accountRows = [];
+    public IReadOnlyList<AccountChoice> AccountRows {
+        get => _accountRows;
+        private set => this.RaiseAndSetIfChanged(ref _accountRows, value);
+    }
+
+    string? _selectedAccountLabel;
+    public string? SelectedAccountLabel {
+        get => _selectedAccountLabel;
+        private set => this.RaiseAndSetIfChanged(ref _selectedAccountLabel, value);
+    }
+
+    string? _accountPendingText;
+    public string? AccountPendingText {
+        get => _accountPendingText;
+        private set => this.RaiseAndSetIfChanged(ref _accountPendingText, value);
+    }
+
     public bool AccountRetryVisible => false;
-    public IReadOnlyDictionary<string, AccountUsageView> AccountUsageById => FrozenDictionary<string, AccountUsageView>.Empty;
-    public Task PickAccountAsync(string? accountId) => Task.CompletedTask;
+
+    IReadOnlyDictionary<string, AccountUsageView> _accountUsageById = FrozenDictionary<string, AccountUsageView>.Empty;
+    public IReadOnlyDictionary<string, AccountUsageView> AccountUsageById {
+        get => _accountUsageById;
+        private set => this.RaiseAndSetIfChanged(ref _accountUsageById, value);
+    }
+
+    bool _accountPending;
+    /// The choice is still resolving, so a launch now would run under a default nobody chose.
+    public bool AccountPending {
+        get => _accountPending;
+        private set => this.RaiseAndSetIfChanged(ref _accountPending, value);
+    }
+
+    /// Why the picked account cannot launch, while it is listed no longer; null otherwise.
+    public string? AccountRefusal => _accounts.State == AccountSelectionState.ExplicitInvalid
+        ? $"{_accounts.InvalidReason}. Use the default account or pick another."
+        : null;
+
+    /// The Default-badged row follows the daemon's default rather than pinning its account. The task
+    /// completes once the choice is persisted.
+    public Task PickAccountAsync(string? accountId) {
+        var defaultRow = _accounts.Rows.Any(c => c.Row.IsDefault && c.Row.Id == accountId);
+        _accounts.Pick(defaultRow ? null : accountId);
+        return _accountMemoryWrites;
+    }
+
     public ReactiveCommand<Unit, Unit> RetryAccountsCommand { get; }
+
+    /// The checkout the hand-off would start in, which the remembered account is read under.
+    public void SetRepository(string? repoPath) {
+        if (repoPath is not { Length: > 0 } path || PlatformPaths.Comparer.Equals(path, _repoPath)) return;
+        _repoPath = path;
+        _accounts.EnterTarget(path, SelectedVendor);
+    }
 
     /// The chips a draft was sent with. The vendor goes through the same check a snapshot does.
     public void Restore(HandoffDraft draft) {
         SetVendor(draft.Vendor);
         Revalidate(Harnesses);
-        if (string.Equals(SelectedVendor, draft.Vendor, StringComparison.OrdinalIgnoreCase)) SelectedModel = draft.Model;
+        if (string.Equals(SelectedVendor, draft.Vendor, StringComparison.OrdinalIgnoreCase)) {
+            SelectedModel = draft.Model;
+            if (draft.AccountId is { } account) _accounts.Pick(account);
+        }
         SelectedEffort = draft.Effort;
         if (draft.PermissionMode is { } mode) SelectedPermissionMode = mode;
         if (draft.CodexPosture is { } posture) {
@@ -124,12 +252,25 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
 
     public HandoffDraft Capture(string text, IReadOnlyList<StagedAttachment> attachments) =>
         new(text, attachments, SelectedVendor, SelectedModel, SelectedEffort, SelectedPermissionMode,
-            new CodexLaunchPosture(SelectedCodexSandbox, SelectedCodexApproval), null);
+            new CodexLaunchPosture(SelectedCodexSandbox, SelectedCodexApproval),
+            _accounts.State == AccountSelectionState.ExplicitValid ? _accounts.SelectedAccountId : null, null);
+
+    /// Read against the latest snapshot rather than the chooser: an upload is long enough for the
+    /// account to have gone from under the draft.
+    public string? AccountErrorFor(HandoffDraft draft) {
+        if (draft.AccountId is not { } id) return null;
+        var listed = _snapshot is not null && Services.AccountRows.For(_snapshot, draft.Vendor).Any(r => r.Id == id);
+        if (listed && _support == AccountSupport.Supported) return null;
+        var label = _snapshot?.Accounts?.FirstOrDefault(a => a.Id == id)?.Label ?? SelectedAccountLabel ?? id;
+        return $"{AccountChooser.UnavailableReason(label)}. Use the default account or pick another.";
+    }
 
     /// Model ids are vendor-specific, so a vendor change drops the model.
     void SetVendor(string vendor) {
-        if (!string.Equals(vendor, SelectedVendor, StringComparison.OrdinalIgnoreCase)) SelectedModel = "";
+        var changed = !string.Equals(vendor, SelectedVendor, StringComparison.OrdinalIgnoreCase);
+        if (changed) SelectedModel = "";
         SelectedVendor = vendor;
+        if (changed) _accounts.EnterTarget(_repoPath, vendor);
     }
 
     void Revalidate(IReadOnlyList<HarnessOption> options) {
@@ -140,5 +281,33 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
             : options.FirstOrDefault(o => o.Available)?.Vendor ?? HomeViewModel.DefaultVendor);
     }
 
-    public void Dispose() => _disposables.Dispose();
+    void PublishAccountChoice() {
+        AccountSection = _accounts.ShowsSection;
+        AccountRows = _accounts.Rows;
+        AccountPendingText = _accounts.PendingText;
+        SelectedAccountLabel = _accounts.SelectedLabel;
+        AccountPending = _accounts.State == AccountSelectionState.Pending;
+        this.RaisePropertyChanged(nameof(AccountRefusal));
+        _accountCatalogKey.OnNext(_accounts.State is AccountSelectionState.ExplicitValid or AccountSelectionState.ExplicitInvalid
+            ? (SelectedVendor, _accounts.SelectedAccountId!) : null);
+    }
+
+    /// Written in call order: the chooser also forgets an entry from inside its recompute.
+    void RememberAccount(string hostId, string vendor, string repoPath, string? accountId) {
+        _accountMemory = AccountMemory.With(_accountMemory, hostId, vendor, repoPath, accountId);
+        if (_state is not { } state) return;
+        _accountMemoryWrites = WriteAfterAsync(_accountMemoryWrites);
+
+        async Task WriteAfterAsync(Task previous) {
+            await previous.ConfigureAwait(false);
+            await state.UpdateAsync(s => s with {
+                AccountByRepo = AccountMemory.With(s.AccountByRepo, hostId, vendor, repoPath, accountId),
+            }).ConfigureAwait(false);
+        }
+    }
+
+    public void Dispose() {
+        _disposables.Dispose();
+        _accountCatalogKey.Dispose();
+    }
 }

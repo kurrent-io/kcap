@@ -123,6 +123,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     bool _originChecked;
     bool _checkingOrigin;
     CancellationTokenSource? _evaluation;
+    string? _accountError;
 
     /// <param name="candidateRoots">Repositories this machine knows besides the session's own
     /// checkout: the launcher's and the daemon agents' roots.</param>
@@ -136,6 +137,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     /// launch reaches the daemon through that server.</param>
     /// <param name="onUnauthorized">IServerLane's ParkSignedOut, for a 401 on an upload or a launch.</param>
     /// <param name="localMachineId">This app's machine id, which a session recorded here carries; null offers no Resume.</param>
+    /// <param name="accounts">The local daemon's accounts and usage clock; null offers no account.</param>
+    /// <param name="accountMemory">Where the launcher remembers an account per repository.</param>
     public HandoffComposerViewModel(
             RepoSessionDto session, IDaemonClientService daemon, ILaunchClient launch, IServerSessionsService sessions,
             ILocalControlOps ops, LocalCheckoutFinder finder, Func<CancellationToken, Task<IReadOnlyList<string>>> candidateRoots,
@@ -146,6 +149,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? modelCatalog = null,
             Action<int>? onUnauthorized = null, TimeProvider? time = null,
             Func<string?>? localMachineId = null,
+            AccountReadings? accounts = null, AppStateStore? accountMemory = null,
             CancellationToken shutdown = default) {
         _session = session;
         _daemon = daemon;
@@ -167,7 +171,16 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         _time = time ?? TimeProvider.System;
         _localMachineId = localMachineId;
         _shutdown = shutdown;
-        _choices = new HandoffChoicesViewModel(daemon, session.Vendor, modelCatalog).DisposeWith(_disposables);
+        _choices = new HandoffChoicesViewModel(daemon, session.Vendor, modelCatalog, session.Cwd, accounts, accountMemory)
+            .DisposeWith(_disposables);
+        // A pick answers the refusal of the one before it.
+        _choices.WhenAnyValue(x => x.AccountRows)
+            .Skip(1)
+            .Subscribe(_ => {
+                if (_accountError is not null && Error == _accountError) Error = null;
+                _accountError = null;
+            })
+            .DisposeWith(_disposables);
 
         daemon.Status.Subscribe(s => _attach = s).DisposeWith(_disposables);
         daemon.Snapshots.Subscribe(s => _snapshot = s).DisposeWith(_disposables);
@@ -223,7 +236,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             .DisposeWith(_disposables);
 
         var canStart = this.WhenAnyValue(x => x.ProbedStart, x => x.StartsFromOrigin, x => x.DisabledReason, x => x.IsLaunching, x => x.IsResuming,
-            (start, fromOrigin, reason, launching, resuming) => (start is not null || fromOrigin) && reason is null && !launching && !resuming);
+                (start, fromOrigin, reason, launching, resuming) => (start is not null || fromOrigin) && reason is null && !launching && !resuming)
+            .CombineLatest(_choices.WhenAnyValue(x => x.AccountPending), (ready, pending) => ready && !pending);
         StartCommand = ReactiveCommand.CreateFromTask(StartAsync, canStart);
         var canResume = this.WhenAnyValue(x => x.ResumeOffered, x => x.IsLaunching, x => x.IsResuming,
             (offered, launching, resuming) => offered && !launching && !resuming);
@@ -259,6 +273,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     }
 
     public ILaunchChoices Choices => _choices;
+    internal HandoffChoicesViewModel ChoicesForTesting => _choices;
     public ReactiveCommand<Unit, Unit> StartCommand { get; }
     public ReactiveCommand<Unit, Unit> ResumeCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenStripCommand { get; }
@@ -478,6 +493,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     void Show(Evaluation result) {
         DisabledReason = result.Reason;
         _checkout = result.Checkout;
+        _choices.SetRepository(result.Checkout);
         _plan = result.Plan;
         _originChecked = result.FromOrigin;
         StripLabel = result.Label ?? "";
@@ -706,7 +722,12 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
 
     async Task StartAsync() {
         // Execute() does not gate on CanExecute.
-        if ((ProbedStart is null && !StartsFromOrigin) || DisabledReason is not null || IsLaunching || _plan is not { } plan) return;
+        if ((ProbedStart is null && !StartsFromOrigin) || DisabledReason is not null || IsLaunching || _plan is not { } plan
+         || _choices.AccountPending) return;
+        if (_choices.AccountRefusal is { } refusedAccount) {
+            Error = _accountError = refusedAccount;
+            return;
+        }
         IsLaunching = true;
         try {
             if (!_originChecked && !await CheckOriginAsync(plan)) return;
@@ -746,12 +767,17 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
                 }
                 attachmentIds = upload.Ids;
             }
+            if (_choices.AccountErrorFor(draft) is { } accountError) {
+                if (_disposed) _drafts.HoldFailed(_session.SessionId, draft with { Error = accountError });
+                else Error = _accountError = accountError;
+                return;
+            }
 
             var request = new LaunchRequest(
                 _daemon.DaemonName, checkout, draft.Vendor, draft.Text, draft.Model, draft.Effort,
                 HomeViewModel.PermissionModeFor(draft.Vendor, draft.PermissionMode!), attachmentIds,
                 HomeViewModel.CodexPostureFor(draft.Vendor, draft.CodexPosture!.Sandbox, draft.CodexPosture.Approval),
-                Handoff: start with { SourceSessionId = _session.SessionId });
+                Handoff: start with { SourceSessionId = _session.SessionId }, AccountId: draft.AccountId);
             // Captured before the call: a navigation while it is in flight must keep the launch from opening.
             var generation = _navigationGeneration();
             var launchEpoch = _laneEpoch;
