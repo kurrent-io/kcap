@@ -44,7 +44,7 @@ internal static class PrivilegedSwapScript {
             nentries=$1; shift; k=0; m=0
             while [ $k -lt $nentries ]; do
                 entries[$k]=$1; asides[$k]=$2; kinds[$k]=$3; markers[$k]=$4; daemons[$k]=$5; identities[$k]=$6; targets[$k]=$7
-                first[$k]=$m; c=$8; shift 8
+                present[$k]=$8; first[$k]=$m; c=$9; shift 9
                 while [ $c -gt 0 ]; do needs[$m]=$1; shift; m=$((m + 1)); c=$((c - 1)); done
                 last[$k]=$m
                 k=$((k + 1))
@@ -223,6 +223,10 @@ internal static class PrivilegedSwapScript {
                         move_back && say {{Restored}}; exit 5
                     fi
                     moved[$i]=1
+                elif [ "${present[$i]}" = 1 ]; then
+                    # Gone since the app looked, as mid reinstall: what comes back there is not the install recorded.
+                    echo "kcap: ${entries[$i]} is gone since the prompt" >&2
+                    move_back && say {{Restored}}; exit 5
                 fi
                 if [ "${moved[$i]:-}" = 1 ]; then
                     if ! ours "${asides[$i]}" $i; then
@@ -260,8 +264,8 @@ internal static class PrivilegedSwapScript {
     /// folder, the staging name's random part, the folder of every account's home, the home files as a count and
     /// paths, then the links as a count and
     /// (path, original, replacement) triples, and the entries as a count and (original, aside, kind d/l/f, marker,
-    /// daemon path, daemon identity, link target name, substring count, substrings…) groups, each empty check
-    /// skipped.</summary>
+    /// daemon path, daemon identity, link target name, present 1/0, substring count, substrings…) groups, each empty
+    /// check skipped.</summary>
     internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec, uint owner) {
         Validate(spec);
         var args = new List<string> { spec.StatusFile, spec.ControlFifo, Number(owner), spec.Staging, spec.Homes, Number(spec.HomeFiles.Count) };
@@ -272,7 +276,8 @@ internal static class PrivilegedSwapScript {
         foreach (var entry in spec.Entries) {
             args.AddRange([
                 entry.Entry.Original, entry.Entry.Aside, Letter(entry.Kind), entry.Marker ?? "",
-                entry.Daemon?.Path ?? "", entry.Daemon?.Identity ?? "", entry.LinkTargetName ?? "", Number(entry.MarkerContains.Count),
+                entry.Daemon?.Path ?? "", entry.Daemon?.Identity ?? "", entry.LinkTargetName ?? "", entry.Present ? "1" : "0",
+                Number(entry.MarkerContains.Count),
             ]);
             args.AddRange(entry.MarkerContains);
         }

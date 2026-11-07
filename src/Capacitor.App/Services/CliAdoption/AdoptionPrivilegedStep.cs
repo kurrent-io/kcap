@@ -214,7 +214,7 @@ internal sealed class AdoptionPrivilegedStep(
                 && CanonicalPath.IsWithin(install.DaemonBinary, aside.Original)
             ? (Path.GetRelativePath(CanonicalPath.Resolve(aside.Original), CanonicalPath.Resolve(install.DaemonBinary)), install.Identity)
             : null;
-        return install.Kind == OtherCliInstallKind.Script
+        var entry = install.Kind == OtherCliInstallKind.Script
             ? Path.GetFileName(aside.Original) switch {
                 ScriptInstallLayout.VersionsName => new PrivilegedEntry(aside, PrivilegedEntryKind.Directory, null, [], daemon),
                 ScriptInstallLayout.CurrentName  => new PrivilegedEntry(aside, PrivilegedEntryKind.Link, null, [], LinkTargetName: install.Version),
@@ -222,6 +222,7 @@ internal sealed class AdoptionPrivilegedStep(
             }
             : new PrivilegedEntry(aside, PrivilegedEntryKind.Directory, "package.json",
                 [Quoted("@kurrent/" + Path.GetFileName(aside.Original)), Quoted(install.Version)], daemon);
+        return entry with { Present = Exists(aside.Original) || Exists(aside.Aside) };
     }
 
     static string Quoted(string value) => $"\"{value}\"";

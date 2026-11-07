@@ -11,4 +11,8 @@ namespace Capacitor.App.Services.CliAdoption;
 /// <c>current</c> names, which an update moves on.</param>
 public sealed record PrivilegedEntry(
     AsideEntry Entry, PrivilegedEntryKind Kind, string? Marker, IReadOnlyList<string> MarkerContains,
-    (string Path, string Identity)? Daemon = null, string? LinkTargetName = null);
+    (string Path, string Identity)? Daemon = null, string? LinkTargetName = null) {
+    /// <summary>Whether the entry, or the aside it was set aside under and never checked, was there when the app planned
+    /// it: only one that was not may be missing for having been deleted already.</summary>
+    public bool Present { get; init; } = true;
+}

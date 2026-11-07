@@ -308,7 +308,8 @@ public class PrivilegedSwapScriptTests {
     [Test]
     public async Task A_checked_aside_an_earlier_run_left_is_deleted_on_go() {
         var install = PrivilegedNpmInstall.Create(Tmp);
-        var spec    = install.Spec(Tmp);
+        var planned = install.Spec(Tmp);
+        var spec    = planned with { Entries = [planned.Entries[0], planned.Entries[1] with { Present = false }] };
         var left    = spec.Entries[^1].Entry;
         Directory.Move(left.Original, AsideRetirement.CheckedAside(left.Aside));
         File.Delete(Path.Combine(AsideRetirement.CheckedAside(left.Aside), "package.json"));
@@ -400,6 +401,42 @@ public class PrivilegedSwapScriptTests {
         await Assert.That(run.Words()).IsEquivalentTo(["swapped", "in-use"]);
         await Assert.That(result.Stderr).Contains(plist);
         await install.AssertUntouchedAsync(spec);
+    }
+
+    /// <summary>An entry gone since the app planned it may be mid reinstall, with a new install about to land there: the
+    /// rest is not deleted past it.</summary>
+    [Test]
+    public async Task An_entry_gone_since_the_prompt_moves_the_install_back() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        Directory.Delete(install.Packages[1], recursive: true);
+        run.Send("go");
+        var result = await run.ExitAsync();
+
+        await Assert.That(result.ExitCode).IsEqualTo(5);
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped", "restored"]);
+        await Assert.That(File.Exists(Path.Combine(install.Packages[0], "package.json"))).IsTrue();
+        foreach (var link in install.Links) await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Original);
+    }
+
+    /// <summary>One already gone when the app planned it was deleted by an earlier run: the rest is.</summary>
+    [Test]
+    public async Task An_entry_gone_when_planned_is_passed_over() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var planned = install.Spec(Tmp);
+        var spec    = planned with { Entries = [planned.Entries[0], planned.Entries[1] with { Present = false }] };
+        Directory.Delete(install.Packages[1], recursive: true);
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        await run.ExitAsync();
+
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped", "deleted"]);
+        await Assert.That(Directory.Exists(install.Packages[0])).IsFalse();
     }
 
     /// <summary>Any launch agent naming the install keeps it, as the user's own check holds on one, and so does a harness's

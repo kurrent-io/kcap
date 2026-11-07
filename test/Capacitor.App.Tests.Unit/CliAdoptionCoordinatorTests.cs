@@ -843,6 +843,7 @@ public class CliAdoptionCoordinatorTests {
         var spec = world.Admin.Specs.Single();
         await Assert.That(spec.Links.Select(l => l.Path)).IsEquivalentTo([world.Link]);
         await Assert.That(spec.Entries.Select(e => e.Entry.Original)).IsEquivalentTo(world.Install.OwnedEntries);
+        await Assert.That(spec.Entries.All(e => e.Present)).IsTrue();
         await Assert.That(Target(world.Link)).IsEqualTo(world.Bundle.Cli);
         await Assert.That(Directory.Exists(world.Root)).IsFalse();
         await Assert.That(Directory.Exists(world.Platform)).IsFalse();
@@ -1150,6 +1151,7 @@ public class CliAdoptionCoordinatorTests {
 
             var spec = world.Admin.Specs.Single();
             await Assert.That(spec.Links).IsEmpty();
+            await Assert.That(spec.Entries.Any(e => e.Present)).IsFalse();
             await Assert.That(spec.Entries.Single(e => e.Entry.Original == asides[1].Original).Entry.Aside).IsEqualTo(asides[1].Aside);
             await Assert.That(Path.Exists(AsideRetirement.CheckedAside(asides[1].Aside))).IsFalse();
             await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
