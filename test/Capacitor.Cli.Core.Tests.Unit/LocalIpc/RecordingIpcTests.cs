@@ -13,25 +13,27 @@ public class RecordingIpcTests {
 
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
 
-    Task<bool> Record(CancellationToken ct = default) => RecordingIpc.RecordAsync(Daemons.Store, DaemonName, Source, ct);
+    Task<RecordingHandOver> Record(CancellationToken ct = default) => RecordingIpc.RecordAsync(Daemons.Store, DaemonName, Source, ct);
 
     Task<bool> Finish(CancellationToken ct = default) => RecordingIpc.FinishAsync(Daemons.Store, DaemonName, "session-1", ct);
 
     FakeRecordingDaemon Daemon(params string[] capabilities) => new(Daemons.Store.SocketPath(DaemonName), capabilities);
 
+    /// <summary>Down is how a daemon restarts, so a hook can't read this as a daemon that won't come back for its claim.</summary>
     [Test]
-    public async Task No_daemon_listening_answers_no() {
-        await Assert.That(await Record()).IsFalse();
+    public async Task No_daemon_listening_is_no_answer() {
+        await Assert.That(await Record()).IsEqualTo(RecordingHandOver.Unanswered);
         await Assert.That(await Finish()).IsFalse();
     }
 
-    /// <summary>An older daemon can't decode the frame at all, so it is never sent one.</summary>
+    /// <summary>An older daemon can't decode the frame at all, so it is never sent one. Up without the capability is a
+    /// daemon that won't record: nothing of it is coming for a claim.</summary>
     [Test]
-    public async Task A_daemon_without_the_capability_is_never_sent_the_frame() {
+    public async Task A_daemon_without_the_capability_declines_and_is_never_sent_the_frame() {
         await using var daemon = Daemon("status/1");
         daemon.Answer = RecordingIpc.Recording;
 
-        await Assert.That(await Record()).IsFalse();
+        await Assert.That(await Record()).IsEqualTo(RecordingHandOver.Declined);
         await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.Hello]);
     }
 
@@ -40,18 +42,39 @@ public class RecordingIpcTests {
         await using var daemon = Daemon(RecordingIpc.Capability);
         daemon.Answer = RecordingIpc.Recording;
 
-        await Assert.That(await Record()).IsTrue();
+        await Assert.That(await Record()).IsEqualTo(RecordingHandOver.Taken);
 
         var sent = JsonSerializer.Deserialize(daemon.Received[^1].Text, RecordingIpcJsonContext.Default.RecordSourceDto);
         await Assert.That(sent).IsEqualTo(Source);
     }
 
     [Test]
-    public async Task A_refusal_answers_no() {
+    public async Task A_refusal_declines() {
         await using var daemon = Daemon(RecordingIpc.Capability);
         daemon.Answer = RecordingIpc.Refused;
 
-        await Assert.That(await Record()).IsFalse();
+        await Assert.That(await Record()).IsEqualTo(RecordingHandOver.Declined);
+    }
+
+    [Test]
+    public async Task A_source_that_is_not_the_agents_is_disowned() {
+        await using var daemon = Daemon(RecordingIpc.Capability);
+        daemon.Answer = RecordingIpc.NotTheAgents;
+
+        await Assert.That(await Record()).IsEqualTo(RecordingHandOver.Disowned);
+    }
+
+    /// <summary>The budget ran out with the daemon quiet, which says nothing about whether it would have taken it.</summary>
+    [Test]
+    public async Task A_hand_over_cut_short_is_no_answer() {
+        await using var daemon = Daemon(RecordingIpc.Capability);
+        using var cts = new CancellationTokenSource();
+
+        var record = Record(cts.Token);
+        await daemon.Asked.WithinDeadlineAsync("the frame to reach the daemon");
+        await cts.CancelAsync();
+
+        await Assert.That(await record).IsEqualTo(RecordingHandOver.Unanswered);
     }
 
     [Test]

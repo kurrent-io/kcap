@@ -739,24 +739,26 @@ internal partial class AgentOrchestrator {
             // Refused below.
         }
 
-        var recording = source is not null && await RecordHandedSourceAsync(source, ct);
+        var answer = source is null ? RecordingIpc.Refused : await RecordHandedSourceAsync(source, ct);
 
-        await FrameCodec.WriteAsync(stream, LocalFrame.RecordSourceAck(recording ? RecordingIpc.Recording : RecordingIpc.Refused), ct);
+        await FrameCodec.WriteAsync(stream, LocalFrame.RecordSourceAck(answer), ct);
     }
 
-    async Task<bool> RecordHandedSourceAsync(RecordSourceDto source, CancellationToken ct) {
+    async Task<string> RecordHandedSourceAsync(RecordSourceDto source, CancellationToken ct) {
         if (_recorder is not { Enabled: true } recorder || !IsClaude(source.Vendor)
          || !_agents.TryGetValue(source.AgentId, out var agent) || agent.IsPrivate || !IsClaude(agent.Vendor) || agent.IsCleanupStarted
-         || SessionIds.Canonical(source.SessionId) is not { } session) return false;
+         || SessionIds.Canonical(source.SessionId) is not { } session) return RecordingIpc.Refused;
 
         if (RefusalOf(source, agent, session) is { } refusal) {
             LogHandedSourceRefused(agent.Id, source.TranscriptPath, refusal);
 
-            return false;
+            return RecordingIpc.NotTheAgents;
         }
 
-        return await recorder.TryRecordAsync(
+        var recording = await recorder.TryRecordAsync(
             new RecordedSource(agent.Id, session, SessionIds.Canonical(source.SubagentId), source.TranscriptPath, "claude", source.Cwd, source.SkipTitle), ct);
+
+        return recording ? RecordingIpc.Recording : RecordingIpc.Refused;
     }
 
     string? RefusalOf(RecordSourceDto source, AgentInstance agent, string session) {

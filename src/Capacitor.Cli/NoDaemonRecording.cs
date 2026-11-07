@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
 
 namespace Capacitor.Cli;
@@ -6,7 +7,7 @@ namespace Capacitor.Cli;
 public sealed class NoDaemonRecording : IDaemonRecordingClient {
     public static readonly NoDaemonRecording Instance = new();
 
-    public Task<bool> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) => Task.FromResult(false);
+    public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
 
     public Task<bool> FinishSourceAsync(string key, CancellationToken ct) => Task.FromResult(false);
 }

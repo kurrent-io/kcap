@@ -1,5 +1,6 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Recording;
@@ -532,7 +533,7 @@ public class WatcherManagerClaimTests : IDisposable {
             }
         }
 
-        public Task<bool> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) => Task.FromResult(false);
+        public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
 
         public async Task<bool> FinishSourceAsync(string key, CancellationToken ct) {
             lock (_asked) _asked.Add(key);

@@ -9,6 +9,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalIpc;
 
 namespace Capacitor.Cli;
 
@@ -286,10 +287,11 @@ public sealed partial class WatcherManager(
 
         // Outside the spawn lock: the daemon takes that lock to claim the source, and would lose it to this hook. A stale
         // claim goes too: nothing may be coming back for it, and a daemon that is up can take it over.
-        if (_claims.Read(key) is RecorderClaimState.None or RecorderClaimState.DaemonStale
-         && await HandToDaemonAsync(new RecordingSource(sessionIdOverride ?? key, agentId, transcriptPath, vendor, cwd), skipTitle)) {
-            return;
-        }
+        var handOver = _claims.Read(key) is RecorderClaimState.None or RecorderClaimState.DaemonStale
+            ? await HandToDaemonAsync(new RecordingSource(sessionIdOverride ?? key, agentId, transcriptPath, vendor, cwd), skipTitle)
+            : RecordingHandOver.Unanswered;
+
+        if (handOver is RecordingHandOver.Taken) return;
 
         // Both the reap of a wedged watcher and the spawn run under the per-key spawn lock: a
         // hook arriving between the reap's pid-file delete and the new pid file would otherwise
@@ -300,7 +302,7 @@ public sealed partial class WatcherManager(
             }
 
             // A hook that can't post can't start a watcher, so taking the claim would leave the source with no recorder.
-            if (_claims.Read(key) is not RecorderClaimState.None && (!HookHttp.IsPostable(Url) || !TakeStaleClaim(key))) {
+            if (_claims.Read(key) is not RecorderClaimState.None && (!HookHttp.IsPostable(Url) || !TakeStaleClaim(key, handOver is RecordingHandOver.Declined))) {
                 return;
             }
 
@@ -326,23 +328,24 @@ public sealed partial class WatcherManager(
         });
     }
 
-    /// <summary>Whether the daemon took the source. However it fails to, the hook arranges a recorder itself: a watcher
-    /// costs a hosted session its stamps, and nothing at all would cost it its transcript.</summary>
-    async Task<bool> HandToDaemonAsync(RecordingSource source, bool skipTitle) {
+    /// <summary>How the daemon answered. However it fails to take the source, the hook arranges a recorder itself: a
+    /// watcher costs a hosted session its stamps, and nothing at all would cost it its transcript.</summary>
+    async Task<RecordingHandOver> HandToDaemonAsync(RecordingSource source, bool skipTitle) {
         using var budget = new CancellationTokenSource(HandOffBudget, time);
 
         try {
             return await _daemonRecording.TryRecordAsync(source, skipTitle, budget.Token).WaitAsync(budget.Token);
         } catch {
-            return false;
+            return RecordingHandOver.Unanswered;
         }
     }
 
     /// <summary>Lets go of a daemon's stale claim, for the hook about to record it, under the spawn lock. No claim is left
     /// behind: that is what stops the daemon's recorder if it wakes, and this hook then goes on as it does for a source
     /// nobody claims.</summary>
-    bool TakeStaleClaim(string key) {
-        if (_claims.Read(key) is not RecorderClaimState.DaemonStale || LeftToCatchUp(key)) return false;
+    /// <param name="declined">The daemon that would catch up is up and said no, so nothing is coming for this claim.</param>
+    bool TakeStaleClaim(string key, bool declined = false) {
+        if (_claims.Read(key) is not RecorderClaimState.DaemonStale || LeftToCatchUp(key) && !declined) return false;
 
         _claims.Release(key);
 

@@ -8,8 +8,8 @@ namespace Capacitor.Cli;
 /// environment names it, so a hook on another profile can't reach the wrong one.</summary>
 /// <param name="daemonName">What the daemon put in its agent's environment; null outside a hosted agent.</param>
 public sealed class LocalDaemonRecording(DaemonStore store, HostedAgent hosted, string? daemonName) : IDaemonRecordingClient {
-    public Task<bool> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) {
-        if (hosted.AgentId is not { } agentId || daemonName is not { Length: > 0 } name || source.Vendor != "claude") return Task.FromResult(false);
+    public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) {
+        if (hosted.AgentId is not { } agentId || daemonName is not { Length: > 0 } name || source.Vendor != "claude") return Task.FromResult(RecordingHandOver.Unanswered);
 
         return RecordingIpc.RecordAsync(store, name, new RecordSourceDto(
             agentId, source.SessionId, source.AgentId, source.TranscriptPath, source.Vendor, source.Cwd, skipTitle), ct);

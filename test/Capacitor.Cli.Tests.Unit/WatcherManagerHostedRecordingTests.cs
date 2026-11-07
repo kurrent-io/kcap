@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
 using Microsoft.Extensions.Time.Testing;
 
@@ -26,7 +27,7 @@ public class WatcherManagerHostedRecordingTests {
 
     [Test]
     public async Task A_hosted_hook_spawns_no_watcher_on_a_daemon_with_recording() {
-        _daemon.Answer = true;
+        _daemon.Answer = RecordingHandOver.Taken;
 
         await Watchers.EnsureWatcherRunning(Session, "/t.jsonl", agentId: null, cwd: "/repo", skipTitle: true);
 
@@ -44,7 +45,7 @@ public class WatcherManagerHostedRecordingTests {
 
     [Test]
     public async Task A_subagent_goes_to_the_daemon_as_its_own_source() {
-        _daemon.Answer = true;
+        _daemon.Answer = RecordingHandOver.Taken;
         var key = $"{Session}-agent-1";
 
         await Watchers.EnsureWatcherRunning(key, "/agent.jsonl", "agent-1", Session);
@@ -90,7 +91,7 @@ public class WatcherManagerHostedRecordingTests {
     /// <summary>An orphan: nothing beats it and no list entry brings it back, so a daemon that is up has to be told.</summary>
     [Test]
     public async Task A_stale_claim_goes_to_the_daemon_hosting_the_agent() {
-        _daemon.Answer = true;
+        _daemon.Answer = RecordingHandOver.Taken;
         Claims.TryTake(Session, "daemon", isHosted: true);
         _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
 
@@ -100,10 +101,60 @@ public class WatcherManagerHostedRecordingTests {
         await Assert.That(_spawner.Keys).IsEmpty();
     }
 
+    /// <summary>The daemon is up and said no, so no catch-up is coming, and waiting for one leaves the session with no
+    /// recorder. The hook's capture gate has already passed by here, and the daemon has no gate of its own to refuse on.</summary>
+    [Test]
+    public async Task A_stale_claim_a_reachable_daemon_declines_is_taken_and_watched() {
+        _daemon.Answer = RecordingHandOver.Declined;
+        Claims.TryTake(Session, "daemon", isHosted: true);
+        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+
+        await Watchers.EnsureWatcherRunning(Session, "/t.jsonl", agentId: null);
+
+        await Assert.That(_spawner.Keys).IsEquivalentTo([Session]);
+        await Assert.That(Claims.Read(Session)).IsEqualTo(RecorderClaimState.None);
+    }
+
+    /// <summary>The source isn't this agent's, so the claim on its key can be another agent's, whose catch-up is still owed.</summary>
+    [Test]
+    public async Task A_stale_claim_on_a_source_the_daemon_disowns_is_left_alone() {
+        _daemon.Answer = RecordingHandOver.Disowned;
+        Claims.TryTake(Session, "daemon", isHosted: true);
+        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+
+        await Watchers.EnsureWatcherRunning(Session, "/t.jsonl", agentId: null);
+
+        await Assert.That(_spawner.Keys).IsEmpty();
+        await Assert.That(Claims.Read(Session)).IsEqualTo(RecorderClaimState.DaemonStale);
+    }
+
+    /// <summary>A daemon restarting answers nothing, and its catch-up is on the way.</summary>
+    [Test]
+    public async Task A_stale_claim_with_no_answer_waits_for_the_catch_up() {
+        _daemon.Answer = RecordingHandOver.Unanswered;
+        Claims.TryTake(Session, "daemon", isHosted: true);
+        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+
+        await Watchers.EnsureWatcherRunning(Session, "/t.jsonl", agentId: null);
+
+        await Assert.That(_spawner.Keys).IsEmpty();
+        await Assert.That(Claims.Read(Session)).IsEqualTo(RecorderClaimState.DaemonStale);
+    }
+
+    /// <summary>With no claim, a source the daemon disowns gets a watcher like any other it won't take.</summary>
+    [Test]
+    public async Task A_disowned_source_with_no_claim_gets_a_watcher() {
+        _daemon.Answer = RecordingHandOver.Disowned;
+
+        await Watchers.EnsureWatcherRunning(Session, "/t.jsonl", agentId: null);
+
+        await Assert.That(_spawner.Keys).IsEquivalentTo([Session]);
+    }
+
     sealed class FakeDaemon : IDaemonRecordingClient {
         readonly List<(RecordingSource Source, bool SkipTitle)> _asked = [];
 
-        public bool Answer { get; set; }
+        public RecordingHandOver Answer { get; set; } = RecordingHandOver.Declined;
 
         public bool Hangs { get; set; }
 
@@ -117,7 +168,7 @@ public class WatcherManagerHostedRecordingTests {
             }
         }
 
-        public async Task<bool> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) {
+        public async Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) {
             lock (_asked) _asked.Add((source, skipTitle));
             Reached.TrySetResult();
 

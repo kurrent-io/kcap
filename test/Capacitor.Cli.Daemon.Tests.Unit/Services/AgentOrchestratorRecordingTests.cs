@@ -432,7 +432,7 @@ public class AgentOrchestratorRecordingTests {
 
         var reply = await HandOverAsync(f, handed);
 
-        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.NotTheAgents);
         await Assert.That(f.ClaimFiles.Any(claim => claim.Contains(Moved))).IsFalse();
     }
 
@@ -457,7 +457,7 @@ public class AgentOrchestratorRecordingTests {
 
         var reply = await HandOverAsync(f, Handed(f, agentId: "agent-2", session: taken));
 
-        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.NotTheAgents);
     }
 
     [Test]
@@ -467,7 +467,7 @@ public class AgentOrchestratorRecordingTests {
 
         var reply = await HandOverAsync(f, Handed(f, cwd: Tmp.CreateDir("somewhere-else")));
 
-        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.NotTheAgents);
     }
 
     [Test]
