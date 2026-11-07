@@ -127,7 +127,7 @@ The app keeps a record in config beside `app-integration-refresh-pending`, writt
 
 - **Pending.** The batch started and has not finished: deferred for a daemon's safe point, waiting for processes still running from an old install, or interrupted. Checked again while the app runs and on the next launch, from fresh evidence, without repeated notices
 - **Waiting.** An install newer than the app was found, so nothing has changed. Checked again on each launch, without a notice
-- **Left**, per install. It could not be removed for a reason only the user can fix (see below). Reported once, and not retried on its own
+- **Left**, per install. It could not be removed for a reason only the user can fix (see below). Reported once. An install left because its own folder is on PATH, or because a daemon its service does not run is running from it, is checked again on each launch without a notice, since that condition ends when the user fixes it; the other reasons wait for **Finish switching…**
 - **Switched**, per install
 
 After the machine's batch completes, an npm or script install that appears later, for example one the user put back on purpose, is reported but not removed

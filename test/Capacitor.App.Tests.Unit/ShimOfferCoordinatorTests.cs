@@ -2,6 +2,7 @@ using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Setup;
 using TUnit.Assertions.Enums;
+using TUnit.Core.Enums;
 
 namespace Capacitor.App.Tests.Unit;
 
@@ -40,7 +41,7 @@ public class ShimOfferCoordinatorTests {
 
     sealed class Harness : IDisposable {
         public readonly FakeLoginShellProbe Probe = new();
-        public readonly FakeAppStateStore Store = new();
+        public readonly FakeAppStateStore Store;
         public readonly FakeLifecycleSurface Surface = new();
         readonly TempDir _tmp = new();
         public string TempDir => _tmp.Path;
@@ -52,15 +53,19 @@ public class ShimOfferCoordinatorTests {
         public readonly PathShimInstaller Installer;
         public readonly ShimOfferCoordinator Coordinator;
 
+        /// <param name="firstLook">Joins the phase the way the app joins the CLI takeover's first look to it.</param>
         public Harness(
                 bool immediatePhaseClosed = false, bool noTarget = false, bool noInstaller = false,
-                bool autoOfferSuppressed = false, Task<string?>? pendingLink = null) {
+                bool autoOfferSuppressed = false, Task<string?>? pendingLink = null, Task? firstLook = null,
+                FakeAppStateStore? store = null) {
+            Store       = store ?? new FakeAppStateStore();
             Target      = noTarget ? null : Path.Combine(TempDir, "target-cli");
             Destination = Path.Combine(_tmp.CreateDir(".local", "bin"), "kcap");
             Probe.KcapPathBehavior = _ => Task.FromResult<string?>(Destination);
             Installer   = new PathShimInstaller(Probe, new UserHome(TempDir));
 
             var phaseClosed = immediatePhaseClosed ? Task.CompletedTask : PhaseClosedSource.Task;
+            if (firstLook is not null) phaseClosed = Task.WhenAll(phaseClosed, firstLook);
             Coordinator = new ShimOfferCoordinator(
                 phaseClosed, Probe, noInstaller ? null : Installer, Store, Surface, Target, CancellationToken.None,
                 autoOfferSuppressed, pendingLink);
@@ -87,6 +92,42 @@ public class ShimOfferCoordinatorTests {
     }
 
     // ---- offer waits for PhaseClosed ----
+
+    /// <summary>An install only a service names leaves no <c>kcap</c> on any PATH, so the probe says absent. The switch
+    /// claims the offer when it records its intent, before the first look ends, and the dialog never appears.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task The_shim_offer_waits_for_the_first_look_and_never_shows_during_a_switch() {
+        using var tmp = new TempDir();
+        var world = new AdoptionWorld(tmp);
+        var released = new TaskCompletionSource();
+        world.Machine.Evidence = async _ => {
+            await released.Task;
+            var found = world.Found();
+            return found with {
+                Units = [.. found.Units.Select(u => u with { StoredPath = "/usr/bin:/bin", KcapOnStoredPath = null })],
+                LoginPath = "/usr/bin:/bin", KcapOnLoginPath = null,
+            };
+        };
+        var store = new FakeAppStateStore();
+        using var adoption = world.Launch(store);
+        using var h = new Harness(immediatePhaseClosed: true, firstLook: adoption.FirstLook, store: store);
+        var probed = false;
+        h.Probe.KcapOnPathBehavior = _ => { probed = true; return Task.FromResult<bool?>(false); };
+        h.Coordinator.Start();
+        adoption.Start();
+
+        await Task.Delay(50);
+        await Assert.That(probed).IsFalse();
+
+        released.SetResult();
+        await adoption.FirstLook.WaitAsync(AdoptionWorld.Bounded);
+        await WaitUntilAsync(() => probed, what: "the offer to go on once the first look is done");
+
+        await Task.Delay(100); // give a wrongly-firing auto-offer dialog every chance to appear
+        await Assert.That(h.Surface.Prompts).IsEmpty();
+        await Assert.That(store.State.ShimOffered).IsTrue();
+        await Assert.That(new FileInfo(Path.Combine(world.Home, ".local", "bin", "kcap")).LinkTarget).IsEqualTo(world.Bundle.Cli);
+    }
 
     [Test]
     public async Task Offer_waits_for_PhaseClosed_before_probing() {

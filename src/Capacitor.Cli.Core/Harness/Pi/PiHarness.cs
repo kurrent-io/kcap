@@ -19,6 +19,8 @@ public sealed class PiHarness : IHarness<PiHarness> {
     /// override a second time.</summary>
     public PiPaths Paths { get; }
 
+    public IReadOnlyList<string> IntegrationFiles => [Paths.KcapExtension, Paths.KcapMcpExtension];
+
     // Pi keeps state under ~/.pi/agent; the PATH probe covers an install that has not created it.
     public HarnessSignals Signals => new() {
         LaunchSignal   = probe => probe.Finds(CliBinary),
