@@ -164,6 +164,7 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
         var pty     = ptyFactory.Spawn(launcher.CliPath, args, ctx.Worktree.Path, env, ctx.Cols, ctx.Rows, removeEnv);
         var runtime = new PtyHostedAgentRuntime(ctx.Vendor, pty, time, disablesApprovalPrompts, logger,
             readyOnBracketedPaste: OperatingSystem.IsWindows(),
+            bracketedPasteMeansComposerUp: launcher.BracketedPasteMeansComposerUp,
             awaitsSessionStart: hooksReachDaemon && launcher.SessionStartMeansComposerUp,
             confirmsLaunchPrompt: hooksReachDaemon);
 
