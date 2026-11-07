@@ -97,6 +97,27 @@ public class AsideRetirementTests {
         await Assert.That(File.Exists(config.Path(Record))).IsFalse();
     }
 
+    /// <summary>A link moves as a copy and then the original's removal; a crash between them leaves the same link under
+    /// both names, which is a move that never finished, not a replacement.</summary>
+    [Test]
+    public async Task A_link_move_cut_short_leaves_the_original_and_drops_the_copy() {
+        var config = Config();
+        var root = Tmp.CreateDir("kcap-root");
+        var version = Directory.CreateDirectory(Path.Combine(root, "versions", "1.0.0")).FullName;
+        var current = Path.Combine(root, "current");
+        File.CreateSymbolicLink(current, version);
+        var crashing = new AsideRetirement(config, Record, step => { if (step == AsideRetirement.Renamed) throw new IOException("crash"); });
+        await Assert.That(() => crashing.Retire(current, _ => true)).Throws<IOException>();
+        File.CreateSymbolicLink(current, version);
+
+        var unfinished = new AsideRetirement(config, Record).FinishInterrupted();
+
+        await Assert.That(unfinished).IsEmpty();
+        await Assert.That(new FileInfo(current).LinkTarget).IsEqualTo(version);
+        await Assert.That(Directory.GetFileSystemEntries(root).Select(p => Path.GetFileName(p)!).ToArray()).IsEquivalentTo(["versions", "current"]);
+        await Assert.That(File.Exists(config.Path(Record))).IsFalse();
+    }
+
     /// <summary>With both names taken nothing can go back, and nothing unchecked is deleted: the aside stays recorded.</summary>
     [Test]
     public async Task An_unchecked_aside_whose_original_came_back_is_kept() {

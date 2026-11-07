@@ -65,8 +65,10 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
         var unfinished = new List<string>();
         foreach (var planned in Snapshot()) {
             try {
-                if (Exists(planned.Aside) && IsOwnAside(planned.Original, planned.Aside, planned.Kind == Link)) {
+                var link = planned.Kind == Link;
+                if (Exists(planned.Aside) && IsOwnAside(planned.Original, planned.Aside, link)) {
                     if (planned.State != UncheckedState) DeleteAside(planned.Original, planned.Aside, planned.Kind);
+                    else if (link && SameLink(planned.Original, planned.Aside)) File.Delete(planned.Aside);
                     else if (Exists(planned.Original)) {
                         unfinished.Add(planned.Original);
                         continue;
@@ -99,6 +101,10 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
         new FileInfo(path).LinkTarget is not null ? Link : Directory.Exists(path) ? Directory_ : File_;
 
     static bool Exists(string path) => new FileInfo(path).LinkTarget is not null || Path.Exists(path);
+
+    // A link moves as a copy and then the original's removal: one cut short between them leaves two equal links.
+    static bool SameLink(string original, string aside) =>
+        new FileInfo(original).LinkTarget is { } target && new FileInfo(aside).LinkTarget == target;
 
     static void Move(string from, string to, string kind) {
         if (kind == Directory_) Directory.Move(from, to);
