@@ -46,14 +46,19 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
     /// <summary>The spool under a config root. The directory overload is for a test's own throwaway directory.</summary>
     public HookSpool(ConfigRoot config, TimeProvider time, string? server, int capBytes = DefaultCapBytes)
-        : this(SpoolPartition.Server(config.Path(DirectoryName), server), time, capBytes) { }
+        : this(SpoolPartition.Server(config.Path(DirectoryName), server), time, capBytes) => _config = config;
 
     public HookSpool(string dir, TimeProvider time, int capBytes = DefaultCapBytes)
         : this(SpoolPartition.Standalone(dir), time, capBytes) { }
 
+    readonly ConfigRoot? _config;
+
     static readonly Regex SafeSessionId  = SafeSessionIdRegex();
     static readonly Regex LegacyGuidKey = LegacyGuidKeyRegex();
     static          int   seqCounter;
+
+    /// <summary>Whether a person disabled the session. A spool in a test's own directory has no markers to read.</summary>
+    public bool IsDisabledByPerson(string sessionId) => _config is not null && DisabledSessions.IsDisabledByPerson(sessionId, _config);
 
     /// <summary>The directory where spool files are stored.</summary>
     internal string DirectoryPath => partition.DirectoryPath;
@@ -157,7 +162,18 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
         foreach (var sid in sessions) {
             if (Expired() || ct.IsCancellationRequested) return;
-            if (await DrainSessionAsync(sid, poster, Expired, ct)) return; // transient → stop the pass
+
+            // This drain runs on every hook of every session, so it often reaches a disabled session's entries first.
+            if (IsDisabledByPerson(sid)) {
+                Discard(sid);
+
+                continue;
+            }
+
+            // Read before each post, for a pass under way when the person disables the session.
+            Task<DrainOutcome> Post(string route, string body) => IsDisabledByPerson(sid) ? Task.FromResult(DrainOutcome.Drop) : poster(route, body);
+
+            if (await DrainSessionAsync(sid, Post, Expired, ct)) return; // transient → stop the pass
         }
     }
 

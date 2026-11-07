@@ -28,6 +28,55 @@ public class HookSpoolTests {
         await Assert.That(HookSpool.OutcomeOf(status)).IsEqualTo(retryable ? DrainOutcome.TransientStop : DrainOutcome.Drop);
     }
 
+    /// <summary>This drain runs on every Claude hook of every session, so it usually gets to a disabled session's entries
+    /// ahead of the ordered one.</summary>
+    [Test]
+    public async Task the_fifo_drain_posts_nothing_of_a_disabled_session_and_discards_it() {
+        using var config = new TempConfigRoot();
+        var spool = new HookSpool(config.Root, TimeProvider.System, "http://s");
+        spool.Append(SidA, "session-start", """{"n":"disabled"}""");
+        spool.Append(SidB, "session-start", """{"n":"other"}""");
+        DisabledSessions.Mark(SidA, config.Root);
+
+        var posted = new List<string>();
+        await spool.DrainAllAsync(null, (_, body) => { posted.Add(body); return Task.FromResult(DrainOutcome.Delivered); }, TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        await Assert.That(posted).IsEquivalentTo(new[] { """{"n":"other"}""" });
+        await Assert.That(spool.HasBacklog(SidA)).IsFalse();
+    }
+
+    [Test]
+    public async Task the_fifo_drain_posts_no_more_of_a_session_disabled_during_its_pass() {
+        using var config = new TempConfigRoot();
+        var spool = new HookSpool(config.Root, TimeProvider.System, "http://s");
+        spool.Append(SidA, "session-start", """{"n":1}""");
+        spool.Append(SidA, "session-end", """{"n":2}""");
+
+        var posted = new List<string>();
+        await spool.DrainAllAsync(null, (_, body) => {
+            posted.Add(body);
+            DisabledSessions.Mark(SidA, config.Root);
+
+            return Task.FromResult(DrainOutcome.Delivered);
+        }, TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        await Assert.That(posted).IsEquivalentTo(new[] { """{"n":1}""" });
+        await Assert.That(spool.HasBacklog(SidA)).IsFalse();
+    }
+
+    [Test]
+    public async Task the_fifo_drain_delivers_an_excluded_sessions_entries() {
+        using var config = new TempConfigRoot();
+        var spool = new HookSpool(config.Root, TimeProvider.System, "http://s");
+        spool.Append(SidA, "session-start", """{"n":1}""");
+        DisabledSessions.Exclude(SidA, config.Root);
+
+        var posted = new List<string>();
+        await spool.DrainAllAsync(null, (_, body) => { posted.Add(body); return Task.FromResult(DrainOutcome.Delivered); }, TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        await Assert.That(posted).Contains("""{"n":1}""");
+    }
+
     /// <summary>Either drain sends only what was spooled for its own server, from either spool and
     /// however that server's URL is spelled. What an older build left unpartitioned in the root goes
     /// to whichever server drains first.</summary>

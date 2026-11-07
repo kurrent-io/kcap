@@ -320,7 +320,7 @@ internal sealed class AgentHookPoster(
         var spooled = 0;
         foreach (var session in exited) {
             if (session.Origin is not { Vendor: { } vendor, Server: { } server } origin || !AgentSessions.SameServer(server, url)) continue;
-            if (hold(session)) continue;
+            if (hold(session) || spool.IsDisabledByPerson(session.Session.Value)) continue;
 
             // The fields every vendor's session-end binding requires, as the watcher's own end sends them.
             var end = new JsonObject {
