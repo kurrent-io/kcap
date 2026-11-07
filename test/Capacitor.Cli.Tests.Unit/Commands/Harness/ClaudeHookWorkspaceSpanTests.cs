@@ -6,6 +6,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.PrDetection;
 using Capacitor.Cli.Workspace;
+using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -23,6 +24,9 @@ public class ClaudeHookWorkspaceSpanTests : IDisposable {
 
     readonly WireMockServer _server = WireMockServer.Start();
 
+    // Never moves, so no snapshot or drain window can run out on a loaded host.
+    readonly FakeTimeProvider _time = new();
+
     public void Dispose() => _server.Stop();
 
     [Before(Test)]
@@ -35,10 +39,10 @@ public class ClaudeHookWorkspaceSpanTests : IDisposable {
     Task<int> HookAsync(string payload) {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var http     = new FixedCapacitorHttpClient();
-        return new ClaudeHookCommand(Config.Root, profiles, new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, http,
+        return new ClaudeHookCommand(Config.Root, profiles, new HookClock(_time), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, http,
                 TestWatchers.For(Config.Root, profiles, http), SystemProcessStarter.Instance, router: new GitProviderRouter(),
                 workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
-            .HandleWorkspaceSpanCore(new StringReader(payload), new WorkspaceSpanHook(Config.Root, profiles, http, TimeProvider.System));
+            .HandleWorkspaceSpanCore(new StringReader(payload), new WorkspaceSpanHook(Config.Root, profiles, http, _time));
     }
 
     static string Hook(string eventName, string cwd, string extra = "") =>

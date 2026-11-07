@@ -5,6 +5,7 @@ using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.PrDetection;
+using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -22,6 +23,9 @@ public class VendorWorkspaceSpanTests : IDisposable {
     const string Session = "d6c19ec2-5a16-47b2-a311-a59ed6609a25";
 
     readonly WireMockServer _server = WireMockServer.Start();
+
+    // Never moves, so no snapshot or drain window can run out on a loaded host.
+    readonly FakeTimeProvider _time = new();
 
     public void Dispose() => _server.Stop();
 
@@ -41,7 +45,7 @@ public class VendorWorkspaceSpanTests : IDisposable {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var http     = new FixedCapacitorHttpClient();
         var payload  = $$"""{"hook_event_name":"{{eventName}}","session_id":"{{Session}}","cwd":{{JsonSerializer.Serialize(Repo.Path)}}{{extra}}}""";
-        return new CodexHookCommand(Config.Root, profiles, new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, http,
+        return new CodexHookCommand(Config.Root, profiles, new HookClock(_time), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, http,
                 TestWatchers.For(Config.Root, profiles, http), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
             .Handle(new StringReader(payload), new CodexHookEnvironment(TextWriter.Null, TextWriter.Null, Skip: false, HostedAppServer: false));
     }
@@ -51,7 +55,7 @@ public class VendorWorkspaceSpanTests : IDisposable {
         var http     = new FixedCapacitorHttpClient();
         var watchers = new WatcherManager(Config.Root, profiles, http, FakeProcessStarter.Running(_ => null), WatcherPaths.FromEnvironment(Config.Root), new FakeWatcherSpawner(), TimeProvider.System);
         var payload  = new JsonObject { ["sessionId"] = Session, ["cwd"] = Repo.Path, ["reason"] = "user_exit" };
-        return new CopilotHookCommand(Config.Root, profiles, new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home),
+        return new CopilotHookCommand(Config.Root, profiles, new HookClock(_time), Home, TestHarnesses.Under(Home),
                 HostedAgent.Terminal, http, watchers, new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory))
             .Handle(new StringReader(payload.ToJsonString()), ["--event", eventName]);
     }

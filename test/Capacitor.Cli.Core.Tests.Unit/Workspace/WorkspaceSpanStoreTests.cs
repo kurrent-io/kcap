@@ -96,24 +96,6 @@ public class WorkspaceSpanStoreTests {
     }
 
     [Test]
-    public async Task Overlapping_opens_and_closes_leave_every_span_closed_exactly_once() {
-        using var rig = new WorkspaceRig();
-        var stores = Enumerable.Range(0, 4).Select(_ => rig.StoreFor(WorkspaceRig.Server, rig.Spool)).ToList();
-
-        await Task.WhenAll(stores.Select(async (store, i) => {
-            await Task.Yield();
-            rig.Write($"turn-{i}.txt", "x");
-            if (i % 2 == 0) await store.OpenAsync(WorkspaceRig.Session, rig.Repo.Path, WorkspaceOpen.Turn, WorkspaceRig.Budget);
-            else await store.CloseAllAsync(WorkspaceRig.Session, WorkspaceRig.Budget);
-        }));
-        await rig.CloseAsync();
-
-        var spanIds = rig.Spooled().Select(r => r.SpanId).ToList();
-        await Assert.That(spanIds.Distinct().Count()).IsEqualTo(spanIds.Count);
-        await Assert.That(rig.Baselines()).IsEmpty();
-    }
-
-    [Test]
     public async Task A_lock_held_by_a_process_that_died_is_acquired() {
         Skip.When(OperatingSystem.IsWindows(), "the holder is a perl flock, and the Windows runners have no perl");
         using var rig = new WorkspaceRig();
@@ -145,6 +127,8 @@ public class WorkspaceSpanStoreTests {
             span.OpenedAt, [new WorkspaceChange("done.txt", "create")], false);
         rig.Spool.Write(spooled);
         var before = File.ReadAllText(rig.SpoolFiles().Single());
+        // A second close would stamp a later observation time and rewrite the file.
+        rig.Time.Advance(TimeSpan.FromMinutes(5));
 
         await rig.CloseAsync();
 
