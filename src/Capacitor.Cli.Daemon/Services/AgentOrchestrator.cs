@@ -4318,8 +4318,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // session-end — its Codex app-server thread must survive for a later thread/resume, and the
             // server's B5 close authority owns the eventual close. Every other teardown step (the ACP
             // final-drain above, UnregisterAcpBinding + CleanupAgentAsync below) still runs, so the slot
-            // is freed exactly as a reap frees it.
-            if (!agent.IsServerSilent && agent.PendingEndReason != ReviewerParkedResumableReason) {
+            // is freed exactly as a reap frees it. A disabled session gets no end either: the server finds it through the
+            // agent's run, which its deletion leaves, and the end would bring the deleted stream back.
+            if (!agent.IsServerSilent && !RunsDisabledSession(agent) && agent.PendingEndReason != ReviewerParkedResumableReason) {
                 var endTask = _server.EndAgentSessionAsync(agent.Id, agent.PendingEndReason);
 
                 try {
@@ -6628,12 +6629,20 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     /// A private agent's contract is "no per-agent server calls", so its view carries no session
-    /// id: the resolver then never polls or pushes for it and only the local lanes apply.
+    /// id: the resolver then never polls or pushes for it and only the local lanes apply. A session
+    /// a person disabled gets the same: its deletion reads as a server with no title, and the loop
+    /// would generate one and send it.
     internal IReadOnlyList<TitleAgentView> SnapshotAgentsForTitles() =>
         [.. _agents.Values.Select(a => new TitleAgentView(
             a.Id, a.Vendor, a.ResumedFrom is { } launch ? launch.Prompt : a.Prompt,
-            a.IsServerSilent ? null : a.SessionId ?? (a.Runtime as IAcpTranscriptSource)?.AcpSessionId,
+            a.IsServerSilent || RunsDisabledSession(a) ? null : a.SessionId ?? (a.Runtime as IAcpTranscriptSource)?.AcpSessionId,
             a.TranscriptPath, a.CreatedAt, a.StartTitle, Resumed: a.ResumedFrom is not null))];
+
+    /// <summary>Whether a person disabled the session this agent runs, whose recorder knows nothing of what else the
+    /// daemon sends for it.</summary>
+    bool RunsDisabledSession(AgentInstance agent) =>
+        new[] { agent.SessionId, agent.VendorSession, agent.ResumedSessionId, (agent.Runtime as IAcpTranscriptSource)?.AcpSessionId }
+            .Any(id => SessionIds.Canonical(id) is { } session && DisabledSessions.IsDisabled(session, _config.ConfigRoot));
 
     internal static HarnessTitlePost? NativeTitleFor(TitleAgentView agent) =>
         agent is { Vendor: "claude", TranscriptPath: { } path } && ClaudeNativeTitle.TryExtractWithKind(path) is { } title

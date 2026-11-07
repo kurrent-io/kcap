@@ -191,6 +191,67 @@ public class AgentOrchestratorRecordingTests {
         await Assert.That(f.ListedSources.Select(source => source.SessionId)).DoesNotContain(Moved);
     }
 
+    sealed class CountingTitles : ITitleServerPort {
+        int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public Task<string?> GetTitleAsync(string sessionId, CancellationToken ct) {
+            Interlocked.Increment(ref _calls);
+
+            return Task.FromResult<string?>(null);
+        }
+
+        public Task<HarnessTitleOutcome> PushTitleAsync(string sessionId, HarnessTitlePost post, CancellationToken ct) {
+            Interlocked.Increment(ref _calls);
+
+            return Task.FromResult(HarnessTitleOutcome.Posted);
+        }
+
+        public Task<TitleRenameOutcome> RenameAsync(string sessionId, string title, CancellationToken ct) {
+            Interlocked.Increment(ref _calls);
+
+            return Task.FromResult(new TitleRenameOutcome(true, title, null));
+        }
+    }
+
+    /// <summary>The loop runs on the main hub and over HTTP, apart from any recorder, for every live agent. With the session
+    /// deleted its title read comes back empty, which reads as a server that never titled it, and the next tick would
+    /// generate one and send it. A disabled session gets what a private agent gets: the local lanes and nothing else.</summary>
+    [Test]
+    public async Task A_disabled_sessions_title_loop_reaches_no_server() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        var titles = new CountingTitles();
+        f.Orch.TitleServerForTest = titles;
+        var agent = f.Orch.SeedAgentForTest("titled");
+        agent.SessionId = Moved;
+
+        await Assert.That(f.Orch.SnapshotAgentsForTitles().Single(view => view.Id == agent.Id).SessionId).IsEqualTo(Moved);
+
+        DisabledSessions.Mark(Moved, f.Config.ConfigRoot);
+
+        await Assert.That(f.Orch.SnapshotAgentsForTitles().Single(view => view.Id == agent.Id).SessionId).IsNull();
+
+        await f.Orch.PublishTitleLoopForTest().TickAsync(CancellationToken.None);
+
+        await Assert.That(titles.Calls).IsEqualTo(0);
+    }
+
+    /// <summary>The server finds an agent's session through its run stream, which a deletion leaves, and writes the end to
+    /// the session's stream with no deletion guard: this call would bring the deleted stream back.</summary>
+    [Test]
+    public async Task A_disabled_sessions_agent_ends_with_no_session_end_on_the_server() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        await WaitHarness.PollUntilAsync(() => f.Transport.Connects == 1);
+        DisabledSessions.Mark(SessionIds.Canonical(f.Factory.Context!.PinnedSessionId)!, f.Config.ConfigRoot);
+
+        f.Factory.Runtime!.ExitGate.SetResult();
+        await WaitHarness.PollUntilAsync(() => f.Orch.SnapshotAgentsForTitles().Count == 0);
+
+        await Assert.That(f.Server.EndSessionReasons).IsEmpty();
+    }
+
     static DisableSessionAckDto AckOf(LocalFrame reply) => JsonSerializer.Deserialize(reply.Text, RecordingIpcJsonContext.Default.DisableSessionAckDto)!;
 
     /// <summary>The mirror isn't recording and stays up, so the answer says so, and only for an agent still running this
