@@ -10,7 +10,9 @@ internal static class BackgroundImportStatusExtensions {
         BackgroundImportStatus.Running     => "running",
         BackgroundImportStatus.ExitedZero  => "exited_zero",
         BackgroundImportStatus.Failed      => "failed",
-        BackgroundImportStatus.Unconfirmed => "unconfirmed",
+        // The server refuses an import outcome carrying a status it does not know, and older eval-watch
+        // skills a handoff file it does not know; an alive child reported "running" before it had to confirm.
+        BackgroundImportStatus.Unconfirmed => "running",
         _ => throw new ArgumentOutOfRangeException(nameof(status)),
     };
 }
