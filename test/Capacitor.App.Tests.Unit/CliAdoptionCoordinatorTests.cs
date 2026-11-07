@@ -936,6 +936,29 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Notifier.Notified.Single()).Contains("was removed");
     }
 
+    /// <summary>A helper still deleting when the wait is up keeps its record: its half-done files are not read, and
+    /// neither the launch nor Finish switching starts a second helper beside it.</summary>
+    [Test]
+    public async Task A_helper_still_running_past_the_wait_is_left_to_finish() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        var asides = world.InterruptedHelper($"tok-{Helper}");
+        world.Machine.Alive.Add(Helper);
+        world.Machine.Lingering.Add(Helper);
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await world.SettledAsync(launch);
+
+        await Assert.That(world.Record.Privileged).IsNotNull();
+        await Assert.That(world.Admin.Prompts).IsEmpty();
+        await Assert.That(world.Explained).IsEmpty();
+        await Assert.That(asides.All(a => Directory.Exists(a.Aside))).IsTrue();
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Pending);
+        await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo(AdoptionPrivilegedStep.HelperRunning);
+    }
+
     /// <summary>An aside the helper left after go can only be removed as root, and a helper whose start identity was
     /// never read is waited for the whole bound: the install is left for Finish switching, and the app raises no
     /// prompt of its own.</summary>

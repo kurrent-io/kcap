@@ -13,6 +13,7 @@ internal sealed class AdoptionPrivilegedStep(
         AdoptionBundle bundle, string helperFolder, Action<string, (string Key, string? Value)[]> log) {
     internal const string PathNotOnBundle = "path_not_on_bundle";
     internal const string NothingLeft     = "nothing_left";
+    internal const string HelperRunning   = "helper_running";
 
     /// The helper waits this long for go, which follows the login shell's PATH probe and every deletion check.
     internal static readonly TimeSpan GoWait = TimeSpan.FromMinutes(2);
@@ -21,16 +22,22 @@ internal sealed class AdoptionPrivilegedStep(
     internal static readonly TimeSpan SettleWait = GoWait + TimeSpan.FromMinutes(1);
 
     /// <summary>Settles the helper run the record names, which a quit or crash left unfinished: waits for it to exit,
-    /// then reads the files as <see cref="SettleFromFiles"/> does, without a prompt.</summary>
-    public async Task SettleAsync(CancellationToken ct) {
-        if (store.Load().Privileged is not { } helper) return;
-        if (helper.Pid is { } pid) await machine.WaitForExitAsync(pid, helper.StartToken, SettleWait, ct).ConfigureAwait(false);
+    /// then reads the files as <see cref="SettleFromFiles"/> does, without a prompt. One still running past the wait
+    /// keeps its record: its files are half done, and a second helper would race it.</summary>
+    /// <returns>False while that helper still runs.</returns>
+    public async Task<bool> SettleAsync(CancellationToken ct) {
+        if (store.Load().Privileged is not { } helper) return true;
+        if (helper.Pid is { } pid && !await machine.WaitForExitAsync(pid, helper.StartToken, SettleWait, ct).ConfigureAwait(false)) {
+            log("adoption_privileged", [("install", helper.InstallRoot), ("result", "unsettled"), ("reason", HelperRunning)]);
+            return false;
+        }
 
         var root = CanonicalPath.Resolve(helper.InstallRoot);
         var settled = store.Load().Installs.FirstOrDefault(i =>
             i.State == InstallState.Pending && PathComparison.Equal(CanonicalPath.Resolve(i.Install.Root), root));
         if (settled is { Install: var install }) SettleFromFiles(install, helper.GoSent);
         store.Update(r => r with { Privileged = null });
+        return true;
     }
 
     /// <summary>Asks nothing once none of the install is left, which switches it, nor while the app runs from
@@ -54,6 +61,10 @@ internal sealed class AdoptionPrivilegedStep(
         }
         if (!bundle.InSystemApplications) {
             Leave(install, LeftReason.SharedInstallPrivateApp);
+            return;
+        }
+        if (store.Load().Privileged is not null) {
+            deletion.Hold(install, HelperRunning);
             return;
         }
         if (await HolderAsync(install, cutover, unfinished, ct).ConfigureAwait(false) is { } holder) {

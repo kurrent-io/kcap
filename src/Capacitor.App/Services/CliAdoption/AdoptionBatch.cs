@@ -67,8 +67,8 @@ internal sealed class AdoptionBatch(
     async Task<bool> RunAsync(bool prompt, bool finishing, CancellationToken ct) {
         _awaitingDaemon = false;
         _awaitingIdle   = false;
-        await Privileged.SettleAsync(ct).ConfigureAwait(false);
-        var unfinished = FinishInterrupted();
+        // Nothing is retired beside a helper an earlier launch started that is still deleting: every deletion holds.
+        var unfinished = await Privileged.SettleAsync(ct).ConfigureAwait(false) ? FinishInterrupted() : null;
 
         AdoptionEvidence evidence;
         try {
@@ -137,7 +137,7 @@ internal sealed class AdoptionBatch(
             .Select(i => i.Install).ToList();
         if (due.Count == 0) return true;
 
-        var unfinished = FinishInterrupted();
+        var unfinished = record.Privileged is null ? FinishInterrupted() : null;
         var processes  = machine.ReadProcesses();
         var sites      = await machine.ReadSitesAsync(ct).ConfigureAwait(false);
         if (record.CutoverUtc is { } cutover && Naming(due, cutover, sites) is { Count: > 0 } named) {

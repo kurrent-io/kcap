@@ -375,11 +375,15 @@ sealed class AdoptionWorld {
         /// <summary>Runs while a launch waits for a helper an earlier one left; the helper has exited once it returns.</summary>
         public Action? WhileWaiting { get; set; }
 
-        public Task WaitForExitAsync(int pid, string? startToken, TimeSpan bound, CancellationToken ct) {
+        /// <summary>A helper in here is still running when the wait is up, and stays alive.</summary>
+        public HashSet<int> Lingering { get; } = [];
+
+        public Task<bool> WaitForExitAsync(int pid, string? startToken, TimeSpan bound, CancellationToken ct) {
             Waits.Add((pid, startToken, bound));
             WhileWaiting?.Invoke();
+            if (Lingering.Contains(pid) && startToken is not null) return Task.FromResult(false);
             Alive.Remove(pid);
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
     }
 
