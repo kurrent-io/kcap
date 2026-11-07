@@ -32,6 +32,34 @@ public class PassCommandTests {
         await Assert.That(run.Exit).IsEqualTo(0);
     }
 
+    /// <summary>A send the server fails ends with its message and exit 1, not a crash report.</summary>
+    [Test]
+    public async Task PassCommand_SendFails_PrintsServerMessage() {
+        var api = new FakePassesApi { SendFails = new CapacitorApiException(500, "Server error") };
+
+        var run = await PassAsync(api, interactive: true, "Sam", "--session", "s-1");
+
+        await Assert.That(run.Error).Contains("Server error");
+        await Assert.That(run.Exit).IsEqualTo(1);
+    }
+
+    /// <summary>A failed approve call may still have landed, or left the pass waiting: the user is told so and where to
+    /// check it.</summary>
+    [Test]
+    public async Task PassCommand_ApprovalFails_SaysPassMayStillAwaitApproval() {
+        var api = new FakePassesApi {
+            SendResult  = FakePassesApi.AwaitingApproval("You're sharing this session with Sam."),
+            AnswerFails = new CapacitorApiException(null, "Cannot reach the server")
+        };
+
+        var run = await PassAsync(api, interactive: true, "Sam", "--session", "s-1");
+
+        await Assert.That(api.Approved.Count).IsEqualTo(1);
+        await Assert.That(run.Error).Contains("Cannot reach the server");
+        await Assert.That(run.Error).Contains($"may still be waiting for approval: {Url}/passes?tab=sent");
+        await Assert.That(run.Exit).IsEqualTo(1);
+    }
+
     /// <summary>While the server does not offer passes, or cannot say whether it does (refused login, server error,
     /// unreachable), the command's whole answer is the unknown-command answer, and it asks the server nothing more.</summary>
     [Test]

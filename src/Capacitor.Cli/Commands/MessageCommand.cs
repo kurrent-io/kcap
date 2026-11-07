@@ -44,11 +44,8 @@ sealed class MessageCommand(IPassesApi passes, string serverUrl) {
 
         if (who is null || string.IsNullOrWhiteSpace(text)) return await UsageAsync(terminal);
 
-        if (await PassSending.RecipientAsync(passes, who, terminal) is not { } recipient) return 1;
-
-        var body = new StartPassBody("message", recipient.Id, itemKind, itemId, Note: text, ReplyTo: replyTo);
-
-        return await PassSending.SendAsync(passes, serverUrl, body, recipient.DisplayName ?? recipient.Id, terminal);
+        return await PassSending.SendToAsync(passes, serverUrl, who, recipient =>
+            new StartPassBody("message", recipient.Id, itemKind, itemId, Note: text, ReplyTo: replyTo), terminal);
     }
 
     static async Task<int> UsageAsync(PassTerminal terminal) {

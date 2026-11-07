@@ -57,12 +57,9 @@ sealed class PassCommand(IPassesApi passes, string serverUrl) {
 
         if (who is null || itemKind is null) return await UsageAsync(terminal);
 
-        if (await PassSending.RecipientAsync(passes, who, terminal) is not { } recipient) return 1;
-
-        var body = new StartPassBody(kind, recipient.Id, itemKind, itemId, Brief: brief, SuggestedPrompts: prompts.Count > 0 ? prompts : null,
-                                     ReminderOff: reminder ? null : true);
-
-        return await PassSending.SendAsync(passes, serverUrl, body, recipient.DisplayName ?? recipient.Id, terminal);
+        return await PassSending.SendToAsync(passes, serverUrl, who, recipient =>
+            new StartPassBody(kind, recipient.Id, itemKind, itemId, Brief: brief, SuggestedPrompts: prompts.Count > 0 ? prompts : null,
+                              ReminderOff: reminder ? null : true), terminal);
     }
 
     static async Task<int> UsageAsync(PassTerminal terminal) {

@@ -22,6 +22,10 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
 
     internal static readonly TimeSpan RequestBudget = TimeSpan.FromSeconds(100);
 
+    /// <summary>The offer check runs before <c>initialize</c> is answered, so it must finish inside the client's start-up
+    /// timeout; running out reads as not offered.</summary>
+    internal static readonly TimeSpan OfferedBudget = TimeSpan.FromSeconds(10);
+
     /// <summary>How long the human has to answer the harness's prompt before the pass is left for them in kcap.</summary>
     internal static readonly TimeSpan ApprovalBudget = TimeSpan.FromMinutes(5);
 
@@ -90,7 +94,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
     /// out rather than advertise ones that cannot work.</summary>
     async Task<bool> OfferedAsync() {
         try {
-            using var budget = new CancellationTokenSource(RequestBudget, time);
+            using var budget = new CancellationTokenSource(OfferedBudget, time);
 
             return await passes.PassesOfferedAsync(budget.Token);
         } catch (Exception ex) when (ex is CapacitorApiException or OperationCanceledException) {
@@ -210,9 +214,17 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
 
         using var request = new CancellationTokenSource(RequestBudget, time);
 
-        var result = action == "accept"
-            ? await passes.ApproveAsync(pass.PassId, "agent", request.Token)
-            : await passes.DeclineAsync(pass.PassId, request.Token);
+        PassAnswerResult result;
+
+        try {
+            result = action == "accept"
+                ? await passes.ApproveAsync(pass.PassId, "agent", request.Token)
+                : await passes.DeclineAsync(pass.PassId, request.Token);
+        } catch (OperationCanceledException) when (request.IsCancellationRequested) {
+            return AnswerUnknown(id, "the server did not answer in time");
+        } catch (CapacitorApiException ex) {
+            return AnswerUnknown(id, ex.Message);
+        }
 
         return result switch {
             PassAnswerResult.Answered answered => ToolResult(id, Answered(pass.PassId, answered.Answer).ToJsonString()),
@@ -241,6 +253,12 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
 
     static string GrantLine(PassSharingGrantDto grant) =>
         $"{grant.Access} ({grant.ItemKind.Replace('_', ' ')} {grant.ItemId})" + (grant.AlsoAllows is { Length: > 0 } also ? $"; it also lets them {also}" : "");
+
+    /// <summary>The human answered but the server's reply was lost, so it may have applied the answer: sending again
+    /// could make a second pass.</summary>
+    string AnswerUnknown(JsonNode id, string reason) =>
+        ToolResult(id, $"Error: {reason}. The user's answer may or may not have reached the server. Do not pass or message again; " +
+                       $"ask the user to check the pass in kcap: {SentLink}", isError: true);
 
     string Waiting(JsonNode id, StartPassResponseDto pass) {
         var result = Outcome(pass.State, pass.PassId, $"{WaitingForApproval}: {SentLink}. Nothing is shared or sent until the user approves it there.", pass.Grants);

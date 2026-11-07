@@ -22,8 +22,19 @@ sealed class FakePassesApi : IPassesApi {
 
     public Exception? OfferedFails { get; init; }
 
+    /// Never answers the offer check; only the caller's token ends the wait.
+    public bool OfferedHangs { get; init; }
+
+    public Exception? SendFails { get; init; }
+
+    /// Thrown by approve and decline once the call is recorded.
+    public Exception? AnswerFails { get; init; }
+
+    /// Approve and decline never answer; only the caller's token ends the wait.
+    public bool AnswerHangs { get; init; }
+
     public Task<bool> PassesOfferedAsync(CancellationToken ct = default) =>
-        OfferedFails is { } fails ? Task.FromException<bool>(fails) : Task.FromResult(Offered);
+        OfferedHangs ? HangAsync<bool>(ct) : OfferedFails is { } fails ? Task.FromException<bool>(fails) : Task.FromResult(Offered);
 
     public Task<IReadOnlyList<UserCandidateDto>> SearchColleaguesAsync(string query, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<UserCandidateDto>>(Colleagues);
@@ -31,19 +42,28 @@ sealed class FakePassesApi : IPassesApi {
     public Task<PassSendResult> SendAsync(StartPassBody body, CancellationToken ct = default) {
         Sent.Enqueue(body);
 
-        return Task.FromResult(SendResult);
+        return SendFails is { } fails ? Task.FromException<PassSendResult>(fails) : Task.FromResult(SendResult);
     }
 
     public Task<PassAnswerResult> ApproveAsync(string passId, string via, CancellationToken ct = default) {
         Approved.Enqueue((passId, via));
 
-        return Task.FromResult(AnswerResult);
+        return Answer(AnswerResult, ct);
     }
 
     public Task<PassAnswerResult> DeclineAsync(string passId, CancellationToken ct = default) {
         Declined.Enqueue(passId);
 
-        return Task.FromResult<PassAnswerResult>(new PassAnswerResult.Answered(new("declined", "declined", [], null, null)));
+        return Answer(new PassAnswerResult.Answered(new("declined", "declined", [], null, null)), ct);
+    }
+
+    Task<PassAnswerResult> Answer(PassAnswerResult result, CancellationToken ct) =>
+        AnswerHangs ? HangAsync<PassAnswerResult>(ct) : AnswerFails is { } fails ? Task.FromException<PassAnswerResult>(fails) : Task.FromResult(result);
+
+    static async Task<T> HangAsync<T>(CancellationToken ct) {
+        await Task.Delay(Timeout.Infinite, ct);
+
+        throw new InvalidOperationException("An infinite delay ended without cancellation");
     }
 
     public Task<PassReadResult> GetAsync(string passId, CancellationToken ct = default) =>

@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Http;
+using Microsoft.Extensions.Time.Testing;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
 
@@ -32,10 +33,13 @@ public class McpPassServerTests {
         ["recipient_id"] = "github:2", ["kind"] = "look", ["item_kind"] = "session", ["item_id"] = "s-1", ["brief"] = "Have a look at the retry loop",
     };
 
-    /// Initialize, then list the tools; the two answers in order.
-    static async Task<(JsonObject Init, JsonArray Tools)> StartAsync(McpPassServer server) {
-        var output = new StringWriter();
-        await server.ServeAsync(new StringReader(string.Join('\n', Request(1, "initialize"), Request(2, "tools/list"))), output);
+    /// Initialize, then list the tools; the two answers in order. <paramref name="whileStarting"/> runs once start-up is
+    /// under way.
+    static async Task<(JsonObject Init, JsonArray Tools)> StartAsync(McpPassServer server, Action? whileStarting = null) {
+        var output  = new StringWriter();
+        var serving = server.ServeAsync(new StringReader(string.Join('\n', Request(1, "initialize"), Request(2, "tools/list"))), output);
+        whileStarting?.Invoke();
+        await serving.WaitAsync(TimeSpan.FromSeconds(10));
 
         var lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                           .Select(l => JsonNode.Parse(l)!.AsObject()).ToList();
@@ -54,6 +58,19 @@ public class McpPassServerTests {
 
         await Assert.That(init["serverInfo"]!["name"]!.GetValue<string>()).IsEqualTo("kcap-pass");
         await Assert.That(init.ContainsKey("instructions")).IsFalse();
+        await Assert.That(tools.Count).IsEqualTo(0);
+    }
+
+    /// <summary>A server that never answers the offer check holds start-up only for the offer budget, well inside a
+    /// client's start-up timeout; then initialize is answered with no tools.</summary>
+    [Test]
+    public async Task SurfacesNeverAnswer_InitializeAnsweredWithinOfferBudget() {
+        var time = new FakeTimeProvider();
+
+        var (init, tools) = await StartAsync(new McpPassServer(new FakePassesApi { OfferedHangs = true }, Url, time),
+                                             () => time.Advance(McpPassServer.OfferedBudget));
+
+        await Assert.That(init["serverInfo"]!["name"]!.GetValue<string>()).IsEqualTo("kcap-pass");
         await Assert.That(tools.Count).IsEqualTo(0);
     }
 
@@ -91,6 +108,30 @@ public class McpPassServerTests {
         await Assert.That(api.Approved.ToArray()).IsEquivalentTo(new[] { ("p1", "agent") });
         await Assert.That(api.Declined).IsEmpty();
         await Assert.That(Text(response)).Contains("Shared and sent");
+    }
+
+    /// <summary>The human accepted but the approve call timed out or failed, so it may have landed: the agent is told
+    /// not to send again and where the pass can be checked, not handed an internal error.</summary>
+    [Test]
+    [Arguments("timed out")]
+    [Arguments("failed")]
+    public async Task Pass_ApproveCallLost_SaysCheckSentLinkNotSendAgain(string lost) {
+        var time = new FakeTimeProvider();
+        var api = new FakePassesApi {
+            SendResult  = FakePassesApi.AwaitingApproval(ApprovalText, SessionGrant),
+            AnswerHangs = lost == "timed out",
+            AnswerFails = lost == "failed" ? new CapacitorApiException(null, "Cannot reach the server") : null
+        };
+
+        var call = new McpPassServer(api, Url, time).HandleToolCallAsync(
+            9, Call("pass", PassArguments()), (_, _) => Task.FromResult<JsonObject?>(new JsonObject { ["action"] = "accept" }));
+        time.Advance(McpPassServer.RequestBudget);
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10));
+
+        await Assert.That(api.Approved.Count).IsEqualTo(1);
+        await Assert.That(IsError(response)).IsTrue();
+        await Assert.That(Text(response)).Contains("Do not pass or message again");
+        await Assert.That(Text(response)).Contains($"{Url}/passes?tab=sent");
     }
 
     /// <summary>A harness that cannot prompt gets the way to approve in kcap, and nothing is answered for the human.</summary>

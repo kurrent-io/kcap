@@ -17,8 +17,23 @@ static class PassSending {
         return UnknownCommand.Write(terminal.Error, command);
     }
 
+    /// <summary>Finds the recipient and sends. A server failure is reported by its message rather than left to the crash
+    /// reporter.</summary>
+    public static async Task<int> SendToAsync(IPassesApi passes, string serverUrl, string who, Func<UserCandidateDto, StartPassBody> body,
+                                              PassTerminal terminal) {
+        try {
+            if (await RecipientAsync(passes, who, terminal) is not { } recipient) return 1;
+
+            return await SendAsync(passes, serverUrl, body(recipient), recipient.DisplayName ?? recipient.Id, terminal);
+        } catch (CapacitorApiException ex) {
+            await terminal.Error.WriteLineAsync(ex.Message);
+
+            return 1;
+        }
+    }
+
     /// <summary>An exact id wins; otherwise the name must match exactly one colleague.</summary>
-    public static async Task<UserCandidateDto?> RecipientAsync(IPassesApi passes, string who, PassTerminal terminal) {
+    static async Task<UserCandidateDto?> RecipientAsync(IPassesApi passes, string who, PassTerminal terminal) {
         var candidates = await passes.SearchColleaguesAsync(who);
 
         if (candidates.FirstOrDefault(c => string.Equals(c.Id, who, StringComparison.Ordinal)) is { } exact) return exact;
@@ -38,7 +53,7 @@ static class PassSending {
         }
     }
 
-    public static async Task<int> SendAsync(IPassesApi passes, string serverUrl, StartPassBody body, string recipientName, PassTerminal terminal) {
+    static async Task<int> SendAsync(IPassesApi passes, string serverUrl, StartPassBody body, string recipientName, PassTerminal terminal) {
         switch (await passes.SendAsync(body)) {
             case PassSendResult.Sent:
                 await terminal.Out.WriteLineAsync($"Sent to {recipientName}.");
@@ -72,7 +87,16 @@ static class PassSending {
         await terminal.Error.WriteAsync("Share and send? [y/N] ");
         var yes = terminal.ReadLine()?.Trim().ToLowerInvariant() is "y" or "yes";
 
-        var result = yes ? await passes.ApproveAsync(pass.PassId, "cli") : await passes.DeclineAsync(pass.PassId);
+        PassAnswerResult result;
+
+        try {
+            result = yes ? await passes.ApproveAsync(pass.PassId, "cli") : await passes.DeclineAsync(pass.PassId);
+        } catch (CapacitorApiException ex) {
+            await terminal.Error.WriteLineAsync(ex.Message);
+            await terminal.Error.WriteLineAsync($"Your answer may not have reached the server; the pass may still be waiting for approval: {PassLinks.Sent(serverUrl)}");
+
+            return 1;
+        }
 
         if (result is PassAnswerResult.Refused { Refusal: var refusal }) return await RefusedAsync(refusal, terminal);
 
