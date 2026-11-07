@@ -894,7 +894,11 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
         if (Volatile.Read(ref _stopping) != 0 || !IsCurrent(ended)) return;
 
-        if (ended.Disabled || IsDisabled(ended.Source)) return;
+        if (ended.Disabled || IsDisabled(ended.Source)) {
+            Forget(ended);
+
+            return;
+        }
 
         var source = ended.Source with { Process = resumed, Drained = false };
 

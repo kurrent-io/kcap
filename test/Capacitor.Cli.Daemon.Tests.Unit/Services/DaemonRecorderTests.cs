@@ -549,6 +549,30 @@ public class DaemonRecorderTests {
         await Assert.That(EndCount).IsEqualTo(0);
     }
 
+    /// <summary>A session disabled while its end waits, and resumed meanwhile, is neither followed nor kept: the follow
+    /// refuses it and lets it go.</summary>
+    [Test]
+    public async Task A_follow_refused_for_a_disabled_session_lets_the_source_go() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        DisabledSessions.Mark(Session, Config.Root);
+        await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the disable");
+        ClaimNote(4343);
+
+        var start = time.GetUtcNow();
+        await Stepping(time, () => !recorder.AwaitsEnd(source.Key) || time.GetUtcNow() - start > TimeSpan.FromMinutes(1));
+
+        await Assert.That(recorder.AwaitsEnd(source.Key)).IsFalse();
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
     /// <summary>A daemon stopping inside the grace hasn't decided the end, so it keeps the claim and the entry, and the
     /// next boot finds the process gone and posts it.</summary>
     [Test]
