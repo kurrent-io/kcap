@@ -901,6 +901,31 @@ public class RecorderHostTests {
         await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
     }
 
+    /// <summary>Time while the transport is down isn't held against a source, but the source still went that long without
+    /// a beat, and the log of its wedge has to say so.</summary>
+    [Test]
+    public async Task A_source_given_up_after_an_outage_reports_all_the_time_it_went_without_a_beat() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        var ticks = Ticks(source.Key);
+        StickNextTick(source.Key);
+        await Eventually(() => Ticks(source.Key) > ticks, "the stuck tick", TimeSpan.FromSeconds(1));
+        _transport.IsConnected = false;
+        var down = _time.GetUtcNow();
+        await Eventually(() => _time.GetUtcNow() - down > RecorderHost.WedgedAfter * 2, "an outage past the threshold twice", TimeSpan.FromSeconds(1));
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+
+        _transport.IsConnected = true;
+        await Eventually(() => GivenUp(source.Key), "the source to be given up", TimeSpan.FromSeconds(1));
+
+        var givenUp = _log.Single(line => line.Contains("without a beat", StringComparison.Ordinal));
+        var quiet   = int.Parse(System.Text.RegularExpressions.Regex.Match(givenUp, @"went (\d+)s without a beat").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        await Assert.That(quiet).IsGreaterThan((int)(RecorderHost.WedgedAfter * 2).TotalSeconds);
+    }
+
     /// <summary>Whoever asked for the finish is waiting, and a second drain could race the stuck one, so the import is
     /// what recovers its lines. That holds whether the drain was the run's own or the fresh one a source that never
     /// connected gets.</summary>

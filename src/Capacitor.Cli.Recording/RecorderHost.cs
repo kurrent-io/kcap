@@ -425,7 +425,7 @@ public sealed class RecorderHost {
     // Whatever the attempt does if it wakes is refused, its tokens are cancelled anyway, and its recorder is disposed by
     // its own work's end, if that ever comes: disposing it under that work would fault it.
     static Exception Supersede(RecordingSource source, RecorderContext first, TranscriptRecorder recorder, RecorderAttempt attempt, Task work, string next) {
-        var wedge = new TimeoutException($"Recording {source.Key} went {attempt.Quiet.TotalSeconds:0}s without a beat");
+        var wedge = new TimeoutException($"Recording {source.Key} went {attempt.SinceBeat.TotalSeconds:0}s without a beat");
 
         attempt.Supersede();
         recorder.Supersede();

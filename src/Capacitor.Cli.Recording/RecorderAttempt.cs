@@ -4,6 +4,7 @@ namespace Capacitor.Cli.Recording;
 /// a beat does nothing at all, so a recorder that wakes behind the next attempt keeps no claim alive.</summary>
 sealed class RecorderAttempt(TimeProvider time) {
     long   _beatAt = time.GetTimestamp();
+    long   _excusedAt;
     int    _superseded;
     Action _beats = static () => { };
 
@@ -12,7 +13,11 @@ sealed class RecorderAttempt(TimeProvider time) {
     /// <summary>The timestamp of its last beat, or of its start.</summary>
     public long BeatAt => Volatile.Read(ref _beatAt);
 
-    public TimeSpan Quiet => time.GetElapsedTime(BeatAt);
+    /// <summary>How long since its last beat, an excused stretch included.</summary>
+    public TimeSpan SinceBeat => time.GetElapsedTime(BeatAt);
+
+    /// <summary>How long it has gone without a beat that is held against it.</summary>
+    TimeSpan Quiet => time.GetElapsedTime(Math.Max(BeatAt, Volatile.Read(ref _excusedAt)));
 
     /// <summary>What a beat beats besides this attempt. Its context is built with <see cref="Beat"/> in hand, so this
     /// comes after.</summary>
@@ -25,8 +30,8 @@ sealed class RecorderAttempt(TimeProvider time) {
         _beats();
     }
 
-    /// <summary>Counts the time since the last beat as a beat, without beating anything.</summary>
-    public void Excuse() => Volatile.Write(ref _beatAt, time.GetTimestamp());
+    /// <summary>Holds none of the time so far against the attempt, without beating anything.</summary>
+    public void Excuse() => Volatile.Write(ref _excusedAt, time.GetTimestamp());
 
     public void Supersede() => Volatile.Write(ref _superseded, 1);
 
