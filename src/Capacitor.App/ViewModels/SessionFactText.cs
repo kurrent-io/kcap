@@ -45,7 +45,11 @@ public static class SessionFactText {
         return null;
     }
 
-    public static double? CurrentContextPercent(SessionStatsDto? stats) => stats?.CurrentContextPercent;
+    public static double? CurrentContextPercent(SessionStatsDto? stats) =>
+        stats?.CurrentContextPercent
+        ?? (stats is { CurrentContextTokens: > 0, CurrentContextWindow: > 0 }
+            ? 100.0 * stats.CurrentContextTokens.Value / stats.CurrentContextWindow.Value
+            : null);
 
     /// Who sees the session, and how much of it when anyone else does.
     public static string SessionSharing(SessionSummaryDto summary) {

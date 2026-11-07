@@ -139,7 +139,7 @@ public class ButtonAutomationNameTests {
             SessionCount = 2,
         };
         var summary = new SessionSummaryDto { SessionId = SessionA, PrNumber = 7, PrTitle = "Fix", PrUrl = "https://github.com/o/r/pull/7",
-            Stats = new SessionStatsDto { CurrentContextTokens = 85_000, CurrentContextWindow = 100_000, CurrentContextPercent = 85 } };
+            Stats = new SessionStatsDto { CurrentContextTokens = 85_000, CurrentContextWindow = 100_000 } };
         source.Enqueue(new WorkContextRead(WorkContextReadKind.Ready, [assignment], assignment, item, null, summary, false, false, false, null));
         runs.Apply(new ChatProjectionResult([], [], [new RunSignal.Started("c1", "Explore", "Map the UI", time.GetUtcNow())]));
 

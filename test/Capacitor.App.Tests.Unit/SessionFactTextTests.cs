@@ -61,6 +61,8 @@ public class SessionFactTextTests {
         await Assert.That(SessionFactText.CurrentContext(null)).IsNull();
         await Assert.That(SessionFactText.CurrentContextPercent(null)).IsNull();
         await Assert.That(SessionFactText.CurrentContextPercent(new SessionStatsDto { CurrentContextPercent = 42.0 })).IsEqualTo(42.0);
+        await Assert.That(SessionFactText.CurrentContextPercent(new SessionStatsDto { CurrentContextTokens = 850_000, CurrentContextWindow = 1_000_000 })).IsEqualTo(85.0);
+        await Assert.That(SessionFactText.CurrentContextPercent(new SessionStatsDto { CurrentContextTokens = 850_000 })).IsNull();
     }
 
     [Test]

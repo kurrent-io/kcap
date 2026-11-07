@@ -349,7 +349,7 @@ public class WorkContextViewModelTests {
         SessionId = SessionA,
         Stats = new SessionStatsDto {
             CurrentContextTokens = awaiting ? null : (long)(percent * 1_000), CurrentContextWindow = 100_000,
-            CurrentContextPercent = awaiting ? null : percent, AwaitingContextReading = awaiting,
+            AwaitingContextReading = awaiting,
         },
     };
 
@@ -452,6 +452,32 @@ public class WorkContextViewModelTests {
         await Assert.That(h.Source.Requested.Count).IsEqualTo(before + 2);
         await h.TickAsync();
         await Assert.That(h.Source.Requested.Count).IsGreaterThan(before + 2);
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_claude_compaction_that_lands_with_a_low_reading_ends_the_wait() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(null, summary: ReadingSummary(85)));
+        await h.PushAsync(Dto());
+        await h.Vm.CompactCommand.Execute();
+        await Assert.That(h.Sent).IsEquivalentTo(new[] { "/compact" });
+
+        h.Source.Enqueue(ReadyWith(null, summary: new SessionSummaryDto {
+            SessionId = SessionA,
+            Stats = new SessionStatsDto { CurrentContextTokens = 37_040, CurrentContextWindow = 1_000_000 },
+        }));
+        h.Time.Advance(WorkContextViewModel.CompactPollInterval);
+        await (h.Vm.PendingReadForTesting ?? Task.CompletedTask);
+
+        await Assert.That(h.Vm.ShowsCompact).IsFalse();
+        await Assert.That(h.Vm.CurrentContextWarns).IsFalse();
+        var settled = h.Source.Requested.Count;
+        h.Time.Advance(WorkContextViewModel.CompactPollInterval);
+        await Assert.That(h.Source.Requested.Count).IsEqualTo(settled);
+        await h.TickAsync();
+        await Assert.That(h.Source.Requested.Count).IsGreaterThan(settled);
         await h.Vm.TeardownAsync();
     });
 

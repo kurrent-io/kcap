@@ -477,7 +477,10 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         RaiseCompactState();
         bool sent;
         try { sent = await _sendToAgent("/compact"); }
-        catch { sent = false; }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: compact send failed: {ex.Message}");
+            sent = false;
+        }
         if (_tornDown) return;
         if (!sent) {
             _compactPending = false;
