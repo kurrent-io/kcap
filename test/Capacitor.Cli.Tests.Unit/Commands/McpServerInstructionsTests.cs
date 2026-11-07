@@ -12,6 +12,7 @@ public class McpServerInstructionsTests {
         yield return () => ("kcap-handoff", McpHandoffServer.ServerInstructions);
         yield return () => ("kcap-knowledge", McpKnowledgeServer.ServerInstructions);
         yield return () => ("kcap-memory", McpMemoryServer.ServerInstructions);
+        yield return () => ("kcap-pass", McpPassServer.ServerInstructions);
         yield return () => ("kcap-plans", McpPlansServer.ServerInstructions);
         yield return () => ("kcap-review-context", McpReviewContextServer.Instructions);
         yield return () => ("kcap-review", McpReviewServer.ServerInstructions);

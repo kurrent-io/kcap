@@ -49,6 +49,10 @@ public static class KcapMcpServers {
             "Query the org's AI coding-agent analytics (sessions, tools, tokens, cost, commits, PRs, evals) with read-only SQL. Repo-aware: defaults to the current repo; pass scope 'global' for org-wide.", AutoApprove: true),
         new("kcap-knowledge", ["mcp", "knowledge"], NeedsProjectCwd: true,
             "Read retained facts and curated skills, and fine-tune skills by editing drafts, changing lifecycle or membership, and curating facts. Repo-aware: defaults to the current repo."),
+        // A pass that needs sharing holds its call open while the human answers the harness's prompt.
+        new("kcap-pass", ["mcp", "pass"], NeedsProjectCwd: false,
+            "Pass a work item, session, page or hosted agent to a colleague with a brief, or send them a short message. Offers no tools where the server does not offer passes.",
+            ToolTimeout: TimeSpan.FromMinutes(10)),
     ];
 
     /// <summary>Server names an existing harness config may still carry. Registration and uninstall remove

@@ -1043,6 +1043,21 @@ Reads default to the current repository and refuse to widen when none resolves, 
 
 This server can change knowledge, so it is not pre-approved for unattended reviewers. It requires `kcap login` and a server with `/api/knowledge` endpoints.
 
+### Pass MCP server (for agents)
+
+```bash
+kcap mcp pass
+```
+
+Stdio MCP server for handing work to a colleague from natural language ("pass this to Sam and ask him X", "message Tony that the chart is wrong"). At start it asks the server whether passes are offered; where they are not, it lists no tools and no instructions. Where they are, it offers four tools:
+
+- **`find_colleague`** — colleagues matching a name. Several matches mean the agent asks you which one.
+- **`pass`** — pass a work item, session, page or hosted agent with a brief. The tool has the agent ask what you take for granted, draft the brief and suggested prompts with you, and show you the exact text before sending.
+- **`message`** — a short note, optionally about an item, or a reply to a pass.
+- **`pass_status`** — where a pass or message stands.
+
+When the colleague cannot see the item, you approve exactly what will be shared: in your harness's own prompt where it can ask one, otherwise in kcap's Sent list. No tool approves it, and a refusal comes back with its reason. Sending reaches another person, so this server is not pre-approved.
+
 ### Pages MCP server (for agents)
 
 ```bash

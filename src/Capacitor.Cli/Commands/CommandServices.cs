@@ -165,6 +165,7 @@ public static class CommandServices {
         services.AddTransient<McpAnalyticsServer>();
         services.AddTransient<McpArtefactsServer>();
         services.AddTransient<McpKnowledgeServer>();
+        services.AddTransient(sp => new McpPassServer(sp.GetRequiredService<IPassesApi>(), sp.GetRequiredService<CapacitorServer>().Url, sp.GetRequiredService<TimeProvider>()));
         services.AddTransient<McpReviewServer>();
         services.AddTransient<McpJudgeServer>();
         services.AddSingleton(sp => KcapLinkRemover.For(sp.GetRequiredService<UserHome>(), sp.GetRequiredService<ConfigRoot>(), Environment.ProcessPath ?? ""));
