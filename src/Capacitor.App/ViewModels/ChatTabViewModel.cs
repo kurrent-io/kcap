@@ -606,7 +606,19 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         ShowsLiveNote = !ShowsActivityNote && ActivityNote.Length > 0;
         this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
         RefreshAgentStatus();
+        NoteTurnStarts();
         RefreshQueuedSend();
+    }
+
+    /// Working seen after a send from an idle prompt, or after the agent went idle behind a send made
+    /// mid-turn, is a turn that began after the send. The turn already running at a mid-turn send is not.
+    void NoteTurnStarts() {
+        var working = !_ended && SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
+        foreach (var queued in _queuedMessages) {
+            if (queued.IsForeign || queued.Acknowledged) continue;
+            if (!working) queued.SawIdle = true;
+            else if (queued.SentIdle || queued.SawIdle) queued.TurnSeen = true;
+        }
     }
 
     bool AgentIsIdle => !_ended && !SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
@@ -1570,14 +1582,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// An idle agent that has not echoed a send may have taken its Enter as a newline, as a large
     /// paste still arriving does: Enter is pressed once more, then the row is marked not picked up
     /// rather than left waiting. The clock runs only while the agent is not working, so a send
-    /// queued behind a turn waits for that turn first.
+    /// queued behind a turn waits for that turn first. A row a turn has started after is left
+    /// waiting: its Enter landed, and another would submit whatever is typed in the terminal.
     void CheckPickup() {
         var idle = !_ended && _status == "Running" && !SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents)
             && !HasTerminalMenu && !IsReadOnlyParticipant && _input.CanResubmit && _sending is null;
         var now = _time.GetTimestamp();
         var resubmit = false;
         foreach (var queued in _queuedMessages) {
-            if (queued.IsForeign || queued.Acknowledged || queued.IsUnconfirmed || queued.IsServerHeld || queued.IsNotPickedUp) continue;
+            if (queued.IsForeign || queued.Acknowledged || queued.IsUnconfirmed || queued.IsServerHeld || queued.IsNotPickedUp || queued.TurnSeen) continue;
             if (!idle) { queued.IdleSince = null; continue; }
             if (queued.IdleSince is not { } since) { queued.IdleSince = now; continue; }
             if (_time.GetElapsedTime(since, now) < PickupWait) continue;

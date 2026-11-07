@@ -99,6 +99,11 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     internal long? IdleSince { get; set; }
     /// Enter has been pressed once more for this row.
     internal bool Resubmitted { get; set; }
+    /// The agent was seen not working while this row waited unechoed.
+    internal bool SawIdle { get; set; }
+    /// The agent started a turn after this row was sent, so its Enter landed even if no echo matches.
+    /// A turn cannot be tied to one send: this only withholds the pickup handling, never acknowledges.
+    internal bool TurnSeen { get; set; }
 
     bool _isNotPickedUp;
     /// The agent sat idle without echoing this row, even after a second Enter.
