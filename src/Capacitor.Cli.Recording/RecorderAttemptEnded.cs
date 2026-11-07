@@ -4,7 +4,8 @@ namespace Capacitor.Cli.Recording;
 /// owner gets of it. It is told before the source leaves the host, so a finish that has returned has been reported.</summary>
 /// <param name="Source">The source the attempt recorded.</param>
 /// <param name="SourceEnded">No attempt follows. False means the host retries.</param>
-/// <param name="LostClaim">The claim went, so a hook holds the source now.</param>
+/// <param name="LostClaim">The claim went, or the host abandoned the source, and either way it is no longer the owner's to
+/// let go of.</param>
 /// <param name="EndedIdle">The transcript went idle and the recorder ended the source.</param>
 /// <param name="SpawnedChildKeys">The child sources this attempt started. The next attempt knows only those it starts
 /// itself, so nothing else will stop these.</param>

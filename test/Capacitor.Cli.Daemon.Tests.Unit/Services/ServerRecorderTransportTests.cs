@@ -371,6 +371,114 @@ public class ServerRecorderTransportTests {
         await Assert.That(hub.Calls).IsEquivalentTo([$"connect {SessionB}"]);
     }
 
+    /// <summary>A recorder stuck where no token reaches wakes to this, so what it was about to send stays here.</summary>
+    [Test]
+    public async Task A_silenced_session_sends_nothing_more_and_the_others_go_on() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+        await transport.ConnectAsync(B, CancellationToken.None).WithinDeadlineAsync("the connect");
+
+        await Assert.That(await transport.SilenceAsync(SessionA).WithinDeadlineAsync("the silence")).IsTrue();
+
+        await Assert.That(async () => await transport.SendBatchAsync(Batch(SessionA, 5), CancellationToken.None)).Throws<InvalidOperationException>();
+        await Assert.That(async () => await transport.SendTitleAsync(SessionA, "a title", CancellationToken.None)).Throws<InvalidOperationException>();
+        await Assert.That(async () => await transport.UpdateTitleAsync(SessionA, "a title", null, 0, 0, 0, 0, CancellationToken.None)).Throws<InvalidOperationException>();
+        await Assert.That(async () => await transport.DrainCompleteAsync(A, CancellationToken.None)).Throws<InvalidOperationException>();
+        await Assert.That(async () => await transport.ConnectAsync(A, CancellationToken.None)).Throws<InvalidOperationException>();
+
+        await transport.SendBatchAsync(Batch(SessionB, 6), CancellationToken.None).WithinDeadlineAsync("the other session's batch");
+
+        await Assert.That(hub.Calls).DoesNotContain("batch 5");
+        await Assert.That(hub.Calls.Count(call => call == $"connect {SessionA}")).IsEqualTo(1);
+        await Assert.That(hub.Calls).DoesNotContain($"drain {SessionA}");
+        await Assert.That(hub.Calls).Contains("batch 6");
+    }
+
+    /// <summary>A subagent's batch names its parent session, and a dashed spelling is the same session.</summary>
+    [Test]
+    public async Task A_silence_covers_any_spelling_of_the_session() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        const string    dashed    = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+
+        await transport.SilenceAsync(dashed).WithinDeadlineAsync("the silence");
+
+        await Assert.That(async () => await transport.SendBatchAsync(Batch(SessionA, 5) with { AgentId = "sub-1" }, CancellationToken.None)).Throws<InvalidOperationException>();
+    }
+
+    /// <summary>A cancel ends the sender's wait and nothing on the server, and the silence is what has to know the
+    /// difference: the batch hasn't landed until the hub says so.</summary>
+    [Test]
+    public async Task A_silence_waits_for_a_send_whose_caller_gave_up() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        var             release   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var       stop      = new CancellationTokenSource();
+        hub.BatchHold = _ => release.Task;
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+        var send = transport.SendBatchAsync(Batch(SessionA, 1), stop.Token);
+        await hub.WaitForAsync(h => h.Calls.Contains("batch 1"), "the batch to reach the server");
+        await stop.CancelAsync();
+        await Assert.That(async () => await send.WithinDeadlineAsync("the send")).Throws<OperationCanceledException>();
+
+        var silence = transport.SilenceAsync(SessionA);
+
+        await Assert.That(silence.IsCompleted).IsFalse();
+
+        release.SetResult();
+
+        await Assert.That(await silence.WithinDeadlineAsync("the silence")).IsTrue();
+    }
+
+    /// <summary>The connection went with the call, and the server may have had it by then: nobody can say it didn't land.</summary>
+    [Test]
+    public async Task A_send_that_went_with_the_connection_is_no_answer() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        var             release   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.BatchHold = _ => release.Task;
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+        var send = transport.SendBatchAsync(Batch(SessionA, 1), CancellationToken.None);
+        await hub.WaitForAsync(h => h.Calls.Contains("batch 1"), "the batch to reach the server");
+
+        var silence = transport.SilenceAsync(SessionA);
+        await hub.CloseCleanlyAsync();
+
+        await Assert.That(await silence.WithinDeadlineAsync("the silence")).IsFalse();
+        await Assert.That(async () => await send).Throws<Exception>();
+        release.SetResult();
+    }
+
+    /// <summary>The recorder's own detach empties the connection, and stopping it there would fail the batch the silence
+    /// is waiting to hear about.</summary>
+    [Test]
+    public async Task The_connection_stays_up_for_a_send_with_no_answer_yet() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        var             release   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var       stop      = new CancellationTokenSource();
+        hub.BatchHold = _ => release.Task;
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+        var send = transport.SendBatchAsync(Batch(SessionA, 1), stop.Token);
+        await hub.WaitForAsync(h => h.Calls.Contains("batch 1"), "the batch to reach the server");
+        await stop.CancelAsync();
+        var silence = transport.SilenceAsync(SessionA);
+        await transport.DetachAsync(A, CancellationToken.None).WithinDeadlineAsync("the detach");
+
+        await Assert.That(transport.Wanted).IsTrue();
+
+        release.SetResult();
+
+        await Assert.That(await silence.WithinDeadlineAsync("the silence")).IsTrue();
+        await Assert.That(async () => await send.WithinDeadlineAsync("the send")).Throws<OperationCanceledException>();
+        await hub.WaitForAsync(h => h.OpenConnections == 0, "the connection to stop with its last call");
+    }
+
     /// <summary>A stop already on its way during a detach can still arrive, and nobody is left to answer it.</summary>
     [Test]
     public async Task A_stop_for_a_key_no_longer_held_is_ignored() {

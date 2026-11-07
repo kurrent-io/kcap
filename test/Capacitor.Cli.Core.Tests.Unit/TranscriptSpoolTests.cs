@@ -121,4 +121,31 @@ public class TranscriptSpoolTests {
         await Assert.That(seen).IsEquivalentTo(["""{"n":1}""", """{"n":2}"""]);
         await Assert.That(spool.HasBacklog(Sid)).IsFalse();
     }
+
+    /// <summary>Each of these goes out on the next drain pass, whichever process runs it.</summary>
+    [Test]
+    public async Task A_discard_leaves_the_session_nothing_to_replay() {
+        using var tmp = new TempDir();
+        const string other = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        var spool = new TranscriptSpool(tmp.Path, time: TimeProvider.System);
+        spool.Append(Sid, """{"lines":["a"],"line_numbers":[0]}""");
+        spool.MarkNeedsImport(Sid, "a reason");
+        tmp.CreateFile($"{Sid}.0.transcript.draining", """{"lines":["b"],"line_numbers":[1]}""");
+        spool.Append(other, """{"lines":["c"],"line_numbers":[0]}""");
+
+        spool.Discard(Sid);
+
+        await Assert.That(spool.HasBacklog(Sid)).IsFalse();
+        await Assert.That(spool.NeedsImport(Sid)).IsFalse();
+        await Assert.That(spool.SessionIdsWithBacklog()).IsEquivalentTo([other]);
+    }
+
+    [Test]
+    public async Task A_discard_of_a_session_with_nothing_held_does_nothing() {
+        using var tmp = new TempDir();
+
+        new TranscriptSpool(tmp.PathTo("never-made"), time: TimeProvider.System).Discard(Sid);
+
+        await Assert.That(Directory.Exists(tmp.PathTo("never-made"))).IsFalse();
+    }
 }

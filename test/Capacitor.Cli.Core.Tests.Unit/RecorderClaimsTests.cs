@@ -271,4 +271,33 @@ public class RecorderClaimsTests {
         await Assert.That(System.IO.Directory.GetFiles(Directory)).IsEquivalentTo([Claims.ClaimFile(Key)]);
         await Assert.That(Claims.ClaimFile(Key)).IsNotEqualTo(paths.PidFile(Key));
     }
+
+    /// <summary>What <c>kcap disable</c> asks, from a terminal that has no daemon named in its environment.</summary>
+    [Test]
+    public async Task A_claim_names_its_holder() {
+        Claims.TryTake(Key, "daemon-a", isHosted: true);
+
+        await Assert.That(Claims.Holder(Key)).IsEqualTo("daemon-a");
+    }
+
+    [Test]
+    public async Task A_claim_that_cannot_be_read_names_nobody() {
+        await File.WriteAllTextAsync(Claims.ClaimFile(Key), "garbage");
+
+        await Assert.That(Claims.Holder(Key)).IsNull();
+        await Assert.That(Claims.Holder("no-such-key")).IsNull();
+    }
+
+    [Test]
+    public async Task A_sessions_keys_are_its_own_and_its_subagents_and_no_others() {
+        Claims.TryTake("session-1", "daemon-a", isHosted: true);
+        Claims.TryTake("session-1-sub-1", "daemon-a", isHosted: true);
+        Claims.TryTake("session-11", "daemon-a", isHosted: true);
+
+        await Assert.That(Claims.KeysOf("session-1")).IsEquivalentTo(["session-1", "session-1-sub-1"]);
+    }
+
+    [Test]
+    public async Task A_missing_directory_has_no_keys() =>
+        await Assert.That(new RecorderClaims(Tmp.PathTo("never-made"), _time).KeysOf(Key)).IsEmpty();
 }

@@ -85,6 +85,21 @@ public sealed class RecorderClaims(string directory, TimeProvider time) {
     /// watcher, unstamped for the rest of its life but recorded.</summary>
     public bool IsHosted(string key) => Contents(key)?.IsHosted == true;
 
+    /// <summary>The daemon the claim names, or null for a claim that can't be read.</summary>
+    public string? Holder(string key) => Contents(key)?.Holder;
+
+    /// <summary>The keys claimed for a session: its own, and each of its subagents', whose files name the session first.</summary>
+    public IReadOnlyList<string> KeysOf(string sessionId) {
+        try {
+            return [
+                ..Directory.GetFiles(directory, $"{sessionId}.claim").Concat(Directory.GetFiles(directory, $"{sessionId}-*.claim"))
+                    .Select(file => Path.GetFileNameWithoutExtension(file))
+            ];
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return [];
+        }
+    }
+
     internal string ClaimFile(string key) => Path.Combine(directory, $"{key}.claim");
 
     (bool IsHosted, string Holder)? Contents(string key) {

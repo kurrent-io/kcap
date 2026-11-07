@@ -78,6 +78,10 @@ public sealed class TranscriptRecorder(
     /// <summary>How a poll opens the transcript; null opens the file. A test counts the bytes a poll reads through it.</summary>
     internal Func<string, FileStream>? OpenTranscript { get; init; }
 
+    /// <summary>Whether the host has given this source up for good. It reads as a lost claim, because the claim file can
+    /// outlive that decision: a delete that failed leaves it in place.</summary>
+    internal Func<bool>? Abandoned { get; init; }
+
     /// <summary>Told of a connect this recorder gave up on, on any path. It can still reach the server after the recorder
     /// has gone, and its task completes when nothing is left to land.</summary>
     internal Action<Task>? ConnectAbandoned { get; init; }
@@ -332,6 +336,13 @@ public sealed class TranscriptRecorder(
                 // Cut off behind a reconnect's rewind. The spool below takes the lines.
             }
 
+            // Whatever comes next outlives this recorder: a spooled tail replays, and a mark asks for an import.
+            if (HasLostClaim()) {
+                Unsubscribe();
+
+                return;
+            }
+
             // A drain cut off before its read can't say, and the tail spool below leaves such a line out.
             if (State.FinalDrainHeldIncompleteLine || (ct.IsCancellationRequested && !lastLineComplete)) {
                 // Keyed on the session even for a subagent: the spool and `kcap import` work at session level.
@@ -368,6 +379,13 @@ public sealed class TranscriptRecorder(
 
                 settled = await AwaitPendingTitleAsync(pendingTitle, titleBudget, time, context.Beat, ct);
                 if (!settled) await _titleCts.CancelAsync();
+            }
+
+            // The hand-off below starts a process that posts the title by itself.
+            if (HasLostClaim()) {
+                Unsubscribe();
+
+                return;
             }
 
             // A kill follows a stop request within seconds and a title takes longer, and a closed connection cannot
@@ -489,9 +507,8 @@ public sealed class TranscriptRecorder(
     void CancelRun() => _stop.Cancel();
 
     bool HasLostClaim() {
-        if (claims is null) return false;
         if (LostClaim) return true;
-        if (claims.Read(source.Key) is not RecorderClaimState.None) return false;
+        if (Abandoned?.Invoke() != true && (claims is null || claims.Read(source.Key) is not RecorderClaimState.None)) return false;
 
         LostClaim = true;
         context.Log($"The claim on {source.Key} has gone; stopping with no final drain");
@@ -1376,6 +1393,10 @@ public sealed class TranscriptRecorder(
             HeldLine.Redacted,
             (reason, count) => log($"Shutdown capture loss: {count} record(s), {CaptureLossMarker.ReasonName(reason)}"));
         var unredacted = redacted.Consumed < tail.Lines.Count ? tail.LineNumbers[redacted.Consumed] : (int?)null;
+
+        // Redaction can run for seconds, and a spooled tail goes out on the next drain pass.
+        if (HasLostClaim()) return null;
+
         var batch = new TranscriptBatch {
             SessionId = sessionId, AgentId = agentId, Vendor = vendor,
             Lines = [..redacted.Lines], LineNumbers = [..tail.LineNumbers.Take(redacted.Consumed)], ObservedCommits = commits.Pending
@@ -1428,6 +1449,8 @@ public sealed class TranscriptRecorder(
     }
 
     void MarkForImport(TranscriptSpool spool, string reason) {
+        if (HasLostClaim()) return;
+
         if (!spool.MarkNeedsImport(source.SessionId, reason)) context.Log($"Could not mark {source.Key} for import: the marker was not written");
     }
 

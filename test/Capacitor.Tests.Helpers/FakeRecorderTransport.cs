@@ -5,7 +5,7 @@ namespace Capacitor.Tests.Helpers;
 
 /// <summary>A transport a test drives by hand. Until <see cref="IsConnected"/> is set, every call fails the way a
 /// hub connection that never started does.</summary>
-public sealed class FakeRecorderTransport : IRecorderTransport {
+public sealed class FakeRecorderTransport : ISilenceableRecorderTransport {
     readonly Lock _gate = new();
     readonly List<TranscriptBatch> _batches = [];
     readonly List<string> _detached = [];
@@ -18,6 +18,9 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
     /// <summary>What <see cref="SendBatchAsync"/> answers for a batch; by default the line after its last.</summary>
     public Func<TranscriptBatch, int> Ack { get; set; } = batch => batch.LineNumbers is { Length: > 0 } sent ? sent[^1] + 1 : 0;
 
+    readonly HashSet<string> _silenced = new(StringComparer.Ordinal);
+
+    int _refused;
     int _drainCompletes;
     int _connects;
     int _connectAttempts;
@@ -25,6 +28,12 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
     int _connectsHeld;
 
     public int DrainCompletes => Volatile.Read(ref _drainCompletes);
+
+    /// <summary>What <see cref="SilenceAsync"/> answers with; by default the server has answered everything.</summary>
+    public Task<bool> SilenceAnswer { get; set; } = Task.FromResult(true);
+
+    /// <summary>The calls refused for a silenced session. Any of these is something that would have gone out.</summary>
+    public int Refused => Volatile.Read(ref _refused);
 
     public int Connects => Volatile.Read(ref _connects);
 
@@ -76,6 +85,7 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
     public async Task<int> ConnectAsync(RecordingSource source, CancellationToken ct) {
         Interlocked.Increment(ref _connectAttempts);
         ct.ThrowIfCancellationRequested();
+        RefuseSilenced(source.SessionId);
         if (ConnectHangs) await new TaskCompletionSource().Task;
 
         if (ConnectHold is { } hold) {
@@ -96,7 +106,9 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
 
     public async Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct) {
         Require();
+        RefuseSilenced(batch.SessionId);
         if (OnSend is { } send) await send(ct);
+        RefuseSilenced(batch.SessionId);
         lock (_gate) _batches.Add(batch);
 
         return Ack(batch);
@@ -104,6 +116,7 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
 
     public Task SendTitleAsync(string sessionId, string title, CancellationToken ct) {
         Require();
+        RefuseSilenced(sessionId);
         SentTitles = [..SentTitles, (sessionId, title)];
 
         return Task.CompletedTask;
@@ -112,6 +125,7 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
     public Task UpdateTitleAsync(
             string sessionId, string title, string? model, long inputTokens, long outputTokens, long cacheReadTokens, long cacheWriteTokens, CancellationToken ct) {
         Require();
+        RefuseSilenced(sessionId);
         SentTitles = [..SentTitles, (sessionId, title)];
 
         return Task.CompletedTask;
@@ -119,6 +133,7 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
 
     public Task DrainCompleteAsync(RecordingSource source, CancellationToken ct) {
         Require();
+        RefuseSilenced(source.SessionId);
         Interlocked.Increment(ref _drainCompletes);
 
         return OnDrainComplete?.Invoke(ct) ?? Task.CompletedTask;
@@ -130,6 +145,12 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
         return OnDetach?.Invoke(ct) ?? Task.CompletedTask;
     }
 
+    public Task<bool> SilenceAsync(string sessionId) {
+        lock (_gate) _silenced.Add(sessionId);
+
+        return SilenceAnswer;
+    }
+
     /// <summary>Awaits each handler in turn, as the hub transport does, so one that throws starves the rest.</summary>
     public async Task RaiseStopRequestedAsync(string key, string reason) {
         foreach (var handler in StopRequested?.GetInvocationList() ?? []) await ((Func<string, string, Task>)handler)(key, reason);
@@ -137,6 +158,16 @@ public sealed class FakeRecorderTransport : IRecorderTransport {
 
     public async Task RaiseReconnectedAsync() {
         foreach (var handler in Reconnected?.GetInvocationList() ?? []) await ((Func<Task>)handler)();
+    }
+
+    void RefuseSilenced(string sessionId) {
+        lock (_gate) {
+            if (!_silenced.Contains(sessionId)) return;
+        }
+
+        Interlocked.Increment(ref _refused);
+
+        throw new InvalidOperationException("The session is silenced.");
     }
 
     void Require() {

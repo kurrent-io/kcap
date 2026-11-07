@@ -603,6 +603,159 @@ public class RecorderHostTests {
         await Assert.That(heldText).DoesNotContain(Secret);
     }
 
+    TranscriptSpool Spool => new(Config, _time, "http://127.0.0.1:1");
+
+    /// <summary>A final drain would send this line, and its person has been told their data is gone.</summary>
+    [Test]
+    public async Task An_abandoned_source_makes_no_final_drain() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        await host.AbandonAsync(source.Key).WithinDeadlineAsync("the source to end");
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(host.ActiveKeys).IsEmpty();
+        await Assert.That(_transport.Detached).IsEquivalentTo([source.Key]);
+        await Assert.That(_ended.Last() is { SourceEnded: true, LostClaim: true }).IsTrue();
+        await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
+    }
+
+    /// <summary>A claim that can't be deleted stays in place, and that mustn't leave the source free to drain.</summary>
+    [Test]
+    public async Task An_abandoned_source_ends_with_its_claim_still_in_place() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        await host.AbandonAsync(source.Key).WithinDeadlineAsync("the source to end");
+
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(1);
+        await Assert.That(Spool.HasBacklog(source.SessionId)).IsFalse();
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+    }
+
+    /// <summary>The drain is past its first check when this lands. A tail spooled here goes out on the next drain pass and
+    /// a mark invites the import to send it again, so neither is left, and nothing waits for the send it interrupted.</summary>
+    [Test]
+    public async Task A_final_drain_already_running_stops_with_nothing_spooled_or_marked() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var sending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        _transport.OnSend = async ct => {
+            sending.TrySetResult();
+            await Task.Delay(Timeout.Infinite, ct);
+        };
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+        var finish = host.FinishAsync(source.Key, CancellationToken.None);
+        await sending.Task.WithinDeadlineAsync("the final drain's send");
+
+        await host.AbandonAsync(source.Key).WithinDeadlineAsync("the source to end");
+        await finish.WithinDeadlineAsync("the finish");
+
+        await Assert.That(Spool.HasBacklog(source.SessionId)).IsFalse();
+        await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
+        await Assert.That(_transport.DrainCompletes).IsEqualTo(0);
+    }
+
+    /// <summary>A generated title is cut off here, and handing it over starts a process that posts it on its own.</summary>
+    [Test]
+    public async Task A_title_cut_off_by_an_abandon_is_handed_to_nobody() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n{Later}\n"));
+        var titling = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var never   = new TaskCompletionSource<ClaudeCliResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handed  = 0;
+        _titles[source.Key] = _ => {
+            titling.TrySetResult();
+
+            return never.Task;
+        };
+        _handOffs[source.Key] = () => Interlocked.Increment(ref handed);
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+        host.TryAdd(source);
+        await Eventually(() => titling.Task.IsCompleted, "the title to start generating", TimeSpan.FromSeconds(1));
+        _ = host.FinishAsync(source.Key, CancellationToken.None);
+
+        await Eventually(() => _log.Any(line => line.Contains("Waiting up to", StringComparison.Ordinal)), "the drain to wait for the title");
+        await host.AbandonAsync(source.Key).WithinDeadlineAsync("the source to end");
+
+        await Assert.That(handed).IsEqualTo(0);
+        never.SetResult(null);
+    }
+
+    /// <summary>Nothing is listening between attempts, and a backoff can run for half a minute.</summary>
+    [Test]
+    public async Task An_abandoned_source_in_its_backoff_ends_at_once() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        _transport.ConnectFailures = int.MaxValue;
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var host = NewHost(claims: Claims);
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+
+        await host.AbandonAsync(source.Key).WithinDeadlineAsync("the source to end");
+
+        await Assert.That(LinesSent(source.SessionId)).IsEqualTo(0);
+        await Assert.That(_ended.Last() is { SourceEnded: true, LostClaim: true }).IsTrue();
+        await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
+    }
+
+    /// <summary>A failed attempt's drain is the one place a host builds a recorder after a stop, and one that can't be
+    /// built marks the session. Here that must not happen.</summary>
+    [Test]
+    public async Task An_abandon_marks_nothing_when_the_last_recorder_cannot_be_built() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var abandon = false;
+        _transport.ConnectFailures = int.MaxValue;
+        var host = NewHost(claims: Claims, factoryHook: part => {
+            if (Volatile.Read(ref abandon) && part == "context") throw new InvalidOperationException("no context");
+        });
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the failed attempt");
+
+        Volatile.Write(ref abandon, true);
+        await host.AbandonAsync(source.Key).WithinDeadlineAsync("the source to end");
+
+        await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
+    }
+
+    /// <summary>A shutdown marks a source it can't finish, and this one's person asked for it to be gone.</summary>
+    [Test]
+    public async Task A_shutdown_marks_no_abandoned_source_stuck_where_no_token_reaches() {
+        var source  = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var stuck   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _prepare[source.Key] = () => {
+            entered.TrySetResult();
+
+            return stuck.Task;
+        };
+        var host = NewHost();
+        host.TryAdd(source);
+        await entered.Task.WithinDeadlineAsync("the source to get stuck");
+
+        _ = host.AbandonAsync(source.Key);
+        await host.StopAllAsync(TimeSpan.Zero, new CancellationToken(canceled: true)).WithinDeadlineAsync("the shutdown");
+
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(Spool.NeedsImport(source.SessionId)).IsFalse();
+        stuck.SetResult();
+    }
+
     [Test]
     public async Task A_throwing_source_does_not_stop_the_others() {
         var failing = Source(Tmp.CreateFile("failing.jsonl", $"{Prompt}\n"), "a1");

@@ -14,7 +14,8 @@ namespace Capacitor.Cli.Recording;
 /// with the host's owner: only it can tell a session that ended from a restart that must keep the source owned.
 /// A source that ends on any path detaches from the transport, best-effort, because its connection may outlive it.
 /// The owner hears how each attempt ended on the source's own loop, so it must not wait there for that source.
-/// A server stop ends a backoff as a finish does, and a final drain after one is in a hurry.
+/// A server stop ends a backoff as a finish does, and a final drain after one is in a hurry. An abandoned source ends as
+/// one that lost its claim does, whatever it was doing, and leaves nothing behind to send it later.
 /// </summary>
 public sealed class RecorderHost {
     static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(1);
@@ -78,7 +79,7 @@ public sealed class RecorderHost {
             var context = _contexts(source);
             built = context;
 
-            var recorder = Create(source, context, context);
+            var recorder = Create(source, entry, context, context);
             entry.First = context;
             _ = Task.Run(() => RunAsync(source, entry, context, recorder));
         } catch {
@@ -120,7 +121,7 @@ public sealed class RecorderHost {
             if (entry.Done.IsCompleted || entry.First is not { } first) continue;
 
             Log(first, $"Recording {entry.Source.Key} did not finish within the shutdown's bound, marking it for import");
-            MarkNeedsImport(entry.Source, first, "shutdown bound passed before the final drain finished");
+            MarkNeedsImport(entry, first, "shutdown bound passed before the final drain finished");
         }
     }
 
@@ -155,12 +156,25 @@ public sealed class RecorderHost {
         await entry.Done.WaitAsync(ct);
     }
 
+    /// <summary>Ends the source <paramref name="key"/> names where it stands, for a person who wants its data gone: no
+    /// final drain, and one already running stops rather than finishes, with nothing spooled, marked or handed on.</summary>
+    /// <returns>Completes once it has left <see cref="ActiveKeys"/>, which a source stuck where no token reaches may
+    /// never do. It ends the same way if it wakes.</returns>
+    public Task AbandonAsync(string key) {
+        if (!_entries.TryGetValue(key, out var entry)) return Task.CompletedTask;
+
+        entry.Abandon();
+
+        return entry.Done;
+    }
+
     // A log or beat that throws, as the daemon's file log can, would otherwise fail the recorder at its first line.
-    TranscriptRecorder Create(RecordingSource source, RecorderContext first, RecorderContext context) =>
+    TranscriptRecorder Create(RecordingSource source, Entry entry, RecorderContext first, RecorderContext context) =>
         new(source, _transport, _stampers(source), _time, context with { Log = Guarded(context.Log), Beat = Beats(source, context.Beat) }, _claims) {
             OpenTranscript          = _openTranscript,
             ConnectAbandoned        = connect => _ = DetachOnceLandedAsync(source, connect, first),
             FailsOnLostRegistration = true,
+            Abandoned               = () => entry.Abandoned,
         };
 
     // Guarded apart, because the heartbeat file and the claim fail apart: a backoff has to keep beating the claim, or a
@@ -243,7 +257,7 @@ public sealed class RecorderHost {
                         }
                     } finally {
                         recorder.Dispose();
-                        ReportAttempt(source, first, recorder, context, ended, failure);
+                        ReportAttempt(source, entry, first, recorder, context, ended, failure);
                     }
                 }
 
@@ -266,11 +280,11 @@ public sealed class RecorderHost {
 
                 try {
                     context  = _contexts(source);
-                    recorder = Create(source, first, context);
+                    recorder = Create(source, entry, first, context);
                 } catch (Exception ex) {
                     Log(first, $"Recording {key} could not prepare an attempt, will retry: {ex.Message}");
                     recorder = null;
-                    ReportAttempt(source, first, null, null, false, ex);
+                    ReportAttempt(source, entry, first, null, null, false, ex);
                 }
             }
         } finally {
@@ -302,7 +316,7 @@ public sealed class RecorderHost {
             return null;
         } catch (Exception ex) {
             Log(first, $"Final drain of {source.Key} failed, marking it for import: {ex.Message}");
-            MarkNeedsImport(source, first, $"final drain did not complete: {ex.Message}");
+            MarkNeedsImport(entry, first, $"final drain did not complete: {ex.Message}");
 
             return ex;
         }
@@ -317,7 +331,7 @@ public sealed class RecorderHost {
 
         try {
             context  = _contexts(source);
-            recorder = Create(source, first, context);
+            recorder = Create(source, entry, first, context);
             if (entry.Hurried) recorder.RequestStop();
 
             await recorder.DrainOnceAsync(entry.DrainToken);
@@ -325,10 +339,10 @@ public sealed class RecorderHost {
             failure = ex;
             Log(first, $"Final drain of {source.Key} failed, marking it for import: {ex.Message}");
 
-            MarkNeedsImport(source, first, $"final drain did not complete: {ex.Message}");
+            MarkNeedsImport(entry, first, $"final drain did not complete: {ex.Message}");
         } finally {
             recorder?.Dispose();
-            ReportAttempt(source, first, recorder, context, true, failure);
+            ReportAttempt(source, entry, first, recorder, context, true, failure);
         }
     }
 
@@ -347,12 +361,12 @@ public sealed class RecorderHost {
 
     // Never throws, or a broken owner would stop a retry. Retires the ack count where a watcher would, once no attempt
     // follows. A lost claim leaves it: the hook that took the source has a recorder of its own, and the count is its.
-    void ReportAttempt(RecordingSource source, RecorderContext first, TranscriptRecorder? recorder, RecorderContext? context, bool sourceEnded, Exception? failure) {
+    void ReportAttempt(RecordingSource source, Entry entry, RecorderContext first, TranscriptRecorder? recorder, RecorderContext? context, bool sourceEnded, Exception? failure) {
         try {
             if (sourceEnded && recorder is { LostClaim: false }) recorder.RetireAckCursor();
 
             _attemptEnded?.Invoke(new RecorderAttemptEnded(
-                source, sourceEnded, recorder?.LostClaim == true, recorder?.EndedIdle == true, context is null ? [] : [..context.Housekeeping.SpawnedChildKeys], failure,
+                source, sourceEnded, entry.Abandoned || recorder?.LostClaim == true, recorder?.EndedIdle == true, context is null ? [] : [..context.Housekeeping.SpawnedChildKeys], failure,
                 recorder?.LeftLines == true));
         } catch (Exception ex) {
             Log(first, $"Telling the owner how an attempt at {source.Key} ended failed: {ex.Message}");
@@ -381,7 +395,11 @@ public sealed class RecorderHost {
         return true;
     }
 
-    void MarkNeedsImport(RecordingSource source, RecorderContext first, string reason) {
+    void MarkNeedsImport(Entry entry, RecorderContext first, string reason) {
+        if (entry.Abandoned) return;
+
+        var source = entry.Source;
+
         try {
             var spool = new TranscriptSpool(first.Server.Config, _time, first.Server.Url) { FailureLog = message => Log(first, message) };
 
@@ -418,6 +436,7 @@ public sealed class RecorderHost {
 
         bool _hurried;
         bool _detaching;
+        bool _abandoned;
 
         public RecordingSource Source { get; }
 
@@ -432,6 +451,9 @@ public sealed class RecorderHost {
 
         /// <summary>Whoever stopped this source will not wait long, so its final drain must not either.</summary>
         public bool Hurried => Volatile.Read(ref _hurried);
+
+        /// <summary>This source is over where it stands, for good.</summary>
+        public bool Abandoned => Volatile.Read(ref _abandoned);
 
         /// <summary>This source has ended and its detach is on its way, so a connect landing behind it needs its own.</summary>
         public bool Detaching => Volatile.Read(ref _detaching);
@@ -463,6 +485,13 @@ public sealed class RecorderHost {
 
         /// <summary>Off the caller's thread, for the reason <see cref="Hurry"/> is.</summary>
         public void CutSends() => _drain.CancelOffThread();
+
+        /// <summary>Ends the run and a final drain alike, off the caller's thread for the reason <see cref="Hurry"/> is.</summary>
+        public void Abandon() {
+            Volatile.Write(ref _abandoned, true);
+            _run.CancelOffThread();
+            _drain.CancelOffThread();
+        }
 
         public void Complete() {
             _done.TrySetResult();

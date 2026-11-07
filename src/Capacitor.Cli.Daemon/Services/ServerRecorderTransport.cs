@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Recording;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 
 namespace Capacitor.Cli.Daemon.Services;
@@ -11,7 +12,7 @@ namespace Capacitor.Cli.Daemon.Services;
 /// failed transport through SignalR's own reconnect, and a clean close from the server, which SignalR takes as final,
 /// through a start here.
 /// </summary>
-internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDisposable {
+internal sealed class ServerRecorderTransport : ISilenceableRecorderTransport, IAsyncDisposable {
     static readonly TimeSpan FirstRestartDelay = TimeSpan.FromSeconds(1);
     internal static readonly TimeSpan MaxRestartDelay = TimeSpan.FromSeconds(30);
 
@@ -39,6 +40,10 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
     // Hub calls on one connection aren't ordered, so a key's detach has to answer before that key connects again, or
     // it can land behind the connect and take the new registration with it.
     readonly Dictionary<string, Task> _detaching = new(StringComparer.Ordinal);
+
+    // The calls carrying each session's content that have no answer yet, by canonical session id: a subagent's batch names
+    // its parent, and a silence takes the whole session. A silenced session's entry stays, because it is what refuses it.
+    readonly Dictionary<string, SessionCalls> _calls = new(StringComparer.Ordinal);
 
     TaskCompletionSource _up      = new(TaskCreationOptions.RunContinuationsAsynchronously);
     TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -69,6 +74,14 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
     public event Func<Task>? Reconnected;
 
     public bool IsConnected => _hub.State == HubConnectionState.Connected;
+
+    /// <summary>Whether anything still needs the connection, a silence waiting on an answer included: stopping under that
+    /// call would fail it, and the silence would never hear how it went.</summary>
+    internal bool Wanted {
+        get {
+            lock (_gate) return _connecting > 0 || _held.Count > 0 || _detaching.Count > 0 || _calls.Values.Any(calls => calls is { Silenced: not null, Unanswered: > 0 });
+        }
+    }
 
     /// <summary>Replaces the connection, which keeps the identity it negotiated with for as long as it lives. A sign-out
     /// leaves nothing it can come back as, so nothing is sent until there is a sign-in again. Asks and returns: a stop can
@@ -102,7 +115,10 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
 
             ct.ThrowIfCancellationRequested();
 
-            lock (_gate) _held[key] = source.Key;
+            lock (_gate) {
+                RefuseIfSilenced(source.SessionId);
+                _held[key] = source.Key;
+            }
 
             // No token: given one, InvokeAsync completes the moment it fires, with the server's WatcherConnect still running.
             return await _hub.InvokeAsync<int>("WatcherConnect", source.SessionId, source.AgentId, CancellationToken.None);
@@ -119,9 +135,10 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
         using var either = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
 
         try {
-            if (batch.Vendor == "cursor") return (await _hub.InvokeAsync<TranscriptBatchAck>("SendTranscriptBatchAcked", batch, either.Token)).NextLineNumber;
+            if (batch.Vendor == "cursor")
+                return (await Carrying(batch.SessionId, either.Token, () => _hub.InvokeAsync<TranscriptBatchAck>("SendTranscriptBatchAcked", batch, CancellationToken.None)).WaitAsync(either.Token)).NextLineNumber;
 
-            await _hub.InvokeAsync("SendTranscriptBatch2", batch, either.Token);
+            await Carrying(batch.SessionId, either.Token, () => _hub.InvokeAsync("SendTranscriptBatch2", batch, CancellationToken.None)).WaitAsync(either.Token);
         } catch (OperationCanceledException ex) when (!ct.IsCancellationRequested) {
             // Neither is this source's own stop, which is what a recorder takes a cancellation for.
             if (budget.IsCancellationRequested) throw new TimeoutException($"The server did not answer a transcript batch within {SendBudget.TotalSeconds}s.", ex);
@@ -133,14 +150,80 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
     }
 
     public Task SendTitleAsync(string sessionId, string title, CancellationToken ct) =>
-        _hub.InvokeAsync("SendTitle", sessionId, title, null, 0L, 0L, 0L, 0L, ct);
+        Carrying(sessionId, ct, () => _hub.InvokeAsync("SendTitle", sessionId, title, null, 0L, 0L, 0L, 0L, CancellationToken.None)).WaitAsync(ct);
 
     public Task UpdateTitleAsync(
             string sessionId, string title, string? model, long inputTokens, long outputTokens, long cacheReadTokens, long cacheWriteTokens, CancellationToken ct) =>
-        _hub.InvokeAsync("UpdateTitle", sessionId, title, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, ct);
+        Carrying(sessionId, ct, () => _hub.InvokeAsync("UpdateTitle", sessionId, title, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, CancellationToken.None)).WaitAsync(ct);
 
-    public Task DrainCompleteAsync(RecordingSource source, CancellationToken ct) =>
-        _hub.InvokeAsync("WatcherDrainComplete", source.SessionId, source.AgentId, cancellationToken: ct);
+    public Task DrainCompleteAsync(RecordingSource source, CancellationToken ct) {
+        lock (_gate) RefuseIfSilenced(source.SessionId);
+
+        return _hub.InvokeAsync("WatcherDrainComplete", source.SessionId, source.AgentId, cancellationToken: ct);
+    }
+
+    /// <summary>Cuts one session off for good, a recorder stuck behind a call nothing can reach included: whatever it tries
+    /// when it wakes is refused here, ahead of the connection.</summary>
+    public Task<bool> SilenceAsync(string sessionId) {
+        lock (_gate) {
+            var calls = CallsOf(SessionIds.Canonical(sessionId)!);
+
+            calls.Silenced ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (calls.Unanswered == 0) calls.Silenced.TrySetResult(!calls.Lost);
+
+            return calls.Silenced.Task;
+        }
+    }
+
+    // No token for the call: given one, InvokeAsync completes the moment it fires with the server still working, and a
+    // silence has to know when that has stopped. The caller's token ends the caller's wait, and only a call yet to leave.
+    // A connection that goes fails whatever it was carrying, so nothing here outlives that.
+    TCall Carrying<TCall>(string sessionId, CancellationToken ct, Func<TCall> invoke) where TCall : Task {
+        var session = SessionIds.Canonical(sessionId)!;
+
+        ct.ThrowIfCancellationRequested();
+
+        lock (_gate) {
+            RefuseIfSilenced(sessionId);
+            CallsOf(session).Unanswered++;
+        }
+
+        var call = invoke();
+
+        _ = call.ContinueWith(ended => Settle(session, ended), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+
+        return call;
+    }
+
+    // A server's refusal is an answer. Anything else went with the connection, and the server may have had it by then.
+    void Settle(string session, Task call) {
+        var answered = call.IsCompletedSuccessfully || call.Exception?.InnerException is HubException;
+
+        lock (_gate) {
+            var calls = CallsOf(session);
+
+            calls.Lost |= !answered && calls.Silenced is not null;
+            if (--calls.Unanswered > 0) return;
+
+            if (calls.Silenced is { } silenced) silenced.TrySetResult(!calls.Lost);
+            else _calls.Remove(session);
+
+            _changed.TrySetResult();
+        }
+    }
+
+    // Under the gate.
+    SessionCalls CallsOf(string session) {
+        if (!_calls.TryGetValue(session, out var calls)) _calls[session] = calls = new SessionCalls();
+
+        return calls;
+    }
+
+    // Under the gate.
+    void RefuseIfSilenced(string sessionId) {
+        if (_calls.GetValueOrDefault(SessionIds.Canonical(sessionId)!) is { Silenced: not null })
+            throw new InvalidOperationException($"Recording of session {sessionId} has been stopped for good.");
+    }
 
     /// <summary>A stop still on its way for this key finds nothing held and is dropped. <paramref name="ct"/> ends the
     /// caller's wait; the key's next connect still waits for the server's answer.</summary>
@@ -192,7 +275,7 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
                 if (_changed.Task.IsCompleted) _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
                 changed = _changed.Task;
-                wanted  = _connecting > 0 || _held.Count > 0 || _detaching.Count > 0;
+                wanted  = Wanted;
                 state   = _hub.State;
                 stop    = stopping is not { IsCompleted: false } && (state != HubConnectionState.Disconnected && !wanted || state == HubConnectionState.Connected && _restart);
 
@@ -360,5 +443,15 @@ internal sealed class ServerRecorderTransport : IRecorderTransport, IAsyncDispos
     public async ValueTask DisposeAsync() {
         await _closing.CancelAsync();
         await _hub.DisposeAsync();
+    }
+
+    sealed class SessionCalls {
+        public int Unanswered;
+
+        /// <summary>A call outstanding at the silence ended without the server's answer.</summary>
+        public bool Lost;
+
+        /// <summary>Set by the silence, and answered once nothing is outstanding: true when the server answered all of it.</summary>
+        public TaskCompletionSource<bool>? Silenced;
     }
 }
