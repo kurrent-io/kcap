@@ -294,7 +294,15 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
             await tracked.LastAttemptDone.Task.WaitAsync(ct);
 
-            if (followed || from is null || from == tracked.Source.Process || tracked.Source.SubagentId is not null) return true;
+            if (followed || from == tracked.Source.Process || tracked.Source.SubagentId is not null) return true;
+
+            // One that can't say which process it ran under is taken for the exited one's own, which posts the end: the
+            // daemon posts none for that run.
+            if (from is null) {
+                if (tracked.Source.Process is { } exited) SessionEndRecord.Settle(_paths, tracked.Source.SessionId, exited, _time.GetUtcNow());
+
+                return true;
+            }
 
             await FollowAsync(tracked, from);
         }

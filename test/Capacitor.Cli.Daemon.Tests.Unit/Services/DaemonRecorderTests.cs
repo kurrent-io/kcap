@@ -417,6 +417,28 @@ public class DaemonRecorderTests {
         await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
     }
 
+    /// <summary>A late SessionEnd that can't say which process it ran under is taken for the exited process's own, which
+    /// posts the end itself, so the daemon posts none.</summary>
+    [Test]
+    public async Task A_late_hook_naming_no_process_inside_the_grace_keeps_the_daemon_from_posting() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, from: null, CancellationToken.None).WithinDeadlineAsync("the hook's finish")).IsTrue();
+        await Stepping(time, () => List.Load().Count == 0);
+        time.Advance(TimeSpan.FromMinutes(2));
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
     /// <summary>The hook claimed the end and was killed before its post landed. Its claim never says posted, so once it
     /// is older than any hook takes the daemon posts the end itself; the server appends nothing for a second one.</summary>
     [Test]
