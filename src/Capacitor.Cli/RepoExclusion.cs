@@ -32,11 +32,17 @@ static class RepoExclusion {
         var key = await ResolveKeyAsync(router, config, body, time, budget);
 
         // A repository with no remote the server is not sent is still captured, and one whose origin names no owner can be
-        // listed by its remote's path, so the deny list is matched against every key the checkout has.
-        List<string> excludeKeys = key is null ? [] : [key];
-        if (hasDenylist && Cwd(body) is { } cwd) excludeKeys.AddRange(GitRepoKey.ExclusionKeys(cwd, config));
+        // listed by its remote's path, so each list is matched against every key the checkout has. A repository the payload
+        // names is the session's own, so only a detected one gains the checkout's other keys.
+        List<string> allowKeys   = key is null ? [] : [key];
+        List<string> excludeKeys = [..allowKeys];
 
-        return RepoScope.IsOutOfScope(key is null ? [] : [key], excludeKeys, allowedRepos, excludedRepos);
+        if (Cwd(body) is { } cwd) {
+            if (hasAllowlist && !NamesRepository(body) && GitRepoKey.ForCheckout(cwd) is { } remote) allowKeys.Add(remote);
+            if (hasDenylist) excludeKeys.AddRange(GitRepoKey.ExclusionKeys(cwd, config));
+        }
+
+        return RepoScope.IsOutOfScope(allowKeys, excludeKeys, allowedRepos, excludedRepos);
     }
 
     /// <summary>
@@ -46,6 +52,15 @@ static class RepoExclusion {
     /// </summary>
     public static bool IsOutsideAllowlist(string? repoKey, IReadOnlyList<string>? allowedRepos)
         => RepoScope.IsOutsideAllowlist(repoKey, allowedRepos);
+
+    static bool NamesRepository(string body) {
+        try {
+            return JsonNode.Parse(body)?["repository"] is JsonObject repository
+                && repository["owner"] is not null && repository["repo_name"] is not null;
+        } catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) {
+            return false;
+        }
+    }
 
     static string? Cwd(string body) {
         try {
