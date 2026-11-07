@@ -111,7 +111,7 @@ internal sealed class AdoptionNotices : IDisposable {
             $"the kcap daemon {(cause is null ? "" : $"'{cause}' ")}runs from it, and its service did not start it. "
           + $"Stop it with kcap daemon stop{(cause is null ? "" : $" --name {cause}")} --keep-agents, then open kcap again to finish switching.",
         LeftReason.PromptCancelled =>
-            $"the administrator prompt was cancelled. To finish, choose {FinishSwitching} in the menu bar.",
+            $"removing it takes an administrator password, which was not given. To finish, choose {FinishSwitching} in the menu bar.",
         LeftReason.DeletionCutShort =>
             $"removing it was cut short, and only an administrator can remove the rest. To finish, choose {FinishSwitching} in the menu bar.",
         LeftReason.SharedInstallPrivateApp =>
