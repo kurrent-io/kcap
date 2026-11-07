@@ -43,8 +43,9 @@ public class RecorderHostTests {
 
     RecorderClaims Claims => field ??= new(Tmp.CreateDir("watchers"), _time);
 
-    /// <param name="watched">False for a test whose clock jumps minutes at a step while a tick or drain runs on real time,
-    /// which the watchdog would take for a source stuck that long.</param>
+    /// <param name="watched">False for a test that sums the clock's timers, to which each watch adds its own, or whose clock
+    /// jumps minutes at a step while a tick or drain runs on real time, which the watchdog would take for a source stuck
+    /// that long.</param>
     RecorderHost NewHost(
         Func<string, FileStream>? open = null, Action<string>? factoryHook = null, RecorderClaims? claims = null, Action<RecorderAttemptEnded>? attemptEnded = null,
         Func<RecordingSource, bool>? keepsClaimOffline = null, bool watched = true) => new(
@@ -682,6 +683,32 @@ public class RecorderHostTests {
         await Assert.That(givenUp[0]).Contains($"Recording {source.Key} went 50s without a beat");
         await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
         await Assert.That(host.TryAdd(source)).IsFalse();
+    }
+
+    /// <summary>A call that never returns can come before the recorder's first await, as a file read on a stalled mount in
+    /// its preparation would. The watch has to be running by then, or the host waits on that call with it. The stuck attempt
+    /// never connected, so the one connect is the next attempt's.</summary>
+    [Test]
+    public async Task A_source_stuck_before_its_first_await_is_restarted() {
+        var source   = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var prepares = 0;
+        using var gate = new ManualResetEventSlim();
+        _prepare[source.Key] = () => {
+            if (Interlocked.Increment(ref prepares) == 1) gate.Wait();
+
+            return Task.CompletedTask;
+        };
+        var host = NewHost();
+
+        try {
+            host.TryAdd(source);
+            await Eventually(() => LinesSent(source.SessionId) == 1, "the next attempt's line", TimeSpan.FromSeconds(1));
+
+            await Assert.That(GivenUp(source.Key)).IsTrue();
+            await Assert.That(_transport.Connects).IsEqualTo(1);
+        } finally {
+            gate.Set();
+        }
     }
 
     /// <summary>What the stuck attempt read is not taken as sent: the next one starts where the server says.</summary>
@@ -2021,7 +2048,7 @@ public class RecorderHostTests {
     public async Task Backoff_doubles_to_its_cap_and_resets_after_a_long_run() {
         var capped = Source(Tmp.CreateFile("capped.jsonl", $"{Prompt}\n"), "a1");
         _transport.ConnectFailures = 100;
-        var host = NewHost();
+        var host = NewHost(watched: false);
 
         host.TryAdd(capped);
         await Eventually(() => _transport.ConnectAttempts == 8, "eight attempts", TimeSpan.FromSeconds(1));
@@ -2050,7 +2077,7 @@ public class RecorderHostTests {
 
             return Task.CompletedTask;
         };
-        var host = NewHost();
+        var host = NewHost(watched: false);
 
         host.TryAdd(source);
         await Eventually(() => timersAtFailure >= 0 && _transport.ConnectAttempts == 4, "the failure and the next attempt", TimeSpan.FromSeconds(31));

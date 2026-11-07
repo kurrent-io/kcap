@@ -264,7 +264,7 @@ public sealed class RecorderHost {
                     var        ended   = false;
 
                     try {
-                        var run = recorder.RunAsync(token);
+                        var run = Task.Run(() => recorder.RunAsync(token), CancellationToken.None);
 
                         if (!await EndsBeatingAsync(run, attempt)) {
                             // Read ahead of the supersession, which stops the recorder too.
@@ -365,7 +365,7 @@ public sealed class RecorderHost {
         try {
             if (entry.Hurried) recorder.RequestStop();
 
-            var drain = recorder.FinishAsync(entry.DrainToken);
+            var drain = Task.Run(() => recorder.FinishAsync(entry.DrainToken), CancellationToken.None);
             if (!await EndsBeatingAsync(drain, attempt)) return GiveUpDrain(source, entry, first, recorder, attempt, drain);
 
             await drain;
@@ -393,7 +393,7 @@ public sealed class RecorderHost {
             recorder = Create(source, entry, first, context, attempt);
             if (entry.Hurried) recorder.RequestStop();
 
-            var drain = recorder.DrainOnceAsync(entry.DrainToken);
+            var drain = Task.Run(() => recorder.DrainOnceAsync(entry.DrainToken), CancellationToken.None);
 
             if (await EndsBeatingAsync(drain, attempt)) await drain;
             else failure = GiveUpDrain(source, entry, first, recorder, attempt, drain);
@@ -410,7 +410,8 @@ public sealed class RecorderHost {
         }
     }
 
-    // A transport that is down retries, and a source waiting on it has the whole threshold again once it is back.
+    // A transport that is down retries, and a source waiting on it has the whole threshold again once it is back. Callers
+    // start the work off their own thread: a call that never returns before its first await would never reach the watch.
     async Task<bool> EndsBeatingAsync(Task work, RecorderAttempt attempt) {
         while (!await attempt.EndsBeatingAsync(work, Watchdog)) {
             if (_transport.IsConnected) return false;
