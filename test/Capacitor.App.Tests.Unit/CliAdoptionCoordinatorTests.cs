@@ -582,6 +582,21 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Logged("adoption_retired").Any(e => e["reason"] == AdoptionDeletion.Changed)).IsTrue();
     }
 
+    /// <summary>A batch held over an install it found changes nothing, so the ordinary offer to put kcap on PATH must not
+    /// follow it either.</summary>
+    [Test]
+    public async Task A_batch_held_over_a_found_install_suppresses_the_shim_offer() {
+        var world = new AdoptionWorld(Tmp);
+        var newer = world.Install with { Root = Path.Combine(world.Home, ".kcap"), Version = "9.0.0" };
+        world.Machine.Evidence = _ => Task.FromResult(world.Found() with { Installs = [newer] });
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Logged("adoption_held").Single()["reason"]).IsEqualTo(AdoptionPreflight.NewerInstall);
+        await Assert.That(world.AppState.State.ShimOffered).IsTrue();
+    }
+
     /// <summary>A launchctl answer that cannot be read says nothing about what is installed: reading it as "nothing
     /// found" would let a later batch skip the install it could not see.</summary>
     [Test]
@@ -598,6 +613,7 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.AppState.State.ShimOffered).IsFalse();
     }
 
+    /// <summary>The install stays as it is, and the ordinary offer to put kcap on PATH does not follow a batch held over it.</summary>
     [Test]
     public async Task A_batch_needing_administrator_rights_changes_nothing() {
         var world = new AdoptionWorld(Tmp);
@@ -613,7 +629,7 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.RecordWritten).IsFalse();
         await Assert.That(world.Refresh.Calls).IsEqualTo(0);
         await Assert.That(world.Machine.Repoints).IsEqualTo(0);
-        await Assert.That(world.AppState.State.ShimOffered).IsFalse();
+        await Assert.That(world.AppState.State.ShimOffered).IsTrue();
         await Assert.That(world.Notifier.Notified).IsEmpty();
     }
 

@@ -44,6 +44,8 @@ internal sealed class AdoptionBatch(
 
         var record = store.Load();
         var plan = AdoptionPreflight.Plan(evidence, record, bundle.Version, bundle.Cli, bundle.InSystemApplications, userCanWrite, stableFolders);
+        // A held batch still found an install, so the ordinary offer to put kcap on PATH must not follow it.
+        if (plan.Installs.Count > 0) await appState.UpdateAsync(s => s.ShimOffered ? s : s with { ShimOffered = true }).ConfigureAwait(false);
         if (plan.HoldReason is { } hold) {
             log("adoption_held", [("reason", hold)]);
             return false;
@@ -54,7 +56,6 @@ internal sealed class AdoptionBatch(
         }
 
         if (plan.Installs.Count > 0 || record.Pending) record = RecordIntent(plan.Installs);
-        if (plan.Installs.Count > 0) await appState.UpdateAsync(s => s.ShimOffered ? s : s with { ShimOffered = true }).ConfigureAwait(false);
 
         var pending = record.Installs.Where(i => i.State == InstallState.Pending).Select(i => i.Install).ToList();
         if (pending.Count == 0) return Finish([]);
