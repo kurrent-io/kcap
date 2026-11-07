@@ -55,14 +55,14 @@
             <Setter Property="Background" Value="{StaticResource KcapDangerDimBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource KcapDangerBrush}" />
         </Style>
-        <Style Selector="Border.startError TextBlock#StartErrorText">
+        <Style Selector="Border.startError SelectableTextBlock#StartErrorText">
             <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
         </Style>
         <Style Selector="Border.startError.calm">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
         </Style>
-        <Style Selector="Border.startError.calm TextBlock#StartErrorText">
+        <Style Selector="Border.startError.calm SelectableTextBlock#StartErrorText">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
     </UserControl.Styles>
@@ -353,7 +353,7 @@
                                     <views:AppIcon Kind="Info" Size="14" Margin="0,2,8,0" VerticalAlignment="Top"
                                                    Foreground="{StaticResource KcapFaintBrush}"
                                                    IsVisible="{Binding StartErrorIsNotice}" />
-                                    <TextBlock Grid.Column="1" x:Name="StartErrorText" Text="{Binding StartError}"
+                                    <SelectableTextBlock Grid.Column="1" x:Name="StartErrorText" Text="{Binding StartError}"
                                                FontSize="13" LineHeight="18" TextWrapping="Wrap" VerticalAlignment="Center"
                                                IsVisible="{Binding StartError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     <Button Grid.Row="1" Grid.Column="1" x:Name="RequestRepositoryAccessButton" Classes="kcapChip"
