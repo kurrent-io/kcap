@@ -472,6 +472,9 @@ public sealed class TranscriptRecorder(
 
         await context.Housekeeping.PrepareAsync(State, stop);
 
+        // Preparation runs git and gh, so the connect gets a host's whole threshold to itself.
+        context.Beat();
+
         log($"Watching {TranscriptPath} for session {sessionId}" + (agentId is not null ? $" agent {agentId}" : ""));
 
         State.LinesProcessed = await ConnectAsync(stop, connectBudget);

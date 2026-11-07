@@ -884,6 +884,23 @@ public class RecorderHostTests {
         await Assert.That(_ended.All(ended => ended.Failure?.Message == "The hub is down.")).IsTrue();
     }
 
+    /// <summary>Preparation and the connect wait on bounds of their own, and a slow pair of them outlasts the threshold
+    /// together. The source beats between the two.</summary>
+    [Test]
+    public async Task A_slow_preparation_and_a_slow_connect_are_not_a_wedge() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var slow   = RecorderHost.WedgedAfter * 0.6;
+        _prepare[source.Key]  = () => Task.Delay(slow, _time);
+        _transport.OnConnect  = ct => Task.Delay(slow, _time, ct);
+        var host = NewHost();
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the line", TimeSpan.FromSeconds(1));
+
+        await Assert.That(slow * 2 > RecorderHost.WedgedAfter).IsTrue();
+        await Assert.That(GivenUp(source.Key)).IsFalse();
+        await Assert.That(_transport.ConnectAttempts).IsEqualTo(1);
+    }
+
     /// <summary>Whoever asked for the finish is waiting, and a second drain could race the stuck one, so the import is
     /// what recovers its lines. That holds whether the drain was the run's own or the fresh one a source that never
     /// connected gets.</summary>
