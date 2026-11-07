@@ -3919,7 +3919,7 @@ public class ChatTabViewModelTests {
 
     /// Pins the hook card's precedence: while a card asks the question, the screen's copy of the
     /// same dialog is not offered, and the composer stays shut because that dialog is still on
-    /// the terminal. The card comes back once the hook card is gone and the dialog is not.
+    /// the terminal. The dialog comes back only once it outlasts the card by the grace.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_pending_card_hides_the_terminal_dialog_it_raised() {
@@ -3939,10 +3939,41 @@ public class ChatTabViewModelTests {
 
                 h.Permissions.Remove("r1");
                 await WaitUntilAsync(() => !h.Chat.HasPendingCards, what: "the card removed");
-                await Assert.That(h.Chat.ShowsTerminalMenu).IsTrue();
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsFalse();
+                h.Time.Advance(ChatTabViewModel.CoveredDialogGrace);
+                await WaitUntilAsync(() => h.Chat.ShowsTerminalMenu, what: "the dialog revealed");
                 await Assert.That(h.Chat.HasTerminalMenu).IsTrue();
                 await Assert.That(await h.Chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
                 await Assert.That(h.Chat.TerminalMenuChoices).Count().IsEqualTo(2);
+            } finally { await h.TeardownAsync(); }
+        });
+    }
+
+    /// The screen reports an answered card's dialog for a snapshot after the card goes; that copy
+    /// must not open the terminal card, nor may the stale grace hide a different dialog after it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_answered_card_does_not_flash_the_dialog_it_covered() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(TranscriptChat.For("claude"), input: new KeyRecordingInput());
+            var dialog = new TerminalDialogDto("Bash command", "", [], -1, "Do you want to proceed?");
+            var agent = Agent("a1", "claude", hasTerminal: true) with { Status = "Running", TerminalDialog = dialog };
+            try {
+                h.Permissions.Add(PermissionEntries.Entry("r1", "a1"));
+                await WaitUntilAsync(() => h.Chat.HasPendingCards, what: "the card");
+                await h.PushAsync(agent);
+
+                h.Permissions.Remove("r1");
+                await WaitUntilAsync(() => !h.Chat.HasPendingCards, what: "the card answered");
+                await h.PushAsync(agent with { TerminalDialog = new TerminalDialogDto("Bash command", "", [], -1, "redrawn") });
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsFalse();
+
+                await h.PushAsync(agent with { TerminalDialog = null });
+                var next = new TerminalDialogDto("Do you want to proceed?", "", ["Yes", "No"], 0, "");
+                await h.PushAsync(agent with { TerminalDialog = next });
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsTrue();
+                h.Time.Advance(ChatTabViewModel.CoveredDialogGrace);
+                await Assert.That(h.Chat.ShowsTerminalMenu).IsTrue();
             } finally { await h.TeardownAsync(); }
         });
     }
@@ -3962,7 +3993,9 @@ public class ChatTabViewModelTests {
                 h.Permissions.Add(PermissionEntries.Entry("r1", "a1"));
                 await WaitUntilAsync(() => h.Chat.HasPendingCards && !h.Chat.ShowsTerminalMenu, what: "the dialog hidden");
                 h.Permissions.Remove("r1");
-                await WaitUntilAsync(() => !h.Chat.HasPendingCards && h.Chat.ShowsTerminalMenu, what: "the dialog revealed");
+                await WaitUntilAsync(() => !h.Chat.HasPendingCards, what: "the card removed");
+                h.Time.Advance(ChatTabViewModel.CoveredDialogGrace);
+                await WaitUntilAsync(() => h.Chat.ShowsTerminalMenu, what: "the dialog revealed");
 
                 await Assert.That(await h.Chat.TerminalMenuChoices[1].Choose.CanExecute.FirstAsync()).IsFalse();
                 await Assert.That(input.Writes).IsEquivalentTo(new[] { "\r" }, CollectionOrdering.Matching);

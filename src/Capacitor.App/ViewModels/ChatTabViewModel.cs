@@ -37,6 +37,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     internal static readonly TimeSpan PickupWait = TimeSpan.FromSeconds(5);
     /// First retry gap after a failed withdraw; each further one doubles it.
     internal static readonly TimeSpan WithdrawRetryDelay = TimeSpan.FromSeconds(2);
+    // Answering a card closes its dialog a status snapshot before the screen says so; a dialog
+    // still there past this is one the hook left for the terminal.
+    internal static readonly TimeSpan CoveredDialogGrace = TimeSpan.FromSeconds(2);
     internal const int MaxWithdrawRetries = 3;
 
     readonly ChatInput _input;
@@ -356,6 +359,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     TerminalDialogDto? _terminalDialog;
     string? _interruption;
     bool _terminalDialogShown;
+    TerminalDialogDto? _coveredDialog;
+    bool _coverReleasing;
+    int _coverGeneration;
     bool _hasTerminalMenu;
     string _terminalMenuTitle = "";
     string _terminalMenuHeading = "";
@@ -1200,14 +1206,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// copy stays out of the way while one is pending.
     void ApplyTerminalMenu(UsageLimitNoticeDto? limit, TerminalDialogDto? dialog) {
         var question = UsageLimitNoticeDto.IsQuestion(limit);
-        var shown = !question && dialog is not null && !HasPendingCards;
+        TrackCoveredDialog(dialog);
+        var shown = !question && dialog is not null && !HasPendingCards && _coveredDialog is null;
         if (Equals(_usageLimit, limit) && Equals(_terminalDialog, dialog) && _terminalDialogShown == shown) return;
         // Cursor redraws and pending cards hiding the dialog do not make a new menu. Keep an
         // answered menu closed until the underlying menu changes or leaves the screen.
         var sameMenu = question
             ? Equals(_usageLimit, limit)
-            : dialog is not null && _terminalDialog is { } previous
-                && previous.Heading == dialog.Heading && previous.Options.SequenceEqual(dialog.Options);
+            : dialog is not null && _terminalDialog is { } previous && SameDialog(previous, dialog);
         if (dialog is not null && _terminalDialog is null) RetireCommandThatOpened();
         _usageLimit = limit;
         _terminalDialog = dialog;
@@ -1250,6 +1256,36 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                     () => ChooseTerminalMenuAsync(choice.Keys),
                     this.WhenAnyValue(x => x.TerminalMenuChoicesOpen))))
             .ToList();
+    }
+
+    static bool SameDialog(TerminalDialogDto a, TerminalDialogDto b) =>
+        a.Heading == b.Heading && a.Options.SequenceEqual(b.Options);
+
+    /// A dialog a card covered stays hidden after the card goes, until it changes, leaves the
+    /// screen, or outlasts the grace.
+    void TrackCoveredDialog(TerminalDialogDto? dialog) {
+        if (_coveredDialog is { } covered && (dialog is null || !SameDialog(covered, dialog))) {
+            _coveredDialog = null;
+            _coverReleasing = false;
+            _coverGeneration++;
+        }
+        if (dialog is null) return;
+        if (HasPendingCards) {
+            _coveredDialog = dialog;
+            if (_coverReleasing) { _coverReleasing = false; _coverGeneration++; }
+        } else if (_coveredDialog is not null && !_coverReleasing) {
+            _coverReleasing = true;
+            _ = ReleaseCoveredDialogAsync(++_coverGeneration);
+        }
+    }
+
+    async Task ReleaseCoveredDialogAsync(int generation) {
+        try { await Task.Delay(CoveredDialogGrace, _time, _lifetimeToken); }
+        catch (OperationCanceledException) { return; }
+        if (generation != _coverGeneration) return;
+        _coveredDialog = null;
+        _coverReleasing = false;
+        ApplyTerminalMenu(_usageLimit, _terminalDialog);
     }
 
     void SetTerminalMenuChoiceTaken(bool taken) {
