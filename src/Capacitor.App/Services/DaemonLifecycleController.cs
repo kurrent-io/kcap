@@ -298,7 +298,8 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
             _generation++;
             _lastObserved = (status.State, status.Reason);
             _unreachableVersion = status.State == AttachState.Unreachable ? status.DaemonVersion : null;
-            if (status.State == AttachState.Connected) _latestResumes = status.Capabilities?.Contains(ResumeCapability) == true;
+            // A reconnect's first snapshot comes before its capabilities: the last daemon's must not judge it.
+            _latestResumes = status.State == AttachState.Connected && status.Capabilities?.Contains(ResumeCapability) == true;
             if (status.State == AttachState.Connected) _recoveriesSinceConnect = 0;
 
             isFirstTerminalOutcome = status.State != AttachState.Connecting && !_armClaimed;

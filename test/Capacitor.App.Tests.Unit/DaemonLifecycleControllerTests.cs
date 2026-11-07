@@ -1842,6 +1842,28 @@ public class DaemonLifecycleControllerTests {
         await Assert.That(h.Controller.LatestActivity?.Quiet).IsTrue();
     }
 
+    /// <summary>A reconnect to a daemon that cannot keep its agents: its first snapshot, which lands before its own
+    /// capabilities, is not judged by the previous daemon's.</summary>
+    [Test]
+    public async Task A_reconnect_judges_its_first_snapshot_without_the_last_daemons_capabilities() {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Snap(state: "running", jobPid: 100, daemonPid: 100));
+        h.Start();
+        var snap = FakeDaemonClientService.Snap(daemon: "daemon-a", active: 1, serverUrl: h.CanonicalServer ?? "http://localhost:9999");
+        var idle = snap with { Pending = [], Agents = [snap.Agents[0] with { AwaitingInput = true }] };
+        h.Client.SnapshotsSubject.OnNext(idle);
+        h.Client.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [DaemonLifecycleController.ResumeCapability]));
+        await Assert.That(h.Controller.LatestActivity?.Quiet).IsTrue();
+
+        h.PushConnecting();
+        h.Client.SnapshotsSubject.OnNext(idle);
+        var beforeCapabilities = h.Controller.LatestActivity?.Quiet;
+        h.Client.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, []));
+
+        await Assert.That(beforeCapabilities).IsFalse();
+        await Assert.That(h.Controller.LatestActivity?.Quiet).IsFalse();
+    }
+
     [Test]
     public async Task Activity_is_cleared_when_the_attach_drops() {
         await using var h = new Harness();
