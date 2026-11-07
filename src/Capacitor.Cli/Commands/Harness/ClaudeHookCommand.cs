@@ -1043,6 +1043,9 @@ public sealed class ClaudeHookCommand(
 
             var startSnapshot = sessionId is null ? null : spool.RunStartSnapshot(sessionId);
 
+            // Cleared before every start and set again only by an accepting ack, so a start that fails stops the prompts asking.
+            if (sessionId is not null) new PassNoticeSessions(config).Disarm(sessionId);
+
             HttpResponseMessage? resp = null;
             try {
                 if (remaining > TimeSpan.Zero) {
@@ -1088,12 +1091,7 @@ public sealed class ClaudeHookCommand(
                 // Best effort — envelope is optional; don't fail the hook.
             }
 
-            // Every start re-decides: a resume whose ack drops the field must stop the prompts asking.
-            if (sessionId is not null) {
-                var passNotices = new PassNoticeSessions(config);
-                if (ClaudePassNotices.AckDelivers(responseNode)) passNotices.Arm(sessionId, Url);
-                else passNotices.Disarm(sessionId);
-            }
+            if (sessionId is not null && ClaudePassNotices.AckDelivers(responseNode)) new PassNoticeSessions(config).Arm(sessionId, Url);
 
             // Plan-content POST from response-resolved slug (only if not already injected).
             if (responseNode is not null && !planContentInjected && sessionId is not null) {

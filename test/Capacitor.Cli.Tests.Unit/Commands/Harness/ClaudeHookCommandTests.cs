@@ -1541,6 +1541,27 @@ public class ClaudeHookCommandTests {
         await Assert.That(PassNoticePosts(fx)).IsEqualTo(expectedPosts);
     }
 
+    /// <summary>A later start of an armed session that fails to reach an accepting server leaves the prompt asking
+    /// nothing: the marker is cleared before each start and set again only by an accepting ack.</summary>
+    [Test, NotInParallel]
+    [Arguments(HttpStatusCode.InternalServerError)]
+    [Arguments(HttpStatusCode.Unauthorized)]
+    public async Task ArmedSession_FailedRestart_StopsAsking(HttpStatusCode restart) {
+        using var absent = new TempDir();
+        using var fx = new Fixture(Config.Root) { RespondJson = """{"pass_notices":"v1"}""", PassNoticesCapable = true };
+        var sid = Guid.NewGuid().ToString();
+        await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(sid.Replace("-", ""), absent)));
+
+        fx.PostStatus = restart;
+        await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(sid.Replace("-", ""), absent, source: "resume")));
+
+        fx.PostStatus  = HttpStatusCode.OK;
+        fx.RespondJson = """{"notices":[]}""";
+        await fx.PassNoticesAsync(PromptPayload(sid), new StringWriter());
+
+        await Assert.That(PassNoticePosts(fx)).IsEqualTo(0);
+    }
+
     [Test, NotInParallel]
     public async Task ServerTimeout_PromptNotBlocked() {
         using var absent = new TempDir();
@@ -2342,7 +2363,7 @@ public class ClaudeHookCommandTests {
         public   TimeSpan       HoldOnPost  { get; set; } = TimeSpan.Zero;
         public   string?        RespondJson { get; set; }
         public   bool           PassNoticesCapable { get; set; }
-        readonly HttpStatusCode _postStatus;
+        public   HttpStatusCode PostStatus  { get; set; }
         HookClock?              _clock;
 
         // The memory-index endpoint is served over real HTTP, not by the stub handler above: the
@@ -2387,7 +2408,7 @@ public class ClaudeHookCommandTests {
             // installed under it.
             _tmpHome    = _home.Path;
             _spoolPath  = Path.Combine(_tmpHome, "spool");
-            _postStatus = postStatus;
+            PostStatus  = postStatus;
             Config      = config;
             Profiles    = profile is null
                 ? Resolutions.At(_memoryServer.Url!, config)
@@ -2401,7 +2422,7 @@ public class ClaudeHookCommandTests {
                 if (path.StartsWith("/hooks/", StringComparison.Ordinal)) RouteOrder.Add(path.Replace("/hooks/", ""));
                 if (req.Method == HttpMethod.Get) return new HttpResponseMessage(HttpStatusCode.NotFound);
                 if (HoldOnPost > TimeSpan.Zero) await Task.Delay(HoldOnPost, ct);
-                var resp = new HttpResponseMessage(_postStatus);
+                var resp = new HttpResponseMessage(PostStatus);
                 if (RespondJson is not null) resp.Content = new System.Net.Http.StringContent(RespondJson, System.Text.Encoding.UTF8, "application/json");
                 return resp;
             }));
