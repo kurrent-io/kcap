@@ -16,7 +16,9 @@ public class DaemonRecorderTests {
     const string Prompt  = """{"type":"user","message":{"content":"Summarise the README"}}""";
     const string Reply   = """{"type":"assistant","message":{"content":[{"type":"text","text":"Done."}]}}""";
 
-    static readonly Func<Task<bool>> InScope = () => Task.FromResult(false);
+    static readonly Func<Task<RecordingScope>> InScope = () => Task.FromResult(new RecordingScope(false, _ => true));
+
+    static Func<Task<RecordingScope>> LeftToHooks(bool mayImport = true) => () => Task.FromResult(new RecordingScope(true, _ => mayImport));
 
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
@@ -251,7 +253,7 @@ public class DaemonRecorderTests {
 
         await using var recorder = NewRecorder();
         await recorder.RestoreAsync(InScope, CancellationToken.None);
-        recorder.SettleRestored(_ => false);
+        await recorder.SettleRestoredAsync(_ => false);
 
         await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0 && Claims.Read(source.Key) is RecorderClaimState.None && List.Load().Count == 0);
     }
@@ -268,7 +270,7 @@ public class DaemonRecorderTests {
 
         await Assert.That(await recorder.ClaimAsync(source with { AgentId = "agent-2" }, CancellationToken.None)).IsTrue();
         recorder.StartForAgent(source with { AgentId = "agent-2" });
-        recorder.SettleRestored(_ => false);
+        await recorder.SettleRestoredAsync(_ => false);
 
         await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
         await recorder.FinishAgentAsync("agent-2", TimeSpan.FromSeconds(30)).WithinDeadlineAsync("the agent's finish");
@@ -286,6 +288,7 @@ public class DaemonRecorderTests {
 
         await using var recorder = NewRecorder(on: false);
         await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
 
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
         await Assert.That(List.Load()).IsEmpty();
@@ -302,7 +305,8 @@ public class DaemonRecorderTests {
         Claims.TryTake(source.Key, Name, isHosted: true);
 
         await using var recorder = NewRecorder();
-        await recorder.RestoreAsync(() => Task.FromResult(true), CancellationToken.None);
+        await recorder.RestoreAsync(LeftToHooks(), CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
 
         await Assert.That(recorder.ActiveKeys).IsEmpty();
         await Assert.That(Connections).IsEqualTo(0);
@@ -318,7 +322,7 @@ public class DaemonRecorderTests {
         Claims.TryTake(source.Key, "another-daemon", isHosted: true);
 
         await using var recorder = NewRecorder();
-        await recorder.RestoreAsync(() => Task.FromResult(true), CancellationToken.None);
+        await recorder.RestoreAsync(LeftToHooks(), CancellationToken.None);
 
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
     }
@@ -333,6 +337,7 @@ public class DaemonRecorderTests {
 
         await using var recorder = NewRecorder(on: false);
         await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
 
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
         await Assert.That(List.Load()).IsEmpty();
@@ -372,7 +377,7 @@ public class DaemonRecorderTests {
         await using var recorder = NewRecorder();
         await recorder.TryRecordAsync(source, CancellationToken.None);
 
-        await recorder.RestoreAsync(() => Task.FromResult(true), CancellationToken.None);
+        await recorder.RestoreAsync(LeftToHooks(), CancellationToken.None);
 
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
         await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
@@ -462,6 +467,160 @@ public class DaemonRecorderTests {
 
         await Assert.That(await handed.WithinDeadlineAsync("the hand-over")).IsTrue();
         await Assert.That(List.Load().Single().AgentId).IsEqualTo("agent-2");
+    }
+
+    bool MarkedForImport => new TranscriptSpool(Config.Root, TimeProvider.System, Url).NeedsImport(Session);
+
+    RecordedSource LeftBehind() {
+        var source = Source(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+
+        return source;
+    }
+
+    /// <summary>A hard-killed daemon's tail with no agent to come back: no hook arrives and nothing is left to drain it,
+    /// so only the marker says it was lost.</summary>
+    [Test]
+    public async Task A_source_let_go_whose_agent_is_gone_is_marked_for_import() {
+        LeftBehind();
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(LeftToHooks(), CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Assert.That(MarkedForImport).IsTrue();
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>An import uploads the transcript, so a mark would hand the scope's exclusion to the next person to run one.</summary>
+    [Test]
+    public async Task A_source_the_scope_refuses_is_not_marked_for_import() {
+        LeftBehind();
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(LeftToHooks(mayImport: false), CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Assert.That(MarkedForImport).IsFalse();
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_source_let_go_on_a_server_without_recording_is_marked_for_import() {
+        LeftBehind();
+        var probe = new RecordingProbe();
+        probe.Report(false);
+
+        await using var recorder = NewRecorder(probe: probe);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Assert.That(MarkedForImport).IsTrue();
+    }
+
+    [Test]
+    public async Task A_source_let_go_with_recording_off_is_marked_for_import() {
+        LeftBehind();
+
+        await using var recorder = NewRecorder(on: false);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Assert.That(MarkedForImport).IsTrue();
+    }
+
+    /// <summary>Its agent's next hook hands it over, and that recorder starts from the server's position.</summary>
+    [Test]
+    public async Task A_source_let_go_whose_agent_came_back_is_not_marked() {
+        LeftBehind();
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(LeftToHooks(), CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => true);
+
+        await Assert.That(MarkedForImport).IsFalse();
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>The entry stays until then, so a kill ahead of the settling leaves the next boot the same decision.</summary>
+    [Test]
+    public async Task A_source_let_go_stays_on_the_list_until_the_settling() {
+        var source = LeftBehind();
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(LeftToHooks(), CancellationToken.None);
+
+        await Assert.That(List.Load().Select(left => left.Key)).IsEquivalentTo([source.Key]);
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+    }
+
+    /// <summary>A hook got there first: the source is recording, and its entry is that recorder's.</summary>
+    [Test]
+    public async Task A_source_handed_back_ahead_of_the_settling_is_left_recording() {
+        var source = LeftBehind();
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(LeftToHooks(), CancellationToken.None);
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await recorder.SettleRestoredAsync(_ => false);
+
+        await Assert.That(MarkedForImport).IsFalse();
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(List.Load().Select(left => left.Key)).IsEquivalentTo([source.Key]);
+    }
+
+    /// <summary>The server stops a source through what it no longer has. Left running, each would re-register and record
+    /// with no stop path, so a definite no ends them, and with their claims gone hooks take over.</summary>
+    [Test]
+    public async Task A_definite_no_finishes_every_live_source_and_lets_its_claim_go() {
+        var probe = new RecordingProbe();
+        probe.Report(true);
+        await using var recorder = NewRecorder(probe: probe);
+        var first  = Source(Transcript(Prompt, Reply));
+        var second = Source(Tmp.PathTo("second.jsonl"), "a1");
+        await recorder.TryRecordAsync(first, CancellationToken.None);
+        await recorder.TryRecordAsync(second, CancellationToken.None);
+
+        probe.Forget();
+        probe.Report(false);
+
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0
+                                            && Claims.Read(first.Key) is RecorderClaimState.None && Claims.Read(second.Key) is RecorderClaimState.None
+                                            && List.Load().Count == 0);
+        await Assert.That(Transport.DrainCompletes).IsGreaterThanOrEqualTo(1);
+    }
+
+    /// <summary>Claimed ahead of a launch that hasn't started: nothing would record it, and the claim would hold back its hooks.</summary>
+    [Test]
+    public async Task A_definite_no_lets_a_claim_go_ahead_of_its_start() {
+        var probe = new RecordingProbe();
+        probe.Report(true);
+        await using var recorder = NewRecorder(probe: probe);
+        var source = Source(Transcript(Prompt));
+        await recorder.ClaimAsync(source, CancellationToken.None);
+
+        probe.Forget();
+        probe.Report(false);
+
+        await WaitHarness.PollUntilAsync(() => Claims.Read(source.Key) is RecorderClaimState.None);
+        recorder.StartForAgent(source);
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+    }
+
+    /// <summary>Losing the connection is not an answer, so a source lives through it.</summary>
+    [Test]
+    public async Task A_connection_going_away_leaves_live_sources_alone() {
+        var probe = new RecordingProbe();
+        probe.Report(true);
+        await using var recorder = NewRecorder(probe: probe);
+        var source = Source(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+
+        probe.Forget();
+
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
     }
 
     [Test]
@@ -690,6 +849,7 @@ public class DaemonRecorderTests {
         await using var recorder = NewRecorder(probe: probe);
 
         await recorder.RestoreAsync(InScope, CancellationToken.None).WithinDeadlineAsync("the restore");
+        await recorder.SettleRestoredAsync(_ => false);
 
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
         await Assert.That(List.Load()).IsEmpty();
@@ -703,6 +863,7 @@ public class DaemonRecorderTests {
         await using var recorder = NewRecorder(on: false, probe: new RecordingProbe());
 
         await recorder.RestoreAsync(InScope, CancellationToken.None).WithinDeadlineAsync("the restore");
+        await recorder.SettleRestoredAsync(_ => false);
 
         await Assert.That(List.Load()).IsEmpty();
     }

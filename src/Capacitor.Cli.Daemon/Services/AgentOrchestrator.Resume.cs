@@ -1136,7 +1136,17 @@ internal partial class AgentOrchestrator {
         } catch (Exception ex) {
             LogResumeLaneFailed(ex);
         } finally {
-            _recorder?.SettleRestored(_agents.ContainsKey);
+            await SettleRecordingAsync();
+        }
+    }
+
+    async Task SettleRecordingAsync() {
+        if (_recorder is not { } recorder) return;
+
+        try {
+            await recorder.SettleRestoredAsync(_agents.ContainsKey);
+        } catch (Exception ex) {
+            LogRecordingRestoreFailed(ex);
         }
     }
 
@@ -1145,7 +1155,7 @@ internal partial class AgentOrchestrator {
         if (_recorder is not { } recorder) return;
 
         try {
-            await recorder.RestoreAsync(CaptureIsLeftToHooksAsync, ct);
+            await recorder.RestoreAsync(RecordingScopeAsync, ct);
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
         } catch (Exception ex) {
             LogRecordingRestoreFailed(ex);

@@ -3755,7 +3755,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     async Task<RecordedSource?> ClaimRecordingAsync(
             string agentId, string vendor, string? session, bool isPrivate, WorktreeInfo worktree, ResolvedAccount? account, bool skipTitle) {
         if (isPrivate || _recorder is not { Enabled: true } recorder || !IsClaude(vendor) || SessionIds.Canonical(session) is not { } canonical) return null;
-        if (await CaptureIsLeftToHooksAsync()) return null;
+        if ((await RecordingScopeAsync()).LeftToHooks) return null;
 
         var transcript = Path.Combine(ClaudePathsFor(account).ProjectDir(worktree.Path), $"{(Guid.TryParse(canonical, out var id) ? id.ToString("D") : canonical)}.jsonl");
         var source     = new RecordedSource(agentId, canonical, null, transcript, "claude", worktree.Path, skipTitle);
@@ -3763,13 +3763,23 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return await recorder.ClaimAsync(source, _shutdownCts.Token) ? source : null;
     }
 
-    /// <summary>Whether a hook's capture gate decides what this daemon may record: a profile with a scope configured, or
-    /// one that can't be read and may have. The gate reads more than a launch knows, and a claim would keep a session it
-    /// refuses from staying off the server, so such a session is recorded only once its hook hands it over.</summary>
-    async Task<bool> CaptureIsLeftToHooksAsync() {
-        var (profile, readable) = await CurrentCaptureProfileAsync();
+    /// <summary>What the capture scope leaves this daemon to do. A hook's gate reads more than a launch knows, and a claim
+    /// would keep a session it refuses from staying off the server, so with a scope configured a session is recorded only
+    /// once its hook hands it over. Two profiles count: the daemon's own, which a service unit pins, and the active one,
+    /// which is what a hosted hook reads, because <c>KCAP_URL</c> in its environment selects no profile.</summary>
+    async Task<RecordingScope> RecordingScopeAsync() {
+        var (outcome, snapshot) = await AppConfig.TryLoadProfileConfig(_config.ConfigRoot);
 
-        return !readable || AgentCaptureScope.Configured(profile);
+        if (outcome == ProfileConfigLoad.Unreadable) return RecordingScope.Unknown;
+
+        var own    = snapshot.Profiles.GetValueOrDefault(_config.Profiles.Name) ?? _config.Profiles.Effective;
+        var active = snapshot.Active;
+
+        if (!AgentCaptureScope.Configured(own) && !AgentCaptureScope.Configured(active)) return RecordingScope.Open;
+
+        return new RecordingScope(
+            LeftToHooks: true,
+            MayImport: cwd => !AgentCaptureScope.IsOutOfScope(cwd, own, _config.Home) && !AgentCaptureScope.IsOutOfScope(cwd, active, _config.Home));
     }
 
     /// <summary>Hands a recorder the transcript discovery found, for a source computed ahead of the launch.</summary>

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
@@ -44,7 +45,7 @@ public class AgentOrchestratorRecordingTests {
     sealed class Fixture : IAsyncDisposable {
         public Fixture(
                 TempDir tmp, StartingFactory factory, bool on = true, bool? serverRecords = true,
-                Action<ConfigRoot>? profile = null, IPtyProcessFactory? pty = null, string? localSession = null) {
+                Action<ConfigRoot>? profile = null, IPtyProcessFactory? pty = null, string? localSession = null, string? daemonProfile = null) {
             Checkout  = tmp.CreateDir("checkout");
             Factory   = factory;
             Server    = new CaptureServerConnection();
@@ -56,10 +57,12 @@ public class AgentOrchestratorRecordingTests {
                 configure: c => {
                     c.RecordHostedClaude = on;
                     profile?.Invoke(c.ConfigRoot);
+                    if (daemonProfile is not null) c.Profiles = Resolutions.Of(new Profile(), daemonProfile);
                 },
                 recorder: config => {
                     Config = config;
-                    var probe = new RecordingProbe();
+                    Probe = new RecordingProbe();
+                    var probe = Probe;
                     if (serverRecords is { } answer) probe.Report(answer);
 
                     return new DaemonRecorder(
@@ -80,10 +83,23 @@ public class AgentOrchestratorRecordingTests {
         public AgentOrchestrator Orch { get; }
         public DaemonConfig Config { get; private set; } = null!;
         public int Connections { get; private set; }
+        public RecordingProbe Probe { get; private set; } = null!;
 
         public RecorderClaims Claims => new(WatcherPaths.FromEnvironment(Config.ConfigRoot).Directory, TimeProvider.System);
 
         public string ClaimsDirectory => WatcherPaths.FromEnvironment(Config.ConfigRoot).Directory;
+
+        const string LeftSession = "fedcba9876543210fedcba9876543210";
+
+        RecordedSourceList List => new(Config.Store.StateDirectory(Config.Name), NullLogger.Instance);
+
+        public IReadOnlyList<RecordedSource> ListedSources => List.Load();
+
+        public bool MarkedForImport => new TranscriptSpool(Config.ConfigRoot, TimeProvider.System, Config.ServerUrl).NeedsImport(LeftSession);
+
+        /// <summary>What a hard-killed daemon leaves of a session in <paramref name="cwd"/>, whose agent isn't coming back.</summary>
+        public void LeaveBehind(string cwd) =>
+            List.TryAdd(new RecordedSource("gone", LeftSession, null, Path.Combine(cwd, "left.jsonl"), "claude", cwd, false));
 
         public string Projects => new ClaudePaths(Config.Home, null).Projects;
 
@@ -123,6 +139,104 @@ public class AgentOrchestratorRecordingTests {
             """);
 
     static void UnreadableProfile(ConfigRoot root) => File.WriteAllText(root.Path("config.json"), "{ not json");
+
+    /// <summary>A hosted hook runs on <c>KCAP_URL</c>, which selects no profile, so its gate reads the active one. The
+    /// daemon reads its own, which a service unit pins, and here that one has no lists.</summary>
+    static void ScopedActiveProfile(ConfigRoot root) =>
+        File.WriteAllText(root.Path("config.json"), """
+            {
+              "version": 2,
+              "active_profile": "personal",
+              "profiles": { "work": {}, "personal": { "excluded_paths": ["/nowhere/at/all"] } },
+              "profile_bindings": {}
+            }
+            """);
+
+    /// <summary>A list that excludes the checkout a source left behind ran in.</summary>
+    static Action<ConfigRoot> Excluding(string path) => root =>
+        File.WriteAllText(root.Path("config.json"), $$"""
+            {
+              "version": 2,
+              "active_profile": "default",
+              "profiles": { "default": { "excluded_paths": ["{{path.Replace("\\", "/")}}"] } },
+              "profile_bindings": {}
+            }
+            """);
+
+    [Test]
+    public async Task A_launch_under_a_scoped_active_profile_takes_no_claim_on_a_daemon_of_another_profile() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: ScopedActiveProfile, daemonProfile: "work");
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.ClaimFiles).IsEmpty();
+        await Assert.That(f.Connections).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task The_boot_under_a_scoped_active_profile_picks_nothing_up_on_a_daemon_of_another_profile() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: ScopedActiveProfile, daemonProfile: "work");
+        f.LeaveBehind(f.Checkout);
+
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None).WithinDeadlineAsync("the boot's resumes");
+
+        await Assert.That(f.Connections).IsEqualTo(0);
+    }
+
+    /// <summary>In scope with no agent back: the tail has no other way home.</summary>
+    [Test]
+    public async Task The_boot_marks_an_in_scope_tail_for_import_under_a_scoped_profile() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: ScopedProfile);
+        f.LeaveBehind(f.Checkout);
+
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None).WithinDeadlineAsync("the boot's resumes");
+
+        await Assert.That(f.MarkedForImport).IsTrue();
+    }
+
+    /// <summary>The import uploads what the mark points at, so the scope's refusal has to hold there too.</summary>
+    [Test]
+    public async Task The_boot_marks_no_excluded_tail_for_import() {
+        string excluded = Tmp.CreateDir("excluded");
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: Excluding(excluded));
+        f.LeaveBehind(excluded);
+
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None).WithinDeadlineAsync("the boot's resumes");
+
+        await Assert.That(f.MarkedForImport).IsFalse();
+        await Assert.That(f.ListedSources).IsEmpty();
+    }
+
+    /// <summary>An exclusion on the active profile binds the import as it binds the hook.</summary>
+    [Test]
+    public async Task The_boot_marks_nothing_the_active_profile_excludes_on_a_daemon_of_another_profile() {
+        string excluded = Tmp.CreateDir("excluded");
+        await using var f = new Fixture(Tmp, new StartingFactory(), daemonProfile: "work", profile: root =>
+            File.WriteAllText(root.Path("config.json"), $$"""
+                {
+                  "version": 2,
+                  "active_profile": "personal",
+                  "profiles": { "work": {}, "personal": { "excluded_paths": ["{{excluded.Replace("\\", "/")}}"] } },
+                  "profile_bindings": {}
+                }
+                """));
+        f.LeaveBehind(excluded);
+
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None).WithinDeadlineAsync("the boot's resumes");
+
+        await Assert.That(f.MarkedForImport).IsFalse();
+    }
+
+    /// <summary>Unknown lists are not absent lists: a mark here could upload exactly what an existing entry excludes.</summary>
+    [Test]
+    public async Task The_boot_marks_nothing_under_a_profile_it_cannot_read() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: UnreadableProfile);
+        f.LeaveBehind(f.Checkout);
+
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None).WithinDeadlineAsync("the boot's resumes");
+
+        await Assert.That(f.MarkedForImport).IsFalse();
+    }
 
     /// <summary>The daemon takes a session ahead of its hooks only where no hook could refuse it: with an exclusion
     /// configured, this claim would upload a transcript the hook's gate keeps a watcher from ever seeing.</summary>

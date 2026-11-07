@@ -891,7 +891,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         if (!_config.RecordHostedClaude) return;
 
         _ = Task.Run(async () => {
-            var answer = await RecordingProbe.AskAsync(() => _hub.InvokeAsync("WatcherDetach", Guid.NewGuid().ToString("N"), null, _ct));
+            var answer = await RecordingProbe.AskUntilAnsweredAsync(ct => _hub.InvokeAsync(RecordingProbe.Method, Guid.NewGuid().ToString("N"), null, ct), _time, _ct);
 
             if (answer == false) LogServerHasNoRecording(_config.ServerUrl);
         }, CancellationToken.None);
