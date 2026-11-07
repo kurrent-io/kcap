@@ -1336,7 +1336,7 @@ The daemon checks for newly installed agents once a minute and retries unattende
 
 ```bash
 kcap daemon start                   # start in foreground (--name defaults to KCAP_DAEMON_NAME, the profile's, then your OS username)
-kcap daemon start -d                # start in background (daemonize)
+kcap daemon start -d                # start in background; returns once the daemon answers on its control socket, or says it is not yet serving after 15s
 kcap daemon start --name laptop -d  # run multiple daemons on the same machine by giving each a unique name
 kcap daemon status                  # list all running daemons
 kcap daemon status --name laptop    # show status of a specific daemon (incl. its running version and any resuming/interrupted agents)

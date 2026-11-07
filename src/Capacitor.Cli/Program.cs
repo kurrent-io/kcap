@@ -320,7 +320,7 @@ var offlineDiscover = command == "import" && args.Contains("--discover");
 if (command == "import" && detachedImport is not null
  && Environment.GetEnvironmentVariable(ImportPlan.EnvVar) is { Length: > 0 } importPlanPath) {
     try {
-        return await Run<DetachedImportPlanRunner>().RunAsync(importPlanPath);
+        return await Run<DetachedImportPlanRunner>().RunAsync(importPlanPath, DetachedImportLog.SignalAccepted);
     } finally {
         detachedImportLog?.Dispose();
     }
@@ -869,6 +869,8 @@ switch (command) {
 
         // The detached import already opened its log, redirected output and detached at startup
         // (before this potentially slow resolution) so a parent exit can't truncate it.
+        if (detachedImport is not null) DetachedImportLog.SignalAccepted();
+
         try {
             ImportCommand.ImportRunOutcome? outcome = null;
 

@@ -495,11 +495,15 @@ sealed class SetupImportLane(
     }
 
     /// <summary>The child re-imports every chosen level, so while it runs it is the retry; only a child
-    /// that is not running leaves re-running setup as the remedy.</summary>
-    internal static string RetryLine(BackgroundImportLaunch launch) =>
-        launch.Status is BackgroundImportStatus.Running
-            ? $"  [dim]The background import retries what did not import · log: {Markup.Escape(launch.LogPath ?? "")}[/]"
-            : "  Run [cyan]kcap setup[/] again and choose the same repositories and levels to retry what did not import.";
+    /// that is not running leaves re-running setup as the remedy, and one that never confirmed may be either.</summary>
+    internal static string RetryLine(BackgroundImportLaunch launch) => launch.Status switch {
+        BackgroundImportStatus.Running =>
+            $"  [dim]The background import retries what did not import · log: {Markup.Escape(launch.LogPath ?? "")}[/]",
+        BackgroundImportStatus.Unconfirmed =>
+            $"  [dim]The background import retries what did not import if it is running · log: {Markup.Escape(launch.LogPath ?? "")}. "
+          + "If the log shows it stopped, run kcap setup again and choose the same repositories and levels.[/]",
+        _ => "  Run [cyan]kcap setup[/] again and choose the same repositories and levels to retry what did not import.",
+    };
 
     BackgroundImportLaunch Spawn(string runId, FirstRunImportAnswer answer, DateOnly? since) {
         var plan = new ImportPlan(serverUrl, [
@@ -1993,6 +1997,13 @@ sealed class SetupCommand(
             case BackgroundImportStatus.ExitedZero:
                 AnsiConsole.MarkupLine($"  Background import exited immediately (exit 0) — details in {log}");
                 break;
+            case BackgroundImportStatus.Unconfirmed:
+                AnsiConsole.MarkupLine(
+                    $"  [yellow]![/] Background import started but has not confirmed it is importing · log: {log}. "
+                  + (browser
+                        ? "If the log shows it stopped, run [cyan]kcap setup[/] again and choose the same repositories and levels."
+                        : $"If the log shows it stopped, run [cyan]{Markup.Escape(retry)}[/]."));
+                break;
             case BackgroundImportStatus.Failed:
                 var code = launch.ExitCode is { } c ? $" (exit {c})" : "";
                 AnsiConsole.MarkupLine(
@@ -2739,8 +2750,11 @@ sealed class SetupCommand(
             var subject = $"{repos} repositor{(repos == 1 ? "y" : "ies")} as chosen in the browser "
                         + $"[dim]({Markup.Escape(FirstRunImportWindows.Label(answer.Window))})[/]";
 
-            var running = background is { Status: BackgroundImportStatus.Running };
-            var rest    = running ? $" [dim]· the rest is importing in the background · log: {Markup.Escape(background!.LogPath ?? "")}[/]" : "";
+            var running = background is { Status: BackgroundImportStatus.Running or BackgroundImportStatus.Unconfirmed };
+            var rest    = !running ? ""
+                : background!.Status is BackgroundImportStatus.Running
+                    ? $" [dim]· the rest is importing in the background · log: {Markup.Escape(background.LogPath ?? "")}[/]"
+                    : $" [dim]· the background import for the rest has not confirmed it started · log: {Markup.Escape(background.LogPath ?? "")}[/]";
 
             lines.Add((failed || background is { Status: BackgroundImportStatus.Failed }, running) switch {
                 (true, true)  => $"  [yellow]![/] Partly imported {subject}{rest}",

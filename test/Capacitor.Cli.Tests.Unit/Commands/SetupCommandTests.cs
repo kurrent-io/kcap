@@ -362,6 +362,16 @@ public class SetupCommandTests {
     }
 
     [Test]
+    public async Task BrowserImportSummary_an_unconfirmed_child_is_not_said_to_be_importing() {
+        var text = string.Join("\n", SetupCommand.BrowserImportSummary(
+            ImportAnswer(repos: "kcap"), background: Launch(BackgroundImportStatus.Unconfirmed)));
+
+        await Assert.That(text).Contains("Imported your newest sessions from 1 repository");
+        await Assert.That(text).Contains("has not confirmed it started");
+        await Assert.That(text).DoesNotContain("importing in the background");
+    }
+
+    [Test]
     public async Task BrowserImportSummary_a_partial_run_names_no_remedy_while_the_child_runs() {
         var text = string.Join("\n", SetupCommand.BrowserImportSummary(
             ImportAnswer(repos: "kcap"), failed: true, background: Launch(BackgroundImportStatus.Running)));
