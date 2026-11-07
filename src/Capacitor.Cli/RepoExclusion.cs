@@ -54,15 +54,17 @@ static class RepoExclusion {
     public static bool IsOutsideAllowlist(string? repoKey, IReadOnlyList<string>? allowedRepos)
         => RepoScope.IsOutsideAllowlist(repoKey, allowedRepos);
 
-    /// <summary>Whether the repository the payload names, if any, is this checkout: none, or its own local identity.</summary>
+    /// <summary>Whether the payload names no repository, or names this checkout by the local identity an origin with no owner
+    /// has. A cached local identity for an origin that has since gained an owner does not count.</summary>
     static bool NamesThisCheckout(string body, ConfigRoot config, string cwd) {
         try {
             if (JsonNode.Parse(body)?["repository"] is not JsonObject repository
              || repository["owner"]?.GetValue<string>() is not { } owner
              || repository["repo_name"]?.GetValue<string>() is not { } name) return true;
 
-            return LocalRepository.IsLocal(owner) && LocalRepository.Of(config, cwd) is { } local
-                && string.Equals(local.Owner, owner, StringComparison.Ordinal) && string.Equals(local.Name, name, StringComparison.Ordinal);
+            // An ownerless origin keys by its local identity and its remote's path; an origin with an owner by its path alone.
+            return LocalRepository.IsLocal(owner) && GitRepoKey.ExclusionKeys(cwd, config) is { Count: > 1 } keys
+                && keys.Contains($"{owner}/{name}", StringComparer.Ordinal);
         } catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException) {
             return false;
         }
