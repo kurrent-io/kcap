@@ -4,6 +4,7 @@ using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
 using Microsoft.Extensions.Logging;
@@ -727,7 +728,8 @@ internal partial class AgentOrchestrator {
     }
 
     /// <summary>A hosted agent's hook handing over a source it found no recorder for: a subagent, or a session the agent
-    /// moved to. Refused for anything but a live hosted Claude agent of this daemon, and the hook then starts a watcher.</summary>
+    /// moved to. Refused for anything but a live hosted Claude agent of this daemon and a transcript of that agent's, and
+    /// the hook then starts a watcher, as it does for any source the daemon won't take.</summary>
     public async Task HandleLocalRecordSourceAsync(string payload, Stream stream, CancellationToken ct) {
         RecordSourceDto? source = null;
 
@@ -744,12 +746,42 @@ internal partial class AgentOrchestrator {
 
     async Task<bool> RecordHandedSourceAsync(RecordSourceDto source, CancellationToken ct) {
         if (_recorder is not { Enabled: true } recorder || !IsClaude(source.Vendor)
-         || !_agents.TryGetValue(source.AgentId, out var agent) || agent.IsPrivate || !IsClaude(agent.Vendor)
+         || !_agents.TryGetValue(source.AgentId, out var agent) || agent.IsPrivate || !IsClaude(agent.Vendor) || agent.IsCleanupStarted
          || SessionIds.Canonical(source.SessionId) is not { } session) return false;
+
+        if (RefusalOf(source, agent, session) is { } refusal) {
+            LogHandedSourceRefused(agent.Id, source.TranscriptPath, refusal);
+
+            return false;
+        }
 
         return await recorder.TryRecordAsync(
             new RecordedSource(agent.Id, session, SessionIds.Canonical(source.SubagentId), source.TranscriptPath, "claude", source.Cwd, source.SkipTitle), ct);
     }
+
+    string? RefusalOf(RecordSourceDto source, AgentInstance agent, string session) {
+        var paths = ClaudePathsFor(agent.Account);
+
+        if (HandedTranscript.ProjectOf(source.TranscriptPath, session, source.SubagentId, paths.Projects) is not { } project)
+            return "it is not a transcript of that session under the agent's Claude projects";
+
+        if (_agents.Values.Any(other => other.Id != agent.Id && IsSessionOf(other, session))) return "that session is another agent's";
+
+        if (!IsSessionOf(agent, session) && !IsProjectOf(agent, paths, project)) return "that session is neither the agent's nor in its project";
+
+        if (source.Cwd is { } cwd && !CanonicalPath.IsWithin(cwd, agent.Worktree.Path) && !CanonicalPath.IsWithin(cwd, agent.RepoPath))
+            return "its working directory is outside the agent's checkout";
+
+        return null;
+    }
+
+    static bool IsSessionOf(AgentInstance agent, string session) =>
+        new[] { agent.SessionId, agent.VendorSession, agent.ResumedSessionId }.Any(id => SessionIds.Canonical(id) == session);
+
+    // Claude's own spelling of the directory is what discovery found, and a link in the checkout's path spells it another way.
+    static bool IsProjectOf(AgentInstance agent, ClaudePaths paths, string project) =>
+        new[] { paths.ProjectDir(agent.Worktree.Path), paths.ProjectDir(CanonicalPath.Resolve(agent.Worktree.Path)), Path.GetDirectoryName(agent.TranscriptPath) }
+            .Any(directory => directory is not null && PathComparison.Equal(CanonicalPath.Resolve(directory), project));
 
     /// <summary>A hook's ask for a source's final drain. A hook that stops waiting has still asked, so the drain runs
     /// with nobody left to answer. This daemon's own stop is what ends the wait, and the drain outlives that too.</summary>

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Pty;
@@ -83,6 +84,22 @@ public class AgentOrchestratorRecordingTests {
 
         public string ClaimsDirectory => WatcherPaths.FromEnvironment(Config.ConfigRoot).Directory;
 
+        public string Projects => new ClaudePaths(Config.Home, null).Projects;
+
+        /// <summary>Where Claude keeps a session of the launched agent, or that session's subagent.</summary>
+        public string TranscriptOf(string session, string? subagent) {
+            var parent = Path.Combine(new ClaudePaths(Config.Home, null).ProjectDir(Factory.Context?.Worktree.Path ?? Checkout), $"{session}.jsonl");
+
+            return subagent is null ? parent : ClaudeSubagentFiles.TranscriptPath(parent, subagent);
+        }
+
+        /// <summary>A directory under the projects that is a link to <paramref name="target"/>.</summary>
+        public string Link(string name, string target) {
+            Directory.CreateDirectory(Projects);
+
+            return Directory.CreateSymbolicLink(Path.Combine(Projects, name), target).FullName;
+        }
+
         public string[] ClaimFiles => Directory.Exists(ClaimsDirectory) ? Directory.GetFiles(ClaimsDirectory, "*.claim") : [];
 
         public LaunchAgentCommand Launch(string? resumeSession = null) =>
@@ -154,7 +171,7 @@ public class AgentOrchestratorRecordingTests {
         await using var f = new Fixture(Tmp, new StartingFactory(), profile: ScopedProfile);
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 
-        var reply = await AnswerAsync(stream => f.Orch.HandleLocalRecordSourceAsync(Handed(AgentId), stream, CancellationToken.None));
+        var reply = await HandOverAsync(f, Handed(f));
 
         await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Recording);
     }
@@ -356,8 +373,14 @@ public class AgentOrchestratorRecordingTests {
         return (await FrameCodec.ReadAsync(stream, CancellationToken.None))!;
     }
 
-    static string Handed(string agentId, string session = "fedcba9876543210fedcba9876543210", string? subagent = "sub-1", string transcript = "/agent.jsonl") =>
-        JsonSerializer.Serialize(new RecordSourceDto(agentId, session, subagent, transcript, "claude", null, false), RecordingIpcJsonContext.Default.RecordSourceDto);
+    const string Moved = "fedcba9876543210fedcba9876543210";
+
+    /// <summary>What a hook sends for a subagent of a session in its agent's project, unless it says otherwise.</summary>
+    static string Handed(Fixture f, string agentId = AgentId, string session = Moved, string? subagent = "sub-1", string? transcript = null, string? cwd = null) =>
+        JsonSerializer.Serialize(
+            new RecordSourceDto(agentId, session, subagent, transcript ?? f.TranscriptOf(session, subagent), "claude", cwd, false), RecordingIpcJsonContext.Default.RecordSourceDto);
+
+    static Task<LocalFrame> HandOverAsync(Fixture f, string handed) => AnswerAsync(stream => f.Orch.HandleLocalRecordSourceAsync(handed, stream, CancellationToken.None));
 
     /// <summary>A subagent's hook, or a session the agent moved to: the source starts on the daemon the hook named.</summary>
     [Test]
@@ -365,18 +388,110 @@ public class AgentOrchestratorRecordingTests {
         await using var f = new Fixture(Tmp, new StartingFactory());
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 
-        var reply = await AnswerAsync(stream => f.Orch.HandleLocalRecordSourceAsync(Handed(AgentId), stream, CancellationToken.None));
+        var reply = await HandOverAsync(f, Handed(f));
 
         await Assert.That(reply.Type).IsEqualTo(FrameType.RecordSourceAck);
         await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Recording);
         await Assert.That(f.Claims.Read("fedcba9876543210fedcba9876543210-sub-1")).IsEqualTo(RecorderClaimState.DaemonFresh);
     }
 
+    public enum Forged { OutsideTheProjects, ThroughASymlink, Relative, NotATranscript, AnotherSessionsFile, AnotherSubagentsFile, UnderAnotherSession, AnotherProject }
+
+    /// <summary>The daemon outlives its agent and reads anything its user can, and what it reads goes to the server under
+    /// the session the hook names. Each of these is a file a hook could point it at. A refusal leaves the hook to start a
+    /// watcher, which runs as the user's own process and carries none of this.</summary>
+    [Test]
+    [Arguments(Forged.OutsideTheProjects)]
+    [Arguments(Forged.ThroughASymlink)]
+    [Arguments(Forged.Relative)]
+    [Arguments(Forged.NotATranscript)]
+    [Arguments(Forged.AnotherSessionsFile)]
+    [Arguments(Forged.AnotherSubagentsFile)]
+    [Arguments(Forged.UnderAnotherSession)]
+    [Arguments(Forged.AnotherProject)]
+    public async Task A_transcript_that_is_not_the_agents_is_refused(Forged forged) {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        var outside = Tmp.CreateDir("outside");
+        var handed  = forged switch {
+            Forged.OutsideTheProjects   => Handed(f, subagent: null, transcript: Tmp.CreateFile($"outside/{Moved}.jsonl", "secret")),
+            Forged.ThroughASymlink      => Handed(f, subagent: null, transcript: Path.Combine(f.Link("escape", outside), $"{Moved}.jsonl")),
+            Forged.Relative             => Handed(f, subagent: null, transcript: $"{Moved}.jsonl"),
+            Forged.NotATranscript       => Handed(f, subagent: null, transcript: Path.ChangeExtension(f.TranscriptOf(Moved, null), ".txt")),
+            Forged.AnotherSessionsFile  => Handed(f, subagent: null, transcript: f.TranscriptOf(Resumed, null)),
+            Forged.AnotherSubagentsFile => Handed(f, transcript: f.TranscriptOf(Moved, "sub-2")),
+            Forged.UnderAnotherSession  => Handed(f, transcript: f.TranscriptOf(Resumed, "sub-1")),
+            _                           => Handed(f, subagent: null, transcript: Path.Combine(f.Projects, "-another-project", $"{Moved}.jsonl")),
+        };
+
+        var reply = await HandOverAsync(f, handed);
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
+        await Assert.That(f.ClaimFiles.Any(claim => claim.Contains(Moved))).IsFalse();
+    }
+
+    /// <summary>A project directory Claude spelled its own way still holds the agent's own session.</summary>
+    [Test]
+    public async Task The_agents_own_session_is_taken_from_anywhere_under_the_projects() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        var session = SessionIds.Canonical(f.Factory.Context!.PinnedSessionId)!;
+
+        var reply = await HandOverAsync(f, Handed(f, session: session, subagent: "sub-1", transcript: Path.Combine(f.Projects, "-spelled-its-own-way", session, "subagents", "agent-sub-1.jsonl")));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Recording);
+    }
+
+    [Test]
+    public async Task A_session_of_another_agent_is_refused() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        var taken = SessionIds.Canonical(f.Factory.Context!.PinnedSessionId)!;
+        await f.Orch.HandleLaunchAgentForTest(f.Launch() with { AgentId = "agent-2" });
+
+        var reply = await HandOverAsync(f, Handed(f, agentId: "agent-2", session: taken));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
+    }
+
+    [Test]
+    public async Task A_working_directory_outside_the_agents_checkout_is_refused() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        var reply = await HandOverAsync(f, Handed(f, cwd: Tmp.CreateDir("somewhere-else")));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
+    }
+
+    [Test]
+    public async Task A_working_directory_inside_the_agents_checkout_is_taken() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        var reply = await HandOverAsync(f, Handed(f, cwd: Path.Combine(f.Factory.Context!.Worktree.Path, "src")));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Recording);
+    }
+
+    /// <summary>A late hook of an agent on its way out would start a source no exit will ever finish.</summary>
+    [Test]
+    public async Task A_hook_of_an_agent_in_cleanup_is_refused() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        f.Orch.GetAgentForTest(AgentId)!.CleanupStarted = 1;
+
+        var reply = await HandOverAsync(f, Handed(f));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
+    }
+
     [Test]
     public async Task A_hook_of_no_agent_here_is_refused() {
         await using var f = new Fixture(Tmp, new StartingFactory());
 
-        var reply = await AnswerAsync(stream => f.Orch.HandleLocalRecordSourceAsync(Handed("nobody"), stream, CancellationToken.None));
+        var reply = await HandOverAsync(f, Handed(f, agentId: "nobody"));
 
         await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
         await Assert.That(f.ClaimFiles).IsEmpty();
@@ -387,7 +502,7 @@ public class AgentOrchestratorRecordingTests {
         await using var f = new Fixture(Tmp, new StartingFactory(), on: false);
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 
-        var reply = await AnswerAsync(stream => f.Orch.HandleLocalRecordSourceAsync(Handed(AgentId), stream, CancellationToken.None));
+        var reply = await HandOverAsync(f, Handed(f));
 
         await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
         await Assert.That(f.ClaimFiles).IsEmpty();
