@@ -7,11 +7,28 @@ namespace Capacitor.Cli.Harness.Claude;
 static class ClaudeSessionEndProcess {
     public const string EnvVar = "KCAP_SESSION_END_PROCESS";
 
+    // Read once per process, and cleared as it is read: what the continuation starts would otherwise take this process for
+    // its own.
+    static readonly Lazy<(bool Passed, ProcessIncarnation? Process)> FromHandOff =
+        new(() => Take(() => Environment.GetEnvironmentVariable(EnvVar), () => Environment.SetEnvironmentVariable(EnvVar, null)));
+
     /// <summary>The process the hand-off passed on, or else the Claude process above this one. A value that doesn't read
     /// back is no process: this is the continuation, and the process above it is no longer Claude.</summary>
-    public static ProcessIncarnation? Current() => Environment.GetEnvironmentVariable(EnvVar) is { } passed ? Decode(passed) : Live();
+    public static ProcessIncarnation? Current() => FromHandOff.Value is (true, var process) ? process : Live();
+
+    /// <summary>Takes what the hand-off passed out of the environment, ahead of anything the continuation starts.</summary>
+    public static void TakeFromEnvironment() => _ = FromHandOff.Value;
 
     public static ProcessIncarnation? Live() => ProcessIncarnation.Of(ProcessHelpers.GetCodingAgentPid("claude", allowFallback: false) ?? 0);
+
+    /// <summary>What the hand-off passed, clearing it once read.</summary>
+    internal static (bool Passed, ProcessIncarnation? Process) Take(Func<string?> read, Action clear) {
+        if (read() is not { } passed) return (false, null);
+
+        clear();
+
+        return (true, Decode(passed));
+    }
 
     public static string Encode(ProcessIncarnation process) => $"{process.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture)}:{process.StartToken}";
 

@@ -96,6 +96,26 @@ public class ClaudeSessionEndHandoffTests {
     public async Task A_passed_process_reads_back_only_when_whole(string passed, int pid, string? token) =>
         await Assert.That(ClaudeSessionEndProcess.Decode(passed)).IsEqualTo(token is null ? null : new ProcessIncarnation(pid, token));
 
+    /// <summary>The continuation reads the process once and clears it, so nothing it starts takes that process for its
+    /// own.</summary>
+    [Test]
+    public async Task The_passed_process_is_cleared_once_read() {
+        var cleared = false;
+
+        var taken = ClaudeSessionEndProcess.Take(() => "4242:mac:1:2", () => cleared = true);
+
+        await Assert.That(taken).IsEqualTo((true, (ProcessIncarnation?)new ProcessIncarnation(4242, "mac:1:2")));
+        await Assert.That(cleared).IsTrue();
+    }
+
+    [Test]
+    public async Task Nothing_passed_clears_nothing() {
+        var cleared = false;
+
+        await Assert.That(ClaudeSessionEndProcess.Take(() => null, () => cleared = true)).IsEqualTo((false, (ProcessIncarnation?)null));
+        await Assert.That(cleared).IsFalse();
+    }
+
     [Test]
     public async Task Spawn_pipes_the_hook_payload_to_the_continuation_stdin() {
         Skip.When(OperatingSystem.IsWindows(), "uses /bin/sh to stand in for the continuation");

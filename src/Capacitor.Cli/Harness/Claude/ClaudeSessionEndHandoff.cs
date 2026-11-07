@@ -102,6 +102,8 @@ static class ClaudeSessionEndHandoff {
     /// out of the terminal's session so a closing window cannot SIGHUP it mid-drain.
     /// </summary>
     public static void EnterDetached(string body, ConfigRoot config) {
+        ClaudeSessionEndProcess.TakeFromEnvironment();
+
         TextWriter writer;
 
         try {
