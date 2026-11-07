@@ -431,6 +431,20 @@ public class AgentOrchestratorRecordingTests {
         await Assert.That(DisabledSessions.IsDisabledByPerson(Moved, f.Config.ConfigRoot)).IsTrue();
     }
 
+    /// <summary>The frame comes from any local process, and an id that isn't a session would put the marker's file
+    /// wherever it pointed.</summary>
+    [Test]
+    [Arguments("../escaped")]
+    [Arguments("absolute")]
+    public async Task The_disable_frame_marks_nothing_for_an_id_that_is_not_a_session(string id) {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        var target = id == "absolute" ? Tmp.PathTo("outside-marker") : f.Config.ConfigRoot.Path("escaped");
+
+        await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(id == "absolute" ? target : id, stream, CancellationToken.None));
+
+        await Assert.That(File.Exists(target)).IsFalse();
+    }
+
     /// <summary>From the frame down, as a command reaches it.</summary>
     [Test]
     public async Task The_disable_frame_stops_what_this_daemon_records() {

@@ -817,8 +817,8 @@ internal partial class AgentOrchestrator {
     /// asked, and the stop has already happened.</summary>
     public async Task HandleLocalDisableSessionAsync(string sessionId, Stream stream, CancellationToken ct) {
         // Where this daemon reads it, which a daemon under another config directory doesn't share: a restart would otherwise
-        // pick the session up again.
-        if (SessionIds.Canonical(sessionId) is { } session) {
+        // pick the session up again. The id names a file, and any local process can send the frame.
+        if (Guid.TryParse(sessionId, out var guid) && guid.ToString("N") is var session) {
             try {
                 DisabledSessions.Mark(session, _config.ConfigRoot);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
