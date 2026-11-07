@@ -6,9 +6,11 @@ namespace Capacitor.App.Services.CliAdoption;
 /// <summary>
 /// The bash script one administrator prompt runs as root. It writes its pid to the status file, replaces each link
 /// still holding its original target, reports <see cref="Swapped"/> and waits for one word on the control pipe. On
-/// <see cref="Go"/> it sets every entry aside and checks each against its expected kind and its own marker before
-/// deleting any, so a failed check puts the whole install back. Any other word, end of file or no word in time puts
-/// the links back. After go it finishes even if the app is gone.
+/// <see cref="Go"/> it sets every entry aside and checks each against its expected kind and its own marker,
+/// renaming each that passes to <see cref="AsideRetirement.CheckedAside"/>, before deleting any, so a failed check puts
+/// the whole install back. An aside an earlier run left is deleted if it carries the checked name and checked like a
+/// fresh one otherwise. Any other word, end of file or no word in time puts the links back. After go it finishes even
+/// if the app is gone.
 /// <para>Every path reaches it as a positional argument, never as script text. It creates the status file itself, only
 /// inside a real 0700 folder the app's user owns, and writes only through that descriptor: root must not write through
 /// a path someone else controls. It holds that folder as its working directory and opens both channel files by name
@@ -101,17 +103,28 @@ internal static class PrivilegedSwapScript {
             if [ "$word" != {{Go}} ]; then put_back; say {{Restored}}; exit 0; fi
 
             move_back() {
-                local i=$nentries back=0
+                local i=$nentries back=0 from
                 while [ $i -gt 0 ]; do
                     i=$((i - 1))
-                    [ "${moved[$i]:-}" = 1 ] || continue
-                    if exists "${entries[$i]}" || ! /bin/mv -h -- "${asides[$i]}" "${entries[$i]}"; then
-                        echo "kcap: left ${entries[$i]} at ${asides[$i]}" >&2
+                    case "${moved[$i]:-}" in
+                        1) from=${asides[$i]} ;;
+                        2) from=${asides[$i]}.ok ;;
+                        *) continue ;;
+                    esac
+                    if exists "${entries[$i]}" || ! /bin/mv -h -- "$from" "${entries[$i]}"; then
+                        echo "kcap: left ${entries[$i]} at $from" >&2
                         back=1
                     fi
                 done
                 put_back
                 return $back
+            }
+
+            remove() {
+                if [ -L "$1" ]; then /bin/rm -f -- "$1"
+                elif [ -e "$1" ]; then /bin/rm -rf -- "$1"
+                fi
+                ! exists "$1"
             }
 
             ours() {
@@ -136,16 +149,34 @@ internal static class PrivilegedSwapScript {
 
             i=0
             while [ $i -lt $nentries ]; do
-                if exists "${entries[$i]}"; then
-                    if exists "${asides[$i]}" || ! /bin/mv -h -- "${entries[$i]}" "${asides[$i]}"; then
+                checked="${asides[$i]}.ok"
+                if ! remove "$checked"; then
+                    echo "kcap: could not delete $checked" >&2
+                    move_back && say {{Restored}}; exit 5
+                fi
+                if exists "${asides[$i]}"; then
+                    if exists "${entries[$i]}"; then
+                        echo "kcap: ${asides[$i]} is in the way of ${entries[$i]}" >&2
+                        move_back && say {{Restored}}; exit 5
+                    fi
+                    moved[$i]=1
+                elif exists "${entries[$i]}"; then
+                    if ! /bin/mv -h -- "${entries[$i]}" "${asides[$i]}"; then
                         echo "kcap: could not set ${entries[$i]} aside" >&2
                         move_back && say {{Restored}}; exit 5
                     fi
                     moved[$i]=1
+                fi
+                if [ "${moved[$i]:-}" = 1 ]; then
                     if ! ours "${asides[$i]}" $i; then
                         echo "kcap: ${entries[$i]} is no longer the install that was recorded" >&2
                         move_back && say {{Restored}}; exit 5
                     fi
+                    if exists "$checked" || ! /bin/mv -h -- "${asides[$i]}" "$checked"; then
+                        echo "kcap: could not mark ${asides[$i]} checked" >&2
+                        move_back && say {{Restored}}; exit 5
+                    fi
+                    moved[$i]=2
                 fi
                 i=$((i + 1))
             done
@@ -153,10 +184,7 @@ internal static class PrivilegedSwapScript {
             left=0
             i=0
             while [ $i -lt $nentries ]; do
-                if [ -L "${asides[$i]}" ]; then /bin/rm -f -- "${asides[$i]}"
-                elif [ -e "${asides[$i]}" ]; then /bin/rm -rf -- "${asides[$i]}"
-                fi
-                exists "${asides[$i]}" && left=1
+                [ "${moved[$i]:-}" = 2 ] && ! remove "${asides[$i]}.ok" && left=1
                 i=$((i + 1))
             done
             [ $left = 0 ] || { echo "kcap: part of the install could not be deleted" >&2; exit 6; }

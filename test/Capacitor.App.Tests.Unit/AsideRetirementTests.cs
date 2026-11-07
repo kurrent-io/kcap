@@ -150,6 +150,45 @@ public class AsideRetirementTests {
         await Assert.That(Directory.GetFileSystemEntries(Path.GetDirectoryName(launcher)!)).IsEmpty();
     }
 
+    /// <summary>The privileged helper renames what it checked to the checked name; anything it set aside under the
+    /// planned name it never checked.</summary>
+    [Test]
+    public async Task A_helper_aside_is_deleted_only_once_it_carries_the_checked_name() {
+        var config = Config();
+        var launcher = Package("kcap", "@kurrent/kcap");
+        var platform = Package("kcap-darwin-arm64", "@kurrent/kcap-darwin-arm64");
+        var retirement = new AsideRetirement(config, Record);
+        var checkedAside = AsideRetirement.CheckedAside(retirement.Plan(launcher).Aside);
+        var uncheckedAside = retirement.Plan(platform).Aside;
+        Directory.Move(launcher, checkedAside);
+        Directory.Move(platform, uncheckedAside);
+
+        var unfinished = retirement.FinishInterrupted();
+
+        await Assert.That(unfinished).IsEmpty();
+        await Assert.That(Directory.GetFileSystemEntries(Path.GetDirectoryName(launcher)!)).IsEquivalentTo([platform]);
+        await Assert.That(Names(platform, "@kurrent/kcap-darwin-arm64")).IsTrue();
+        await Assert.That(File.Exists(config.Path(Record))).IsFalse();
+    }
+
+    /// <summary>With the original back, an unchecked helper aside can go nowhere: it waits, recorded, for the helper to
+    /// check it.</summary>
+    [Test]
+    public async Task An_unchecked_helper_aside_whose_original_came_back_is_kept() {
+        var config = Config();
+        var launcher = Package("kcap", "@kurrent/kcap");
+        var retirement = new AsideRetirement(config, Record);
+        var uncheckedAside = retirement.Plan(launcher).Aside;
+        Directory.Move(launcher, uncheckedAside);
+        Package("kcap", "@kurrent/kcap");
+
+        var unfinished = retirement.FinishInterrupted();
+
+        await Assert.That(unfinished).IsEquivalentTo([launcher]);
+        await Assert.That(Directory.Exists(uncheckedAside)).IsTrue();
+        await Assert.That(retirement.HasAside(launcher)).IsTrue();
+    }
+
     [Test]
     public async Task A_planned_entry_that_was_never_renamed_is_left_in_place() {
         var config = Config();

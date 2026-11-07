@@ -598,19 +598,25 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Root)).IsTrue();
     }
 
-    /// <summary>A crash between an aside rename and its deletion leaves both names; the next batch finishes it first.</summary>
+    /// <summary>A crash between an aside rename and its deletion leaves both names; the next batch finishes it first.
+    /// One the helper set aside and never checked may be a tree that replaced the one checked before the prompt, so it
+    /// goes back to its name instead.</summary>
     [Test]
-    public async Task An_interrupted_deletion_is_finished_before_the_batch_runs() {
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_interrupted_deletion_is_finished_before_the_batch_runs(bool helperChecked) {
         var world = new AdoptionWorld(Tmp);
         world.Machine.Evidence = _ => Task.FromResult(new AdoptionEvidence([], [], [], world.LoginPath, null));
         var leftover = Directory.CreateDirectory(Path.Combine(world.Prefix, "old-kcap")).FullName;
         var aside = new AsideRetirement(world.Config, "cli-adoption-retire").Plan(leftover).Aside;
-        Directory.Move(leftover, aside);
+        var setAside = helperChecked ? AsideRetirement.CheckedAside(aside) : aside;
+        Directory.Move(leftover, setAside);
 
         using var launch = world.Launch();
         await world.FirstLookAsync(launch);
 
-        await Assert.That(Directory.Exists(aside)).IsFalse();
+        await Assert.That(Directory.Exists(setAside)).IsFalse();
+        await Assert.That(Directory.Exists(leftover)).IsEqualTo(!helperChecked);
         await Assert.That(File.Exists(world.Config.Path("cli-adoption-retire"))).IsFalse();
     }
 
@@ -987,8 +993,8 @@ public class CliAdoptionCoordinatorTests {
         world.Machine.Alive.Add(Helper);
         (int EvidenceReads, bool AsidesThere)? waiting = null;
         world.Machine.WhileWaiting = () => {
-            waiting = (world.Machine.EvidenceReads, asides.All(a => Directory.Exists(a.Aside)));
-            foreach (var aside in asides) Directory.Delete(aside.Aside, recursive: true);
+            waiting = (world.Machine.EvidenceReads, asides.All(a => Directory.Exists(AsideRetirement.CheckedAside(a.Aside))));
+            foreach (var aside in asides) Directory.Delete(AsideRetirement.CheckedAside(aside.Aside), recursive: true);
         };
 
         using (var launch = world.Launch()) await world.FirstLookAsync(launch);
@@ -1019,7 +1025,7 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Record.Privileged).IsNotNull();
         await Assert.That(world.Admin.Prompts).IsEmpty();
         await Assert.That(world.Explained).IsEmpty();
-        await Assert.That(asides.All(a => Directory.Exists(a.Aside))).IsTrue();
+        await Assert.That(asides.All(a => Directory.Exists(AsideRetirement.CheckedAside(a.Aside)))).IsTrue();
         await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Pending);
         await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo(AdoptionPrivilegedStep.HelperRunning);
     }
@@ -1032,8 +1038,8 @@ public class CliAdoptionCoordinatorTests {
         var world = new AdoptionWorld(Tmp);
         world.RootOwned();
         var asides = world.InterruptedHelper(startToken: null);
-        Directory.Delete(asides[0].Aside, recursive: true);
-        AdoptionWorld.RootOnly(asides[1].Aside);
+        Directory.Delete(AsideRetirement.CheckedAside(asides[0].Aside), recursive: true);
+        AdoptionWorld.RootOnly(AsideRetirement.CheckedAside(asides[1].Aside));
         try {
             using var launch = world.Launch();
             await world.FirstLookAsync(launch);
@@ -1043,7 +1049,7 @@ public class CliAdoptionCoordinatorTests {
             await Assert.That(left.State).IsEqualTo(InstallState.Left);
             await Assert.That(left.Reason).IsEqualTo(LeftReason.DeletionCutShort);
             await Assert.That(world.Record.Privileged).IsNull();
-            await Assert.That(Directory.Exists(asides[1].Aside)).IsTrue();
+            await Assert.That(Directory.Exists(AsideRetirement.CheckedAside(asides[1].Aside))).IsTrue();
             await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
             await Assert.That(world.Notifier.Notified.Single()).Contains(FinishSwitching);
 
@@ -1062,8 +1068,8 @@ public class CliAdoptionCoordinatorTests {
         var world = new AdoptionWorld(Tmp);
         world.RootOwned();
         var asides = world.InterruptedHelper(startToken: null);
-        Directory.Delete(asides[0].Aside, recursive: true);
-        AdoptionWorld.RootOnly(asides[1].Aside);
+        Directory.Delete(AsideRetirement.CheckedAside(asides[0].Aside), recursive: true);
+        AdoptionWorld.RootOnly(AsideRetirement.CheckedAside(asides[1].Aside));
         try {
             using var launch = world.Launch();
             await world.FirstLookAsync(launch);
@@ -1073,7 +1079,7 @@ public class CliAdoptionCoordinatorTests {
             var spec = world.Admin.Specs.Single();
             await Assert.That(spec.Links).IsEmpty();
             await Assert.That(spec.Entries.Single(e => e.Entry.Original == asides[1].Original).Entry.Aside).IsEqualTo(asides[1].Aside);
-            await Assert.That(Path.Exists(asides[1].Aside)).IsFalse();
+            await Assert.That(Path.Exists(AsideRetirement.CheckedAside(asides[1].Aside))).IsFalse();
             await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
             await Assert.That(AdoptionWorld.Offered(launch)).IsFalse();
             await Assert.That(world.Notifier.Notified[^1]).Contains("was removed");

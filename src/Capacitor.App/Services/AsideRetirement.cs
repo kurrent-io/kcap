@@ -6,18 +6,23 @@ namespace Capacitor.App.Services;
 /// <summary>
 /// Deletes a file, link or directory so a crash at any point leaves something the next launch can finish: the
 /// aside name is recorded before the rename, the renamed entry is re-verified and marked so, and only then deleted.
-/// A record naming an aside that never came to exist means the rename never happened.
+/// A record naming an aside that never came to exist means the rename never happened. The privileged helper, which
+/// cannot write the record, marks an aside it re-verified by renaming it to <see cref="CheckedAside"/>.
 /// </summary>
 internal sealed class AsideRetirement(ConfigRoot config, string recordName, Action<string>? step = null) {
     internal const string Renamed = "renamed", Checked = "checked";
-    const string Suffix = ".retired-";
+    const string Suffix = ".retired-", CheckedSuffix = ".ok";
     const string Directory_ = "d", Link = "l", File_ = "f";
 
-    // Planned: only the name is recorded, for whoever renames it (the privileged helper checks its own). Unchecked:
-    // renamed here, not yet re-verified, so what it holds may be a tree that replaced the one checked earlier.
+    // Planned: only the name is recorded, for whoever renames it. Unchecked: renamed here, not yet re-verified, so what
+    // it holds may be a tree that replaced the one checked earlier. A planned aside the helper renamed is unchecked
+    // the same way until it carries the checked name.
     const string PlannedState = "planned", UncheckedState = "unchecked", CheckedState = "checked";
 
     sealed record Planned(string Original, string Aside, string Kind, string State);
+
+    /// <summary>The name the privileged helper gives <paramref name="aside"/> once it has re-verified it.</summary>
+    internal static string CheckedAside(string aside) => aside + CheckedSuffix;
 
     /// <summary>Records the aside name for <paramref name="entry"/> without renaming it.</summary>
     public AsideEntry Plan(string entry) {
@@ -34,6 +39,10 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
     /// <summary>The aside name recorded for <paramref name="entry"/>, recording none.</summary>
     public AsideEntry? Find(string entry) =>
         Recorded(Path.GetFullPath(entry)) is { } planned ? new AsideEntry(planned.Original, planned.Aside) : null;
+
+    /// <summary>Whether something recorded for <paramref name="entry"/> is still set aside, checked or not.</summary>
+    public bool HasAside(string entry) =>
+        Find(entry) is { } aside && (Exists(aside.Aside) || Exists(CheckedAside(aside.Aside)));
 
     /// <summary>Renames, re-verifies with <paramref name="stillOurs"/> and deletes the entry; a tree that fails the
     /// check is moved back and false is returned. An entry already gone counts as retired.</summary>
@@ -62,16 +71,20 @@ internal sealed class AsideRetirement(ConfigRoot config, string recordName, Acti
         return true;
     }
 
-    /// <summary>Deletes every recorded aside that passes the guards, except one renamed here and never re-verified,
-    /// which goes back to its original name for the next retirement to check; records whose rename never happened are
-    /// dropped. Returns the originals whose aside could not be settled: they stay recorded for the next call.</summary>
+    /// <summary>Deletes every recorded aside that passes the guards and was re-verified, here or by the privileged
+    /// helper. One never re-verified goes back to its original name for the next retirement to check; records whose
+    /// rename never happened are dropped. Returns the originals whose aside could not be settled: they stay recorded
+    /// for the next call.</summary>
     public IReadOnlyList<string> FinishInterrupted() {
         var unfinished = new List<string>();
         foreach (var planned in Snapshot()) {
             try {
                 var link = planned.Kind == Link;
+                if (planned.State == PlannedState && CheckedAside(planned.Aside) is var verified
+                        && Exists(verified) && IsOwnAside(planned.Original, verified, link))
+                    DeleteAside(planned.Original, verified, planned.Kind);
                 if (Exists(planned.Aside) && IsOwnAside(planned.Original, planned.Aside, link)) {
-                    if (planned.State != UncheckedState) DeleteAside(planned.Original, planned.Aside, planned.Kind);
+                    if (planned.State == CheckedState) DeleteAside(planned.Original, planned.Aside, planned.Kind);
                     else if (link && SameLink(planned.Original, planned.Aside)) File.Delete(planned.Aside);
                     else if (Exists(planned.Original)) {
                         unfinished.Add(planned.Original);

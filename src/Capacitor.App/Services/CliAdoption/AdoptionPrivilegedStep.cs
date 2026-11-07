@@ -54,7 +54,7 @@ internal sealed class AdoptionPrivilegedStep(
 
         var links   = plan?.Links ?? [];
         var entries = Entries(install);
-        if (links.Count == 0 && !entries.Any(e => Exists(e) || retirement.Find(e) is { } aside && Exists(aside.Aside))) {
+        if (links.Count == 0 && !entries.Any(e => Exists(e) || retirement.HasAside(e))) {
             log("adoption_retired", AdoptionEvent.For(install, "ok", NothingLeft));
             deletion.Switch(install, []);
             return;
@@ -119,7 +119,7 @@ internal sealed class AdoptionPrivilegedStep(
     /// was set aside then is an earlier run's, and needs root all the same.</summary>
     InstallState SettleFromFiles(OtherCliInstall install, bool goSent) {
         var entries = Entries(install);
-        var asides  = entries.Count(e => retirement.Find(e) is { } aside && Exists(aside.Aside));
+        var asides  = entries.Count(retirement.HasAside);
         var present = entries.Count(Exists);
         var goField = ("go_sent", goSent ? "true" : "false");
         if (asides == 0 && present == entries.Count) {

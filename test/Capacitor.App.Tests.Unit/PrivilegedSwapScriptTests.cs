@@ -30,6 +30,7 @@ public class PrivilegedSwapScriptTests {
         foreach (var (entry, _, _, _, _, _) in spec.Entries) {
             await Assert.That(Path.Exists(entry.Original)).IsFalse();
             await Assert.That(Path.Exists(entry.Aside)).IsFalse();
+            await Assert.That(Path.Exists(AsideRetirement.CheckedAside(entry.Aside))).IsFalse();
         }
         await Assert.That(Directory.Exists(install.Scope)).IsTrue();
         await Assert.That(File.Exists(install.Sibling)).IsTrue();
@@ -131,7 +132,8 @@ public class PrivilegedSwapScriptTests {
         await Assert.That(() => PrivilegedSwapScript.Arguments(refused, PrivilegedSwap.CurrentUid())).Throws<ArgumentException>();
     }
 
-    /// <summary>The second package fails its own check after the first passed, so both come back.</summary>
+    /// <summary>The second package fails its own check after the first passed and took the checked name, so both come
+    /// back.</summary>
     [Test]
     [Arguments("marker gone")]
     [Arguments("another version")]
@@ -156,6 +158,7 @@ public class PrivilegedSwapScriptTests {
         foreach (var (entry, _, _, _, _, _) in spec.Entries) {
             await Assert.That(Directory.Exists(entry.Original)).IsTrue();
             await Assert.That(Path.Exists(entry.Aside)).IsFalse();
+            await Assert.That(Path.Exists(AsideRetirement.CheckedAside(entry.Aside))).IsFalse();
         }
         await Assert.That(File.Exists(Path.Combine(spec.Entries[0].Entry.Original, "package.json"))).IsTrue();
         foreach (var link in install.Links) await Assert.That(new FileInfo(link.Path).LinkTarget).IsEqualTo(link.Original);
@@ -299,13 +302,15 @@ public class PrivilegedSwapScriptTests {
         await Assert.That(run.Words()).IsEquivalentTo(["swapped", "deleted"]);
     }
 
+    /// <summary>One an earlier run checked is deleted as it is: it passed every check before it took the checked
+    /// name.</summary>
     [Test]
-    public async Task An_aside_an_earlier_run_left_is_deleted_on_go() {
+    public async Task A_checked_aside_an_earlier_run_left_is_deleted_on_go() {
         var install = PrivilegedNpmInstall.Create(Tmp);
         var spec    = install.Spec(Tmp);
         var left    = spec.Entries[^1].Entry;
-        Directory.Move(left.Original, left.Aside);
-        File.Delete(Path.Combine(left.Aside, "package.json"));
+        Directory.Move(left.Original, AsideRetirement.CheckedAside(left.Aside));
+        File.Delete(Path.Combine(AsideRetirement.CheckedAside(left.Aside), "package.json"));
         await using var run = Run.Start(Tmp, spec);
 
         await run.WaitForAsync("swapped");
@@ -316,7 +321,36 @@ public class PrivilegedSwapScriptTests {
         foreach (var (entry, _, _, _, _, _) in spec.Entries) {
             await Assert.That(Path.Exists(entry.Original)).IsFalse();
             await Assert.That(Path.Exists(entry.Aside)).IsFalse();
+            await Assert.That(Path.Exists(AsideRetirement.CheckedAside(entry.Aside))).IsFalse();
         }
+    }
+
+    /// <summary>One an earlier run set aside and never checked may be a tree that replaced the install while the
+    /// prompt was open: it is checked like a fresh one, and one that fails goes back to its name with the
+    /// rest.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_unchecked_aside_an_earlier_run_left_is_checked_on_go(bool passes) {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        var left    = spec.Entries[^1].Entry;
+        Directory.Move(left.Original, left.Aside);
+        if (!passes) File.WriteAllText(Path.Combine(left.Aside, "package.json"), """{"name":"@kurrent/kcap-darwin-arm64","version":"1.5.0"}""");
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        await run.ExitAsync();
+
+        string[] words = passes ? ["swapped", "deleted"] : ["swapped", "restored"];
+        await Assert.That(run.Words()).IsEquivalentTo(words);
+        foreach (var (entry, _, _, _, _, _) in spec.Entries) {
+            await Assert.That(Path.Exists(entry.Original)).IsEqualTo(!passes);
+            await Assert.That(Path.Exists(entry.Aside)).IsFalse();
+            await Assert.That(Path.Exists(AsideRetirement.CheckedAside(entry.Aside))).IsFalse();
+        }
+        if (!passes) await Assert.That(File.ReadAllText(Path.Combine(left.Original, "package.json"))).Contains("1.5.0");
     }
 
     /// <summary>Root creates the status file, so a folder that is a link, is not 0700 or is not this user's ends the run

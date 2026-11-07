@@ -208,7 +208,7 @@ internal sealed class AdoptionBatch(
     }
 
     bool Gone(OtherCliInstall install) =>
-        !install.OwnedEntries.Any(e => Exists(e) || retirement.Find(e) is { } aside && Exists(aside.Aside));
+        !install.OwnedEntries.Any(e => Exists(e) || retirement.HasAside(e));
 
     // The same PATHs preflight plans from: the login shell's, and each service's that finds a kcap at all.
     bool FindsBundle(AdoptionEvidence evidence) {

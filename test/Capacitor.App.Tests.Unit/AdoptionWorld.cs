@@ -217,7 +217,8 @@ sealed class AdoptionWorld {
     }
 
     /// <summary>What a quit leaves while the helper deletes the first install after go: the record names the helper,
-    /// the link and the service are on the bundle, and both package folders are set aside. Returns the asides.</summary>
+    /// the link and the service are on the bundle, and both package folders are set aside under the name the helper
+    /// gives one it has checked. Returns the asides as planned.</summary>
     public IReadOnlyList<AsideEntry> InterruptedHelper(string? startToken) {
         SwitchedAllButTheFiles();
         new AdoptionRecordStore(Config).Update(r => r with {
@@ -226,7 +227,7 @@ sealed class AdoptionWorld {
 
         var retirement = new AsideRetirement(Config, "cli-adoption-retire");
         var asides = Install.OwnedEntries.Select(retirement.Plan).ToList();
-        foreach (var aside in asides) Directory.Move(aside.Original, aside.Aside);
+        foreach (var aside in asides) Directory.Move(aside.Original, AsideRetirement.CheckedAside(aside.Aside));
         return asides;
     }
 
@@ -389,9 +390,9 @@ sealed class AdoptionWorld {
 
     /// <summary>macOS's administrator prompt and the root helper behind it, run as this user: the helper records its
     /// pid, swaps each link still holding its original target, and asks verify; only a true answer records go, sets
-    /// every entry aside and deletes it. Each spec must be one the real helper would take. <see cref="Answer"/>
-    /// <see cref="PrivilegedResult.Cancelled"/> dismisses the prompt; <see cref="Cut"/> has the helper end without
-    /// reporting its outcome.</summary>
+    /// every entry aside under the name it gives one it checked and deletes it. Each spec must be one the real helper
+    /// would take. <see cref="Answer"/> <see cref="PrivilegedResult.Cancelled"/> dismisses the prompt; <see cref="Cut"/>
+    /// has the helper end without reporting its outcome.</summary>
     internal sealed class Administrator(AdoptionWorld world) : IPrivilegedSwap {
         public const int HelperPid = 4700;
 
@@ -442,16 +443,18 @@ sealed class AdoptionWorld {
             if (!await verify(ct)) return PutBack(swapped);
 
             store.Update(r => r with { Privileged = helper with { GoSent = true } });
-            foreach (var (entry, _, _, _, _, _) in spec.Entries) {
-                if (Path.Exists(entry.Original)) Directory.Move(entry.Original, entry.Aside);
+            var checkedAsides = spec.Entries.Select(e => AsideRetirement.CheckedAside(e.Entry.Aside)).ToList();
+            foreach (var ((entry, _, _, _, _, _), checkedAside) in spec.Entries.Zip(checkedAsides)) {
+                if (Path.Exists(entry.Aside)) Directory.Move(entry.Aside, checkedAside);
+                else if (Path.Exists(entry.Original)) Directory.Move(entry.Original, checkedAside);
             }
             if (Cut == CutShortAt.WithAsidesLeft) {
-                foreach (var (entry, _, _, _, _, _) in spec.Entries) RootOnly(entry.Aside);
+                foreach (var checkedAside in checkedAsides) RootOnly(checkedAside);
                 return PrivilegedResult.CutShort;
             }
-            foreach (var (entry, _, _, _, _, _) in spec.Entries.Where(e => Directory.Exists(e.Entry.Aside))) {
-                SetFolderModes(entry.Aside, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-                Directory.Delete(entry.Aside, recursive: true);
+            foreach (var checkedAside in checkedAsides.Where(Directory.Exists)) {
+                SetFolderModes(checkedAside, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                Directory.Delete(checkedAside, recursive: true);
             }
             return Cut == CutShortAt.AfterDeleting ? PrivilegedResult.CutShort : PrivilegedResult.Deleted;
         }

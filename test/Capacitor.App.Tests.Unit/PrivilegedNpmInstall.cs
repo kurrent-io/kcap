@@ -54,6 +54,7 @@ internal sealed record PrivilegedNpmInstall(string Scope, string Sibling, IReadO
         foreach (var (entry, _, _, _, _, _) in spec.Entries) {
             await Assert.That(File.Exists(Path.Combine(entry.Original, "package.json"))).IsTrue();
             await Assert.That(Path.Exists(entry.Aside)).IsFalse();
+            await Assert.That(Path.Exists(AsideRetirement.CheckedAside(entry.Aside))).IsFalse();
         }
     }
 }
