@@ -20,7 +20,7 @@ public class AdoptionRepointTests {
 
     static readonly MutationRequest Request = new(MutationVerb.Repoint, "default", "https://cap.example.test", "daemon-a");
 
-    static readonly DaemonActivity Idle = new(0, Busy: false);
+    static readonly DaemonActivity Idle = new(0, Busy: false, Quiet: true);
 
     sealed class NoObservation : IDaemonObservation {
         public Task<ObservedEvidence?> ObserveAsync(MutationRequest request, CancellationToken ct) => Task.FromResult<ObservedEvidence?>(null);
@@ -44,11 +44,11 @@ public class AdoptionRepointTests {
 
     static Func<CancellationToken, Task<bool>> Same(Func<bool>? answer = null) => _ => Task.FromResult(answer?.Invoke() ?? true);
 
-    /// <summary>A daemon too old to report <c>Busy</c> reads as busy, so its idle hosted agents keep it from a safe
-    /// point: the switch waits rather than guessing.</summary>
+    /// <summary>Only a report that nothing is mid-work lets the move start: no report, or one that leaves the agents'
+    /// turns unread, waits rather than guessing.</summary>
     [Test]
-    public async Task Activity_busy_or_unknown_never_reaches_the_lane() {
-        foreach (var activity in new DaemonActivity?[] { null, new(0, Busy: true), new(2, Busy: true) }) {
+    public async Task Activity_not_quiet_never_reaches_the_lane() {
+        foreach (var activity in new DaemonActivity?[] { null, new(0, Busy: false), new(2, Busy: true) }) {
             using var expected = Expected();
             var checks = 0;
             var built = Build(() => activity, expected);
@@ -75,6 +75,19 @@ public class AdoptionRepointTests {
         await Assert.That(outcome).IsEqualTo(new MutationOutcome.Refused(AdoptionRepoint.InstallChanged, RecoverySurface.None));
         await Assert.That(built.Cli.VersionCallCount).IsEqualTo(0);
         await Assert.That(built.Cli.RepointFromCalls).IsEmpty();
+    }
+
+    /// <summary>The repoint keeps an agent waiting on its user for the new daemon to resume, so it holds nothing.</summary>
+    [Test]
+    public async Task An_idle_hosted_agent_does_not_hold_the_move() {
+        using var expected = Expected();
+        var built = Build(() => new DaemonActivity(1, Busy: true, Quiet: true), expected, classify: false);
+        await using var _ = built.Lane;
+
+        var outcome = await built.Repoint.RunAsync(Npm, Same(), Request, CancellationToken.None).WaitAsync(Bounded);
+
+        await Assert.That(outcome).IsEqualTo(new MutationOutcome.Succeeded());
+        await Assert.That(built.Cli.RepointFromCalls).IsEquivalentTo([Npm.Root]);
     }
 
     [Test]

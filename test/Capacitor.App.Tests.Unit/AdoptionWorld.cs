@@ -171,7 +171,7 @@ sealed class AdoptionWorld {
     /// <summary>Reports the daemon idle, after a moment of being unattached, and waits for what that ran.</summary>
     public async Task IdleAsync(CliAdoptionCoordinator launch) {
         Activity.OnNext(null);
-        Activity.OnNext(new DaemonActivity(0, Busy: false));
+        Activity.OnNext(new DaemonActivity(0, Busy: false, Quiet: true));
         await SettledAsync(launch);
     }
 
@@ -262,7 +262,7 @@ sealed class AdoptionWorld {
         public Task ReattachAsync() {
             Reattaches++;
             world.Activity.OnNext(null);
-            world.Activity.OnNext(new DaemonActivity(0, Busy: false));
+            world.Activity.OnNext(new DaemonActivity(0, Busy: false, Quiet: true));
             return Task.CompletedTask;
         }
 

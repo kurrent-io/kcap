@@ -4,9 +4,10 @@ using Capacitor.Cli.Core;
 namespace Capacitor.App.Services.CliAdoption;
 
 /// <summary>Moves an install's daemon services onto the bundle's daemon through the mutation lane, and only at a safe
-/// point: the daemon reports nothing in flight, and the install is still the one preflight recorded. A daemon that
-/// cannot say whether it is busy counts as busy. The app's restart recovery is held for the whole request, so it
-/// does not start a daemon of its own while the service is between binaries.</summary>
+/// point: the daemon reports nothing in flight, and the install is still the one preflight recorded. An agent waiting
+/// on its user does not hold the move, since the repoint keeps it for the new daemon to resume; one the daemon does not
+/// report as waiting does. The app's restart recovery is held for the whole request, so it does not start a daemon of
+/// its own while the service is between binaries.</summary>
 internal sealed class AdoptionRepoint(DaemonMutationLane lane, Func<DaemonActivity?> activity, ExpectedDaemonRestart expected) {
     public const string Busy           = "busy";
     public const string InstallChanged = "install_changed";
@@ -18,7 +19,7 @@ internal sealed class AdoptionRepoint(DaemonMutationLane lane, Func<DaemonActivi
     public async Task<MutationOutcome> RunAsync(
             OtherCliInstall install, Func<CancellationToken, Task<bool>> stillSame, MutationRequest request, CancellationToken ct) {
         if (DaemonFolder(install) is not { } folder) return new MutationOutcome.Refused(FolderUnknown, RecoverySurface.None);
-        if (activity() is not { Busy: false }) return new MutationOutcome.Refused(Busy, RecoverySurface.None);
+        if (activity() is not { Quiet: true }) return new MutationOutcome.Refused(Busy, RecoverySurface.None);
         if (!await stillSame(ct).ConfigureAwait(false)) return new MutationOutcome.Refused(InstallChanged, RecoverySurface.None);
 
         using (expected.HoldForUpdate()) {

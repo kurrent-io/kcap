@@ -105,6 +105,25 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Record.MachineSwitched).IsTrue();
     }
 
+    /// <summary>A hosted agent that stays open ends its turn: that alone reruns the batch, since the move keeps the
+    /// agent for the new daemon.</summary>
+    [Test]
+    public async Task A_deferred_daemon_move_runs_when_an_open_agent_finishes_its_turn() {
+        var world = new AdoptionWorld(Tmp);
+        var refused = 0;
+        world.Machine.Repoint = _ => refused++ == 0 ? new MutationOutcome.Refused(AdoptionRepoint.Busy, RecoverySurface.None) : null;
+        world.Activity.OnNext(new DaemonActivity(1, Busy: true));
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+        world.Activity.OnNext(new DaemonActivity(1, Busy: true, Quiet: true));
+        await world.SettledAsync(launch);
+
+        await Assert.That(world.Machine.Repoints).IsEqualTo(2);
+        await Assert.That(world.PlistProgram()).IsEqualTo(world.Bundle.Daemon);
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+    }
+
     [Test]
     public async Task A_deferred_daemon_move_runs_again_on_the_recheck_tick() {
         var world = new AdoptionWorld(Tmp);
@@ -168,12 +187,12 @@ public class CliAdoptionCoordinatorTests {
             await release.Task;
             return world.Found();
         };
-        world.Activity.OnNext(new DaemonActivity(0, Busy: false));
+        world.Activity.OnNext(new DaemonActivity(0, Busy: false, Quiet: true));
         await entered.Task.WaitAsync(AdoptionWorld.Bounded);
         var held = launch.Settled;
 
         world.Activity.OnNext(null);
-        world.Activity.OnNext(new DaemonActivity(0, Busy: false));
+        world.Activity.OnNext(new DaemonActivity(0, Busy: false, Quiet: true));
         launch.Dispose();
         release.SetResult();
         await held.WaitAsync(AdoptionWorld.Bounded);

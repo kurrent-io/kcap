@@ -255,7 +255,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
             _latestActiveAgents = snap.Daemon.ActiveAgents;
             var busy = snap.Busy ?? (snap.Daemon.ActiveAgents > 0 || snap.Pending is { Count: > 0 });
             _latestBusy = busy;
-            SetActivity(new DaemonActivity(snap.Daemon.ActiveAgents, busy));
+            SetActivity(new DaemonActivity(snap.Daemon.ActiveAgents, busy, DaemonActivity.QuietIn(snap)));
             Volatile.Write(ref _latestDaemon, snap.Daemon);
             bool idleNow;
             lock (_lock) idleNow = _mismatchWaitsForIdle && !busy;

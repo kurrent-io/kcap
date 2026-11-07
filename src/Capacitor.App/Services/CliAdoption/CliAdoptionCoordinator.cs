@@ -58,9 +58,9 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
     }
 
     /// <summary>Runs a batch whose daemon move waits on the app's view of its daemon again each time that daemon
-    /// turns idle.</summary>
+    /// turns quiet.</summary>
     public void FollowDaemon(IObservable<DaemonActivity?> activity) {
-        var following = activity.Select(a => a is { Busy: false }).DistinctUntilChanged().Where(idle => idle).Subscribe(_ => Retry());
+        var following = activity.Select(a => a is { Quiet: true }).DistinctUntilChanged().Where(quiet => quiet).Subscribe(_ => Retry());
         lock (_lock) {
             if (!_disposed) {
                 _following?.Dispose();
