@@ -13,7 +13,10 @@ public interface IDaemonRecordingClient {
     /// source. Answers whether it finished; a hook that stops waiting has still asked, and the daemon still finishes.</summary>
     Task<bool> FinishSourceAsync(string key, CancellationToken ct);
 
-    /// <summary>Asks <paramref name="daemonName"/>, which a claim names, to stop every source of a session a person
-    /// disabled, with no final drain.</summary>
+    /// <summary>Every daemon this machine knows of, or null when that can't be read.</summary>
+    IReadOnlyList<string>? Daemons();
+
+    /// <summary>Asks <paramref name="daemonName"/> to stop every source of a session a person disabled, with no final
+    /// drain.</summary>
     Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct);
 }

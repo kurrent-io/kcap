@@ -68,6 +68,10 @@ internal record AgentInstance(
     ) {
     public string?              SessionId         { get; set; }
 
+    /// <summary>Sessions the agent moved to after its launch, as its hooks handed them over: <see cref="SessionId"/> is
+    /// the one discovery found, and a clear leaves it behind.</summary>
+    public ConcurrentDictionary<string, byte> MovedTo { get; } = new(StringComparer.Ordinal);
+
     /// The vendor's resume id, which can be reserved before a transcript confirms SessionId.
     public string?              VendorSession     { get; set; }
 
@@ -6655,7 +6659,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     /// <summary>Every id this agent's session goes by, an ACP agent's being known only to its runtime.</summary>
     static string?[] SessionIdsOf(AgentInstance agent) =>
-        [agent.SessionId, agent.VendorSession, agent.ResumedSessionId, (agent.Runtime as IAcpTranscriptSource)?.AcpSessionId];
+        [agent.SessionId, agent.VendorSession, agent.ResumedSessionId, (agent.Runtime as IAcpTranscriptSource)?.AcpSessionId, .. agent.MovedTo.Keys];
 
     internal static HarnessTitlePost? NativeTitleFor(TitleAgentView agent) =>
         agent is { Vendor: "claude", TranscriptPath: { } path } && ClaudeNativeTitle.TryExtractWithKind(path) is { } title

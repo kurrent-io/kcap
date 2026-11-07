@@ -26,9 +26,9 @@ This will:
 2. Prevent all future hook events from being sent for this session
 3. Delete all session data from the server (event streams and read models)
 
-If the command exits 1 it could not promise the data is gone. Tell the user what it printed. Running it again won't confirm it.
+If the command exits 1, something stayed unconfirmed. Tell the user what it printed. Running it again asks any daemon that didn't answer, but can't take back a send that already landed.
 
-If it says the agent is still running, tell the user: its live output keeps reaching the server until the agent stops.
+If it says the agent is still running, tell the user: its live output and anything it sends through kcap's tools keep reaching the server until the agent stops.
 
 ## Requirements
 

@@ -327,7 +327,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var session = SessionIds.Canonical(sessionId);
         var held    = _sources.Values.Where(tracked => SessionIds.Canonical(tracked.Source.SessionId) == session).ToArray();
 
-        if (session is null || held.Length == 0) return RecordingDisable.NotHeld;
+        if (session is null) return RecordingDisable.NotHeld;
+        if (held.Length == 0) return await SettledAsync(session, ct);
 
         // Under the lock a source starts under, so each of these is running by now or never will be.
         lock (_starting) {
@@ -353,6 +354,20 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             await Task.WhenAll(ended).WaitAsync(DisableBound, _time, ct);
 
             return await silenced ? RecordingDisable.Stopped : RecordingDisable.SendInFlight;
+        } catch (TimeoutException) {
+            return ended.All(task => task == silenced || task.IsCompleted) ? RecordingDisable.SendInFlight : RecordingDisable.StillStopping;
+        }
+    }
+
+    /// <summary>A later run of the command, with nothing left here to stop: what an earlier one left on its way has settled,
+    /// however it did, by the time this answers <see cref="RecordingDisable.NotHeld"/>, so the deletion after it covers it.</summary>
+    async Task<RecordingDisable> SettledAsync(string session, CancellationToken ct) {
+        if (!_host.IsValueCreated) return RecordingDisable.NotHeld;
+
+        try {
+            await _transport!.SilenceAsync(session).WaitAsync(DisableBound, _time, ct);
+
+            return RecordingDisable.NotHeld;
         } catch (TimeoutException) {
             return RecordingDisable.SendInFlight;
         }

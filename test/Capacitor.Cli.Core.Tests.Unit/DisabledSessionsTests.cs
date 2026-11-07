@@ -39,11 +39,11 @@ public class DisabledSessionsTests {
     [Test]
     public async Task Marking_again_keeps_what_an_earlier_disable_recorded() {
         DisabledSessions.Mark(Session, Config.Root);
-        DisabledSessions.MarkUnconfirmed(Session, Config.Root);
+        DisabledSessions.Owe(Session, ["daemon-a"], Config.Root);
 
         DisabledSessions.Mark(Session, Config.Root);
 
-        await Assert.That(DisabledSessions.IsUnconfirmed(Session, Config.Root)).IsTrue();
+        await Assert.That(DisabledSessions.Owed(Session, Config.Root)).IsEquivalentTo(new[] { "daemon-a" });
     }
 
     /// <summary>A spool keeps the spelling of the hook that wrote it, and the person's marker has the canonical one.</summary>

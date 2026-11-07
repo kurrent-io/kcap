@@ -15,8 +15,6 @@ namespace Capacitor.Cli.Core;
 /// kinds to the person's directory, and reading such a marker as a person's errs towards keeping a session quiet.</para>
 /// </summary>
 public static class DisabledSessions {
-    const string Unconfirmed = "unconfirmed";
-
     static string GetDisabledDir(ConfigRoot config) => config.Path("disabled");
     static string GetExcludedDir(ConfigRoot config) => config.Path("excluded");
 
@@ -54,16 +52,22 @@ public static class DisabledSessions {
         }
     }
 
-    /// <summary>Records that a disable couldn't say recording stopped. Its claims are gone by then, so a later run has
-    /// nobody to ask, and without this it would read as clean with nothing behind it.</summary>
-    public static void MarkUnconfirmed(string sessionId, ConfigRoot config) =>
-        File.WriteAllText(Path.Combine(GetDisabledDir(config), sessionId), Unconfirmed);
+    /// <summary>Records the daemons a disable left unconfirmed, whose claims are gone by the next run. A marker written by
+    /// any earlier build is empty, so it owes nothing.</summary>
+    public static void Owe(string sessionId, IEnumerable<string> daemons, ConfigRoot config) =>
+        File.WriteAllLines(Path.Combine(GetDisabledDir(config), sessionId), daemons);
 
-    public static bool IsUnconfirmed(string sessionId, ConfigRoot config) {
+    /// <summary>The name of an owing daemon a claim couldn't name, which can't ever be asked.</summary>
+    public const string Nobody = "?";
+
+    /// <summary>The daemons an earlier disable couldn't get an answer from.</summary>
+    public static IReadOnlyList<string> Owed(string sessionId, ConfigRoot config) {
         try {
-            return File.ReadAllText(Path.Combine(GetDisabledDir(config), sessionId)) == Unconfirmed;
+            return File.ReadAllLines(Path.Combine(GetDisabledDir(config), sessionId));
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return false;
+            return [];
         }
     }
+
+    public static void ClearOwed(string sessionId, ConfigRoot config) => File.WriteAllText(Path.Combine(GetDisabledDir(config), sessionId), "");
 }

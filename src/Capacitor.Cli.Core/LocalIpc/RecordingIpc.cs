@@ -24,6 +24,9 @@ public static class RecordingIpc {
     /// <summary>The daemon sends nothing more of the session, and something it sent before that has no answer yet.</summary>
     public const string SendInFlight = "send_in_flight";
 
+    /// <summary>A source of the session was told to stop and hadn't ended when the daemon stopped waiting.</summary>
+    public const string StillStopping = "still_stopping";
+
     /// <summary>The daemon's server hasn't said whether it can stop a source, so nothing is decided about this one.</summary>
     public const string NotYet = "not_yet";
 
@@ -60,24 +63,30 @@ public static class RecordingIpc {
         }
     }
 
-    /// <summary>Stops every source of a session a person disabled, with no final drain, on the daemon holding them. A
-    /// daemon too old for the frame has said nothing about what it is doing, so it answers as one that can't be reached.</summary>
+    /// <summary>Stops every source of a session a person disabled, with no final drain, on the daemon holding them. One that
+    /// takes the connection and says nothing it can read is silent. A daemon too old for the frame records nothing this
+    /// command could stop, so it answers as one with no socket.</summary>
     public static async Task<RecordingDisableAnswer> DisableAsync(DaemonStore store, string daemonName, string sessionId, CancellationToken ct) {
         try {
-            if (await CapabilitiesAsync(store, daemonName, ct) is not { } capabilities || !capabilities.Contains(DisableCapability)) return new(RecordingDisable.Unanswered);
+            if (await CapabilitiesAsync(store, daemonName, ct) is not { } capabilities) return new(RecordingDisable.Silent);
+            if (!capabilities.Contains(DisableCapability)) return new(RecordingDisable.NoSocket);
 
             if (await ExchangeAsync(store, daemonName, LocalFrame.DisableSession(sessionId), ct) is not { Type: FrameType.DisableSessionAck, Text: var json }
              || JsonSerializer.Deserialize(json, RecordingIpcJsonContext.Default.DisableSessionAckDto) is not { } ack)
-                return new(RecordingDisable.Unanswered);
+                return new(RecordingDisable.Silent);
 
             return ack.Status switch {
-                Stopped      => new(RecordingDisable.Stopped, ack.AgentLive, ack.Server),
-                SendInFlight => new(RecordingDisable.SendInFlight, ack.AgentLive, ack.Server),
-                NotHeld      => new(RecordingDisable.NotHeld, ack.AgentLive, ack.Server),
-                _            => new(RecordingDisable.Unanswered),
+                Stopped       => new(RecordingDisable.Stopped, ack.AgentLive, ack.Server),
+                SendInFlight  => new(RecordingDisable.SendInFlight, ack.AgentLive, ack.Server),
+                StillStopping => new(RecordingDisable.StillStopping, ack.AgentLive, ack.Server),
+                NotHeld       => new(RecordingDisable.NotHeld, ack.AgentLive, ack.Server),
+                _             => new(RecordingDisable.Silent),
             };
+        } catch (SocketException) {
+            // Only the connect throws this: nothing listens on the socket.
+            return new(RecordingDisable.NoSocket);
         } catch (Exception ex) when (IsNoAnswer(ex)) {
-            return new(RecordingDisable.Unanswered);
+            return new(RecordingDisable.Silent);
         }
     }
 

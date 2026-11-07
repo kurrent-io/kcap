@@ -147,6 +147,7 @@ public class RecordingIpcTests {
     [Arguments(RecordingIpc.Stopped, RecordingDisable.Stopped)]
     [Arguments(RecordingIpc.SendInFlight, RecordingDisable.SendInFlight)]
     [Arguments(RecordingIpc.NotHeld, RecordingDisable.NotHeld)]
+    [Arguments(RecordingIpc.StillStopping, RecordingDisable.StillStopping)]
     public async Task A_disable_reads_the_daemons_answer(string answer, RecordingDisable read) {
         await using var daemon = Daemon(RecordingIpc.DisableCapability);
         daemon.Answer = Ack(answer);
@@ -164,15 +165,16 @@ public class RecordingIpcTests {
         await Assert.That(await Disable()).IsEqualTo(new RecordingDisableAnswer(RecordingDisable.NotHeld, AgentLive: true, Server: "https://other.example"));
     }
 
-    /// <summary>The command tells a person what this says, so an answer it can't read says nothing.</summary>
+    /// <summary>The command tells a person what this says, so an answer it can't read says nothing, from a daemon that is
+    /// there.</summary>
     [Test]
     [Arguments("not json")]
     [Arguments("""{"status":"an_answer_from_a_newer_daemon","agent_live":false,"server":null}""")]
-    public async Task A_disable_answer_it_does_not_know_is_no_answer(string answer) {
+    public async Task A_disable_answer_it_does_not_know_is_silence(string answer) {
         await using var daemon = Daemon(RecordingIpc.DisableCapability);
         daemon.Answer = answer;
 
-        await Assert.That((await Disable()).Outcome).IsEqualTo(RecordingDisable.Unanswered);
+        await Assert.That((await Disable()).Outcome).IsEqualTo(RecordingDisable.Silent);
     }
 
     [Test]
@@ -180,16 +182,27 @@ public class RecordingIpcTests {
         await using var daemon = Daemon(RecordingIpc.Capability);
         daemon.Answer = Ack(RecordingIpc.Stopped);
 
-        await Assert.That((await Disable()).Outcome).IsEqualTo(RecordingDisable.Unanswered);
+        await Assert.That((await Disable()).Outcome).IsEqualTo(RecordingDisable.NoSocket);
         await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.Hello]);
     }
 
     [Test]
-    public async Task No_daemon_listening_is_no_answer_to_a_disable() =>
-        await Assert.That((await Disable()).Outcome).IsEqualTo(RecordingDisable.Unanswered);
+    public async Task No_daemon_listening_is_no_daemon_to_a_disable() =>
+        await Assert.That((await Disable()).Outcome).IsEqualTo(RecordingDisable.NoSocket);
 
+    /// <summary>A daemon that died leaves its socket file behind, and nothing answers on it.</summary>
     [Test]
-    public async Task A_disable_cut_short_is_no_answer() {
+    public async Task A_socket_nobody_listens_on_is_no_daemon_to_a_disable() {
+        using (var dead = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.Unix, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Unspecified)) {
+            dead.Bind(new System.Net.Sockets.UnixDomainSocketEndPoint(Daemons.Store.SocketPath(DaemonName)));
+        }
+
+        await Assert.That((await Disable()).Outcome).IsEqualTo(RecordingDisable.NoSocket);
+    }
+
+    /// <summary>One that took the connection and holds the frame may be running what it was asked to stop.</summary>
+    [Test]
+    public async Task A_daemon_that_never_answers_is_silent() {
         await using var daemon = Daemon(RecordingIpc.DisableCapability);
         using var cts = new CancellationTokenSource();
 
@@ -197,6 +210,7 @@ public class RecordingIpcTests {
         await daemon.Asked.WithinDeadlineAsync("the frame to reach the daemon");
         await cts.CancelAsync();
 
-        await Assert.That((await disable).Outcome).IsEqualTo(RecordingDisable.Unanswered);
+        await Assert.That((await disable).Outcome).IsEqualTo(RecordingDisable.Silent);
     }
+
 }

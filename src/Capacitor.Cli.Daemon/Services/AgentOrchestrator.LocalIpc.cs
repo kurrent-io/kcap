@@ -752,7 +752,11 @@ internal partial class AgentOrchestrator {
 
         // A source held here stays this daemon's whatever its server last said, and a hook told otherwise would take its
         // claim and start a second recorder. Short of that, no answer from the server decides nothing.
-        if (recorder.Holds(handed.Key)) return RecordingIpc.Recording;
+        if (recorder.Holds(handed.Key)) {
+            if (_agents.TryGetValue(source.AgentId, out var holder)) holder.MovedTo.TryAdd(session, 0);
+
+            return RecordingIpc.Recording;
+        }
         if (recorder.Undecided) return RecordingIpc.NotYet;
 
         if (!recorder.Enabled || !_agents.TryGetValue(source.AgentId, out var agent) || agent.IsPrivate || !IsClaude(agent.Vendor) || agent.IsCleanupStarted) return RecordingIpc.Refused;
@@ -764,7 +768,11 @@ internal partial class AgentOrchestrator {
 
         if (RefusalOf(source, agent, session, paths, transcript.Project) is { } refusal) return Disown(agent, source, refusal);
 
-        return await recorder.TryRecordAsync(handed with { TranscriptPath = transcript.Path }, ct) ? RecordingIpc.Recording : RecordingIpc.Refused;
+        if (!await recorder.TryRecordAsync(handed with { TranscriptPath = transcript.Path }, ct)) return RecordingIpc.Refused;
+
+        agent.MovedTo.TryAdd(session, 0);
+
+        return RecordingIpc.Recording;
     }
 
     string Disown(AgentInstance agent, RecordSourceDto source, string refusal) {
@@ -808,12 +816,23 @@ internal partial class AgentOrchestrator {
     /// server's command runs on, and the recorder answers within its own bound. A command that stops waiting has still
     /// asked, and the stop has already happened.</summary>
     public async Task HandleLocalDisableSessionAsync(string sessionId, Stream stream, CancellationToken ct) {
+        // Where this daemon reads it, which a daemon under another config directory doesn't share: a restart would otherwise
+        // pick the session up again.
+        if (SessionIds.Canonical(sessionId) is { } session) {
+            try {
+                DisabledSessions.Mark(session, _config.ConfigRoot);
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                LogDisableMarkFailed(ex, session);
+            }
+        }
+
         var outcome = _recorder is { } recorder ? await recorder.DisableSessionAsync(sessionId, ct) : RecordingDisable.NotHeld;
 
         var answer = new DisableSessionAckDto(outcome switch {
-            RecordingDisable.Stopped      => RecordingIpc.Stopped,
-            RecordingDisable.SendInFlight => RecordingIpc.SendInFlight,
-            _                             => RecordingIpc.NotHeld,
+            RecordingDisable.Stopped       => RecordingIpc.Stopped,
+            RecordingDisable.SendInFlight  => RecordingIpc.SendInFlight,
+            RecordingDisable.StillStopping => RecordingIpc.StillStopping,
+            _                              => RecordingIpc.NotHeld,
         }, HostsLiveOutput(sessionId), _config.ServerUrl);
 
         try {
@@ -1041,4 +1060,7 @@ internal partial class AgentOrchestrator {
             agent.CurrentRows = r;
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Disable: session {SessionId} could not be marked where this daemon reads it")]
+    partial void LogDisableMarkFailed(Exception ex, string sessionId);
 }

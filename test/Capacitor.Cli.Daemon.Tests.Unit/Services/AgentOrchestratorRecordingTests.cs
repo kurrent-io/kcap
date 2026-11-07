@@ -230,11 +230,11 @@ public class AgentOrchestratorRecordingTests {
         var titles = new CountingTitles();
         f.Orch.TitleServerForTest = titles;
         var agent = f.Orch.SeedAgentForTest("titled");
-        agent.SessionId = Moved;
+        agent.SessionId = Own;
 
-        await Assert.That(f.Orch.SnapshotAgentsForTitles().Single(view => view.Id == agent.Id).SessionId).IsEqualTo(Moved);
+        await Assert.That(f.Orch.SnapshotAgentsForTitles().Single(view => view.Id == agent.Id).SessionId).IsEqualTo(Own);
 
-        DisabledSessions.Mark(Moved, f.Config.ConfigRoot);
+        DisabledSessions.Mark(Own, f.Config.ConfigRoot);
 
         await Assert.That(f.Orch.SnapshotAgentsForTitles().Single(view => view.Id == agent.Id).SessionId).IsNull();
 
@@ -253,9 +253,9 @@ public class AgentOrchestratorRecordingTests {
         var titles = new CountingTitles();
         f.Orch.TitleServerForTest = titles;
         var agent = f.Orch.SeedAgentForTest("titled", vendor: "claude");
-        agent.SessionId      = Moved;
+        agent.SessionId      = Own;
         agent.TranscriptPath = Tmp.CreateFile("titled.jsonl", """{"type":"custom-title","customTitle":"Mine","sessionId":"s"}""" + "\n");
-        if (disabled) titles.OnRead = () => DisabledSessions.Mark(Moved, f.Config.ConfigRoot);
+        if (disabled) titles.OnRead = () => DisabledSessions.Mark(Own, f.Config.ConfigRoot);
 
         await f.Orch.PublishTitleLoopForTest().TickAsync(CancellationToken.None);
 
@@ -267,11 +267,11 @@ public class AgentOrchestratorRecordingTests {
     public async Task A_title_generated_ahead_of_a_disable_is_not_sent() {
         await using var f = new Fixture(Tmp, new StartingFactory());
 
-        await Assert.That(await f.Orch.PostGeneratedTitleAsync(Moved, "Before", CancellationToken.None)).IsTrue();
+        await Assert.That(await f.Orch.PostGeneratedTitleAsync(Own, "Before", CancellationToken.None)).IsTrue();
 
-        DisabledSessions.Mark(Moved, f.Config.ConfigRoot);
+        DisabledSessions.Mark(Own, f.Config.ConfigRoot);
 
-        await Assert.That(await f.Orch.PostGeneratedTitleAsync(Moved, "After", CancellationToken.None)).IsFalse();
+        await Assert.That(await f.Orch.PostGeneratedTitleAsync(Own, "After", CancellationToken.None)).IsFalse();
         await Assert.That(f.Server.UpdatedTitles).IsEquivalentTo(new[] { "Before" });
     }
 
@@ -299,17 +299,17 @@ public class AgentOrchestratorRecordingTests {
         await using var f = new Fixture(Tmp, new StartingFactory());
         var pty   = new ScriptedPtyProcess();
         var agent = f.Orch.SeedAgentForTest("live", pty: pty);
-        agent.SessionId = Moved;
+        agent.SessionId = Own;
         var loop = f.Orch.ReadAgentOutputForTest(agent);
         await WaitHarness.PollUntilAsync(() => agent.CloudSink is not null);
 
-        var live  = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        var live  = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Own, stream, CancellationToken.None)));
         var other = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Resumed, stream, CancellationToken.None)));
 
         pty.Exit();
         await loop.WithinDeadlineAsync("the read loop");
 
-        var ended = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        var ended = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Own, stream, CancellationToken.None)));
 
         await Assert.That(live.AgentLive).IsTrue();
         await Assert.That(other.AgentLive).IsFalse();
@@ -321,10 +321,10 @@ public class AgentOrchestratorRecordingTests {
     [Test]
     public async Task The_disable_frame_says_when_an_acp_agent_keeps_sending() {
         await using var f = new Fixture(Tmp, new StartingFactory());
-        var agent = f.Orch.SeedAgentForTest("acp", runtime: new FakeAcpRuntime { AcpSessionId = Moved });
+        var agent = f.Orch.SeedAgentForTest("acp", runtime: new FakeAcpRuntime { AcpSessionId = Own });
         AgentOrchestratorHarness.BindTranscript(agent);
 
-        var live  = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        var live  = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Own, stream, CancellationToken.None)));
         var other = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Resumed, stream, CancellationToken.None)));
 
         await Assert.That(live.AgentLive).IsTrue();
@@ -336,9 +336,9 @@ public class AgentOrchestratorRecordingTests {
     [Test]
     public async Task An_acp_agent_not_bound_yet_counts_as_sending() {
         await using var f = new Fixture(Tmp, new StartingFactory());
-        f.Orch.SeedAgentForTest("acp", runtime: new FakeAcpRuntime { AcpSessionId = Moved });
+        f.Orch.SeedAgentForTest("acp", runtime: new FakeAcpRuntime { AcpSessionId = Own });
 
-        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Own, stream, CancellationToken.None)));
 
         await Assert.That(ack.AgentLive).IsTrue();
     }
@@ -347,11 +347,11 @@ public class AgentOrchestratorRecordingTests {
     [Test]
     public async Task An_acp_agent_being_torn_down_is_not_said_to_be_live() {
         await using var f = new Fixture(Tmp, new StartingFactory());
-        var agent = f.Orch.SeedAgentForTest("acp", runtime: new FakeAcpRuntime { AcpSessionId = Moved });
+        var agent = f.Orch.SeedAgentForTest("acp", runtime: new FakeAcpRuntime { AcpSessionId = Own });
         AgentOrchestratorHarness.BindTranscript(agent);
         agent.CleanupStarted = 1;
 
-        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Own, stream, CancellationToken.None)));
 
         await Assert.That(ack.AgentLive).IsFalse();
     }
@@ -359,9 +359,9 @@ public class AgentOrchestratorRecordingTests {
     [Test]
     public async Task A_private_acp_agent_has_nothing_to_mention() {
         await using var f = new Fixture(Tmp, new StartingFactory());
-        f.Orch.SeedAgentForTest("acp", isPrivate: true, runtime: new FakeAcpRuntime { AcpSessionId = Moved });
+        f.Orch.SeedAgentForTest("acp", isPrivate: true, runtime: new FakeAcpRuntime { AcpSessionId = Own });
 
-        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Own, stream, CancellationToken.None)));
 
         await Assert.That(ack.AgentLive).IsFalse();
     }
@@ -371,10 +371,10 @@ public class AgentOrchestratorRecordingTests {
         await using var f = new Fixture(Tmp, new StartingFactory());
         var pty   = new ScriptedPtyProcess();
         var agent = f.Orch.SeedAgentForTest("private", isPrivate: true, pty: pty);
-        agent.SessionId = Moved;
+        agent.SessionId = Own;
         var loop = f.Orch.ReadAgentOutputForTest(agent);
 
-        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Own, stream, CancellationToken.None)));
 
         pty.Exit();
         await loop.WithinDeadlineAsync("the read loop");
@@ -389,16 +389,46 @@ public class AgentOrchestratorRecordingTests {
         await using var f = new Fixture(Tmp, new StartingFactory(), on: false);
         var pty   = new ScriptedPtyProcess();
         var agent = f.Orch.SeedAgentForTest("live", pty: pty);
-        agent.SessionId = Moved;
+        agent.SessionId = Own;
         var loop = f.Orch.ReadAgentOutputForTest(agent);
         await WaitHarness.PollUntilAsync(() => agent.CloudSink is not null);
 
-        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Own, stream, CancellationToken.None)));
 
         pty.Exit();
         await loop.WithinDeadlineAsync("the read loop");
 
         await Assert.That(ack).IsEqualTo(new DisableSessionAckDto(RecordingIpc.NotHeld, true, f.Config.ServerUrl));
+    }
+
+    /// <summary>After a clear the agent runs a session it never launched with, which only its hook's hand-over tells this
+    /// daemon. Both what the command is told and the end the agent's exit would send turn on knowing it.</summary>
+    [Test]
+    public async Task A_session_the_agent_moved_to_is_answered_for_and_gets_no_end() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        var agent = f.Orch.GetAgentForTest(AgentId)!;
+        await WaitHarness.PollUntilAsync(() => agent.CloudSink is not null);
+
+        await Assert.That((await HandOverAsync(f, Handed(f, subagent: null))).Text).IsEqualTo(RecordingIpc.Recording);
+
+        var ack = AckOf(await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None)));
+        f.Factory.Runtime!.ExitGate.SetResult();
+        await WaitHarness.PollUntilAsync(() => f.Orch.SnapshotAgentsForTitles().Count == 0);
+
+        await Assert.That(ack.AgentLive).IsTrue();
+        await Assert.That(f.Server.EndSessionReasons).IsEmpty();
+    }
+
+    /// <summary>A daemon of another config directory reads its own markers, and a restart would otherwise pick up what it
+    /// was just told to stop.</summary>
+    [Test]
+    public async Task The_disable_frame_marks_the_session_where_this_daemon_reads_it() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+
+        await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(Moved, stream, CancellationToken.None));
+
+        await Assert.That(DisabledSessions.IsDisabledByPerson(Moved, f.Config.ConfigRoot)).IsTrue();
     }
 
     /// <summary>From the frame down, as a command reaches it.</summary>
@@ -802,6 +832,9 @@ public class AgentOrchestratorRecordingTests {
     }
 
     const string Moved = "fedcba9876543210fedcba9876543210";
+
+    /// <summary>A session an agent runs from the start, as discovery finds it.</summary>
+    const string Own = "aaaaaaaabbbbccccddddeeeeeeeeeeee";
 
     /// <summary>What a hook sends for a subagent of a session in its agent's project, unless it says otherwise.</summary>
     static string Handed(Fixture f, string agentId = AgentId, string session = Moved, string? subagent = "sub-1", string? transcript = null, string? cwd = null) =>

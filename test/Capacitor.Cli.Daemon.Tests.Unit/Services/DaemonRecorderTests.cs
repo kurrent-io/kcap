@@ -800,7 +800,7 @@ public class DaemonRecorderTests {
         await WaitHarness.PollUntilAsync(() => Claims.Read(source.Key) is RecorderClaimState.None);
         time.Advance(DaemonRecorder.DisableBound);
 
-        await Assert.That(await disable.WithinDeadlineAsync("the answer")).IsEqualTo(RecordingDisable.SendInFlight);
+        await Assert.That(await disable.WithinDeadlineAsync("the answer")).IsEqualTo(RecordingDisable.StillStopping);
         await Assert.That(List.Load()).IsEmpty();
 
         // What comes for it next doesn't wait on a source that may never move.

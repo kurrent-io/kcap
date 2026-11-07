@@ -268,4 +268,34 @@ public class DaemonRecorderHubTests {
         await Assert.That(await disable.WithinDeadlineAsync("the disable")).IsEqualTo(RecordingDisable.SendInFlight);
         release.SetResult();
     }
+
+    /// <summary>The next run of the command has nothing left to stop, and only whether that batch has settled tells it
+    /// whether the first run's doubt still stands.</summary>
+    [Test]
+    public async Task A_later_disable_says_whether_what_was_sent_has_settled() {
+        var             time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var hub  = await RecordingHubHost.StartAsync();
+        await using var main = new ServerConnection(DaemonConfigFor(hub), new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
+        await using var recorder = DaemonRecorder.Compose(
+            DaemonConfigFor(hub), new CapacitorServer(hub.Url, Config.Root, Resolutions.None(Config.Root)), main, new FixedCapacitorHttpClient(),
+            TestHarnesses.Under(Home), NullLoggerFactory.Instance, time);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.BatchHold = _ => release.Task;
+        var source = new RecordedSource("agent-1", SessionA, null, Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "claude", null, true);
+
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await hub.WaitForAsync(h => h.Calls.Contains("batch 0"), "the batch to reach the server");
+        var first = recorder.DisableSessionAsync(SessionA, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+        time.Advance(DaemonRecorder.DisableBound);
+        await first.WithinDeadlineAsync("the first disable");
+
+        var unsettled = recorder.DisableSessionAsync(SessionA, CancellationToken.None);
+        time.Advance(DaemonRecorder.DisableBound);
+        var stillOnItsWay = await unsettled.WithinDeadlineAsync("the second disable");
+        release.SetResult();
+        await WaitHarness.PollUntilAsync(() => recorder.DisableSessionAsync(SessionA, CancellationToken.None).Result is RecordingDisable.NotHeld);
+
+        await Assert.That(stillOnItsWay).IsEqualTo(RecordingDisable.SendInFlight);
+    }
 }

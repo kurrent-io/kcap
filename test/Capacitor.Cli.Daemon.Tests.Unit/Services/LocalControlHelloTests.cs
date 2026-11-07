@@ -65,6 +65,7 @@ public class LocalControlHelloTests {
             ServerUrl    = "http://127.0.0.1:1",
             Store        = daemons.Store,
             WorktreeRoot = daemons.PathTo("worktrees"),
+            ConfigRoot   = Config.Root,
         };
         var consentIpc  = new LaunchConsentIpc(broker, store, config, NullLogger<LaunchConsentIpc>.Instance);
 

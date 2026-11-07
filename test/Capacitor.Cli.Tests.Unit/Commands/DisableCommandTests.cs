@@ -44,7 +44,15 @@ public class DisableCommandTests : IDisposable {
     WatcherManager Manager(TimeProvider time) => new(
         Config.Root, Resolutions.At(ServerUrl, Config.Root), new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, _spawner, time, _daemon, HostedAgent.Terminal);
 
-    Task<int> Run(TimeProvider? time = null) => new DisableCommand(Config.Root, Manager(time ?? _time)).Handle(Session, () => _sessions, _out, _err);
+    Task<int> Run(TimeProvider? time = null) => RunOn(Session, time);
+
+    Task<int> RunOn(string session, TimeProvider? time = null, HostedAgent? hosted = null, Func<string, string?>? getEnv = null) =>
+        new DisableCommand(Config.Root, Manager(time ?? _time), hosted ?? HostedAgent.Terminal) { GetEnv = getEnv ?? (_ => null) }.Handle(session, Api, _out, _err);
+
+    ISessionsApi Api() => _sessions.Unusable is { } unusable ? throw unusable : _sessions;
+
+    /// <summary>A session the agent was running before it moved to <see cref="Session"/>.</summary>
+    const string Earlier = "fedcba9876543210fedcba9876543210";
 
     string Printed => _out.ToString().Trim();
 
@@ -101,7 +109,7 @@ public class DisableCommandTests : IDisposable {
 
         await Assert.That(await Run()).IsEqualTo(0);
 
-        await Assert.That(Printed).IsEqualTo("Session disabled locally (watcher stopped, hooks silenced). Server data not deleted.");
+        await Assert.That(Printed).IsEqualTo("Session disabled locally (recording stopped, hooks silenced). Server data not deleted.");
     }
 
     [Test]
@@ -188,7 +196,9 @@ public class DisableCommandTests : IDisposable {
     [Arguments(RecordingDisable.Stopped)]
     [Arguments(RecordingDisable.SendInFlight)]
     [Arguments(RecordingDisable.NotHeld)]
-    [Arguments(RecordingDisable.Unanswered)]
+    [Arguments(RecordingDisable.StillStopping)]
+    [Arguments(RecordingDisable.Silent)]
+    [Arguments(RecordingDisable.NoSocket)]
     public async Task Disable_lets_go_of_the_claim_whatever_the_daemon_said(RecordingDisable answer) {
         Claim(Session);
         _daemon.Answer = new(answer);
@@ -218,26 +228,80 @@ public class DisableCommandTests : IDisposable {
 
         await Assert.That(await Run()).IsEqualTo(1);
 
-        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Recording stopped and server data deleted.");
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).DoesNotContain("Recording stopped");
         await Assert.That(Printed).Contains("may still have landed");
         await Assert.That(Printed).DoesNotContain("To delete");
     }
 
-    /// <summary>The first run released the claims, so a second finds nobody to ask, and nothing has confirmed anything.</summary>
+    /// <summary>The first run released the claims, and nothing has confirmed anything since, so the daemon it couldn't get
+    /// an answer from still owes one. What this says has to be true of this run, whatever the first one printed.</summary>
     [Test]
     [Arguments(RecordingDisable.SendInFlight)]
-    [Arguments(RecordingDisable.Unanswered)]
+    [Arguments(RecordingDisable.StillStopping)]
+    [Arguments(RecordingDisable.Silent)]
+    [Arguments(RecordingDisable.NoSocket)]
     public async Task A_second_run_behind_a_caveat_does_not_read_clean(RecordingDisable first) {
         Claim(Session);
         _daemon.Answer = new(first);
         await Run();
         _out.GetStringBuilder().Clear();
-        _daemon.Answer = new(RecordingDisable.Unanswered);
+        _daemon.Answer = new(RecordingDisable.NoSocket);
 
         await Assert.That(await Run()).IsEqualTo(1);
 
         await Assert.That(Printed).DoesNotContain("Recording stopped");
-        await Assert.That(Printed).Contains("earlier");
+        await Assert.That(Printed).Contains("did not confirm");
+        await Assert.That(_daemon.Asked.Count(asked => asked.Daemon == Holder)).IsEqualTo(2);
+    }
+
+    /// <summary>The daemon has said nothing is on its way, and this deletion came after that, so every word of the clean
+    /// line is true now and the marker has nothing left to carry.</summary>
+    [Test]
+    [Arguments(RecordingDisable.SendInFlight)]
+    [Arguments(RecordingDisable.Silent)]
+    public async Task A_second_run_the_daemon_answers_reads_clean_on_a_deletion(RecordingDisable first) {
+        Claim(Session);
+        _daemon.Answer = new(first);
+        await Run();
+        _out.GetStringBuilder().Clear();
+        _daemon.Answer = new(RecordingDisable.NotHeld);
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).IsEqualTo(Clean);
+        await Assert.That(DisabledSessions.Owed(Session, Config.Root)).IsEmpty();
+    }
+
+    /// <summary>A send that landed after the first deletion can leave a stream this deletion answers 404 for, so a daemon
+    /// answering at last settles what is running and not what landed.</summary>
+    [Test]
+    public async Task A_second_run_the_daemon_answers_makes_no_promise_of_what_it_cannot_find() {
+        Claim(Session);
+        _daemon.Answer = new(RecordingDisable.SendInFlight);
+        await Run();
+        _out.GetStringBuilder().Clear();
+        _daemon.Answer = new(RecordingDisable.NotHeld);
+        _sessions.Answer = new DeleteSessionResponse.NotFound();
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).Contains("No server data found");
+        await Assert.That(Printed).Contains("An earlier kcap disable could not confirm this session had stopped before deleting it");
+        await Assert.That(Printed).DoesNotContain("did not confirm");
+    }
+
+    /// <summary>The stop can be cut short with the deletion still to come, so what is owed is down before the claims go.</summary>
+    [Test]
+    public async Task What_a_daemon_owes_is_recorded_ahead_of_the_deletion() {
+        Claim(Session);
+        _daemon.Answers[Holder] = new(RecordingDisable.Silent);
+        IReadOnlyList<string>? owed = null;
+        _sessions.OnDelete = () => owed = DisabledSessions.Owed(Session, Config.Root);
+
+        await Run();
+
+        await Assert.That(owed).IsEquivalentTo(new[] { Holder });
     }
 
     /// <summary>A clean run left nothing to doubt, so running it twice stays clean.</summary>
@@ -254,7 +318,7 @@ public class DisableCommandTests : IDisposable {
     const string StillRunning = "This agent is still running, and its live output keeps reaching the server until it ends. Stop the agent to end it.";
 
     /// <summary>A live agent's output isn't recording and isn't stopped, whichever runtime carries it, so "Recording stopped"
-    /// alone would leave out what a person most needs to know. It says so and goes no further: nothing here failed.</summary>
+    /// would be untrue of what a person most needs to know. It says so and goes no further: nothing here failed.</summary>
     [Test]
     public async Task Disable_says_so_when_a_live_agent_keeps_sending() {
         Claim(Session);
@@ -262,7 +326,7 @@ public class DisableCommandTests : IDisposable {
 
         await Assert.That(await Run()).IsEqualTo(0);
 
-        await Assert.That(Printed).StartsWith(Clean);
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
         await Assert.That(Printed).Contains(StillRunning);
     }
 
@@ -286,6 +350,204 @@ public class DisableCommandTests : IDisposable {
 
         await Assert.That(Printed).Contains(StillRunning);
         await Assert.That(Printed).DoesNotContain("other.example");
+    }
+
+    /// <summary>A hook writes the new session over the agent's claim when the agent moves to it, and the daemon may not
+    /// have heard: its recorder could be off, or it may not answer. The claim is what says so.</summary>
+    [Test]
+    public async Task A_session_a_hosted_agent_moved_to_says_its_output_goes_on() {
+        var sessions = AgentSessions.OnThisMachine(Config.Root);
+        var hosted   = new ClaimOrigin("claude", ServerUrl, null, null, "agent-1");
+        sessions.Claim(Environment.ProcessId, SessionId.Parse(Earlier)!, hosted);
+        sessions.Claim(Environment.ProcessId, SessionId.Parse(Session)!, hosted);
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).Contains(StillRunning);
+        await Assert.That(Printed).DoesNotContain("Recording stopped");
+    }
+
+    /// <summary>The agent has left this session, and a person told it is still going would stop the wrong thing.</summary>
+    [Test]
+    public async Task A_session_a_hosted_agent_moved_off_says_nothing_of_it() {
+        var sessions = AgentSessions.OnThisMachine(Config.Root);
+        var hosted   = new ClaimOrigin("claude", ServerUrl, null, null, "agent-1");
+        sessions.Claim(Environment.ProcessId, SessionId.Parse(Earlier)!, hosted);
+        sessions.Claim(Environment.ProcessId, SessionId.Parse(Session)!, hosted);
+
+        await RunOn(Earlier);
+
+        await Assert.That(Printed).DoesNotContain("still running");
+    }
+
+    /// <summary>A person's own terminal session is claimed the same way and has nothing that outlives its hooks, and a
+    /// private agent has no agent id and no mirror.</summary>
+    [Test]
+    public async Task A_session_with_no_hosted_agent_claimed_reads_clean() {
+        AgentSessions.OnThisMachine(Config.Root).Claim(Environment.ProcessId, SessionId.Parse(Session)!, new ClaimOrigin("claude", ServerUrl, null, null));
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
+    /// <summary>Run from inside the agent, the environment says it is live whatever its daemon answers.</summary>
+    [Test]
+    public async Task Inside_a_hosted_agent_its_own_session_says_its_output_goes_on() {
+        var hosted = new HostedAgent("agent-1", false, DaemonBridge.None);
+
+        await RunOn(Session, hosted: hosted, getEnv: name => name == "KCAP_SESSION_ID" ? Session : null);
+
+        await Assert.That(Printed).Contains(StillRunning);
+    }
+
+    [Test]
+    public async Task Inside_a_hosted_agent_another_session_says_nothing_of_it() {
+        var hosted = new HostedAgent("agent-1", false, DaemonBridge.None);
+
+        await RunOn(Session, hosted: hosted, getEnv: name => name == "KCAP_SESSION_ID" ? Earlier : null);
+
+        await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
+    /// <summary>A live agent can sit on a daemon of any profile with no claim to name it, on a watcher or on ACP.</summary>
+    [Test]
+    public async Task Every_daemon_on_the_machine_is_asked_and_a_live_agent_on_any_of_them_is_said() {
+        _daemon.Names = ["daemon-b", "daemon-c"];
+        _daemon.Answers["daemon-c"] = new(RecordingDisable.NotHeld, AgentLive: true);
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(_daemon.Asked.Select(asked => asked.Daemon)).IsEquivalentTo(new[] { Own, "daemon-b", "daemon-c" });
+        await Assert.That(Printed).Contains(StillRunning);
+    }
+
+    /// <summary>A daemon with no socket has nothing running.</summary>
+    [Test]
+    public async Task A_daemon_with_no_socket_changes_nothing() {
+        _daemon.Names = ["daemon-b"];
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.NoSocket);
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
+    /// <summary>One that takes the connection and goes quiet may host this very session.</summary>
+    [Test]
+    public async Task A_silent_daemon_is_not_a_clean_stop() {
+        _daemon.Names = ["daemon-b"];
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.Silent);
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).Contains("A kcap daemon on this machine did not answer");
+    }
+
+    /// <summary>Every daemon gets the same short wait when no claim says one of them has a stop to finish.</summary>
+    [Test]
+    public async Task Silent_daemons_cost_one_bound_between_them() {
+        _daemon.Names = ["daemon-b", "daemon-c", "daemon-d"];
+        _daemon.Hangs = true;
+
+        var run = Run();
+        await _daemon.Reached.Task.WithinDeadlineAsync("the frame");
+        _time.Advance(WatcherManager.HandOffBudget);
+
+        await Assert.That(await run.WithinDeadlineAsync("the command")).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_daemon_directory_that_cannot_be_read_is_not_a_clean_stop() {
+        _daemon.Names = null;
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).Contains("could not read what records this session");
+    }
+
+    /// <summary>A watcher that outlives the attempt keeps sending, and a stop that leaves it must not say otherwise. The pid
+    /// file can't be read here, which is how a stop ends up keeping it.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task A_watcher_that_cannot_be_stopped_is_not_a_clean_stop() {
+        await File.WriteAllTextAsync(Paths.PidFile(Session), "1\n");
+        File.SetUnixFileMode(Paths.PidFile(Session), UnixFileMode.None);
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).Contains("A watcher recording this session could not be stopped");
+    }
+
+    /// <summary>What the source was doing isn't known, so this can't call it a batch.</summary>
+    [Test]
+    public async Task A_source_that_has_not_ended_is_not_called_a_batch() {
+        Claim(Session);
+        _daemon.Answer = new(RecordingDisable.StillStopping);
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).Contains("still stopping");
+        await Assert.That(Printed).DoesNotContain("batch");
+    }
+
+    /// <summary>A profile with no usable server still stops recording, and what that stop found is worth as much as ever.
+    /// The exit is the one an unusable URL has everywhere.</summary>
+    [Test]
+    public async Task An_unusable_server_url_keeps_the_caveats_and_the_live_line() {
+        Claim(Session);
+        _daemon.Answer = new(RecordingDisable.Silent, AgentLive: true);
+        _sessions.Unusable = new UnusableServerUrlException("Fix the URL.");
+
+        await Assert.That(await Run()).IsEqualTo(2);
+
+        await Assert.That(_err.ToString()).Contains("Fix the URL.");
+        await Assert.That(Printed).StartsWith("Session disabled locally (hooks silenced). Server data not deleted.");
+        await Assert.That(Printed).Contains("did not confirm");
+        await Assert.That(Printed).Contains(StillRunning);
+    }
+
+    /// <summary>A claim outlives its daemon. With nothing found here and that daemon not this profile's, the data may be on
+    /// a server this run never reached, and "no server data found" alone would read as the end of it.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_holder_of_another_profile_that_cannot_answer_is_no_clean_nothing_found(bool stale) {
+        Claim(Session);
+        if (stale) _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+        _sessions.Answer = new DeleteSessionResponse.NotFound();
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).Contains($"The daemon that held this session, {Holder}, did not answer");
+    }
+
+    [Test]
+    public async Task A_stale_claim_of_this_profiles_own_daemon_with_nothing_found_stays_clean() {
+        Claim(Session, Own);
+        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+        _sessions.Answer = new DeleteSessionResponse.NotFound();
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).DoesNotContain("did not answer");
+    }
+
+    /// <summary>The deletion found the data here, so that daemon's server is this one, and a second run has nothing more.</summary>
+    [Test]
+    public async Task A_holder_of_another_profile_that_cannot_answer_stays_clean_when_the_data_was_here() {
+        Claim(Session);
+        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+
+        await Assert.That(await Run()).IsEqualTo(0);
+        _out.GetStringBuilder().Clear();
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).IsEqualTo(Clean);
     }
 
     /// <summary>A claim names a daemon of any profile, and that daemon stops. The deletion only reaches this profile's
@@ -325,7 +587,25 @@ public class DisableCommandTests : IDisposable {
 
         await Assert.That(_daemon.Asked).Contains((Holder, Session));
         await Assert.That(_sessions.Deleted).IsEquivalentTo([Session]);
+        await Assert.That(Printed).StartsWith($"Server data for session {Session} deleted.");
         await Assert.That(Printed).Contains("could not mark");
+    }
+
+    /// <summary>Every line ahead of the caveat, in every state the server can leave.</summary>
+    [Test]
+    [Arguments("deleted")]
+    [Arguments("not found")]
+    [Arguments("unreachable")]
+    public async Task A_marker_that_cannot_be_written_is_not_called_disabled(string server) {
+        await File.WriteAllTextAsync(Config.Root.Path("disabled"), "in the way of the directory");
+        if (server == "not found") _sessions.Answer = new DeleteSessionResponse.NotFound();
+        if (server == "unreachable") _sessions.Failure = new CapacitorApiException(null, "The server could not be reached.");
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).DoesNotContain("disabled.");
+        await Assert.That(Printed).DoesNotContain("silenced");
+        await Assert.That(Printed).DoesNotContain("Recording stopped");
     }
 
     /// <summary>Unreadable reads as no claim otherwise, and that is the clean line over a session that may be recording.</summary>
@@ -338,7 +618,7 @@ public class DisableCommandTests : IDisposable {
         File.SetUnixFileMode(watchers, UnixFileMode.None);
 
         try {
-            var code = await new DisableCommand(Config.Root, manager).Handle(Session, () => _sessions, _out, _err);
+            var code = await new DisableCommand(Config.Root, manager, HostedAgent.Terminal) { GetEnv = _ => null }.Handle(Session, () => _sessions, _out, _err);
 
             await Assert.That(code).IsEqualTo(1);
             await Assert.That(Printed).DoesNotContain("Recording stopped");
@@ -381,7 +661,7 @@ public class DisableCommandTests : IDisposable {
 
         await Run();
 
-        await Assert.That(Printed).DoesNotContain("watcher stopped");
+        await Assert.That(Printed).DoesNotContain("recording stopped");
         await Assert.That(Printed).Contains("Server data not deleted.");
         await Assert.That(Printed).Contains("did not confirm");
     }
@@ -440,6 +720,9 @@ public class DisableCommandTests : IDisposable {
 
         public CapacitorApiException? Failure { get; set; }
 
+        /// <summary>Thrown resolving the API at all, as a profile with no usable server does.</summary>
+        public UnusableServerUrlException? Unusable { get; set; }
+
         public Action? OnDelete { get; set; }
 
         public IReadOnlyList<string> Deleted => _deleted;
@@ -469,7 +752,15 @@ public class DisableCommandTests : IDisposable {
     sealed class FakeDaemon : IDaemonRecordingClient {
         readonly List<(string Daemon, string Session)> _asked = [];
 
-        public RecordingDisableAnswer Answer { get; set; } = new(RecordingDisable.Unanswered);
+        public RecordingDisableAnswer Answer { get; set; } = new(RecordingDisable.NoSocket);
+
+        /// <summary>What a daemon other than the default answers with.</summary>
+        public Dictionary<string, RecordingDisableAnswer> Answers { get; } = [];
+
+        /// <summary>The daemons this machine knows of; null when that can't be read.</summary>
+        public IReadOnlyList<string>? Names { get; set; } = [];
+
+        public IReadOnlyList<string>? Daemons() => Names;
 
         public bool Hangs { get; set; }
 
@@ -494,7 +785,7 @@ public class DisableCommandTests : IDisposable {
 
             if (Hangs) await new TaskCompletionSource().Task;
 
-            return Answer;
+            return Answers.GetValueOrDefault(daemonName, Answer);
         }
     }
 }
