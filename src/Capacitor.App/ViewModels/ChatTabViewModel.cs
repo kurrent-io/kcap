@@ -9,6 +9,7 @@ using System.Reactive.Subjects;
 using Avalonia.Collections;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.Views;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Handoff;
@@ -30,8 +31,15 @@ public enum ChatTabPhase { Waiting, Reading, Missing, Unavailable, Failed }
 /// under a stale generation and is discarded.
 public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
+    /// How long a send may go unechoed while the agent is not working before Enter is pressed once
+    /// more, and again before the row says the agent has not picked it up. Outlasts the echo of a
+    /// prompt the agent took; running over costs only an Enter in an empty composer.
+    internal static readonly TimeSpan PickupWait = TimeSpan.FromSeconds(5);
     /// First retry gap after a failed withdraw; each further one doubles it.
     internal static readonly TimeSpan WithdrawRetryDelay = TimeSpan.FromSeconds(2);
+    // Answering a card closes its dialog a status snapshot before the screen says so; a dialog
+    // still there past this is one the hook left for the terminal.
+    internal static readonly TimeSpan CoveredDialogGrace = TimeSpan.FromSeconds(2);
     internal const int MaxWithdrawRetries = 3;
 
     readonly ChatInput _input;
@@ -360,6 +368,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     TerminalDialogDto? _terminalDialog;
     string? _interruption;
     bool _terminalDialogShown;
+    TerminalDialogDto? _coveredDialog;
+    bool _coverReleasing;
+    int _coverGeneration;
     bool _hasTerminalMenu;
     string _terminalMenuTitle = "";
     string _terminalMenuHeading = "";
@@ -1206,14 +1217,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// copy stays out of the way while one is pending.
     void ApplyTerminalMenu(UsageLimitNoticeDto? limit, TerminalDialogDto? dialog) {
         var question = UsageLimitNoticeDto.IsQuestion(limit);
-        var shown = !question && dialog is not null && !HasPendingCards;
+        TrackCoveredDialog(dialog);
+        var shown = !question && dialog is not null && !HasPendingCards && _coveredDialog is null;
         if (Equals(_usageLimit, limit) && Equals(_terminalDialog, dialog) && _terminalDialogShown == shown) return;
         // Cursor redraws and pending cards hiding the dialog do not make a new menu. Keep an
         // answered menu closed until the underlying menu changes or leaves the screen.
         var sameMenu = question
             ? Equals(_usageLimit, limit)
-            : dialog is not null && _terminalDialog is { } previous
-                && previous.Heading == dialog.Heading && previous.Options.SequenceEqual(dialog.Options);
+            : dialog is not null && _terminalDialog is { } previous && SameDialog(previous, dialog);
         if (dialog is not null && _terminalDialog is null) RetireCommandThatOpened();
         _usageLimit = limit;
         _terminalDialog = dialog;
@@ -1256,6 +1267,36 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                     () => ChooseTerminalMenuAsync(choice.Keys),
                     this.WhenAnyValue(x => x.TerminalMenuChoicesOpen))))
             .ToList();
+    }
+
+    static bool SameDialog(TerminalDialogDto a, TerminalDialogDto b) =>
+        a.Heading == b.Heading && a.Options.SequenceEqual(b.Options);
+
+    /// A dialog a card covered stays hidden after the card goes, until it changes, leaves the
+    /// screen, or outlasts the grace.
+    void TrackCoveredDialog(TerminalDialogDto? dialog) {
+        if (_coveredDialog is { } covered && (dialog is null || !SameDialog(covered, dialog))) {
+            _coveredDialog = null;
+            _coverReleasing = false;
+            _coverGeneration++;
+        }
+        if (dialog is null) return;
+        if (HasPendingCards) {
+            _coveredDialog = dialog;
+            if (_coverReleasing) { _coverReleasing = false; _coverGeneration++; }
+        } else if (_coveredDialog is not null && !_coverReleasing) {
+            _coverReleasing = true;
+            _ = ReleaseCoveredDialogAsync(++_coverGeneration);
+        }
+    }
+
+    async Task ReleaseCoveredDialogAsync(int generation) {
+        try { await Task.Delay(CoveredDialogGrace, _time, _lifetimeToken); }
+        catch (OperationCanceledException) { return; }
+        if (generation != _coverGeneration) return;
+        _coveredDialog = null;
+        _coverReleasing = false;
+        ApplyTerminalMenu(_usageLimit, _terminalDialog);
     }
 
     void SetTerminalMenuChoiceTaken(bool taken) {
@@ -1535,6 +1576,39 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         return outcome;
     }
 
+    bool _resubmitting;
+
+    /// An idle agent that has not echoed a send may have taken its Enter as a newline, as a large
+    /// paste still arriving does: Enter is pressed once more, then the row is marked not picked up
+    /// rather than left waiting. The clock runs only while the agent is not working, so a send
+    /// queued behind a turn waits for that turn first.
+    void CheckPickup() {
+        var idle = !_ended && _status == "Running" && !SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents)
+            && !HasTerminalMenu && !IsReadOnlyParticipant && _input.CanResubmit && _sending is null;
+        var now = _time.GetTimestamp();
+        var resubmit = false;
+        foreach (var queued in _queuedMessages) {
+            if (queued.IsForeign || queued.Acknowledged || queued.IsUnconfirmed || queued.IsServerHeld || queued.IsNotPickedUp) continue;
+            if (!idle) { queued.IdleSince = null; continue; }
+            if (queued.IdleSince is not { } since) { queued.IdleSince = now; continue; }
+            if (_time.GetElapsedTime(since, now) < PickupWait) continue;
+            if (queued.Resubmitted) { queued.MarkNotPickedUp(); continue; }
+            queued.Resubmitted = true;
+            queued.IdleSince = now;
+            // Files go through the daemon, which presses its own Enter, not this paste's.
+            resubmit |= queued.AttachmentIds.Count == 0;
+        }
+        if (resubmit && !_resubmitting) _ = ResubmitAsync();
+    }
+
+    async Task ResubmitAsync() {
+        _resubmitting = true;
+        try { await _input.ResubmitAsync(_lifetimeToken); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { LogOnce($"resubmit: {ex.Message}"); }
+        finally { _resubmitting = false; }
+    }
+
     void ConfirmDelivery(QueuedChatMessage queued) {
         if (ReferenceEquals(queued, _lastSent)) _input.ConfirmLastSend();
         ClearSentDraft(queued);
@@ -1569,6 +1643,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }
         if (_lifetimeToken.IsCancellationRequested) return;
         RefreshActivityNote();
+        CheckPickup();
         _runs.Tick();
         if (_lease is not { } lease) return;
         if (lease.Feed is RemoteTranscriptFeed && Volatile.Read(ref lease.Pending) == 0) return;
@@ -1745,9 +1820,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                             ChatDisplayKind.TaskNotification => SystemNoteItem.TaskNotificationLabel,
                             ChatDisplayKind.CompactSummary   => SystemNoteItem.CompactSummaryLabel,
                             ChatDisplayKind.Interrupted      => SystemNoteItem.InterruptedLabel,
-                            ChatDisplayKind.Trigger          => e.ToolName is { Length: > 0 } trigger ? trigger : SystemNoteItem.NoteLabel,
+                            ChatDisplayKind.Trigger or ChatDisplayKind.PeerSession => e.ToolName is { Length: > 0 } trigger ? trigger : SystemNoteItem.NoteLabel,
                             _                                => SystemNoteItem.NoteLabel,
-                        }));
+                        }, e.ToolKind == ChatDisplayKind.PeerSession ? ToolCategoryIcons.AgentMessageIcon : null));
                         break;
                     case AcpEventKind.ToolCall: {
                         cursor.OpenShell = null;

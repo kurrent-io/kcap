@@ -213,7 +213,11 @@ public static partial class SecretRedactor {
     const string AuthHeaderNames =
         "authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token|x-access-token|x-amz-security-token|x-amz-signature|x-goog-api-key|api-key|private-token|job-token|deploy-token|x-vault-token|x-consul-token|x-csrf-token|x-xsrf-token|x-hub-signature(?:-256)?|x-slack-signature|stripe-signature|x-registry-auth";
 
-    [GeneratedRegex("(?:" + AuthHeaderNames + "|auth)$|(?:" + SecretKeywords + ")", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100)]
+    // Only an all-caps name may end in a bare KEY or PASS: in lowercase that suffix names a
+    // database or map key far more often than a credential.
+    const string UpperSecretSuffixName = "(?-i:[A-Z0-9_]*(?:KEYS?|PASS))";
+
+    [GeneratedRegex("(?:" + AuthHeaderNames + "|auth)$|(?:" + SecretKeywords + ")|^" + UpperSecretSuffixName + "$", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100)]
     private static partial Regex SecretKeyNameRx();
 
     [GeneratedRegex(@"-----BEGIN[A-Z\s]*PRIVATE KEY-----[\s\S]{0,16384}?-----END[A-Z\s]*PRIVATE KEY-----", RegexOptions.None, matchTimeoutMilliseconds: 100)]
@@ -230,7 +234,7 @@ public static partial class SecretRedactor {
     private static partial Regex VendorTokenRx();
 
     [GeneratedRegex(
-        """((?:\\"|")(?:[^"\\]*(?:""" + SecretKeywords + """)[^"\\]*)(?:\\"|")[ \t]*:[ \t]*(?:\\"|"))([^"\\]+)((?:\\"|")|$)""",
+        """((?:\\"|")(?:[^"\\]*(?:""" + SecretKeywords + """)[^"\\]*|""" + UpperSecretSuffixName + """)(?:\\"|")[ \t]*:[ \t]*(?:\\"|"))([^"\\]+)((?:\\"|")|$)""",
         RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100
     )]
     private static partial Regex JsonKeySecretRx();
@@ -238,7 +242,7 @@ public static partial class SecretRedactor {
     // The match starts at `=` and finds the name behind it, so letters without one cost nothing;
     // the name is the whole [A-Za-z_] run before it, so a digit ends it, as in OAUTH2_TOKEN.
     internal const string EnvVarSecretPattern =
-        @"(?<=(?<![A-Za-z_])[A-Z_]*(?:SECRETS?|TOKENS?|PASSWORDS?|PASSWD|PWD|API_?KEYS?|PRIVATE_?KEYS?|CREDENTIALS?|CLIENT_?SECRETS?|ACCESS_?KEYS?|AUTH_?TOKENS?)[A-Z_]*)=([^\s""\\]+)";
+        @"(?<=(?<![A-Za-z_])(?:[A-Z_]*(?:SECRETS?|TOKENS?|PASSWORDS?|PASSWD|PWD|API_?KEYS?|PRIVATE_?KEYS?|CREDENTIALS?|CLIENT_?SECRETS?|ACCESS_?KEYS?|AUTH_?TOKENS?)[A-Z_]*|(?-i:[A-Z_]*(?:KEYS?|PASS))))=([^\s""\\]+)";
 
     [GeneratedRegex(EnvVarSecretPattern, RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100)]
     private static partial Regex EnvVarSecretRx();
@@ -265,7 +269,13 @@ public static partial class SecretRedactor {
     private static partial Regex UrlQuerySecretRx();
 
     [GeneratedRegex(
-        """(https?://[^:/\s"\\@]+:)([^@\s"\\/]+)(@)""",
+        // Redis-family clients read a colon-free userinfo as the password, in every scheme variant
+        // (rediss, redis+tls, redis-sentinel, valkey); elsewhere a bare userinfo is only a username.
+        // The password runs to the authority's last @, since clients accept one unencoded, but a
+        // segment after an @ holds only RFC 3986 userinfo characters and never crosses a , or ; that
+        // opens a key= field, so a later field's address stays out of it. JSON
+        // text held in a string can escape the delimiters as \/ and \u0040.
+        """((?<![A-Za-z0-9+.\-])(?:[A-Za-z][A-Za-z0-9+.\-]*:(?:\\?/){2}[^:/?#\s"\\@]*:|(?:redis|valkey)[A-Za-z0-9+.\-]*:(?:\\?/){2}))([^\s"\\/?#@]+(?:(?:@|\\u0040)(?:[A-Za-z0-9\-._~%!$&'()*+=:]|[,;](?![A-Za-z0-9\-._~%!$&'()*+:]*=))+)*)(@|\\u0040)""",
         RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100
     )]
     private static partial Regex UrlUserinfoRx();

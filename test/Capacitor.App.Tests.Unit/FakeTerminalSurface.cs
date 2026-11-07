@@ -11,8 +11,13 @@ sealed class FakeTerminalSurface : ITerminalSurface {
     /// One entry per draw, as the control would show it.
     public void Feed(IReadOnlyList<string> pieces, bool replay = false) => Fed.Add(string.Concat(pieces));
     public event Action<byte[]>? InputProduced;
+    public event Action? Typed;
     public event Action<int, int>? Resized;
-    public void RaiseInput(byte[] bytes) => InputProduced?.Invoke(bytes);
+    /// As the viewer typing: <paramref name="reply"/> is a terminal protocol reply instead.
+    public void RaiseInput(byte[] bytes, bool reply = false) {
+        if (!reply) Typed?.Invoke();
+        InputProduced?.Invoke(bytes);
+    }
     /// A resize is the control measuring the pane, as the production surface treats it.
     public void RaiseResize(int cols, int rows) {
         Measured = true;

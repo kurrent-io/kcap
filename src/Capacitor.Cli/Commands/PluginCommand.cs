@@ -197,7 +197,7 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
             return 1;
         }
 
-        var installed = SetupCommand.InstallPlugin(settingsPath, pluginPath);
+        var installed = SetupCommand.InstallPlugin(settingsPath, pluginPath, scope == "user" ? Path.GetDirectoryName(settingsPath) : null);
 
         if (installed) {
             await env.Stdout.WriteLineAsync(

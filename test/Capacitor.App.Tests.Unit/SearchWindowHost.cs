@@ -28,9 +28,9 @@ sealed class SearchWindowHost : IDisposable {
     public MainWindow Window { get; }
     public int SignIns { get; private set; }
 
-    public SearchWindowHost(bool signedOut = false, Func<string, WorkspaceViewModel>? workspaceFactory = null) {
+    public SearchWindowHost(bool signedOut = false, Func<string, WorkspaceViewModel>? workspaceFactory = null, Action<string>? openLocal = null) {
         Lane = new(new ServerLaneStatus(signedOut ? ServerLaneState.SignedOut : ServerLaneState.Connected));
-        Rail = new SessionRailViewModel(Directory, _ => { }, _ => { }, TimeProvider.System, sessions: Sessions);
+        Rail = new SessionRailViewModel(Directory, openLocal ?? (_ => { }), _ => { }, TimeProvider.System, sessions: Sessions);
         Vm = new MainWindowViewModel(
             Service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
             workspaceFactory: workspaceFactory, rail: Rail,

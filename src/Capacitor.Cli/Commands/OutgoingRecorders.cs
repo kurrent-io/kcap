@@ -15,6 +15,9 @@ sealed class OutgoingRecorders(
 
     internal Func<bool> SystemdRunning { get; init; } = ServiceManagerFactory.SystemdRunning;
 
+    /// <summary>Test seam, handed this instance's store; production builds the manager for this OS.</summary>
+    internal Func<DaemonStore, IServiceManager>? ServicesFor { get; init; }
+
     /// <summary>A launch still starting is counted too: it is not in the agent table until its runtime answers. A
     /// daemon that cannot give that count, including one too old to report it, counts as busy.</summary>
     public async Task<IReadOnlyList<string>> BusyAsync() {
@@ -41,7 +44,7 @@ sealed class OutgoingRecorders(
         // The service goes first: `daemon stop` leaves a service-managed daemon alone, since a raw kill would be
         // restarted.
         try {
-            var services = ServiceManagerFactory.ForCurrentOs(config, home, time, SystemdRunning);
+            var services = ServicesFor?.Invoke(store) ?? ServiceManagerFactory.ForCurrentOs(config, home, time, SystemdRunning, store);
 
             foreach (var id in services.ListInstalled()) {
                 var ended = await ServiceRemoval.EndAgentsAsync(store, id, time);

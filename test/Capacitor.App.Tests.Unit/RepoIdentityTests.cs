@@ -13,6 +13,11 @@ public class RepoIdentityTests {
     }
 
     [Test]
+    public async Task A_server_row_in_a_repository_with_no_remote_is_labelled_by_its_folder() =>
+        await Assert.That(RepoIdentityResolver.ForRemote("local~0123456789abcdef0123", "demo", "/work/demo", "u1/work-mac").Label)
+            .IsEqualTo("demo (local)");
+
+    [Test]
     public async Task RemoteWithoutIdentityIsMachineScoped() {
         var a = RepoIdentityResolver.ForRemote(null, null, "/work/repo", "u1/work-mac");
         var b = RepoIdentityResolver.ForRemote(null, null, "/work/repo", "u1/home-pc");

@@ -219,6 +219,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         };
         BindRefreshShortcuts();
         BindSearchShortcuts();
+        BindRailStepShortcuts();
         BindSidebarShortcut();
         BindFindShortcut();
         BindHistoryShortcuts();
@@ -335,6 +336,23 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
         void Apply() {
             if ((DataContext as MainWindowViewModel)?.OpenSearchCommand is { } command) meta.Command = command;
+        }
+        Apply();
+        DataContextChanged += (_, _) => Apply();
+    }
+
+    // Ctrl+PageUp and Ctrl+PageDown on every platform, terminal focus included: they step through
+    // the sessions in the rail, which is how a user moves between agents' terminals.
+    void BindRailStepShortcuts() {
+        var previous = new KeyBinding { Gesture = new KeyGesture(Key.PageUp, KeyModifiers.Control) };
+        var next = new KeyBinding { Gesture = new KeyGesture(Key.PageDown, KeyModifiers.Control) };
+        KeyBindings.Add(previous);
+        KeyBindings.Add(next);
+
+        void Apply() {
+            if ((DataContext as MainWindowViewModel)?.Rail is not { } rail) return;
+            previous.Command = rail.OpenPreviousSessionCommand;
+            next.Command = rail.OpenNextSessionCommand;
         }
         Apply();
         DataContextChanged += (_, _) => Apply();

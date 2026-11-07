@@ -627,6 +627,10 @@ public partial class ChatTabView : UserControl {
     /// TextBox's own newline. ↑/↓ recall sent prompts only from the first/last line, so inside a
     /// multi-line recall they stay the TextBox's own caret moves until the caret reaches an edge.
     void OnComposerKeyDown(object? sender, KeyEventArgs e) {
+        if (e.Key is Key.PageUp or Key.PageDown && e.KeyModifiers == KeyModifiers.None) {
+            if (PageTranscript(e.Key == Key.PageUp)) e.Handled = true;
+            return;
+        }
         if (e.Key is Key.Up or Key.Down && e.KeyModifiers == KeyModifiers.None) {
             if (DataContext is not ChatTabViewModel tab || ComposerInput.SelectionStart != ComposerInput.SelectionEnd) return;
             var (line, lines) = ComposerCaretLine();
@@ -640,6 +644,22 @@ public partial class ChatTabView : UserControl {
         e.Handled = true;
         if (DataContext is ChatTabViewModel vm && ((ICommand)vm.SendCommand).CanExecute(null))
             vm.SendCommand.Execute().Subscribe();
+    }
+
+    /// Page Up/Down typed in the composer page the transcript as the reader's own move, so
+    /// following stops where they paged and resumes once they page back to the bottom.
+    bool PageTranscript(bool up) {
+        EnsureChatScroll();
+        if (_scroll is null) return false;
+        DropToggleAnchor();
+        _thumbFraction = null;
+        CancelSmoothScroll();
+        var wasGesture = _readerGesture;
+        _readerGesture = true;
+        if (up) _scroll.PageUp();
+        else _scroll.PageDown();
+        if (!wasGesture) Dispatcher.UIThread.Post(() => _readerGesture = false, DispatcherPriority.Background);
+        return true;
     }
 
     protected override void OnKeyDown(KeyEventArgs e) {

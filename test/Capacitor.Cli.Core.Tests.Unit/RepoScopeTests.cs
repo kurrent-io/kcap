@@ -51,4 +51,27 @@ public class RepoScopeTests {
         await Assert.That(RepoScope.IsOutsideAllowlist(null, ["acme/widgets"])).IsTrue();
         await Assert.That(RepoScope.IsOutsideAllowlist(null, null)).IsFalse();
     }
+
+    const string LocalKey = "local~0123456789abcdef0123/demo";
+
+    [Test]
+    public async Task A_local_repository_is_named_exactly_or_by_its_folder() {
+        await Assert.That(RepoScope.IsOutOfScope(LocalKey, [LocalKey], null)).IsFalse();
+        await Assert.That(RepoScope.IsOutOfScope(LocalKey, ["local~/demo"], null)).IsFalse();
+        await Assert.That(RepoScope.IsOutOfScope(LocalKey, null, ["local~/demo"])).IsTrue();
+        await Assert.That(RepoScope.IsOutOfScope(LocalKey, null, ["local~/DEMO"])).IsTrue();
+    }
+
+    // Its folder name admits it to nothing else: a remote called the same is a different repository.
+    [Test]
+    public async Task A_folder_entry_names_only_local_repositories() {
+        await Assert.That(RepoScope.IsOutOfScope("acme/demo", ["local~/demo"], null)).IsTrue();
+        await Assert.That(RepoScope.IsOutOfScope("acme/demo", null, ["local~/demo"])).IsFalse();
+        await Assert.That(RepoScope.IsOutOfScope(LocalKey, ["local/demo"], null)).IsTrue();
+        await Assert.That(RepoScope.IsOutOfScope(LocalKey, ["acme/demo"], null)).IsTrue();
+    }
+
+    [Test]
+    public async Task An_allowlist_of_remotes_leaves_a_local_repository_out() =>
+        await Assert.That(RepoScope.IsOutOfScope(LocalKey, ["acme/widgets"], null)).IsTrue();
 }

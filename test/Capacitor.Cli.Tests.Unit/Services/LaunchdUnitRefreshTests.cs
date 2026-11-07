@@ -1,4 +1,5 @@
 using Capacitor.Cli.Services;
+using Capacitor.Cli.Core.Setup;
 
 namespace Capacitor.Cli.Tests.Unit.Services;
 
@@ -477,7 +478,7 @@ public class LaunchdUnitRefreshTests {
             "test", () => true, Plenty, out _, amend: plist => LaunchdUnit.WithEnvironmentValue(plist, "PATH", "/usr/bin:/opt/agents"));
 
         await Assert.That(outcome).IsEqualTo(UnitRefresh.Reloaded);
-        await Assert.That(LaunchdUnit.EnvFromPlist(File.ReadAllText(path))["PATH"]).IsEqualTo("/usr/bin:/opt/agents");
+        await Assert.That(LaunchdPrint.Environment(File.ReadAllText(path))["PATH"]).IsEqualTo("/usr/bin:/opt/agents");
         await Assert.That(calls.Select(c => c[0]).ToArray()).IsEquivalentTo(["print", "bootout", "bootstrap", "print"]);
     }
 

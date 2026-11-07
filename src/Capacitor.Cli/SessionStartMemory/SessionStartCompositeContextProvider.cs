@@ -31,7 +31,7 @@ internal sealed class SessionStartCompositeContextProvider(
 
         SessionStartMemoryScope scope;
         try {
-            scope = await scopeResolver.ResolveAsync(request.Cwd, request.Budget, cts.Token);
+            scope = await scopeResolver.ResolveAsync(request.Cwd, request.BaseUrl, request.Budget, cts.Token);
         } catch (Exception ex) when (IsFailOpen(ex)) {
             diagnostic?.Invoke($"SessionStart scope resolution skipped: {ex.Message}");
 

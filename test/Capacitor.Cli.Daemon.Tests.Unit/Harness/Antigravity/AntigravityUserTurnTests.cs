@@ -45,7 +45,7 @@ public class AntigravityUserTurnTests {
         await using var rt = AntigravityRuntimeFakes.FakeRuntime(time: Time);
         var dispatch = Guid.NewGuid();
         await rt.SendUserInputAsync("typed");
-        await rt.SendDispatchedInputAsync("dispatched", dispatch, waitForWrite: false);
+        await rt.SendDispatchedInputAsync("dispatched", dispatch);
 
         var users = (await Drain(rt, 3)).Where(e => e.Kind == AcpEventKind.UserMessage).ToList();
 

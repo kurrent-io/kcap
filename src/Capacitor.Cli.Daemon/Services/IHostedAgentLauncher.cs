@@ -84,6 +84,11 @@ internal interface IHostedAgentLauncher {
     /// on the first turn must stay false: the paste would wait for a hook that waits for the paste.</summary>
     bool SessionStartMeansComposerUp => false;
 
+    /// <summary>Whether the vendor's TUI turns bracketed paste on only while a text input is mounted,
+    /// so the mode switching on is the composer reading input and no quiet window is waited out. A
+    /// vendor that turns it on at terminal setup, ahead of its first frame, must stay false.</summary>
+    bool BracketedPasteMeansComposerUp => false;
+
     /// <summary>
     /// Per-vendor preparation BEFORE the PTY is spawned. Implementations:
     ///   • Overlay vendor-specific settings dir from source repo into worktree
