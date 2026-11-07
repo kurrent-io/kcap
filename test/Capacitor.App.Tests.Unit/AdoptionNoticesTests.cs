@@ -103,7 +103,7 @@ public class AdoptionNoticesTests {
 
         await Assert.That(login).Contains("shell profile");
         await Assert.That(service).Contains("daemon service 'mac'");
-        await Assert.That(service).Contains("kcap daemon service install --replace --name mac");
+        await Assert.That(service).Contains("kcap daemon service install --replace --verify --name mac");
         await Assert.That(service).Contains("open kcap again to finish switching");
         await Assert.That(service).DoesNotContain("shell profile");
         await Assert.That(AdoptionNotices.LeftKey(install, LeftReason.OwnFolderOnServicePath))

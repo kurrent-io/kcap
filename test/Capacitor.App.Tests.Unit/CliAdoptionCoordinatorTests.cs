@@ -421,7 +421,7 @@ public class CliAdoptionCoordinatorTests {
 
         await Assert.That(world.Record.Installs.Single().Reason).IsEqualTo(LeftReason.OwnFolderOnServicePath);
         await Assert.That(world.Notifier.Notified.Count).IsEqualTo(2);
-        await Assert.That(world.Notifier.Notified[^1]).Contains($"kcap daemon service install --replace --name {AdoptionWorld.DaemonName}");
+        await Assert.That(world.Notifier.Notified[^1]).Contains($"kcap daemon service install --replace --verify --name {AdoptionWorld.DaemonName}");
         await Assert.That(Directory.Exists(world.Root)).IsTrue();
 
         stored = world.Link;
