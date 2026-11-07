@@ -4,10 +4,10 @@ namespace Capacitor.Cli.Core.Http;
 
 /// <summary>
 /// The wire-error handling every API implementation in this namespace shares: a transport fault
-/// becomes a status-less <see cref="CapacitorApiException"/>, and a non-success response becomes one
-/// carrying the server's own text for a 401 or a generic status line otherwise. Callers act on a
-/// response only when it is a success or a status they branch on; everything else goes through
-/// <see cref="FailureAsync"/>.
+/// or the client's own timeout becomes a status-less <see cref="CapacitorApiException"/>, and a
+/// non-success response becomes one carrying the server's own text for a 401 or a generic status line
+/// otherwise. Callers act on a response only when it is a success or a status they branch on;
+/// everything else goes through <see cref="FailureAsync"/>.
 /// </summary>
 static class CapacitorApiRequests {
     /// <param name="quiet">Leaves stderr untouched: no re-auth hint, and an unusable server URL is a failure
@@ -23,6 +23,9 @@ static class CapacitorApiRequests {
             return await send(client, ct);
         } catch (HttpRequestException ex) {
             throw new CapacitorApiException(null, HttpClientExtensions.UnreachableErrorText(server.Url, ex), ex);
+        } catch (OperationCanceledException ex) when (!ct.IsCancellationRequested) {
+            // The caller's token is untouched, so this is the client's timeout: the request may have landed.
+            throw new CapacitorApiException(null, $"{server.Url} did not answer in time.", ex);
         }
     }
 

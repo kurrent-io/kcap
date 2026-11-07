@@ -146,6 +146,20 @@ public class McpPassServerTests {
         await Assert.That(Text(response)).Contains($"{Url}/passes?tab=sent");
     }
 
+    /// <summary>Only the client's own timeout becomes a handled failure: the server's budget running out stays a
+    /// cancellation, which is what lets it answer that the server did not answer in time.</summary>
+    [Test]
+    public async Task PassesApi_CallerCancels_StaysCancellation() {
+        using var stub = WireMockServer.Start();
+        stub.Given(WireMock.RequestBuilders.Request.Create().WithPath("/api/passes").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.OK).WithDelay(TimeSpan.FromSeconds(10)));
+        using var budget = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+
+        var body = new StartPassBody("look", "github:2", "session", "s-1", Brief: "Have a look");
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Api(stub.Urls[0]).SendAsync(body, budget.Token));
+    }
+
     /// <summary>A harness that cannot prompt gets the way to approve in kcap, and nothing is answered for the human.</summary>
     [Test]
     public async Task Pass_NoElicitation_ReturnsWaitingWithLink() {

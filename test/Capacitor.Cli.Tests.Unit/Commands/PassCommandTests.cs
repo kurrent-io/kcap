@@ -28,20 +28,22 @@ public class PassCommandTests {
     }
 
     /// <summary>The real client against <paramref name="stub"/>, a server that needs a login, with none stored.</summary>
-    ServiceProvider RealClient(WireMockServer stub) {
+    ServiceProvider RealClient(WireMockServer stub, TimeSpan? timeout = null) {
         Respond(stub, "/auth/config", 200, """{"provider":"GitHubApp"}""");
         var url      = stub.Urls[0];
         var profiles = Resolutions.At(url, Config.Root);
-
-        return new ServiceCollection()
+        var services = new ServiceCollection()
             .AddSingleton(Config.Root).AddSingleton(profiles).AddSingleton(new CapacitorServer(url, Config.Root, profiles))
-            .AddCapacitorHttp(ProfileOverrides.None, MachineAuth.None)
-            .BuildServiceProvider();
+            .AddCapacitorHttp(ProfileOverrides.None, MachineAuth.None);
+        if (timeout is { } t) services.AddHttpClient(CapacitorClients.Default).ConfigureHttpClient(c => c.Timeout = t);
+
+        return services.BuildServiceProvider();
     }
 
-    static void Respond(WireMockServer stub, string path, int status, string body) =>
-        stub.Given(Request.Create().WithPath(path))
-            .RespondWith(Response.Create().WithStatusCode(status).WithHeader("Content-Type", "application/json").WithBody(body));
+    static void Respond(WireMockServer stub, string path, int status, string body, TimeSpan? delay = null) {
+        var response = Response.Create().WithStatusCode(status).WithHeader("Content-Type", "application/json").WithBody(body);
+        stub.Given(Request.Create().WithPath(path)).RespondWith(delay is { } d ? response.WithDelay(d) : response);
+    }
 
     /// <summary>With nobody at a terminal, a pass that needs sharing is left for approval in kcap, even though the
     /// reader would have answered yes.</summary>
@@ -129,6 +131,32 @@ public class PassCommandTests {
         await Assert.That(console.GetCapturedError()).IsEmpty();
         await Assert.That(run.Error).IsEqualTo($"Unknown command: pass{Environment.NewLine}");
         await Assert.That(run.Out).IsEmpty();
+    }
+
+    /// <summary>The client's timeout on the send or on the approval may follow a write the server made, so it ends like
+    /// any failed call there: a message saying where to check and exit 1, not a crash report.</summary>
+    [Test]
+    [Arguments("send", "The pass may have been sent.")]
+    [Arguments("approve", "the pass may still be waiting for approval")]
+    public async Task PassCommand_CallTimesOut_SaysCheckSentLink(string call, string check) {
+        using var stub = WireMockServer.Start();
+        Respond(stub, "/api/users/me/surfaces", 200, """{"passes":true}""");
+        Respond(stub, "/api/users/search", 200, """{"candidates":[{"id":"github:2","display_name":"Sam Jones"}]}""");
+        var slow = TimeSpan.FromSeconds(10);
+        if (call == "send") {
+            Respond(stub, "/api/passes", 202, "{}", slow);
+        } else {
+            Respond(stub, "/api/passes", 202, """{"pass_id":"p1","state":"awaiting_approval","grants":[],"approval_text":"Share it?"}""");
+            Respond(stub, "/api/passes/p1/approve", 200, "{}", slow);
+        }
+        await using var sp = RealClient(stub, TimeSpan.FromMilliseconds(500));
+
+        var run = await PassAsync(sp.GetRequiredService<IPassesApi>(), stub.Urls[0], interactive: true, "Sam", "--session", "s-1");
+
+        await Assert.That(run.Error).Contains("did not answer in time");
+        await Assert.That(run.Error).Contains(check);
+        await Assert.That(run.Error).Contains($"{stub.Urls[0]}/passes?tab=sent");
+        await Assert.That(run.Exit).IsEqualTo(1);
     }
 
     /// <summary>Neither command appears in the command list, and neither has a help page.</summary>
