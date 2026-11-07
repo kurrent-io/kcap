@@ -46,7 +46,9 @@ internal static class AgentOrchestratorHarness {
             // gets by default; a test that drives expiry passes its own.
             TimeProvider?                                       timeProvider           = null,
             DaemonConfig?                                       sharedConfig           = null,
-            AccountReadingSink?                                 readings               = null
+            AccountReadingSink?                                 readings               = null,
+            // Given the config this harness finished building, whose directories it owns.
+            Func<DaemonConfig, DaemonRecorder>?                 recorder               = null
         ) {
         var daemonStore    = new TempDaemonStore();
         var configRoot   = new TempConfigRoot();
@@ -119,7 +121,8 @@ internal static class AgentOrchestratorHarness {
             consentGate,
             deferProcessorPublication,
             time,
-            readings
+            readings,
+            recorder?.Invoke(config)
         );
     }
 
@@ -152,7 +155,8 @@ internal static class AgentOrchestratorHarness {
                 LaunchConsentGate                                       consentGate,
                 bool                                                    deferProcessorPublication,
                 TimeProvider                                            time,
-                AccountReadingSink?                                     readings
+                AccountReadingSink?                                     readings,
+                DaemonRecorder?                                         recorder
             ) : base(
             config,
             configRoot.Root,
@@ -176,7 +180,8 @@ internal static class AgentOrchestratorHarness {
             // The scratch config root and a fresh checkout carry no approval documents, so every test
             // that writes none still gets an empty snapshot and no upload.
             policySnapshots: new PolicySnapshotProvider(configRoot.Root),
-            readings: readings
+            readings: readings,
+            recorder: recorder
         ) {
             _tmp    = tmp;
             _config = configRoot;

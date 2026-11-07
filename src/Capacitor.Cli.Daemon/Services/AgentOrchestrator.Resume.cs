@@ -1118,6 +1118,9 @@ internal partial class AgentOrchestrator {
     /// candidates at most <see cref="DaemonConfig.ResumeConcurrency"/> at a time. Never throws.</summary>
     internal async Task ResumeOnBootAsync(CancellationToken ct) {
         try {
+            // Ahead of the resumes, whose launches claim these same sources.
+            if (_recorder is { } recorder) await recorder.RestoreAsync(ct);
+
             foreach (var (entry, reason) in _interruptedAtBoot) LogResumeOutcome(entry.AgentId, DescribeResume(ResumeOutcome.Interrupted, reason));
 
             foreach (var (entry, reason) in _interruptedAtBoot.Where(i => !i.Entry.Launch.IsPrivate))
@@ -1132,6 +1135,8 @@ internal partial class AgentOrchestrator {
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
         } catch (Exception ex) {
             LogResumeLaneFailed(ex);
+        } finally {
+            _recorder?.SettleRestored(_agents.ContainsKey);
         }
     }
 

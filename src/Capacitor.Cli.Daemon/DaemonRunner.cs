@@ -252,6 +252,8 @@ public static partial class DaemonRunner {
 
         config.AcpReconnectEnabled = ParseAcpReconnectFlag(Environment.GetEnvironmentVariable("KCAP_ACP_RECONNECT"));
 
+        config.RecordHostedClaude = ParseDebugFramesFlag(Environment.GetEnvironmentVariable(Core.LocalIpc.RecordingIpc.EnabledVar));
+
         // Shared name resolution with the CLI supervisor — the CLI's
         // DaemonCommands and the daemon binary must agree on the name so
         // the per-name PID file the CLI inspects is the one the daemon
@@ -639,6 +641,9 @@ public static partial class DaemonRunner {
             sp.GetServices<IHostedAgentRuntimeFactory>().ToDictionary(f => f.Vendor)
         );
 
+        builder.Services.AddSingleton(sp => DaemonRecorder.Compose(
+            config, sp.GetRequiredService<CapacitorServer>(), sp.GetRequiredService<ServerConnection>(), sp.GetRequiredService<ICapacitorHttpClient>(),
+            harnesses, sp.GetRequiredService<ILoggerFactory>(), time));
         builder.Services.AddSingleton<AgentOrchestrator>();
         builder.Services.AddSingleton<EvalContextCache>();
         builder.Services.AddSingleton<EvalRunner>();

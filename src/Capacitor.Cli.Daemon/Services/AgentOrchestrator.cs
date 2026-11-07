@@ -795,6 +795,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// </summary>
     internal TimeSpan EndAgentSessionBudget { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>How long an exited agent's end waits for its transcript's final drain. As long as the server gives a
+    /// watcher it has told to stop, so a hung send can hold up neither the end nor the teardown.</summary>
+    internal TimeSpan RecordingDrainBudget { get; set; } = TimeSpan.FromSeconds(10);
+
     // Linked to IHostApplicationLifetime.ApplicationStopping so the shutdown gate
     // trips as soon as the host begins stopping — the same instant ServerConnection's
     // _ct (also ApplicationStopping) cancels SignalR calls. Otherwise there's a
@@ -889,8 +893,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // Null outside DaemonRunner: no accounts, so no catalog is probed per account.
             AccountsPublisher?                                accounts = null,
             // Null outside DaemonRunner: limit hits seen on screen are not recorded.
-            AccountReadingSink?                               readings = null
+            AccountReadingSink?                               readings = null,
+            // Null outside DaemonRunner: hosted sessions stay on their watchers.
+            DaemonRecorder?                                   recorder = null
         ) {
+        _recorder        = recorder;
         AccountsSnapshot = accounts is null ? static () => null : () => accounts.Current;
         _readings        = readings;
         _admission = admissionFence ?? new AdmissionFence(
@@ -1882,6 +1889,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     readonly AccountReadingSink? _readings;
+    readonly DaemonRecorder? _recorder;
 
     /// <summary>
     /// Re-sends the registration on the current connection so the server's copy of a connect
@@ -2934,6 +2942,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // through CleanupAgentAsync for the WRONG agent and leave this launch's own journal parked.
         var published = false;
 
+        // Hoisted so the finally below can let go of a claim no agent ever ran under.
+        RecordedSource? recording = null;
+
         // Created here, ahead of the reviewer-token mint and the AgentInstance that will own it, so the
         // SAME instance reaches the permission-bridge grant, the ACP runtime and the AgentInstance —
         // one clock per launch, never three.
@@ -3324,6 +3335,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             if (resume is null) WritePreStartLedger(cmd, prompt, effectiveModel, effort, worktree, work, consent, pinnedSessionId, account);
 
+            // The process's first hook can run before anything after the start has, so the claim comes first.
+            var knownSession = pinnedSessionId ?? cmd.ResumeSessionId ?? resume?.Entry.VendorSession;
+            recording = await ClaimRecordingAsync(agentId, cmd.Vendor, knownSession, isPrivate, worktree, account, skipTitle: knownSession != pinnedSessionId);
+
             // Make this launch describable for the duration of the handshake below: the AgentInstance
             // does not exist until StartAsync returns, so without this the out-of-cycle report each
             // SetLaunchStage fires would omit the very agent it is reporting a stage for.
@@ -3476,6 +3491,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 return new CommandOutcome(CommandOutcomeKind.LaunchFailedCleaned, agentId);
             }
             published = true;
+            if (recording is not null) _recorder!.StartForAgent(recording);
             onPublished?.Invoke(agent);
             _ = WatchLaunchPromptAsync(agent);
             storeLease?.Keep();
@@ -3712,6 +3728,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         } finally {
             capacity?.Dispose();
 
+            if (recording is not null && !published) _recorder!.ReleaseClaim(recording);
+
             if (storeLease is not null) {
                 // Never drop a directory a LIVE incarnation under this id owns: a relaunch that fails
                 // before publishing finds the previous agent still holding the id, and that agent's
@@ -3728,6 +3746,29 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             }
         }
     }
+
+    /// <summary>Whether this daemon records hosted sessions now, which is what a hook is told.</summary>
+    internal bool RecordsHostedSessions => _recorder?.Enabled == true;
+
+    /// <summary>Claims a Claude session whose id is known ahead of its process. Null when this daemon won't record it, and
+    /// the launch goes on as it always has: its hook hands over the session once there is an id, or starts a watcher.</summary>
+    async Task<RecordedSource?> ClaimRecordingAsync(
+            string agentId, string vendor, string? session, bool isPrivate, WorktreeInfo worktree, ResolvedAccount? account, bool skipTitle) {
+        if (isPrivate || _recorder is not { Enabled: true } recorder || !IsClaude(vendor) || SessionIds.Canonical(session) is not { } canonical) return null;
+
+        var transcript = Path.Combine(ClaudePathsFor(account).ProjectDir(worktree.Path), $"{(Guid.TryParse(canonical, out var id) ? id.ToString("D") : canonical)}.jsonl");
+        var source     = new RecordedSource(agentId, canonical, null, transcript, "claude", worktree.Path, skipTitle);
+
+        return await recorder.ClaimAsync(source, _shutdownCts.Token) ? source : null;
+    }
+
+    /// <summary>Hands a recorder the transcript discovery found, for a source computed ahead of the launch.</summary>
+    void FollowDiscoveredTranscript(AgentInstance agent, string sessionId, string path) {
+        if (_recorder is { } recorder && IsClaude(agent.Vendor) && SessionIds.Canonical(sessionId) is { } canonical)
+            _ = recorder.ObserveTranscriptAsync(new RecordedSource(agent.Id, canonical, null, path, "claude", agent.Worktree.Path, false));
+    }
+
+    static bool IsClaude(string vendor) => string.Equals(vendor, "claude", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Completes and, only when safe, deletes a journal from a launch that never produced an
@@ -4232,6 +4273,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             if (agent.AcpCts is { } acpCts) {
                 try { await acpCts.CancelAsync(); } catch { /* best-effort */ }
             }
+
+            // Before the end: a transcript line landing behind it would reactivate the session.
+            if (_recorder is { } recorder) await recorder.FinishAgentAsync(agent.Id, RecordingDrainBudget);
 
             // Tell the server to end the AgentSession. Claude doesn't reliably fire
             // its own session-end hook on SIGTERM/exit, so without this call the
@@ -6366,6 +6410,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     agent.SessionId ??= winner.SessionId;
                     agent.VendorSession ??= winner.SessionId;
                     agent.TranscriptPath = winner.Path;
+                    FollowDiscoveredTranscript(agent, winner.SessionId, winner.Path);
                     // Claude's transcript opens with SessionStart's own record, which a kcap on PATH
                     // too old to send the notice still produces. A resumed one predates the spawn.
                     if (agent.BridgedSinceStart) NoteSessionStarted(agent);
@@ -6613,6 +6658,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             try { await journal.CompleteAsync(); } catch (Exception ex) { LogCleanupStepFailed(ex, "completing transcript journal", agentId); }
         }
 
+        // Before the project link goes. Finalization has done this already on every path but a failed launch's.
+        if (_recorder is { } recorder) await recorder.FinishAgentAsync(agentId, RecordingDrainBudget);
+
         // The launcher's teardown deletes the MCP config and the vendor's project link, which a
         // pending resume still needs.
         if (!agent.ResumePending && _launchers.TryGetValue(agent.Vendor, out var launcher)) {
@@ -6747,6 +6795,19 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
+    /// <summary>Beside the shutdown's report, so it adds nothing to the exit budget, and after the agents have stopped, so
+    /// it takes their last lines. What resumes keeps its claim for the next daemon.</summary>
+    async Task StopRecordingAsync() {
+        if (_recorder is not { } recorder) return;
+
+        try {
+            await recorder.StopAsync(agentId => !_agents.TryGetValue(agentId, out var agent) || agent.ResumePending, CancellationToken.None);
+            await recorder.DisposeAsync();
+        } catch (Exception ex) {
+            LogDisposeStepFailed(ex, "recording");
+        }
+    }
+
     public virtual async ValueTask DisposeAsync() {
         if (Interlocked.Exchange(ref _disposeOnce, 1) != 0) return;
 
@@ -6820,7 +6881,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // away but nothing about the agents it was hosting — and a successor daemon reconnecting
             // under the same name re-binds those retained entries onto its own connection, leaving
             // sessions the surface still composes into and a Stop that has nothing to act on.
+            var recording = StopRecordingAsync();
+
             await ReportAgentsEndedForShutdownAsync();
+            await recording;
 
             foreach (var agentId in _agents.Keys.ToList()) {
                 try {

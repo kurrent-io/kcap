@@ -631,6 +631,7 @@ internal partial class AgentOrchestrator {
         DateTime      spawnedAtUtc;
         WorktreeInfo? ownedWorktree = null; // tracked so a failure after creation cleans it up
         string?       permissionMode;
+        RecordedSource? recording   = null;
 
         try {
             var worktree = work == WorkLocation.OwnedWorktree
@@ -673,6 +674,9 @@ internal partial class AgentOrchestrator {
                 ? VendorHomeEnv.Apply(env, vendor, account, _config.Home)
                 : FrozenSet<string>.Empty;
 
+            // The process's first hook can run before anything after the spawn has, so the claim comes first.
+            recording = await ClaimRecordingAsync(agentId, vendor, built.SessionId, isPrivate, worktree, resolution.Account, skipTitle: false);
+
             spawnedAtUtc = _time.GetUtcNow().UtcDateTime;
             var pty     = _ptyFactory.Spawn(launcher.CliPath, built.Args, worktree.Path, env, cols, rows, removeEnv);
             var runtime = new PtyHostedAgentRuntime(vendor, pty, _time, logger: _logger);
@@ -696,7 +700,10 @@ internal partial class AgentOrchestrator {
                     : AttachmentPlacement.Worktree
             };
             PublishAgent(agent);
+            if (recording is not null) _recorder!.StartForAgent(recording);
         } catch (Exception ex) {
+            if (recording is not null) _recorder!.ReleaseClaim(recording);
+
             // Don't leak a daemon-created worktree if Prepare / passthrough-arg building /
             // spawn fails after the worktree was created (mirrors the server launch path).
             if (ownedWorktree is { } leaked) {
@@ -717,6 +724,43 @@ internal partial class AgentOrchestrator {
         _ = ReadAgentOutputAsync(agent);
         _ = DetectSessionIdAsync(agent, vendor, spawnedAtUtc);
         await AttachClientLoopAsync(agent, stream, ct);
+    }
+
+    /// <summary>A hosted agent's hook handing over a source it found no recorder for: a subagent, or a session the agent
+    /// moved to. Refused for anything but a live hosted Claude agent of this daemon, and the hook then starts a watcher.</summary>
+    public async Task HandleLocalRecordSourceAsync(string payload, Stream stream, CancellationToken ct) {
+        RecordSourceDto? source = null;
+
+        try {
+            source = JsonSerializer.Deserialize(payload, RecordingIpcJsonContext.Default.RecordSourceDto);
+        } catch (JsonException) {
+            // Refused below.
+        }
+
+        var recording = source is not null && await RecordHandedSourceAsync(source, ct);
+
+        await FrameCodec.WriteAsync(stream, LocalFrame.RecordSourceAck(recording ? RecordingIpc.Recording : RecordingIpc.Refused), ct);
+    }
+
+    async Task<bool> RecordHandedSourceAsync(RecordSourceDto source, CancellationToken ct) {
+        if (_recorder is not { Enabled: true } recorder || !IsClaude(source.Vendor)
+         || !_agents.TryGetValue(source.AgentId, out var agent) || agent.IsPrivate || !IsClaude(agent.Vendor)
+         || SessionIds.Canonical(source.SessionId) is not { } session) return false;
+
+        return await recorder.TryRecordAsync(
+            new RecordedSource(agent.Id, session, SessionIds.Canonical(source.SubagentId), source.TranscriptPath, "claude", source.Cwd, source.SkipTitle), ct);
+    }
+
+    /// <summary>A hook's ask for a source's final drain. A hook that stops waiting has still asked, so the drain runs
+    /// with nobody left to answer. This daemon's own stop is what ends the wait, and the drain outlives that too.</summary>
+    public async Task HandleLocalFinishSourceAsync(string key, Stream stream, CancellationToken ct) {
+        var finished = _recorder is { } recorder && await recorder.FinishAsync(key, ct, hurried: true);
+
+        try {
+            await FrameCodec.WriteAsync(stream, LocalFrame.FinishSourceAck(finished ? RecordingIpc.Finished : RecordingIpc.NotHeld), ct);
+        } catch (IOException) {
+            // The hook's budget ran out first.
+        }
     }
 
     /// <summary>Attach an existing agent to a local client (used by <c>kcap agent attach</c>).</summary>
