@@ -4,6 +4,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
 using Capacitor.Cli.Recording.Harness.Claude;
 using Capacitor.Cli.Recording.PrDetection;
@@ -22,6 +23,11 @@ namespace Capacitor.Cli.Daemon.Services;
 /// lets its claim go, and only once its key has left the host: a take behind a release while the key is still held is
 /// refused by the host and leaves the claim with nothing beating it. A source that lost its claim touches it no more,
 /// since it is someone else's. A shutdown lets go only of what no agent comes back for: the next boot picks up the rest.</para>
+///
+/// <para>A session a person disabled is refused at every way in, and <see cref="DisableSessionAsync"/> ends what is
+/// already running. Those two meet without a lock, because the marker is on disk before the command asks: whoever takes a
+/// source publishes it and then reads the marker in <see cref="Start"/>, and the disable reads what is published after
+/// the marker went down, so one of them sees the other.</para>
 /// </summary>
 internal sealed partial class DaemonRecorder : IAsyncDisposable {
     // A lost spawn lock is another process in the same few file operations, and a launch waits behind these.
@@ -43,10 +49,14 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// this, 2 seconds stay back for the spool, which is what a host keeps of any bound from 4 seconds up.</summary>
     internal static readonly TimeSpan ShutdownBound = TimeSpan.FromSeconds(5);
 
+    /// <summary>How long <c>kcap disable</c> waits on what a session had under way. A person is waiting, and past this
+    /// the command says what it couldn't confirm.</summary>
+    internal static readonly TimeSpan DisableBound = TimeSpan.FromSeconds(5);
+
     readonly DaemonConfig _config;
     readonly CapacitorServer _server;
     readonly RecordingProbe _serverRecords;
-    readonly Func<IRecorderTransport> _connect;
+    readonly Func<ISilenceableRecorderTransport> _connect;
     readonly Func<RecordedSource, Action<string>, Action, Action, IRecorderHousekeeping> _housekeeping;
     readonly TimeProvider _time;
     readonly ILogger _logger;
@@ -62,7 +72,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     // A first source creates the host, and a stop finding none has to know no source will.
     readonly Lock _starting = new();
 
-    IRecorderTransport? _transport;
+    ISilenceableRecorderTransport? _transport;
     Func<string, bool>? _agentIsLive;
     int _stopping;
     int _disposed;
@@ -70,7 +80,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <param name="connect">Builds the transport, for the first source. Nothing connects before that.</param>
     /// <param name="housekeeping">Builds a recorder's housekeeping, given its source, its log, its own stop and its beat.</param>
     public DaemonRecorder(
-            DaemonConfig config, CapacitorServer server, RecordingProbe serverRecords, Func<IRecorderTransport> connect,
+            DaemonConfig config, CapacitorServer server, RecordingProbe serverRecords, Func<ISilenceableRecorderTransport> connect,
             Func<RecordedSource, Action<string>, Action, Action, IRecorderHousekeeping> housekeeping, TimeProvider time, ILogger<DaemonRecorder> logger) {
         _config        = config;
         _server        = server;
@@ -190,6 +200,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             using (await _keys.EnterAsync(source.Key, ct)) {
                 if (!_sources.TryGetValue(source.Key, out held)) return await TakeAsync(source, ct) is { } taken && Start(taken);
 
+                if (held.Disabled) return false;
                 if (!IsLeaving(held)) return true;
             }
 
@@ -214,7 +225,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <returns>Whether this daemon held the source and it finished.</returns>
     /// <param name="hurried">The caller won't wait long, as a hook doesn't.</param>
     public async Task<bool> FinishAsync(string key, CancellationToken ct, bool hurried = false) {
-        if (Volatile.Read(ref _stopping) != 0 || !_sources.TryGetValue(key, out var tracked) || !tracked.Running) return false;
+        if (Volatile.Read(ref _stopping) != 0 || !_sources.TryGetValue(key, out var tracked) || !tracked.Running || tracked.Disabled) return false;
 
         await Task.Run(() => _host.Value.FinishAsync(key, ct, hurried), CancellationToken.None);
         await tracked.Settled.Task.WaitAsync(ct);
@@ -227,7 +238,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// carries on: a tail landing behind the session's end reactivates it, and the server's sweep closes it again once
     /// the source has detached.</summary>
     public async Task FinishAgentAsync(string agentId, TimeSpan budget) {
-        var keys = _sources.Where(source => source.Value.Source.AgentId == agentId && source.Value.Running && !source.Value.AgentFinished).Select(source => source.Key).ToArray();
+        var keys = _sources.Where(source => source.Value.Source.AgentId == agentId && source.Value is { Running: true, AgentFinished: false, Disabled: false }).Select(source => source.Key).ToArray();
         if (keys.Length == 0) return;
 
         foreach (var key in keys) {
@@ -307,6 +318,46 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         while (_letGo.TryDequeue(out var left)) await SettleLetGoAsync(left.Source, left.MayImport, agentIsLive);
     }
 
+    /// <summary>Stops every source of a session a person disabled, its subagents' included, where each stands, for
+    /// <c>kcap disable</c>. From here the session sends nothing: the transport refuses it ahead of the connection, so a
+    /// source in a backoff, a final drain or stuck where no token reaches can't send when it comes round. What this can't
+    /// recall is a call already made, so it waits for those within <see cref="DisableBound"/>, and the answer is all the
+    /// command has to go on. Takes no key's gate, because a restore can hold one for a minute.</summary>
+    public async Task<RecordingDisable> DisableSessionAsync(string sessionId, CancellationToken ct) {
+        var session = SessionIds.Canonical(sessionId);
+        var held    = _sources.Values.Where(tracked => SessionIds.Canonical(tracked.Source.SessionId) == session).ToArray();
+
+        if (session is null || held.Length == 0) return RecordingDisable.NotHeld;
+
+        // Under the lock a source starts under, so each of these is running by now or never will be.
+        lock (_starting) {
+            foreach (var tracked in held) tracked.Disabled = true;
+        }
+
+        var silenced = _host.IsValueCreated ? _transport!.SilenceAsync(session) : Task.FromResult(true);
+        var ended    = new List<Task> { silenced };
+
+        foreach (var tracked in held) {
+            if (tracked.Running) {
+                ended.Add(_host.Value.AbandonAsync(tracked.Source.Key));
+                _claims.Release(tracked.Source.Key);
+                _list.Remove(tracked.Source.Key);
+            } else {
+                Forget(tracked);
+            }
+        }
+
+        DiscardSpool(session);
+
+        try {
+            await Task.WhenAll(ended).WaitAsync(DisableBound, _time, ct);
+
+            return await silenced ? RecordingDisable.Stopped : RecordingDisable.SendInFlight;
+        } catch (TimeoutException) {
+            return RecordingDisable.SendInFlight;
+        }
+    }
+
     /// <summary>Stops every source for a shutdown, within <see cref="ShutdownBound"/>. The next boot picks up what
     /// <paramref name="keeps"/> says is coming back, and what didn't finish: a stuck source hears no callback, so its
     /// claim and list entry stay.</summary>
@@ -361,13 +412,13 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     // Under the key's gate. Tracked before the host can hear of it, because the host's first context reads it.
     async Task<Tracked?> TakeAsync(RecordedSource source, CancellationToken ct) {
         for (var attempt = 1; attempt <= TakeAttempts; attempt++) {
-            switch (await TakeOnceAsync(source.Key)) {
+            switch (await TakeOnceAsync(source)) {
                 case ClaimOutcome.Taken when _list.TryAdd(source): return _sources[source.Key] = new Tracked(source);
                 case ClaimOutcome.Taken:
                     _claims.Release(source.Key);
 
                     return null;
-                case ClaimOutcome.HeldByWatcher: return null;
+                case ClaimOutcome.HeldByWatcher or ClaimOutcome.Disabled: return null;
             }
 
             if (attempt < TakeAttempts) await Task.Delay(TakeRetryGap, _time, ct);
@@ -376,7 +427,11 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         return null;
     }
 
-    async Task<ClaimOutcome> TakeOnceAsync(string key) {
+    async Task<ClaimOutcome> TakeOnceAsync(RecordedSource source) {
+        if (IsDisabled(source)) return ClaimOutcome.Disabled;
+
+        var key = source.Key;
+
         // What stays if the lock is never taken: a lost lock says nothing about who holds the source.
         var outcome = ClaimOutcome.Contended;
 
@@ -403,6 +458,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
         if (_sources.ContainsKey(source.Key)) return;
 
+        if (IsDisabled(source)) {
+            ForgetDisabled(source);
+
+            return;
+        }
+
         _claims.ReleaseIfHeldBy(source.Key, _config.Name);
 
         if (scope.Readable) _letGo.Enqueue((source, scope.MayImport(source.Cwd)));
@@ -415,10 +476,30 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         // A hook got here first, and the entry is its recorder's.
         if (_sources.ContainsKey(source.Key)) return;
 
+        if (IsDisabled(source)) {
+            ForgetDisabled(source);
+
+            return;
+        }
+
         if (mayImport && !source.Drained && !agentIsLive(source.AgentId) && !_liveness.PidAlive(source.Key)) MarkForImport(source);
 
         _list.Remove(source.Key);
     }
+
+    // Nothing of it is left to pick up: no mark, which would ask for what the person deleted to be sent again.
+    void ForgetDisabled(RecordedSource source) {
+        LogDisabled(source.Key);
+
+        _claims.ReleaseIfHeldBy(source.Key, _config.Name);
+        _list.Remove(source.Key);
+        DiscardSpool(source.SessionId);
+    }
+
+    bool IsDisabled(RecordedSource source) => DisabledSessions.IsDisabled(source.SessionId, _config.ConfigRoot);
+
+    void DiscardSpool(string session) =>
+        new TranscriptSpool(_server.Config, _time, _server.Url) { FailureLog = message => LogRecorder(session, message) }.Discard(session);
 
     void MarkForImport(RecordedSource source) {
         try {
@@ -452,7 +533,13 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var started = _time.GetTimestamp();
 
         while (true) {
-            var outcome = await TakeOnceAsync(source.Key);
+            var outcome = await TakeOnceAsync(source);
+
+            if (outcome is ClaimOutcome.Disabled) {
+                ForgetDisabled(source);
+
+                return;
+            }
 
             if (outcome is ClaimOutcome.Taken) {
                 // What it sends from here is unsent again, so a kill behind this can't read as drained.
@@ -481,14 +568,14 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     // A source past its agent's exit or its own last attempt. Its finish can't be called back, so whoever comes for its
     // key finds it gone rather than adopting something about to drop.
-    static bool IsLeaving(Tracked tracked) => tracked.Ending || tracked.AgentFinished;
+    static bool IsLeaving(Tracked tracked) => tracked.Ending || tracked.AgentFinished || tracked.Disabled;
 
     bool Start(Tracked tracked) {
         var source = tracked.Source;
 
         try {
             lock (_starting) {
-                if (Volatile.Read(ref _stopping) == 0 && _host.Value.TryAdd(source.Recording)) {
+                if (Volatile.Read(ref _stopping) == 0 && !tracked.Disabled && !IsDisabled(source) && _host.Value.TryAdd(source.Recording)) {
                     tracked.Running = true;
                     Warm(source);
 
@@ -499,7 +586,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             LogStartFailed(ex, source.Key);
         }
 
-        // Refused only while stopping, or the key would be running: nothing will record this source, so nothing may claim it.
+        // Nothing will record this source, so nothing may claim it.
         Forget(tracked);
 
         return false;
@@ -543,6 +630,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             using var _ = await _keys.EnterAsync(key, CancellationToken.None);
 
             await _host.Value.FinishAsync(key, CancellationToken.None);
+
+            // A stuck source's last moves come long after the disable that stopped it.
+            if (tracked.Disabled) DiscardSpool(tracked.Source.SessionId);
 
             if (lostClaim) {
                 _list.Remove(key);
@@ -609,7 +699,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         }
     }
 
-    enum ClaimOutcome { Contended, Taken, HeldByWatcher }
+    enum ClaimOutcome { Contended, Taken, HeldByWatcher, Disabled }
 
     sealed class Tracked(RecordedSource source) {
         public RecordedSource Source { get; set; } = source;
@@ -625,6 +715,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
         /// <summary>Its agent has exited and its finish has been asked for.</summary>
         public bool AgentFinished { get; set; }
+
+        /// <summary>A person disabled its session, so it is over, whatever else it says here.</summary>
+        public bool Disabled { get; set; }
 
         /// <summary>Its final drain ended with no failure and nothing left behind.</summary>
         public bool Drained { get; set; }
@@ -658,6 +751,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Not picking up {Key}: {Outcome}")]
     partial void LogNotRestored(string key, ClaimOutcome outcome);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Not recording {Key}: its session was disabled")]
+    partial void LogDisabled(string key);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Key} may have lines the server never got, and is marked for import")]
     partial void LogMarkedForImport(string key);

@@ -197,6 +197,18 @@ public class LocalControlHelloTests {
         }, recording: true);
     }
 
+    /// <summary>Beside the routing switch or not at all: a capability with no handler would be a stop that never lands.</summary>
+    [Test]
+    public async Task Every_daemon_answers_a_disable() {
+        await RunAsync("hello-dis", async (h, ct) => {
+            await Assert.That(await CapabilitiesAsync(h.SockPath, ct)).Contains(RecordingIpc.DisableCapability);
+
+            var disable = await AskAsync(h.SockPath, LocalFrame.DisableSession("session-1"), ct);
+
+            await Assert.That((disable!.Type, disable.Text)).IsEqualTo((FrameType.DisableSessionAck, RecordingIpc.NotHeld));
+        });
+    }
+
     [Test]
     public async Task A_daemon_with_recording_off_does_not_say_so() {
         await RunAsync("hello-off", async (h, ct) => {

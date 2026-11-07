@@ -22,9 +22,11 @@ kcap disable
 ```
 
 This will:
-1. Stop the transcript watcher process
+1. Stop whatever records the session: its transcript watcher, or the daemon's recorder, which stops at once with no final drain
 2. Prevent all future hook events from being sent for this session
 3. Delete all session data from the server (event streams and read models)
+
+If the command exits 1 it could not promise the data is gone: a send may still reach the server, or the daemon did not confirm it stopped. Tell the user what it printed, and run it again as it says to delete what landed.
 
 ## Requirements
 

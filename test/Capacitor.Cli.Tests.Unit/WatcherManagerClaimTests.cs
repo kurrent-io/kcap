@@ -518,6 +518,37 @@ public class WatcherManagerClaimTests : IDisposable {
         }
     }
 
+    /// <summary>A hook past its own check when the person disabled the session, on the way to starting a recorder.</summary>
+    [Test]
+    public async Task A_disabled_session_gets_no_watcher() {
+        DisabledSessions.Mark(Key, Config.Root);
+
+        await Watchers.EnsureWatcherRunning(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(_spawner.Keys).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_disabled_sessions_subagent_gets_no_watcher() {
+        DisabledSessions.Mark(Key, Config.Root);
+
+        await Watchers.EnsureWatcherRunning($"{Key}-sub-1", NewTranscript(), "sub-1", Key);
+
+        await Assert.That(_spawner.Keys).IsEmpty();
+    }
+
+    /// <summary>With the daemon's claim gone this reads as nobody's source, and a drain from a hook would send the whole
+    /// transcript of what the person just deleted.</summary>
+    [Test]
+    public async Task A_disabled_session_is_not_drained_by_a_hook() {
+        StubServer();
+        DisabledSessions.Mark(Key, Config.Root);
+
+        await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(Posts).IsEqualTo(0);
+    }
+
     sealed class FakeDaemon : IDaemonRecordingClient {
         readonly List<string> _asked = [];
 
@@ -534,6 +565,8 @@ public class WatcherManagerClaimTests : IDisposable {
         }
 
         public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
+
+        public Task<RecordingDisable> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(RecordingDisable.Unanswered);
 
         public async Task<bool> FinishSourceAsync(string key, CancellationToken ct) {
             lock (_asked) _asked.Add(key);

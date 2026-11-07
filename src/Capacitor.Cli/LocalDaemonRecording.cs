@@ -5,7 +5,8 @@ using Capacitor.Cli.Recording;
 namespace Capacitor.Cli;
 
 /// <summary>Reaches the daemon hosting this hook's agent over local control. Only that daemon has a say: the agent's
-/// environment names it, so a hook on another profile can't reach the wrong one.</summary>
+/// environment names it, so a hook on another profile can't reach the wrong one. A disable goes to the daemon its caller
+/// names instead, because it runs from a terminal as often as from an agent and a claim says who holds a source.</summary>
 /// <param name="daemonName">What the daemon put in its agent's environment; null outside a hosted agent.</param>
 public sealed class LocalDaemonRecording(DaemonStore store, HostedAgent hosted, string? daemonName) : IDaemonRecordingClient {
     public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) {
@@ -17,4 +18,7 @@ public sealed class LocalDaemonRecording(DaemonStore store, HostedAgent hosted, 
 
     public Task<bool> FinishSourceAsync(string key, CancellationToken ct) =>
         daemonName is { Length: > 0 } name ? RecordingIpc.FinishAsync(store, name, key, ct) : Task.FromResult(false);
+
+    public Task<RecordingDisable> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) =>
+        RecordingIpc.DisableAsync(store, daemonName, sessionId, ct);
 }

@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -192,5 +193,79 @@ public class DaemonRecorderHubTests {
         await Assert.That(calls.IndexOf("batch 0")).IsGreaterThan(calls.IndexOf($"connect {SessionA}"));
         await Assert.That(calls.IndexOf($"drain {SessionA}")).IsGreaterThan(calls.IndexOf("batch 0"));
         await Assert.That(calls.IndexOf($"detach {SessionA}")).IsGreaterThan(calls.IndexOf($"drain {SessionA}"));
+    }
+
+    /// <summary>The command has to be able to say this: from its answer on, a hub that saw no final drain sees nothing at
+    /// all of this session but the detach, however much more the agent writes.</summary>
+    [Test]
+    public async Task Disable_stops_a_daemon_held_source_with_no_final_drain() {
+        await using var hub  = await RecordingHubHost.StartAsync();
+        await using var main = new ServerConnection(DaemonConfigFor(hub), new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
+        await using var recorder = Recorder(hub, main);
+        var path   = Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n");
+        var source = new RecordedSource("agent-1", SessionA, null, path, "claude", null, true);
+
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await hub.WaitForAsync(h => h.Calls.Contains("batch 0"), "the first lines");
+        await File.AppendAllTextAsync(path, $"{Reply}\n");
+
+        var answer = await recorder.DisableSessionAsync(SessionA, CancellationToken.None).WithinDeadlineAsync("the disable");
+        var seen   = hub.Calls.Count(call => call.StartsWith("batch ", StringComparison.Ordinal));
+
+        await File.AppendAllTextAsync(path, $"{Reply}\n");
+        await hub.WaitForAsync(h => h.Calls.Contains($"detach {SessionA}"), "the detach");
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+
+        await Assert.That(answer).IsEqualTo(RecordingDisable.Stopped);
+        await Assert.That(hub.Calls.Count(call => call.StartsWith("batch ", StringComparison.Ordinal))).IsEqualTo(seen);
+        await Assert.That(hub.Calls).DoesNotContain($"drain {SessionA}");
+    }
+
+    /// <summary>InvokeAsync completes locally on a cancel with the server still working, so a recorder that has ended says
+    /// nothing about its last batch. The command deletes after this answers, and only an answered batch is under that.</summary>
+    [Test]
+    public async Task A_disable_waits_for_the_server_to_answer_what_it_was_sent() {
+        await using var hub  = await RecordingHubHost.StartAsync();
+        await using var main = new ServerConnection(DaemonConfigFor(hub), new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
+        await using var recorder = Recorder(hub, main);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.BatchHold = _ => release.Task;
+        var source = new RecordedSource("agent-1", SessionA, null, Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "claude", null, true);
+
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await hub.WaitForAsync(h => h.Calls.Contains("batch 0"), "the batch to reach the server");
+
+        var disable = recorder.DisableSessionAsync(SessionA, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+
+        await Assert.That(disable.IsCompleted).IsFalse();
+
+        release.SetResult();
+
+        await Assert.That(await disable.WithinDeadlineAsync("the disable")).IsEqualTo(RecordingDisable.Stopped);
+    }
+
+    /// <summary>The server has the batch and hasn't answered by the bound, so it can land behind the deletion.</summary>
+    [Test]
+    public async Task A_send_unanswered_at_the_bound_is_said_to_be_in_flight() {
+        var             time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var hub  = await RecordingHubHost.StartAsync();
+        await using var main = new ServerConnection(DaemonConfigFor(hub), new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
+        await using var recorder = DaemonRecorder.Compose(
+            DaemonConfigFor(hub), new CapacitorServer(hub.Url, Config.Root, Resolutions.None(Config.Root)), main, new FixedCapacitorHttpClient(),
+            TestHarnesses.Under(Home), NullLoggerFactory.Instance, time);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.BatchHold = _ => release.Task;
+        var source = new RecordedSource("agent-1", SessionA, null, Tmp.CreateFile("t.jsonl", $"{Prompt}\n{Reply}\n"), "claude", null, true);
+
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await hub.WaitForAsync(h => h.Calls.Contains("batch 0"), "the batch to reach the server");
+
+        var disable = recorder.DisableSessionAsync(SessionA, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+        time.Advance(DaemonRecorder.DisableBound);
+
+        await Assert.That(await disable.WithinDeadlineAsync("the disable")).IsEqualTo(RecordingDisable.SendInFlight);
+        release.SetResult();
     }
 }

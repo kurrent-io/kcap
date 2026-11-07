@@ -105,6 +105,26 @@ public class ClaudeSessionStartClaimTests {
         await Assert.That(AgentSessions.OnThisMachine(Config.Root).LiveClaimant(SessionId.Parse(Session)!)).IsNull();
     }
 
+    /// <summary>A terminal session's end closes its marker. A daemon resumes a hosted session under the same id with
+    /// nobody asking, and the marker is all that keeps that from recording what the person disabled.</summary>
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, true)]
+    public async Task Only_a_hosted_session_keeps_its_disabled_marker_past_its_end(bool isHosted, bool kept) {
+        DisabledSessions.Mark(Session, Config.Root);
+        var profiles = Resolutions.None(Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        var clock    = new HookClock(TimeProvider.System);
+        var command  = new ClaudeHookCommand(Config.Root, profiles, clock, Home,
+            TestHarnesses.Under(Home), isHosted ? new HostedAgent("agent-1", false, DaemonBridge.None) : HostedAgent.Terminal, http, TestWatchers.For(Config.Root, profiles, http),
+            FakeProcessStarter.Refusing(), new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory), TestAccounts.None);
+
+        var suppressed = await command.ShouldSuppressCaptureAsync(Session, "{}", "session-end", profiles.Effective, clock.Budget(ClaudeHookCommand.SessionStartCeiling));
+
+        await Assert.That(suppressed).IsTrue();
+        await Assert.That(DisabledSessions.IsDisabled(Session, Config.Root)).IsEqualTo(kept);
+    }
+
     [Test]
     [ParallelLimiter<SubprocessLimit>]
     [Arguments(false)]

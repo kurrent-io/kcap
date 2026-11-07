@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Recording;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -598,6 +599,257 @@ public class DaemonRecorderTests {
         await stopping.StopAsync(_ => true, CancellationToken.None).WithinDeadlineAsync("the stop");
 
         await Assert.That(List.Load().Single().Drained).IsFalse();
+    }
+
+    void Disable() => DisabledSessions.Mark(Session, Config.Root);
+
+    /// <summary>A recorder stuck where no token reaches, for as long as <see cref="Stuck.Release"/> isn't called.</summary>
+    sealed class Stuck {
+        readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Entered => _entered.Task;
+
+        public Task Prepare() {
+            _entered.TrySetResult();
+
+            return _release.Task;
+        }
+
+        public void Release() => _release.SetResult();
+    }
+
+    /// <summary>A restart must not undo what the person did while this daemon was down.</summary>
+    [Test]
+    public async Task A_disabled_session_is_not_restored() {
+        var source = Source(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+        Disable();
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(InScope, CancellationToken.None).WithinDeadlineAsync("the restore");
+
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+        await Assert.That(Transport.Connects).IsEqualTo(0);
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+    }
+
+    /// <summary>A mark invites the import to send again what the person deleted, so the settling that writes one for any
+    /// other source writes none here, and the entry goes as it would.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_disabled_session_leaves_no_import_mark_and_no_list_entry(bool leftToHooks) {
+        var source = Source(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Disable();
+        var spool = new TranscriptSpool(Config.Root, TimeProvider.System, Url);
+        spool.MarkNeedsImport(Session, "left by an earlier stop");
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(leftToHooks ? LeftToHooks() : InScope, CancellationToken.None).WithinDeadlineAsync("the restore");
+        await recorder.SettleRestoredAsync(_ => false).WithinDeadlineAsync("the settling");
+
+        await Assert.That(MarkedForImport).IsFalse();
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_disabled_session_is_not_taken_when_handed_over() {
+        Disable();
+
+        await using var recorder = NewRecorder();
+
+        await Assert.That(await recorder.TryRecordAsync(Source(Transcript(Prompt)), CancellationToken.None)).IsFalse();
+        await Assert.That(await recorder.ClaimAsync(Source(Transcript(Prompt)), CancellationToken.None)).IsFalse();
+        await Assert.That(Connections).IsEqualTo(0);
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>A launch claims ahead of its agent, and the person can disable the session in between.</summary>
+    [Test]
+    public async Task A_session_disabled_behind_its_claim_never_starts() {
+        var source = Source(Transcript(Prompt));
+        await using var recorder = NewRecorder();
+        await Assert.That(await recorder.ClaimAsync(source, CancellationToken.None)).IsTrue();
+
+        Disable();
+        recorder.StartForAgent(source);
+
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_disable_of_a_session_held_here_says_it_stopped() {
+        var source = Source(Transcript(Prompt, Reply));
+        await using var recorder = NewRecorder();
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+        Disable();
+
+        await Assert.That(await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the disable")).IsEqualTo(RecordingDisable.Stopped);
+
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load()).IsEmpty();
+        await Assert.That(MarkedForImport).IsFalse();
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_disable_of_a_session_held_elsewhere_says_so() {
+        var source = Source(Transcript(Prompt));
+        await using var recorder = NewRecorder();
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+
+        await Assert.That(await recorder.DisableSessionAsync("fedcba9876543210fedcba9876543210", CancellationToken.None)).IsEqualTo(RecordingDisable.NotHeld);
+
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+        await recorder.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+    }
+
+    [Test]
+    public async Task A_disable_stops_the_sessions_subagents_and_no_other_session() {
+        const string other = "fedcba9876543210fedcba9876543210";
+        var root     = Source(Tmp.CreateFile("root.jsonl", $"{Prompt}\n"));
+        var subagent = Source(Tmp.CreateFile("sub.jsonl", $"{Prompt}\n"), "agent-b");
+        var bystander = root with { SessionId = other, TranscriptPath = Tmp.CreateFile("other.jsonl", $"{Prompt}\n") };
+        await using var recorder = NewRecorder();
+        await recorder.TryRecordAsync(root, CancellationToken.None);
+        await recorder.TryRecordAsync(subagent, CancellationToken.None);
+        await recorder.TryRecordAsync(bystander, CancellationToken.None);
+
+        await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the disable");
+
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([bystander.Key]);
+        await Assert.That(List.Load().Select(left => left.Key)).IsEquivalentTo([bystander.Key]);
+        await recorder.FinishAsync(bystander.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
+    }
+
+    /// <summary>Claimed ahead of a launch with no recorder yet, so nothing but this lets the claim go.</summary>
+    [Test]
+    public async Task A_disable_lets_go_of_a_source_not_started_yet() {
+        var source = Source(Transcript(Prompt));
+        await using var recorder = NewRecorder();
+        await recorder.ClaimAsync(source, CancellationToken.None);
+
+        await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the disable");
+
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load()).IsEmpty();
+        recorder.StartForAgent(source);
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+    }
+
+    /// <summary>A recorder stuck where no token reaches still can't send when it wakes, but nothing here can say it has
+    /// stopped, so the command must not be told it has.</summary>
+    [Test]
+    public async Task A_source_stuck_where_no_token_reaches_answers_within_the_bound_and_sends_nothing_after() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var stuck  = new Stuck();
+        var source = Source(Transcript(Prompt, Reply));
+        await using var recorder = NewRecorder(time: time, prepare: stuck.Prepare);
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await stuck.Entered.WithinDeadlineAsync("the recorder to get stuck");
+
+        var disable = recorder.DisableSessionAsync(Session, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Claims.Read(source.Key) is RecorderClaimState.None);
+        time.Advance(DaemonRecorder.DisableBound);
+
+        await Assert.That(await disable.WithinDeadlineAsync("the answer")).IsEqualTo(RecordingDisable.SendInFlight);
+        await Assert.That(List.Load()).IsEmpty();
+
+        // What comes for it next doesn't wait on a source that may never move.
+        await Assert.That(await recorder.TryRecordAsync(source, CancellationToken.None).WithinDeadlineAsync("the hand-over")).IsFalse();
+        await recorder.FinishAgentAsync(source.AgentId, TimeSpan.FromMinutes(1)).WithinDeadlineAsync("the agent's end");
+
+        stuck.Release();
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+
+        await Assert.That(Transport.Batches).IsEmpty();
+        await Assert.That(MarkedForImport).IsFalse();
+    }
+
+    /// <summary>A source that wakes long after the disable can reach the spool between its check and its write.</summary>
+    [Test]
+    public async Task What_a_stuck_source_spools_on_its_way_out_is_discarded() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var stuck  = new Stuck();
+        var source = Source(Transcript(Prompt, Reply));
+        var spool  = new TranscriptSpool(Config.Root, TimeProvider.System, Url);
+        await using var recorder = NewRecorder(time: time, prepare: stuck.Prepare);
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await stuck.Entered.WithinDeadlineAsync("the recorder to get stuck");
+
+        var disable = recorder.DisableSessionAsync(Session, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Claims.Read(source.Key) is RecorderClaimState.None);
+        time.Advance(DaemonRecorder.DisableBound);
+        await disable.WithinDeadlineAsync("the answer");
+
+        spool.Append(Session, """{"lines":["a"],"line_numbers":[0]}""");
+        stuck.Release();
+        await WaitHarness.PollUntilAsync(() => !spool.HasBacklog(Session));
+
+        await Assert.That(spool.HasBacklog(Session)).IsFalse();
+    }
+
+    /// <summary>What the server hasn't answered can still land, and the person is told so rather than that nothing did.</summary>
+    [Test]
+    public async Task A_send_the_server_never_answered_is_said_to_be_in_flight() {
+        var source = Source(Transcript(Prompt));
+        await using var recorder = NewRecorder();
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        Transport.SilenceAnswer = Task.FromResult(false);
+
+        await Assert.That(await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the disable")).IsEqualTo(RecordingDisable.SendInFlight);
+    }
+
+    /// <summary>The lane behind a key's gate can hold it for a minute, and the command only waits seconds.</summary>
+    [Test]
+    public async Task A_disable_does_not_wait_for_the_gate_of_a_key_being_picked_up() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Source(Transcript(Prompt));
+        var held   = new RecorderClaims(Paths.Directory, time);
+        Directory.CreateDirectory(Paths.Directory);
+        held.TryTake(source.Key, "another-daemon", isHosted: true);
+        List.TryAdd(source);
+
+        await using var recorder = NewRecorder(time: time);
+        var restore = recorder.RestoreAsync(InScope, CancellationToken.None);
+
+        await Assert.That(await recorder.DisableSessionAsync(Session, CancellationToken.None).WithinDeadlineAsync("the disable")).IsEqualTo(RecordingDisable.NotHeld);
+
+        Disable();
+        time.Advance(TimeSpan.FromSeconds(1));
+        await restore.WithinDeadlineAsync("the restore to read the marker");
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>The list entry goes with the stop: a shutdown behind it must not write one back.</summary>
+    [Test]
+    public async Task A_shutdown_behind_a_disable_writes_no_list_entry() {
+        var stuck  = new Stuck();
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Source(Transcript(Prompt, Reply));
+        await using var recorder = NewRecorder(time: time, prepare: stuck.Prepare);
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await stuck.Entered.WithinDeadlineAsync("the recorder to get stuck");
+
+        var disable = recorder.DisableSessionAsync(Session, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Claims.Read(source.Key) is RecorderClaimState.None);
+        await recorder.StopAsync(_ => true, new CancellationToken(canceled: true)).WithinDeadlineAsync("the stop");
+        stuck.Release();
+        await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0);
+        time.Advance(DaemonRecorder.DisableBound);
+        await disable.WithinDeadlineAsync("the disable");
+
+        await Assert.That(List.Load()).IsEmpty();
+        await Assert.That(MarkedForImport).IsFalse();
     }
 
     /// <summary>A stuck source never reached its final drain, so its tail is what the mark is for.</summary>

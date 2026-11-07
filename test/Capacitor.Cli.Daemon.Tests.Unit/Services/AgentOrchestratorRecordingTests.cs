@@ -164,6 +164,48 @@ public class AgentOrchestratorRecordingTests {
             }
             """);
 
+    /// <summary>A resume names the session ahead of its process, so nothing but this keeps it from recording again.</summary>
+    [Test]
+    public async Task A_disabled_session_is_not_claimed_at_launch() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: root => DisabledSessions.Mark(SessionIds.Canonical(Resumed)!, root));
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch(Resumed));
+
+        await Assert.That(f.ClaimFiles).IsEmpty();
+        await Assert.That(f.ListedSources).IsEmpty();
+        await Assert.That(f.Connections).IsEqualTo(0);
+    }
+
+    /// <summary>A hook past its own check when the person disabled the session still asks, and a watcher is the next thing
+    /// it would start, which is why its spawn reads the marker too.</summary>
+    [Test]
+    public async Task A_disabled_session_is_not_taken_from_a_hook() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        DisabledSessions.Mark(Moved, f.Config.ConfigRoot);
+
+        var reply = await HandOverAsync(f, Handed(f));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Refused);
+        await Assert.That(f.Claims.Read($"{Moved}-sub-1")).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(f.ListedSources.Select(source => source.SessionId)).DoesNotContain(Moved);
+    }
+
+    /// <summary>From the frame down, as a command reaches it.</summary>
+    [Test]
+    public async Task The_disable_frame_stops_what_this_daemon_records() {
+        await using var f = new Fixture(Tmp, new StartingFactory());
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        await WaitHarness.PollUntilAsync(() => f.Transport.Connects == 1);
+        var session = SessionIds.Canonical(f.Factory.Context!.PinnedSessionId)!;
+
+        var reply = await AnswerAsync(stream => f.Orch.HandleLocalDisableSessionAsync(session, stream, CancellationToken.None)).WithinDeadlineAsync("the answer");
+
+        await Assert.That((reply.Type, reply.Text)).IsEqualTo((FrameType.DisableSessionAck, RecordingIpc.Stopped));
+        await Assert.That(f.ClaimFiles).IsEmpty();
+        await Assert.That(f.ListedSources).IsEmpty();
+    }
+
     [Test]
     public async Task A_launch_under_a_scoped_active_profile_takes_no_claim_on_a_daemon_of_another_profile() {
         await using var f = new Fixture(Tmp, new StartingFactory(), profile: ScopedActiveProfile, daemonProfile: "work");

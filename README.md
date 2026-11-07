@@ -717,7 +717,7 @@ A plain title is a rename: it ranks with a rename made in the dashboard, and the
 
 ### Disable recording
 
-Stop the watcher, silence future hooks, and delete server-side data for a session.
+Stop recording, silence future hooks, and delete server-side data for a session. Nothing that records it comes back: not a hook, a restart of the daemon, or a resume of a hosted agent.
 
 ```bash
 kcap disable                 # current session
@@ -725,6 +725,8 @@ kcap disable <sessionId>     # specific session
 ```
 
 This is irreversible on the server side; the local transcript file is untouched.
+
+A session the daemon records stops at once with its subagents, with no final drain, and the command waits a few seconds for the daemon to confirm that before it deletes anything. It exits `1`, and says why, when it can't promise the data is gone: the server had not answered a send from just before recording stopped, so that send may still arrive, or the daemon did not confirm it stopped. Running `kcap disable <sessionId>` again deletes whatever landed.
 
 ### Error extraction
 

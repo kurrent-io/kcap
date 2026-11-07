@@ -22,6 +22,9 @@ public sealed partial class WatcherManager(
     // Two local round trips and a claim. A hook past this starts a watcher, and the spawn lock settles who records.
     static readonly TimeSpan HandOffBudget = TimeSpan.FromSeconds(2);
 
+    // Past the daemon's own bound, so its answer that a send is still out arrives rather than reading as no answer.
+    internal static readonly TimeSpan DisableBudget = TimeSpan.FromSeconds(8);
+
     readonly IDaemonRecordingClient _daemonRecording = daemonRecording ?? NoDaemonRecording.Instance;
     readonly HostedAgent            _hosted          = hosted ?? HostedAgent.FromEnvironment();
     readonly RecorderClaims         _claims          = new(paths.Directory, time);
@@ -133,6 +136,50 @@ public sealed partial class WatcherManager(
         }
 
         return killed;
+    }
+
+    /// <summary>Stops everything recording a session a person disabled, its subagents' sources included. Each watcher
+    /// stops as <see cref="KillWatcher"/> stops one. A daemon's sources are found by their claims, because it leaves no pid
+    /// file, and it is asked to stop rather than signalled.</summary>
+    /// <returns><see cref="RecordingDisable.Stopped"/>, or what keeps that from being said.</returns>
+    public async Task<RecordingDisable> StopRecordingAsync(string sessionId, TextWriter? stderr = null) {
+        var stopped = await StopDaemonsAsync(sessionId);
+
+        await KillWatcher(sessionId, stderr);
+
+        if (Directory.Exists(paths.Directory)) {
+            foreach (var pidFile in Directory.GetFiles(paths.Directory, $"{sessionId}-*.pid")) await KillWatcher(Path.GetFileNameWithoutExtension(pidFile), stderr);
+        }
+
+        return stopped;
+    }
+
+    async Task<RecordingDisable> StopDaemonsAsync(string sessionId) {
+        var claims = _claims.KeysOf(sessionId).Select(key => (Key: key, Holder: _claims.Holder(key), Fresh: _claims.Read(key) is RecorderClaimState.DaemonFresh)).ToArray();
+
+        if (claims.Length == 0) return RecordingDisable.Stopped;
+
+        using var budget = new CancellationTokenSource(DisableBudget, time);
+
+        var answers = await Task.WhenAll(claims.GroupBy(claim => claim.Holder).Select(async holder => (
+            Answer: holder.Key is { } name ? await AskToDisableAsync(name, sessionId, budget.Token) : RecordingDisable.Unanswered,
+            Fresh: holder.Any(claim => claim.Fresh))));
+
+        // Whatever was said: a recorder with no claim stops at its next tick, a daemon's that can't answer included.
+        foreach (var claim in claims) _claims.Release(claim.Key);
+
+        // A stale claim with nobody answering is a daemon that has gone, and the marker refuses it if it comes back.
+        return answers.Any(answer => answer is { Answer: RecordingDisable.Unanswered, Fresh: true }) ? RecordingDisable.Unanswered
+            : answers.Any(answer => answer.Answer is RecordingDisable.SendInFlight) ? RecordingDisable.SendInFlight
+            : RecordingDisable.Stopped;
+    }
+
+    async Task<RecordingDisable> AskToDisableAsync(string daemonName, string sessionId, CancellationToken ct) {
+        try {
+            return await _daemonRecording.DisableSessionAsync(daemonName, sessionId, ct).WaitAsync(ct);
+        } catch {
+            return RecordingDisable.Unanswered;
+        }
     }
 
     /// <summary>Clears what a dead watcher left beside a claim, signalling nothing: its pid file would otherwise read
@@ -298,6 +345,11 @@ public sealed partial class WatcherManager(
         // see "no pid" and spawn a second watcher.
         await _liveness.WithSpawnLock(key, async () => {
             if (IsWatcherAlive(key)) {
+                return;
+            }
+
+            // A hook can be past its own check when the person disables the session, and this is what it would start.
+            if (DisabledSessions.IsDisabled(SessionIds.Canonical(sessionIdOverride ?? key)!, config)) {
                 return;
             }
 
@@ -495,6 +547,9 @@ public sealed partial class WatcherManager(
             string? agentId,
             string  vendor = "claude"
         ) {
+        // The disable let the daemon's claim go, so past this a source reads as nobody's and this would send all of it.
+        if (DisabledSessions.IsDisabled(SessionIds.Canonical(sessionId)!, config)) return;
+
         var key   = new RecordingSource(sessionId, agentId, transcriptPath, vendor, null).Key;
         var claim = _claims.Read(key);
 

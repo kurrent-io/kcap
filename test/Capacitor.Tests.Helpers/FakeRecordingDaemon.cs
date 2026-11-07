@@ -48,9 +48,10 @@ public sealed class FakeRecordingDaemon : IAsyncDisposable {
                 if (frame.Type != FrameType.Hello && Answer is null) await Task.Delay(Timeout.Infinite, _cts.Token);
 
                 await FrameCodec.WriteAsync(stream, frame.Type switch {
-                    FrameType.Hello        => LocalFrame.HelloJson(FrameType.HelloReply, hello),
-                    FrameType.RecordSource => LocalFrame.RecordSourceAck(Answer!),
-                    _                      => LocalFrame.FinishSourceAck(Answer!),
+                    FrameType.Hello          => LocalFrame.HelloJson(FrameType.HelloReply, hello),
+                    FrameType.RecordSource   => LocalFrame.RecordSourceAck(Answer!),
+                    FrameType.DisableSession => LocalFrame.DisableSessionAck(Answer!),
+                    _                        => LocalFrame.FinishSourceAck(Answer!),
                 }, _cts.Token);
             }
         } catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException or IOException) {

@@ -17,6 +17,8 @@ public class RecordingIpcTests {
 
     Task<bool> Finish(CancellationToken ct = default) => RecordingIpc.FinishAsync(Daemons.Store, DaemonName, "session-1", ct);
 
+    Task<RecordingDisable> Disable(CancellationToken ct = default) => RecordingIpc.DisableAsync(Daemons.Store, DaemonName, "session-1", ct);
+
     FakeRecordingDaemon Daemon(params string[] capabilities) => new(Daemons.Store.SocketPath(DaemonName), capabilities);
 
     /// <summary>Down is how a daemon restarts, so a hook can't read this as a daemon that won't come back for its claim.</summary>
@@ -136,5 +138,51 @@ public class RecordingIpcTests {
         await cts.CancelAsync();
 
         await Assert.That(await finish).IsFalse();
+    }
+
+    [Test]
+    [Arguments(RecordingIpc.Stopped, RecordingDisable.Stopped)]
+    [Arguments(RecordingIpc.SendInFlight, RecordingDisable.SendInFlight)]
+    [Arguments(RecordingIpc.NotHeld, RecordingDisable.NotHeld)]
+    public async Task A_disable_reads_the_daemons_answer(string answer, RecordingDisable read) {
+        await using var daemon = Daemon(RecordingIpc.DisableCapability);
+        daemon.Answer = answer;
+
+        await Assert.That(await Disable()).IsEqualTo(read);
+        await Assert.That(daemon.Received[^1].Text).IsEqualTo("session-1");
+    }
+
+    /// <summary>The command tells a person what this says, so an answer it can't read says nothing.</summary>
+    [Test]
+    public async Task A_disable_answer_it_does_not_know_is_no_answer() {
+        await using var daemon = Daemon(RecordingIpc.DisableCapability);
+        daemon.Answer = "an_answer_from_a_newer_daemon";
+
+        await Assert.That(await Disable()).IsEqualTo(RecordingDisable.Unanswered);
+    }
+
+    [Test]
+    public async Task A_daemon_without_the_disable_capability_is_never_sent_the_frame() {
+        await using var daemon = Daemon(RecordingIpc.Capability);
+        daemon.Answer = RecordingIpc.Stopped;
+
+        await Assert.That(await Disable()).IsEqualTo(RecordingDisable.Unanswered);
+        await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.Hello]);
+    }
+
+    [Test]
+    public async Task No_daemon_listening_is_no_answer_to_a_disable() =>
+        await Assert.That(await Disable()).IsEqualTo(RecordingDisable.Unanswered);
+
+    [Test]
+    public async Task A_disable_cut_short_is_no_answer() {
+        await using var daemon = Daemon(RecordingIpc.DisableCapability);
+        using var cts = new CancellationTokenSource();
+
+        var disable = Disable(cts.Token);
+        await daemon.Asked.WithinDeadlineAsync("the frame to reach the daemon");
+        await cts.CancelAsync();
+
+        await Assert.That(await disable).IsEqualTo(RecordingDisable.Unanswered);
     }
 }

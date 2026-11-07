@@ -110,6 +110,7 @@ public static class CommandServices {
         services.AddTransient<DaemonCommands>();
         services.AddTransient<ErrorsCommand>();
         services.AddTransient<SetTitleCommand>();
+        services.AddTransient<DisableCommand>();
         services.AddTransient<EvalCommand>();
         services.AddTransient(sp => new FeedbackCommand(
             sp.GetRequiredService<IFeedbackApi>(),

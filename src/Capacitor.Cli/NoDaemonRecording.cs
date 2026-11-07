@@ -10,4 +10,6 @@ public sealed class NoDaemonRecording : IDaemonRecordingClient {
     public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
 
     public Task<bool> FinishSourceAsync(string key, CancellationToken ct) => Task.FromResult(false);
+
+    public Task<RecordingDisable> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(RecordingDisable.Unanswered);
 }

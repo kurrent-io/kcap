@@ -803,6 +803,23 @@ internal partial class AgentOrchestrator {
         }
     }
 
+    /// <summary><c>kcap disable</c> on a session this daemon may be recording. Off every lane an agent's launch or a
+    /// server's command runs on, and the recorder answers within its own bound. A command that stops waiting has still
+    /// asked, and the stop has already happened.</summary>
+    public async Task HandleLocalDisableSessionAsync(string sessionId, Stream stream, CancellationToken ct) {
+        var answer = _recorder is { } recorder ? await recorder.DisableSessionAsync(sessionId, ct) : RecordingDisable.NotHeld;
+
+        try {
+            await FrameCodec.WriteAsync(stream, LocalFrame.DisableSessionAck(answer switch {
+                RecordingDisable.Stopped      => RecordingIpc.Stopped,
+                RecordingDisable.SendInFlight => RecordingIpc.SendInFlight,
+                _                             => RecordingIpc.NotHeld,
+            }), ct);
+        } catch (IOException) {
+            // The command's budget ran out first.
+        }
+    }
+
     /// <summary>Attach an existing agent to a local client (used by <c>kcap agent attach</c>).</summary>
     public Task HandleLocalAttachAsync(string agentId, Stream stream, CancellationToken ct, bool reportRuntime = false) {
         if (!_agents.TryGetValue(agentId, out var agent))

@@ -29,7 +29,9 @@ sealed class GenerateTitleCommand(ConfigRoot config, ProfileContext profiles, Ha
         }
     }
 
-    async Task<int> GenerateAsync(string baseUrl, string sessionId, string vendor, string transcriptPath) {
+    internal async Task<int> GenerateAsync(string baseUrl, string sessionId, string vendor, string transcriptPath) {
+        if (IsDisabled(sessionId)) return 0;
+
         Log($"Generating the title of session {sessionId} ({vendor})");
 
         string? userText, assistantText;
@@ -51,6 +53,9 @@ sealed class GenerateTitleCommand(ConfigRoot config, ProfileContext profiles, Ha
             Log("Title generation returned no usable title");
             return 1;
         }
+
+        // A title takes longer than a person takes to disable the session, and this process runs on by itself.
+        if (IsDisabled(sessionId)) return 0;
 
         var payload = new SessionTitlePayload {
             SessionId        = sessionId,
@@ -75,6 +80,14 @@ sealed class GenerateTitleCommand(ConfigRoot config, ProfileContext profiles, Ha
             Log($"Server unreachable for the title POST: {ex.Message}");
             return 1;
         }
+    }
+
+    bool IsDisabled(string sessionId) {
+        if (!DisabledSessions.IsDisabled(SessionIds.Canonical(sessionId)!, config)) return false;
+
+        Log($"Session {sessionId} was disabled, so it gets no title");
+
+        return true;
     }
 
     void Log(string message) => Console.Error.WriteLine($"[{time.GetLocalNow():HH:mm:ss.fff}] [title] {message}");

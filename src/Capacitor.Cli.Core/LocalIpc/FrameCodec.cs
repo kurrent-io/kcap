@@ -72,7 +72,8 @@ public static class FrameCodec {
             or FrameType.HandoffOutcomeQuery or FrameType.HandoffOutcomeReply
             or FrameType.ResumeProbe or FrameType.ResumeProbeReply
             or FrameType.RecordSource or FrameType.RecordSourceAck
-            or FrameType.FinishSource or FrameType.FinishSourceAck => Encoding.UTF8.GetBytes(f.Text),
+            or FrameType.FinishSource or FrameType.FinishSourceAck
+            or FrameType.DisableSession or FrameType.DisableSessionAck => Encoding.UTF8.GetBytes(f.Text),
         FrameType.Attached or FrameType.Spawn
             or FrameType.StopV2 or FrameType.AttachedReadOnly => f.Bytes, // pre-encoded by the helpers below
         _ => throw new InvalidDataException($"unencodable frame {f.Type}"),
@@ -108,7 +109,8 @@ public static class FrameCodec {
             or FrameType.HandoffOutcomeQuery or FrameType.HandoffOutcomeReply
             or FrameType.ResumeProbe or FrameType.ResumeProbeReply
             or FrameType.RecordSource or FrameType.RecordSourceAck
-            or FrameType.FinishSource or FrameType.FinishSourceAck => new(t) { Text = Encoding.UTF8.GetString(p) },
+            or FrameType.FinishSource or FrameType.FinishSourceAck
+            or FrameType.DisableSession or FrameType.DisableSessionAck => new(t) { Text = Encoding.UTF8.GetString(p) },
         FrameType.Attached or FrameType.Spawn
             or FrameType.StopV2 or FrameType.AttachedReadOnly => new(t) { Bytes = p },
         _ => throw new InvalidDataException($"undecodable frame {t}"),
