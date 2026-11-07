@@ -32,8 +32,12 @@ public class WatcherManagerClaimTests : IDisposable {
 
     WatcherManager Watchers => field ??= Manager(Resolutions.At(_server.Url!, Config.Root));
 
-    WatcherManager Manager(ProfileContext profiles) => new(
-        Config.Root, profiles, new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, _spawner, _time, _daemon) { DrainCommits = new CommitObservation.Uncovered() };
+    WatcherManager FromAgent => field ??= Manager(Resolutions.At(_server.Url!, Config.Root), new HostedAgent("agent-1", false, DaemonBridge.None));
+
+    WatcherManager Manager(ProfileContext profiles, HostedAgent? hosted = null) => new(
+        Config.Root, profiles, new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, _spawner, _time, _daemon, hosted ?? HostedAgent.Terminal) {
+        DrainCommits = new CommitObservation.Uncovered(),
+    };
 
     string NewTranscript() => Config.CreateFile("t.jsonl", $"{Line}\n");
 
@@ -215,8 +219,9 @@ public class WatcherManagerClaimTests : IDisposable {
         await Assert.That(Posts).IsEqualTo(0);
     }
 
+    /// <summary>The agent is still the daemon's, so the catch-up finishes this source with its stamps on.</summary>
     [Test]
-    public async Task A_stale_claim_on_a_hosted_session_does_nothing() {
+    public async Task A_stale_hosted_claim_holds_back_a_hook_from_a_hosted_agent() {
         StubServer();
         Claims.TryTake(Key, "daemon", isHosted: true);
         GoStale();
@@ -224,13 +229,42 @@ public class WatcherManagerClaimTests : IDisposable {
         var content  = await File.ReadAllTextAsync(claim);
         var lastBeat = File.GetLastWriteTimeUtc(claim);
 
-        await Assert.That(await Watchers.KillWatcher(Key, TextWriter.Null)).IsFalse();
-        await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null);
+        await Assert.That(await FromAgent.KillWatcher(Key, TextWriter.Null)).IsFalse();
+        await FromAgent.InlineDrainAsync(Key, NewTranscript(), agentId: null);
 
         await Assert.That(_server.LogEntries).IsEmpty();
         await Assert.That(_daemon.Asked).IsEmpty();
         await Assert.That(await File.ReadAllTextAsync(claim)).IsEqualTo(content);
         await Assert.That(File.GetLastWriteTimeUtc(claim)).IsEqualTo(lastBeat);
+    }
+
+    /// <summary>The session was resumed by hand while its daemon is down, and nothing else would ever record it.</summary>
+    [Test]
+    public async Task A_stale_hosted_claim_is_taken_and_drained_by_a_hook_from_outside_an_agent() {
+        StubServer();
+        Claims.TryTake(Key, "daemon", isHosted: true);
+        GoStale();
+
+        await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(Posts).IsEqualTo(1);
+    }
+
+    /// <summary>Unreadable is not hosted, even to a hosted hook: nothing says a catch-up is coming, and a watcher costs
+    /// stamps where waiting would cost the transcript.</summary>
+    [Test]
+    public async Task A_corrupt_stale_claim_is_taken_by_a_hook_from_a_hosted_agent() {
+        StubServer();
+        Claims.TryTake(Key, "daemon", isHosted: true);
+        await File.WriteAllTextAsync(Claims.ClaimFile(Key), "garbage");
+        File.SetLastWriteTimeUtc(Claims.ClaimFile(Key), _time.GetUtcNow().UtcDateTime);
+        GoStale();
+
+        await FromAgent.InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(Posts).IsEqualTo(1);
     }
 
     [Test]
@@ -365,14 +399,26 @@ public class WatcherManagerClaimTests : IDisposable {
     /// <summary>A hosted session on a watcher would go unstamped for the rest of its life, and the daemon's catch-up
     /// resumes it anyway.</summary>
     [Test]
-    public async Task EnsureWatcherRunning_spawns_nothing_for_a_stale_hosted_claim() {
+    public async Task EnsureWatcherRunning_spawns_nothing_for_a_stale_hosted_claim_from_a_hosted_agent() {
+        Claims.TryTake(Key, "daemon", isHosted: true);
+        GoStale();
+
+        await FromAgent.EnsureWatcherRunning(Key, NewTranscript(), agentId: "child");
+
+        await Assert.That(_spawner.Spawned).IsEmpty();
+        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonStale);
+    }
+
+    /// <summary>No catch-up is coming for a session its daemon doesn't know is running.</summary>
+    [Test]
+    public async Task EnsureWatcherRunning_from_outside_an_agent_takes_a_stale_hosted_claim_and_spawns() {
         Claims.TryTake(Key, "daemon", isHosted: true);
         GoStale();
 
         await Watchers.EnsureWatcherRunning(Key, NewTranscript(), agentId: "child");
 
-        await Assert.That(_spawner.Spawned).IsEmpty();
-        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonStale);
+        await Assert.That(_spawner.Spawned).IsNotEmpty();
+        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.None);
     }
 
     /// <summary>A watcher can't start with no server to reach, so taking the claim here would stop a daemon that was

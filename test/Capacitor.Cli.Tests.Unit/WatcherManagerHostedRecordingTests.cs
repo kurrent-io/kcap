@@ -21,7 +21,8 @@ public class WatcherManagerHostedRecordingTests {
     RecorderClaims Claims => field ??= new(Paths.Directory, _time);
 
     WatcherManager Watchers => field ??= new(
-        Config.Root, Resolutions.At("http://127.0.0.1:1", Config.Root), new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, _spawner, _time, _daemon);
+        Config.Root, Resolutions.At("http://127.0.0.1:1", Config.Root), new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, _spawner, _time, _daemon,
+        new HostedAgent("agent-1", false, DaemonBridge.None));
 
     [Test]
     public async Task A_hosted_hook_spawns_no_watcher_on_a_daemon_with_recording() {
@@ -83,6 +84,19 @@ public class WatcherManagerHostedRecordingTests {
         await Watchers.EnsureWatcherRunning(Session, "/t.jsonl", agentId: null);
 
         await Assert.That(_daemon.Asked).IsEmpty();
+        await Assert.That(_spawner.Keys).IsEmpty();
+    }
+
+    /// <summary>An orphan: nothing beats it and no list entry brings it back, so a daemon that is up has to be told.</summary>
+    [Test]
+    public async Task A_stale_claim_goes_to_the_daemon_hosting_the_agent() {
+        _daemon.Answer = true;
+        Claims.TryTake(Session, "daemon", isHosted: true);
+        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
+
+        await Watchers.EnsureWatcherRunning(Session, "/t.jsonl", agentId: null);
+
+        await Assert.That(_daemon.Asked.Count).IsEqualTo(1);
         await Assert.That(_spawner.Keys).IsEmpty();
     }
 

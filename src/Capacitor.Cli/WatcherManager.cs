@@ -14,7 +14,7 @@ namespace Capacitor.Cli;
 
 public sealed partial class WatcherManager(
         ConfigRoot config, ProfileContext profiles, ICapacitorHttpClient http, IProcessStarter starter,
-        WatcherPaths paths, IWatcherSpawner spawner, TimeProvider time, IDaemonRecordingClient? daemonRecording = null) {
+        WatcherPaths paths, IWatcherSpawner spawner, TimeProvider time, IDaemonRecordingClient? daemonRecording = null, HostedAgent? hosted = null) {
     // As long as a hook waits for a watcher to exit after asking it to stop.
     static readonly TimeSpan FinishSourceBudget = TimeSpan.FromSeconds(5);
 
@@ -22,6 +22,7 @@ public sealed partial class WatcherManager(
     static readonly TimeSpan HandOffBudget = TimeSpan.FromSeconds(2);
 
     readonly IDaemonRecordingClient _daemonRecording = daemonRecording ?? NoDaemonRecording.Instance;
+    readonly HostedAgent            _hosted          = hosted ?? HostedAgent.FromEnvironment();
     readonly RecorderClaims         _claims          = new(paths.Directory, time);
     readonly WatcherLiveness        _liveness        = new(paths, time);
 
@@ -283,8 +284,9 @@ public sealed partial class WatcherManager(
             return; // fast path: no lock needed to observe an already-healthy watcher.
         }
 
-        // Outside the spawn lock: the daemon takes that lock to claim the source, and would lose it to this hook.
-        if (_claims.Read(key) is RecorderClaimState.None
+        // Outside the spawn lock: the daemon takes that lock to claim the source, and would lose it to this hook. A stale
+        // claim goes too: nothing may be coming back for it, and a daemon that is up can take it over.
+        if (_claims.Read(key) is RecorderClaimState.None or RecorderClaimState.DaemonStale
          && await HandToDaemonAsync(new RecordingSource(sessionIdOverride ?? key, agentId, transcriptPath, vendor, cwd), skipTitle)) {
             return;
         }
@@ -336,17 +338,21 @@ public sealed partial class WatcherManager(
         }
     }
 
-    /// <summary>Lets go of a daemon's stale claim on a terminal session, for the hook about to record it, under the
-    /// spawn lock. No claim is left behind: that is what stops the daemon's recorder if it wakes, and this hook then
-    /// goes on as it does for a source nobody claims. A hosted session keeps its claim, because a watcher would leave
-    /// it unstamped for good and the daemon's catch-up finishes it.</summary>
+    /// <summary>Lets go of a daemon's stale claim, for the hook about to record it, under the spawn lock. No claim is left
+    /// behind: that is what stops the daemon's recorder if it wakes, and this hook then goes on as it does for a source
+    /// nobody claims.</summary>
     bool TakeStaleClaim(string key) {
-        if (_claims.Read(key) is not RecorderClaimState.DaemonStale || _claims.IsHosted(key)) return false;
+        if (_claims.Read(key) is not RecorderClaimState.DaemonStale || LeftToCatchUp(key)) return false;
 
         _claims.Release(key);
 
         return _claims.Read(key) is RecorderClaimState.None;
     }
+
+    /// <summary>Whether this hook leaves a stale claim for the daemon's catch-up: only a hosted session's, and only from
+    /// its hosted agent, because a watcher would leave that session unstamped for good. From anywhere else it was resumed
+    /// by hand while its daemon is down, and no catch-up knows of it.</summary>
+    bool LeftToCatchUp(string key) => _hosted.IsHosted && _claims.IsHosted(key);
 
     /// <summary>Records that the agent process this hook runs under is running <paramref name="key"/>'s
     /// session, when the vendor's process hosts one session and the hook can see it.</summary>
@@ -495,7 +501,7 @@ public sealed partial class WatcherManager(
             return;
         }
 
-        if (claim is RecorderClaimState.DaemonStale && _claims.IsHosted(key)) {
+        if (claim is RecorderClaimState.DaemonStale && LeftToCatchUp(key)) {
             await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: left to the daemon's catch-up, which holds {key}");
             return;
         }

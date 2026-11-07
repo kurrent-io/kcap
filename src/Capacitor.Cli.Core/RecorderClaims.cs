@@ -79,10 +79,10 @@ public sealed class RecorderClaims(string directory, TimeProvider time) {
         if (Contents(key)?.Holder == holder) Release(key);
     }
 
-    /// <summary>Whether the claim says its session is hosted. A claim that can't be read says it isn't: a stale hosted
-    /// claim is left for the daemon's catch-up, which a corrupt claim gives no reason to expect, and the session would
-    /// go unrecorded if it never comes. A hook taking a hosted source costs less: it stays on a watcher, unstamped for
-    /// the rest of its life but recorded.</summary>
+    /// <summary>Whether the claim says its session is hosted. A claim that can't be read says it isn't: a hook from a
+    /// hosted agent leaves a stale hosted claim for the daemon's catch-up, which a corrupt claim gives no reason to expect,
+    /// and the session would go unrecorded if it never comes. A hook taking a hosted source costs less: it stays on a
+    /// watcher, unstamped for the rest of its life but recorded.</summary>
     public bool IsHosted(string key) => Contents(key)?.IsHosted == true;
 
     internal string ClaimFile(string key) => Path.Combine(directory, $"{key}.claim");
