@@ -51,6 +51,9 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
     internal static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
+    internal const double CompactThreshold = 80;
+    internal static readonly TimeSpan CompactPollInterval = TimeSpan.FromSeconds(3);
+    internal static readonly TimeSpan CompactPollLimit = TimeSpan.FromMinutes(2);
     static readonly IReadOnlyList<HarnessOption> DefaultHarnessOptions = HostedHarnessCatalog.Build(null);
 
     internal const string WaitingNote      = "Waiting for session…";
@@ -69,11 +72,15 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     readonly TimeProvider _time;
     readonly Action<string>? _openWorkItem;
     readonly SessionRuns _runs;
+    readonly Func<bool> _canSendToAgent;
+    readonly Func<string, Task<bool>> _sendToAgent;
     readonly BehaviorSubject<bool> _canOpenWorkItem = new(false);
     readonly CompositeDisposable _disposables = new();
     ITimer? _timer;
     bool _tornDown;
     bool _serverDown;
+    bool _compactPending;
+    long _compactStartedAt;
     AgentStatusDto? _dto;
 
     string _repository = "—";
@@ -115,6 +122,29 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public string Cost { get => _cost; private set => this.RaiseAndSetIfChanged(ref _cost, value); }
     string _contextUse = SessionFactText.Unknown;
     public string ContextUse { get => _contextUse; private set => this.RaiseAndSetIfChanged(ref _contextUse, value); }
+    string? _currentContextUse;
+    /// The context in use now, or "compacted" while a compaction awaits its next reading; null
+    /// when the server reports neither.
+    public string? CurrentContextUse {
+        get => _currentContextUse;
+        private set {
+            if (_currentContextUse == value) return;
+            this.RaiseAndSetIfChanged(ref _currentContextUse, value);
+            this.RaisePropertyChanged(nameof(ShowsCurrentContext));
+        }
+    }
+    public bool ShowsCurrentContext => _currentContextUse is not null;
+    public bool CurrentContextWarns => IsLive && ContextPercent >= CompactThreshold;
+    public bool ShowsCompact =>
+        CurrentContextWarns && _stats?.AwaitingContextReading != true && !_compactPending
+        && _dto is { Vendor: var vendor } && (vendor.Equals("claude", StringComparison.OrdinalIgnoreCase) || vendor.Equals("codex", StringComparison.OrdinalIgnoreCase))
+        && _canSendToAgent();
+    public ReactiveCommand<Unit, Unit> CompactCommand { get; }
+
+    SessionStatsDto? _stats;
+    bool IsLive => _dto is not null && !SessionStatusDots.IsTerminal(_dto.Status);
+    double? ContextPercent => SessionFactText.CurrentContextPercent(_stats);
+
     string _sessionSharing = SessionFactText.Unknown;
     public string SessionSharing { get => _sessionSharing; private set => this.RaiseAndSetIfChanged(ref _sessionSharing, value); }
     string _agentSharing = SessionFactText.Unknown;
@@ -315,8 +345,11 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             SessionRuns runs, Action? requestSignIn = null, IObservable<Unit>? signInCompleted = null,
             Action<string>? openWorkItem = null, IPlanSource? plans = null, PlanActivity? planActivity = null,
             ArtefactsTabViewModel? artefacts = null, bool isRemote = false,
-            IObservable<ServerLaneStatus>? serverLane = null, WorkContextLayout? layout = null) {
+            IObservable<ServerLaneStatus>? serverLane = null, Func<bool>? canSendToAgent = null,
+            Func<string, Task<bool>>? sendToAgent = null, WorkContextLayout? layout = null) {
         _isRemote = isRemote;
+        _canSendToAgent = canSendToAgent ?? (() => false);
+        _sendToAgent = sendToAgent ?? (_ => Task.FromResult(false));
         _layout = layout ?? new WorkContextLayout();
         _source = source;
         _branchReader = new SingleFlightReader<(string? Path, string? Reported), string>(
@@ -371,6 +404,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         _disposables.Add(OpenWorkItemCommand);
         SignInCommand = ReactiveCommand.Create(() => { requestSignIn?.Invoke(); });
         _disposables.Add(SignInCommand);
+        CompactCommand = ReactiveCommand.CreateFromTask(CompactAsync);
+        _disposables.Add(CompactCommand);
 
         presence.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(OnDto).DisposeWith(_disposables);
         if (serverLane is not null) {
@@ -396,7 +431,9 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
 
     void OnDto(AgentStatusDto? dto) {
         if (_tornDown || dto is null) return;
+        var previous = _dto;
         _dto = dto;
+        RaiseCompactState();
         // The chat reads a local agent's transcript by its path and a remote one by its session id.
         if (Artefacts is not null) Artefacts.TranscriptKey = _isRemote ? dto.SessionId : dto.TranscriptPath;
         UpdateFacts(dto);
@@ -418,7 +455,43 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             Artefacts?.SwitchSession(null, null);
             _runs.Clear();
         }
+        else if (_reader.HasCurrent && previous is not null
+                 && ((dto.AwaitingInput == true && previous.AwaitingInput != true) || previous.Status != dto.Status))
+            _reader.Refresh();
         this.RaisePropertyChanged(nameof(PhaseNote));
+    }
+
+    internal void AgentInputAvailabilityChanged() {
+        if (!_tornDown) RaiseCompactState();
+    }
+
+    void RaiseCompactState() {
+        this.RaisePropertyChanged(nameof(CurrentContextWarns));
+        this.RaisePropertyChanged(nameof(ShowsCompact));
+    }
+
+    async Task CompactAsync() {
+        if (_tornDown || !ShowsCompact) return;
+        _compactPending = true;
+        _compactStartedAt = _time.GetTimestamp();
+        RaiseCompactState();
+        bool sent;
+        try { sent = await _sendToAgent("/compact"); }
+        catch { sent = false; }
+        if (_tornDown) return;
+        if (!sent) {
+            _compactPending = false;
+            RaiseCompactState();
+            return;
+        }
+        if (_compactPending) _timer?.Change(CompactPollInterval, CompactPollInterval);
+    }
+
+    void EndCompact() {
+        if (!_compactPending) return;
+        _compactPending = false;
+        _timer?.Change(PollInterval, PollInterval);
+        RaiseCompactState();
     }
 
     void UpdateFacts(AgentStatusDto dto) {
@@ -460,6 +533,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
 
     void OnTick() {
         if (_tornDown) return;
+        if (_compactPending && _time.GetElapsedTime(_compactStartedAt) >= CompactPollLimit) EndCompact();
         if (_dto is not null) ResolveBranch(refresh: true);
         Plan.Refresh();
         if (Artefacts is { IsShown: true } or { LastReadFailed: true }) Artefacts.Refresh();

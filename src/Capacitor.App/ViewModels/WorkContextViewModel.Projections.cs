@@ -422,6 +422,10 @@ public sealed partial class WorkContextViewModel {
         Tokens = SessionFactText.Tokens(summary?.Stats);
         Cost = SessionFactText.Cost(summary?.Stats);
         ContextUse = SessionFactText.Context(summary?.Stats);
+        _stats = summary?.Stats;
+        CurrentContextUse = SessionFactText.CurrentContext(_stats);
+        if (!(ContextPercent >= CompactThreshold) || _stats?.AwaitingContextReading == true) EndCompact();
+        RaiseCompactState();
         SessionSharing = summary is null ? SessionFactText.Unknown : SessionFactText.SessionSharing(summary);
         AgentSharing = SessionFactText.AgentSharing(summary?.AgentVisibility);
         _storedBranch = FirstNonBlank(summary?.RepoBranch, summary?.Repositories.FirstOrDefault(r => r.IsPrimary)?.Branch);
