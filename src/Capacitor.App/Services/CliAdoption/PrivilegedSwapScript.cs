@@ -6,12 +6,12 @@ namespace Capacitor.App.Services.CliAdoption;
 /// <summary>
 /// The bash script one administrator prompt runs as root. It writes its pid to the status file, replaces each link
 /// still holding its original target, reports <see cref="Swapped"/> and waits for one word on the control pipe. On
-/// <see cref="Go"/> it first looks for what this user's own checks cannot see: a process of any account mapping a file
-/// of the install, or a launch agent in any home naming it, either of which puts the links back and reports
-/// <see cref="InUse"/>. Then it sets every entry aside and checks each against its expected kind and its own marker,
-/// renaming each that passes to <see cref="AsideRetirement.CheckedAside"/>, before deleting any, so a failed check puts
-/// the whole install back. An aside an earlier run left is deleted if it carries the checked name and checked like a
-/// fresh one otherwise. Any other word, end of file or no word in time puts the links back. After go it finishes even
+/// <see cref="Go"/> it sets every entry aside and checks each against its expected kind and its own marker, renaming each
+/// that passes to <see cref="AsideRetirement.CheckedAside"/>, so a failed check puts the whole install back. An aside an
+/// earlier run left is deleted if it carries the checked name and checked like a fresh one otherwise. With the whole
+/// install set aside it looks for what this user's own checks cannot see: a process of any account mapping a file of
+/// it, or a launch agent in any home naming it, either of which puts it all back and reports <see cref="InUse"/>. Only
+/// then does it delete anything. Any other word, end of file or no word in time puts the links back. After go it finishes even
 /// if the app is gone.
 /// <para>Every path reaches it as a positional argument, never as script text. It creates the status file itself, only
 /// inside a real 0700 folder the app's user owns, and writes only through that descriptor: root must not write through
@@ -106,7 +106,8 @@ internal static class PrivilegedSwapScript {
             if [ "$word" != {{Go}} ]; then put_back; say {{Restored}}; exit 0; fi
 
             # A process is found by the files it maps, which lsof names with every link resolved, whatever path it
-            # was started by. A list without this helper's own process was not read.
+            # was started by. A list without this helper's own process was not read. Asked once the install is set
+            # aside, when no process can reach it by its own paths any more.
             in_use() {
                 local i d e plist
                 local -a look
@@ -141,11 +142,6 @@ internal static class PrivilegedSwapScript {
                 done
                 return 1
             }
-
-            if why=$(in_use); then
-                echo "kcap: $why" >&2
-                put_back; say {{InUse}}; exit 0
-            fi
 
             move_back() {
                 local i=$nentries back=0 from
@@ -225,6 +221,12 @@ internal static class PrivilegedSwapScript {
                 fi
                 i=$((i + 1))
             done
+
+            if why=$(in_use); then
+                echo "kcap: $why" >&2
+                move_back && { say {{InUse}}; exit 0; }
+                exit 7
+            fi
 
             left=0
             i=0
