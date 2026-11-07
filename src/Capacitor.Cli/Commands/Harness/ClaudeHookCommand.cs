@@ -1487,10 +1487,7 @@ public sealed class ClaudeHookCommand(
     }
 
     ClaudePaths ClaudeLayoutFor(string? transcriptPath) =>
-        transcriptPath is not null && accounts.TryLoad() is { } registry
-     && AccountPaths.ClaudeForTranscript(transcriptPath, registry, home) is { } paths
-            ? paths
-            : harnesses.Of<ClaudeHarness>().Paths;
+        AccountPaths.ClaudeLayoutFor(transcriptPath, accounts, home, harnesses.Of<ClaudeHarness>().Paths);
 
     static string? ReadPlanFile(string slug, ClaudePaths paths) {
         var planPath = Path.Combine(paths.Plans, $"{slug}.md");

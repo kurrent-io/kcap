@@ -127,6 +127,10 @@ Not tested: `socketPath` on Windows or Linux, a real daemon or server, a session
 
 **Handoff for terminal sessions.** `WatcherManager.EnsureWatcherRunning` is the one place hooks ask for a recorder. It first asks the daemon serving the hook's own profile and server to take the session, over local control, behind a new capability. If the daemon is missing, older, or serves another profile, it spawns `kcap watch` as it does today.
 
+There is no agent to tie a terminal session to, so the hook's own resolved paths are the authority. The hook names its profile, server, config directory and claims directory, the Claude config directory its account resolves the transcript to, and the Claude process running the session, by pid and start token. The daemon takes the session only if the first four are its own, the transcript, with its links followed, is that session's or subagent's under that Claude directory's projects, and the process is still running. The socket is the user's own, so whoever asks could start a watcher on any file; what the check buys is that the daemon records what that hook's watcher would have, to the same server, under the same claims and disable markers, and reads the file Claude writes rather than whatever a link later points at.
+
+A terminal session has no agent exit to end it, so its process does. The daemon looks at each terminal source's process every few seconds, as a watcher's parent monitor does, and finishes the source once that process has gone, if a session-end hook didn't first. It never signals that process. A terminal source's claim is beaten only while the daemon's connection to its server is up: a terminal session costs nothing on a watcher, which may reach the server the daemon can't, so an outage longer than the grace moves it there. A hosted source keeps beating through an outage, as it must for its stamps.
+
 **One recorder per source.** A source is one transcript, keyed as `WatcherTracker.GetKey` keys it, so a subagent or child transcript is its own source. A claim per source decides who records it. `WatcherTracker.Register` silently replaces an older connection, so the server won't catch a double recorder and the claim has to hold on the machine.
 
 The claim is a new file. It can't reuse the watcher pid file, because `KillWatcher` signals and then force-kills whatever pid that file names, and that must never be the daemon's. The existing per-key spawn lock guards it.
@@ -136,7 +140,7 @@ The claim is a new file. It can't reuse the watcher pid file, because `KillWatch
 | Who holds the source's claim | `KillWatcher` | `InlineDrainAsync` |
 |---|---|---|
 | A `kcap watch` process | Stops it, as today | Drains, as today |
-| The daemon, heartbeat fresh | Signals nothing | Asks the daemon to finish that source, and waits within the hook's budget |
+| The daemon, heartbeat fresh | Signals nothing | Asks the daemon to finish that source, and waits within the hook's budget. If nothing listens on the holder's socket, the daemon died inside the grace and no later hook will find the claim stale, so this one takes the claim and drains, as for a stale claim, except from a hosted agent for its own hosted session |
 | The daemon, heartbeat stale, terminal session | Signals nothing | Takes the claim and drains, as today |
 | The daemon, heartbeat stale, hosted session, a hook from a hosted agent | Signals nothing | Does nothing. The daemon's catch-up finishes the source, so its rows keep their stamps |
 | The daemon, heartbeat stale, hosted session, a hook from outside one | Signals nothing | Takes the claim and drains, as for a terminal session, so a session resumed by hand while the daemon is down is still recorded |

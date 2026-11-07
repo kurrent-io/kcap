@@ -869,9 +869,9 @@ public class DisableCommandTests : IDisposable {
             }
         }
 
-        public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
+        public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, int? follows, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
 
-        public Task<bool> FinishSourceAsync(string key, CancellationToken ct) => Task.FromResult(false);
+        public Task<RecordingFinish> FinishSourceAsync(string key, string? holder, CancellationToken ct) => Task.FromResult(RecordingFinish.NotHeld);
 
         public async Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) {
             lock (_asked) _asked.Add((daemonName, sessionId));

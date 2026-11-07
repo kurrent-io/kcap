@@ -17,8 +17,13 @@ namespace Capacitor.Cli;
 public sealed partial class WatcherManager(
         ConfigRoot config, ProfileContext profiles, ICapacitorHttpClient http, IProcessStarter starter,
         WatcherPaths paths, IWatcherSpawner spawner, TimeProvider time, IDaemonRecordingClient? daemonRecording = null, HostedAgent? hosted = null) {
-    // As long as a hook waits for a watcher to exit after asking it to stop.
-    static readonly TimeSpan FinishSourceBudget = TimeSpan.FromSeconds(5);
+    // As long as a hook waits for a watcher to exit after asking it to stop, but shared by every daemon finish one process
+    // asks for: a teardown asks for each of its sources in turn, and a daemon that doesn't answer would otherwise spend the
+    // whole of it on each, leaving later sources to the caller's cap.
+    internal static readonly TimeSpan FinishSourceBudget = TimeSpan.FromSeconds(5);
+
+    // What an ask gets once the shared budget is spent: a local connect and write, so the daemon still hears of the source.
+    internal static readonly TimeSpan FinishAskFloor = TimeSpan.FromMilliseconds(250);
 
     // Two local round trips and a claim. A hook past this starts a watcher, and the spawn lock settles who records.
     internal static readonly TimeSpan HandOffBudget = TimeSpan.FromSeconds(2);
@@ -31,6 +36,9 @@ public sealed partial class WatcherManager(
     readonly HostedAgent            _hosted          = hosted ?? HostedAgent.FromEnvironment();
     readonly RecorderClaims         _claims          = new(paths.Directory, time);
     readonly WatcherLiveness        _liveness        = new(paths, time);
+    readonly Lock                   _finishGate      = new();
+
+    long? _finishesSince;
 
     // The one URL this process resolved. No member takes one: a watcher spawned against a different
     // server than the hook that spawned it would stream a session nothing on this side can see.
@@ -365,15 +373,15 @@ public sealed partial class WatcherManager(
         ) {
         if (agentId is null) ClaimAgentProcess(key, vendor, transcriptPath, cwd);
 
-        if (IsWatcherAlive(key)) {
-            return; // fast path: no lock needed to observe an already-healthy watcher.
+        // Fast paths, no lock needed: a watcher that is alive and turning, or a daemon beating its claim, records the
+        // source already, and the spawn lock below would only say so again.
+        if (IsWatcherAlive(key) || _claims.Read(key) is RecorderClaimState.DaemonFresh) {
+            return;
         }
 
         // Outside the spawn lock: the daemon takes that lock to claim the source, and would lose it to this hook. A stale
         // claim goes too: nothing may be coming back for it, and a daemon that is up can take it over.
-        var handOver = _claims.Read(key) is RecorderClaimState.None or RecorderClaimState.DaemonStale
-            ? await HandToDaemonAsync(new RecordingSource(sessionIdOverride ?? key, agentId, transcriptPath, vendor, cwd), skipTitle)
-            : RecordingHandOver.Unanswered;
+        var handOver = await HandToDaemonAsync(new RecordingSource(sessionIdOverride ?? key, agentId, transcriptPath, vendor, cwd), skipTitle, parentPid);
 
         if (handOver is RecordingHandOver.Taken) return;
 
@@ -419,11 +427,11 @@ public sealed partial class WatcherManager(
 
     /// <summary>How the daemon answered. However it fails to take the source, the hook arranges a recorder itself: a
     /// watcher costs a hosted session its stamps, and nothing at all would cost it its transcript.</summary>
-    async Task<RecordingHandOver> HandToDaemonAsync(RecordingSource source, bool skipTitle) {
+    async Task<RecordingHandOver> HandToDaemonAsync(RecordingSource source, bool skipTitle, int? follows) {
         using var budget = new CancellationTokenSource(HandOffBudget, time);
 
         try {
-            return await _daemonRecording.TryRecordAsync(source, skipTitle, budget.Token).WaitAsync(budget.Token);
+            return await _daemonRecording.TryRecordAsync(source, skipTitle, follows, budget.Token).WaitAsync(budget.Token);
         } catch {
             return RecordingHandOver.Unanswered;
         }
@@ -433,8 +441,12 @@ public sealed partial class WatcherManager(
     /// behind: that is what stops the daemon's recorder if it wakes, and this hook then goes on as it does for a source
     /// nobody claims.</summary>
     /// <param name="declined">The daemon that would catch up is up and said no, so nothing is coming for this claim.</param>
-    bool TakeStaleClaim(string key, bool declined = false) {
-        if (_claims.Read(key) is not RecorderClaimState.DaemonStale || LeftToCatchUp(key) && !declined) return false;
+    /// <param name="abandonedBy">A holder found with nothing listening, whose claim is taken fresh as it stands.</param>
+    bool TakeStaleClaim(string key, bool declined = false, string? abandonedBy = null) {
+        var claim     = _claims.Read(key);
+        var abandoned = abandonedBy is not null && claim is RecorderClaimState.DaemonFresh && _claims.Holder(key) == abandonedBy;
+
+        if (claim is not RecorderClaimState.DaemonStale && !abandoned || LeftToCatchUp(key) && !declined) return false;
 
         _claims.Release(key);
 
@@ -590,10 +602,22 @@ public sealed partial class WatcherManager(
         var key   = new RecordingSource(sessionId, agentId, transcriptPath, vendor, null).Key;
         var claim = _claims.Read(key);
 
-        // A hook's drain carries no stamps, and one that wins makes the server discard the daemon's stamped copy.
+        string? abandonedBy = null;
+
+        // A hook's drain carries no stamps, and one that wins makes the server discard the daemon's stamped copy. A holder
+        // with nothing listening has gone inside the grace, though, and a session ending now has no later hook to find its
+        // claim stale; only a hosted agent's own source has a catch-up coming.
         if (claim is RecorderClaimState.DaemonFresh) {
-            await AskDaemonToFinishAsync(key, sessionId);
-            return;
+            var holder = _claims.Holder(key);
+
+            if (await AskDaemonToFinishAsync(key, holder, sessionId) is not RecordingFinish.Unreachable) return;
+
+            if (holder is null || LeftToCatchUp(key)) {
+                await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: nothing answers for the daemon holding {key}; left to its catch-up");
+                return;
+            }
+
+            abandonedBy = holder;
         }
 
         if (claim is RecorderClaimState.DaemonStale && LeftToCatchUp(key)) {
@@ -610,16 +634,19 @@ public sealed partial class WatcherManager(
         }
 
         try {
-            if (claim is RecorderClaimState.DaemonStale && !await TryTakeStaleClaimAsync(key)) {
+            if ((claim is RecorderClaimState.DaemonStale || abandonedBy is not null) && !await TryTakeStaleClaimAsync(key, abandonedBy)) {
                 // A beat that landed first means the daemon woke, and the source is its to finish.
-                if (_claims.Read(key) is RecorderClaimState.DaemonFresh) {
-                    await AskDaemonToFinishAsync(key, sessionId);
+                if (abandonedBy is null && _claims.Read(key) is RecorderClaimState.DaemonFresh) {
+                    await AskDaemonToFinishAsync(key, _claims.Holder(key), sessionId);
                 } else {
                     await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: {key} changed hands; leaving it to its holder");
                 }
 
                 return;
             }
+
+            if (abandonedBy is not null)
+                await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: nothing answers for {abandonedBy}, which held {key}; draining it here");
 
             using var httpClient = await http.ForBackgroundAsync();
 
@@ -737,27 +764,44 @@ public sealed partial class WatcherManager(
         }
     }
 
-    /// <summary>Waits for the daemon inside <see cref="FinishSourceBudget"/>. Whatever comes back, the hook drains
-    /// nothing: the source is the daemon's, which finishes it whether or not anyone is still waiting.</summary>
-    async Task AskDaemonToFinishAsync(string key, string sessionId) {
-        using var budget = new CancellationTokenSource(FinishSourceBudget, time);
+    /// <summary>Waits for the holder inside what is left of <see cref="FinishSourceBudget"/>. Short of finding nothing
+    /// listening, the hook drains nothing: the source is the daemon's, which finishes it whether or not anyone is still
+    /// waiting.</summary>
+    async Task<RecordingFinish> AskDaemonToFinishAsync(string key, string? holder, string sessionId) {
+        using var budget = new CancellationTokenSource(FinishWait(), time);
 
         try {
-            var finished = await _daemonRecording.FinishSourceAsync(key, budget.Token).WaitAsync(budget.Token);
+            var finish = await _daemonRecording.FinishSourceAsync(key, holder, budget.Token).WaitAsync(budget.Token);
 
-            await Console.Error.WriteLineAsync(finished
-                ? $"Inline drain for {sessionId}: the daemon finished {key}"
-                : $"Inline drain for {sessionId}: left to the daemon, which holds {key}");
+            if (finish is not RecordingFinish.Unreachable)
+                await Console.Error.WriteLineAsync(finish is RecordingFinish.Finished
+                    ? $"Inline drain for {sessionId}: the daemon finished {key}"
+                    : $"Inline drain for {sessionId}: left to the daemon, which holds {key}");
+
+            return finish;
         } catch (Exception ex) {
             await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: left to the daemon, which holds {key}: {ex.Message}");
+
+            return RecordingFinish.Unanswered;
         }
     }
 
-    async Task<bool> TryTakeStaleClaimAsync(string key) {
+    TimeSpan FinishWait() {
+        var  now = time.GetTimestamp();
+        long since;
+
+        lock (_finishGate) since = _finishesSince ??= now;
+
+        var left = FinishSourceBudget - time.GetElapsedTime(since, now);
+
+        return left > FinishAskFloor ? left : FinishAskFloor;
+    }
+
+    async Task<bool> TryTakeStaleClaimAsync(string key, string? abandonedBy = null) {
         var taken = false;
 
         await _liveness.WithSpawnLock(key, () => {
-            taken = TakeStaleClaim(key);
+            taken = TakeStaleClaim(key, abandonedBy: abandonedBy);
 
             return Task.CompletedTask;
         });

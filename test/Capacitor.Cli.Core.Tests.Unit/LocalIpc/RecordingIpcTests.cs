@@ -15,7 +15,19 @@ public class RecordingIpcTests {
 
     Task<RecordingHandOver> Record(CancellationToken ct = default) => RecordingIpc.RecordAsync(Daemons.Store, DaemonName, Source, ct);
 
-    Task<bool> Finish(CancellationToken ct = default) => RecordingIpc.FinishAsync(Daemons.Store, DaemonName, "session-1", ct);
+    Task<RecordingFinish> Finish(CancellationToken ct = default) => RecordingIpc.FinishAsync(Daemons.Store, DaemonName, "session-1", ct);
+
+    static readonly RecordTerminalSourceDto Terminal = new(
+        "session-1", null, "/t.jsonl", "claude", "/repo", false, "default", "https://kcap.example", "/config", "/config/watchers", "/home/claude", 4242, "test:claude");
+
+    int _described;
+
+    Task<RecordingHandOver> RecordTerminal(RecordTerminalSourceDto? source = null, CancellationToken ct = default) =>
+        RecordingIpc.RecordTerminalAsync(Daemons.Store, DaemonName, () => {
+            _described++;
+
+            return source ?? Terminal;
+        }, ct);
 
     Task<RecordingDisableAnswer> Disable(CancellationToken ct = default) => RecordingIpc.DisableAsync(Daemons.Store, DaemonName, "session-1", ct);
 
@@ -25,7 +37,60 @@ public class RecordingIpcTests {
     [Test]
     public async Task No_daemon_listening_is_no_answer() {
         await Assert.That(await Record()).IsEqualTo(RecordingHandOver.Unanswered);
-        await Assert.That(await Finish()).IsFalse();
+        await Assert.That(await RecordTerminal()).IsEqualTo(RecordingHandOver.Unanswered);
+    }
+
+    /// <summary>For a finish the difference is what a hook ending a session acts on: a holder nothing listens for has gone,
+    /// and no later hook would find its claim stale.</summary>
+    [Test]
+    public async Task No_daemon_listening_is_unreachable_to_a_finish() {
+        await Assert.That(await Finish()).IsEqualTo(RecordingFinish.Unreachable);
+    }
+
+    [Test]
+    public async Task A_socket_nobody_listens_on_is_unreachable_to_a_finish() {
+        using (var dead = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.Unix, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Unspecified)) {
+            dead.Bind(new System.Net.Sockets.UnixDomainSocketEndPoint(Daemons.Store.SocketPath(DaemonName)));
+        }
+
+        await Assert.That(await Finish()).IsEqualTo(RecordingFinish.Unreachable);
+    }
+
+    [Test]
+    public async Task A_terminal_source_goes_whole_to_a_daemon_that_takes_terminal_sessions() {
+        await using var daemon = Daemon(RecordingIpc.TerminalCapability);
+        daemon.Answer = RecordingIpc.Recording;
+
+        await Assert.That(await RecordTerminal()).IsEqualTo(RecordingHandOver.Taken);
+
+        await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.Hello, FrameType.RecordTerminalSource]);
+        await Assert.That(JsonSerializer.Deserialize(daemon.Received[^1].Text, RecordingIpcJsonContext.Default.RecordTerminalSourceDto)).IsEqualTo(Terminal);
+    }
+
+    /// <summary>The hosted capability is no promise about terminal sessions, and a hook outside an agent learns nothing it
+    /// has to read its process table for until the daemon says it takes one.</summary>
+    [Test]
+    [Arguments("status/1")]
+    [Arguments(RecordingIpc.Capability)]
+    public async Task A_daemon_that_takes_no_terminal_session_declines_before_the_hook_describes_one(string capability) {
+        await using var daemon = Daemon(capability);
+        daemon.Answer = RecordingIpc.Recording;
+
+        await Assert.That(await RecordTerminal()).IsEqualTo(RecordingHandOver.Declined);
+
+        await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.Hello]);
+        await Assert.That(_described).IsEqualTo(0);
+    }
+
+    [Test]
+    [Arguments(RecordingIpc.Refused, RecordingHandOver.Declined)]
+    [Arguments(RecordingIpc.NotYet, RecordingHandOver.Unanswered)]
+    [Arguments("an_answer_from_a_newer_daemon", RecordingHandOver.Unanswered)]
+    public async Task A_terminal_answer_reads_as_a_hosted_one_does(string answer, RecordingHandOver read) {
+        await using var daemon = Daemon(RecordingIpc.TerminalCapability);
+        daemon.Answer = answer;
+
+        await Assert.That(await RecordTerminal()).IsEqualTo(read);
     }
 
     /// <summary>An older daemon can't decode the frame at all, so it is never sent one. Up without the capability is a
@@ -104,7 +169,7 @@ public class RecordingIpcTests {
         await using var daemon = Daemon(RecordingIpc.Capability);
         daemon.Answer = RecordingIpc.Finished;
 
-        await Assert.That(await Finish()).IsTrue();
+        await Assert.That(await Finish()).IsEqualTo(RecordingFinish.Finished);
         await Assert.That(daemon.Received[^1].Text).IsEqualTo("session-1");
     }
 
@@ -113,7 +178,7 @@ public class RecordingIpcTests {
         await using var daemon = Daemon(RecordingIpc.Capability);
         daemon.Answer = RecordingIpc.NotHeld;
 
-        await Assert.That(await Finish()).IsFalse();
+        await Assert.That(await Finish()).IsEqualTo(RecordingFinish.NotHeld);
     }
 
     /// <summary>A hook asks only of a daemon with a claim. One that has since stopped taking new sources still holds that
@@ -123,13 +188,14 @@ public class RecordingIpcTests {
         await using var daemon = Daemon("status/1");
         daemon.Answer = RecordingIpc.Finished;
 
-        await Assert.That(await Finish()).IsTrue();
+        await Assert.That(await Finish()).IsEqualTo(RecordingFinish.Finished);
         await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.FinishSource]);
     }
 
-    /// <summary>The caller's budget ran out: the asking is done, and a hook has to move on.</summary>
+    /// <summary>The caller's budget ran out: the asking is done, and a hook has to move on. A daemon that took the frame
+    /// is up, though, and may be draining the source.</summary>
     [Test]
-    public async Task A_wait_cut_short_answers_no() {
+    public async Task A_wait_cut_short_is_unanswered() {
         await using var daemon = Daemon(RecordingIpc.Capability);
         using var cts = new CancellationTokenSource();
 
@@ -137,7 +203,7 @@ public class RecordingIpcTests {
         await daemon.Asked.WithinDeadlineAsync("the frame to reach the daemon");
         await cts.CancelAsync();
 
-        await Assert.That(await finish).IsFalse();
+        await Assert.That(await finish).IsEqualTo(RecordingFinish.Unanswered);
     }
 
     static string Ack(string status, bool agentLive = false, string? server = null) =>

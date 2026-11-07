@@ -5,13 +5,18 @@ namespace Capacitor.Cli;
 
 /// <summary>What a hook or <c>kcap disable</c> asks of the daemon recording a source.</summary>
 public interface IDaemonRecordingClient {
-    /// <summary>Asks the daemon hosting this hook's agent to record <paramref name="source"/>. Anything but
-    /// <see cref="RecordingHandOver.Taken"/> leaves it to the hook.</summary>
-    Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct);
+    /// <summary>Asks a daemon to record <paramref name="source"/>: the one hosting this hook's agent, or for a terminal
+    /// session the one serving this hook's profile and server. Anything but <see cref="RecordingHandOver.Taken"/> leaves
+    /// it to the hook.</summary>
+    /// <param name="follows">The process whose exit ends a terminal session's source, when the caller knows it; the coding
+    /// agent this hook runs under otherwise.</param>
+    Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, int? follows, CancellationToken ct);
 
-    /// <summary>Asks the daemon to make the final drain of the source <paramref name="key"/> names, touching no other
-    /// source. Answers whether it finished; a hook that stops waiting has still asked, and the daemon still finishes.</summary>
-    Task<bool> FinishSourceAsync(string key, CancellationToken ct);
+    /// <summary>Asks <paramref name="holder"/>, the daemon the source's claim names, to make the final drain of the source
+    /// <paramref name="key"/> names, touching no other source. A hook that stops waiting has still asked, and the daemon
+    /// still finishes.</summary>
+    /// <param name="holder">Null when the claim can't be read, and the hook's own daemon is asked.</param>
+    Task<RecordingFinish> FinishSourceAsync(string key, string? holder, CancellationToken ct);
 
     /// <summary>Every daemon this machine knows of, or null when that can't be read.</summary>
     IReadOnlyList<string>? Daemons();

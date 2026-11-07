@@ -24,6 +24,10 @@ namespace Capacitor.Cli.Daemon.Services;
 /// refused by the host and leaves the claim with nothing beating it. A source that lost its claim touches it no more,
 /// since it is someone else's. A shutdown lets go only of what no agent comes back for: the next boot picks up the rest.</para>
 ///
+/// <para>A terminal session's source has no agent to end it, so its Claude process does: the source finishes once that
+/// process has gone, if no hook finished it first. It is beaten only while the connection is up, because a terminal
+/// session costs nothing on a watcher, and a watcher may reach the server this daemon can't.</para>
+///
 /// <para>A session a person disabled is refused at every way in, and <see cref="DisableSessionAsync"/> ends what is
 /// already running. Those two meet without a lock, because the marker is on disk before the command asks: whoever takes a
 /// source publishes it and then reads the marker in <see cref="Start"/>, and the disable reads what is published after
@@ -53,6 +57,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// the command says what it couldn't confirm.</summary>
     internal static readonly TimeSpan DisableBound = TimeSpan.FromSeconds(5);
 
+    /// <summary>How often a terminal source's process is looked at, as a watcher's parent monitor looks at its own.</summary>
+    internal static readonly TimeSpan ProcessCheck = TimeSpan.FromSeconds(5);
+
     readonly DaemonConfig _config;
     readonly CapacitorServer _server;
     readonly RecordingProbe _serverRecords;
@@ -60,6 +67,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     readonly Func<RecordedSource, Action<string>, Action, Action, IRecorderHousekeeping> _housekeeping;
     readonly TimeProvider _time;
     readonly ILogger _logger;
+    readonly Func<ProcessIncarnation, bool> _processExited;
     readonly RecorderClaims _claims;
     readonly WatcherLiveness _liveness;
     readonly RecordedSourceList _list;
@@ -76,12 +84,15 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     Func<string, bool>? _agentIsLive;
     int _stopping;
     int _disposed;
+    int _watchingProcesses;
 
     /// <param name="connect">Builds the transport, for the first source. Nothing connects before that.</param>
     /// <param name="housekeeping">Builds a recorder's housekeeping, given its source, its log, its own stop and its beat.</param>
+    /// <param name="processExited">Whether a terminal source's process has gone, conclusively.</param>
     public DaemonRecorder(
             DaemonConfig config, CapacitorServer server, RecordingProbe serverRecords, Func<ISilenceableRecorderTransport> connect,
-            Func<RecordedSource, Action<string>, Action, Action, IRecorderHousekeeping> housekeeping, TimeProvider time, ILogger<DaemonRecorder> logger) {
+            Func<RecordedSource, Action<string>, Action, Action, IRecorderHousekeeping> housekeeping, TimeProvider time, ILogger<DaemonRecorder> logger,
+            Func<ProcessIncarnation, bool>? processExited = null) {
         _config        = config;
         _server        = server;
         _serverRecords = serverRecords;
@@ -89,9 +100,10 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         _housekeeping  = housekeeping;
         _time          = time;
         _logger        = logger;
+        _processExited = processExited ?? (process => process.HasExited());
 
         var paths = WatcherPaths.FromEnvironment(config.ConfigRoot);
-        _claims   = new RecorderClaims(paths.Directory, time);
+        _claims   = new RecorderClaims(paths.Directory, time, config.Name);
         _liveness = new WatcherLiveness(paths, time);
         _list     = new RecordedSourceList(config.Store.StateDirectory(config.Name), logger);
         _host     = new Lazy<RecorderHost>(CreateHost);
@@ -143,6 +155,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <summary>Whether <paramref name="key"/> is this daemon's to record, and not on its way out.</summary>
     public bool Holds(string key) => _sources.TryGetValue(key, out var tracked) && !IsLeaving(tracked);
 
+    /// <summary>Whether a terminal session's process has gone, conclusively. Never signals it.</summary>
+    public bool HasExited(ProcessIncarnation process) => _processExited(process);
+
     /// <summary>The keys being recorded now.</summary>
     internal IReadOnlyCollection<string> ActiveKeys => _host.IsValueCreated ? _host.Value.ActiveKeys : [];
 
@@ -191,8 +206,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         if (_sources.TryGetValue(source.Key, out var tracked) && !tracked.Running) Forget(tracked);
     }
 
-    /// <summary>Records a source a hook handed over, such as a subagent's or a session a hosted agent moved to. False
-    /// when it can't: the hook then starts a watcher.</summary>
+    /// <summary>Records a source a hook handed over, such as a subagent's, a session a hosted agent moved to, or a
+    /// terminal session's. False when it can't: the hook then starts a watcher.</summary>
     public async Task<bool> TryRecordAsync(RecordedSource source, CancellationToken ct) {
         while (true) {
             Tracked? held;
@@ -306,13 +321,13 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         }
     }
 
-    /// <summary>Finishes each restored source whose agent didn't come back, once the boot's resumes have run. One let go
-    /// of that has no agent back has no hook coming and nothing to drain it, so it is marked for import, which is all that
-    /// says its tail was lost.</summary>
+    /// <summary>Finishes each restored source whose agent didn't come back, or whose terminal process has gone, once the
+    /// boot's resumes have run. One let go of that has nothing running it has no hook coming and nothing to drain it, so it
+    /// is marked for import, which is all that says its tail was lost.</summary>
     public async Task SettleRestoredAsync(Func<string, bool> agentIsLive) {
         Volatile.Write(ref _agentIsLive, agentIsLive);
 
-        foreach (var tracked in _sources.Values.Where(source => source.Restored && !agentIsLive(source.Source.AgentId)))
+        foreach (var tracked in _sources.Values.Where(source => source.Restored && !IsRunning(source.Source, agentIsLive)))
             _ = FinishQuietlyAsync(tracked.Source.Key, CancellationToken.None);
 
         while (_letGo.TryDequeue(out var left)) await SettleLetGoAsync(left.Source, left.MayImport, agentIsLive);
@@ -374,8 +389,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     /// <summary>Stops every source for a shutdown, within <see cref="ShutdownBound"/>. The next boot picks up what
-    /// <paramref name="keeps"/> says is coming back, and what didn't finish: a stuck source hears no callback, so its
-    /// claim and list entry stay.</summary>
+    /// <paramref name="keeps"/> says is coming back, each terminal source whose process is still running, and what didn't
+    /// finish: a stuck source hears no callback, so its claim and list entry stay.</summary>
     /// <param name="keeps">Whether an agent resumes under the next daemon.</param>
     public async Task StopAsync(Func<string, bool> keeps, CancellationToken ct) {
         lock (_starting) {
@@ -390,7 +405,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         foreach (var tracked in _sources.Values) {
             if (stuck.Contains(tracked.Source.Key) || !tracked.Running) continue;
 
-            if (keeps(tracked.Source.AgentId)) {
+            if (IsRunning(tracked.Source, keeps)) {
                 if (tracked.Drained) _list.TryAdd(tracked.Source with { Drained = true });
                 tracked.Settled.TrySetResult();
             } else {
@@ -412,8 +427,15 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     RecorderHost CreateHost() {
         _transport = _connect();
 
-        return new RecorderHost(_transport, _ => new NoStamps(), ContextFor, _time, _claims, OnAttemptEnded);
+        return new RecorderHost(_transport, _ => new NoStamps(), ContextFor, _time, _claims, OnAttemptEnded, KeepsClaimOffline);
     }
+
+    // A hosted source stays this daemon's through an outage, or it would go to a watcher and lose its stamps for good.
+    bool KeepsClaimOffline(RecordingSource source) => !_sources.TryGetValue(source.Key, out var tracked) || !tracked.Source.IsTerminal;
+
+    // An agent this daemon runs, or a terminal process still running. A terminal source with no process has nothing left.
+    bool IsRunning(RecordedSource source, Func<string, bool> agentIsLive) =>
+        source.Process is { } process ? !_processExited(process) : source.AgentId is { } agentId && agentIsLive(agentId);
 
     RecorderContext ContextFor(RecordingSource source) {
         var recorded = _sources[source.Key].Source;
@@ -454,7 +476,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             await _liveness.WithSpawnLock(key, () => {
                 // Any live pid, a wedged one's too: a claim would stop a hook from reaping it, and it could still send.
                 outcome = _liveness.PidAlive(key) ? ClaimOutcome.HeldByWatcher
-                    : _claims.TryTake(key, _config.Name, isHosted: true) ? ClaimOutcome.Taken
+                    : _claims.TryTake(key, _config.Name, isHosted: !source.IsTerminal) ? ClaimOutcome.Taken
                     : ClaimOutcome.Contended;
 
                 return Task.CompletedTask;
@@ -497,7 +519,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             return;
         }
 
-        if (mayImport && !source.Drained && !agentIsLive(source.AgentId) && !_liveness.PidAlive(source.Key)) MarkForImport(source);
+        if (mayImport && !source.Drained && !IsRunning(source, agentIsLive) && !_liveness.PidAlive(source.Key)) MarkForImport(source);
 
         _list.Remove(source.Key);
     }
@@ -596,6 +618,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 if (Volatile.Read(ref _stopping) == 0 && !tracked.Disabled && !IsDisabled(source) && _host.Value.TryAdd(source.Recording)) {
                     tracked.Running = true;
                     Warm(source);
+                    if (source.Process is not null) WatchProcesses();
 
                     return true;
                 }
@@ -608,6 +631,43 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         Forget(tracked);
 
         return false;
+    }
+
+    // Started with the first terminal source, so a daemon recording none runs nothing for it.
+    void WatchProcesses() {
+        if (Interlocked.Exchange(ref _watchingProcesses, 1) != 0) return;
+
+        var closing = _closing.Token;
+        _ = Task.Run(() => WatchProcessesAsync(closing), CancellationToken.None);
+    }
+
+    async Task WatchProcessesAsync(CancellationToken closing) {
+        while (true) {
+            try {
+                await Task.Delay(ProcessCheck, _time, closing);
+            } catch (OperationCanceledException) {
+                return;
+            }
+
+            try {
+                FinishExitedProcesses();
+            } catch (Exception ex) {
+                LogProcessCheckFailed(ex);
+            }
+        }
+    }
+
+    /// <summary>Finishes each terminal source whose process has gone, as an agent's exit finishes a hosted one. A session
+    /// end hook normally gets there first; this is for a process that exits without one, which would otherwise be recorded
+    /// for ever. The process is only looked at, never signalled.</summary>
+    internal void FinishExitedProcesses() {
+        foreach (var tracked in _sources.Values) {
+            if (tracked.Source.Process is not { } process || !tracked.Running || IsLeaving(tracked) || !_processExited(process)) continue;
+
+            LogProcessExited(tracked.Source.Key, process.Pid);
+            tracked.AgentFinished = true;
+            _ = FinishQuietlyAsync(tracked.Source.Key, CancellationToken.None);
+        }
     }
 
     // The transcript's backlog costs the session's first judged tool call otherwise. It never fails a recorder.
@@ -735,7 +795,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         /// <summary>Told apart from a source still going, for whoever arrives between its last attempt and the settling.</summary>
         public bool Ending { get; set; }
 
-        /// <summary>Its agent has exited and its finish has been asked for.</summary>
+        /// <summary>Its agent or terminal process has exited and its finish has been asked for.</summary>
         public bool AgentFinished { get; set; }
 
         /// <summary>A person disabled its session, so it is over, whatever else it says here.</summary>
@@ -788,6 +848,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Finishing the recording of {Key} failed")]
     partial void LogFinishFailed(Exception ex, string key);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "The terminal process {Pid} of {Key} has exited; finishing its recording")]
+    partial void LogProcessExited(string key, int pid);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Looking for terminal processes that have exited failed")]
+    partial void LogProcessCheckFailed(Exception ex);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Handing the title of {SessionId} to the CLI failed")]
     static partial void LogTitleHandOffFailed(ILogger logger, Exception? ex, string sessionId);

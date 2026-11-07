@@ -172,7 +172,7 @@ public class WatcherManagerHostedRecordingTests {
 
         public Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(new RecordingDisableAnswer(RecordingDisable.NoSocket));
 
-        public async Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) {
+        public async Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, int? follows, CancellationToken ct) {
             lock (_asked) _asked.Add((source, skipTitle));
             Reached.TrySetResult();
 
@@ -182,6 +182,6 @@ public class WatcherManagerHostedRecordingTests {
             return Answer;
         }
 
-        public Task<bool> FinishSourceAsync(string key, CancellationToken ct) => Task.FromResult(false);
+        public Task<RecordingFinish> FinishSourceAsync(string key, string? holder, CancellationToken ct) => Task.FromResult(RecordingFinish.NotHeld);
     }
 }

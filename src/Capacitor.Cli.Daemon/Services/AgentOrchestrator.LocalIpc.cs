@@ -800,6 +800,74 @@ internal partial class AgentOrchestrator {
         new[] { paths.ProjectDir(agent.Worktree.Path), paths.ProjectDir(CanonicalPath.Resolve(agent.Worktree.Path)), Path.GetDirectoryName(agent.TranscriptPath) }
             .Any(directory => directory is not null && PathComparison.Equal(CanonicalPath.Resolve(directory), project));
 
+    /// <summary>A terminal session's hook handing over a source. Refused unless the hook resolved this daemon's own
+    /// profile, server and directories, the session's Claude process is running, and the transcript is that session's
+    /// under the Claude projects of the account the hook resolved. The hook then starts a watcher, as it does for any
+    /// source the daemon won't take.</summary>
+    public async Task HandleLocalRecordTerminalSourceAsync(string payload, Stream stream, CancellationToken ct) {
+        RecordTerminalSourceDto? source = null;
+
+        try {
+            source = JsonSerializer.Deserialize(payload, RecordingIpcJsonContext.Default.RecordTerminalSourceDto);
+        } catch (JsonException) {
+            // Refused below.
+        }
+
+        var answer = source is null ? RecordingIpc.Refused : await RecordTerminalSourceAsync(source, ct);
+
+        try {
+            await FrameCodec.WriteAsync(stream, LocalFrame.RecordSourceAck(answer), ct);
+        } catch (IOException) {
+            // The hook's budget ran out first. Of this take and its spawn, whichever reached the spawn lock first records the source.
+        }
+    }
+
+    // There is no agent to tie the source to. The socket is the user's own, so whoever asks could start a watcher on any
+    // file; what is checked here is that this daemon records what that hook's watcher would have, to the same server, under
+    // the same claims and disable markers, and reads the session's transcript where Claude keeps it, with its links followed.
+    async Task<string> RecordTerminalSourceAsync(RecordTerminalSourceDto source, CancellationToken ct) {
+        if (_recorder is not { } recorder || !IsClaude(source.Vendor) || SessionIds.Canonical(source.SessionId) is not { } session) return RecordingIpc.Refused;
+
+        var handed = new RecordedSource(null, session, SessionIds.Canonical(source.SubagentId), source.TranscriptPath, "claude", source.Cwd, source.SkipTitle);
+
+        // Ahead of what this daemon holds: a hook on another profile goes to another server, which a recorder here never reaches.
+        if (TerminalRefusal(source) is { } refusal) return RefuseTerminal(handed.Key, refusal);
+
+        if (recorder.Holds(handed.Key)) return RecordingIpc.Recording;
+        if (recorder.Undecided) return RecordingIpc.NotYet;
+        if (!recorder.Enabled) return RecordingIpc.Refused;
+
+        if (HandedTranscript.Locate(source.TranscriptPath, session, source.SubagentId, new ClaudePaths(_config.Home, source.ClaudeHome).Projects) is not { } transcript)
+            return RefuseTerminal(handed.Key, "it is not a transcript of that session under the Claude projects the hook resolved");
+
+        var process = new ProcessIncarnation(source.ProcessId, source.ProcessToken);
+        if (recorder.HasExited(process)) return RefuseTerminal(handed.Key, "its Claude process has exited");
+
+        return await recorder.TryRecordAsync(handed with { TranscriptPath = transcript.Path, Process = process }, ct) ? RecordingIpc.Recording : RecordingIpc.Refused;
+    }
+
+    string? TerminalRefusal(RecordTerminalSourceDto source) {
+        if (source.Profile != _config.ProfileNameOrNull) return $"the hook runs under profile {source.Profile}, and this daemon serves {_config.ProfileNameOrNull}";
+
+        if (ServerIdentity.Canonicalize(source.ServerUrl) is not { } server || server != ServerIdentity.Canonicalize(_config.ServerUrl))
+            return "the hook sends to another server";
+
+        if (!SameDirectory(source.ConfigDir, _config.ConfigRoot.Directory)) return "the hook reads another config directory";
+
+        if (!SameDirectory(source.WatcherDir, WatcherPaths.FromEnvironment(_config.ConfigRoot).Directory)) return "the hook keeps its claims in another directory";
+
+        return Path.IsPathFullyQualified(source.ClaudeHome) ? null : "the hook named no Claude directory";
+    }
+
+    static bool SameDirectory(string hook, string own) =>
+        Path.IsPathFullyQualified(hook) && PathComparison.Equal(Path.TrimEndingDirectorySeparator(CanonicalPath.Resolve(hook)), Path.TrimEndingDirectorySeparator(CanonicalPath.Resolve(own)));
+
+    string RefuseTerminal(string key, string refusal) {
+        LogTerminalSourceRefused(key, refusal);
+
+        return RecordingIpc.Refused;
+    }
+
     /// <summary>A hook's ask for a source's final drain. A hook that stops waiting has still asked, so the drain runs
     /// with nobody left to answer. This daemon's own stop is what ends the wait, and the drain outlives that too.</summary>
     public async Task HandleLocalFinishSourceAsync(string key, Stream stream, CancellationToken ct) {

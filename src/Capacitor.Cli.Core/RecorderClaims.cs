@@ -13,8 +13,12 @@ namespace Capacitor.Cli.Core;
 ///
 /// <para>A take reads and then writes, so whoever takes holds the per-key spawn lock, as a hook's spawn does. Beats
 /// and reads take no lock.</para>
+///
+/// <para>Given a holder, the claims are that daemon's view: it beats only its own, and a recorder under it keeps a source
+/// only while the claim names it. Two daemons can share one directory, and one that woke would otherwise keep sending
+/// a source another took from it, and keep that claim fresh for it after the other has gone.</para>
 /// </summary>
-public sealed class RecorderClaims(string directory, TimeProvider time) {
+public sealed class RecorderClaims(string directory, TimeProvider time, string? holder = null) {
     const string Hosted   = "hosted";
     const string Terminal = "terminal";
 
@@ -54,8 +58,11 @@ public sealed class RecorderClaims(string directory, TimeProvider time) {
         }
     }
 
-    /// <summary>Marks the claim alive. A claim that has gone stays gone, and its recorder's next check finds that out.</summary>
+    /// <summary>Marks the claim alive. A claim that has gone stays gone, and its recorder's next check finds that out, as
+    /// does one that names another holder.</summary>
     public void Beat(string key) {
+        if (holder is not null && Contents(key) is { } claim && claim.Holder != holder) return;
+
         try {
             File.SetLastWriteTimeUtc(ClaimFile(key), time.GetUtcNow().UtcDateTime);
         } catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) {
@@ -73,10 +80,16 @@ public sealed class RecorderClaims(string directory, TimeProvider time) {
         }
     }
 
-    /// <summary>Gives up <paramref name="key"/> if <paramref name="holder"/> holds it. Any other claim, a corrupt one
+    /// <summary>Whether a recorder holding <paramref name="key"/> still does: a claim is there and doesn't name another
+    /// holder. One that can't be read is given the benefit of the doubt, because a read that fails once would stop the
+    /// recorder with no final drain.</summary>
+    public bool Keeps(string key) =>
+        Read(key) is not RecorderClaimState.None && (holder is null || Contents(key)?.Holder is not { } named || named == holder);
+
+    /// <summary>Gives up <paramref name="key"/> if <paramref name="daemonName"/> holds it. Any other claim, a corrupt one
     /// too, may be someone's who is recording.</summary>
-    public void ReleaseIfHeldBy(string key, string holder) {
-        if (Contents(key)?.Holder == holder) Release(key);
+    public void ReleaseIfHeldBy(string key, string daemonName) {
+        if (Contents(key)?.Holder == daemonName) Release(key);
     }
 
     /// <summary>Whether the claim says its session is hosted. A claim that can't be read says it isn't: a hook from a

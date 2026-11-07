@@ -61,6 +61,7 @@ public enum FrameType : byte {
     RecordSource = 37, // Text = RecordSourceDto JSON; answered on RecordSourceAck
     FinishSource = 38, // Text = the source's key; answered on FinishSourceAck
     DisableSession = 39, // Text = the session's id; goes only to a daemon advertising RecordingIpc.DisableCapability; answered on DisableSessionAck
+    RecordTerminalSource = 40, // Text = RecordTerminalSourceDto JSON; goes only to a daemon advertising RecordingIpc.TerminalCapability; answered on RecordSourceAck
     // daemon → client
     Attached  = 64,
     Stdout    = 65,

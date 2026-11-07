@@ -1882,6 +1882,9 @@ internal partial class AgentOrchestrator {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Agent {AgentId} handed over {TranscriptPath}, which this daemon won't record: {Refusal}")]
     partial void LogHandedSourceRefused(string agentId, string transcriptPath, string refusal);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "A terminal hook handed over {Key}, which this daemon won't record: {Refusal}")]
+    partial void LogTerminalSourceRefused(string key, string refusal);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Resume ledger: failed {Step} the entry for agent {AgentId}")]
     partial void LogResumeLedgerFailed(Exception ex, string step, string agentId);
 

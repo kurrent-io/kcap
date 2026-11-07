@@ -92,9 +92,10 @@ public class WatcherManagerClaimTests : IDisposable {
     /// <summary>Neither answer lets a hook drain: an unstamped drain that wins would make the server discard the
     /// daemon's stamped copy.</summary>
     [Test]
-    [Arguments(true)]
-    [Arguments(false)]
-    public async Task A_fresh_daemon_claim_signals_nothing_and_asks_the_daemon_to_finish(bool answer) {
+    [Arguments(RecordingFinish.Finished)]
+    [Arguments(RecordingFinish.NotHeld)]
+    [Arguments(RecordingFinish.Unanswered)]
+    public async Task A_fresh_daemon_claim_signals_nothing_and_asks_the_daemon_to_finish(RecordingFinish answer) {
         StubServer();
         _daemon.Answer = answer;
         Claims.TryTake(Key, "daemon", isHosted: false);
@@ -108,6 +109,87 @@ public class WatcherManagerClaimTests : IDisposable {
         await Assert.That(_daemon.Asked).IsEquivalentTo([Key]);
         await Assert.That(Posts).IsEqualTo(0);
         await Assert.That(_server.LogEntries).IsEmpty();
+    }
+
+    /// <summary>The claim names the daemon that holds the source, which is the one to finish it, whatever this hook's
+    /// own profile or environment would name.</summary>
+    [Test]
+    public async Task A_finish_goes_to_the_daemon_the_claim_names() {
+        StubServer();
+        Claims.TryTake(Key, "daemon-b", isHosted: false);
+
+        await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(_daemon.Holders.Single()).IsEqualTo("daemon-b");
+    }
+
+    /// <summary>The daemon died inside the grace and nothing listens for it. A session ending now has no later hook to
+    /// find its claim stale, so this one is the last chance at its tail: the hook takes the claim and drains.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_fresh_claim_whose_holder_is_unreachable_is_taken_and_drained(bool hosted) {
+        StubServer();
+        _daemon.Answer = RecordingFinish.Unreachable;
+        Claims.TryTake(Key, "daemon", isHosted: hosted);
+
+        await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(Posts).IsEqualTo(1);
+    }
+
+    /// <summary>A hosted agent's own source has the daemon's catch-up coming, and that one keeps its stamps.</summary>
+    [Test]
+    public async Task A_fresh_hosted_claim_whose_holder_is_unreachable_is_left_to_the_catch_up_by_its_agent() {
+        StubServer();
+        _daemon.Answer = RecordingFinish.Unreachable;
+        Claims.TryTake(Key, "daemon", isHosted: true);
+
+        await FromAgent.InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(Posts).IsEqualTo(0);
+    }
+
+    /// <summary>Only nothing listening says the holder has gone. A daemon restarting may not hold the source yet, and one
+    /// that doesn't answer may be draining it.</summary>
+    [Test]
+    [Arguments(RecordingFinish.NotHeld)]
+    [Arguments(RecordingFinish.Unanswered)]
+    public async Task A_holder_that_is_up_keeps_its_fresh_claim(RecordingFinish answer) {
+        StubServer();
+        _daemon.Answer = answer;
+        Claims.TryTake(Key, "daemon", isHosted: false);
+
+        await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(Posts).IsEqualTo(0);
+    }
+
+    /// <summary>A teardown asks for each of its sources in turn. A daemon that answers none spends the hook's budget once,
+    /// and every later source is still asked, briefly, rather than each costing the whole budget again.</summary>
+    [Test]
+    public async Task Finishes_share_one_budget_across_a_teardown() {
+        StubServer();
+        _daemon.Hangs = true;
+        string[] children = ["a1", "a2", "a3"];
+        foreach (var child in children) Claims.TryTake($"{Key}-{child}", "daemon", isHosted: false);
+
+        // Each ask reaches the daemon before the drain first yields, so the clock moves only once it is waiting.
+        var first = Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: "a1");
+        _time.Advance(WatcherManager.FinishSourceBudget);
+        await first.WithinDeadlineAsync("the first finish to give up");
+
+        foreach (var child in children.Skip(1)) {
+            var next = Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: child);
+            _time.Advance(WatcherManager.FinishAskFloor);
+            await next.WithinDeadlineAsync($"the finish of {child} to give up at the floor");
+        }
+
+        await Assert.That(_daemon.Asked).IsEquivalentTo(children.Select(child => $"{Key}-{child}"));
+        await Assert.That(Posts).IsEqualTo(0);
     }
 
     /// <summary>A subagent's source is its own: finishing it leaves its parent's alone.</summary>
@@ -564,8 +646,9 @@ public class WatcherManagerClaimTests : IDisposable {
 
     sealed class FakeDaemon : IDaemonRecordingClient {
         readonly List<string> _asked = [];
+        readonly List<string?> _holders = [];
 
-        public bool Answer { get; set; }
+        public RecordingFinish Answer { get; set; } = RecordingFinish.NotHeld;
 
         public bool Hangs { get; set; }
 
@@ -577,14 +660,23 @@ public class WatcherManagerClaimTests : IDisposable {
             }
         }
 
-        public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
+        public IReadOnlyList<string?> Holders {
+            get {
+                lock (_asked) return [.._holders];
+            }
+        }
+
+        public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, int? follows, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
 
         public IReadOnlyList<string> Daemons() => [];
 
         public Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(new RecordingDisableAnswer(RecordingDisable.NoSocket));
 
-        public async Task<bool> FinishSourceAsync(string key, CancellationToken ct) {
-            lock (_asked) _asked.Add(key);
+        public async Task<RecordingFinish> FinishSourceAsync(string key, string? holder, CancellationToken ct) {
+            lock (_asked) {
+                _asked.Add(key);
+                _holders.Add(holder);
+            }
 
             if (Throws) throw new InvalidOperationException("The daemon went away.");
             if (Hangs) await new TaskCompletionSource().Task;

@@ -16,6 +16,8 @@ namespace Capacitor.Cli.Recording;
 /// The owner hears how each attempt ended on the source's own loop, so it must not wait there for that source.
 /// A server stop ends a backoff as a finish does, and a final drain after one is in a hurry. An abandoned source ends as
 /// one that lost its claim does, whatever it was doing, and leaves nothing behind to send it later.
+/// A source the owner says doesn't keep its claim offline is beaten only while the transport is up, so a backoff, an
+/// outage or a connect the server never answers lets that claim go stale, and a hook can take the source.
 /// </summary>
 public sealed class RecorderHost {
     static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(1);
@@ -32,25 +34,30 @@ public sealed class RecorderHost {
     readonly Func<string, FileStream>? _openTranscript;
     readonly RecorderClaims? _claims;
     readonly Action<RecorderAttemptEnded>? _attemptEnded;
+    readonly Func<RecordingSource, bool>? _keepsClaimOffline;
     readonly ConcurrentDictionary<string, Entry> _entries = new();
     readonly Lock _admission = new();
     bool _stopping;
 
+    /// <param name="keepsClaimOffline">Whether a source's claim is beaten while the transport is down; every source's is
+    /// when this is null.</param>
     public RecorderHost(
         IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time,
-        RecorderClaims? claims = null, Action<RecorderAttemptEnded>? attemptEnded = null)
-        : this(transport, stampers, contexts, time, null, claims, attemptEnded) { }
+        RecorderClaims? claims = null, Action<RecorderAttemptEnded>? attemptEnded = null, Func<RecordingSource, bool>? keepsClaimOffline = null)
+        : this(transport, stampers, contexts, time, null, claims, attemptEnded, keepsClaimOffline) { }
 
     internal RecorderHost(
         IRecorderTransport transport, Func<RecordingSource, IRowStamper> stampers, Func<RecordingSource, RecorderContext> contexts, TimeProvider time,
-        Func<string, FileStream>? openTranscript, RecorderClaims? claims = null, Action<RecorderAttemptEnded>? attemptEnded = null) {
-        _transport      = transport;
-        _stampers       = stampers;
-        _contexts       = contexts;
-        _time           = time;
-        _openTranscript = openTranscript;
-        _claims         = claims;
-        _attemptEnded   = attemptEnded;
+        Func<string, FileStream>? openTranscript, RecorderClaims? claims = null, Action<RecorderAttemptEnded>? attemptEnded = null,
+        Func<RecordingSource, bool>? keepsClaimOffline = null) {
+        _transport         = transport;
+        _stampers          = stampers;
+        _contexts          = contexts;
+        _time              = time;
+        _openTranscript    = openTranscript;
+        _claims            = claims;
+        _attemptEnded      = attemptEnded;
+        _keepsClaimOffline = keepsClaimOffline;
 
         _transport.StopRequested += OnStopRequestedAsync;
     }
@@ -177,14 +184,17 @@ public sealed class RecorderHost {
             Abandoned               = () => entry.Abandoned,
         };
 
-    // Guarded apart, because the heartbeat file and the claim fail apart: a backoff has to keep beating the claim, or a
-    // hook would take a source this host is still retrying.
+    // Guarded apart, because the heartbeat file and the claim fail apart: a backoff has to keep beating a claim kept
+    // offline, or a hook would take a source this host is still retrying.
     Action Beats(RecordingSource source, Action beat) {
         var heartbeat = Guarded(beat);
 
         if (_claims is not { } claims) return heartbeat;
 
-        var claim = Guarded(() => claims.Beat(source.Key));
+        var offline = Guarded(() => _keepsClaimOffline?.Invoke(source) ?? true, fallback: true);
+        var claim   = Guarded(() => {
+            if (offline || _transport.IsConnected) claims.Beat(source.Key);
+        });
 
         return () => {
             heartbeat();
@@ -199,6 +209,14 @@ public sealed class RecorderHost {
             // Nowhere left to report it.
         }
     };
+
+    static bool Guarded(Func<bool> read, bool fallback) {
+        try {
+            return read();
+        } catch {
+            return fallback;
+        }
+    }
 
     internal static Action Guarded(Action beat) => () => {
         try {
