@@ -28,6 +28,8 @@ internal sealed class AdoptionBatch(
     readonly HashSet<string> _unrepointed = new(StringComparer.Ordinal);
     // Root-owned installs the last prompting run could not take to the prompt, because their daemon move waited.
     readonly HashSet<string> _promptDeferred = new(PathComparison.Comparer);
+    // Root-owned installs the last prompting run left held by something that used them.
+    readonly HashSet<string> _heldAtPrompt = new(PathComparison.Comparer);
     AdoptionPrivilegedStep? _privileged;
     volatile bool _awaitingDaemon;
     volatile bool _foundInstall;
@@ -48,8 +50,8 @@ internal sealed class AdoptionBatch(
 
     /// <summary>Whether an install waits on <see cref="FinishAsync"/>: left behind a cancelled administrator prompt, a
     /// deletion cut short or another account still using it, left for the app being installed for one user, once it
-    /// runs from /Applications, or root-owned and kept from its prompt by a daemon move a later run made or a helper cut
-    /// short with every entry in place.</summary>
+    /// runs from /Applications, or root-owned and kept from its prompt by a daemon move a later run made, a helper cut
+    /// short with every entry in place, or a holder a later run has since seen go.</summary>
     public bool FinishOffered => _awaitingPrompt || store.Load().Installs.Any(i => i.State == InstallState.Left && i.Reason switch {
         LeftReason.PromptCancelled or LeftReason.DeletionCutShort or LeftReason.SharedInstallInUse => true,
         LeftReason.SharedInstallPrivateApp                                                         => bundle.InSystemApplications,
@@ -130,12 +132,16 @@ internal sealed class AdoptionBatch(
         }
 
         if (prompt) {
+            _heldAtPrompt.Clear();
             foreach (var install in moved.Where(i => _rootOwned.Contains(Key(i)))) {
                 var planned = plan.Installs.FirstOrDefault(p => AdoptionPreflight.SameRoot(p.Install, install));
                 if (await Privileged.RunAsync(install, planned, evidence, unfinished, explain: !finishing, ct).ConfigureAwait(false))
                     _awaitingPrompt = true;
+                else if (store.Load().Installs.FirstOrDefault(i => AdoptionPreflight.SameRoot(i.Install, install)) is
+                         { State: InstallState.Pending, HeldBy: not null })
+                    _heldAtPrompt.Add(Key(install));
             }
-        }
+        } else await OfferReleasedAsync(record.CutoverUtc, ct).ConfigureAwait(false);
 
         return Finish(userOwned);
     }
@@ -147,6 +153,7 @@ internal sealed class AdoptionBatch(
         var record = store.Load();
         if (!record.Pending) return false;
 
+        await OfferReleasedAsync(record.CutoverUtc, ct).ConfigureAwait(false);
         var due = record.Installs
             .Where(i => i.State == InstallState.Pending && i.HeldBy is not null && !StillHeld(i) && !RootOwned(i.Install))
             .Select(i => i.Install).ToList();
@@ -165,6 +172,23 @@ internal sealed class AdoptionBatch(
     }
 
     public void Dispose() => notices.Dispose();
+
+    // The prompt is never raised unasked, so an install the last prompt left held is offered to Finish switching once
+    // nothing holds it any more.
+    async Task OfferReleasedAsync(DateTime? cutover, CancellationToken ct) {
+        if (_awaitingPrompt || cutover is not { } since) return;
+        var held = store.Load().Installs
+            .Where(i => i.State == InstallState.Pending && _heldAtPrompt.Contains(Key(i.Install))).Select(i => i.Install).ToList();
+        if (held.Count == 0) return;
+
+        var running = machine.ReadProcesses();
+        var naming  = await machine.ReadSitesAsync(ct).ConfigureAwait(false);
+        foreach (var install in held) {
+            if (await _deletion.HolderAsync(install, since, running, naming, ct).ConfigureAwait(false) is not null) continue;
+            _awaitingPrompt = true;
+            return;
+        }
+    }
 
     static bool Finishable(RecordedInstall install) => install is {
         State: InstallState.Left,

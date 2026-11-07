@@ -1463,7 +1463,8 @@ public class CliAdoptionCoordinatorTests {
 
     /// <summary>The checks run again once the helper has swapped the link: a daemon started from the install while
     /// the prompt was open keeps it, the helper puts the link back, and nothing is noticed or asked again this launch,
-    /// however the holder goes away: not by a recheck, nor by the batch running again for a daemon move it deferred.</summary>
+    /// however the holder goes away: not by a recheck, nor by the batch running again for a daemon move it deferred.
+    /// Once a recheck sees the holder gone, Finish switching is offered.</summary>
     [Test]
     public async Task A_manual_daemon_started_while_the_prompt_was_open_puts_everything_back() {
         var world = new AdoptionWorld(Tmp);
@@ -1500,6 +1501,7 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
         await Assert.That(Directory.Exists(world.Platform)).IsTrue();
         await Assert.That(world.Record.Pending).IsTrue();
+        await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
     }
 
     /// <summary>Nothing is asked while something still holds a root-owned install, and a recheck, which runs as this
