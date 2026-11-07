@@ -53,13 +53,13 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
     static readonly IReadOnlyList<HarnessOption> DefaultHarnessOptions = HostedHarnessCatalog.Build(null);
 
-    internal const string WaitingNote      = "Waiting for session…";
-    internal const string LoadingNote      = "Loading…";
+    internal const string WaitingNote      = "Work context appears when the session starts.";
+    internal const string LoadingNote      = "Loading work context…";
     internal const string NoWorkItemNote   = "No work item yet. Ask the agent to link this session to an issue or task.";
     internal const string NoRepositoryNote = "No repository on this session, so a work item cannot attach.";
     internal const string SignedOutNote    = "Sign in to see the work context.";
     internal const string NotInPlanNote    = "Work items are not in this workspace's plan.";
-    internal const string UnreachableNote  = "Couldn't reach the server.";
+    internal const string UnreachableNote  = "Couldn’t load work details. Try again.";
 
     readonly bool _isRemote;
     readonly IWorkContextSource _source;
@@ -195,7 +195,17 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
 
-    public string PhaseNote => Phase switch {
+    bool _hasWorkspaceNotice;
+    public bool HasWorkspaceNotice {
+        get => _hasWorkspaceNotice;
+        set {
+            this.RaiseAndSetIfChanged(ref _hasWorkspaceNotice, value);
+            this.RaisePropertyChanged(nameof(PhaseNote));
+        }
+    }
+
+    public string PhaseNote => HasWorkspaceNotice && Phase is WorkContextPhase.WaitingForSession or WorkContextPhase.SessionUnknown
+        ? "" : Phase switch {
         WorkContextPhase.WaitingForSession or WorkContextPhase.SessionUnknown => WaitingNote,
         WorkContextPhase.Loading     => LoadingNote,
         WorkContextPhase.NoWorkItem  => _dto?.RepoPath is null && _storedRepository is null ? NoRepositoryNote : NoWorkItemNote,

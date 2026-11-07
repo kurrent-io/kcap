@@ -21,6 +21,22 @@ public enum WorkspaceTab { Chat, Terminal, PullRequest, Artefacts }
 public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     const string UnresolvedKind = "unresolved";
 
+    SessionConnectionPresentation? _connectionNotice;
+    public SessionConnectionPresentation? ConnectionNotice {
+        get => _connectionNotice;
+        private set {
+            this.RaiseAndSetIfChanged(ref _connectionNotice, value);
+            this.RaisePropertyChanged(nameof(HasConnectionNotice));
+            this.RaisePropertyChanged(nameof(ShowsStartingNotice));
+            if (Chat is not null) Chat.WorkspaceNotice = ConnectionNotice;
+            if (WorkContext is not null) WorkContext.HasWorkspaceNotice = HasConnectionNotice || IsStarting;
+        }
+    }
+    public bool HasConnectionNotice => ConnectionNotice is not null;
+    public bool ShowsStartingNotice => IsStarting && !HasConnectionNotice;
+    public SessionConnectionPresentation StartingNotice => SessionConnectionPresentation.Starting(StartingText);
+    public ReactiveCommand<Unit, Unit> RetryConnectionCommand { get; }
+
     public string AgentId { get; }
 
     readonly ObservableAsPropertyHelper<string> _title;
@@ -211,6 +227,19 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         _permissions = permissions;
         Terminal = new TerminalTabViewModel(agentId, daemon, factory, surfaceFactory, time, resumeLedger) { SurfaceShown = IsTerminalActive };
         _disposables.Add(_lease);
+        RetryConnectionCommand = ReactiveCommand.CreateFromTask(daemon.RestartLoopAsync);
+        _disposables.Add(RetryConnectionCommand);
+        daemon.Status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
+            ConnectionNotice = status.State switch {
+                AttachState.Connected => null,
+                AttachState.Unreachable when status.Reason == ExpectedDaemonRestart.Reason =>
+                    SessionConnectionPresentation.Reconnecting("The daemon is restarting. Retrying automatically."),
+                AttachState.Unreachable when status.Reason == ExpectedDaemonRestart.StartingReason =>
+                    SessionConnectionPresentation.Reconnecting("The daemon is starting. Retrying automatically."),
+                AttachState.Unreachable => SessionConnectionPresentation.Failed(RetryConnectionCommand),
+                _ => ConnectionNotice,
+            };
+        }).DisposeWith(_disposables);
 
         var presence = daemon.Agents.Connect()
             .Filter(dto => dto.Id == agentId)
@@ -244,6 +273,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             }).DisposeWith(_disposables);
         WorkContext = new WorkContextViewModel(presence.Select(p => p.Dto), workContext, time, opener, runs, requestSignIn, signInCompleted,
             actions.OpenWorkItemInWeb, plans, planActivity, artefacts: Artefacts, serverLane: serverLane, layout: workContextLayout);
+        WorkContext.HasWorkspaceNotice = HasConnectionNotice;
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));
         // An open subagent belongs to the transcript it was opened from.
@@ -342,6 +372,11 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         _startingText = header.Select(h => h.Row is { } row ? LaunchStages.StartingText(row.Vendor, row.LaunchStage) : "")
             .ToProperty(this, x => x.StartingText, initialValue: "")
             .DisposeWith(_disposables);
+        this.WhenAnyValue(vm => vm.IsStarting, vm => vm.StartingText).Subscribe(_ => {
+            this.RaisePropertyChanged(nameof(StartingNotice));
+            this.RaisePropertyChanged(nameof(ShowsStartingNotice));
+            WorkContext.HasWorkspaceNotice = HasConnectionNotice || IsStarting;
+        }).DisposeWith(_disposables);
         var showsTerminal = presence.Select(p => p.Dto is not null && HostedHarnessCatalog.ShowsTerminal(p.Dto.HasTerminal, p.Dto.Vendor));
         _showsTerminalTab = showsTerminal
             .ToProperty(this, x => x.ShowsTerminalTab, initialValue: false)
@@ -381,6 +416,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     openLink: Artefacts.OpenLink) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
                     InputSending = inputSending,
+                    WorkspaceNotice = ConnectionNotice,
                 };
                 Chat.Tasks.RunOpened += OpenSubagent;
                 _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));

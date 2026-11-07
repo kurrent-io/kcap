@@ -13,6 +13,7 @@ using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.WorkItems;
 using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
@@ -48,6 +49,108 @@ public class RemoteSessionViewSmokeTests {
         });
     }
 
+    [Test]
+    public async Task Connecting_keeps_details_visible_without_competing_chat_waiting_messages() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            using var host = new Host(row: AgentRow.FromRemote(new AgentInstanceDto {
+                AgentId = "a1", Status = "Running", DaemonName = "work-mac",
+                Vendor = "claude", OwnerUserId = "u1", RegisteredAt = DateTime.UtcNow,
+            }));
+            try {
+                host.Settle();
+                await Assert.That(host.View.FindControl<WorkContextView>("WorkContextHost")!.IsEffectivelyVisible).IsTrue();
+                await Assert.That(host.Vm.Chat.PhaseNote).IsEmpty();
+                await Assert.That(host.Vm.Chat.ShowsTerminalOffer).IsFalse();
+                var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "Starting session…" && t.IsEffectivelyVisible);
+                await Assert.That(title.TranslatePoint(new Point(0, 0), host.Window)!.Value.Y).IsGreaterThan(180);
+                var action = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Open Terminal"));
+                await Assert.That(action.Classes.Contains("kcapPrimary")).IsTrue();
+                CaptureLoading(host, "session-starting");
+            } finally { await host.Vm.TeardownAsync(); }
+            return true;
+        });
+    }
+
+    [Test]
+    public async Task Reconnecting_keeps_existing_chat_visible_and_uses_the_shared_notice() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            var source = new FakeWorkContextSource();
+            var assignment = new SessionWorkItemAssignmentDto { WorkItemId = "w1", Label = "WK-240", Source = "mcp", Confidence = 1, IsPrimary = true };
+            source.Enqueue(new WorkContextRead(WorkContextReadKind.Ready, [assignment], assignment,
+                new WorkItemDto { WorkItemId = "w1", Title = "Unify session connection states",
+                    Key = new WorkItemKeyDto { ShortKey = "WK-240", Provider = "linear", Kind = "issue", Value = "WK-240" },
+                    State = new WorkItemStateDto { Kind = "in_flight" } }, null,
+                new SessionSummaryDto { SessionId = "s1" }, false, false, false, null));
+            var retries = 0;
+            using var host = new Host(workSource: source, retryConnection: () => { retries++; return Task.CompletedTask; },
+                detail: Detail(Event(0, CanonicalEventTypes.UserMessageReceived,
+                """{"content":"Review the session loading states"}"""), Event(1, CanonicalEventTypes.AssistantTextGenerated,
+                """{"content":"I’ll check how chat and work details recover after a connection loss."}""")));
+            try {
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready && host.Vm.Chat.Items.Count > 0 && host.Vm.WorkContext.IsReady, "chat and details loaded");
+                var count = host.Vm.Chat.Items.Count;
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Offline, "connection dropped");
+                await Assert.That(host.View.FindControl<ChatTabView>("ChatHost")!.IsEffectivelyVisible).IsTrue();
+                await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Reconnecting to session…")).IsTrue();
+                await Assert.That(host.Vm.Chat.Items.Count).IsEqualTo(count);
+                await Assert.That(host.Vm.WorkContext.IsReady).IsTrue();
+                CaptureLoading(host, "session-reconnecting");
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Capacitor.Cli.Core.Http.ConnectionFailure.Refused));
+                host.Settle();
+                await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Couldn’t reconnect to this session")).IsTrue();
+                CaptureLoading(host, "session-connection-failed");
+                await host.Vm.RetryConnectionCommand.Execute();
+                await Assert.That(retries).IsEqualTo(1);
+                // Re-establishment must keep the transcript visible too, until the watch answers.
+                var watch = new TaskCompletionSource<HubCallOutcome>();
+                host.Lane.AccessWatchHandler = _ => watch.Task;
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 2));
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Connecting, "re-establishing");
+                await Assert.That(host.View.FindControl<ChatTabView>("ChatHost")!.IsEffectivelyVisible).IsTrue();
+                watch.SetResult(HubCallOutcome.Ok);
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "recovered");
+                CaptureLoading(host, "session-recovered");
+            } finally { await host.Vm.TeardownAsync(); }
+            return true;
+        });
+    }
+
+    [Test]
+    public async Task Slow_context_shows_loading_then_failure_and_retry_restores_an_explained_empty_state() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            var source = new FakeWorkContextSource();
+            var gate = source.Gate();
+            using var host = new Host(workSource: source);
+            try {
+                await host.SettleUntilAsync(() => source.InFlight == 1, "context read started");
+                await Assert.That(host.View.FindControl<WorkContextView>("WorkContextHost")!.IsEffectivelyVisible).IsTrue();
+                await Assert.That(host.Vm.WorkContext.Phase).IsEqualTo(WorkContextPhase.Loading);
+                CaptureLoading(host, "work-context-loading");
+                gate.SetResult(Capacitor.Cli.Core.WorkItems.WorkContextRead.Of(Capacitor.Cli.Core.WorkItems.WorkContextReadKind.Unreachable));
+                await host.SettleUntilAsync(() => host.Vm.WorkContext.ShowsRetry, "context failure");
+                await Assert.That(host.View.GetVisualDescendants().OfType<SessionConnectionNotice>()
+                    .Any(n => n.IsEffectivelyVisible && n.DataContext is SessionConnectionPresentation { Title: "Waiting for chat…" })).IsTrue();
+                CaptureLoading(host, "work-context-failed");
+                source.Enqueue(Capacitor.Cli.Core.WorkItems.WorkContextRead.Of(Capacitor.Cli.Core.WorkItems.WorkContextReadKind.Ready));
+                await host.Vm.WorkContext.RefreshCommand.Execute();
+                await host.SettleUntilAsync(() => host.Vm.WorkContext.Phase == WorkContextPhase.NoWorkItem, "context retry");
+                await Assert.That(host.Vm.WorkContext.PhaseNote).IsNotEmpty();
+                CaptureLoading(host, "work-context-recovered");
+            } finally { await host.Vm.TeardownAsync(); }
+            return true;
+        });
+    }
+
+    static void CaptureLoading(Host host, string name) {
+        if (Environment.GetEnvironmentVariable("KCAP_SHOTS_OUT") is not { } dir) return;
+        host.Window.SetRenderScaling(2);
+        host.Window.FocusManager?.Focus(null);
+        host.Settle();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        host.Window.CaptureRenderedFrame()!.Save(Path.Combine(dir, name + ".png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+    }
+
     sealed class Host : IDisposable {
         readonly SessionAccessService _access;
         readonly FakeAgentDirectory _directory = new();
@@ -61,7 +164,7 @@ public class RemoteSessionViewSmokeTests {
         public readonly Window Window;
 
         public Host(IPlanArtifactSource? planArtifacts = null, string sessionId = "s1", IWindowImpl? windowImpl = null, bool realTerminal = false,
-                AgentRow? row = null, Func<AgentRow, HandoffComposerViewModel>? handoff = null) {
+                AgentRow? row = null, Func<AgentRow, HandoffComposerViewModel>? handoff = null, FakeWorkContextSource? workSource = null, SessionDetailDto? detail = null, Func<Task>? retryConnection = null) {
             _access = new SessionAccessService(Lane, Time);
             Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 1));
             row ??= AgentRow.FromRemote(new AgentInstanceDto {
@@ -70,9 +173,9 @@ public class RemoteSessionViewSmokeTests {
             });
             _directory.Rows.AddOrUpdate(row);
             Vm = new RemoteSessionViewModel(row, _directory, _access, Permissions, NewActions(), Lane,
-                (_, _) => Task.FromResult(new SessionDetailFetch(Detail())), new RecordingOpener(), Time, new FakeWorkContextSource(),
+                (_, _) => Task.FromResult(new SessionDetailFetch(detail ?? Detail())), new RecordingOpener(), Time, workSource ?? new FakeWorkContextSource(),
                 () => realTerminal ? new XtermTerminalSurface(130, 54) : new FakeTerminalSurface(), planArtifacts,
-                remoteAgents: Remote, notifier: new RecordingNotifier(), handoff: handoff);
+                remoteAgents: Remote, notifier: new RecordingNotifier(), handoff: handoff, retryConnection: retryConnection);
             View = new RemoteSessionView { DataContext = Vm };
             Window = windowImpl is null ? new Window() : new Window(windowImpl);
             Window.Content = View;
@@ -558,6 +661,13 @@ public class RemoteSessionViewSmokeTests {
             await Assert.That(host.View.FindControl<TextBlock>("AccessNoteText")!.Text)
                 .IsEqualTo("You no longer have access to this session");
 
+            var watch = new TaskCompletionSource<HubCallOutcome>();
+            host.Lane.AccessWatchHandler = _ => watch.Task;
+            host.Vm.RecheckAccess();
+            await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Connecting, "access recheck");
+            await Assert.That(chat.IsVisible).IsFalse().Because("a refusal must stand until access is established again");
+            watch.SetResult(HubCallOutcome.Denied("still denied"));
+            await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Denied, "refusal retained");
             await host.Vm.TeardownAsync();
             return true;
         });

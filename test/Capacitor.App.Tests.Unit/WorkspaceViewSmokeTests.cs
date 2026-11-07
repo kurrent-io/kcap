@@ -71,6 +71,46 @@ public class WorkspaceViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public async Task Daemon_restart_replaces_empty_chat_hints_and_recovers_without_hiding_details() {
+        await RunOnUiAsync(async () => {
+            var (view, vm, daemon, _) = Build();
+            var window = new Window { Content = view, Width = 1000, Height = 700 };
+            try {
+                window.Show();
+                daemon.StatusSubject.OnNext(new(AttachState.Connected, null, null));
+                daemon.Agents.AddOrUpdate(Agent(AgentId, hasTerminal: true));
+                await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+                daemon.StatusSubject.OnNext(new(AttachState.Unreachable, ExpectedDaemonRestart.Reason, null));
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                await Assert.That(window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Reconnecting to session…")).IsTrue();
+                await Assert.That(vm.Chat!.PhaseNote).IsEmpty();
+                await Assert.That(vm.Chat.ShowsTerminalOffer).IsFalse();
+                await Assert.That(Find<Control>(window, "WorkContextHost")!.IsEffectivelyVisible).IsTrue();
+                if (Environment.GetEnvironmentVariable("KCAP_SHOTS_OUT") is { } dir) {
+                    window.SetRenderScaling(2);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    window.CaptureRenderedFrame()!.Save(Path.Combine(dir, "daemon-restarting.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+                }
+                daemon.StatusSubject.OnNext(new(AttachState.Unreachable, "daemon_unreachable", null));
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                await Assert.That(window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Couldn’t reconnect to this session")).IsTrue();
+                await vm.RetryConnectionCommand.Execute();
+                await Assert.That(daemon.RestartCount).IsEqualTo(1);
+                if (Environment.GetEnvironmentVariable("KCAP_SHOTS_OUT") is { } failedDir) {
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    window.CaptureRenderedFrame()!.Save(Path.Combine(failedDir, "daemon-connection-failed.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+                }
+                daemon.StatusSubject.OnNext(new(AttachState.Connected, null, null));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(vm.Chat.PhaseNote).IsNotEmpty();
+            } finally { window.Close(); await vm.TeardownAsync(); }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task An_idle_chat_resized_before_opening_terminal_uses_the_measured_terminal_size() {
         await RunOnUiAsync(async () => {
             var surface = new XtermTerminalSurface(80, 24);

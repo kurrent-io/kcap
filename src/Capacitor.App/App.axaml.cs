@@ -1286,7 +1286,7 @@ public partial class App : Application {
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
                     heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
-                    inAppPages: () => inAppPages.IsOn)
+                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync())
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
         var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
@@ -1323,7 +1323,7 @@ public partial class App : Application {
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
                     handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
-                    inAppPages: () => inAppPages.IsOn)
+                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync())
                 : null;
 
         _coordinator = new MainWindowCoordinator(
