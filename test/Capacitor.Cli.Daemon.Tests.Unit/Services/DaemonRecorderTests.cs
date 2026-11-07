@@ -313,6 +313,24 @@ public class DaemonRecorderTests {
         await Stepping(time, () => EndCount == 1);
     }
 
+    /// <summary>A hook's finish declined because the source hasn't started takes nothing from its process's exit, which
+    /// still ends the source.</summary>
+    [Test]
+    public async Task A_declined_hook_finish_leaves_the_end_to_the_processes_exit() {
+        await using var recorder = NewRecorder();
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.ClaimAsync(source, CancellationToken.None);
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, CancellationToken.None)).IsFalse();
+
+        recorder.StartForAgent(source);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+
+        await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
+    }
+
     /// <summary>A daemon stopping inside the grace hasn't decided the end, so it keeps the claim and the entry, and the
     /// next boot finds the process gone and posts it.</summary>
     [Test]

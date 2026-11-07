@@ -265,7 +265,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <returns>Whether this daemon held the source and it finished.</returns>
     /// <param name="hurried">The caller won't wait long, as a hook doesn't.</param>
     public async Task<bool> FinishAsync(string key, CancellationToken ct, bool hurried = false) {
-        if (Volatile.Read(ref _stopping) != 0 || !_sources.TryGetValue(key, out var tracked) || !tracked.Running || tracked.Disabled) return false;
+        if (!_sources.TryGetValue(key, out var tracked) || !MayFinish(tracked)) return false;
 
         await Task.Run(() => _host.Value.FinishAsync(key, ct, hurried), CancellationToken.None);
         await tracked.Settled.Task.WaitAsync(ct);
@@ -279,14 +279,19 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     public async Task<bool> FinishForHookAsync(string key, CancellationToken ct) {
         if (!_sources.TryGetValue(key, out var tracked)) return false;
 
-        if (tracked.TryEnd(EndedBy.Hook)) return await FinishAsync(key, ct, hurried: true);
-        if (tracked.Ended is not EndedBy.Process) return await FinishAsync(key, ct, hurried: true);
+        if (tracked.Ended is not EndedBy.Process) {
+            // Declined, it takes nothing from the exit that may yet end the source.
+            if (!MayFinish(tracked)) return false;
+            if (tracked.TryEnd(EndedBy.Hook) || tracked.Ended is not EndedBy.Process) return await FinishAsync(key, ct, hurried: true);
+        }
 
         tracked.HookArrived();
         await tracked.LastAttemptDone.Task.WaitAsync(ct);
 
         return true;
     }
+
+    bool MayFinish(Tracked tracked) => Volatile.Read(ref _stopping) == 0 && tracked.Running && !tracked.Disabled;
 
     /// <summary>Finishes every source of an exited agent, within <paramref name="budget"/>, once: a second call on the
     /// way through a teardown spends none of it on a drain already asked for. Never throws, and what the budget cuts off
