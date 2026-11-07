@@ -53,7 +53,7 @@ public class McpToolAnnotationsTests {
         await Assert.That(Tool("kcap-flows", "list_flow_definitions").Annotations.ReadOnlyHint).IsTrue();
         await Assert.That(Tool("kcap-flows", "get_flow_definition").Annotations.ReadOnlyHint).IsTrue();
         await Assert.That(Tool("kcap-pass", "catch_me_up").Annotations).IsEqualTo(McpToolAnnotations.Read);
-        await Assert.That(Tool("kcap-pass", "what_else").Annotations).IsEqualTo(McpToolAnnotations.Read);
+        await Assert.That(Tool("kcap-pass", "what_else").Annotations).IsEqualTo(McpToolAnnotations.Generate);
 
         var declare = Tool("kcap-plans", "declare_plan_document").Annotations;
         await Assert.That(declare.ReadOnlyHint).IsFalse();

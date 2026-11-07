@@ -553,6 +553,6 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
           + "dropped, decisions, open items, loose ends), each citing a turn.",
             new("object", new() {
                 ["pass_id"] = new("string", "The pass_id catch_me_up returned.")
-            }, ["pass_id"]), McpToolAnnotations.Read)
+            }, ["pass_id"]), McpToolAnnotations.Generate)
     ];
 }

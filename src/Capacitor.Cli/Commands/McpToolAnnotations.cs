@@ -24,6 +24,9 @@ record McpToolAnnotations(bool? ReadOnlyHint = null, bool? DestructiveHint = nul
     /// <summary>Delivers something to another person, who reads it on their own.</summary>
     public static readonly McpToolAnnotations Send = new(ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: false, OpenWorldHint: true);
 
+    /// <summary>Spends a rate-limited model generation the server runs on the caller's behalf, so each call is worth asking about.</summary>
+    public static readonly McpToolAnnotations Generate = new(ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: false, OpenWorldHint: true);
+
     /// <summary>Starts or messages a separate hosted agent that then acts on its own.</summary>
     public static readonly McpToolAnnotations Launch = new(ReadOnlyHint: false, DestructiveHint: false, IdempotentHint: false, OpenWorldHint: true);
 }
