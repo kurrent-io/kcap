@@ -134,6 +134,18 @@ public class McpPassServerTests {
         await Assert.That(Text(response)).Contains($"{Url}/passes?tab=sent");
     }
 
+    /// <summary>A send that fails may follow a pass the server stored, so the agent is told to check, not to send again.</summary>
+    [Test]
+    public async Task Pass_SendCallLost_SaysCheckSentLinkNotSendAgain() {
+        var api = new FakePassesApi { SendFails = new CapacitorApiException(null, "Cannot reach the server") };
+
+        var response = await Server(api).HandleToolCallAsync(9, Call("pass", PassArguments()), elicit: null);
+
+        await Assert.That(IsError(response)).IsTrue();
+        await Assert.That(Text(response)).Contains("Do not pass or message again");
+        await Assert.That(Text(response)).Contains($"{Url}/passes?tab=sent");
+    }
+
     /// <summary>A harness that cannot prompt gets the way to approve in kcap, and nothing is answered for the human.</summary>
     [Test]
     public async Task Pass_NoElicitation_ReturnsWaitingWithLink() {

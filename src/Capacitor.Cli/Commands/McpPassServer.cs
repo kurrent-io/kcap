@@ -184,14 +184,31 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
             Note: McpToolArguments.RequireString(arguments, "text"), ReplyTo: McpToolArguments.OptionalString(arguments, "reply_to"));
     }
 
-    async Task<string> SendAsync(JsonNode id, StartPassBody body, Elicit? elicit, CancellationToken ct) =>
-        await passes.SendAsync(body, ct) switch {
+    /// <summary>A failure during the send may follow a pass the server stored, and the send carries no idempotency key, so
+    /// the agent is told not to send again.</summary>
+    async Task<string> SendAsync(JsonNode id, StartPassBody body, Elicit? elicit, CancellationToken ct) {
+        PassSendResult result;
+
+        try {
+            result = await passes.SendAsync(body, ct);
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+            return SendUnknown(id, "the server did not answer in time");
+        } catch (CapacitorApiException ex) {
+            return SendUnknown(id, ex.Message);
+        }
+
+        return result switch {
             PassSendResult.Sent sent => ToolResult(id, Outcome("sent", sent.Pass.PassId, "Sent.", sent.Pass.Grants).ToJsonString()),
             PassSendResult.AwaitingApproval awaiting => await ApproveAsync(id, awaiting.Pass, elicit),
             PassSendResult.Refused refused => Refusal(id, refused.Refusal),
             PassSendResult.NotFound => ToolResult(id, "Not sent: no such item, or not one you can see.", isError: true),
             _ => throw new InvalidOperationException("Unknown send result")
         };
+    }
+
+    string SendUnknown(JsonNode id, string reason) =>
+        ToolResult(id, $"Error: {reason}. The pass may or may not have been sent. Do not pass or message again; " +
+                       $"ask the user to check in kcap: {SentLink}", isError: true);
 
     /// <summary>Only the human answers. Without a prompt in the harness, or with no answer to it, the pass waits for
     /// them in kcap.</summary>

@@ -32,7 +32,8 @@ public class PassCommandTests {
         await Assert.That(run.Exit).IsEqualTo(0);
     }
 
-    /// <summary>A send the server fails ends with its message and exit 1, not a crash report.</summary>
+    /// <summary>A send the server fails ends with its message and exit 1, not a crash report, and says the pass may have
+    /// been sent: the server may have stored it, and a second send would duplicate it.</summary>
     [Test]
     public async Task PassCommand_SendFails_PrintsServerMessage() {
         var api = new FakePassesApi { SendFails = new CapacitorApiException(500, "Server error") };
@@ -40,6 +41,7 @@ public class PassCommandTests {
         var run = await PassAsync(api, interactive: true, "Sam", "--session", "s-1");
 
         await Assert.That(run.Error).Contains("Server error");
+        await Assert.That(run.Error).Contains($"The pass may have been sent. Check {Url}/passes?tab=sent before passing it again.");
         await Assert.That(run.Exit).IsEqualTo(1);
     }
 

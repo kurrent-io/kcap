@@ -18,18 +18,34 @@ static class PassSending {
     }
 
     /// <summary>Finds the recipient and sends. A server failure is reported by its message rather than left to the crash
-    /// reporter.</summary>
+    /// reporter; one during the send may follow a pass the server stored, and the send carries no idempotency key, so the
+    /// user is sent to check before passing again.</summary>
     public static async Task<int> SendToAsync(IPassesApi passes, string serverUrl, string who, Func<UserCandidateDto, StartPassBody> body,
                                               PassTerminal terminal) {
-        try {
-            if (await RecipientAsync(passes, who, terminal) is not { } recipient) return 1;
+        UserCandidateDto? recipient;
 
-            return await SendAsync(passes, serverUrl, body(recipient), recipient.DisplayName ?? recipient.Id, terminal);
+        try {
+            recipient = await RecipientAsync(passes, who, terminal);
         } catch (CapacitorApiException ex) {
             await terminal.Error.WriteLineAsync(ex.Message);
 
             return 1;
         }
+
+        if (recipient is null) return 1;
+
+        PassSendResult result;
+
+        try {
+            result = await passes.SendAsync(body(recipient));
+        } catch (CapacitorApiException ex) {
+            await terminal.Error.WriteLineAsync(ex.Message);
+            await terminal.Error.WriteLineAsync($"The pass may have been sent. Check {PassLinks.Sent(serverUrl)} before passing it again.");
+
+            return 1;
+        }
+
+        return await OutcomeAsync(passes, serverUrl, result, recipient.DisplayName ?? recipient.Id, terminal);
     }
 
     /// <summary>An exact id wins; otherwise the name must match exactly one colleague.</summary>
@@ -53,8 +69,8 @@ static class PassSending {
         }
     }
 
-    static async Task<int> SendAsync(IPassesApi passes, string serverUrl, StartPassBody body, string recipientName, PassTerminal terminal) {
-        switch (await passes.SendAsync(body)) {
+    static async Task<int> OutcomeAsync(IPassesApi passes, string serverUrl, PassSendResult result, string recipientName, PassTerminal terminal) {
+        switch (result) {
             case PassSendResult.Sent:
                 await terminal.Out.WriteLineAsync($"Sent to {recipientName}.");
 
