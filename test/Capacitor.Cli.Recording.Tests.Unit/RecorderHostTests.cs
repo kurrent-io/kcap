@@ -125,6 +125,28 @@ public class RecorderHostTests {
         await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
     }
 
+    /// <summary>Each chunk gets a send budget of its own, so a batch of slow chunks can outlast the grace with the source
+    /// never going round its loop. Here each one uses most of the grace, and the last still finds the claim fresh.</summary>
+    [Test]
+    public async Task A_long_batch_beats_its_claim_between_chunks() {
+        var source = Source(Tmp.CreateFile("t.jsonl", string.Concat(Enumerable.Repeat($"{Prompt}\n", 250))), "a1");
+        Claims.TryTake(source.Key, "daemon", isHosted: true);
+        var states = new ConcurrentQueue<RecorderClaimState>();
+        _transport.OnSend = _ => {
+            states.Enqueue(Claims.Read(source.Key));
+            _time.Advance(RecorderClaims.Grace * 0.8);
+
+            return Task.CompletedTask;
+        };
+
+        var host = NewHost(claims: Claims);
+        host.TryAdd(source);
+
+        await Eventually(() => states.Count >= 3, "three chunks", TimeSpan.FromSeconds(1));
+
+        await Assert.That(states.All(state => state is RecorderClaimState.DaemonFresh)).IsTrue();
+    }
+
     [Test]
     public async Task A_running_source_keeps_its_claim_fresh() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");

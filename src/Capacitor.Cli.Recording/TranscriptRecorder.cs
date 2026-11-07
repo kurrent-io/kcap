@@ -1230,6 +1230,9 @@ public sealed class TranscriptRecorder(
                 int? cursorAckNextLine = null;
 
                 foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
+                    // Each send has a budget of its own, so a batch of slow chunks could outlast a claim's grace.
+                    context.Beat();
+
                     if (vendor == "cursor") {
                         // A barrier can appear between chunks, after the initial admission check.
                         if (_markers.IsQuarantined(sessionId)
