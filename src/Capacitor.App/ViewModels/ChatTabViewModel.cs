@@ -613,13 +613,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// An attested turn seen after a send from an idle prompt, or after the agent went idle behind a
     /// send made mid-turn, began after the send. The turn already running at a mid-turn send does not
     /// count, and neither does working without attestation: the submit alone clears the wait, even
-    /// when its Enter only became a newline.
+    /// when its Enter only became a newline. A live subagent does not make the agent's own prompt busy.
     void NoteTurnStarts() {
         var working = !_ended && SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
+        var waits = !_ended && _awaitingInput == true;
         var attested = working && _turnAttested;
-        foreach (var queued in _queuedMessages) {
+        foreach (var queued in Tracked) {
             if (queued.IsForeign || queued.Acknowledged) continue;
-            if (!working) queued.SawIdle = true;
+            if (!working || waits) queued.SawIdle = true;
             else if (attested && (queued.SentIdle || queued.SawIdle)) queued.TurnSeen = true;
         }
     }
