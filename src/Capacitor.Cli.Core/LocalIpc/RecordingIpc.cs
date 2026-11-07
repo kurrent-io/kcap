@@ -85,6 +85,9 @@ public static class RecordingIpc {
         } catch (SocketException) {
             // Only the connect throws this: nothing listens on the socket.
             return new(RecordingDisable.NoSocket);
+        } catch (ArgumentException) {
+            // A path too long to open a socket on, which nothing can be listening on either.
+            return new(RecordingDisable.NoSocket);
         } catch (Exception ex) when (IsNoAnswer(ex)) {
             return new(RecordingDisable.Silent);
         }

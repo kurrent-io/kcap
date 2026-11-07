@@ -200,6 +200,15 @@ public class RecordingIpcTests {
         await Assert.That((await Disable()).Outcome).IsEqualTo(RecordingDisable.NoSocket);
     }
 
+    /// <summary>A daemons directory deep enough leaves a socket path no socket can be opened on, and nothing can be
+    /// listening there.</summary>
+    [Test]
+    public async Task A_socket_path_too_long_to_open_is_no_daemon_to_a_disable() {
+        var deep = new DaemonStore(Path.Combine(Daemons.Store.Directory, new string('d', 200)));
+
+        await Assert.That((await RecordingIpc.DisableAsync(deep, DaemonName, "session-1", CancellationToken.None)).Outcome).IsEqualTo(RecordingDisable.NoSocket);
+    }
+
     /// <summary>One that took the connection and holds the frame may be running what it was asked to stop.</summary>
     [Test]
     public async Task A_daemon_that_never_answers_is_silent() {
