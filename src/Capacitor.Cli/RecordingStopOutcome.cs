@@ -14,6 +14,6 @@ public enum RecordingStopOutcome {
     /// <summary>A daemon nothing ties to the session took the connection and gave no answer.</summary>
     DaemonSilent,
 
-    /// <summary>A daemon tied to the session, by a claim or an earlier run, has not said it stopped.</summary>
+    /// <summary>A daemon a claim ties to the session has not said it stopped.</summary>
     HolderUnconfirmed,
 }

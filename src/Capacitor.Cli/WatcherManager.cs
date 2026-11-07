@@ -163,42 +163,26 @@ public sealed partial class WatcherManager(
         return report;
     }
 
-    /// <summary>A daemon asked in a disable, and what ties it to the session: a claim, or an earlier run it owes an answer.</summary>
-    sealed record AskedDaemon(string? Name, bool Held, bool Owed, bool Fresh);
+    /// <summary>A daemon asked in a disable, and the claim that ties it to the session, if one does.</summary>
+    sealed record AskedDaemon(string? Name, bool Held, bool Fresh);
 
     async Task<RecordingStopReport> StopDaemonsAsync(string sessionId) {
         var keys   = _claims.KeysOf(sessionId);
         var claims = (keys ?? []).Select(key => (Key: key, Holder: _claims.Holder(key), Fresh: _claims.Read(key) is RecorderClaimState.DaemonFresh)).ToArray();
-        var owed   = DisabledSessions.Owed(sessionId, config);
         var known  = _daemonRecording.Daemons();
-        var own    = DaemonNameResolver.Resolve([], profiles.DaemonName);
 
-        var asked = claims.GroupBy(claim => claim.Holder)
-            .Select(holder => new AskedDaemon(holder.Key, true, owed.Contains(holder.Key ?? DisabledSessions.Nobody), holder.Any(claim => claim.Fresh)))
-            .ToList();
+        var asked = claims.GroupBy(claim => claim.Holder).Select(holder => new AskedDaemon(holder.Key, true, holder.Any(claim => claim.Fresh))).ToList();
 
-        foreach (var name in owed.Concat([own]).Concat(known ?? []).Distinct()) {
-            if (asked.Any(daemon => (daemon.Name ?? DisabledSessions.Nobody) == name)) continue;
-
-            asked.Add(new AskedDaemon(name == DisabledSessions.Nobody ? null : name, Held: false, Owed: owed.Contains(name), Fresh: false));
+        foreach (var name in (known ?? []).Prepend(DaemonNameResolver.Resolve([], profiles.DaemonName)).Distinct()) {
+            if (asked.All(daemon => daemon.Name != name)) asked.Add(new AskedDaemon(name, Held: false, Fresh: false));
         }
 
         // A daemon finishing a stop needs longer than one that holds nothing, and a person waits on the slowest.
-        using var budget = new CancellationTokenSource(claims.Length > 0 || owed.Count > 0 || keys is null ? DisableBudget : HandOffBudget, time);
+        using var budget = new CancellationTokenSource(claims.Length > 0 || keys is null ? DisableBudget : HandOffBudget, time);
 
         var answers = await Task.WhenAll(asked.Select(async daemon => (
             Daemon: daemon,
             Answer: daemon.Name is { } name ? await AskToDisableAsync(name, sessionId, budget.Token) : new RecordingDisableAnswer(RecordingDisable.Silent))));
-
-        // Down before the claims go: they are what the next run would ask otherwise.
-        var stillOwed = answers.Where(answer => Owes(answer.Daemon, answer.Answer.Outcome, own)).Select(answer => answer.Daemon.Name ?? DisabledSessions.Nobody).Distinct().ToList();
-        if (stillOwed.Count > 0) {
-            try {
-                DisabledSessions.Owe(sessionId, stillOwed, config);
-            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                // Without it, the next run asks only whoever it finds for itself.
-            }
-        }
 
         // Whatever was said: a recorder with no claim stops at its next tick, a daemon's that can't answer included.
         foreach (var claim in claims) _claims.Release(claim.Key);
@@ -207,29 +191,18 @@ public sealed partial class WatcherManager(
             OutcomeOf(answers.Select(answer => (answer.Daemon, answer.Answer.Outcome)).ToList()),
             AgentLive: answers.Any(answer => answer.Answer.AgentLive),
             OtherServer: answers.FirstOrDefault(answer => answer.Daemon.Held && IsAnotherServer(answer.Answer.Server)).Answer?.Server,
-            Unreadable: keys is null || known is null,
-            UnknownHolder: answers.FirstOrDefault(answer => answer.Daemon is { Held: true, Name: { } name } && name != own && IsUnanswered(answer.Answer.Outcome)).Daemon?.Name,
-            Earlier: owed.Count > 0);
+            Unreadable: keys is null || known is null);
     }
 
-    // Tied to the session by a claim or an earlier run, a daemon that hasn't answered may be recording it. Any other with no
-    // socket has nothing to record with, and a stale claim nobody answers for is a daemon that has gone.
+    // A daemon a claim names that hasn't answered may be recording the session. Any other with no socket has nothing to
+    // record with, and a stale claim nobody answers for is a daemon that has gone.
     static RecordingStopOutcome OutcomeOf(IReadOnlyList<(AskedDaemon Daemon, RecordingDisable Outcome)> answers) =>
-        answers.Any(answer => answer.Outcome is RecordingDisable.Silent ? answer.Daemon.Held || answer.Daemon.Owed
-                            : answer.Outcome is RecordingDisable.NoSocket && (answer.Daemon.Fresh || answer.Daemon.Owed))
+        answers.Any(answer => answer.Outcome is RecordingDisable.Silent ? answer.Daemon.Held : answer.Outcome is RecordingDisable.NoSocket && answer.Daemon.Fresh)
             ? RecordingStopOutcome.HolderUnconfirmed
       : answers.Any(answer => answer.Outcome is RecordingDisable.Silent) ? RecordingStopOutcome.DaemonSilent
       : answers.Any(answer => answer.Outcome is RecordingDisable.StillStopping) ? RecordingStopOutcome.StillStopping
       : answers.Any(answer => answer.Outcome is RecordingDisable.SendInFlight) ? RecordingStopOutcome.SendInFlight
       : RecordingStopOutcome.Stopped;
-
-    // Whoever has yet to say it stopped, so the next run asks again with the claims gone. A holder of another profile that
-    // can't answer stays on too, since which server it sent to is still unknown.
-    static bool Owes(AskedDaemon daemon, RecordingDisable outcome, string? own) =>
-        outcome is RecordingDisable.SendInFlight or RecordingDisable.StillStopping or RecordingDisable.Silent
-     || outcome is RecordingDisable.NoSocket && (daemon.Fresh || daemon.Owed || daemon.Held && daemon.Name != own);
-
-    static bool IsUnanswered(RecordingDisable outcome) => outcome is RecordingDisable.NoSocket or RecordingDisable.Silent;
 
     bool IsAnotherServer(string? server) => server is not null && ServerIdentity.Canonicalize(server) != ServerIdentity.Canonicalize(Url);
 

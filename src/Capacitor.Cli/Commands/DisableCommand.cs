@@ -11,19 +11,25 @@ namespace Capacitor.Cli.Commands;
 class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hosted) {
     const string AgentGoesOn = "This agent is still running, and its live output keeps reaching the server until it ends. Stop the agent to end it.";
 
+    const string EarlierDeletion =
+        "An earlier kcap disable deleted this session before it could confirm recording had stopped. Anything that landed after "
+      + "that deletion may still be on the server, and kcap can't tell or remove it from here; the server's administrator can check.";
+
     /// <summary>Where the session this runs inside is read from.</summary>
     internal Func<string, string?> GetEnv { get; init; } = Environment.GetEnvironmentVariable;
 
     /// <param name="sessions">Resolved only once recording has stopped: a profile with no usable server still gets that far.</param>
     public async Task<int> Handle(string sessionId, Func<ISessionsApi> sessions, TextWriter stdout, TextWriter stderr) {
+        var earlier    = DisabledSessions.WasDeletedUnconfirmed(sessionId, config);
         var markFailed = Failure(() => DisabledSessions.Mark(sessionId, config));
         var marked     = markFailed is null;
 
-        var stopped = await watchers.StopRecordingAsync(sessionId, stderr);
-        var live    = stopped.AgentLive || RunsHostedAgent(sessionId);
+        var stopped   = await watchers.StopRecordingAsync(sessionId, stderr);
+        var live      = stopped.AgentLive || RunsHostedAgent(sessionId);
+        var confirmed = marked && stopped.Confirmed;
 
         // "Recording stopped" is earned: everything that could record answered, and nothing's output goes on.
-        var sure    = marked && stopped.Confirmed && !live;
+        var sure    = confirmed && !live;
         var caveats = Caveats(stopped, markFailed);
         var exit    = 0;
 
@@ -34,21 +40,14 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
                         : sure ? $"Session {sessionId} disabled. Recording stopped and server data deleted."
                         : $"Session {sessionId} disabled. Server data deleted.");
 
-                    // This deletion came after everything answered, so nothing an earlier run left can still be standing.
-                    if (marked && stopped.Confirmed) Failure(() => DisabledSessions.ClearOwed(sessionId, config));
+                    // After the deletion, which is what a send still on its way can land behind.
+                    if (!confirmed) Failure(() => DisabledSessions.MarkDeletedUnconfirmed(sessionId, config));
 
                     break;
                 case DeleteSessionResponse.NotFound:
                     await stdout.WriteLineAsync(marked
                         ? $"Session {sessionId} disabled. No server data found (may have already been deleted)."
                         : $"No server data found for session {sessionId} (may have already been deleted).");
-
-                    // A send that landed behind an earlier deletion can leave a stream this one answers 404 for.
-                    if (stopped.Earlier && caveats.Count == 0)
-                        caveats.Add("An earlier kcap disable could not confirm this session had stopped before deleting it, so something may have landed since that this run can't find.");
-
-                    if (stopped.UnknownHolder is { } holder)
-                        caveats.Add($"The daemon that held this session, {holder}, did not answer, so kcap can't tell which server it sent to, and nothing was deleted on any other. Run kcap disable under that daemon's profile to be sure.");
 
                     break;
             }
@@ -64,6 +63,8 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
 
             exit = 2;
         }
+
+        if (earlier) caveats.Add(EarlierDeletion);
 
         foreach (var caveat in caveats) await stdout.WriteLineAsync(caveat);
 
@@ -100,7 +101,8 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
             _                                      => [],
         });
 
-        if (stopped.OtherServer is { } other) caveats.Add($"The daemon that held this session sends to {other}, and nothing was deleted there. Run kcap disable under the profile for that server.");
+        if (stopped.OtherServer is { } other)
+            caveats.Add($"The daemon that held this session sends to {other}, and nothing was deleted there. Run kcap disable under the profile for that server.");
 
         return caveats;
     }

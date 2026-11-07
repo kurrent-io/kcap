@@ -10,8 +10,9 @@ machine is asked.
 Exits 1 and says why when something stays unconfirmed: a send may still
 land, a daemon or a watcher did not stop or answer, or the data is on
 another server. A server it can't reach exits 0 with the data kept; run
-it again to delete. A later run asks any daemon an earlier one got no
-answer from.
+it again to delete. Once a deletion ran before recording was confirmed
+stopped, every later run says that what landed after it may still be on
+the server, out of kcap's reach; the server's administrator can check.
 
 It does not stop a live hosted agent's own output and tools, which keep
 reaching the server until the agent ends, or the agent's status and

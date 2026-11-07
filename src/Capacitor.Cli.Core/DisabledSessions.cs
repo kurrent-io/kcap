@@ -52,22 +52,21 @@ public static class DisabledSessions {
         }
     }
 
-    /// <summary>Records the daemons a disable left unconfirmed, whose claims are gone by the next run. A marker written by
-    /// any earlier build is empty, so it owes nothing.</summary>
-    public static void Owe(string sessionId, IEnumerable<string> daemons, ConfigRoot config) =>
-        File.WriteAllLines(Path.Combine(GetDisabledDir(config), sessionId), daemons);
+    const string DeletedUnconfirmed = "deleted-unconfirmed";
 
-    /// <summary>The name of an owing daemon a claim couldn't name, which can't ever be asked.</summary>
-    public const string Nobody = "?";
-
-    /// <summary>The daemons an earlier disable couldn't get an answer from.</summary>
-    public static IReadOnlyList<string> Owed(string sessionId, ConfigRoot config) {
-        try {
-            return File.ReadAllLines(Path.Combine(GetDisabledDir(config), sessionId));
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return [];
-        }
+    /// <summary>Records that a deletion ran while recording wasn't confirmed stopped. Nothing clears it: whatever landed
+    /// behind that deletion stays out of reach from this machine whatever a later run finds.</summary>
+    public static void MarkDeletedUnconfirmed(string sessionId, ConfigRoot config) {
+        var dir = GetDisabledDir(config);
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, sessionId), DeletedUnconfirmed);
     }
 
-    public static void ClearOwed(string sessionId, ConfigRoot config) => File.WriteAllText(Path.Combine(GetDisabledDir(config), sessionId), "");
+    public static bool WasDeletedUnconfirmed(string sessionId, ConfigRoot config) {
+        try {
+            return File.ReadAllText(Path.Combine(GetDisabledDir(config), sessionId)) == DeletedUnconfirmed;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return false;
+        }
+    }
 }

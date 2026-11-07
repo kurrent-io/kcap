@@ -234,35 +234,82 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).DoesNotContain("To delete");
     }
 
-    /// <summary>The first run released the claims, and nothing has confirmed anything since, so the daemon it couldn't get
-    /// an answer from still owes one. What this says has to be true of this run, whatever the first one printed.</summary>
+    const string EarlierDeletion = "An earlier kcap disable deleted this session before it could confirm recording had stopped.";
+
+    /// <summary>What landed behind that deletion stays out of reach from here whatever a later run finds, so every later
+    /// run says so, and the same way however its own daemons answer.</summary>
     [Test]
     [Arguments(RecordingDisable.SendInFlight)]
     [Arguments(RecordingDisable.StillStopping)]
     [Arguments(RecordingDisable.Silent)]
-    [Arguments(RecordingDisable.NoSocket)]
-    public async Task A_second_run_behind_a_caveat_does_not_read_clean(RecordingDisable first) {
+    public async Task Every_later_run_after_an_unconfirmed_deletion_says_so(RecordingDisable first) {
         Claim(Session);
         _daemon.Answer = new(first);
         await Run();
-        _out.GetStringBuilder().Clear();
         _daemon.Answer = new(RecordingDisable.NoSocket);
+
+        foreach (var _ in Enumerable.Range(0, 2)) {
+            _out.GetStringBuilder().Clear();
+
+            await Assert.That(await Run()).IsEqualTo(1);
+
+            await Assert.That(Printed).StartsWith(Clean);
+            await Assert.That(Printed).Contains(EarlierDeletion);
+        }
+    }
+
+    /// <summary>The deletion that ran is the one this run's own caveat already speaks for.</summary>
+    [Test]
+    public async Task The_run_that_deleted_unconfirmed_does_not_call_itself_earlier() {
+        Claim(Session);
+        _daemon.Answer = new(RecordingDisable.SendInFlight);
 
         await Assert.That(await Run()).IsEqualTo(1);
 
-        await Assert.That(Printed).DoesNotContain("Recording stopped");
-        await Assert.That(Printed).Contains("did not confirm");
-        await Assert.That(_daemon.Asked.Count(asked => asked.Daemon == Holder)).IsEqualTo(2);
+        await Assert.That(Printed).DoesNotContain(EarlierDeletion);
     }
 
-    /// <summary>The daemon has said nothing is on its way, and this deletion came after that, so every word of the clean
-    /// line is true now and the marker has nothing left to carry.</summary>
+    /// <summary>A watcher left running is as unconfirmed as a daemon that didn't answer.</summary>
     [Test]
-    [Arguments(RecordingDisable.SendInFlight)]
-    [Arguments(RecordingDisable.Silent)]
-    public async Task A_second_run_the_daemon_answers_reads_clean_on_a_deletion(RecordingDisable first) {
-        Claim(Session);
-        _daemon.Answer = new(first);
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task A_later_run_after_a_deletion_that_left_a_watcher_says_so() {
+        await File.WriteAllTextAsync(Paths.PidFile(Session), "1\n");
+        File.SetUnixFileMode(Paths.PidFile(Session), UnixFileMode.None);
+        await Run();
+        File.Delete(Paths.PidFile(Session));
+        _out.GetStringBuilder().Clear();
+
+        await Assert.That(await Run()).IsEqualTo(1);
+
+        await Assert.That(Printed).Contains(EarlierDeletion);
+    }
+
+    /// <summary>Only a deletion that ran can be overtaken. A silent daemon is this run's caveat and nothing is kept of it.</summary>
+    [Test]
+    [Arguments("unreachable")]
+    [Arguments("refused")]
+    [Arguments("not found")]
+    public async Task An_unconfirmed_stop_with_no_deletion_leaves_nothing_behind(string server) {
+        _daemon.Names = ["daemon-b"];
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.Silent);
+        if (server == "unreachable") _sessions.Failure = new CapacitorApiException(null, "The server could not be reached.");
+        if (server == "refused") _sessions.Failure = new CapacitorApiException(500, "Server error.");
+        if (server == "not found") _sessions.Answer = new DeleteSessionResponse.NotFound();
+        await Run();
+        _out.GetStringBuilder().Clear();
+        _daemon.Answers["daemon-b"] = new(RecordingDisable.NoSocket);
+        _sessions.Failure = null;
+        _sessions.Answer = new DeleteSessionResponse.Deleted();
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
+    /// <summary>A live agent's output isn't recording, and its own line says what goes on.</summary>
+    [Test]
+    public async Task A_deletion_with_a_live_agent_leaves_nothing_behind() {
+        _daemon.Answer = new(RecordingDisable.NotHeld, AgentLive: true);
         await Run();
         _out.GetStringBuilder().Clear();
         _daemon.Answer = new(RecordingDisable.NotHeld);
@@ -270,55 +317,6 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(await Run()).IsEqualTo(0);
 
         await Assert.That(Printed).IsEqualTo(Clean);
-        await Assert.That(DisabledSessions.Owed(Session, Config.Root)).IsEmpty();
-    }
-
-    /// <summary>A send that landed after the first deletion can leave a stream this deletion answers 404 for, so a daemon
-    /// answering at last settles what is running and not what landed.</summary>
-    [Test]
-    public async Task A_second_run_the_daemon_answers_makes_no_promise_of_what_it_cannot_find() {
-        Claim(Session);
-        _daemon.Answer = new(RecordingDisable.SendInFlight);
-        await Run();
-        _out.GetStringBuilder().Clear();
-        _daemon.Answer = new(RecordingDisable.NotHeld);
-        _sessions.Answer = new DeleteSessionResponse.NotFound();
-
-        await Assert.That(await Run()).IsEqualTo(1);
-
-        await Assert.That(Printed).Contains("No server data found");
-        await Assert.That(Printed).Contains("An earlier kcap disable could not confirm this session had stopped before deleting it");
-        await Assert.That(Printed).DoesNotContain("did not confirm");
-    }
-
-    /// <summary>An answer owed from an earlier run says nothing about which daemon held the session, so a second run
-    /// can't call it the holder, while still not reading clean.</summary>
-    [Test]
-    public async Task A_daemon_owing_an_answer_is_not_called_the_holder() {
-        _daemon.Names = ["daemon-b"];
-        _daemon.Answers["daemon-b"] = new(RecordingDisable.Silent);
-        await Run();
-        _out.GetStringBuilder().Clear();
-        _daemon.Answers["daemon-b"] = new(RecordingDisable.NoSocket);
-        _sessions.Answer = new DeleteSessionResponse.NotFound();
-
-        await Assert.That(await Run()).IsEqualTo(1);
-
-        await Assert.That(Printed).DoesNotContain("held this session");
-        await Assert.That(Printed).Contains("did not confirm");
-    }
-
-    /// <summary>The stop can be cut short with the deletion still to come, so what is owed is down before the claims go.</summary>
-    [Test]
-    public async Task What_a_daemon_owes_is_recorded_ahead_of_the_deletion() {
-        Claim(Session);
-        _daemon.Answers[Holder] = new(RecordingDisable.Silent);
-        IReadOnlyList<string>? owed = null;
-        _sessions.OnDelete = () => owed = DisabledSessions.Owed(Session, Config.Root);
-
-        await Run();
-
-        await Assert.That(owed).IsEquivalentTo(new[] { Holder });
     }
 
     /// <summary>A clean run left nothing to doubt, so running it twice stays clean.</summary>
@@ -355,18 +353,6 @@ public class DisableCommandTests : IDisposable {
         await Run();
 
         await Assert.That(Printed).DoesNotContain("still running");
-    }
-
-    /// <summary>With no claim the daemon is asked all the same, or a hosted session on a watcher, and every ACP session,
-    /// would never hear of this. That daemon's server says nothing about this session, because it holds none of it.</summary>
-    [Test]
-    public async Task Disable_mentions_a_live_agent_with_no_claim() {
-        _daemon.Answer = new(RecordingDisable.NotHeld, AgentLive: true, Server: "https://other.example");
-
-        await Assert.That(await Run()).IsEqualTo(0);
-
-        await Assert.That(Printed).Contains(StillRunning);
-        await Assert.That(Printed).DoesNotContain("other.example");
     }
 
     /// <summary>A hook writes the new session over the agent's claim when the agent moves to it, and the daemon may not
@@ -527,46 +513,6 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).Contains(StillRunning);
     }
 
-    /// <summary>A claim outlives its daemon. With nothing found here and that daemon not this profile's, the data may be on
-    /// a server this run never reached, and "no server data found" alone would read as the end of it.</summary>
-    [Test]
-    [Arguments(true)]
-    [Arguments(false)]
-    public async Task A_holder_of_another_profile_that_cannot_answer_is_no_clean_nothing_found(bool stale) {
-        Claim(Session);
-        if (stale) _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
-        _sessions.Answer = new DeleteSessionResponse.NotFound();
-
-        await Assert.That(await Run()).IsEqualTo(1);
-
-        await Assert.That(Printed).Contains($"The daemon that held this session, {Holder}, did not answer");
-    }
-
-    [Test]
-    public async Task A_stale_claim_of_this_profiles_own_daemon_with_nothing_found_stays_clean() {
-        Claim(Session, Own);
-        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
-        _sessions.Answer = new DeleteSessionResponse.NotFound();
-
-        await Assert.That(await Run()).IsEqualTo(0);
-
-        await Assert.That(Printed).DoesNotContain("did not answer");
-    }
-
-    /// <summary>The deletion found the data here, so that daemon's server is this one, and a second run has nothing more.</summary>
-    [Test]
-    public async Task A_holder_of_another_profile_that_cannot_answer_stays_clean_when_the_data_was_here() {
-        Claim(Session);
-        _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
-
-        await Assert.That(await Run()).IsEqualTo(0);
-        _out.GetStringBuilder().Clear();
-
-        await Assert.That(await Run()).IsEqualTo(0);
-
-        await Assert.That(Printed).IsEqualTo(Clean);
-    }
-
     /// <summary>A claim names a daemon of any profile, and that daemon stops. The deletion only reaches this profile's
     /// server, so everything the other one holds is still there whatever this one answered.</summary>
     [Test]
@@ -580,6 +526,17 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(await Run()).IsEqualTo(1);
 
         await Assert.That(Printed).Contains("https://other.example");
+    }
+
+    /// <summary>With no claim the daemon is asked all the same, or a hosted session on a watcher, and every ACP session,
+    /// would never hear of this.</summary>
+    [Test]
+    public async Task Disable_mentions_a_live_agent_with_no_claim() {
+        _daemon.Answer = new(RecordingDisable.NotHeld, AgentLive: true);
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).Contains(StillRunning);
     }
 
     [Test]
