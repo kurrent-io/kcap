@@ -1497,19 +1497,22 @@ public class ClaudeHookCommandTests {
 
     static int PassNoticePosts(Fixture fx) => fx.Sent.Count(s => s.StartsWith("/hooks/pass-notices|", StringComparison.Ordinal));
 
-    /// <summary>The capability rides the live start whatever the other opt-outs say, and never the spooled replay.</summary>
+    /// <summary>The capability rides the live start exactly when the plugin that ran the hook wires the prompt hook,
+    /// whatever the other opt-outs say, and never the spooled replay.</summary>
     [Test, NotInParallel]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task SessionStart_DeclaresPassNoticesCapability(bool otherCapabilitiesOff) {
+    [Arguments(true, false)]
+    [Arguments(true, true)]
+    [Arguments(false, false)]
+    public async Task SessionStart_DeclaresPassNoticesCapability(bool capablePlugin, bool otherCapabilitiesOff) {
         using var absent = new TempDir();
         var profile = otherCapabilitiesOff ? new Profile { DisableCoordinationNotices = true, DisableNextWorkNudge = true } : null;
-        using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError, profile);
+        using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError, profile) { PassNoticesCapable = capablePlugin };
 
         await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(Guid.NewGuid().ToString("N"), absent)));
 
         var posted = fx.Sent.Single(s => s.StartsWith("/hooks/session-start|", StringComparison.Ordinal));
-        await Assert.That(JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!["pass_notices"]?.GetValue<string>()).IsEqualTo("v1");
+        await Assert.That(JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!["pass_notices"]?.GetValue<string>())
+            .IsEqualTo(capablePlugin ? "v1" : null);
 
         var spooled = JsonNode.Parse(JsonNode.Parse((await File.ReadAllTextAsync(fx.SpoolFiles.Single())).Split('\n')[0])!["body"]!.GetValue<string>())!;
         await Assert.That(spooled["pass_notices"]).IsNull();
@@ -1524,7 +1527,7 @@ public class ClaudeHookCommandTests {
     [Arguments(new[] { """{"pass_notices":"v1"}""" }, 1)]
     public async Task AckWithoutPassNotices_NoServerCall(string[] acks, int expectedPosts) {
         using var absent = new TempDir();
-        using var fx = new Fixture(Config.Root);
+        using var fx = new Fixture(Config.Root) { PassNoticesCapable = true };
         var sid = Guid.NewGuid().ToString();
 
         foreach (var ack in acks) {
@@ -1541,7 +1544,7 @@ public class ClaudeHookCommandTests {
     [Test, NotInParallel]
     public async Task ServerTimeout_PromptNotBlocked() {
         using var absent = new TempDir();
-        using var fx = new Fixture(Config.Root) { RespondJson = """{"pass_notices":"v1"}""" };
+        using var fx = new Fixture(Config.Root) { RespondJson = """{"pass_notices":"v1"}""", PassNoticesCapable = true };
         var sid = Guid.NewGuid().ToString();
         await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(sid.Replace("-", ""), absent)));
 
@@ -1561,7 +1564,7 @@ public class ClaudeHookCommandTests {
     [Test, NotInParallel]
     public async Task Emits_OnlyServerTexts() {
         using var absent = new TempDir();
-        using var fx = new Fixture(Config.Root) { RespondJson = """{"pass_notices":"v1"}""" };
+        using var fx = new Fixture(Config.Root) { RespondJson = """{"pass_notices":"v1"}""", PassNoticesCapable = true };
         var sid = Guid.NewGuid().ToString();
         await RunCapturingStdoutAsync(() => fx.HandleAsync(StartPayload(sid.Replace("-", ""), absent)));
 
@@ -2290,6 +2293,7 @@ public class ClaudeHookCommandTests {
         public   HttpClient     Client      { get; }
         public   TimeSpan       HoldOnPost  { get; set; } = TimeSpan.Zero;
         public   string?        RespondJson { get; set; }
+        public   bool           PassNoticesCapable { get; set; }
         readonly HttpStatusCode _postStatus;
         HookClock?              _clock;
 
@@ -2366,7 +2370,7 @@ public class ClaudeHookCommandTests {
             _clock = clock;
 
             return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).HandleCore(
-                Client, AuthStatus.Ok, Spool, new StringReader(stdin), stdout);
+                Client, AuthStatus.Ok, Spool, new StringReader(stdin), stdout, PassNoticesCapable);
         }
 
         /// <summary>One hook invocation from its entry point, through what both arms share.</summary>
@@ -2507,15 +2511,18 @@ public class ClaudeHookCommandTests {
         await Assert.That(hook["async"]?.GetValue<bool>()).IsTrue();
     }
 
-    /// <summary>Only a synchronous hook's context reaches the agent, and nothing else asks for the notices.</summary>
+    /// <summary>Only a synchronous hook's context reaches the agent, and nothing else asks for the notices. The
+    /// SessionStart flag is what lets a start declare the capability, so it ships in the manifest that has the hook.</summary>
     [Test]
     public async Task The_pass_notices_hook_runs_synchronously_on_every_prompt() {
         var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "kcap", "hooks", "hooks.json")))!;
         var hook     = manifest["hooks"]!["UserPromptSubmit"]!.AsArray()
             .SelectMany(e => e!["hooks"]!.AsArray())
-            .Single(h => h!["command"]!.GetValue<string>().Contains(ClaudePassNotices.Flag, StringComparison.Ordinal))!;
+            .Single(h => h!["command"]!.GetValue<string>().Split(' ').Contains(ClaudePassNotices.Flag))!;
+        var start    = manifest["hooks"]!["SessionStart"]![0]!["hooks"]![0]!["command"]!.GetValue<string>();
 
         await Assert.That(hook["async"]?.GetValue<bool>() ?? false).IsFalse();
+        await Assert.That(start.Split(' ')).Contains(ClaudePassNotices.CapableFlag);
     }
 
     static string RepoRoot([CallerFilePath] string here = "") {

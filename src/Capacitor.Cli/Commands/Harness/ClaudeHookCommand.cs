@@ -87,7 +87,9 @@ public sealed class ClaudeHookCommand(
             id => ShouldSuppressCaptureAsync(id, body, "session-start", profiles.Effective,
                 clock.Budget(Ceiling("session-start"))));
 
-    public Task<int> Handle(TextReader stdin, TextWriter? stdout = null) {
+    /// <param name="passNoticesCapable">The plugin that ran the hook also wires the prompt-time pass-notices hook,
+    /// which it says by a flag on its SessionStart command; an older plugin without that hook must not declare it.</param>
+    public Task<int> Handle(TextReader stdin, bool passNoticesCapable, TextWriter? stdout = null) {
         var spool = new HookSpool(config, clock.Time, Url);
         spool.DeleteExpired();
 
@@ -95,7 +97,8 @@ public sealed class ClaudeHookCommand(
             spool,
             stdin,
             () => http.ForHookAsync(),
-            stdout
+            stdout,
+            passNoticesCapable
         );
     }
 
@@ -305,7 +308,7 @@ public sealed class ClaudeHookCommand(
     internal async Task<int> HandleWithDeps(
             HookSpool spool, TextReader stdin,
             Func<Task<AuthAttempt>> clientFactory,
-            TextWriter? stdout = null) {
+            TextWriter? stdout = null, bool passNoticesCapable = false) {
         string body;
         try { body = await stdin.ReadToEndAsync(); } catch { return 0; }
 
@@ -474,7 +477,7 @@ public sealed class ClaudeHookCommand(
 
         var (client, authStatus) = created.Value;
         try {
-            return await HandleCore(client, authStatus, spool, new StringReader(body), stdout: stdout);
+            return await HandleCore(client, authStatus, spool, new StringReader(body), stdout, passNoticesCapable);
         } catch (Exception ex) {
             await Console.Error.WriteLineAsync($"[kcap] claude hook failed (fail-open): {ex.Message}");
             return 0;
@@ -608,7 +611,7 @@ public sealed class ClaudeHookCommand(
 
     internal async Task<int> HandleCore(HttpClient client, AuthStatus authStatus, HookSpool spool,
         TextReader stdin,
-        TextWriter? stdout = null) {
+        TextWriter? stdout = null, bool passNoticesCapable = false) {
         // Hook stdout (the SessionStart hookSpecificOutput envelope / systemMessage nudge) goes to the
         // injected writer when provided, else the process Console. Injecting a writer lets tests capture
         // it WITHOUT redirecting the process-global Console.Out — so a concurrently-running test writing
@@ -984,7 +987,8 @@ public sealed class ClaudeHookCommand(
             try {
                 capabilityNode = JsonNode.Parse(body);
                 if (capabilityNode is not null) {
-                    capabilityNode["pass_notices"] = AotJsonString(ClaudePassNotices.CapabilityVersion);
+                    if (passNoticesCapable)
+                        capabilityNode["pass_notices"] = AotJsonString(ClaudePassNotices.CapabilityVersion);
                     if (!coordinationNoticesDisabled)
                         capabilityNode["coordination_notices"] = AotJsonString(CoordinationNoticesEmitter.CapabilityVersion);
                 }

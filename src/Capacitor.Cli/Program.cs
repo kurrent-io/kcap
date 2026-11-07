@@ -1038,7 +1038,7 @@ switch (command) {
             HookTiming.Mark("global-spool-drain");
         }
         if (args.Contains("--claude")) {
-            var handled = await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!));
+            var handled = await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!), args.Contains(ClaudePassNotices.CapableFlag));
             HookTiming.Mark("handled");
 
             return handled;

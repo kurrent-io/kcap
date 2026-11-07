@@ -7,6 +7,9 @@ namespace Capacitor.Cli.Harness.Claude;
 static class ClaudePassNotices {
     public const string Flag = "--pass-notices";
 
+    /// <summary>On the plugin's SessionStart command, shipped in the same manifest as the <see cref="Flag"/> entry.</summary>
+    public const string CapableFlag = "--pass-notices-capable";
+
     /// <summary>The capability declared on the SessionStart request, echoed by an ack whose server takes
     /// prompt-time claims for the session, and sent on each prompt's request.</summary>
     internal const string CapabilityVersion = "v1";

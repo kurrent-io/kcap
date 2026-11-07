@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "kcap hook --claude --no-update-check",
+            "command": "kcap hook --claude --pass-notices-capable --no-update-check",
             "timeout": 9
           }
         ]
