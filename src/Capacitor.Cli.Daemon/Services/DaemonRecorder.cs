@@ -277,13 +277,16 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <summary>A hook's ask for the final drain of the source <paramref name="key"/> names. A source whose process exited
     /// first has had its last drain, so the exited process's own late hook is answered once that is done. A hook from
     /// another process is a resumed run's, whose lines came after that drain: the source follows that process and finishes
-    /// for it.</summary>
+    /// for it. A hook from a process other than the one a running source follows is not that run's, and ends nothing.</summary>
     /// <param name="from">The process the hook runs under, when it said.</param>
     public async Task<bool> FinishForHookAsync(string key, ProcessIncarnation? from, CancellationToken ct) {
         for (var followed = false;; followed = true) {
             if (!_sources.TryGetValue(key, out var tracked)) return false;
 
             if (tracked.Ended is not EndedBy.Process) {
+                // The exited run's late hook after a follow, whose end the follow settled: the session went on.
+                if (from is not null && tracked.Source.Process is { } follows && from != follows) return true;
+
                 // Declined, it takes nothing from the exit that may yet end the source.
                 if (!MayFinish(tracked)) return false;
                 if (tracked.TryEnd(EndedBy.Hook) || tracked.Ended is not EndedBy.Process) return await FinishAsync(key, ct, hurried: true);
@@ -738,10 +741,12 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         }
     }
 
-    // A session resumed in another process runs on there, and that process's next hook may be minutes away.
+    // A session resumed in another process runs on there, and that process's next hook may be minutes away. The exited
+    // run owes no end, so its late hook finds that settled.
     void EndOrFollow(Tracked tracked, ProcessIncarnation process) {
         if (tracked.Source.SubagentId is null && LiveClaimant(tracked.Source) is { } claimant && claimant != process) {
             LogFollowed(tracked.Source.Key, process.Pid, claimant.Pid);
+            SessionEndRecord.Settle(_paths, tracked.Source.SessionId, process, _time.GetUtcNow());
             tracked.Source     = tracked.Source with { Process = claimant };
             tracked.MayPostEnd = true;
             _list.TryAdd(tracked.Source);
@@ -872,11 +877,16 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     // Under the key's gate, with the ended source's last attempt settled. A fresh source follows the process that resumed
     // the session, under the claim the ended one still holds, as a restore starts one. One whose claim has gone in the
-    // meantime is someone else's to record.
+    // meantime is someone else's to record. The exited run owes no end once the session has gone on, whether or not this
+    // follow starts, so a stop here leaves the next boot nothing to post for it.
     void FollowLocked(Tracked ended, ProcessIncarnation resumed) {
         var key = ended.Source.Key;
 
-        if (Volatile.Read(ref _stopping) != 0 || !IsCurrent(ended) || ended.Disabled || IsDisabled(ended.Source)) return;
+        if (ended.Source.Process is { } exited) SessionEndRecord.Settle(_paths, ended.Source.SessionId, exited, _time.GetUtcNow());
+
+        if (Volatile.Read(ref _stopping) != 0 || !IsCurrent(ended)) return;
+
+        if (ended.Disabled || IsDisabled(ended.Source)) return;
 
         var source = ended.Source with { Process = resumed, Drained = false };
 

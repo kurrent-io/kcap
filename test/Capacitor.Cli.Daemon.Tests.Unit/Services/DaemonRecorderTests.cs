@@ -454,6 +454,79 @@ public class DaemonRecorderTests {
         await Stepping(time, () => EndCount == 1 && List.Load().Count == 0);
     }
 
+    /// <summary>The exited process's continuation can land after the source has followed a resumed process. That run is
+    /// over and the session went on, so the finish ends nothing, and the resumed run goes on recording.</summary>
+    [Test]
+    public async Task A_late_hook_from_the_exited_process_after_a_follow_leaves_the_resumed_run_recording() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        ClaimNote(4343);
+        await Stepping(time, () => recorder.Holds(source.Key));
+        var drains = Transport.DrainCompletes;
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the late hook's finish")).IsTrue();
+
+        await Assert.That(recorder.Holds(source.Key)).IsTrue();
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(drains);
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>A source the exit followed at once to a resumed process is that process's, and the exited one's late
+    /// hook finishes nothing of it.</summary>
+    [Test]
+    public async Task A_late_hook_from_the_exited_process_after_an_exit_time_follow_leaves_the_source_recording() {
+        await using var recorder = NewRecorder();
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        ClaimNote(4343);
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the late hook's finish")).IsTrue();
+        await Assert.That(recorder.Holds(source.Key)).IsTrue();
+        await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, DateTimeOffset.UtcNow)).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>A follow means the exited run is over and the session went on, so that run owes no end. A stop that
+    /// refuses the follow leaves the source for the next boot, which then posts none for it.</summary>
+    [Test]
+    public async Task A_follow_refused_by_a_stop_still_leaves_the_exited_run_no_end() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Terminal(Transcript(Prompt, Reply));
+
+        await using (var recorder = NewRecorder(time: time)) {
+            await recorder.TryRecordAsync(source, CancellationToken.None);
+            await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+            Exited.Add(4242);
+            recorder.FinishExitedProcesses();
+            await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+            await recorder.StopAsync(_ => false, CancellationToken.None).WithinDeadlineAsync("the stop");
+            await recorder.FinishForHookAsync(source.Key, new ProcessIncarnation(4343, "test:claude"), CancellationToken.None).WithinDeadlineAsync("the resumed run's finish");
+        }
+
+        Exited.Add(4343);
+        await using var next = NewRecorder(time: time);
+        await next.RestoreAsync(InScope, CancellationToken.None);
+        await next.SettleRestoredAsync(_ => false);
+        await Stepping(time, () => List.Load().Count == 0);
+        time.Advance(TimeSpan.FromMinutes(2));
+        await Task.Delay(50);
+
+        await Assert.That(EndCount).IsEqualTo(0);
+    }
+
     /// <summary>A daemon stopping inside the grace hasn't decided the end, so it keeps the claim and the entry, and the
     /// next boot finds the process gone and posts it.</summary>
     [Test]
