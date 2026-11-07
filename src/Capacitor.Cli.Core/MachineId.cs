@@ -34,16 +34,25 @@ public sealed class MachineId(ConfigRoot config) {
     /// corrupt (never resurrects a partial/garbled write; the next <see cref="Get"/> just
     /// regenerates).
     /// </summary>
-    public string? ReadPersisted() {
-        if (!File.Exists(MachinePath)) return null;
+    public string? ReadPersisted() => Read().Id;
+
+    /// <summary>The persisted id, or why there is none: <c>Unreadable</c> is a file that could not be
+    /// opened, which says nothing about its content.</summary>
+    (string? Id, bool Corrupt, bool Unreadable) Read() {
+        if (!File.Exists(MachinePath)) return (null, false, false);
 
         try {
-            var json = File.ReadAllText(MachinePath);
-            var file = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.MachineIdFile);
-            return string.IsNullOrWhiteSpace(file.Id) ? null : file.Id;
-        } catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException) {
-            // Never throw out of Get(): a corrupt file or a transient read error is "no readable id".
-            return null;
+            // Shares delete too: on Windows the process that just moved the file into place can still
+            // hold it open with delete access, and a reader that refuses that sharing fails.
+            using var stream = new FileStream(MachinePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var file = JsonSerializer.Deserialize(stream, CapacitorJsonContext.Default.MachineIdFile);
+            return string.IsNullOrWhiteSpace(file.Id) ? (null, true, false) : (file.Id, false, false);
+        } catch (JsonException) {
+            return (null, true, false);
+        } catch (FileNotFoundException) {
+            return (null, false, false);
+        } catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+            return (null, false, true);
         }
     }
 
@@ -56,14 +65,26 @@ public sealed class MachineId(ConfigRoot config) {
 
         if (TryPublish(id, overwrite: false)) return id;
 
-        if (ReadPersisted() is { } peer) return peer;
+        var peer = Read();
+        // A file that cannot be opened (an antivirus scan, an indexer) may hold a valid id that other
+        // processes already returned, so it is waited out, never overwritten. The bound only ends the wait.
+        for (var attempt = 0; peer.Unreadable && attempt < UnreadableRetries; attempt++) {
+            Thread.Sleep(UnreadableRetryGap);
+            peer = Read();
+        }
 
-        // Present but unreadable (corrupt): replace it so Get() settles on one persisted id instead of
-        // a fresh GUID per call. Two healers race harmlessly; both return whichever landed.
+        if (peer.Id is { } persisted) return persisted;
+        if (!peer.Corrupt) return id;
+
+        // Corrupt: replace it so Get() settles on one persisted id instead of a fresh GUID per call. Two
+        // healers race harmlessly; both return whichever landed.
         TryPublish(id, overwrite: true);
 
         return ReadPersisted() ?? id;
     }
+
+    const int UnreadableRetries = 50;
+    static readonly TimeSpan UnreadableRetryGap = TimeSpan.FromMilliseconds(20);
 
     bool TryPublish(string id, bool overwrite) {
         var temp = Path.Combine(Path.GetDirectoryName(MachinePath)!, $".machine.json.{Guid.NewGuid():N}.tmp");

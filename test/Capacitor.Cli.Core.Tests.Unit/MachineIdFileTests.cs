@@ -89,6 +89,25 @@ public class MachineIdFileTests {
         await Assert.That(unreadable).IsEqualTo(0);
     }
 
+    /// <summary>A file that cannot be opened may hold the id other processes already returned, so it is
+    /// never treated as corrupt and overwritten. Runs as a non-root Unix user, where a mode of 000 makes
+    /// the open fail as a held file does on Windows.</summary>
+    [Test]
+    public async Task An_unreadable_machine_json_is_never_overwritten() {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return;
+        File.WriteAllText(MachinePath, """{"id":"persisted"}""");
+        var before = File.ReadAllText(MachinePath);
+        File.SetUnixFileMode(MachinePath, UnixFileMode.None);
+
+        try {
+            await Assert.That(Machine.Get()).IsNotEqualTo("persisted");
+        } finally {
+            File.SetUnixFileMode(MachinePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+
+        await Assert.That(File.ReadAllText(MachinePath)).IsEqualTo(before);
+    }
+
     [Test]
     public async Task Get_WhenMachineJsonIsCorrupt_HealsTheFileAndReturnsAStableId() {
         // A corrupt machine.json (partial/garbled write) makes ReadPersisted() return null, so Get()
