@@ -417,7 +417,7 @@ public sealed class CursorHookCommand(
                 if (await RepoExclusion.IsOutOfScopeAsync(
                         router, config, new JsonObject { ["cwd"] = workspaceRoot }.ToJsonString(),
                         activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time, budget.Remaining)) {
-                    if (sessionId is not null) DisabledSessions.Mark(sessionId, config);
+                    if (sessionId is not null) DisabledSessions.Exclude(sessionId, config);
 
                     return EmptyOrNull();
                 }

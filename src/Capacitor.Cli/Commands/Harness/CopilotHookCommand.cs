@@ -190,7 +190,11 @@ sealed class CopilotHookCommand(
 
         // Mirror the Claude/Codex disabled-session fast path: `kcap disable`
         // must stop every POST and watcher restart for the session.
-        if (DisabledSessions.IsDisabled(sessionId, config)) return 0;
+        if (DisabledSessions.IsDisabled(sessionId, config)) {
+            if (eventName == "sessionEnd") DisabledSessions.RemoveExclusion(sessionId, config);
+
+            return 0;
+        }
 
         // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
         // `case "hook":` before dispatch — no longer wired here (removes the double-wire).
@@ -274,7 +278,7 @@ sealed class CopilotHookCommand(
         // session so per-turn agentStop events skip via DisabledSessions.
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,
                                                   activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time)) {
-            DisabledSessions.Mark(sessionId, config);
+            DisabledSessions.Exclude(sessionId, config);
             return 0;
         }
 

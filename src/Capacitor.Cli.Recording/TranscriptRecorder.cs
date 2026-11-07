@@ -512,7 +512,7 @@ public sealed class TranscriptRecorder(
         if (LostClaim) return true;
 
         if (Abandoned?.Invoke() != true
-         && (claims is null || (claims.Read(source.Key) is not RecorderClaimState.None && !DisabledSessions.IsDisabled(SessionIds.Canonical(source.SessionId)!, context.Server.Config))))
+         && (claims is null || (claims.Read(source.Key) is not RecorderClaimState.None && !DisabledSessions.IsDisabledByPerson(source.SessionId, context.Server.Config))))
             return false;
 
         LostClaim = true;

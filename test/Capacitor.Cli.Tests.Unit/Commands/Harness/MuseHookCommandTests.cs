@@ -511,6 +511,32 @@ public class MuseHookCommandTests : IDisposable {
         await Assert.That(_spawner.Spawned.Count).IsEqualTo(0);
     }
 
+    /// <summary>A resume after the profile's repository list changed has to be judged afresh.</summary>
+    [Test]
+    public async Task SessionEnd_lifts_an_exclusion() {
+        StubHooks();
+        DisabledSessions.Exclude(ParentDashless, Config.Root);
+
+        await Command().Handle(new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
+            new StringWriter(), _ => null, Today);
+
+        await Assert.That(DisabledSessions.IsDisabled(ParentDashless, Config.Root)).IsFalse();
+        await Assert.That(HookPosts("/hooks/").Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task SessionEnd_leaves_a_persons_disable() {
+        StubHooks();
+        DisabledSessions.Mark(ParentDashless, Config.Root);
+
+        await Command().Handle(new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
+            new StringWriter(), _ => null, Today);
+
+        await Assert.That(DisabledSessions.IsDisabledByPerson(ParentDashless, Config.Root)).IsTrue();
+    }
+
     [Test]
     public async Task SubagentStart_with_the_parent_env_posts_a_reminder_subagent_start() {
         StubHooks();

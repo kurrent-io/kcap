@@ -715,6 +715,20 @@ public class RecorderHostTests {
         await Assert.That(LinesSent(source.SessionId)).IsEqualTo(0);
     }
 
+    [Test]
+    public async Task An_excluded_session_keeps_recording() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var host   = NewHost(claims: Claims);
+        Claims.TryTake(source.Key, "kcap", isHosted: true);
+        host.TryAdd(source);
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the first line");
+
+        DisabledSessions.Exclude(source.SessionId, Config);
+        await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
+
+        await Eventually(() => LinesSent(source.SessionId) == 2, "the next line", TimeSpan.FromSeconds(1));
+    }
+
     /// <summary>A watcher holds no claims and <c>kcap disable</c> stops it by signal, with its final drain. Reading the
     /// marker there would change what a watcher does at no gain.</summary>
     [Test]

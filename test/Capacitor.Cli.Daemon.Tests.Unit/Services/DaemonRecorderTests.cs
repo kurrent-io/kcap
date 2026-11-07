@@ -636,6 +636,20 @@ public class DaemonRecorderTests {
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
     }
 
+    [Test]
+    public async Task An_excluded_session_is_still_restored() {
+        var source = Source(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+        DisabledSessions.Exclude(Session, Config.Root);
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(InScope, CancellationToken.None).WithinDeadlineAsync("the restore");
+
+        await Assert.That(recorder.ActiveKeys).IsNotEmpty();
+    }
+
     /// <summary>A mark invites the import to send again what the person deleted, so the settling that writes one for any
     /// other source writes none here, and the entry goes as it would.</summary>
     [Test]
@@ -748,12 +762,11 @@ public class DaemonRecorderTests {
         await WaitHarness.PollUntilAsync(() => {
             time.Advance(TimeSpan.FromSeconds(1));
 
-            return recorder.ActiveKeys.Count == 0 && List.Load().Count == 0;
+            return recorder.ActiveKeys.Count == 0 && List.Load().Count == 0 && !spool.HasBacklog(Session);
         });
         await WaitHarness.PollUntilAsync(() => Claims.Read(source.Key) is RecorderClaimState.None);
 
         await Assert.That(Transport.DrainCompletes).IsEqualTo(0);
-        await Assert.That(spool.HasBacklog(Session)).IsFalse();
         await Assert.That(MarkedForImport).IsFalse();
     }
 

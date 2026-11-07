@@ -30,7 +30,7 @@ public static class LifecycleSpoolDrain {
 
             // Here rather than at the disable: this reaches whatever was spooled, by whoever, whenever, and what a pass
             // caught by the marker wrote back on a transient stop goes on the next.
-            if (IsDisabled(sid, config)) {
+            if (DisabledSessions.IsDisabledByPerson(sid, config)) {
                 lifecycle.Discard(sid);
                 transcript.Discard(sid);
 
@@ -39,10 +39,10 @@ public static class LifecycleSpoolDrain {
 
             // Read before each post, for a pass under way when the person disables the session.
             Task<DrainOutcome> PostLifecycle(string route, string body) =>
-                IsDisabled(sid, config) ? Task.FromResult(DrainOutcome.Drop) : lifecyclePoster(route, body);
+                DisabledSessions.IsDisabledByPerson(sid, config) ? Task.FromResult(DrainOutcome.Drop) : lifecyclePoster(route, body);
 
             Task<DrainOutcome> PostTranscript(string body) =>
-                IsDisabled(sid, config) ? Task.FromResult(DrainOutcome.Drop) : transcriptPoster(body);
+                DisabledSessions.IsDisabledByPerson(sid, config) ? Task.FromResult(DrainOutcome.Drop) : transcriptPoster(body);
 
             // Nothing of a run whose end was delivered may follow that end, and an earlier run's end
             // must not follow a later run's start: both are settled before the phases run.
@@ -68,10 +68,6 @@ public static class LifecycleSpoolDrain {
             if (consumed > 0) lifecycle.MarkEnded(sid, ended);
         }
     }
-
-    // kcap disable marks the canonical id, a vendor's hook the id as it spelled it, and a spool keeps the hook's spelling.
-    static bool IsDisabled(string sid, ConfigRoot config) =>
-        DisabledSessions.IsDisabled(sid, config) || SessionIds.Canonical(sid) is { } canonical && canonical != sid && DisabledSessions.IsDisabled(canonical, config);
 
     static async Task DeliverNeedsImportAsync(string sid, Func<string, string, Task<DrainOutcome>> poster) {
         var body = new System.Text.Json.Nodes.JsonObject { ["session_id"] = sid, ["needs_import"] = true }.ToJsonString();

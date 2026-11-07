@@ -83,7 +83,7 @@ sealed class GenerateTitleCommand(ConfigRoot config, ProfileContext profiles, Ha
     }
 
     bool IsDisabled(string sessionId) {
-        if (!DisabledSessions.IsDisabled(SessionIds.Canonical(sessionId)!, config)) return false;
+        if (!DisabledSessions.IsDisabledByPerson(sessionId, config)) return false;
 
         Log($"Session {sessionId} was disabled, so it gets no title");
 

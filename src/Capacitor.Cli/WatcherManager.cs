@@ -368,7 +368,7 @@ public sealed partial class WatcherManager(
             }
 
             // A hook can be past its own check when the person disables the session, and this is what it would start.
-            if (DisabledSessions.IsDisabled(SessionIds.Canonical(sessionIdOverride ?? key)!, config)) {
+            if (DisabledSessions.IsDisabledByPerson(SessionIds.Canonical(sessionIdOverride ?? key)!, config)) {
                 return;
             }
 
@@ -567,7 +567,7 @@ public sealed partial class WatcherManager(
             string  vendor = "claude"
         ) {
         // The disable let the daemon's claim go, so past this a source reads as nobody's and this would send all of it.
-        if (DisabledSessions.IsDisabled(SessionIds.Canonical(sessionId)!, config)) return;
+        if (DisabledSessions.IsDisabledByPerson(SessionIds.Canonical(sessionId)!, config)) return;
 
         var key   = new RecordingSource(sessionId, agentId, transcriptPath, vendor, null).Key;
         var claim = _claims.Read(key);

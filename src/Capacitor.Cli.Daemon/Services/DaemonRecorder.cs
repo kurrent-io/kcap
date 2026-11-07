@@ -496,7 +496,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         DiscardSpool(source.SessionId);
     }
 
-    bool IsDisabled(RecordedSource source) => DisabledSessions.IsDisabled(source.SessionId, _config.ConfigRoot);
+    bool IsDisabled(RecordedSource source) => DisabledSessions.IsDisabledByPerson(source.SessionId, _config.ConfigRoot);
 
     // Its answer is for a command waiting on it, and nobody is here.
     void Silence(string session) => _ = _transport?.SilenceAsync(session);

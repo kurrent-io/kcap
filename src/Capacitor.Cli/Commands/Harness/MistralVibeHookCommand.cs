@@ -122,7 +122,7 @@ sealed class MistralVibeHookCommand(
 
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,
                                                   activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time)) {
-            DisabledSessions.Mark(sessionId, config);
+            DisabledSessions.Exclude(sessionId, config);
             return;
         }
 

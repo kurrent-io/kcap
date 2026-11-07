@@ -540,6 +540,19 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(Transcript.NeedsImport(Sid)).IsFalse();
     }
 
+    /// <summary>An exclusion only quiets the hooks: what it spooled before the repository left scope is still recorded.</summary>
+    [Test]
+    public async Task An_excluded_sessions_spools_drain_as_ever() {
+        Lifecycle.Append(Sid, "session-start", Spooled);
+        Transcript.Append(Sid, Tail);
+        DisabledSessions.Exclude(Sid, Config.Root);
+
+        await Drain();
+
+        await Assert.That(_posted).Contains("transcript");
+        await Assert.That(_posted).Contains("session-start");
+    }
+
     [Test]
     public async Task Another_sessions_spools_are_left_to_drain() {
         const string other = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

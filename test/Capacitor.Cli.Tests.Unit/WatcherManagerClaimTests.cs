@@ -537,6 +537,19 @@ public class WatcherManagerClaimTests : IDisposable {
         await Assert.That(_spawner.Keys).IsEmpty();
     }
 
+    /// <summary>Hooks stay quiet for an exclusion by reading the marker themselves, and it goes no further than that.</summary>
+    [Test]
+    public async Task An_excluded_session_still_gets_a_watcher_and_a_drain() {
+        StubServer();
+        DisabledSessions.Exclude(Key, Config.Root);
+
+        await Watchers.EnsureWatcherRunning(Key, NewTranscript(), agentId: null);
+        await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(_spawner.Keys).IsNotEmpty();
+        await Assert.That(Posts).IsGreaterThan(0);
+    }
+
     /// <summary>With the daemon's claim gone this reads as nobody's source, and a drain from a hook would send the whole
     /// transcript of what the person just deleted.</summary>
     [Test]

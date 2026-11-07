@@ -6641,7 +6641,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>Whether a person disabled the session this agent runs, whose recorder knows nothing of what else the
     /// daemon sends for it.</summary>
     bool RunsDisabledSession(AgentInstance agent) =>
-        SessionIdsOf(agent).Any(id => SessionIds.Canonical(id) is { } session && DisabledSessions.IsDisabled(session, _config.ConfigRoot));
+        SessionIdsOf(agent).Any(id => id is not null && DisabledSessions.IsDisabledByPerson(id, _config.ConfigRoot));
 
     /// <summary>Every id this agent's session goes by, an ACP agent's being known only to its runtime.</summary>
     static string?[] SessionIdsOf(AgentInstance agent) =>

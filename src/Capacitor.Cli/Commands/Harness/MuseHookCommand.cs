@@ -228,7 +228,7 @@ sealed class MuseHookCommand(
                 activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time, budget.Remaining))
             return false;
 
-        DisabledSessions.Mark(sessionId, config);
+        DisabledSessions.Exclude(sessionId, config);
         return true;
     }
 
@@ -241,7 +241,11 @@ sealed class MuseHookCommand(
         var sessionId = session.ToString("N");
         var budget    = clock.Budget(SessionEndCeiling);
 
-        if (DisabledSessions.IsDisabled(sessionId, config)) return;
+        if (DisabledSessions.IsDisabled(sessionId, config)) {
+            DisabledSessions.RemoveExclusion(sessionId, config);
+
+            return;
+        }
 
         var forwarded = new JsonObject {
             ["hook_event_name"] = "SessionEnd",
