@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
@@ -101,7 +102,7 @@ public class AgentOrchestratorResumeOnBootTests {
     sealed record Fixture(AgentOrchestrator Orch, CaptureServerConnection Server, ResumableFactory Factory, DaemonConfig Config, string Repo);
 
     Fixture Build(ResumableFactory? factory = null, Action<DaemonConfig>? configure = null, TimeProvider? time = null,
-                  CaptureServerConnection? server = null) {
+                  CaptureServerConnection? server = null, Func<DaemonConfig, DaemonRecorder>? recorder = null) {
         var repo   = Tmp.CreateDir("repo");
         server ??= new CaptureServerConnection();
         factory ??= new ResumableFactory();
@@ -115,7 +116,7 @@ public class AgentOrchestratorResumeOnBootTests {
                 c.ResumeReadinessWindow = TimeSpan.FromMilliseconds(100);
                 configure?.Invoke(c);
             },
-            timeProvider: time);
+            timeProvider: time, recorder: recorder);
 
         return new Fixture(orch, server, factory, captured!, repo);
     }
@@ -149,6 +150,34 @@ public class AgentOrchestratorResumeOnBootTests {
         f.Orch.ResumeLedger!.Write(entry);
 
         return entry;
+    }
+
+    sealed class BrokenClock : TimeProvider {
+        public override long GetTimestamp() => throw new InvalidOperationException("The recorder's restore failed.");
+    }
+
+    /// <summary>What a restore can't get through costs some transcript. The agents behind it are still owed their resume.</summary>
+    [Test]
+    public async Task A_failed_recording_restore_still_resumes_the_agents() {
+        var f = Build(
+            new ResumableFactory { PtyStyle = true },
+            configure: c => c.RecordHostedClaude = true,
+            recorder: c => {
+                ServerVersionStore.Set(c.ServerUrl, RecordingServerFloor.MinimumVersion, c.ConfigRoot, TimeProvider.System);
+
+                return new DaemonRecorder(
+                    c, new CapacitorServer(c.ServerUrl, c.ConfigRoot, Resolutions.None(c.ConfigRoot)), () => new FakeRecorderTransport(),
+                    (_, _, _) => new FakeRecorderHousekeeping(), new BrokenClock(), NullLogger<DaemonRecorder>.Instance);
+            });
+        await using var _ = f.Orch;
+        new RecordedSourceList(f.Config.Store.StateDirectory(f.Config.Name), NullLogger.Instance)
+            .TryAdd(new RecordedSource("gone", "fedcba9876543210fedcba9876543210", null, Tmp.PathTo("left.jsonl"), "claude", null, false));
+        Entry(f, "resume-behind");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts.Count).IsEqualTo(1);
     }
 
     /// <summary>An agent that was waiting comes back waiting, with nothing sent, but only where the runtime can resume

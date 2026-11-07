@@ -2,6 +2,7 @@ using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -40,15 +41,21 @@ public class AgentOrchestratorRecordingTests {
     }
 
     sealed class Fixture : IAsyncDisposable {
-        public Fixture(TempDir tmp, StartingFactory factory, bool on = true, string? serverVersion = RecordingServerFloor.MinimumVersion) {
+        public Fixture(
+                TempDir tmp, StartingFactory factory, bool on = true, string? serverVersion = RecordingServerFloor.MinimumVersion,
+                Action<ConfigRoot>? profile = null, IPtyProcessFactory? pty = null, string? localSession = null) {
             Checkout  = tmp.CreateDir("checkout");
             Factory   = factory;
             Server    = new CaptureServerConnection();
             Transport = new FakeRecorderTransport { IsConnected = true };
             Orch = AgentOrchestratorHarness.BuildOrchestrator(
-                Server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
+                Server, pty ?? new SpyPtyProcessFactory(),
+                new Dictionary<string, IHostedAgentLauncher> { ["claude"] = new SpyHostedAgentLauncher("claude", "spy-claude") { PassthroughSessionId = localSession } },
                 allowedRepoPath: Checkout, extraRuntimeFactories: [factory],
-                configure: c => c.RecordHostedClaude = on,
+                configure: c => {
+                    c.RecordHostedClaude = on;
+                    profile?.Invoke(c.ConfigRoot);
+                },
                 recorder: config => {
                     Config = config;
                     if (serverVersion is not null) ServerVersionStore.Set(config.ServerUrl, serverVersion, config.ConfigRoot, TimeProvider.System);
@@ -84,6 +91,139 @@ public class AgentOrchestratorRecordingTests {
             };
 
         public async ValueTask DisposeAsync() => await Orch.DisposeAsync();
+    }
+
+    /// <summary>What the capture gate reads: the launch itself is a person's, in a checkout the list doesn't name.</summary>
+    static void ScopedProfile(ConfigRoot root) =>
+        File.WriteAllText(root.Path("config.json"), """
+            {
+              "version": 2,
+              "active_profile": "default",
+              "profiles": { "default": { "excluded_paths": ["/nowhere/at/all"] } },
+              "profile_bindings": {}
+            }
+            """);
+
+    static void UnreadableProfile(ConfigRoot root) => File.WriteAllText(root.Path("config.json"), "{ not json");
+
+    /// <summary>The daemon takes a session ahead of its hooks only where no hook could refuse it: with an exclusion
+    /// configured, this claim would upload a transcript the hook's gate keeps a watcher from ever seeing.</summary>
+    [Test]
+    public async Task A_launch_under_a_profile_that_scopes_capture_takes_no_claim() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: ScopedProfile);
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.ClaimFiles).IsEmpty();
+        await Assert.That(f.Connections).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_launch_under_a_profile_it_cannot_read_takes_no_claim() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: UnreadableProfile);
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        await Assert.That(f.ClaimFiles).IsEmpty();
+        await Assert.That(f.Connections).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_resume_under_a_profile_that_scopes_capture_takes_no_claim() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: ScopedProfile);
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch(resumeSession: Resumed));
+
+        await Assert.That(f.ClaimFiles).IsEmpty();
+        await Assert.That(f.Connections).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_local_spawn_under_a_profile_that_scopes_capture_takes_no_claim() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: ScopedProfile, localSession: Resumed);
+
+        await SpawnLocallyAsync(f);
+
+        await Assert.That(f.ClaimFiles).IsEmpty();
+        await Assert.That(f.Connections).IsEqualTo(0);
+    }
+
+    /// <summary>The hook's gate has passed by the time it hands a source over, which is how a scoped profile records.</summary>
+    [Test]
+    public async Task A_hook_hands_over_an_in_scope_session_under_a_profile_that_scopes_capture() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: ScopedProfile);
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+
+        var reply = await AnswerAsync(stream => f.Orch.HandleLocalRecordSourceAsync(Handed(AgentId), stream, CancellationToken.None));
+
+        await Assert.That(reply.Text).IsEqualTo(RecordingIpc.Recording);
+    }
+
+    [Test]
+    public async Task The_boot_under_a_profile_that_scopes_capture_picks_nothing_up() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), profile: ScopedProfile);
+        var left = new RecordedSource("gone", "fedcba9876543210fedcba9876543210", null, Tmp.CreateFile("left.jsonl", ""), "claude", null, false);
+        new RecordedSourceList(f.Config.Store.StateDirectory(f.Config.Name), NullLogger.Instance).TryAdd(left);
+
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None).WithinDeadlineAsync("the boot's resumes");
+
+        await Assert.That(f.Connections).IsEqualTo(0);
+        await Assert.That(new RecordedSourceList(f.Config.Store.StateDirectory(f.Config.Name), NullLogger.Instance).Load()).IsEmpty();
+    }
+
+    /// <summary>A local spawn's first hook races the attach exactly as a server launch's does.</summary>
+    [Test]
+    public async Task A_local_spawns_claim_exists_before_its_process() {
+        var pty = new ClaimReadingPty();
+        await using var f = new Fixture(Tmp, new StartingFactory(), pty: pty, localSession: Resumed);
+        pty.Read = () => f.Claims.Read(SessionIds.Canonical(Resumed)!);
+
+        await SpawnLocallyAsync(f);
+
+        await Assert.That(pty.AtSpawn).IsEqualTo(RecorderClaimState.DaemonFresh);
+    }
+
+    [Test]
+    public async Task A_private_local_spawn_takes_no_claim() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), localSession: Resumed);
+
+        await SpawnLocallyAsync(f, isPrivate: true);
+
+        await Assert.That(f.ClaimFiles).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_local_spawn_that_never_ran_gives_its_claim_back() {
+        await using var f = new Fixture(Tmp, new StartingFactory(), pty: new ThrowingPty(), localSession: Resumed);
+
+        await SpawnLocallyAsync(f);
+
+        await Assert.That(f.ClaimFiles).IsEmpty();
+    }
+
+    sealed class ClaimReadingPty : IPtyProcessFactory {
+        public Func<RecorderClaimState>? Read { get; set; }
+        public RecorderClaimState? AtSpawn { get; private set; }
+
+        public IPtyProcess Spawn(string command, string[] args, string cwd, Dictionary<string, string>? extraEnv = null, ushort cols = 120, ushort rows = 40, IReadOnlyCollection<string>? removeEnv = null) {
+            AtSpawn = Read?.Invoke();
+
+            return new StubPtyProcess();
+        }
+    }
+
+    sealed class ThrowingPty : IPtyProcessFactory {
+        public IPtyProcess Spawn(string command, string[] args, string cwd, Dictionary<string, string>? extraEnv = null, ushort cols = 120, ushort rows = 40, IReadOnlyCollection<string>? removeEnv = null) =>
+            throw new InvalidOperationException("The agent would not start.");
+    }
+
+    static async Task SpawnLocallyAsync(Fixture f, bool isPrivate = false) {
+        var input = new MemoryStream();
+        await FrameCodec.WriteAsync(input, LocalFrame.Detach(), CancellationToken.None);
+        input.Position = 0;
+        using var client = new DuplexTestStream(input, new MemoryStream());
+
+        await f.Orch.HandleLocalSpawnAsync(FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate, f.Checkout, [], 80, 24), client, CancellationToken.None);
     }
 
     /// <summary>A hosted agent's first hook can run before anything after its start has, and with no claim to read it

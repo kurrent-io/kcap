@@ -28,6 +28,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     const int TakeAttempts = 4;
     static readonly TimeSpan TakeRetryGap = TimeSpan.FromMilliseconds(50);
 
+    // A launch's lane waits here, and the restore can hold a key for its whole window.
+    static readonly TimeSpan ClaimWait = TimeSpan.FromSeconds(1);
+
     // A fresh claim that isn't this daemon's goes stale within the grace if its holder is dead.
     static readonly TimeSpan RestoreRetryGap = TimeSpan.FromSeconds(1);
     static readonly TimeSpan RestoreWindow   = RecorderClaims.Grace + TimeSpan.FromSeconds(5);
@@ -107,18 +110,32 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     internal IReadOnlyCollection<string> ActiveKeys => _host.IsValueCreated ? _host.Value.ActiveKeys : [];
 
     /// <summary>Takes <paramref name="source"/>'s claim ahead of its agent process, so the process's first hook finds it.
-    /// True when the claim is this daemon's; false leaves the source to whatever a hook starts. A caller with a true
-    /// answer follows with <see cref="StartForAgent"/>, or <see cref="ReleaseClaim"/> if the agent never ran.</summary>
+    /// True when the claim is this daemon's; false leaves the source to whatever a hook starts, as it does for a source
+    /// on its way out, whose next hook hands it over. A caller with a true answer follows with
+    /// <see cref="StartForAgent"/>, or <see cref="ReleaseClaim"/> if the agent never ran.</summary>
     public async Task<bool> ClaimAsync(RecordedSource source, CancellationToken ct) {
-        using var _ = await _keys.EnterAsync(source.Key, ct);
+        using var bound  = new CancellationTokenSource(ClaimWait, _time);
+        using var either = CancellationTokenSource.CreateLinkedTokenSource(ct, bound.Token);
 
-        return _sources.ContainsKey(source.Key) || await TakeAsync(source, ct) is not null;
+        IDisposable gate;
+
+        try {
+            gate = await _keys.EnterAsync(source.Key, either.Token);
+        } catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
+            LogClaimGaveUp(source.Key);
+
+            return false;
+        }
+
+        using (gate) {
+            return _sources.TryGetValue(source.Key, out var held) ? !IsLeaving(held) : await TakeAsync(source, ct) is not null;
+        }
     }
 
     /// <summary>Starts recording a source <see cref="ClaimAsync"/> claimed, with its agent published. A source the last
     /// daemon left is already being recorded, and is now this agent's.</summary>
     public void StartForAgent(RecordedSource source) {
-        if (!_sources.TryGetValue(source.Key, out var tracked)) return;
+        if (!_sources.TryGetValue(source.Key, out var tracked) || IsLeaving(tracked)) return;
 
         if (tracked.Running) {
             tracked.Source   = source;
@@ -146,7 +163,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             using (await _keys.EnterAsync(source.Key, ct)) {
                 if (!_sources.TryGetValue(source.Key, out held)) return await TakeAsync(source, ct) is { } taken && Start(taken);
 
-                if (!held.Ending) return true;
+                if (!IsLeaving(held)) return true;
             }
 
             await held.Settled.Task.WaitAsync(ct);
@@ -183,7 +200,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// carries on: a tail landing behind the session's end reactivates it, and the server's sweep closes it again once
     /// the source has detached.</summary>
     public async Task FinishAgentAsync(string agentId, TimeSpan budget) {
-        var keys = _sources.Where(source => source.Value.Source.AgentId == agentId && !source.Value.AgentFinished).Select(source => source.Key).ToArray();
+        var keys = _sources.Where(source => source.Value.Source.AgentId == agentId && source.Value.Running && !source.Value.AgentFinished).Select(source => source.Key).ToArray();
         if (keys.Length == 0) return;
 
         foreach (var key in keys) {
@@ -196,9 +213,11 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     /// <summary>Picks up what the last daemon left: each source from the line the server answers with, unless a live
-    /// watcher holds it now. With recording off, it lets all of it go, because a claim nobody is coming back for would
-    /// keep a resumed session's hooks from starting a watcher.</summary>
-    public async Task RestoreAsync(CancellationToken ct) {
+    /// watcher holds it now. With recording off it lets all of it go, because a claim nobody is coming back for would
+    /// keep a resumed session's hooks from starting a watcher. So it does when the capture scope is left to hooks: a
+    /// source that was in scope when its hook handed it over needn't be now, and its next hook hands it over again.</summary>
+    /// <param name="leftToHooks">Whether a hook's capture gate decides what this daemon may record.</param>
+    public async Task RestoreAsync(Func<Task<bool>> leftToHooks, CancellationToken ct) {
         var enabled = Enabled;
 
         if (_config.RecordHostedClaude && !enabled)
@@ -207,16 +226,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var left = _list.Load();
         if (left.Count == 0) return;
 
-        if (!enabled) {
-            foreach (var source in left) {
-                _claims.Release(source.Key);
-                _list.Remove(source.Key);
-            }
+        var restore = enabled && !await leftToHooks();
 
-            return;
-        }
-
-        await Task.WhenAll(left.Select(source => RestoreOneAsync(source, ct)));
+        await Task.WhenAll(left.Select(source => restore ? RestoreOneAsync(source, ct) : LetGoAsync(source, ct)));
     }
 
     /// <summary>Finishes each restored source whose agent didn't come back, once the boot's resumes have run.</summary>
@@ -308,8 +320,20 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         return outcome;
     }
 
+    async Task LetGoAsync(RecordedSource source, CancellationToken ct) {
+        using var _ = await _keys.EnterAsync(source.Key, ct);
+
+        if (_sources.ContainsKey(source.Key)) return;
+
+        _claims.ReleaseIfHeldBy(source.Key, _config.Name);
+        _list.Remove(source.Key);
+    }
+
     async Task RestoreOneAsync(RecordedSource source, CancellationToken ct) {
         using var _ = await _keys.EnterAsync(source.Key, ct);
+
+        // A launch or a hook got here first, and this entry is that source's own.
+        if (_sources.ContainsKey(source.Key)) return;
 
         var started = _time.GetTimestamp();
 
@@ -325,8 +349,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             if (outcome is ClaimOutcome.HeldByWatcher || _time.GetElapsedTime(started) >= RestoreWindow) {
                 LogNotRestored(source.Key, outcome);
 
-                // A claim left beside a live watcher would keep every hook from stopping it.
-                if (outcome is ClaimOutcome.HeldByWatcher) _claims.Release(source.Key);
+                // A claim left beside a live watcher would keep every hook from stopping it, and with no entry nothing
+                // would beat it.
+                _claims.ReleaseIfHeldBy(source.Key, _config.Name);
                 _list.Remove(source.Key);
 
                 return;
@@ -335,6 +360,10 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             await Task.Delay(RestoreRetryGap, _time, ct);
         }
     }
+
+    // A source past its agent's exit or its own last attempt. Its finish can't be called back, so whoever comes for its
+    // key finds it gone rather than adopting something about to drop.
+    static bool IsLeaving(Tracked tracked) => tracked.Ending || tracked.AgentFinished;
 
     bool Start(Tracked tracked) {
         var source = tracked.Source;
@@ -492,6 +521,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Taking the claim on {Key} failed")]
     partial void LogClaimFailed(Exception ex, string key);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "No claim on {Key} ahead of its launch: something else has its key, and its hook decides")]
+    partial void LogClaimGaveUp(string key);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Not picking up {Key}: {Outcome}")]
     partial void LogNotRestored(string key, ClaimOutcome outcome);

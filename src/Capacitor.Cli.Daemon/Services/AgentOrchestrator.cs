@@ -3755,11 +3755,21 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     async Task<RecordedSource?> ClaimRecordingAsync(
             string agentId, string vendor, string? session, bool isPrivate, WorktreeInfo worktree, ResolvedAccount? account, bool skipTitle) {
         if (isPrivate || _recorder is not { Enabled: true } recorder || !IsClaude(vendor) || SessionIds.Canonical(session) is not { } canonical) return null;
+        if (await CaptureIsLeftToHooksAsync()) return null;
 
         var transcript = Path.Combine(ClaudePathsFor(account).ProjectDir(worktree.Path), $"{(Guid.TryParse(canonical, out var id) ? id.ToString("D") : canonical)}.jsonl");
         var source     = new RecordedSource(agentId, canonical, null, transcript, "claude", worktree.Path, skipTitle);
 
         return await recorder.ClaimAsync(source, _shutdownCts.Token) ? source : null;
+    }
+
+    /// <summary>Whether a hook's capture gate decides what this daemon may record: a profile with a scope configured, or
+    /// one that can't be read and may have. The gate reads more than a launch knows, and a claim would keep a session it
+    /// refuses from staying off the server, so such a session is recorded only once its hook hands it over.</summary>
+    async Task<bool> CaptureIsLeftToHooksAsync() {
+        var (profile, readable) = await CurrentCaptureProfileAsync();
+
+        return !readable || AgentCaptureScope.Configured(profile);
     }
 
     /// <summary>Hands a recorder the transcript discovery found, for a source computed ahead of the launch.</summary>

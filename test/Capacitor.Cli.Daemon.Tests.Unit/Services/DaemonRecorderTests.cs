@@ -16,6 +16,8 @@ public class DaemonRecorderTests {
     const string Prompt  = """{"type":"user","message":{"content":"Summarise the README"}}""";
     const string Reply   = """{"type":"assistant","message":{"content":[{"type":"text","text":"Done."}]}}""";
 
+    static readonly Func<Task<bool>> InScope = () => Task.FromResult(false);
+
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
@@ -196,7 +198,7 @@ public class DaemonRecorderTests {
         Transport.ResumeFrom = 2;
 
         await using var recorder = NewRecorder();
-        await recorder.RestoreAsync(CancellationToken.None);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
 
         await WaitHarness.PollUntilAsync(() => Transport.Batches.SelectMany(batch => batch.LineNumbers ?? []).Count() >= 3);
 
@@ -211,7 +213,7 @@ public class DaemonRecorderTests {
         await LiveWatcher(source.Key);
 
         await using var recorder = NewRecorder();
-        await recorder.RestoreAsync(CancellationToken.None);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
 
         await Assert.That(recorder.ActiveKeys).IsEmpty();
         await Assert.That(List.Load()).IsEmpty();
@@ -227,7 +229,7 @@ public class DaemonRecorderTests {
         Claims.TryTake(source.Key, Name, isHosted: true);
 
         await using var recorder = NewRecorder();
-        await recorder.RestoreAsync(CancellationToken.None);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
 
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
     }
@@ -241,7 +243,7 @@ public class DaemonRecorderTests {
         Claims.TryTake(source.Key, Name, isHosted: true);
 
         await using var recorder = NewRecorder();
-        await recorder.RestoreAsync(CancellationToken.None);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
         recorder.SettleRestored(_ => false);
 
         await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0 && Claims.Read(source.Key) is RecorderClaimState.None && List.Load().Count == 0);
@@ -255,7 +257,7 @@ public class DaemonRecorderTests {
         Claims.TryTake(source.Key, Name, isHosted: true);
 
         await using var recorder = NewRecorder();
-        await recorder.RestoreAsync(CancellationToken.None);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
 
         await Assert.That(await recorder.ClaimAsync(source with { AgentId = "agent-2" }, CancellationToken.None)).IsTrue();
         recorder.StartForAgent(source with { AgentId = "agent-2" });
@@ -276,11 +278,183 @@ public class DaemonRecorderTests {
         Claims.TryTake(source.Key, Name, isHosted: true);
 
         await using var recorder = NewRecorder(on: false);
-        await recorder.RestoreAsync(CancellationToken.None);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
 
         await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
         await Assert.That(List.Load()).IsEmpty();
         await Assert.That(Connections).IsEqualTo(0);
+    }
+
+    /// <summary>A profile with an exclusion leaves every session to a hook's gate, and a source picked up here would
+    /// skip it. An in-scope session comes back when its next hook hands it over.</summary>
+    [Test]
+    public async Task A_restart_under_a_profile_that_scopes_capture_records_nothing() {
+        var source = Source(Transcript(Prompt, Reply));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(() => Task.FromResult(true), CancellationToken.None);
+
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+        await Assert.That(Connections).IsEqualTo(0);
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_restart_under_a_profile_that_scopes_capture_keeps_another_daemons_claim() {
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, "another-daemon", isHosted: true);
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(() => Task.FromResult(true), CancellationToken.None);
+
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+    }
+
+    /// <summary>A flag turned off lets go of its own claims. One beside it is another daemon's, and may be recording.</summary>
+    [Test]
+    public async Task A_daemon_with_recording_off_keeps_another_daemons_claim() {
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, "another-daemon", isHosted: true);
+
+        await using var recorder = NewRecorder(on: false);
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
+    /// <summary>A local spawn can beat the boot's restore while the server is down, and its write must not drop what
+    /// the last daemon left.</summary>
+    [Test]
+    public async Task A_source_taken_ahead_of_the_restore_keeps_what_the_last_daemon_left() {
+        var left = Source(Transcript(Prompt));
+        List.TryAdd(left);
+        var early = Source(Tmp.PathTo("early.jsonl")) with { SessionId = "fedcba9876543210fedcba9876543210" };
+
+        await using var recorder = NewRecorder();
+        await recorder.ClaimAsync(early, CancellationToken.None);
+
+        await Assert.That(List.Load().Select(source => source.Key)).IsEquivalentTo([left.Key, early.Key]);
+    }
+
+    /// <summary>The entry is the running source's own: picking it up again would be refused and lose that source's claim.</summary>
+    [Test]
+    public async Task A_restore_passes_over_a_key_already_running() {
+        var source = Source(Transcript(Prompt, Reply));
+        await using var recorder = NewRecorder();
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(List.Load().Select(left => left.Key)).IsEquivalentTo([source.Key]);
+    }
+
+    [Test]
+    public async Task A_restart_under_a_scoped_profile_keeps_a_source_a_hook_already_handed_over() {
+        var source = Source(Transcript(Prompt, Reply));
+        await using var recorder = NewRecorder();
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+
+        await recorder.RestoreAsync(() => Task.FromResult(true), CancellationToken.None);
+
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
+    /// <summary>A hand-edited or half-understood list is not a reason to lose what else it holds.</summary>
+    [Test]
+    public async Task A_list_with_holes_keeps_its_good_entries() {
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        var path = Path.Combine(Daemons.Store.StateDirectory(Name), "recording-sources.json");
+        await File.WriteAllTextAsync(path, (await File.ReadAllTextAsync(path)).Replace("[", """[null,{"AgentId":"a"},"""));
+
+        await Assert.That(List.Load().Select(left => left.Key)).IsEquivalentTo([source.Key]);
+    }
+
+    /// <summary>Another daemon's fresh claim outlasts the restore's window, and a launch of the same session waits on
+    /// neither: it goes on unclaimed and its hook decides.</summary>
+    [Test]
+    public async Task A_claim_behind_a_slow_restore_gives_up_and_lets_the_launch_go() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, "another-daemon", isHosted: true);
+
+        await using var recorder = NewRecorder(time: time);
+        using var cts = new CancellationTokenSource();
+        var restore = recorder.RestoreAsync(InScope, cts.Token);
+
+        var claim = recorder.ClaimAsync(source with { AgentId = "agent-2" }, CancellationToken.None);
+        await Assert.That(claim.IsCompleted).IsFalse();
+
+        await WaitHarness.PollUntilAsync(() => {
+            time.Advance(TimeSpan.FromMilliseconds(100));
+
+            return claim.IsCompleted;
+        });
+
+        await Assert.That(await claim).IsFalse();
+        await cts.CancelAsync();
+        await Assert.That(async () => await restore).Throws<OperationCanceledException>();
+    }
+
+    /// <summary>The session resumed while its last drain was going out. Told it is held, the launch would have no
+    /// recorder once that drain ends and no claim to show for it; told it isn't, its next hook hands it over.</summary>
+    [Test]
+    public async Task A_session_resumed_behind_its_own_drain_is_not_adopted() {
+        await using var recorder = NewRecorder();
+        var source  = Source(Transcript(Prompt, Reply));
+        var resumed = source with { AgentId = "agent-2" };
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Transport.OnDrainComplete = _ => release.Task;
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+
+        var finishing = recorder.FinishAgentAsync("agent-1", TimeSpan.FromSeconds(30));
+
+        await Assert.That(await recorder.ClaimAsync(resumed, CancellationToken.None).WithinDeadlineAsync("the claim")).IsFalse();
+        recorder.StartForAgent(resumed);
+
+        release.TrySetResult();
+        await finishing.WithinDeadlineAsync("the finish");
+
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+        await Assert.That(await recorder.TryRecordAsync(resumed, CancellationToken.None).WithinDeadlineAsync("the hand-over")).IsTrue();
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+        await Assert.That(List.Load().Single().AgentId).IsEqualTo("agent-2");
+    }
+
+    /// <summary>A hook arriving between an exit and the end of that exit's drain would be told the source is held, and
+    /// have nothing recording it a moment later.</summary>
+    [Test]
+    public async Task A_hand_over_behind_a_finishing_agent_waits_for_the_source_to_go() {
+        await using var recorder = NewRecorder();
+        var source  = Source(Transcript(Prompt, Reply));
+        var resumed = source with { AgentId = "agent-2" };
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Transport.OnDrainComplete = _ => release.Task;
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+
+        var finishing = recorder.FinishAgentAsync("agent-1", TimeSpan.FromSeconds(30));
+        var handed    = recorder.TryRecordAsync(resumed, CancellationToken.None);
+        await Assert.That(handed.IsCompleted).IsFalse();
+
+        release.TrySetResult();
+        await finishing.WithinDeadlineAsync("the finish");
+
+        await Assert.That(await handed.WithinDeadlineAsync("the hand-over")).IsTrue();
+        await Assert.That(List.Load().Single().AgentId).IsEqualTo("agent-2");
     }
 
     [Test]

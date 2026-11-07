@@ -1117,10 +1117,10 @@ internal partial class AgentOrchestrator {
     /// <summary>The boot resume lane: reports the entries interrupted at boot, then resumes the
     /// candidates at most <see cref="DaemonConfig.ResumeConcurrency"/> at a time. Never throws.</summary>
     internal async Task ResumeOnBootAsync(CancellationToken ct) {
-        try {
-            // Ahead of the resumes, whose launches claim these same sources.
-            if (_recorder is { } recorder) await recorder.RestoreAsync(ct);
+        // Ahead of the resumes, whose launches claim these same sources.
+        await RestoreRecordingAsync(ct);
 
+        try {
             foreach (var (entry, reason) in _interruptedAtBoot) LogResumeOutcome(entry.AgentId, DescribeResume(ResumeOutcome.Interrupted, reason));
 
             foreach (var (entry, reason) in _interruptedAtBoot.Where(i => !i.Entry.Launch.IsPrivate))
@@ -1137,6 +1137,18 @@ internal partial class AgentOrchestrator {
             LogResumeLaneFailed(ex);
         } finally {
             _recorder?.SettleRestored(_agents.ContainsKey);
+        }
+    }
+
+    // Its own failure is its own: what it couldn't pick up costs some transcript, a lost resume costs an agent.
+    async Task RestoreRecordingAsync(CancellationToken ct) {
+        if (_recorder is not { } recorder) return;
+
+        try {
+            await recorder.RestoreAsync(CaptureIsLeftToHooksAsync, ct);
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+        } catch (Exception ex) {
+            LogRecordingRestoreFailed(ex);
         }
     }
 
@@ -1853,6 +1865,9 @@ internal partial class AgentOrchestrator {
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Resume: the boot resume lane failed")]
     partial void LogResumeLaneFailed(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Picking up what the last daemon was recording failed")]
+    partial void LogRecordingRestoreFailed(Exception ex);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Resume ledger: failed {Step} the entry for agent {AgentId}")]
     partial void LogResumeLedgerFailed(Exception ex, string step, string agentId);
