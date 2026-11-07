@@ -352,20 +352,32 @@ public class McpFlowsServerTests {
         await Assert.That(ids).IsEquivalentTo(["m1", "m2"]);
     }
 
+    /// <summary>A failed ack is retried once, whether the server answered with an error or the request itself threw,
+    /// and the second failure is swallowed: the unacknowledged message is redelivered on the next call.</summary>
     [Test]
-    public async Task Ack_retries_once_then_swallows() {
-        using var server = WireMockServer.Start();
-        server.Given(Request.Create().WithPath("/api/flows/f1/messages/ack").UsingPost())
-              .RespondWith(Response.Create().WithStatusCode(500));
-        using var client = new HttpClient();
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Ack_retries_once_then_swallows(bool throws) {
+        var handler = new FailingAck(throws);
+        using var client = new HttpClient(handler);
 
         var clock = Clock();
-        await McpFlowsServer.AckRenderedMessagesAsync(client, server.Url!, "f1", ["m1"], clock);
-        var delays = clock.Delays;
+        await McpFlowsServer.AckRenderedMessagesAsync(client, "http://kcap.test", "f1", ["m1"], clock);
 
-        await Assert.That(server.LogEntries.Count).IsEqualTo(2);
-        await Assert.That(delays).Count().IsEqualTo(1);
-        await Assert.That(delays[0]).IsEqualTo(TimeSpan.FromSeconds(2));
+        await Assert.That(handler.Posts).IsEqualTo(2);
+        await Assert.That(clock.Delays).IsEquivalentTo([TimeSpan.FromSeconds(2)]);
+    }
+
+    sealed class FailingAck(bool throws) : HttpMessageHandler {
+        public int Posts { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            Posts++;
+
+            return throws
+                ? throw new HttpRequestException("Connection reset")
+                : Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        }
     }
 
     [Test]
