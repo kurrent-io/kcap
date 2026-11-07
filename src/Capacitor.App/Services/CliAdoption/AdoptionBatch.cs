@@ -25,10 +25,13 @@ internal sealed class AdoptionBatch(
     readonly AdoptionDeletion    _deletion = new(machine, store, retirement, harnesses, bundle.Root, log);
     readonly HashSet<string> _rootOwned = new(PathComparison.Comparer);
     readonly HashSet<string> _unrepointed = new(StringComparer.Ordinal);
+    // Root-owned installs the last prompting run could not take to the prompt, because their daemon move waited.
+    readonly HashSet<string> _promptDeferred = new(PathComparison.Comparer);
     AdoptionPrivilegedStep? _privileged;
     volatile bool _awaitingDaemon;
     volatile bool _foundInstall;
     volatile bool _awaitingIdle;
+    volatile bool _awaitingPrompt;
 
     /// <summary>Whether a run this launch found an install to take over, held or not: the ordinary offer to put kcap on
     /// PATH waits for a launch that finds none, without that wait using up the one offer.</summary>
@@ -43,9 +46,9 @@ internal sealed class AdoptionBatch(
     public bool AwaitingIdle => _awaitingIdle;
 
     /// <summary>Whether an install waits on <see cref="FinishAsync"/>: left behind a cancelled administrator prompt, a
-    /// deletion cut short or another account still using it, or left for the app being installed for one user, once it
-    /// runs from /Applications.</summary>
-    public bool FinishOffered => store.Load().Installs.Any(i => i.State == InstallState.Left && i.Reason switch {
+    /// deletion cut short or another account still using it, left for the app being installed for one user, once it
+    /// runs from /Applications, or root-owned and kept from its prompt by a daemon move a later run made.</summary>
+    public bool FinishOffered => _awaitingPrompt || store.Load().Installs.Any(i => i.State == InstallState.Left && i.Reason switch {
         LeftReason.PromptCancelled or LeftReason.DeletionCutShort or LeftReason.SharedInstallInUse => true,
         LeftReason.SharedInstallPrivateApp                                                         => bundle.InSystemApplications,
         _                                                                                          => false,
@@ -68,6 +71,7 @@ internal sealed class AdoptionBatch(
 
     async Task<bool> RunAsync(bool prompt, bool finishing, CancellationToken ct) {
         _awaitingDaemon = false;
+        if (prompt) _awaitingPrompt = false;
         _awaitingIdle   = false;
         // Nothing is retired beside a helper an earlier launch started that is still deleting: every deletion holds.
         var unfinished = await Privileged.SettleAsync(ct).ConfigureAwait(false) ? FinishInterrupted() : null;
@@ -112,6 +116,10 @@ internal sealed class AdoptionBatch(
         var (moved, deferred) = await _services.MoveAsync(pending, evidence, ct).ConfigureAwait(false);
         _awaitingDaemon = deferred.Count > 0;
         _awaitingIdle   = deferred.Any(d => d.Reason == AdoptionRepoint.Busy);
+        if (prompt) {
+            _promptDeferred.Clear();
+            _promptDeferred.UnionWith(deferred.Select(d => Key(d.Install)).Where(_rootOwned.Contains));
+        } else if (moved.Any(i => _promptDeferred.Contains(Key(i)))) _awaitingPrompt = true;
         var userOwned = moved.Where(i => !_rootOwned.Contains(Key(i))).ToList();
         if (userOwned.Count > 0) {
             var processes = machine.ReadProcesses();

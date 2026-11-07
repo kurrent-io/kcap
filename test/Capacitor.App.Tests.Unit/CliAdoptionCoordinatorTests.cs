@@ -1186,7 +1186,8 @@ public class CliAdoptionCoordinatorTests {
     }
 
     /// <summary>A root-owned install whose daemon move waited is not prompted for when the move goes through on the
-    /// daemon's idle report, nor on a recheck: the prompt waits for the next launch.</summary>
+    /// daemon's idle report, nor on a recheck: the prompt waits for the next launch, or Finish switching, which is
+    /// offered from then on.</summary>
     [Test]
     public async Task A_root_owned_install_whose_daemon_move_waited_is_prompted_for_on_the_next_launch_only() {
         var world = new AdoptionWorld(Tmp);
@@ -1206,12 +1207,35 @@ public class CliAdoptionCoordinatorTests {
             await Assert.That(world.Admin.Prompts).IsEmpty();
             await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Pending);
             await Assert.That(Directory.Exists(world.Platform)).IsTrue();
+            await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
         }
 
         using (var next = world.Launch()) await world.FirstLookAsync(next);
 
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
         await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+    }
+
+    /// <summary>Finish switching takes a root-owned install whose daemon moved on the idle report behind its prompt,
+    /// without waiting for the next launch.</summary>
+    [Test]
+    public async Task Finish_switching_prompts_for_a_root_owned_install_moved_on_the_idle_report() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        var refused = 0;
+        world.Machine.Repoint = _ => refused++ == 0 ? new MutationOutcome.Refused(AdoptionRepoint.Busy, RecoverySurface.None) : null;
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+        await Assert.That(AdoptionWorld.Offered(launch)).IsFalse();
+        await world.IdleAsync(launch);
+        await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
+
+        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await world.SettledAsync(launch);
+
+        await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+        await Assert.That(AdoptionWorld.Offered(launch)).IsFalse();
     }
 
     /// <summary>An install left because the app ran from ~/Applications is not offered there; once the app runs from
