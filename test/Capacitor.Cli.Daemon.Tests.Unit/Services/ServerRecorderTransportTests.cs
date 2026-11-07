@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Recording;
@@ -51,6 +52,40 @@ public class ServerRecorderTransportTests {
         await Assert.That(failure!.Message).Contains("batch");
         await transport.SendBatchAsync(Batch(SessionB, 4), CancellationToken.None).WithinDeadlineAsync("the next batch");
         await Assert.That(hub.Calls).Contains("batch 4");
+        release.SetResult();
+    }
+
+    /// <summary>A source beats its claim between sends, so a send using its whole budget mustn't reach the grace: a hook
+    /// from outside could then take a source that is recording.</summary>
+    [Test]
+    public async Task A_send_gives_up_ahead_of_its_claim_going_stale() =>
+        await Assert.That(ServerRecorderTransport.SendBudget < RecorderClaims.Grace).IsTrue();
+
+    /// <summary>The send failed because the connection went, and a log saying the server was slow would send whoever reads
+    /// it the wrong way. It still has to read as a failed send, not a stop.</summary>
+    [Test]
+    public async Task A_connection_closing_under_a_batch_says_so() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        var             release   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.BatchHold = line => line == 3 ? release.Task : null;
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+
+        var stuck = transport.SendBatchAsync(Batch(SessionA, 3), CancellationToken.None);
+        await hub.WaitForAsync(h => h.Calls.Contains("batch 3"), "the batch to reach the server");
+        await hub.CloseCleanlyAsync();
+
+        Exception? failure = null;
+
+        try {
+            await stuck.WithinDeadlineAsync("the send");
+        } catch (Exception ex) {
+            failure = ex;
+        }
+
+        await Assert.That(failure).IsTypeOf<IOException>();
+        await Assert.That(failure!.Message).Contains("closed");
         release.SetResult();
     }
 
@@ -120,6 +155,75 @@ public class ServerRecorderTransportTests {
 
         await Assert.That(transport.IsConnected).IsTrue();
         await Assert.That(hub.Calls).Contains($"connect {SessionB}");
+    }
+
+    /// <summary>Each new connection would have every recorder re-register, so a server closing them as they open would get
+    /// a tight loop and a storm of those. A start doesn't earn a quick retry: staying up does.</summary>
+    [Test]
+    public async Task A_server_closing_every_new_connection_is_backed_off_from() {
+        var             time      = new TimerLog(DateTimeOffset.UtcNow);
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = new ServerRecorderTransport(hub.Connection(Config), time, _ => { });
+        hub.ClosesNewConnections = true;
+
+        _ = transport.ConnectAsync(A, CancellationToken.None);
+
+        await hub.WaitForAsync(h => h.Bearers.Count == 1, "the first connection");
+        await WaitHarness.PollUntilAsync(() => time.Due.Contains(TimeSpan.FromSeconds(1)));
+        await Assert.That(hub.Bearers.Count).IsEqualTo(1);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        await hub.WaitForAsync(h => h.Bearers.Count == 2, "the second connection");
+        await WaitHarness.PollUntilAsync(() => time.Due.Contains(TimeSpan.FromSeconds(2)));
+        await Assert.That(hub.Bearers.Count).IsEqualTo(2);
+
+        time.Advance(TimeSpan.FromSeconds(2));
+        await hub.WaitForAsync(h => h.Bearers.Count == 3, "the third connection");
+        await WaitHarness.PollUntilAsync(() => time.Due.Contains(TimeSpan.FromSeconds(4)));
+    }
+
+    [Test]
+    public async Task A_connection_that_stayed_up_comes_back_at_once() {
+        var             time      = new TimerLog(DateTimeOffset.UtcNow);
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = new ServerRecorderTransport(hub.Connection(Config), time, _ => { });
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+
+        time.Advance(ServerRecorderTransport.MaxRestartDelay);
+        await hub.CloseCleanlyAsync();
+
+        await hub.WaitForAsync(h => h.Bearers.Count == 2, "the connection to come back");
+    }
+
+    /// <summary>SignalR's stop can hang on a wedged transport. The loop that starts the connection for the next source
+    /// can't wait for it, so a source would sit with no connection.</summary>
+    [Test]
+    public async Task A_stop_that_hangs_holds_up_nothing() {
+        var             time      = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var             logged    = new ConcurrentQueue<string>();
+        var             stopping  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var             hung      = new TaskCompletionSource();
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = new ServerRecorderTransport(hub.Connection(Config), time, logged.Enqueue) {
+            StopHub = () => {
+                stopping.TrySetResult();
+
+                return hung.Task;
+            },
+        };
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+        await transport.DetachAsync(A, CancellationToken.None).WithinDeadlineAsync("the detach");
+        await stopping.Task.WithinDeadlineAsync("the stop");
+
+        await WaitHarness.PollUntilAsync(() => {
+            time.Advance(ServerRecorderTransport.StopCap);
+
+            return logged.Any(line => line.Contains("Stopping"));
+        });
+
+        await transport.ConnectAsync(B, CancellationToken.None).WithinDeadlineAsync("a source behind the hung stop");
     }
 
     /// <summary>A connection holds the identity it negotiated, so only a new one stops a source sending as the old
@@ -365,6 +469,18 @@ public class ServerRecorderTransportTests {
         await back.Task.WithinDeadlineAsync("the connection to come back");
         await Assert.That(transport.IsConnected).IsTrue();
         await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the re-registration");
+    }
+
+    sealed class TimerLog(DateTimeOffset start) : FakeTimeProvider(start) {
+        readonly ConcurrentQueue<TimeSpan> _due = new();
+
+        public IReadOnlyList<TimeSpan> Due => [.. _due];
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) {
+            _due.Enqueue(dueTime);
+
+            return base.CreateTimer(callback, state, dueTime, period);
+        }
     }
 
     sealed class StopLog {

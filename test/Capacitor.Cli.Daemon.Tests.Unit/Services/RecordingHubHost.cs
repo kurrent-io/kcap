@@ -43,6 +43,9 @@ public sealed class RecordingHubHost : IAsyncDisposable {
     /// <summary>Awaited inside <c>SendTranscriptBatch2</c>, given the batch's first line, once the call is recorded.</summary>
     public Func<int?, Task?>? BatchHold { get; set; }
 
+    /// <summary>Whether the hub closes every connection as it opens, as a server in trouble can.</summary>
+    public bool ClosesNewConnections { get; set; }
+
     /// <summary>Whether the hub refuses a negotiate that carries no bearer, as a signed-in server does.</summary>
     public bool RequiresBearer { get; set; }
 
@@ -159,6 +162,8 @@ public sealed class RecordingHubHost : IAsyncDisposable {
             host._contexts[Context.ConnectionId] = Context;
 
             lock (host._gate) host._bearers.Add(Context.GetHttpContext()?.Request.Headers.Authorization.ToString() ?? "");
+
+            if (host.ClosesNewConnections) Context.Abort();
 
             return Task.CompletedTask;
         }
