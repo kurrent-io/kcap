@@ -264,7 +264,9 @@ public sealed class RecorderHost {
                     var        ended   = false;
 
                     try {
-                        var run = Task.Run(() => recorder.RunAsync(token), CancellationToken.None);
+                        // The loop reassigns recorder, and a queued start can run after a give-up and its backoff.
+                        var current = recorder;
+                        var run     = Task.Run(() => current.RunAsync(token), CancellationToken.None);
 
                         if (!await EndsBeatingAsync(run, attempt)) {
                             // Read ahead of the supersession, which stops the recorder too.
