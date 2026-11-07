@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "kcap hook --claude --no-update-check",
+            "command": "kcap hook --claude --pass-notices-capable --no-update-check",
             "timeout": 9
           }
         ]
@@ -177,6 +177,15 @@
             "type": "command",
             "command": "kcap hook --claude --title-prompt --no-update-check",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "kcap hook --claude --pass-notices --no-update-check",
+            "timeout": 3
           }
         ]
       }
