@@ -664,6 +664,11 @@ switch (command) {
     case "page":
     case "artefact":
         return await Run<ArtefactCommand>().HandleAsync(args);
+    // Not in PrintUsage: both answer as an unknown command does while the server does not offer passes.
+    case "pass":
+        return await Run<PassCommand>().HandleAsync(args);
+    case "message":
+        return await Run<MessageCommand>().HandleAsync(args);
     case "cleanup":
         return await Run<CleanupCommand>().HandleCleanup();
     case "uninstall":
@@ -1084,9 +1089,7 @@ switch (command) {
         return await CursorVerifyAppendOnlyCommand.RunAsync(args, time);
 }
 
-Console.Error.WriteLine($"Unknown command: {command}");
-
-return 1;
+return UnknownCommand.Write(Console.Error, command);
 } catch (UnusableServerUrlException ex) {
     // Returned, not exited: every finally, the telemetry flush and each vendor's fail-open catch
     // still run. Not a crash either — the repair is a config edit, so a crash report would file a
