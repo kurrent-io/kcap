@@ -152,7 +152,7 @@ public class LocalDaemonRecordingTests {
         await using var daemon = Daemon();
 
         await Assert.That(await Client(daemonName: null).TryRecordAsync(Source, false, null, CancellationToken.None)).IsEqualTo(RecordingHandOver.Unanswered);
-        await Assert.That(await Client(daemonName: null).FinishSourceAsync("session-1", holder: null, CancellationToken.None)).IsEqualTo(RecordingFinish.Unanswered);
+        await Assert.That(await Client(daemonName: null).FinishSourceAsync("session-1", holder: null, from: null, CancellationToken.None)).IsEqualTo(RecordingFinish.Unanswered);
         await Assert.That(daemon.Received).IsEmpty();
     }
 
@@ -162,7 +162,7 @@ public class LocalDaemonRecordingTests {
         await using var daemon = Daemon();
         daemon.Answer = RecordingIpc.Finished;
 
-        await Assert.That(await Client(HostedAgent.Terminal, daemonName: null).FinishSourceAsync("session-1", DaemonName, CancellationToken.None)).IsEqualTo(RecordingFinish.Finished);
+        await Assert.That(await Client(HostedAgent.Terminal, daemonName: null).FinishSourceAsync("session-1", DaemonName, from: null, CancellationToken.None)).IsEqualTo(RecordingFinish.Finished);
     }
 
     [Test]
@@ -170,8 +170,8 @@ public class LocalDaemonRecordingTests {
         await using var daemon = Daemon();
         daemon.Answer = RecordingIpc.Finished;
 
-        await Assert.That(await Client().FinishSourceAsync("session-1", holder: null, CancellationToken.None)).IsEqualTo(RecordingFinish.Finished);
-        await Assert.That(await Client(HostedAgent.Terminal, null, Terminal(Claude)).FinishSourceAsync("session-1", holder: null, CancellationToken.None))
+        await Assert.That(await Client().FinishSourceAsync("session-1", holder: null, from: null, CancellationToken.None)).IsEqualTo(RecordingFinish.Finished);
+        await Assert.That(await Client(HostedAgent.Terminal, null, Terminal(Claude)).FinishSourceAsync("session-1", holder: null, from: null, CancellationToken.None))
             .IsEqualTo(RecordingFinish.Finished);
     }
 

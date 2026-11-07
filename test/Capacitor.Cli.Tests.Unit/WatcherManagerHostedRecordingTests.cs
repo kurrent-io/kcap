@@ -182,6 +182,6 @@ public class WatcherManagerHostedRecordingTests {
             return Answer;
         }
 
-        public Task<RecordingFinish> FinishSourceAsync(string key, string? holder, CancellationToken ct) => Task.FromResult(RecordingFinish.NotHeld);
+        public Task<RecordingFinish> FinishSourceAsync(string key, string? holder, ProcessIncarnation? from, CancellationToken ct) => Task.FromResult(RecordingFinish.NotHeld);
     }
 }

@@ -1,47 +1,73 @@
 using System.Globalization;
-using Capacitor.Cli.Core.Skills;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Capacitor.Cli.Core;
 
 /// <summary>
-/// That a daemon posted a session's end itself, because the session's process exited and no SessionEnd hook came in
-/// the grace it gave one. A SessionEnd hook later than that reads it and posts no second end. Beside the claims, in the
-/// directory hooks and the daemon share, and honoured only while fresh: a session resumed and ended again much later
-/// owes its own end.
+/// Who posts the end of one process's run of a session: its SessionEnd hook, or the daemon recording it as a terminal
+/// session, which posts it when that process exits with no hook in time. Both create this one file before they post,
+/// and only the one that created it posts. It names the process by pid and start token, so a resumed run in another
+/// process owes an end of its own. Beside the claims, in the directory hooks and the daemon share.
 /// </summary>
 public static class SessionEndRecord {
     const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+    const string Extension = ".session-end";
 
-    /// <summary>How long after the daemon's post a hook's end is taken for the same one.</summary>
-    public static readonly TimeSpan Window = TimeSpan.FromMinutes(2);
+    /// <summary>How long a record outlives its post. The daemon reads one at its next boot, however long it was down.</summary>
+    public static readonly TimeSpan Retention = TimeSpan.FromDays(30);
 
-    public static void Write(WatcherPaths paths, string sessionId, DateTimeOffset postedAt) {
+    /// <summary>Whether the caller posts the end of <paramref name="process"/>'s run of <paramref name="sessionId"/>: false
+    /// only when someone created the record first. One that can't be written for another reason leaves the caller to post,
+    /// at the risk of a second end, rather than leave the session with none.</summary>
+    public static bool TryClaim(WatcherPaths paths, string sessionId, ProcessIncarnation process, DateTimeOffset at) {
+        var path = PathOf(paths, sessionId, process);
+
         try {
             Directory.CreateDirectory(paths.Directory);
-            AtomicFile.Replace(PathOf(paths, sessionId), postedAt.ToString("O", CultureInfo.InvariantCulture), OwnerOnly, followLink: false, durable: false);
+
+            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = OwnerOnly;
+
+            using var stream = new FileStream(path, options);
+            stream.Write(Encoding.UTF8.GetBytes(at.ToString("O", CultureInfo.InvariantCulture)));
+
+            return true;
+        } catch (IOException) when (File.Exists(path)) {
+            return false;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            // A late hook then posts an end of its own, which is what it does today.
+            return true;
         }
     }
 
-    /// <summary>Whether a daemon posted <paramref name="sessionId"/>'s end within <see cref="Window"/>. The record goes
-    /// either way, so it answers once. One stat when there is none.</summary>
-    public static bool TryTake(WatcherPaths paths, string sessionId, DateTimeOffset now) {
-        var path = PathOf(paths, sessionId);
+    /// <summary>Whether someone has claimed the end of <paramref name="process"/>'s run of <paramref name="sessionId"/>.</summary>
+    public static bool Exists(WatcherPaths paths, string sessionId, ProcessIncarnation process) => File.Exists(PathOf(paths, sessionId, process));
+
+    /// <summary>Deletes records past <see cref="Retention"/>, except a session's in <paramref name="pending"/>, whose end
+    /// may not have been decided yet.</summary>
+    public static void Prune(WatcherPaths paths, DateTimeOffset now, IEnumerable<string> pending) {
+        var keep = pending.Select(session => $"{SessionIds.Canonical(session) ?? session}.").ToArray();
 
         try {
-            if (!File.Exists(path)) return false;
+            foreach (var record in Directory.EnumerateFiles(paths.Directory, $"*{Extension}")) {
+                try {
+                    var name = Path.GetFileName(record);
 
-            var fresh = DateTimeOffset.TryParse(File.ReadAllText(path), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at)
-                     && (now - at).Duration() <= Window;
-
-            File.Delete(path);
-
-            return fresh;
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
-            return false;
+                    if (!keep.Any(prefix => name.StartsWith(prefix, StringComparison.Ordinal)) && now - File.GetLastWriteTimeUtc(record) > Retention)
+                        File.Delete(record);
+                } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                    // The next prune has another go.
+                }
+            }
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            // No directory, nothing to prune.
         }
     }
 
-    static string PathOf(WatcherPaths paths, string sessionId) => Path.Combine(paths.Directory, $"{SessionIds.Canonical(sessionId) ?? sessionId}.session-end");
+    // The token is hashed because its spelling is the platform's, and only its identity matters here.
+    static string PathOf(WatcherPaths paths, string sessionId, ProcessIncarnation process) {
+        var token = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(process.StartToken)))[..16];
+
+        return Path.Combine(paths.Directory, $"{SessionIds.Canonical(sessionId) ?? sessionId}.{process.Pid.ToString(CultureInfo.InvariantCulture)}-{token}{Extension}");
+    }
 }

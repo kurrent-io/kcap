@@ -349,12 +349,14 @@ public class ClaudeHookCommandTests {
         await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
     }
 
-    /// <summary>The daemon recording the session posted its end when the session's process exited, and this hook came
-    /// after the grace it gave one: a second end would be processed as a second run of the session.</summary>
+    static readonly ProcessIncarnation Claude = new(4242, "mac:1:2");
+
+    /// <summary>The daemon posted the end of this process's run when it exited with no hook in time, so the hook's own
+    /// would be a second one.</summary>
     [Test]
-    public async Task A_session_end_the_daemon_has_just_posted_is_not_posted_again() {
-        using var fx = new Fixture(Config.Root);
-        SessionEndRecord.Write(WatcherPaths.FromEnvironment(Config.Root), Sid, DateTimeOffset.UtcNow);
+    public async Task A_session_end_the_daemon_posted_for_this_process_is_not_posted_again() {
+        using var fx = new Fixture(Config.Root) { EndingProcess = Claude };
+        SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
 
         var exit = await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
 
@@ -363,11 +365,11 @@ public class ClaudeHookCommandTests {
         await Assert.That(fx.Spool.HasBacklog(Sid)).IsFalse();
     }
 
-    /// <summary>A record long past is an earlier run's, and this run owes its own end.</summary>
+    /// <summary>A resumed run in another process owes its own end, however soon after the first it comes.</summary>
     [Test]
-    public async Task A_daemon_end_record_from_an_earlier_run_does_not_hold_back_this_runs_end() {
-        using var fx = new Fixture(Config.Root);
-        SessionEndRecord.Write(WatcherPaths.FromEnvironment(Config.Root), Sid, DateTimeOffset.UtcNow - SessionEndRecord.Window - TimeSpan.FromMinutes(1));
+    public async Task An_end_the_daemon_posted_for_another_process_does_not_hold_back_this_one() {
+        using var fx = new Fixture(Config.Root) { EndingProcess = Claude };
+        SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, new ProcessIncarnation(4343, "mac:1:2"), DateTimeOffset.UtcNow);
 
         await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
 
@@ -376,11 +378,11 @@ public class ClaudeHookCommandTests {
 
     /// <summary>The degraded arm spools the end it would post, and a spooled second end is a second end all the same.</summary>
     [Test]
-    public async Task A_session_end_the_daemon_has_just_posted_is_not_spooled_on_the_degraded_arm() {
+    public async Task A_session_end_the_daemon_posted_for_this_process_is_not_spooled_on_the_degraded_arm() {
         using var fx = new Fixture(Config.Root);
-        SessionEndRecord.Write(WatcherPaths.FromEnvironment(Config.Root), Sid, DateTimeOffset.UtcNow);
+        SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
 
-        var exit = await new ClaudeHookCommand(Config.Root, Resolutions.At("not-a-url", Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("not-a-url", Config.Root), new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+        var exit = await new ClaudeHookCommand(Config.Root, Resolutions.At("not-a-url", Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("not-a-url", Config.Root), new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => Claude)
             .HandleWithDeps(fx.Spool, new StringReader(
                 $$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}"""),
                 () => throw new InvalidOperationException("no client is buildable for an unusable URL"));
@@ -2288,6 +2290,9 @@ public class ClaudeHookCommandTests {
 
         /// <summary>What the daemon exported into the session, as the hook reads it.</summary>
         public HostedAgent Hosted { get; set; } = HostedAgent.Terminal;
+
+        /// <summary>The Claude process a SessionEnd reports; none unless a test names one.</summary>
+        public ProcessIncarnation? EndingProcess { get; set; }
         public int FlowDefinitionsRequestCount => _memoryServer.LogEntries.Count(e => e.RequestMessage.Path == "/api/flows/definitions");
 
         /// <summary>Every request the stub server saw, for a test asserting that none arrived.</summary>
@@ -2342,14 +2347,14 @@ public class ClaudeHookCommandTests {
             clock ??= elapsed == TimeSpan.Zero ? new HookClock(TimeProvider.System) : Aged(elapsed);
             _clock = clock;
 
-            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).HandleCore(
+            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => EndingProcess).HandleCore(
                 Client, AuthStatus.Ok, Spool, new StringReader(stdin), stdout);
         }
 
         /// <summary>One hook invocation from its entry point, through what both arms share.</summary>
         public Task<int> EnterAsync(string stdin) {
             StubMemoryServer();
-            return new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            return new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => EndingProcess)
                 .HandleWithDeps(Spool, new StringReader(stdin), () => Task.FromResult(new AuthAttempt(Client, AuthStatus.Ok)));
         }
 

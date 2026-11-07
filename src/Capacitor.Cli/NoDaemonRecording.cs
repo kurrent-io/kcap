@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
 
@@ -9,7 +10,7 @@ public sealed class NoDaemonRecording : IDaemonRecordingClient {
 
     public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, int? follows, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
 
-    public Task<RecordingFinish> FinishSourceAsync(string key, string? holder, CancellationToken ct) => Task.FromResult(RecordingFinish.Unanswered);
+    public Task<RecordingFinish> FinishSourceAsync(string key, string? holder, ProcessIncarnation? from, CancellationToken ct) => Task.FromResult(RecordingFinish.Unanswered);
 
     public IReadOnlyList<string> Daemons() => [];
 

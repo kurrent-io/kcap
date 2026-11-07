@@ -52,7 +52,7 @@ public class ClaudeSessionEndHandoffTests {
     public async Task Spawn_reinvokes_this_binary_with_the_hook_args_plus_the_detached_flag() {
         var starter = FakeProcessStarter.Refusing();
 
-        var spawned = ClaudeSessionEndHandoff.TrySpawn(HookArgs, SessionEndBody, Config.Root, starter);
+        var spawned = ClaudeSessionEndHandoff.TrySpawn(HookArgs, SessionEndBody, Config.Root, starter, process: null);
 
         var seen = starter.Seen;
 
@@ -75,6 +75,27 @@ public class ClaudeSessionEndHandoffTests {
         await Assert.That(seen.WorkingDirectory).IsEqualTo("");
     }
 
+    /// <summary>The continuation can run after Claude has gone, when nothing above it is Claude any more, so it is told
+    /// which process it ended for.</summary>
+    [Test]
+    public async Task Spawn_tells_the_continuation_which_claude_process_it_ran_under() {
+        var starter = FakeProcessStarter.Refusing();
+        var claude  = new ProcessIncarnation(4242, "mac:1:2");
+
+        ClaudeSessionEndHandoff.TrySpawn(HookArgs, SessionEndBody, Config.Root, starter, claude);
+
+        await Assert.That(ClaudeSessionEndProcess.Decode(starter.Seen!.Environment[ClaudeSessionEndProcess.EnvVar]!)).IsEqualTo(claude);
+    }
+
+    [Test]
+    [Arguments("4242:mac:1:2", 4242, "mac:1:2")]
+    [Arguments("4242:", 0, null)]
+    [Arguments(":mac:1:2", 0, null)]
+    [Arguments("1:mac:1:2", 0, null)]
+    [Arguments("pid:mac", 0, null)]
+    public async Task A_passed_process_reads_back_only_when_whole(string passed, int pid, string? token) =>
+        await Assert.That(ClaudeSessionEndProcess.Decode(passed)).IsEqualTo(token is null ? null : new ProcessIncarnation(pid, token));
+
     [Test]
     public async Task Spawn_pipes_the_hook_payload_to_the_continuation_stdin() {
         Skip.When(OperatingSystem.IsWindows(), "uses /bin/sh to stand in for the continuation");
@@ -96,7 +117,7 @@ public class ClaudeSessionEndHandoffTests {
             return Process.Start(stub);
         });
 
-        var spawned = ClaudeSessionEndHandoff.TrySpawn(HookArgs, SessionEndBody, Config.Root, starter);
+        var spawned = ClaudeSessionEndHandoff.TrySpawn(HookArgs, SessionEndBody, Config.Root, starter, process: null);
 
         await Assert.That(spawned).IsTrue();
 
@@ -111,7 +132,7 @@ public class ClaudeSessionEndHandoffTests {
     public async Task Spawn_failure_is_reported_not_thrown() {
         var starter = FakeProcessStarter.Throwing(new InvalidOperationException("no exec"));
 
-        await Assert.That(ClaudeSessionEndHandoff.TrySpawn(HookArgs, SessionEndBody, Config.Root, starter)).IsFalse();
+        await Assert.That(ClaudeSessionEndHandoff.TrySpawn(HookArgs, SessionEndBody, Config.Root, starter, process: null)).IsFalse();
     }
 
     [Test]
@@ -134,7 +155,7 @@ public class ClaudeSessionEndHandoffTests {
             return child;
         });
 
-        var spawned = ClaudeSessionEndHandoff.TrySpawn(HookArgs, SessionEndBody, Config.Root, starter);
+        var spawned = ClaudeSessionEndHandoff.TrySpawn(HookArgs, SessionEndBody, Config.Root, starter, process: null);
 
         await Assert.That(spawned).IsFalse();
         await Assert.That(pid).IsNotEqualTo(0);

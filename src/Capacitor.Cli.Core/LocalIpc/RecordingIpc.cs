@@ -89,9 +89,10 @@ public static class RecordingIpc {
     /// <summary>How the daemon answered an ask for the final drain of the source <paramref name="key"/> names. A caller
     /// that stops waiting has still asked, and the daemon still finishes. No capability is asked for: a hook sends this
     /// only to the daemon with a claim, and one that has stopped taking sources still holds that one.</summary>
-    public static async Task<RecordingFinish> FinishAsync(DaemonStore store, string daemonName, string key, CancellationToken ct) {
+    /// <param name="from">The coding-agent process the asking hook runs under, when it knows it.</param>
+    public static async Task<RecordingFinish> FinishAsync(DaemonStore store, string daemonName, string key, ProcessIncarnation? from, CancellationToken ct) {
         try {
-            return await ExchangeAsync(store, daemonName, LocalFrame.FinishSource(key), ct) switch {
+            return await ExchangeAsync(store, daemonName, LocalFrame.FinishSource(FinishText(key, from)), ct) switch {
                 { Type: FrameType.FinishSourceAck, Text: Finished } => RecordingFinish.Finished,
                 { Type: FrameType.FinishSourceAck, Text: NotHeld }  => RecordingFinish.NotHeld,
                 _                                                   => RecordingFinish.Unanswered,
@@ -106,6 +107,17 @@ public static class RecordingIpc {
             return RecordingFinish.Unanswered;
         }
     }
+
+    /// <summary>A <see cref="FrameType.FinishSource"/> payload: the key, then the asking process's pid and start token.</summary>
+    public static string FinishText(string key, ProcessIncarnation? from) =>
+        from is null ? key : $"{key}\n{from.Pid.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n{from.StartToken}";
+
+    /// <summary>What <see cref="FinishText"/> wrote. A process that doesn't read back is no process.</summary>
+    public static (string Key, ProcessIncarnation? From) ReadFinish(string text) =>
+        text.Split('\n') is [var key, var pid, var token]
+     && int.TryParse(pid, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 1 && token.Length > 0
+            ? (key, new ProcessIncarnation(id, token))
+            : (text.Split('\n')[0], null);
 
     /// <summary>Stops every source of a session a person disabled, with no final drain, on the daemon holding them. One that
     /// takes the connection and says nothing it can read is silent. A daemon too old for the frame records nothing this

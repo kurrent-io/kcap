@@ -123,6 +123,58 @@ public class WatcherManagerClaimTests : IDisposable {
         await Assert.That(_daemon.Holders.Single()).IsEqualTo("daemon-b");
     }
 
+    /// <summary>A daemon holding the session as a terminal one posts the end itself if its process exits with no hook in
+    /// time, so the hook and the daemon race for one record, and the second to try posts nothing.</summary>
+    [Test]
+    public async Task A_session_end_beside_a_terminal_daemon_claim_is_claimed_once() {
+        Claims.TryTake(Key, "daemon-b", isHosted: false);
+
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsTrue();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsFalse();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude with { Pid = 4343 })).IsTrue();
+    }
+
+    /// <summary>A daemon posts no end for a hosted session, and nothing would read a record for one no daemon holds.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_session_end_with_no_terminal_daemon_claim_leaves_no_record(bool hosted) {
+        if (hosted) Claims.TryTake(Key, "daemon-b", isHosted: true);
+
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsTrue();
+        await Assert.That(SessionEndRecord.Exists(Paths, Key, Claude)).IsFalse();
+    }
+
+    /// <summary>The daemon lets its claim go once it has posted, and the record it left is what holds a later hook back.</summary>
+    [Test]
+    public async Task A_session_end_the_daemon_already_posted_is_held_back_with_its_claim_gone() {
+        SessionEndRecord.TryClaim(Paths, Key, Claude, DateTimeOffset.UtcNow);
+
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsFalse();
+    }
+
+    [Test]
+    public async Task A_hook_that_cannot_name_its_process_posts_its_end() {
+        Claims.TryTake(Key, "daemon-b", isHosted: false);
+        SessionEndRecord.TryClaim(Paths, Key, Claude, DateTimeOffset.UtcNow);
+
+        await Assert.That(Watchers.ClaimSessionEnd(Key, process: null)).IsTrue();
+    }
+
+    static readonly ProcessIncarnation Claude = new(4242, "mac:1:2");
+
+    /// <summary>A daemon whose source followed a process that has exited reads a hook from another process as a resumed
+    /// run's, so the hook says which it runs under.</summary>
+    [Test]
+    public async Task A_finish_names_the_process_the_hook_runs_under() {
+        StubServer();
+        Claims.TryTake(Key, "daemon-b", isHosted: false);
+
+        await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null, from: Claude);
+
+        await Assert.That(_daemon.Froms.Single()).IsEqualTo(Claude);
+    }
+
     /// <summary>The daemon died inside the grace and nothing listens for it. A session ending now has no later hook to
     /// find its claim stale, so this one is the last chance at its tail: the hook takes the claim and drains.</summary>
     [Test]
@@ -647,6 +699,7 @@ public class WatcherManagerClaimTests : IDisposable {
     sealed class FakeDaemon : IDaemonRecordingClient {
         readonly List<string> _asked = [];
         readonly List<string?> _holders = [];
+        readonly List<ProcessIncarnation?> _froms = [];
 
         public RecordingFinish Answer { get; set; } = RecordingFinish.NotHeld;
 
@@ -666,16 +719,23 @@ public class WatcherManagerClaimTests : IDisposable {
             }
         }
 
+        public IReadOnlyList<ProcessIncarnation?> Froms {
+            get {
+                lock (_asked) return [.._froms];
+            }
+        }
+
         public Task<RecordingHandOver> TryRecordAsync(RecordingSource source, bool skipTitle, int? follows, CancellationToken ct) => Task.FromResult(RecordingHandOver.Unanswered);
 
         public IReadOnlyList<string> Daemons() => [];
 
         public Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) => Task.FromResult(new RecordingDisableAnswer(RecordingDisable.NoSocket));
 
-        public async Task<RecordingFinish> FinishSourceAsync(string key, string? holder, CancellationToken ct) {
+        public async Task<RecordingFinish> FinishSourceAsync(string key, string? holder, ProcessIncarnation? from, CancellationToken ct) {
             lock (_asked) {
                 _asked.Add(key);
                 _holders.Add(holder);
+                _froms.Add(from);
             }
 
             if (Throws) throw new InvalidOperationException("The daemon went away.");

@@ -29,9 +29,13 @@ namespace Capacitor.Cli.Commands.Harness;
 public sealed class ClaudeHookCommand(
         ConfigRoot config, ProfileContext profiles, HookClock clock, UserHome home,
         HarnessRegistry harnesses, HostedAgent hosted, ICapacitorHttpClient http, WatcherManager watchers,
-        IProcessStarter starter, GitProviderRouter router, WorkingDirectory workdir, AccountStore accounts) {
+        IProcessStarter starter, GitProviderRouter router, WorkingDirectory workdir, AccountStore accounts,
+        Func<ProcessIncarnation?>? endingProcess = null) {
 
     string Url => profiles.Resolution.ServerUrl!;
+
+    // The Claude process a SessionEnd reports, read once and only for a session end.
+    readonly Lazy<ProcessIncarnation?> _endingProcess = new(endingProcess ?? ClaudeSessionEndProcess.Current);
 
     // Hard ceiling on the best-effort pre-POST drain (watcher kill + inline transcript
     // drain) for session-end / subagent-stop. Session-end runs in the detached continuation
@@ -409,7 +413,7 @@ public sealed class ClaudeHookCommand(
             var unusableUrl = !HookHttp.IsPostable(Url);
             var reason      = unusableUrl ? "unusable server URL" : "auth/client creation exceeded hook budget";
 
-            if (command == "session-end" && sessionId is not null && watchers.TakeDaemonSessionEnd(sessionId)) {
+            if (command == "session-end" && sessionId is not null && !watchers.ClaimSessionEnd(sessionId, _endingProcess.Value)) {
                 await Console.Error.WriteLineAsync($"[kcap] session-end not spooled: the daemon recording {sessionId} posted it when the session's process exited");
             }
             else if (command is "session-start" or "session-end" && sessionId is not null) {
@@ -749,7 +753,7 @@ public sealed class ClaudeHookCommand(
                                 await watchers.KillWatcher(sessionId);
 
                                 if (transcriptPath is not null) {
-                                    await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null);
+                                    await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null, from: _endingProcess.Value);
                                 }
                             },
                             effectiveCap
@@ -1130,7 +1134,7 @@ public sealed class ClaudeHookCommand(
                 new TaskListNudgeLedger(config).Evict(sessionId.Replace("-", ""));
             }
 
-            if (sessionId is not null && watchers.TakeDaemonSessionEnd(sessionId)) {
+            if (sessionId is not null && !watchers.ClaimSessionEnd(sessionId, _endingProcess.Value)) {
                 await Console.Error.WriteLineAsync($"[kcap] session-end not posted: the daemon recording {sessionId} posted it when the session's process exited");
                 return 0;
             }

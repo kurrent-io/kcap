@@ -30,8 +30,8 @@ public sealed class LocalDaemonRecording(
         return RecordingIpc.RecordTerminalAsync(store, terminal.DaemonName, () => terminal.Describe(source, skipTitle, follows), time ?? TimeProvider.System, ct);
     }
 
-    public Task<RecordingFinish> FinishSourceAsync(string key, string? holder, CancellationToken ct) =>
-        (holder ?? OwnDaemon) is { Length: > 0 } name ? RecordingIpc.FinishAsync(store, name, key, ct) : Task.FromResult(RecordingFinish.Unanswered);
+    public Task<RecordingFinish> FinishSourceAsync(string key, string? holder, ProcessIncarnation? from, CancellationToken ct) =>
+        (holder ?? OwnDaemon) is { Length: > 0 } name ? RecordingIpc.FinishAsync(store, name, key, from, ct) : Task.FromResult(RecordingFinish.Unanswered);
 
     string? OwnDaemon => hosted.AgentId is not null ? daemonName : terminal?.DaemonName;
 

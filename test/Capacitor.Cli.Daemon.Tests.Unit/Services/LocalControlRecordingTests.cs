@@ -85,9 +85,9 @@ public class LocalControlRecordingTests {
             return ack!.Type == FrameType.RecordSourceAck ? ack.Text : $"unexpected {ack.Type}";
         }
 
-        public async Task<string> FinishAsync(string key) {
+        public async Task<string> FinishAsync(string key, ProcessIncarnation? from = null) {
             using var stream = new MemoryStream();
-            await Orch.HandleLocalFinishSourceAsync(key, stream, CancellationToken.None);
+            await Orch.HandleLocalFinishSourceAsync(RecordingIpc.FinishText(key, from), stream, CancellationToken.None);
             stream.Position = 0;
 
             return (await FrameCodec.ReadAsync(stream, CancellationToken.None))!.Text;
@@ -346,6 +346,24 @@ public class LocalControlRecordingTests {
         await WaitHarness.PollUntilAsync(() => f.Recorder.ActiveKeys.Count == 0 && f.Transport.DrainCompletes == 1);
         await Assert.That(f.Claims.Read(Session)).IsEqualTo(RecorderClaimState.DaemonFresh);
         await Assert.That(await f.FinishAsync(Session)).IsEqualTo(RecordingIpc.Finished);
+    }
+
+    /// <summary>The hook names the process it runs under, and one from another process than the one that exited is a
+    /// resumed run's, whose lines came after the exit's drain: they are drained for it.</summary>
+    [Test]
+    public async Task A_finish_from_another_process_after_the_exit_drains_the_resumed_runs_lines() {
+        await using var f = new Fixture();
+        var transcript = f.Transcript();
+        await f.HandOverAsync(f.Source(transcript));
+        await WaitHarness.PollUntilAsync(() => f.Transport.Batches.Count > 0);
+
+        f.Exited = true;
+        f.Recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => f.Recorder.AwaitsEnd(Session));
+        await File.AppendAllTextAsync(transcript, """{"type":"user","message":{"content":"And the tests"}}""" + "\n");
+
+        await Assert.That(await f.FinishAsync(Session, new ProcessIncarnation(4343, "test:resumed"))).IsEqualTo(RecordingIpc.Finished);
+        await Assert.That(f.Transport.Batches.Any(batch => batch.LineNumbers.Contains(1))).IsTrue();
     }
 
     /// <summary>The previous daemon left the source and this one hasn't picked it up: the host would return at once for a

@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
 
@@ -16,7 +17,9 @@ public interface IDaemonRecordingClient {
     /// <paramref name="key"/> names, touching no other source. A hook that stops waiting has still asked, and the daemon
     /// still finishes.</summary>
     /// <param name="holder">Null when the claim can't be read, and the hook's own daemon is asked.</param>
-    Task<RecordingFinish> FinishSourceAsync(string key, string? holder, CancellationToken ct);
+    /// <param name="from">The coding-agent process the hook runs under, when it knows it. A daemon whose source followed
+    /// another process that has exited reads a hook from this one as the end of a resumed run.</param>
+    Task<RecordingFinish> FinishSourceAsync(string key, string? holder, ProcessIncarnation? from, CancellationToken ct);
 
     /// <summary>Every daemon this machine knows of, or null when that can't be read.</summary>
     IReadOnlyList<string>? Daemons();

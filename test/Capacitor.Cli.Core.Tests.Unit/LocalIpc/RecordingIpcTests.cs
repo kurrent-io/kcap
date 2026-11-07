@@ -15,7 +15,7 @@ public class RecordingIpcTests {
 
     Task<RecordingHandOver> Record(CancellationToken ct = default) => RecordingIpc.RecordAsync(Daemons.Store, DaemonName, Source, ct);
 
-    Task<RecordingFinish> Finish(CancellationToken ct = default) => RecordingIpc.FinishAsync(Daemons.Store, DaemonName, "session-1", ct);
+    Task<RecordingFinish> Finish(CancellationToken ct = default) => RecordingIpc.FinishAsync(Daemons.Store, DaemonName, "session-1", from: null, ct);
 
     static readonly RecordTerminalSourceDto Terminal = new(
         "session-1", null, "/t.jsonl", "claude", "/repo", false, "default", "https://kcap.example", "/config", "/config/watchers", "/home/claude", 4242, "test:claude");
@@ -46,6 +46,23 @@ public class RecordingIpcTests {
     public async Task No_daemon_listening_is_unreachable_to_a_finish() {
         await Assert.That(await Finish()).IsEqualTo(RecordingFinish.Unreachable);
     }
+
+    [Test]
+    public async Task A_finish_carries_the_process_the_hook_runs_under() {
+        var claude = new ProcessIncarnation(4242, "mac:1:2");
+
+        await Assert.That(RecordingIpc.ReadFinish(RecordingIpc.FinishText("session-1", claude))).IsEqualTo(("session-1", (ProcessIncarnation?)claude));
+        await Assert.That(RecordingIpc.ReadFinish(RecordingIpc.FinishText("session-1", null))).IsEqualTo(("session-1", (ProcessIncarnation?)null));
+    }
+
+    /// <summary>A process that doesn't read back is no process, and the key still names the source.</summary>
+    [Test]
+    [Arguments("session-1\n1\nmac:1:2")]
+    [Arguments("session-1\nnot-a-pid\nmac:1:2")]
+    [Arguments("session-1\n4242\n")]
+    [Arguments("session-1\n4242")]
+    public async Task A_finish_naming_no_whole_process_names_only_its_key(string text) =>
+        await Assert.That(RecordingIpc.ReadFinish(text)).IsEqualTo(("session-1", (ProcessIncarnation?)null));
 
     [Test]
     public async Task A_socket_nobody_listens_on_is_unreachable_to_a_finish() {

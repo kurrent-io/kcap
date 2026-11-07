@@ -358,9 +358,19 @@ public sealed partial class WatcherManager(
         }
     }
 
-    /// <summary>Whether the daemon has just posted <paramref name="sessionId"/>'s end itself, because its process exited
-    /// and this SessionEnd hook came after the grace it waited. Answers once, and costs a stat when it hasn't.</summary>
-    public bool TakeDaemonSessionEnd(string sessionId) => SessionEndRecord.TryTake(paths, sessionId, time.GetUtcNow());
+    /// <summary>Whether this SessionEnd hook posts the end of <paramref name="process"/>'s run of the session. A daemon
+    /// holding it as a terminal session posts that end itself if the process exits with no hook in time, so with that claim
+    /// on disk the two race for one record; with none, only a record the daemon already left holds the hook back. A hook
+    /// that can't name its process posts.</summary>
+    public bool ClaimSessionEnd(string sessionId, ProcessIncarnation? process) {
+        if (process is null) return true;
+
+        var key = new RecordingSource(sessionId, null, "", "claude", null).Key;
+
+        return _claims.Read(key) is not RecorderClaimState.None && !_claims.IsHosted(key)
+            ? SessionEndRecord.TryClaim(paths, sessionId, process, time.GetUtcNow())
+            : !SessionEndRecord.Exists(paths, sessionId, process);
+    }
 
     internal bool PidAlive(string key) => _liveness.PidAlive(key);
 
@@ -603,11 +613,13 @@ public sealed partial class WatcherManager(
         }
     }
 
+    /// <param name="from">The coding-agent process the hook runs under, which the daemon holding the source is told.</param>
     public async Task InlineDrainAsync(
-            string  sessionId,
-            string  transcriptPath,
-            string? agentId,
-            string  vendor = "claude"
+            string              sessionId,
+            string              transcriptPath,
+            string?             agentId,
+            string              vendor = "claude",
+            ProcessIncarnation? from   = null
         ) {
         // The disable let the daemon's claim go, so past this a source reads as nobody's and this would send all of it.
         if (DisabledSessions.IsDisabledByPerson(SessionIds.Canonical(sessionId)!, config)) return;
@@ -623,7 +635,7 @@ public sealed partial class WatcherManager(
         if (claim is RecorderClaimState.DaemonFresh) {
             var holder = _claims.Holder(key);
 
-            if (await AskDaemonToFinishAsync(key, holder, sessionId) is not RecordingFinish.Unreachable) return;
+            if (await AskDaemonToFinishAsync(key, holder, sessionId, from) is not RecordingFinish.Unreachable) return;
 
             if (holder is null || LeftToCatchUp(key)) {
                 await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: nothing answers for the daemon holding {key}; left to its catch-up");
@@ -650,7 +662,7 @@ public sealed partial class WatcherManager(
             if ((claim is RecorderClaimState.DaemonStale || abandonedBy is not null) && !await TryTakeStaleClaimAsync(key, abandonedBy)) {
                 // A beat that landed first means the daemon woke, and the source is its to finish.
                 if (abandonedBy is null && _claims.Read(key) is RecorderClaimState.DaemonFresh) {
-                    await AskDaemonToFinishAsync(key, _claims.Holder(key), sessionId);
+                    await AskDaemonToFinishAsync(key, _claims.Holder(key), sessionId, from);
                 } else {
                     await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: {key} changed hands; leaving it to its holder");
                 }
@@ -780,11 +792,11 @@ public sealed partial class WatcherManager(
     /// <summary>Waits for the holder inside what is left of <see cref="FinishSourceBudget"/>. Short of finding nothing
     /// listening, the hook drains nothing: the source is the daemon's, which finishes it whether or not anyone is still
     /// waiting.</summary>
-    async Task<RecordingFinish> AskDaemonToFinishAsync(string key, string? holder, string sessionId) {
+    async Task<RecordingFinish> AskDaemonToFinishAsync(string key, string? holder, string sessionId, ProcessIncarnation? from) {
         using var budget = new CancellationTokenSource(FinishWait(), time);
 
         try {
-            var finish = await _daemonRecording.FinishSourceAsync(key, holder, budget.Token).WaitAsync(budget.Token);
+            var finish = await _daemonRecording.FinishSourceAsync(key, holder, from, budget.Token).WaitAsync(budget.Token);
 
             if (finish is not RecordingFinish.Unreachable)
                 await Console.Error.WriteLineAsync(finish is RecordingFinish.Finished
