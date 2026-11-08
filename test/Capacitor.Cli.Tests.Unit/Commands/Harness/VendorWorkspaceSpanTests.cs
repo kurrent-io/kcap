@@ -176,7 +176,29 @@ public class VendorWorkspaceSpanTests : IDisposable {
 
         await CodexAsync("SessionStart");
 
+        // The drain is never awaited by the hook, so it lands on its own time.
+        for (var i = 0; i < 200 && Posted().Count == 0; i++) await Task.Delay(50);
         await Assert.That(Posted().Select(p => p.SessionId)).IsEquivalentTo(["ffffffffffffffffffffffffffffffff"]);
+    }
+
+    /// <summary>Codex reads a hook's answer when its process exits, so a workspace drain against a server that
+    /// never answers must not hold the process past the handshake.</summary>
+    [Test]
+    [Arguments("SessionStart")]
+    [Arguments("Stop")]
+    public async Task A_codex_hook_never_waits_on_a_hung_workspace_drain(string eventName) {
+        _server.ResetMappings();
+        _server.Given(Request.Create().WithPath("/hooks/workspace-changes").UsingPost()).AtPriority(1)
+            .RespondWith(Response.Create().WithStatusCode(200).WithDelay(TimeSpan.FromSeconds(20)));
+        _server.Given(Request.Create().UsingAnyMethod()).AtPriority(10).RespondWith(Response.Create().WithStatusCode(200));
+        new WorkspaceSpool(Config.Root, _server.Url!, _time).Write(new WorkspaceChangesRequest(
+            "ffffffffffffffffffffffffffffffff", Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+            [new WorkspaceChange("x.txt", "edit")], false));
+        var started = TimeProvider.System.GetTimestamp();
+
+        await CodexAsync(eventName);
+
+        await Assert.That(TimeProvider.System.GetElapsedTime(started)).IsLessThan(TimeSpan.FromSeconds(10));
     }
 
     [Test]
@@ -185,6 +207,8 @@ public class VendorWorkspaceSpanTests : IDisposable {
         Repo.CreateFile("codex-turn.txt", "x");
         await CodexAsync("Stop");
 
+        // Stop never waits on its drain, so the post lands on its own time.
+        for (var i = 0; i < 200 && Posted().Count == 0; i++) await Task.Delay(50);
         await Assert.That(Posted().SelectMany(p => p.Changes)).IsEquivalentTo([new WorkspaceChange("codex-turn.txt", "create")]);
     }
 

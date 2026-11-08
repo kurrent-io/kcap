@@ -314,17 +314,17 @@ sealed class CodexHookCommand(
         return 0;
     }
 
-    /// <summary>The span closes before the stop handshake, so it reads the tree as the turn left it, and the
-    /// spool drains after it, so a slow server never holds Codex's stdout.</summary>
+    /// <summary>The span closes before the stop handshake, so it reads the tree as the turn left it; the spool
+    /// drains alongside the handshake and is never waited on, so a slow server never delays Codex.</summary>
     async Task<int> HandleStopWithSpansAsync(JsonNode node, CodexHookEnvironment env) {
         var main  = SubagentIdOf(node) is null;
         var spans = Spans(env);
         if (main) await spans.CloseAsync(TryGetString(node, "session_id"), clock.Budget(Ceiling).Remaining, drain: false);
 
-        var exit = await HandleStop(node, env);
+        // Overlaps the stop handshake and is never awaited: Codex reads the answer when this process exits.
+        if (main) _ = spans.DrainAsync(clock.Budget(Ceiling).Remaining);
 
-        if (main) await spans.DrainAsync(clock.Budget(Ceiling).Remaining);
-        return exit;
+        return await HandleStop(node, env);
     }
 
     // Retires a prompt the daemon still holds once it was answered in Codex's terminal. A finished
@@ -455,12 +455,7 @@ sealed class CodexHookCommand(
 
         await RunSessionStartHandshakeForTest(
             writeStdout: () => WriteSessionStartOutput(env.Stdout, fragment, workItemsNudge),
-            postStdoutWork: async () => {
-                await RunPostStdoutWork(spool, enrichedNode, sessionId, outcome, env);
-                // Codex has no hook after a session's last Stop, so a span whose post failed there is retried here,
-                // after the handshake; Program's post-dispatch drain skips Codex.
-                await Poster(env).DrainWorkspaceAsync(clock.Elapsed);
-            });
+            postStdoutWork: () => RunPostStdoutWork(spool, enrichedNode, sessionId, outcome, env));
 
         // Non-zero says the session was not recorded; RunPostStdoutWork spawns no watcher for it.
         return outcome == HookPostOutcome.Failed ? 1 : 0;
@@ -474,6 +469,9 @@ sealed class CodexHookCommand(
         var transcriptSpool = new TranscriptSpool(config, clock.Time, Url);
 
         _ = Poster(env).DrainSpoolsAsync(spool, transcriptSpool, sessionId);
+        // Codex has no hook after a session's last Stop, so a span whose post failed there is retried here.
+        // Never awaited, like the drain above: Codex reads the answer when this process exits.
+        _ = Poster(env).DrainWorkspaceAsync(clock.Elapsed);
 
         if (!AgentHookPoster.ShouldSpawnAfter(outcome, Url)) return Task.CompletedTask;
 
