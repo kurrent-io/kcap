@@ -14,6 +14,8 @@ using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Plans;
 using Capacitor.Cli.PrDetection;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -54,6 +56,12 @@ public sealed class ClaudeHookCommand(
         "session-start" => SessionStartCeiling,
         _               => TimeSpan.FromSeconds(5),
     };
+
+    /// <summary>What a session end may spend closing workspace spans, out of the detached continuation's
+    /// budget the session-end POST also needs.</summary>
+    static readonly TimeSpan WorkspaceEndCap = TimeSpan.FromSeconds(4);
+
+    static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
 
     /// <summary>The session-start POST and the memory and flows fetches share what is left after
     /// <see cref="HookBudget.Safety"/>; must match the session-start timeout in <c>kcap/hooks/hooks.json</c>.</summary>
@@ -254,6 +262,40 @@ public sealed class ClaudeHookCommand(
     }
 
     /// <summary>
+    /// <c>kcap hook --claude --workspace-span</c>: synchronous entries on UserPromptSubmit, Stop and an
+    /// <c>EnterWorktree</c> PostToolUse. Synchronous because a baseline must be taken before the turn's
+    /// first tool can edit anything, and its own entry so the catch-all PostToolUse, which is asynchronous,
+    /// never opens a span late.
+    /// </summary>
+    public Task<int> HandleWorkspaceSpan(TextReader stdin) =>
+        HandleWorkspaceSpanCore(stdin, new WorkspaceSpanHook(config, profiles, http, clock.Time));
+
+    static string CwdBody(string cwd) => new JsonObject { ["cwd"] = AotJsonString(cwd) }.ToJsonString();
+
+    internal async Task<int> HandleWorkspaceSpanCore(TextReader stdin, WorkspaceSpanHook spans) {
+        try {
+            var body = await stdin.ReadToEndAsync();
+            if (ClaudeWorkspaceSpanEvent.Parse(body) is not { } evt) return 0;
+            if (ClaudeHelperRun.IsHelperSessionId(evt.SessionId)) return 0;
+
+            var budget = clock.Budget(Ceiling(evt.Command));
+            if (await ShouldSuppressCaptureAsync(evt.SessionId, body, evt.Command, profiles.Effective, budget)) return 0;
+            // A worktree the turn moved into is gated on its own path, which the payload's cwd may not name.
+            if (evt.Open == WorkspaceOpen.Join && evt.Dir is { } destination
+             && await IsSessionExcludedAsync(profiles.Effective, CwdBody(destination), budget)) return 0;
+
+            // An open blocks the prompt or the agent's next tool, so it never waits on the server; the
+            // turn's Stop and the other hooks' drains post what it closed.
+            if (evt.Open is { } mode) await spans.OpenAsync(evt.SessionId, evt.Dir, mode, budget.Remaining, drain: false);
+            else await spans.CloseAsync(evt.SessionId, budget.Remaining);
+
+            return 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    /// <summary>
     /// <c>kcap hook --claude --task-list</c>: a synchronous PostToolUse on Claude's own task tools, on
     /// writes that may touch a workflow ledger, on subagent dispatches, and on the kcap-plans writes.
     /// While the session has written no kcap plan tasks it reminds the agent to keep them, once when the
@@ -314,6 +356,39 @@ public sealed class ClaudeHookCommand(
             TextWriter? stdout = null, bool passNoticesCapable = false) {
         string body;
         try { body = await stdin.ReadToEndAsync(); } catch { return 0; }
+
+        var exit = await HandleWithDepsCore(spool, body, clientFactory, stdout, passNoticesCapable);
+        if (_endSettled) await EndWorkspaceSpansAsync(body);
+        return exit;
+    }
+
+    /// <summary>Set once this invocation's session end was posted, spooled, or refused for good. Spans close only
+    /// after it, so none is ever delivered for a session whose end was lost.</summary>
+    bool _endSettled;
+
+    /// <summary>A session's end goes first: it is posted or spooled before the turn's spans are closed, which
+    /// runs git over the whole tree. The turn's Stop normally closed them already; this catches a session that
+    /// ended mid-turn. Its spans are left for a later hook to post.</summary>
+    async Task EndWorkspaceSpansAsync(string body) {
+        string? sessionId;
+        try {
+            var node = JsonNode.Parse(body);
+            if (node?["hook_event_name"]?.GetValue<string>() is not { } ev || ToKebab(ev) != "session-end" || node["agent_id"] is not null) return;
+            sessionId = node["session_id"]?.GetValue<string>()?.Replace("-", "");
+        } catch {
+            return;
+        }
+
+        if (sessionId is null || ClaudeHelperRun.IsHelperSessionId(sessionId) || SessionEndFence.ShouldHold(hosted, sessionId)) return;
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time)
+            .EndAsync(sessionId, Min(clock.Budget(Ceiling("session-end")).Remaining, WorkspaceEndCap), drain: false);
+    }
+
+    async Task<int> HandleWithDepsCore(
+            HookSpool spool, string body,
+            Func<Task<AuthAttempt>> clientFactory,
+            TextWriter? stdout, bool passNoticesCapable) {
 
         // Minimal parse (no auth/git) so we can spool AND start the watcher even if client creation hangs.
         string? command = null, sessionId = null, transcriptPath = null, cwd = null, source = null, agentId = null, toolUseId = null, toolName = null;
@@ -464,8 +539,9 @@ public sealed class ClaudeHookCommand(
             var reason      = unusableUrl ? "unusable server URL" : "auth/client creation exceeded hook budget";
 
             if (command is "session-start" or "session-end" && sessionId is not null) {
-                await ReportSpoolAsync(spool.Append(sessionId, command, NormalizeForSpool(body, command)),
-                                       command, sessionId, reason, unusableUrl);
+                var spooled = spool.Append(sessionId, command, NormalizeForSpool(body, command));
+                if (command == "session-end") _endSettled = spooled;
+                await ReportSpoolAsync(spooled, command, sessionId, reason, unusableUrl);
             }
             else if (command == "subagent-stop" && sessionId is not null && agentId is not null) {
                 await ReportSpoolAsync(spool.Append(sessionId, "subagent-stop", NormalizeForSpool(body, command)),
@@ -585,7 +661,10 @@ public sealed class ClaudeHookCommand(
         if (ClaudeHelperRun.IsHelperSessionId(canonicalSessionId)) return true;
 
         if (canonicalSessionId is not null && DisabledSessions.IsDisabled(canonicalSessionId, config)) {
-            if (command == "session-end") DisabledSessions.RemoveMarker(canonicalSessionId, config);
+            if (command == "session-end") {
+                // The marker withholds the spans until they are gone; a later hook retries the discard.
+                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(canonicalSessionId)) DisabledSessions.RemoveMarker(canonicalSessionId, config);
+            }
             return true;
         }
 
@@ -687,7 +766,8 @@ public sealed class ClaudeHookCommand(
 
             if (disabledSessionId is not null && DisabledSessions.IsDisabled(disabledSessionId, config)) {
                 if (command == "session-end") {
-                    DisabledSessions.RemoveMarker(disabledSessionId, config);
+                    // The marker withholds the spans until they are gone; a later hook retries the discard.
+                    if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(disabledSessionId)) DisabledSessions.RemoveMarker(disabledSessionId, config);
                 }
 
                 return 0;
@@ -1201,7 +1281,7 @@ public sealed class ClaudeHookCommand(
             // session-end so a stranded session-start always reaches the server before it.
             if (CurrentSessionHasBacklog(spool, sessionId)) {
                 if (sessionId is not null) {
-                    spool.Append(sessionId, "session-end", body);
+                    _endSettled = spool.Append(sessionId, "session-end", body);
                     await Console.Error.WriteLineAsync($"[kcap] session-end spooled (ordering guard); will retry on the next kcap hook ({sessionId})");
                 }
                 return 0;
@@ -1223,15 +1303,19 @@ public sealed class ClaudeHookCommand(
                 resp?.Dispose();
                 if (retryable) {
                     if (sessionId is not null) {
-                        await ReportSpoolAsync(spool.Append(sessionId, "session-end", body),
-                                               "session-end", sessionId, FailureReason(code), unusableUrl: false);
+                        _endSettled = spool.Append(sessionId, "session-end", body);
+                        await ReportSpoolAsync(_endSettled, "session-end", sessionId, FailureReason(code), unusableUrl: false);
                     } else {
                         await Console.Error.WriteLineAsync("[kcap] session-end transient failure but session_id missing — cannot spool; event dropped");
                     }
+                } else {
+                    // Refused for good, as a deleted session's end is: nothing is left to deliver first.
+                    _endSettled = true;
                 }
                 return 0;
             }
 
+            _endSettled = true;
             try {
                 var node = JsonNode.Parse(await resp.Content.ReadAsStringAsync());
                 if (node?["generate_whats_done"]?.GetValue<bool>() == true && sessionId is not null)

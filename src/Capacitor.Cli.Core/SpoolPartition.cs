@@ -62,6 +62,8 @@ public sealed class SpoolPartition {
         try {
             foreach (var file in Directory.EnumerateFiles(top, "*", SearchOption.AllDirectories)) {
                 try {
+                    // A drain lease is never touched while held, so its age says nothing about whether it is.
+                    if (Path.GetFileName(file) == SpoolDrainLease.FileName) continue;
                     if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file);
                 } catch {
                     // Ignore: the next sweep retries it

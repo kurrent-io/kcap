@@ -38,6 +38,8 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands;
 
@@ -966,6 +968,10 @@ partial class WatchCommand(
         // parent-exit synthesis.
         MuseSessionEndRequest? museEndRequest = null;
 
+        // The workspace spool is delivered from here too: Codex reads a hook's answer when its process exits, so
+        // its hooks never post a span, and a session may run no other hook.
+        var nextWorkspaceDrain = DateTimeOffset.MinValue;
+
         try {
             while (!cts.Token.IsCancellationRequested) {
                 // Task 9: touch every iteration — including no-content drains and
@@ -1158,6 +1164,11 @@ partial class WatchCommand(
                     cts.Cancel();
 
                     break;
+                }
+
+                if (agentId is null && time.GetUtcNow() >= nextWorkspaceDrain) {
+                    nextWorkspaceDrain = time.GetUtcNow() + WorkspaceSpool.DrainThrottle;
+                    await new AgentHookPoster(config, profiles, http, watchers, time).DrainWorkspaceAsync(TimeSpan.Zero);
                 }
 
                 try {
@@ -1972,6 +1983,8 @@ partial class WatchCommand(
     /// </summary>
     static readonly TimeSpan ParentExitPostBudget = TimeSpan.FromSeconds(15);
 
+    static readonly TimeSpan WorkspaceEndCap = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// Codex has no session-end hook and the desktop app's single long-lived
     /// `codex app-server` process is the watchdog's parent PID for EVERY
@@ -2488,8 +2501,14 @@ partial class WatchCommand(
         }
 
         var endHook = ParentExitEndBody(sessionId, transcriptPath, cwd, reason, time.GetUtcNow(), HostedAgent.FromEnvironment());
+        var posted  = await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
 
-        return await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
+        // After the end, which the watcher's short stop window protects, and only once it was posted or spooled:
+        // a vendor without turn hooks opened its span at SessionStart, and one with them may have died mid-turn.
+        // Its drain is bounded, and is the last chance a session with no other hook gets.
+        if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceEndCap);
+
+        return posted;
     }
 
     /// <summary>The end a hook handed over, as the watcher posts it. The run identity is only ever the one the hook

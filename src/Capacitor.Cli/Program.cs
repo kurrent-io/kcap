@@ -1014,6 +1014,9 @@ switch (command) {
         if (args.Contains("--claude") && args.Contains("--plan-edit")) {
             return await Run<ClaudeHookCommand>().HandlePlanEdit(new StringReader(claudeHookBody!));
         }
+        if (args.Contains("--claude") && args.Contains(ClaudeWorkspaceSpanEvent.Flag)) {
+            return await Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!));
+        }
         if (args.Contains("--claude") && args.Contains(ClaudePassNotices.Flag)) {
             return await Run<ClaudeHookCommand>().HandlePassNotices(new StringReader(claudeHookBody!));
         }
@@ -1039,54 +1042,65 @@ switch (command) {
                 sessionId: null);
             HookTiming.Mark("global-spool-drain");
         }
-        if (args.Contains("--claude")) {
-            var handled = await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!), args.Contains(ClaudePassNotices.CapableFlag));
-            HookTiming.Mark("handled");
+        var vendorExit = await DispatchVendorHookAsync();
 
-            return handled;
-        }
-        if (args.Contains("--codex")) {
-            var codexExit = await Run<CodexHookCommand>().Handle(Console.In);
-            new HookActivity(config, time).Stamp(HarnessId.Codex.VendorId);
+        // After the vendor's own work, so a session end is handed off or posted before any workspace span.
+        if (!args.Contains("--codex") && baseUrl is not null)
+            await new AgentHookPoster(config, profiles, sp.GetRequiredService<ICapacitorHttpClient>(), sp.GetRequiredService<WatcherManager>(), time)
+                .DrainWorkspaceAsync(clock.Elapsed);
 
-            return codexExit;
+        return vendorExit;
+
+        async Task<int> DispatchVendorHookAsync() {
+            if (args.Contains("--claude")) {
+                var handled = await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!), args.Contains(ClaudePassNotices.CapableFlag));
+                HookTiming.Mark("handled");
+
+                return handled;
+            }
+            if (args.Contains("--codex")) {
+                var codexExit = await Run<CodexHookCommand>().Handle(Console.In);
+                new HookActivity(config, time).Stamp(HarnessId.Codex.VendorId);
+
+                return codexExit;
+            }
+            if (args.Contains("--cursor")) {
+                // Not Console.In: it reads synchronously inside ReadToEndAsync, so a held-open stdin would block
+                // before the hook's deadline race starts. A stream-backed reader awaits off the calling thread.
+                using var cursorStdin = new StreamReader(Console.OpenStandardInput(), Console.InputEncoding);
+                return await Run<CursorHookCommand>().Handle(cursorStdin);
+            }
+            if (args.Contains("--copilot")) {
+                return await Run<CopilotHookCommand>().Handle(Console.In, args);
+            }
+            if (args.Contains("--gemini")) {
+                return await Run<GeminiHookCommand>().Handle(Console.In);
+            }
+            if (args.Contains("--kiro")) {
+                return await Run<KiroHookCommand>().Handle(Console.In, args);
+            }
+            if (args.Contains("--pi")) {
+                return await Run<PiHookCommand>().Handle(args, Console.Out);
+            }
+            if (args.Contains("--opencode")) {
+                return await Run<OpenCodeHookCommand>().Handle(args);
+            }
+            if (args.Contains("--antigravity")) {
+                return await Run<AntigravityHookCommand>().Handle(args);
+            }
+            if (args.Contains("--mistral-vibe")) {
+                return await Run<MistralVibeHookCommand>().Handle(Console.In);
+            }
+            if (args.Contains("--grok")) {
+                return await Run<GrokHookCommand>().Handle(Console.In);
+            }
+            if (args.Contains("--muse")) {
+                return await Run<MuseHookCommand>().Handle(Console.In);
+            }
+            Console.Error.WriteLine("kcap hook requires a vendor flag (for example --claude)");
+            Console.Error.WriteLine("Supported vendors: --claude, --codex, --cursor, --copilot, --gemini, --kiro, --pi, --opencode, --antigravity, --mistral-vibe, --grok, --muse");
+            return 1;
         }
-        if (args.Contains("--cursor")) {
-            // Not Console.In: it reads synchronously inside ReadToEndAsync, so a held-open stdin would block
-            // before the hook's deadline race starts. A stream-backed reader awaits off the calling thread.
-            using var cursorStdin = new StreamReader(Console.OpenStandardInput(), Console.InputEncoding);
-            return await Run<CursorHookCommand>().Handle(cursorStdin);
-        }
-        if (args.Contains("--copilot")) {
-            return await Run<CopilotHookCommand>().Handle(Console.In, args);
-        }
-        if (args.Contains("--gemini")) {
-            return await Run<GeminiHookCommand>().Handle(Console.In);
-        }
-        if (args.Contains("--kiro")) {
-            return await Run<KiroHookCommand>().Handle(Console.In, args);
-        }
-        if (args.Contains("--pi")) {
-            return await Run<PiHookCommand>().Handle(args, Console.Out);
-        }
-        if (args.Contains("--opencode")) {
-            return await Run<OpenCodeHookCommand>().Handle(args);
-        }
-        if (args.Contains("--antigravity")) {
-            return await Run<AntigravityHookCommand>().Handle(args);
-        }
-        if (args.Contains("--mistral-vibe")) {
-            return await Run<MistralVibeHookCommand>().Handle(Console.In);
-        }
-        if (args.Contains("--grok")) {
-            return await Run<GrokHookCommand>().Handle(Console.In);
-        }
-        if (args.Contains("--muse")) {
-            return await Run<MuseHookCommand>().Handle(Console.In);
-        }
-        Console.Error.WriteLine("kcap hook requires a vendor flag (for example --claude)");
-        Console.Error.WriteLine("Supported vendors: --claude, --codex, --cursor, --copilot, --gemini, --kiro, --pi, --opencode, --antigravity, --mistral-vibe, --grok, --muse");
-        return 1;
     }
     case "cursor":
         await Console.Error.WriteLineAsync(

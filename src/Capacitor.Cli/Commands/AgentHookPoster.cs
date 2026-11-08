@@ -8,6 +8,7 @@ using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Muse;
 
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands;
 
@@ -260,8 +261,19 @@ internal sealed class AgentHookPoster(
     internal async Task DrainSpoolsCoreAsync(
             HookSpool lifecycle, TranscriptSpool transcript, string? sessionId,
             Func<CancellationToken, Task<AuthAttempt>> clientFactory) {
-        if (!TryClaimDrainAttempt(lifecycle.DirectoryPath)) return; // throttled — a recent attempt already ran
+        if (IsDrainThrottled(lifecycle.DirectoryPath)) return; // a recent drain finished
 
+        try {
+            await DrainSpoolsUnthrottledAsync(lifecycle, transcript, sessionId, clientFactory);
+        } finally {
+            // Only once the drain returned: one killed with its hook process must not hold the next back.
+            StampDrain(lifecycle.DirectoryPath);
+        }
+    }
+
+    async Task DrainSpoolsUnthrottledAsync(
+            HookSpool lifecycle, TranscriptSpool transcript, string? sessionId,
+            Func<CancellationToken, Task<AuthAttempt>> clientFactory) {
         // Retention runs even when delivery cannot: the reap lives here, and Program.cs skips this
         // whole call while the URL is unacceptable, so an indefinitely broken config would otherwise
         // never reap anything.
@@ -298,9 +310,39 @@ internal sealed class AgentHookPoster(
                     new CursorMarkers(config, time), client, Url!, lifecycle, transcript, sessionId, budget,
                     time, cts.Token,
                     onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr));
+
             }
         } catch {
             // Best-effort — a drain hiccup must never disrupt the vendor's own hook.
+        }
+    }
+
+    /// <summary>The longest the post-dispatch workspace drain may run, and the latest point in a hook's life it
+    /// starts: past that the host's own timeout is close.</summary>
+    static readonly TimeSpan WorkspaceDrainWindow = TimeSpan.FromSeconds(1.5);
+    static readonly TimeSpan WorkspaceDrainLatestStart = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Posts spooled workspace spans once the vendor's hook has done its own work, so a session end is
+    /// handed off or posted before any span is, and on a watcher's loop. Throttled on drains that finished,
+    /// and withholds disabled sessions. Never throws.
+    /// </summary>
+    public async Task DrainWorkspaceAsync(TimeSpan elapsed) {
+        try {
+            if (elapsed >= WorkspaceDrainLatestStart || !HookHttp.IsPostable(Url)) return;
+
+            var workspace = new WorkspaceSpool(config, Url, time, Stderr.WriteLine);
+            workspace.DeleteExpired();
+            if (!workspace.HasPending || workspace.IsPaused) return;
+
+            using var cts = new CancellationTokenSource(WorkspaceDrainWindow, time);
+            var (client, status) = await http.ForHookAsync(cts.Token);
+            using (client) {
+                if (IsAuthLapsed(status)) return;
+                await workspace.DrainIfDueAsync(client, Url!, WorkspaceDrainWindow, cts.Token, id => DisabledSessions.IsDisabled(id, config));
+            }
+        } catch {
+            // Best-effort — the next hook drains again.
         }
     }
 
@@ -339,25 +381,26 @@ internal sealed class AgentHookPoster(
     }
 
     /// <summary>
-    /// Cross-process drain throttle: returns <c>true</c> (and stamps the attempt) only when the last
-    /// recorded attempt is older than <see cref="DrainThrottle"/>. The stamp file name starts with a
-    /// dot so <see cref="HookSpool"/>'s / <see cref="TranscriptSpool"/>'s session-id-keyed enumerations
-    /// ignore it. Fail-open: a stamp-file hiccup must never suppress a drain, so any I/O error returns
-    /// <c>true</c>.
+    /// Cross-process drain throttle: true while the last drain that returned is younger than
+    /// <see cref="DrainThrottle"/>. The stamp file name starts with a dot so <see cref="HookSpool"/>'s /
+    /// <see cref="TranscriptSpool"/>'s session-id-keyed enumerations ignore it. Fail-open: a stamp-file
+    /// hiccup never suppresses a drain.
     /// </summary>
-    bool TryClaimDrainAttempt(string spoolDir) {
+    bool IsDrainThrottled(string spoolDir) {
         try {
             var stamp = Path.Combine(spoolDir, ".last-drain");
-
-            if (File.Exists(stamp) && time.GetUtcNow().UtcDateTime - File.GetLastWriteTimeUtc(stamp) < DrainThrottle) {
-                return false;
-            }
-
-            Directory.CreateDirectory(spoolDir);
-            File.WriteAllText(stamp, ""); // touch — mtime is the throttle clock
-            return true;
+            return File.Exists(stamp) && time.GetUtcNow().UtcDateTime - File.GetLastWriteTimeUtc(stamp) < DrainThrottle;
         } catch {
-            return true; // never let a throttle-file error swallow a legitimate drain
+            return false; // never let a throttle-file error swallow a legitimate drain
+        }
+    }
+
+    static void StampDrain(string spoolDir) {
+        try {
+            Directory.CreateDirectory(spoolDir);
+            File.WriteAllText(Path.Combine(spoolDir, ".last-drain"), ""); // touch — mtime is the throttle clock
+        } catch {
+            // The next drain runs unthrottled.
         }
     }
 

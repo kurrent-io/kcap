@@ -13,6 +13,7 @@ using Capacitor.Cli.Harness.Cursor;
 using Microsoft.Extensions.Time.Testing;
 
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.PrDetection;
 
 namespace Capacitor.Cli.Tests.Unit.Commands.Harness;
@@ -314,6 +315,72 @@ public class CursorHookCommandTests {
         await call;
 
         await Assert.That(NeedsImport(sid)).IsTrue();
+    }
+
+    async Task<(GitRepo Repo, WorkspaceSpool Spool)> OpenSpanAsync(string sid, TimeProvider time) {
+        var repo  = GitRepo.CreateWithCommit("cursor-span");
+        var spool = new WorkspaceSpool(Config.Root, Fixture.StubUrl, time);
+        await new WorkspaceSpanStore(Config.Root, Fixture.StubUrl, spool, new WorkspaceSnapshotter(new WorkspaceGit(time), time), time)
+            .OpenAsync(sid, repo.Path, WorkspaceOpen.Turn, TimeSpan.FromSeconds(30));
+        repo.CreateFile("made.txt", "x");
+        return (repo, spool);
+    }
+
+    /// <summary>An end the hard cap abandoned mid-drain may never be posted or spooled, since the process can exit
+    /// first; closing the span then would deliver it with no session end, so the span is left open.</summary>
+    [Test]
+    public async Task A_session_end_the_hard_cap_abandons_before_its_end_is_settled_leaves_the_span_open() {
+        var sid  = Guid.NewGuid().ToString("N");
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fx = new Fixture(Config.Root) { HoldWatermark = hold.Task };
+        await fx.WriteTranscript(TranscriptLine);
+        var (repo, spool) = await OpenSpanAsync(sid, fx.Clock);
+        using var _ = repo;
+
+        var call = fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+        await fx.WatermarkEntered.Task;
+        fx.Clock.Advance(CursorHookCommand.Ceiling);
+        await call;
+
+        await Assert.That(spool.HasPending).IsFalse();
+        hold.SetResult();
+    }
+
+    /// <summary>An end the server could not take and the spool could not keep is lost, so its span stays open
+    /// rather than be delivered with no session end.</summary>
+    [Test]
+    public async Task A_session_end_that_could_neither_post_nor_spool_leaves_the_span_open() {
+        var sid = Guid.NewGuid().ToString("N");
+        using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError);
+        await fx.WriteTranscript(TranscriptLine);
+        var (repo, spool) = await OpenSpanAsync(sid, fx.Clock);
+        using var _ = repo;
+        // A file where the lifecycle spool's directory belongs makes every append fail.
+        if (Directory.Exists(fx.Spool.DirectoryPath)) Directory.Delete(fx.Spool.DirectoryPath, recursive: true);
+        Directory.CreateDirectory(Path.GetDirectoryName(fx.Spool.DirectoryPath)!);
+        File.WriteAllText(fx.Spool.DirectoryPath, "");
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        await Assert.That(fx.RouteOrder).Contains("session-end/cursor");
+        await Assert.That(spool.HasPending).IsFalse();
+    }
+
+    [Test]
+    public async Task A_session_end_posted_in_time_closes_the_span_after_it() {
+        var sid = Guid.NewGuid().ToString("N");
+        using var fx = new Fixture(Config.Root);
+        await fx.WriteTranscript(TranscriptLine);
+        var (repo, spool) = await OpenSpanAsync(sid, fx.Clock);
+        using var _ = repo;
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        await Assert.That(fx.RouteOrder).Contains("session-end/cursor");
+        await Assert.That(spool.HasPending).IsTrue();
     }
 
     /// <summary>The marker records a loss some earlier reader found; this drain sending its own tail does not undo that.</summary>

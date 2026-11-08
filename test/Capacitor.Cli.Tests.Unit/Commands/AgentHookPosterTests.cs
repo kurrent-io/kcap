@@ -304,6 +304,33 @@ public class AgentHookPosterTests : IDisposable {
         await Assert.That(lifecycle.HasBacklog(session)).IsTrue();
     }
 
+    /// <summary>A drain still in flight when its hook process is killed must not keep the next one from running:
+    /// the throttle counts only a drain that returned.</summary>
+    [Test]
+    public async Task A_lifecycle_drain_still_in_flight_does_not_suppress_the_next() {
+        var lifecycle  = new HookSpool(Config.Root, TimeProvider.System, server: null);
+        var transcript = new TranscriptSpool(Config.Root, TimeProvider.System, server: null);
+        lifecycle.Append("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "session-start/codex", "{}");
+        var hold = new TaskCompletionSource<AuthAttempt>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inFlight = false;
+        var entered  = false;
+
+        var first = Poster.DrainSpoolsCoreAsync(lifecycle, transcript, null, _ => {
+            inFlight = true;
+            return hold.Task;
+        });
+        await Assert.That(inFlight).IsTrue();
+
+        await Poster.DrainSpoolsCoreAsync(lifecycle, transcript, null, _ => {
+            entered = true;
+            return Task.FromResult(new AuthAttempt(new HttpClient(), AuthStatus.Expired));
+        });
+
+        await Assert.That(entered).IsTrue();
+        hold.SetResult(new AuthAttempt(new HttpClient(), AuthStatus.Expired));
+        await first;
+    }
+
     /// <summary>The counterpart that keeps the test above honest: a spooled entry still gets a client.</summary>
     [Test]
     public async Task A_drain_with_a_spooled_entry_builds_a_client() {
