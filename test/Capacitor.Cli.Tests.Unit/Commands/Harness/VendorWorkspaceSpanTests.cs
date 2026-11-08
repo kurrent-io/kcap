@@ -166,21 +166,6 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(Posted().Select(p => p.SessionId)).IsEquivalentTo(["eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]);
     }
 
-    /// <summary>Codex has no hook after its last Stop, so a span whose post failed there is retried when the
-    /// next session starts.</summary>
-    [Test]
-    public async Task Codex_session_start_retries_spooled_workspace_spans() {
-        new WorkspaceSpool(Config.Root, _server.Url!, _time).Write(new WorkspaceChangesRequest(
-            "ffffffffffffffffffffffffffffffff", Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
-            [new WorkspaceChange("x.txt", "edit")], false));
-
-        await CodexAsync("SessionStart");
-
-        // The drain is never awaited by the hook, so it lands on its own time.
-        for (var i = 0; i < 200 && Posted().Count == 0; i++) await Task.Delay(50);
-        await Assert.That(Posted().Select(p => p.SessionId)).IsEquivalentTo(["ffffffffffffffffffffffffffffffff"]);
-    }
-
     /// <summary>Codex reads a hook's answer when its process exits, so a workspace drain against a server that
     /// never answers must not hold the process past the handshake.</summary>
     [Test]
@@ -201,15 +186,72 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(TimeProvider.System.GetElapsedTime(started)).IsLessThan(TimeSpan.FromSeconds(10));
     }
 
+    WatchCommand Watcher() {
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        return new WatchCommand(Config.Root, profiles, TestHarnesses.Under(Home), http, new FixedCredentialSource(),
+            TestWatchers.For(Config.Root, profiles, http), new GitProviderRouter(), _time, TestAccounts.None, Home);
+    }
+
+    /// <summary>A Codex session that dies mid-turn runs no other hook; its watcher posts the end and then
+    /// delivers the span itself.</summary>
+    [Test]
+    public async Task The_watcher_delivers_a_codex_span_when_no_other_hook_runs() {
+        await CodexAsync("UserPromptSubmit");
+        Repo.CreateFile("last-turn.txt", "x");
+
+        await Watcher().PostSessionEndOnParentExitAsync(Session.Replace("-", ""), Repo.PathTo("rollout.jsonl"), Repo.Path, "codex", repository: null);
+
+        await Assert.That(Posted().SelectMany(p => p.Changes).Select(c => c.Path)).IsEquivalentTo(["last-turn.txt"]);
+    }
+
+    /// <summary>A drain still in flight when its hook process is killed must not keep the next one from running:
+    /// the throttle counts only a drain that finished.</summary>
+    [Test]
+    public async Task A_drain_still_in_flight_does_not_suppress_the_next() {
+        _server.ResetMappings();
+        // Counted on arrival: the server logs a request only once it has answered.
+        var arrived = 0;
+        using var release = new ManualResetEventSlim();
+        _server.Given(Request.Create().WithPath("/hooks/workspace-changes").UsingPost()).AtPriority(1)
+            .RespondWith(Response.Create().WithCallback(_ => {
+                Interlocked.Increment(ref arrived);
+                release.Wait(TimeSpan.FromSeconds(20));
+                return new WireMock.ResponseMessage { StatusCode = 200 };
+            }));
+        _server.Given(Request.Create().UsingAnyMethod()).AtPriority(10).RespondWith(Response.Create().WithStatusCode(200));
+        new WorkspaceSpool(Config.Root, _server.Url!, _time).Write(new WorkspaceChangesRequest(
+            "ffffffffffffffffffffffffffffffff", Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+            [new WorkspaceChange("x.txt", "edit")], false));
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        AgentHookPoster Poster() => new(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time);
+        int Attempts() => Volatile.Read(ref arrived);
+
+        // The first hook's drain is in flight, as it is when its process is killed.
+        _ = Poster().DrainWorkspaceAsync(TimeSpan.Zero);
+        for (var i = 0; i < 200 && Attempts() == 0; i++) await Task.Delay(50);
+        await Assert.That(Attempts()).IsEqualTo(1);
+
+        _ = Poster().DrainWorkspaceAsync(TimeSpan.Zero);
+        for (var i = 0; i < 100 && Attempts() < 2; i++) await Task.Delay(50);
+        release.Set();
+
+        await Assert.That(Attempts()).IsEqualTo(2);
+    }
+
     [Test]
     public async Task Codex_spans_a_turn_from_its_prompt_to_its_stop() {
         await CodexAsync("UserPromptSubmit");
         Repo.CreateFile("codex-turn.txt", "x");
         await CodexAsync("Stop");
 
-        // Stop never waits on its drain, so the post lands on its own time.
-        for (var i = 0; i < 200 && Posted().Count == 0; i++) await Task.Delay(50);
-        await Assert.That(Posted().SelectMany(p => p.Changes)).IsEquivalentTo([new WorkspaceChange("codex-turn.txt", "create")]);
+        // Codex reads a hook's answer when its process exits, so the span is left for the watcher to post.
+        var spooled = Directory.EnumerateFiles(new WorkspaceSpool(Config.Root, _server.Url!, _time).DirectoryPath, "*.json", SearchOption.AllDirectories)
+            .Select(f => System.Text.Json.JsonSerializer.Deserialize(File.ReadAllText(f), WorkspaceJsonContext.Default.WorkspaceChangesRequest)!)
+            .SelectMany(r => r.Changes);
+        await Assert.That(spooled).IsEquivalentTo([new WorkspaceChange("codex-turn.txt", "create")]);
+        await Assert.That(Posted()).IsEmpty();
     }
 
     [Test]

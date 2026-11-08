@@ -313,8 +313,8 @@ internal sealed class AgentHookPoster(
 
     /// <summary>
     /// Posts spooled workspace spans once the vendor's hook has done its own work, so a session end is
-    /// handed off or posted before any span is. Throttled like the lifecycle drain, and withholds disabled
-    /// sessions. Never throws.
+    /// handed off or posted before any span is, and on a watcher's loop. Throttled on drains that finished,
+    /// and withholds disabled sessions. Never throws.
     /// </summary>
     public async Task DrainWorkspaceAsync(TimeSpan elapsed) {
         try {
@@ -322,13 +322,13 @@ internal sealed class AgentHookPoster(
 
             var workspace = new WorkspaceSpool(config, Url, time, Stderr.WriteLine);
             workspace.DeleteExpired();
-            if (!workspace.HasPending || workspace.IsPaused || !TryClaimDrainAttempt(workspace.DirectoryPath)) return;
+            if (!workspace.HasPending || workspace.IsPaused) return;
 
             using var cts = new CancellationTokenSource(WorkspaceDrainWindow, time);
             var (client, status) = await http.ForHookAsync(cts.Token);
             using (client) {
                 if (IsAuthLapsed(status)) return;
-                await workspace.DrainAsync(client, Url!, WorkspaceDrainWindow, cts.Token, id => DisabledSessions.IsDisabled(id, config));
+                await workspace.DrainIfDueAsync(client, Url!, WorkspaceDrainWindow, cts.Token, id => DisabledSessions.IsDisabled(id, config));
             }
         } catch {
             // Best-effort — the next hook drains again.

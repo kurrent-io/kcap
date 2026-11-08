@@ -314,15 +314,11 @@ sealed class CodexHookCommand(
         return 0;
     }
 
-    /// <summary>The span closes before the stop handshake, so it reads the tree as the turn left it; the spool
-    /// drains alongside the handshake and is never waited on, so a slow server never delays Codex.</summary>
+    /// <summary>The span closes before the stop handshake, so it reads the tree as the turn left it. Codex reads a
+    /// hook's answer when its process exits, so the span is posted by the session's watcher, never from here.</summary>
     async Task<int> HandleStopWithSpansAsync(JsonNode node, CodexHookEnvironment env) {
-        var main  = SubagentIdOf(node) is null;
-        var spans = Spans(env);
-        if (main) await spans.CloseAsync(TryGetString(node, "session_id"), clock.Budget(Ceiling).Remaining, drain: false);
-
-        // Overlaps the stop handshake and is never awaited: Codex reads the answer when this process exits.
-        if (main) _ = spans.DrainAsync(clock.Budget(Ceiling).Remaining);
+        if (SubagentIdOf(node) is null)
+            await Spans(env).CloseAsync(TryGetString(node, "session_id"), clock.Budget(Ceiling).Remaining, drain: false);
 
         return await HandleStop(node, env);
     }
@@ -469,9 +465,6 @@ sealed class CodexHookCommand(
         var transcriptSpool = new TranscriptSpool(config, clock.Time, Url);
 
         _ = Poster(env).DrainSpoolsAsync(spool, transcriptSpool, sessionId);
-        // Codex has no hook after a session's last Stop, so a span whose post failed there is retried here.
-        // Never awaited, like the drain above: Codex reads the answer when this process exits.
-        _ = Poster(env).DrainWorkspaceAsync(clock.Elapsed);
 
         if (!AgentHookPoster.ShouldSpawnAfter(outcome, Url)) return Task.CompletedTask;
 

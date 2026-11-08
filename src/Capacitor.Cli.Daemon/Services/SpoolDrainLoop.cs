@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Muse;
@@ -94,6 +95,14 @@ internal sealed class SpoolDrainLoop {
                     _markers, client, _baseUrl, _lifecycle, _transcript, currentSessionId: null, Budget, _time,
                     cts.Token,
                     onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid));
+
+                // Second, so a closed span never takes the lifecycle backlog's budget. A hosted Codex app-server
+                // session has no watcher, so this is what posts its spans.
+                if (!cts.IsCancellationRequested) {
+                    var workspace = new WorkspaceSpool(_configRoot, _baseUrl, _time);
+                    if (workspace.HasPending && !workspace.IsPaused)
+                        await workspace.DrainIfDueAsync(client, _baseUrl, Budget, cts.Token, sid => DisabledSessionMarker.IsSet(_configRoot, sid));
+                }
             }
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             // Outer cancellation (process shutting down) — let the loop exit.

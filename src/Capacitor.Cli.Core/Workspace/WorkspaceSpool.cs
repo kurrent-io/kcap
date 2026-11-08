@@ -20,6 +20,10 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
     public static readonly TimeSpan RouteMissingPause = TimeSpan.FromHours(24);
 
     const string PauseFile = ".route-missing-until";
+    const string DrainStamp = ".last-drain";
+
+    /// <summary>The least time between throttled drains, which every hook and watcher may attempt.</summary>
+    public static readonly TimeSpan DrainThrottle = TimeSpan.FromSeconds(30);
 
     public WorkspaceSpool(ConfigRoot config, string? server, TimeProvider time, Action<string>? warn = null)
         : this(SpoolPartition.Server(config.Path(DirectoryName), server), time, warn) { }
@@ -107,6 +111,30 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
 
     void MarkRouteMissing() =>
         WorkspaceFiles.WriteAtomic(Path.Combine(partition.DirectoryPath, PauseFile), (time.GetUtcNow() + RouteMissingPause).ToString("O", CultureInfo.InvariantCulture));
+
+    /// <summary>
+    /// <see cref="DrainAsync"/>, unless one finished within <see cref="DrainThrottle"/>. A drain is stamped only
+    /// once it returns, so one killed with its process holds back nothing; null when it did not run.
+    /// </summary>
+    public async Task<WorkspaceDrainStop?> DrainIfDueAsync(
+            HttpClient client, string serverUrl, TimeSpan budget, CancellationToken ct = default, Func<string, bool>? withheld = null) {
+        var stamp = Path.Combine(partition.DirectoryPath, DrainStamp);
+        try {
+            if (File.Exists(stamp) && time.GetUtcNow().UtcDateTime - File.GetLastWriteTimeUtc(stamp) < DrainThrottle) return null;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            // An unreadable stamp never holds a drain back.
+        }
+
+        var stop = await DrainAsync(client, serverUrl, budget, ct, withheld);
+        try {
+            Directory.CreateDirectory(partition.DirectoryPath);
+            File.WriteAllText(stamp, "");
+            File.SetLastWriteTimeUtc(stamp, time.GetUtcNow().UtcDateTime);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            // The next drain runs unthrottled.
+        }
+        return stop;
+    }
 
     /// <summary>Posts spooled spans oldest first until the spool is empty, the budget runs out, or a
     /// failure says a later attempt may succeed. A span of a session <paramref name="withheld"/> names is
