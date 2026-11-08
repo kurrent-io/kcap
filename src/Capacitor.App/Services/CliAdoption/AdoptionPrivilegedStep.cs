@@ -84,7 +84,13 @@ internal sealed class AdoptionPrivilegedStep(
         }
 
         var planned = new List<PrivilegedEntry>();
-        foreach (var e in entries) planned.Add(await PinnedAsync(install, Entry(install, retirement.Plan(e)), ct).ConfigureAwait(false));
+        foreach (var e in entries) {
+            if (await PinnedAsync(install, Entry(install, retirement.Plan(e)), ct).ConfigureAwait(false) is not { } entry) {
+                deletion.Hold(install, AdoptionDeletion.IdentityUnreadable);
+                return PrivilegedStepOutcome.Settled;
+            }
+            planned.Add(entry);
+        }
         var folder = Path.Combine(Path.GetFullPath(helperFolder), "cli-adoption-helper-" + Guid.NewGuid().ToString("N"));
         var spec   = new PrivilegedSpec(links, planned,
             Path.Combine(folder, "control"), Path.Combine(folder, "status"), GoWait, RandomNumberGenerator.GetHexString(32, lowercase: true)) {
@@ -241,13 +247,18 @@ internal sealed class AdoptionPrivilegedStep(
     }
 
     // A same-version reinstall passes the name and version check: an npm package the daemon does not pin is pinned by
-    // its package.json as it is before the prompt.
-    async Task<PrivilegedEntry> PinnedAsync(OtherCliInstall install, PrivilegedEntry entry, CancellationToken ct) {
+    // its package.json as it is before the prompt. Null for one there whose identity cannot be read: it cannot be told
+    // from a reinstall.
+    async Task<PrivilegedEntry?> PinnedAsync(OtherCliInstall install, PrivilegedEntry entry, CancellationToken ct) {
         if (install.Kind != OtherCliInstallKind.Npm || entry.Pinned is not null) return entry;
-        var folder = Directory.Exists(entry.Entry.Original) ? entry.Entry.Original : entry.Entry.Aside;
+        var folder = Directory.Exists(entry.Entry.Original) ? entry.Entry.Original
+            : Directory.Exists(entry.Entry.Aside) ? entry.Entry.Aside
+            : null;
+        if (folder is null) return entry;
+
         return await machine.IdentityAsync(Path.Combine(folder, "package.json"), ct).ConfigureAwait(false) is { } identity
             ? entry with { Pinned = ("package.json", identity) }
-            : entry;
+            : null;
     }
 
     static string Quoted(string value) => $"\"{value}\"";

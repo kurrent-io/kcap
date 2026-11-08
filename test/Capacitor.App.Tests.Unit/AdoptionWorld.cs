@@ -300,10 +300,11 @@ sealed class AdoptionWorld {
         public bool InstallsUnreadable { get; set; }
 
         /// <summary>The identity of an entry: a world install's daemon, where it was laid out or inside an aside of its
-        /// platform package, keeps the install's.</summary>
+        /// platform package, keeps the install's; any other file there has one of its own.</summary>
         public Func<string, string?> Identity { get; set; } = path => File.Exists(path)
             ? world._installs.Find(n => path == n.Install.DaemonBinary
                 || Path.GetFileName(path) == "kcap-daemon" && path.StartsWith(n.Platform + ".retired-", StringComparison.Ordinal))?.Install.Identity
+              ?? "16777232:1:1:1"
             : null;
 
         public Task<string?> IdentityAsync(string entry, CancellationToken ct) => Task.FromResult(Identity(entry));

@@ -919,6 +919,22 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
     }
 
+    /// <summary>A package whose identity cannot be read cannot be told from a same-version reinstall during the prompt: the
+    /// install is held and no prompt opens.</summary>
+    [Test]
+    public async Task An_npm_package_that_cannot_be_pinned_holds_the_install_without_a_prompt() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        var identity = world.Machine.Identity;
+        world.Machine.Identity = path => path == Path.Combine(world.Root, "package.json") ? null : identity(path);
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Admin.Prompts).IsEmpty();
+        await Assert.That(world.Record.Installs.Single().HeldBy).IsEqualTo(AdoptionDeletion.IdentityUnreadable);
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+    }
+
     /// <summary>A same-version reinstall passes an npm package's name and version check: the launcher, which the daemon
     /// does not pin, goes to the helper pinned by its package.json as read before the prompt, and the platform package by
     /// the daemon preflight read.</summary>
