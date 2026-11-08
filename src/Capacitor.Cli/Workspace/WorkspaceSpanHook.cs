@@ -57,17 +57,18 @@ sealed class WorkspaceSpanHook(ConfigRoot config, ProfileContext profiles, ICapa
         TimeSpan Left() => budget - time.GetElapsedTime(started);
 
         try {
-            Store.Prune();
-            Spool.DeleteExpired();
-
-            if (DisabledSessions.IsDisabled(sessionId, config)) {
-                Store.Discard(sessionId);
-                return;
-            }
-
-            await work(Left);
+            if (DisabledSessions.IsDisabled(sessionId, config)) Store.Discard(sessionId);
+            else await work(Left);
         } catch (Exception ex) when (ex is not OutOfMemoryException) {
             Stderr.WriteLine($"[kcap] workspace span failed for {sessionId}: {ex.Message}");
+        }
+
+        // After the span's own work, so maintenance never delays the turn's snapshot.
+        try {
+            Store.Prune();
+            Spool.DeleteExpired();
+        } catch (Exception ex) when (ex is not OutOfMemoryException) {
+            Stderr.WriteLine($"[kcap] workspace span cleanup failed: {ex.Message}");
         }
 
         if (drain) await DrainAsync(Left());

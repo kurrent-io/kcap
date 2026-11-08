@@ -98,7 +98,8 @@ public sealed class WorkspaceSpanStore(
                 try {
                     if (!IsStale(session, cutoff, withDirectory: true)) continue;
 
-                    using var held = WorkspaceSpanLock.TryAcquire(session, LockWait);
+                    // Never waits: this runs on every hook, and a busy directory is left for a later prune.
+                    using var held = WorkspaceSpanLock.TryAcquire(session, TimeSpan.Zero);
                     // Again under the lock: a hook may have opened a span between the first look and the lock.
                     // Taking the lock touches the directory and may create the lock file, so only the other
                     // files count now.
