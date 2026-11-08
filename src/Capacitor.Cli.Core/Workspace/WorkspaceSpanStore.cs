@@ -74,12 +74,16 @@ public sealed class WorkspaceSpanStore(
         var started = time.GetTimestamp();
         await CloseAllCoreAsync(sessionId, sessionDir, () => budget - time.GetElapsedTime(started));
 
-        if (!Baselines(sessionDir).Any()) TryDeleteDirectory(sessionDir);
+        using var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait);
+        if (held is not null && !Baselines(sessionDir).Any()) held.RemoveSession();
     }
 
     /// <summary>Drops the session's baselines unposted — a session whose recording was turned off.</summary>
     public void Discard(string sessionId) {
-        if (SessionDir(sessionId) is { } sessionDir && Directory.Exists(sessionDir)) TryDeleteDirectory(sessionDir);
+        if (SessionDir(sessionId) is not { } sessionDir || !Directory.Exists(sessionDir)) return;
+
+        using var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait);
+        held?.RemoveSession();
     }
 
     /// <summary>Deletes session directories nothing has written for <see cref="PruneAfter"/>, under every server.</summary>
@@ -94,7 +98,10 @@ public sealed class WorkspaceSpanStore(
                 try {
                     var info   = new DirectoryInfo(session);
                     var latest = info.EnumerateFiles().Select(f => f.LastWriteTimeUtc).Append(info.LastWriteTimeUtc).Max();
-                    if (latest < cutoff) TryDeleteDirectory(session);
+                    if (latest >= cutoff) continue;
+
+                    using var held = WorkspaceSpanLock.TryAcquire(session, TimeSpan.Zero);
+                    held?.RemoveSession();
                 } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                     // The next prune retries it.
                 }
@@ -181,8 +188,4 @@ public sealed class WorkspaceSpanStore(
     static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
 
     static TimeSpan Max(TimeSpan a, TimeSpan b) => a > b ? a : b;
-
-    static void TryDeleteDirectory(string dir) {
-        try { Directory.Delete(dir, recursive: true); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-    }
 }

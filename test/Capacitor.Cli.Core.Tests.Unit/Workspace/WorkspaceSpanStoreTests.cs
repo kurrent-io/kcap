@@ -251,6 +251,36 @@ public class WorkspaceSpanStoreTests {
         await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Select(c => c.Path)).IsEquivalentTo(["slow.txt"]);
     }
 
+    /// <summary>An opener holding the lock is about to commit its baseline, so a session end that finds no
+    /// baseline must not remove the directory, or the lock file the opener holds, under it.</summary>
+    [Test]
+    public async Task A_session_end_never_removes_the_directory_while_an_opener_holds_the_lock() {
+        using var rig = new WorkspaceRig();
+        var store    = new WorkspaceSpanStore(rig.Config.Root, WorkspaceRig.Server, rig.Spool,
+            new WorkspaceSnapshotter(new WorkspaceGit(rig.Time), rig.Time), rig.Time) { LockWait = TimeSpan.FromMilliseconds(50) };
+        var lockFile = Path.Combine(rig.SessionSpanDir, ".lock");
+
+        using (WorkspaceSpanLock.TryAcquire(rig.SessionSpanDir, TimeSpan.Zero)) {
+            await store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget);
+
+            await Assert.That(File.Exists(lockFile)).IsTrue();
+        }
+    }
+
+    /// <summary>A lock file a cleanup retired may still be opened by a hook that was waiting on it; that hook
+    /// must take a fresh lock rather than the retired one another process can no longer see.</summary>
+    [Test]
+    public async Task A_retired_lock_file_is_replaced_not_reused() {
+        using var tmp = new TempDir("ws-lock");
+        var dir = tmp.CreateDir("session");
+        File.WriteAllText(Path.Combine(dir, ".lock"), "retired");
+
+        using var held = WorkspaceSpanLock.TryAcquire(dir, TimeSpan.FromSeconds(1));
+
+        await Assert.That(held).IsNotNull();
+        await Assert.That(new FileInfo(Path.Combine(dir, ".lock")).Length).IsEqualTo(0);
+    }
+
     [Test]
     public async Task Pruning_deletes_session_directories_untouched_for_a_week_only() {
         using var rig = new WorkspaceRig();
