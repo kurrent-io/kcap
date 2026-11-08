@@ -117,11 +117,12 @@ Options:
   --steering <on|off>         Answer the terminal steering question. On runs
                               `kcap daemon steering on` for this daemon once its
                               service is up, which installs the kcap-steering
-                              Claude Code plugin the first time. With --no-prompt
-                              it is the answer; otherwise it is the prompt's
-                              suggestion. Without it, steering stays off.
-                              --steering on is refused on Windows (exit 2),
-                              where steering isn't offered.
+                              Claude Code plugin the first time, wherever kcap's
+                              Claude Code plugin is. With --no-prompt, or after a
+                              browser answer, it is the answer, and without it
+                              steering stays off; when setup asks, it is the
+                              prompt's suggestion. --steering on is refused on
+                              Windows (exit 2), where steering isn't offered.
   --default-visibility <vis>  Default visibility: private, project, org_public, public
   --org <name>                Organization name for a workspace to create, instead
                               of being prompted for it. Requires --slug.
@@ -428,11 +429,11 @@ the old name's service is removed in the same step on macOS and Windows, so
 the machine keeps one daemon; one that belongs to another profile, or whose
 daemon is busy, or any when the new name already had a service, is left in
 place, as it is on Linux, and setup prints the `kcap daemon service uninstall
---name` command that removes it. With the service up, and Claude Code found,
-it then asks whether to turn on terminal steering (default no): a yes runs
-`kcap daemon steering on` for this daemon, which installs the kcap-steering
-Claude Code plugin the first time. Not asked on Windows. After a browser
-answer the terminal asks nothing more:
+--name` command that removes it. With the service up, and kcap's Claude Code
+plugin installed, it then asks whether to turn on terminal steering (default
+no): a yes runs `kcap daemon steering on` for this daemon, which installs the
+kcap-steering Claude Code plugin the first time. Not asked on Windows. After a
+browser answer the terminal asks nothing more:
 the suggested name is used as it is. The provider API key setting is kept as
 it is; change it with `kcap config set use_provider_api_key true|false`. A
 finished browser flow with no import answer skips the import prompt and names

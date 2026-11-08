@@ -1374,15 +1374,16 @@ sealed class SetupCommand(
                 serverUrl, saved, previousDaemonName, browserAnswers.FlowId, browserAnswers.FlowStillLive);
         }
 
-        // After the service, because the switch is flipped through the running daemon.
+        // After the service and step 4's plugin install: the switch is flipped through the running daemon, and the
+        // steering plugin goes only where kcap's plugin is.
         if (!museAssistant) {
             var canAskSteering = !noPrompt && browserAgents is null && AnsiConsole.Profile.Capabilities.Interactive;
+            var steeringMod    = ClaudeSteeringMod.For(harnesses, home, accounts);
 
             await SetupSteering.RunAsync(
-                args, SteeringOffered, detected.Claude,
+                args, SteeringOffered, SetupSteering.Eligible(daemonService, steeringMod),
                 canAskSteering ? suggested => AnsiConsole.Prompt(new ConfirmationPrompt($"  {SetupSteering.Question}") { DefaultValue = suggested }) : null,
-                DaemonStore.FromEnvironment(), daemonName, time,
-                new ClaudeSteeringMod(harnesses.Of<ClaudeHarness>().Paths.UserSettings, () => pluginPath),
+                DaemonStore.FromEnvironment(), daemonName, time, steeringMod,
                 line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}"));
         }
 

@@ -1,7 +1,11 @@
 using System.Net.Sockets;
+using System.Runtime.Versioning;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Harness.Claude;
@@ -15,6 +19,7 @@ public class DaemonSteeringCommandTests {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
     [TempConfigRoot]  public required TempConfigRoot  Config  { get; init; }
     [TempHome]        public required TempHome        Home    { get; init; }
+    [TempDir]         public required TempDir         Tmp     { get; init; }
 
     const string Name = "t";
 
@@ -30,26 +35,41 @@ public class DaemonSteeringCommandTests {
 
     string Settings => new ClaudePaths(Home, null).UserSettings;
 
-    string PluginDir => Home.PathTo("kcap-plugin");
+    string PluginDir => Tmp.PathTo("kcap-plugin");
 
-    ClaudeSteeringMod Mod => new(Settings, () => PluginDir);
+    AccountStore Accounts => new(Tmp.PathTo("accounts"));
+
+    ClaudeSteeringMod Mod => ClaudeSteeringMod.For(TestHarnesses.Under(Home), Home, Accounts);
 
     string Socket => Daemons.Store.SocketPath(Name);
 
-    DaemonCommands Daemon(ClaudeSteeringMod? mod = null) => new(
-        Daemons.Store, Config.Root, Profiles, Home, TestHarnesses.Under(Home), TestBinaries.None, TimeProvider.System, Streams) {
-        Steering = mod ?? Mod
-    };
+    DaemonCommands Daemon(ConfigRoot? config = null) {
+        var root = config ?? Config.Root;
 
-    Task<int> SteeringAsync(string state, ClaudeSteeringMod? mod = null) =>
-        Daemon(mod).HandleAsync(["daemon", "steering", state, "--name", Name]);
+        return new(Daemons.Store, root, Resolutions.None(root), Home, TestHarnesses.Under(Home), TestBinaries.None, TimeProvider.System, Streams) {
+            Steering = Mod
+        };
+    }
 
-    JsonNode? Enabled() => JsonNode.Parse(File.ReadAllText(Settings))!["enabledPlugins"]?[ClaudePluginInstaller.SteeringPluginKey];
+    Task<int> SteeringAsync(string state, string name = Name, ConfigRoot? config = null) =>
+        Daemon(config).HandleAsync(["daemon", "steering", state, "--name", name]);
+
+    void InstallKcap(string settings) => ClaudePluginWriter.Install(settings, PluginDir);
+
+    static JsonNode? Enabled(string settings) =>
+        JsonNode.Parse(File.ReadAllText(settings))!["enabledPlugins"]?[ClaudePluginInstaller.SteeringPluginKey];
+
+    JsonNode? Enabled() => Enabled(Settings);
 
     void EditSettings(Action<JsonObject> edit) {
         var root = JsonNode.Parse(File.ReadAllText(Settings))!.AsObject();
         edit(root);
         File.WriteAllText(Settings, root.ToJsonString());
+    }
+
+    void ClearOutput() {
+        Out.GetStringBuilder().Clear();
+        Err.GetStringBuilder().Clear();
     }
 
     [Test]
@@ -67,17 +87,21 @@ public class DaemonSteeringCommandTests {
     [Test]
     [ExcludeOn(OS.Windows)] // refused there before any daemon is asked
     public async Task Steering_on_says_when_no_daemon_is_running() {
+        InstallKcap(Settings);
+        var before = File.ReadAllText(Settings);
+
         var exit = await SteeringAsync(SteeringIpc.On);
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(Err.ToString()).Contains($"daemon '{Name}' is not running");
-        await Assert.That(File.Exists(Settings)).IsFalse();
+        await Assert.That(File.ReadAllText(Settings)).IsEqualTo(before);
     }
 
     [Test]
     [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
     public async Task Steering_on_says_what_the_daemon_set() {
-        ClaudePluginInstaller.WriteSteeringMarker(Settings);
+        InstallKcap(Settings);
+        ClaudePluginWriter.InstallSteering(Settings);
         await using var daemon = FakeSteeringDaemon.Answering(Socket, TurnedOn);
 
         var exit = await SteeringAsync(SteeringIpc.On);
@@ -88,10 +112,11 @@ public class DaemonSteeringCommandTests {
     }
 
     /// <summary>Once per settings file: a second <c>on</c> leaves the entry as the person left it, whether they disabled
-    /// the plugin in Claude Code or uninstalled it.</summary>
+    /// the plugin in Claude Code or uninstalled it, and says what that means.</summary>
     [Test]
     [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
     public async Task Turning_steering_on_installs_and_enables_the_plugin_once() {
+        InstallKcap(Settings);
         await using var daemon = FakeSteeringDaemon.Answering(Socket, TurnedOn);
 
         await Assert.That(await SteeringAsync(SteeringIpc.On)).IsEqualTo(0);
@@ -101,26 +126,49 @@ public class DaemonSteeringCommandTests {
             .IsEqualTo(PluginDir);
 
         EditSettings(root => root["enabledPlugins"]![ClaudePluginInstaller.SteeringPluginKey] = false);
-        Out.GetStringBuilder().Clear();
+        ClearOutput();
 
         await Assert.That(await SteeringAsync(SteeringIpc.On)).IsEqualTo(0);
         await Assert.That(Enabled()!.GetValue<bool>()).IsFalse();
-        await Assert.That(Out.ToString()).IsEqualTo($"Steering is on for daemon '{Name}'.{Out.NewLine}");
+        await Assert.That(Out.ToString()).DoesNotContain("Installed");
+        await Assert.That(Out.ToString()).Contains($"kcap-steering isn't enabled in {Settings}");
 
         EditSettings(root => root["enabledPlugins"]!.AsObject().Remove(ClaudePluginInstaller.SteeringPluginKey));
+        ClearOutput();
 
         await Assert.That(await SteeringAsync(SteeringIpc.On)).IsEqualTo(0);
         await Assert.That(Enabled()).IsNull();
+        await Assert.That(Out.ToString()).Contains($"kcap-steering isn't enabled in {Settings}");
         await Assert.That(daemon.Asked).IsEquivalentTo([SteeringIpc.On, SteeringIpc.On, SteeringIpc.On]);
         await Assert.That(Err.ToString()).IsEmpty();
+    }
+
+    /// <summary>Profiles share the machine's Claude settings, so a second profile's daemon finds the plugin already
+    /// handled: the marker belongs to the settings file, not to either profile's config.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
+    public async Task A_second_profile_finds_the_plugin_as_the_first_left_it() {
+        InstallKcap(Settings);
+        await using (FakeSteeringDaemon.Answering(Socket, TurnedOn)) await SteeringAsync(SteeringIpc.On);
+        EditSettings(root => root["enabledPlugins"]![ClaudePluginInstaller.SteeringPluginKey] = false);
+        ClearOutput();
+
+        using var second = new TempConfigRoot("second-profile");
+        await using var daemon = FakeSteeringDaemon.Answering(Daemons.Store.SocketPath("u"), TurnedOn);
+
+        await Assert.That(await SteeringAsync(SteeringIpc.On, "u", second.Root)).IsEqualTo(0);
+        await Assert.That(daemon.Asked).IsEquivalentTo([SteeringIpc.On]);
+        await Assert.That(Enabled()!.GetValue<bool>()).IsFalse();
+        await Assert.That(Out.ToString()).DoesNotContain("Installed");
     }
 
     [Test]
     [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
     public async Task Turning_steering_off_leaves_the_plugin_installed() {
+        InstallKcap(Settings);
         await using (FakeSteeringDaemon.Answering(Socket, TurnedOn)) await SteeringAsync(SteeringIpc.On);
         var installed = File.ReadAllText(Settings);
-        Out.GetStringBuilder().Clear();
+        ClearOutput();
 
         await using var daemon = FakeSteeringDaemon.Answering(Socket, TurnedOff);
         var exit = await SteeringAsync(SteeringIpc.Off);
@@ -135,26 +183,98 @@ public class DaemonSteeringCommandTests {
     /// <summary>The switch is on whatever happens to the settings write, and nothing is marked done, so the next
     /// <c>on</c> tries again.</summary>
     [Test]
-    [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
-    [Arguments("malformed", "as settings, so it left the file alone")]
-    [Arguments("no plugin directory", "kcap's plugin directory wasn't found")]
+    [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon, and the read-only case needs Unix modes
+    [Arguments("unreadable", "as settings, so it left the file alone")]
+    [Arguments("read-only", "couldn't be written")]
+    [UnsupportedOSPlatform("windows")]
     public async Task A_failed_plugin_install_still_turns_steering_on_and_says_how_to_install_it(string failure, string why) {
-        const string broken = "{ broken";
-        if (failure == "malformed") Home.CreateFile([".claude", "settings.json"], broken);
-        var mod = failure == "malformed" ? Mod : new ClaudeSteeringMod(Settings, () => null);
+        var claudeHome = Path.GetDirectoryName(Settings)!;
+        if (failure == "unreadable") Home.CreateFile([".claude", "settings.json"], "{ broken");
+        else InstallKcap(Settings);
+        var before = File.ReadAllText(Settings);
         await using var daemon = FakeSteeringDaemon.Answering(Socket, TurnedOn);
 
-        var exit = await SteeringAsync(SteeringIpc.On, mod);
+        if (failure == "read-only") File.SetUnixFileMode(claudeHome, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        int exit;
+        try {
+            exit = await SteeringAsync(SteeringIpc.On);
+        } finally {
+            File.SetUnixFileMode(claudeHome, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(daemon.Asked).IsEquivalentTo([SteeringIpc.On]);
         await Assert.That(Out.ToString()).IsEqualTo($"Steering is on for daemon '{Name}'.{Out.NewLine}");
-        await Assert.That(Err.ToString()).Contains("the kcap-steering plugin isn't installed");
+        await Assert.That(Err.ToString()).Contains($"the kcap-steering plugin isn't installed in {Settings}");
         await Assert.That(Err.ToString()).Contains(why);
         await Assert.That(Err.ToString()).Contains("claude plugin install kcap-steering@kcap");
         await Assert.That(ClaudePluginInstaller.HasInstalledSteering(Settings)).IsFalse();
-        if (failure == "malformed") await Assert.That(File.ReadAllText(Settings)).IsEqualTo(broken);
-        else await Assert.That(File.Exists(Settings)).IsFalse();
+        await Assert.That(File.ReadAllText(Settings)).IsEqualTo(before);
+    }
+
+    /// <summary>Only kcap's own plugin install registers its marketplace, so steering adds nothing where it hasn't run,
+    /// and says what to run first rather than a by-hand add.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
+    public async Task Steering_on_where_kcaps_plugin_is_not_installed_changes_nothing_and_says_why() {
+        const string mine = """{ "model": "opus" }""";
+        Home.CreateFile([".claude", "settings.json"], mine);
+        await using var daemon = FakeSteeringDaemon.Answering(Socket, TurnedOn);
+
+        var exit = await SteeringAsync(SteeringIpc.On);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(daemon.Asked).IsEquivalentTo([SteeringIpc.On]);
+        await Assert.That(Out.ToString()).IsEqualTo($"Steering is on for daemon '{Name}'.{Out.NewLine}");
+        await Assert.That(Err.ToString()).Contains($"needs kcap's Claude Code plugin, which isn't installed in {Settings}");
+        await Assert.That(Err.ToString()).Contains("`kcap plugin install` adds it, and then `kcap daemon steering on` installs the steering plugin");
+        await Assert.That(Err.ToString()).DoesNotContain("marketplace");
+        await Assert.That(File.ReadAllText(Settings)).IsEqualTo(mine);
+        await Assert.That(ClaudePluginInstaller.HasInstalledSteering(Settings)).IsFalse();
+    }
+
+    /// <summary>The upgrade-time refresh reads a <c>kcap</c> marketplace entry as kcap installed, so <c>steering on</c>
+    /// must leave nothing it could read that way.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
+    public async Task An_if_installed_refresh_after_steering_on_still_does_not_install_kcap() {
+        const string mine = """{ "model": "opus" }""";
+        Home.CreateFile([".claude", "settings.json"], mine);
+        await using (FakeSteeringDaemon.Answering(Socket, TurnedOn)) await SteeringAsync(SteeringIpc.On);
+
+        var env = TestPluginEnvironment.For(Home, Tmp.CreateDir("plugin")) with { Stdout = new StringWriter(), Stderr = new StringWriter() };
+        var exit = await new PluginCommand(env, new WorkingDirectory(Tmp.CreateDir("work"))).HandleAsync(["plugin", "install", "--if-installed"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(File.ReadAllText(Settings)).IsEqualTo(mine);
+        await Assert.That(ClaudePluginInstaller.IsInstalled(Settings)).IsFalse();
+    }
+
+    /// <summary>The mod follows the kcap plugin into each Claude config dir <c>kcap accounts</c> records, and goes nowhere
+    /// the kcap plugin isn't.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
+    public async Task The_mod_goes_into_every_account_kcap_is_installed_in_and_nowhere_else() {
+        string[] wired = [Home.PathTo(".claude-work"), Home.PathTo(".claude-play")];
+        var bare = Home.PathTo(".claude-bare");
+        const string bareSettings = """{ "model": "sonnet" }""";
+        foreach (var dir in wired) InstallKcap(AccountLayouts.Claude(Home, dir).UserSettings);
+        Home.CreateFile([".claude-bare", "settings.json"], bareSettings);
+        foreach (var dir in (string[])[.. wired, bare]) AccountAdoption.EnsureDefault(Accounts, HarnessId.Claude, dir, TimeProvider.System);
+        await using var daemon = FakeSteeringDaemon.Answering(Socket, TurnedOn);
+
+        var exit = await SteeringAsync(SteeringIpc.On);
+
+        await Assert.That(exit).IsEqualTo(0);
+        foreach (var dir in wired) {
+            var settings = AccountLayouts.Claude(Home, dir).UserSettings;
+            await Assert.That(Enabled(settings)!.GetValue<bool>()).IsTrue();
+            await Assert.That(Out.ToString()).Contains($"Installed the kcap-steering plugin for Claude Code in {settings}");
+        }
+        await Assert.That(File.ReadAllText(Path.Combine(bare, "settings.json"))).IsEqualTo(bareSettings);
+        await Assert.That(File.Exists(Path.Combine(bare, ClaudePluginInstaller.SteeringMarkerFileName))).IsFalse();
+        await Assert.That(File.Exists(Settings)).IsFalse();
+        await Assert.That(Err.ToString()).IsEmpty();
     }
 
     [Test]

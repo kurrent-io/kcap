@@ -269,7 +269,8 @@ Steering:
   Steering lets you send messages from the kcap web and mobile apps into
   Claude Code sessions running in your own terminal, through the
   kcap-steering Claude Code plugin, which talks to the daemon. It is off by
-  default; `kcap setup` asks whether to turn it on. The switch belongs to one
+  default; `kcap setup` asks whether to turn it on once kcap's Claude Code
+  plugin is installed and the daemon service is up. The switch belongs to one
   daemon, so each profile has its own, and turning it on for one profile
   leaves the other's sessions closed.
 
@@ -282,19 +283,25 @@ Steering:
                                 running; otherwise print nothing. Exits 0
                                 either way.
 
-  The first `steering on` installs and enables the kcap-steering plugin in
-  Claude Code's user settings, beside the kcap plugin, once per settings file
+  The first `steering on` installs and enables the kcap-steering plugin
+  wherever kcap's own Claude Code plugin is installed (the user settings, and
+  each Claude config dir `kcap accounts` records), once per settings file
   rather than per profile: if you later disable or uninstall it in Claude
-  Code, turning steering on again leaves it that way. Sessions started after
-  the install load it. `steering off` leaves it installed, doing nothing
-  while the switch is off. If the settings can't be written, steering still
-  turns on and the command says why and exits 1; install the plugin by hand
-  with `claude plugin install kcap-steering@kcap`, or fix the cause and run
-  `steering on` again.
+  Code, turning steering on again leaves it that way and says so. Sessions
+  started after the install load it. Where kcap's plugin isn't installed,
+  nothing is written; if it is installed nowhere, steering still turns on and
+  the command says so and exits 1: run `kcap plugin install`, then
+  `steering on` again. `steering off` leaves the steering plugin installed,
+  doing nothing while the switch is off. If a settings file can't be written,
+  steering still turns on and the command says why and exits 1; install the
+  plugin by hand with `claude plugin install kcap-steering@kcap`, or fix the
+  cause and run `steering on` again.
 
-  If a message from the web keeps waiting while the terminal sits idle, type
-  at the terminal or run /clear: the plugin hands a message over only between
-  turns, and it can miss the end of one.
+  If a message from the web or mobile app keeps waiting while the terminal
+  sits idle, type at the terminal, or run /clear: the plugin hands a message
+  over only between turns, and it can miss the end of one. /clear starts a
+  new conversation and drops the waiting message, so send it again
+  afterwards.
 
   The socket is owner-only, in a directory only you can enter, and that is
   its only authentication: no token ever reaches a session. Both verbs take

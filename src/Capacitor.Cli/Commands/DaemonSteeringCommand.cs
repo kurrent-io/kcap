@@ -47,12 +47,10 @@ public static class DaemonSteeringCommand {
         }
 
         await console.Out.WriteLineAsync($"Steering is {ack.Steering} for daemon '{name}'.");
-        if (install.Installed is { } installed) await console.Out.WriteLineAsync(installed);
-        if (install.Failed is not { } failed) return 0;
+        foreach (var note in install.Notes) await console.Out.WriteLineAsync(note);
+        foreach (var failure in install.Failures) await console.Error.WriteLineAsync($"kcap daemon steering: {failure}");
 
-        await console.Error.WriteLineAsync($"kcap daemon steering: {failed}");
-
-        return 1;
+        return install.Failures.Count == 0 ? 0 : 1;
     }
 
     /// <summary>The daemon flips the switch and the CLI then installs the mod, because the daemon never writes Claude's
@@ -62,7 +60,7 @@ public static class DaemonSteeringCommand {
         using var timeout = new CancellationTokenSource(ReplyTimeout, time);
         var ack = await SteeringIpc.SetAsync(store, name, on, timeout.Token);
 
-        return (ack, ack.Ok && on ? mod.InstallOnce() : default);
+        return (ack, ack.Ok && on ? mod.InstallOnce() : ClaudeSteeringModInstall.None);
     }
 
     public static Task<int> PrintSocketAsync(

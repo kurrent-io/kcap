@@ -61,7 +61,7 @@ public class AgentCommandStopTests {
         var forced = await StopAsync("forced",
             [List, LocalFrame.StopAck($"{Hosted}\tstopped"), LocalFrame.StopAck($"{Steered}\tstopped")], "--all", "-y", "--force");
 
-        await Assert.That(forced).Contains("Disconnecting steering from 1 terminal session(s); their Claude Code sessions keep running:");
+        await Assert.That(forced).Contains("Will disconnect steering from 1 terminal session(s); their Claude Code sessions keep running:");
         await Assert.That(forced).Contains($"Disconnected steering from {Steered}. Its Claude Code session keeps running in its terminal.");
         await Assert.That(forced).Contains($"Stopped {Hosted}.");
         await Assert.That(forced).DoesNotContain("review agent");
@@ -84,7 +84,10 @@ public class AgentCommandStopTests {
         _ = FakeControlSocket.AnswerInOrder(Daemons.Store, "ask", [List]);
         await Assert.That(await Command(new StringReader("n\n")).HandleAsync(["agent", "stop", "--all", "--force", "--daemon", "ask"], baseUrl: null)).IsEqualTo(0);
 
-        await Assert.That(Out.ToString()).Contains("Stop 1 and disconnect steering from 1? [y/N] ");
-        await Assert.That(Out.ToString()).Contains("Cancelled.");
+        await Assert.That(Out.ToString()).Contains(
+            "Will disconnect steering from 1 terminal session(s); their Claude Code sessions keep running:\n"
+          + $"  • {Steered}\n"
+          + "Stop 1 and disconnect steering from 1? [y/N] Cancelled.");
+        await Assert.That(Out.ToString()).DoesNotContain("Disconnected");
     }
 }

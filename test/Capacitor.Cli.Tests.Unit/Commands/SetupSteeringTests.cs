@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Harness.Claude;
@@ -19,10 +20,12 @@ public class SetupSteeringTests {
 
     string Settings => new ClaudePaths(Home, null).UserSettings;
 
-    Task<bool> RunAsync(string[] flags, Func<bool, bool>? ask, bool offered = true, bool claudeDetected = true) =>
-        SetupSteering.RunAsync(
-            ["setup", .. flags], offered, claudeDetected, ask, Daemons.Store, Name, TimeProvider.System,
-            new ClaudeSteeringMod(Settings, () => Home.PathTo("kcap-plugin")), Lines.Add);
+    ClaudeSteeringMod Mod => new([(Settings, null)]);
+
+    Task<bool> RunAsync(string[] flags, Func<bool, bool>? ask, bool offered = true, bool eligible = true) =>
+        SetupSteering.RunAsync(["setup", .. flags], offered, eligible, ask, Daemons.Store, Name, TimeProvider.System, Mod, Lines.Add);
+
+    void InstallKcap() => ClaudePluginWriter.Install(Settings, Home.PathTo("kcap-plugin"));
 
     FakeSteeringDaemon Daemon() => FakeSteeringDaemon.Answering(Daemons.Store.SocketPath(Name), new SteeringSetAckDto(true, null, SteeringIpc.On));
 
@@ -54,6 +57,7 @@ public class SetupSteeringTests {
     [Test]
     [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
     public async Task Answering_yes_turns_steering_on_as_the_daemon_command_does() {
+        InstallKcap();
         await using var daemon = Daemon();
 
         var on = await RunAsync([], ask: _ => true);
@@ -81,10 +85,26 @@ public class SetupSteeringTests {
     }
 
     [Test]
-    public async Task Steering_is_not_asked_about_where_Claude_Code_was_not_found() {
-        await Assert.That(await RunAsync([], ask: Refusing, claudeDetected: false)).IsFalse();
-        await Assert.That(await RunAsync([], ask: null, claudeDetected: false)).IsFalse();
+    public async Task Steering_is_not_asked_about_where_it_could_not_reach_a_session() {
+        await Assert.That(await RunAsync([], ask: Refusing, eligible: false)).IsFalse();
+        await Assert.That(await RunAsync([], ask: null, eligible: false)).IsFalse();
         await Assert.That(Lines).IsEmpty();
+    }
+
+    /// <summary>A yes needs a daemon to flip the switch and kcap's Claude plugin for the steering plugin to go in beside,
+    /// so neither a machine sign-in's missing service, a failed one, nor a declined plugin gets the question.</summary>
+    [Test]
+    public async Task Steering_is_offered_only_with_kcaps_Claude_plugin_and_a_daemon_service_up() {
+        var up     = new FirstRunMachineActionResult(FirstRunMachineActionOutcomes.Enabled, null);
+        var failed = new FirstRunMachineActionResult(FirstRunMachineActionOutcomes.Failed, null);
+
+        await Assert.That(SetupSteering.Eligible(up, Mod)).IsFalse();
+
+        InstallKcap();
+
+        await Assert.That(SetupSteering.Eligible(up, Mod)).IsTrue();
+        await Assert.That(SetupSteering.Eligible(null, Mod)).IsFalse();
+        await Assert.That(SetupSteering.Eligible(failed, Mod)).IsFalse();
     }
 
     [Test]

@@ -1,11 +1,12 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Harness.Claude;
 
 namespace Capacitor.Cli.Commands;
 
 /// <summary>
-/// Setup's steering question, asked once the daemon service is up and off unless the person says yes. A yes takes
-/// the path <c>kcap daemon steering on</c> takes, for the daemon setup just configured. Not offered on Windows.
+/// Setup's steering question, off unless the person says yes. A yes takes the path <c>kcap daemon steering on</c>
+/// takes, for the daemon setup just configured. Not offered on Windows.
 /// </summary>
 static class SetupSteering {
     internal const string Flag = "--steering";
@@ -29,10 +30,16 @@ static class SetupSteering {
         };
     }
 
+    /// <summary>Whether steering could reach a session after this run: a yes needs a daemon to flip the switch and
+    /// kcap's Claude plugin for the steering plugin to go in beside.</summary>
+    internal static bool Eligible(FirstRunMachineActionResult? daemonService, ClaudeSteeringMod mod) =>
+        daemonService is { } service && SetupDaemonService.IsUp(service) && mod.KcapPluginInstalled();
+
+    /// <param name="eligible">Whether to ask; see <see cref="Eligible"/>. A <c>--steering on</c> is honoured either way.</param>
     /// <param name="ask">Asks the question with the given default; null when this run asks nothing.</param>
     /// <returns>Whether steering is on now.</returns>
     internal static async Task<bool> RunAsync(
-            string[] args, bool offered, bool claudeDetected, Func<bool, bool>? ask,
+            string[] args, bool offered, bool eligible, Func<bool, bool>? ask,
             DaemonStore store, string daemonName, TimeProvider time, ClaudeSteeringMod mod, Action<string> writeLine) {
         if (!offered) return false;
 
@@ -41,8 +48,8 @@ static class SetupSteering {
 
         if (ask is null) {
             on = flag ?? false;
-            if (!on && claudeDetected) writeLine(LeftOff);
-        } else if (claudeDetected) {
+            if (!on && eligible) writeLine(LeftOff);
+        } else if (eligible) {
             writeLine(Explanation);
             on = ask(flag ?? false);
         } else {
@@ -60,8 +67,8 @@ static class SetupSteering {
         }
 
         writeLine($"Steering is on for daemon '{daemonName}'.");
-        if (install.Installed is { } installed) writeLine(installed);
-        if (install.Failed is { } failed) writeLine(char.ToUpperInvariant(failed[0]) + failed[1..]);
+        foreach (var note in install.Notes) writeLine(note);
+        foreach (var failure in install.Failures) writeLine(char.ToUpperInvariant(failure[0]) + failure[1..]);
 
         return true;
     }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Sockets;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
@@ -28,7 +29,7 @@ public sealed class DaemonCommands(
     string StderrCapturePath => Path.ChangeExtension(LogPath, null) + ".out.log";
 
     internal ClaudeSteeringMod Steering {
-        get => field ??= ClaudeSteeringMod.For(harnesses);
+        get => field ??= ClaudeSteeringMod.For(harnesses, home, AccountStore.Beside(store));
         init;
     }
 

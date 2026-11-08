@@ -341,7 +341,7 @@ internal sealed class AgentCommand(
 
             if (steered.Count > 0) {
                 console.Out.WriteLine(force
-                    ? $"Disconnecting steering from {steered.Count} terminal session(s); their Claude Code sessions keep running:"
+                    ? $"Will disconnect steering from {steered.Count} terminal session(s); their Claude Code sessions keep running:"
                     : $"Leaving {steered.Count} steered terminal session(s) alone — {ForceDisconnects}:");
                 foreach (var id in agents.Select(a => a.Id).Where(steered.Contains))
                     console.Out.WriteLine($"  • {id}");
@@ -415,25 +415,8 @@ internal sealed class AgentCommand(
                     if (outcomes.Count == 0) { console.Out.WriteLine("No agents."); return 0; }
 
                     foreach (var (id, outcome) in outcomes) {
-                        if (steered.Contains(id)) {
-                            switch (outcome) {
-                                case StopAckOutcome.Stopped:        console.Out.WriteLine($"Disconnected steering from {id}. Its Claude Code session keeps running in its terminal."); break;
-                                case StopAckOutcome.Skipped:        console.Out.WriteLine($"Left {id} alone — steered terminal session; pass --force to disconnect steering from it."); break;
-                                case StopAckOutcome.AlreadyStopped: console.Out.WriteLine($"Steering was already disconnected from {id}."); break;
-                                case StopAckOutcome.NoSuchAgent:    console.Error.WriteLine($"kcap: no such agent {id}"); break;
-                                default:                            console.Error.WriteLine($"Failed to disconnect steering from {id} — see `kcap daemon logs`."); break;
-                            }
-
-                            continue;
-                        }
-
-                        switch (outcome) {
-                            case StopAckOutcome.Stopped:        console.Out.WriteLine($"Stopped {id}."); break;
-                            case StopAckOutcome.Skipped:        console.Out.WriteLine($"Skipped {id} — review agent; pass --force to stop it."); break;
-                            case StopAckOutcome.AlreadyStopped: console.Out.WriteLine($"Already stopped {id}."); break;
-                            case StopAckOutcome.NoSuchAgent:    console.Error.WriteLine($"kcap: no such agent {id}"); break;
-                            default:                            console.Error.WriteLine($"Failed to stop {id} — see `kcap daemon logs`."); break;
-                        }
+                        var (line, error) = StopLine(outcome, id, steered.Contains(id));
+                        (error ? console.Error : console.Out).WriteLine(line);
                     }
 
                     var skipped = outcomes.Count(o => o.Outcome == StopAckOutcome.Skipped && !steered.Contains(o.Id));
@@ -466,6 +449,20 @@ internal sealed class AgentCommand(
             return 1;
         }
     }
+
+    /// <summary>What one StopAck outcome says, and whether it goes to stderr. A steered session is disconnected from
+    /// steering, never stopped: its process is the person's.</summary>
+    internal static (string Line, bool Error) StopLine(StopAckOutcome outcome, string id, bool steered) => (outcome, steered) switch {
+        (StopAckOutcome.Stopped, false)        => ($"Stopped {id}.", false),
+        (StopAckOutcome.Stopped, true)         => ($"Disconnected steering from {id}. Its Claude Code session keeps running in its terminal.", false),
+        (StopAckOutcome.Skipped, false)        => ($"Skipped {id} — review agent; pass --force to stop it.", false),
+        (StopAckOutcome.Skipped, true)         => ($"Left {id} alone — steered terminal session; pass --force to disconnect steering from it.", false),
+        (StopAckOutcome.AlreadyStopped, false) => ($"Already stopped {id}.", false),
+        (StopAckOutcome.AlreadyStopped, true)  => ($"Steering was already disconnected from {id}.", false),
+        (StopAckOutcome.NoSuchAgent, _)        => ($"kcap: no such agent {id}", true),
+        (_, false)                             => ($"Failed to stop {id} — see `kcap daemon logs`.", true),
+        (_, true)                              => ($"Failed to disconnect steering from {id} — see `kcap daemon logs`.", true),
+    };
 
     /// <summary>Resolves an id or prefix, printing the reason and returning null on failure.</summary>
     async Task<string?> ResolveOrReportAsync(string sock, string given) => (await ResolveTargetOrReportAsync(sock, given))?.Id;

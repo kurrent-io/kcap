@@ -324,6 +324,20 @@ public static class ClaudePluginInstaller {
 
     public static void DeleteMarker(string settingsPath) => DeleteNamedMarker(settingsPath, MarkerFileName);
 
+    /// <summary>The steering mod's <c>enabledPlugins</c> flag, or null when the file has none or can't be read.</summary>
+    public static bool? IsSteeringEnabled(string settingsPath) =>
+        ReadSettings(settingsPath)?["enabledPlugins"] is JsonObject enabled
+     && enabled[SteeringPluginKey] is JsonValue v && v.TryGetValue<bool>(out var on)
+            ? on
+            : null;
+
+    /// <summary>Whether kcap's plugin install registered its marketplace here, which is where the steering mod goes.</summary>
+    public static bool HasKcapMarketplace(string settingsPath) =>
+        ReadSettings(settingsPath) is { } root && RegistersKcapMarketplace(root);
+
+    internal static bool RegistersKcapMarketplace(JsonObject root) =>
+        root["extraKnownMarketplaces"] is JsonObject marketplaces && marketplaces["kcap"] is JsonObject;
+
     public static bool HasInstalledSteering(string settingsPath) =>
         Path.GetDirectoryName(settingsPath) is { Length: > 0 } dir && File.Exists(Path.Combine(dir, SteeringMarkerFileName));
 

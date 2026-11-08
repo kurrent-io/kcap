@@ -31,49 +31,37 @@ public static class ClaudePluginWriter {
         return result;
     }
 
-    /// <summary>Enables the steering mod unless the file already says whether it is enabled. The <c>kcap</c>
-    /// marketplace entry is written only when there is no usable one: it belongs to the kcap plugin's install.</summary>
-    public static SettingsEdit InstallSteering(string settingsPath, string marketplacePath) {
+    /// <summary>Enables the steering mod in a file that registers kcap's marketplace, unless the file already says
+    /// whether it is enabled. Null, with nothing written, where the marketplace isn't registered: only kcap's own
+    /// install writes that entry, because <see cref="ClaudePluginInstaller.IsInstalled"/> reads it as kcap
+    /// installed and a refresh would then turn recording on.</summary>
+    public static SettingsEdit? InstallSteering(string settingsPath) {
+        var registered = false;
+
         var result = JsonSettingsFile.Edit(settingsPath, root => {
-            var marketplaces = ObjectOrNew(root, "extraKnownMarketplaces");
-            var enabled      = ObjectOrNew(root, "enabledPlugins");
-            var changed      = false;
+            if (!ClaudePluginInstaller.RegistersKcapMarketplace(root)) return false;
 
-            if (RegisteredPath(marketplaces) is null) {
-                marketplaces["kcap"] = new JsonObject {
-                    ["source"] = new JsonObject { ["source"] = "directory", ["path"] = marketplacePath }
-                };
-                changed = true;
+            registered = true;
+
+            if (root["enabledPlugins"] is not JsonObject enabled) {
+                if (root.ContainsKey("enabledPlugins")) throw JsonSettingsFile.Refuse();
+                root["enabledPlugins"] = enabled = [];
             }
 
-            if (!enabled.ContainsKey(ClaudePluginInstaller.SteeringPluginKey)) {
-                enabled[ClaudePluginInstaller.SteeringPluginKey] = true;
-                changed = true;
-            }
+            if (enabled.ContainsKey(ClaudePluginInstaller.SteeringPluginKey)) return false;
 
-            return changed;
-        });
+            enabled[ClaudePluginInstaller.SteeringPluginKey] = true;
 
-        if (result is SettingsEdit.Changed or SettingsEdit.Unchanged) ClaudePluginInstaller.WriteSteeringMarker(settingsPath);
+            return true;
+        }, createIfMissing: false);
+
+        if (result is SettingsEdit.Malformed or SettingsEdit.Failed) return result;
+        if (!registered) return null;
+
+        ClaudePluginInstaller.WriteSteeringMarker(settingsPath);
 
         return result;
     }
-
-    static JsonObject ObjectOrNew(JsonObject root, string key) {
-        if (root[key] is JsonObject existing) return existing;
-        if (root.ContainsKey(key)) throw JsonSettingsFile.Refuse();
-
-        var created = new JsonObject();
-        root[key] = created;
-
-        return created;
-    }
-
-    static string? RegisteredPath(JsonObject marketplaces) =>
-        marketplaces["kcap"] is JsonObject kcap && kcap["source"] is JsonObject source
-     && source["path"] is JsonValue value && value.TryGetValue<string>(out var path) && !string.IsNullOrWhiteSpace(path)
-            ? path
-            : null;
 
     public static SettingsEdit Remove(string settingsPath) {
         var result = JsonSettingsFile.Edit(settingsPath, root => {
