@@ -11,9 +11,10 @@ namespace Capacitor.App.Services.CliAdoption;
 /// earlier run left is deleted if it carries the checked name and checked like a fresh one otherwise. With the whole
 /// install set aside it looks for what this user's own checks cannot see: a process of any account mapping a file of
 /// it, or a launch agent or one of <see cref="PrivilegedSpec.Sites"/> in any home naming it, any of which puts it
-/// all back and reports <see cref="InUse"/>. Only then does it delete anything. A kcap link in another account's home
-/// that points into the install keeps it the same way, checked before anything is set aside. Any other word, end of file or no word in time puts the links back. After go it finishes even
-/// if the app is gone.
+/// all back and reports <see cref="InUse"/>. Only then does it delete anything. A kcap link in another account's home, or
+/// a machine-wide one, that points into the install keeps it the same way, checked before anything is set aside and
+/// again after. Any other word, end of file or no word in time puts the links back. After go it finishes even if the app
+/// is gone.
 /// <para>Every path reaches it as a positional argument, never as script text. It creates the status file itself, only
 /// inside a real 0700 folder the app's user owns, and writes only through that descriptor: root must not write through
 /// a path someone else controls. It holds that folder as its working directory and opens both channel files by name
@@ -258,18 +259,25 @@ internal static class PrivilegedSwapScript {
             }
 
             # Another account's own kcap link into the install would dangle once it goes; root changes nothing in another
-            # account's home, so the install stays. Read before the install is set aside and again after.
+            # account's home, so the install stays, and so it does for a machine-wide link the plan did not swap. Read
+            # before the install is set aside and again after. An absolute link path is the machine's, read once.
             linked() {
-                local home l i
+                local home l i=0
                 [ $nentries -gt 0 ] || return 1
+                while [ $i -lt $nhomelinks ]; do
+                    l=${homelinks[$i]}
+                    i=$((i + 1))
+                    case "$l" in /*) if leads_inside "$l"; then echo "$l points into the install"; return 0; fi ;; esac
+                done
                 [ $homes_read = 1 ] || { echo "the accounts on this Mac could not be listed"; return 0; }
                 while IFS= read -r home; do
                     [ -d "$home" ] || continue
                     i=0
                     while [ $i -lt $nhomelinks ]; do
-                        l="$home/${homelinks[$i]}"
+                        l=${homelinks[$i]}
                         i=$((i + 1))
-                        if leads_inside "$l"; then echo "$l points into the install"; return 0; fi
+                        case "$l" in /*) continue ;; esac
+                        if leads_inside "$home/$l"; then echo "$home/$l points into the install"; return 0; fi
                     done
                 done < <(homes_of)
                 return 1
@@ -459,8 +467,9 @@ internal static class PrivilegedSwapScript {
         Require(spec.ControlFifo, Normal, "control pipe");
         Require(spec.StatusFile, Normal, "status file");
         Require(spec.Homes, Normal, "homes folder");
-        foreach (var file in spec.Sites.Files.Concat(spec.Sites.AccountFiles).Concat(spec.Sites.Links).Concat(spec.Sites.Registry is { } r ? [r] : []))
-            Require(file, f => !Path.IsPathRooted(f) && !f.Split('/').Contains(".."), "home file");
+        foreach (var file in spec.Sites.Files.Concat(spec.Sites.AccountFiles).Concat(spec.Sites.Registry is { } r ? [r] : []))
+            Require(file, Relative, "home file");
+        foreach (var link in spec.Sites.Links) Require(link, l => Relative(l) || Normal(l), "kcap link");
         foreach (var needle in spec.Needles) Require(needle, _ => true, "install path");
         Require(spec.Staging, s => s.Length >= 32 && s.All(char.IsAsciiHexDigitLower), "staging name");
         if (Path.GetDirectoryName(spec.StatusFile) != Path.GetDirectoryName(spec.ControlFifo))
@@ -471,12 +480,12 @@ internal static class PrivilegedSwapScript {
             Require(link.Replacement, Path.IsPathFullyQualified, "link replacement");
         }
         foreach (var privileged in spec.Entries) {
-            var (entry, kind, marker, contains, daemon, linkTarget) = privileged;
+            var (entry, kind, marker, contains, pinned, linkTarget) = privileged;
             Require(entry.Original, Normal, "entry");
-            if (daemon is var (daemonPath, identity)) {
-                if (kind != PrivilegedEntryKind.Directory) throw new ArgumentException($"Only a directory holds the daemon, not {entry.Original}.", nameof(spec));
-                Require(daemonPath, p => !Path.IsPathRooted(p) && !p.Split('/').Contains(".."), "daemon path");
-                Require(identity, i => i.Split(':') is { Length: 4 } parts && parts.All(n => n.Length > 0 && n.All(char.IsAsciiDigit)), "daemon identity");
+            if (pinned is var (pinnedPath, identity)) {
+                if (kind != PrivilegedEntryKind.Directory) throw new ArgumentException($"Only a directory holds a pinned file, not {entry.Original}.", nameof(spec));
+                Require(pinnedPath, Relative, "pinned path");
+                Require(identity, i => i.Split(':') is { Length: 4 } parts && parts.All(n => n.Length > 0 && n.All(char.IsAsciiDigit)), "pinned identity");
             }
             if (linkTarget is not null) {
                 if (kind != PrivilegedEntryKind.Link) throw new ArgumentException($"Only a link has a target, not {entry.Original}.", nameof(spec));
@@ -497,6 +506,8 @@ internal static class PrivilegedSwapScript {
     }
 
     static bool Normal(string path) => Path.IsPathFullyQualified(path) && Path.GetFullPath(path) == path;
+
+    static bool Relative(string path) => !Path.IsPathRooted(path) && !path.Split('/').Contains("..");
 
     static void Require(string value, Func<string, bool> valid, string what) {
         if (string.IsNullOrEmpty(value) || value.AsSpan().IndexOfAny('\n', '\r', '\0') >= 0 || !valid(value))

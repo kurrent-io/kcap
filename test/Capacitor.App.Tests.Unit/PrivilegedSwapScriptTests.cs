@@ -526,6 +526,25 @@ public class PrivilegedSwapScriptTests {
         await install.AssertUntouchedAsync(spec);
     }
 
+    /// <summary>A machine-wide kcap link made into the install after the plan, which the swap therefore left alone, would
+    /// dangle for every account: the install stays.</summary>
+    [Test]
+    public async Task A_machine_wide_link_into_the_install_keeps_it_on_go() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var link    = Tmp.CreateDir("machine bin").PathTo("kcap");
+        var spec    = install.Spec(Tmp) with { Sites = new HomeSites([], null, []) { Links = [link] } };
+        File.CreateSymbolicLink(link, Path.Combine(install.Packages[0], "bin", "kcap.js"));
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        var result = await run.ExitAsync();
+
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped", "in-use"]);
+        await Assert.That(result.Stderr).Contains(link);
+        await install.AssertUntouchedAsync(spec);
+    }
+
     /// <summary>A link may reach the install through another link of the account's own: every hop is followed.</summary>
     [Test]
     public async Task A_kcap_link_in_another_home_chained_into_the_install_keeps_it_on_go() {

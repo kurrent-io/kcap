@@ -35,8 +35,9 @@ internal static class AdoptionReferenceSites {
     /// account registry's harness directories. <paramref name="registry"/> counts only below the home.</summary>
     internal static HomeSites HomeSites(UserHome home, HarnessRegistry harnesses, string registry) {
         var relative = Below(home.Path, [registry]);
+        var links    = KcapLinkFolders.For(home).Select(f => Path.Combine(f, "kcap")).ToList();
         return new HomeSites(HomeFiles(home, harnesses), relative.Count == 1 ? relative[0] : null, AccountFiles(home)) {
-            Links = Below(home.Path, KcapLinkFolders.For(home).Select(f => Path.Combine(f, "kcap"))),
+            Links = [.. Below(home.Path, links), .. links.Where(l => !IsBelow(home.Path, l))],
         };
     }
 
@@ -51,11 +52,12 @@ internal static class AdoptionReferenceSites {
         return Below(probe, files);
     }
 
-    static List<string> Below(string folder, IEnumerable<string> files) {
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + Path.DirectorySeparatorChar;
-        return [.. files.Select(Path.GetFullPath).Where(f => f.StartsWith(root, StringComparison.Ordinal))
-            .Select(f => f[root.Length..]).Distinct(StringComparer.Ordinal)];
-    }
+    static List<string> Below(string folder, IEnumerable<string> files) =>
+        [.. files.Where(f => IsBelow(folder, f)).Select(f => Path.GetFullPath(f)[Root(folder).Length..]).Distinct(StringComparer.Ordinal)];
+
+    static bool IsBelow(string folder, string file) => Path.GetFullPath(file).StartsWith(Root(folder), StringComparison.Ordinal);
+
+    static string Root(string folder) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + Path.DirectorySeparatorChar;
 
     // Another account's harnesses sit at their defaults, whatever overrides this process's environment sets.
     internal static IReadOnlyList<string> HomeFiles(UserHome home, HarnessRegistry harnesses) {

@@ -6,6 +6,6 @@ namespace Capacitor.App.Services.CliAdoption;
 public sealed record HomeSites(IReadOnlyList<string> Files, string? Registry, IReadOnlyList<string> AccountFiles) {
     public static HomeSites None { get; } = new([], null, []);
 
-    /// <summary>The kcap links an account makes in its own home, relative to it.</summary>
+    /// <summary>The kcap links an account makes in its own home, relative to it, and the machine-wide ones, absolute.</summary>
     public IReadOnlyList<string> Links { get; init; } = [];
 }
