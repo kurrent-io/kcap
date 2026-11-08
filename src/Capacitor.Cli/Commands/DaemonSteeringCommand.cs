@@ -1,6 +1,7 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Harness.Claude;
 
 namespace Capacitor.Cli.Commands;
 
@@ -13,18 +14,18 @@ public static class DaemonSteeringCommand {
     static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(10);
     static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
 
-    const string NotOffered =
-        "kcap daemon steering: steering isn't offered on Windows yet, because the steering mod's socket transport "
-      + "hasn't been checked there.";
+    internal const string NotOfferedReason =
+        "steering isn't offered on Windows yet, because the steering mod's socket transport hasn't been checked there.";
 
-    public static Task<int> SetAsync(
-            DaemonStore store, ProfileContext profiles, TimeProvider time, StandardStreams console, string[] args) =>
-        SetAsync(store, profiles, time, console, args, SteeringIpc.Offered);
+    internal static Task<int> SetAsync(
+            DaemonStore store, ProfileContext profiles, TimeProvider time, StandardStreams console, string[] args, ClaudeSteeringMod mod) =>
+        SetAsync(store, profiles, time, console, args, mod, SteeringIpc.Offered);
 
     internal static async Task<int> SetAsync(
-            DaemonStore store, ProfileContext profiles, TimeProvider time, StandardStreams console, string[] args, bool offered) {
+            DaemonStore store, ProfileContext profiles, TimeProvider time, StandardStreams console, string[] args,
+            ClaudeSteeringMod mod, bool offered) {
         if (!offered) {
-            await console.Error.WriteLineAsync(NotOffered);
+            await console.Error.WriteLineAsync($"kcap daemon steering: {NotOfferedReason}");
 
             return 1;
         }
@@ -37,18 +38,31 @@ public static class DaemonSteeringCommand {
 
         if (await ResolveNameAsync(profiles, console, args) is not { } name) return 1;
 
-        using var timeout = new CancellationTokenSource(ReplyTimeout, time);
-        var ack = await SteeringIpc.SetAsync(store, name, state == SteeringIpc.On, timeout.Token);
+        var (ack, install) = await TurnAsync(store, name, state == SteeringIpc.On, time, mod);
 
-        if (ack.Ok) {
-            await console.Out.WriteLineAsync($"Steering is {ack.Steering} for daemon '{name}'.");
+        if (!ack.Ok) {
+            await console.Error.WriteLineAsync($"kcap daemon steering: {Explain(ack, name)}");
 
-            return 0;
+            return 1;
         }
 
-        await console.Error.WriteLineAsync($"kcap daemon steering: {Explain(ack, name)}");
+        await console.Out.WriteLineAsync($"Steering is {ack.Steering} for daemon '{name}'.");
+        if (install.Installed is { } installed) await console.Out.WriteLineAsync(installed);
+        if (install.Failed is not { } failed) return 0;
+
+        await console.Error.WriteLineAsync($"kcap daemon steering: {failed}");
 
         return 1;
+    }
+
+    /// <summary>The daemon flips the switch and the CLI then installs the mod, because the daemon never writes Claude's
+    /// settings. Flipping first keeps a refused flip from touching them, and a failed install from holding the switch.</summary>
+    internal static async Task<(SteeringSetAckDto Ack, ClaudeSteeringModInstall Install)> TurnAsync(
+            DaemonStore store, string name, bool on, TimeProvider time, ClaudeSteeringMod mod) {
+        using var timeout = new CancellationTokenSource(ReplyTimeout, time);
+        var ack = await SteeringIpc.SetAsync(store, name, on, timeout.Token);
+
+        return (ack, ack.Ok && on ? mod.InstallOnce() : default);
     }
 
     public static Task<int> PrintSocketAsync(
@@ -67,7 +81,7 @@ public static class DaemonSteeringCommand {
         return 0;
     }
 
-    static string Explain(SteeringSetAckDto ack, string name) => ack.Reason switch {
+    internal static string Explain(SteeringSetAckDto ack, string name) => ack.Reason switch {
         SteeringIpc.Unreachable => $"daemon '{name}' is not running (start it with `kcap daemon start -d --name {name}`).",
         SteeringIpc.Unsupported => $"daemon '{name}' doesn't support steering; restart it on this version with `kcap daemon restart --name {name}`.",
         SteeringIpc.Unanswered  => $"daemon '{name}' did not answer.",

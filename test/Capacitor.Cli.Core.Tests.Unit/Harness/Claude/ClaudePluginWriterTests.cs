@@ -98,4 +98,78 @@ public class ClaudePluginWriterTests {
         await Assert.That(result).IsEqualTo(SettingsEdit.Unchanged);
         await Assert.That(ClaudePluginInstaller.ReadMarker(settings)).IsNotNull();
     }
+
+    /// <summary>The kcap plugin's install owns the marketplace entry, so the mod goes in beside it without moving it.</summary>
+    [Test]
+    public async Task Install_steering_enables_the_mod_in_the_kcap_marketplace_already_registered() {
+        var settings = Tmp.PathTo("settings.json");
+        ClaudePluginWriter.Install(settings, "/registered");
+
+        var result = ClaudePluginWriter.InstallSteering(settings, "/this-build");
+
+        await Assert.That(result).IsEqualTo(SettingsEdit.Changed);
+        var root = JsonNode.Parse(File.ReadAllText(settings))!;
+        await Assert.That(root["enabledPlugins"]!["kcap-steering@kcap"]!.GetValue<bool>()).IsTrue();
+        await Assert.That(root["enabledPlugins"]!["kcap@kcap"]!.GetValue<bool>()).IsTrue();
+        await Assert.That(root["extraKnownMarketplaces"]!["kcap"]!["source"]!["path"]!.GetValue<string>()).IsEqualTo("/registered");
+        await Assert.That(ClaudePluginInstaller.HasInstalledSteering(settings)).IsTrue();
+    }
+
+    [Test]
+    public async Task Install_steering_registers_the_kcap_marketplace_when_there_is_none() {
+        var settings = Tmp.CreateFile("settings.json", """{ "model": "opus" }""");
+
+        var result = ClaudePluginWriter.InstallSteering(settings, "/this-build");
+
+        await Assert.That(result).IsEqualTo(SettingsEdit.Changed);
+        var root = JsonNode.Parse(File.ReadAllText(settings))!;
+        await Assert.That(root["model"]!.GetValue<string>()).IsEqualTo("opus");
+        await Assert.That(root["extraKnownMarketplaces"]!["kcap"]!["source"]!["source"]!.GetValue<string>()).IsEqualTo("directory");
+        await Assert.That(root["extraKnownMarketplaces"]!["kcap"]!["source"]!["path"]!.GetValue<string>()).IsEqualTo("/this-build");
+        await Assert.That(root["enabledPlugins"]!["kcap-steering@kcap"]!.GetValue<bool>()).IsTrue();
+        await Assert.That(root["enabledPlugins"]!["kcap@kcap"]).IsNull();
+    }
+
+    /// <summary>Claude records a disabled plugin as <c>false</c>; that is the person's answer, not a gap to fill.</summary>
+    [Test]
+    public async Task Install_steering_leaves_a_choice_already_in_the_file() {
+        var settings = Tmp.CreateFile("settings.json", """
+            { "enabledPlugins": { "kcap-steering@kcap": false },
+              "extraKnownMarketplaces": { "kcap": { "source": { "source": "directory", "path": "/p" } } } }
+            """);
+        var before = File.ReadAllText(settings);
+
+        var result = ClaudePluginWriter.InstallSteering(settings, "/this-build");
+
+        await Assert.That(result).IsEqualTo(SettingsEdit.Unchanged);
+        await Assert.That(File.ReadAllText(settings)).IsEqualTo(before);
+        await Assert.That(ClaudePluginInstaller.HasInstalledSteering(settings)).IsTrue();
+    }
+
+    [Test]
+    [Arguments("{ broken")]
+    [Arguments("""{ "enabledPlugins": [] }""")]
+    [Arguments("""{ "extraKnownMarketplaces": "kcap" }""")]
+    public async Task Install_steering_refuses_a_settings_file_it_cannot_read(string content) {
+        var settings = Tmp.CreateFile("settings.json", content);
+
+        await Assert.That(ClaudePluginWriter.InstallSteering(settings, "/p")).IsEqualTo(SettingsEdit.Malformed);
+        await Assert.That(File.ReadAllText(settings)).IsEqualTo(content);
+        await Assert.That(ClaudePluginInstaller.HasInstalledSteering(settings)).IsFalse();
+    }
+
+    /// <summary>The mod lives in kcap's marketplace, so an entry left behind would name a marketplace that is gone.</summary>
+    [Test]
+    public async Task Remove_takes_the_steering_mod_out_with_its_marketplace() {
+        var settings = Tmp.PathTo("settings.json");
+        ClaudePluginWriter.Install(settings, "/p");
+        ClaudePluginWriter.InstallSteering(settings, "/p");
+
+        var result = ClaudePluginWriter.Remove(settings);
+
+        await Assert.That(result).IsEqualTo(SettingsEdit.Changed);
+        var root = JsonNode.Parse(File.ReadAllText(settings))!;
+        await Assert.That(root["enabledPlugins"]!["kcap-steering@kcap"]).IsNull();
+        await Assert.That(ClaudePluginInstaller.HasInstalledSteering(settings)).IsFalse();
+    }
 }

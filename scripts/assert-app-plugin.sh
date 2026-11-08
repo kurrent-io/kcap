@@ -16,12 +16,17 @@ else
   plugin="$bundle/kcap"
   cli="$bundle/kcap.exe"
 fi
-test -f "$plugin/.claude-plugin/plugin.json"
-grep -qF '"version": "'"$version"'"' "$plugin/.claude-plugin/plugin.json"
+# shellcheck source=lib/plugin-manifests.sh
+source "$here/lib/plugin-manifests.sh"
+for manifest in "${plugin_manifests[@]}"; do
+  grep -qF '"version": "'"$version"'"' "$plugin/$manifest" || { echo "$manifest is not stamped $version" >&2; exit 1; }
+done
 while IFS= read -r -d '' file; do
   relative="${file#"$source_dir/"}"
   test -f "$plugin/$relative" || { echo "missing bundled plugin file: $relative" >&2; exit 1; }
-  if [ "$relative" != .claude-plugin/plugin.json ]; then
+  stamped=false
+  for manifest in "${plugin_manifests[@]}"; do [ "$relative" = "$manifest" ] && stamped=true; done
+  if [ "$stamped" = false ]; then
     cmp "$file" "$plugin/$relative"
   fi
 done < <(find "$source_dir" -type f -print0)

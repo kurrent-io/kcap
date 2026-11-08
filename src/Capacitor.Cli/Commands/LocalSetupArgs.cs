@@ -24,7 +24,8 @@ sealed record LocalSetupArgs(
 
     /// <summary>The flags whose next token is their value, which a bare name check must skip.</summary>
     static readonly string[] TakesValue = [
-        "--plugin-scope", "--default-visibility", "--use-provider-api-key", "--daemon-name", EmbeddingModelFlag, IntelligenceFlag, IntelligenceModelFlag,
+        "--plugin-scope", "--default-visibility", "--use-provider-api-key", "--daemon-name", SetupSteering.Flag, EmbeddingModelFlag, IntelligenceFlag,
+        IntelligenceModelFlag,
     ];
 
     public const string ImportOutcomesFlag   = "--import-outcomes";
