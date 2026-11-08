@@ -573,6 +573,38 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
     }
 
+    /// <summary>A service the repoint left on the old daemon, ahead of another rewritten onto the bundle but stopped since,
+    /// does not hide that one: the stopped service is the move left unproven, which the next evidence would not see.</summary>
+    [Test]
+    public async Task A_service_left_unmoved_does_not_hide_a_later_one_that_stopped_after_its_move() {
+        var world = new AdoptionWorld(Tmp);
+        string Plist(string name) => Path.Combine(world.Home, "Library", "LaunchAgents", $"io.kurrent.kcap.daemon.{name}.plist");
+        var program = world.Install.DaemonBinary;
+        world.Machine.Jobs["left"] = new LaunchdJob(true, 4250, program);
+        world.Machine.Jobs["flow"] = new LaunchdJob(true, 4300, program);
+        File.WriteAllText(Plist("left"), $"<plist><dict><key>ProgramArguments</key><array><string>{program}</string></array></dict></plist>");
+        world.Machine.Evidence = _ => {
+            var found = world.Found();
+            ServiceUnitFact Unit(string name) {
+                var job = world.Machine.Jobs[name];
+                return new(Plist(name), name, program, found.Units[0].StoredPath, null, job.Loaded, job.Pid, job.Loaded ? job.Program : null);
+            }
+            return Task.FromResult(found with { Units = [.. found.Units, Unit("left"), Unit("flow")] });
+        };
+        world.Machine.Repoint = _ => {
+            world.WritePlist(world.Bundle.Daemon);
+            world.Machine.Jobs[AdoptionWorld.DaemonName] = new LaunchdJob(true, AdoptionWorld.NewDaemonPid, world.Bundle.Daemon);
+            File.WriteAllText(Plist("flow"), $"<plist><dict><key>ProgramArguments</key><array><string>{world.Bundle.Daemon}</string></array></dict></plist>");
+            world.Machine.Jobs["flow"] = new LaunchdJob(true, null, world.Bundle.Daemon);
+            return new MutationOutcome.Succeeded();
+        };
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Record.UnprovenMoves.Single().Daemon).IsEqualTo("flow");
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+    }
+
     /// <summary>A plist that cannot be read once the repoint is done names nothing a later run would see, so the move stays
     /// unproven for that service; and a move unproven for another service than the one already told is told on its own.</summary>
     [Test]

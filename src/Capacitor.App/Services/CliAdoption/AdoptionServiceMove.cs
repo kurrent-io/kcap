@@ -116,22 +116,30 @@ internal sealed class AdoptionServiceMove(
 
         if ((ownUnit is not null || units.Count == 0) && outcome is not MutationOutcome.Succeeded) return (Describe(outcome), blamed, false);
 
+        // A unit not moved says nothing of a later one rewritten but unproven, which the next evidence would not see.
+        (string Reason, string? Daemon, bool Rewritten)? first = null;
         foreach (var unit in units) {
-            // A plist that cannot be read names nothing the next evidence would see, so it is as unproven as a stopped one.
-            if (PlistProgram(unit.PlistPath) is not { } program) return ($"unit_unreadable:{unit.Name}", unit.Name, true);
-            if (!IsBundleDaemon(program)) return ($"unit_not_moved:{unit.Name}", unit.Name, false);
-
-            LaunchdJob job;
-            try {
-                job = await machine.ReadJobAsync(unit.Name, ct).ConfigureAwait(false);
-            } catch (IOException) {
-                return ($"unit_unknown:{unit.Name}", unit.Name, true);
-            }
-            if (job.Loaded && !IsBundleDaemon(job.Program)) return ($"unit_not_moved:{unit.Name}", unit.Name, false);
-            if (Running(unit) && job.Pid is null) return ($"unit_stopped:{unit.Name}", unit.Name, true);
+            if (await UnitFailureAsync(unit, ct).ConfigureAwait(false) is not { } failure) continue;
+            if (failure.Rewritten) return failure;
+            first ??= failure;
         }
 
-        return null;
+        return first;
+    }
+
+    async Task<(string Reason, string? Daemon, bool Rewritten)?> UnitFailureAsync(ServiceUnitFact unit, CancellationToken ct) {
+        // A plist that cannot be read names nothing the next evidence would see, so it is as unproven as a stopped one.
+        if (PlistProgram(unit.PlistPath) is not { } program) return ($"unit_unreadable:{unit.Name}", unit.Name, true);
+        if (!IsBundleDaemon(program)) return ($"unit_not_moved:{unit.Name}", unit.Name, false);
+
+        LaunchdJob job;
+        try {
+            job = await machine.ReadJobAsync(unit.Name, ct).ConfigureAwait(false);
+        } catch (IOException) {
+            return ($"unit_unknown:{unit.Name}", unit.Name, true);
+        }
+        if (job.Loaded && !IsBundleDaemon(job.Program)) return ($"unit_not_moved:{unit.Name}", unit.Name, false);
+        return Running(unit) && job.Pid is null ? ($"unit_stopped:{unit.Name}", unit.Name, true) : null;
     }
 
     static bool Running(ServiceUnitFact unit) => unit is { Loaded: true, JobPid: not null };
