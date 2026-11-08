@@ -14,7 +14,8 @@ internal sealed record SeedResult(SeedOutcome Outcome, string? RefusalToken);
 
 /// Owns {stateDir}/consent.json. The running daemon is the SINGLE writer — the CLI and the
 /// desktop app mutate it only via the local socket. Corrupt/missing file degrades to
-/// LaunchConsentPolicy.UpgradeSafe: consent must never brick a daemon boot.
+/// LaunchConsentPolicy.UpgradeSafe: consent must never brick a daemon boot. The steering switch
+/// it also carries degrades the other way, to off.
 internal sealed partial class LaunchConsentStore {
     static readonly string[] ValidKinds = ["agent", "review", "review-flow"];
 
@@ -22,6 +23,8 @@ internal sealed partial class LaunchConsentStore {
     readonly ILogger _log;
     readonly object _gate = new();
     LaunchConsentPolicy _current;
+    // As last read or written; null while the file is missing or unreadable.
+    PolicyDoc? _doc;
 
     readonly TimeProvider _time;
 
@@ -43,6 +46,13 @@ internal sealed partial class LaunchConsentStore {
 
     public LaunchConsentPolicy Current { get { lock (_gate) return _current; } }
 
+    public bool SteeringOn { get { lock (_gate) return _doc?.Steering == SteeringOnValue; } }
+
+    /// Writes the switch and nothing else: every launch-consent field goes back as it was read.
+    public bool TrySetSteering(bool on, out string? error) {
+        lock (_gate) return Persist((_doc ?? Unread()) with { Steering = on ? SteeringOnValue : SteeringOffValue }, out error);
+    }
+
     public bool TryReplace(LaunchConsentPolicy next, out string? error) {
         foreach (var r in next.Rules) {
             if (r.Action is not ("allow" or "deny")) { error = $"invalid rule action '{r.Action}' (allow|deny)"; return false; }
@@ -54,7 +64,7 @@ internal sealed partial class LaunchConsentStore {
             clamped.PromptTimeoutSeconds,
             clamped.Rules.Select(r => new RuleDoc(r.Action, r.Requester, r.Kind, r.Repo, r.Vendor)).ToList(),
             "operator");
-        lock (_gate) return Persist(doc, out error);
+        lock (_gate) return Persist(doc with { Steering = _doc?.Steering }, out error);
     }
 
     /// Boot-time seed classification (spec §6). Re-parses the raw file itself — unlike
@@ -160,6 +170,7 @@ internal sealed partial class LaunchConsentStore {
             }
 
             _current = ToPolicy(doc);
+            _doc = doc;
             error = null;
             return true;
         } catch (Exception ex) {
@@ -173,7 +184,12 @@ internal sealed partial class LaunchConsentStore {
         try {
             if (!File.Exists(_path)) return LaunchConsentPolicy.UpgradeSafe;
             var doc = JsonSerializer.Deserialize(File.ReadAllText(_path), LaunchConsentJsonCtx.Default.PolicyDoc);
-            return doc is null ? LaunchConsentPolicy.UpgradeSafe : ToPolicy(doc);
+            if (doc is null) return LaunchConsentPolicy.UpgradeSafe;
+
+            var policy = ToPolicy(doc);
+            _doc = doc;
+
+            return policy;
         } catch (Exception ex) {
             _log.LogWarning(ex, "Corrupt consent policy at {Path}; using upgrade-safe default (allow)", _path);
             return LaunchConsentPolicy.UpgradeSafe;
@@ -191,8 +207,32 @@ internal sealed partial class LaunchConsentStore {
         return new LaunchConsentPolicy(def, Math.Clamp(doc.PromptTimeoutSeconds ?? 45, 5, 300), rules);
     }
 
-    internal sealed record PolicyDoc(string? Default, int? PromptTimeoutSeconds, List<RuleDoc>? Rules, string? DefaultSource = null);
+    /// What a missing or unreadable file reads as, written unstamped so a boot seed still treats it
+    /// as never chosen.
+    static PolicyDoc Unread() =>
+        new("allow", LaunchConsentPolicy.UpgradeSafe.PromptTimeoutSeconds, [], DefaultSource: null);
+
+    const string SteeringOnValue  = "on";
+    const string SteeringOffValue = "off";
+
+    internal sealed record PolicyDoc(
+        string? Default, int? PromptTimeoutSeconds, List<RuleDoc>? Rules, string? DefaultSource = null,
+        [property: JsonConverter(typeof(StringOrNothing))] string? Steering = null);
     internal sealed record RuleDoc(string Action, string? Requester, string? Kind, string? Repo, string? Vendor);
+
+    /// Any value but a string reads as none, so a bad switch cannot make the policy beside it unreadable.
+    internal sealed class StringOrNothing : JsonConverter<string?> {
+        public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
+            if (reader.TokenType == JsonTokenType.String) return reader.GetString();
+
+            reader.Skip();
+
+            return null;
+        }
+
+        public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options) =>
+            writer.WriteStringValue(value);
+    }
 
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower, WriteIndented = true)]
     [JsonSerializable(typeof(PolicyDoc))]

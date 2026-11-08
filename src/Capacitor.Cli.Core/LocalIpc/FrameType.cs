@@ -62,6 +62,7 @@ public enum FrameType : byte {
     FinishSource = 38, // Text = the source's key, then optionally the asking hook's process id and start token, a line each; answered on FinishSourceAck
     DisableSession = 39, // Text = the session's id; goes only to a daemon advertising RecordingIpc.DisableCapability; answered on DisableSessionAck
     RecordTerminalSource = 40, // Text = RecordTerminalSourceDto JSON; goes only to a daemon advertising RecordingIpc.TerminalCapability; answered on RecordSourceAck
+    SteeringSet = 41, // Text = SteeringIpc.On | SteeringIpc.Off; goes only to a daemon advertising SteeringIpc.SwitchCapability; answered on SteeringSetAck
     // daemon → client
     Attached  = 64,
     Stdout    = 65,
@@ -96,4 +97,5 @@ public enum FrameType : byte {
     RecordSourceAck = 92, // Text = RecordingIpc.Recording | RecordingIpc.Refused
     FinishSourceAck = 93, // Text = RecordingIpc.Finished | RecordingIpc.NotHeld
     DisableSessionAck = 94, // Text = RecordingIpc.Stopped | RecordingIpc.SendInFlight | RecordingIpc.NotHeld
+    SteeringSetAck = 95, // Text = SteeringSetAckDto JSON
 }

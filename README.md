@@ -1497,6 +1497,18 @@ kcap daemon consent log -n 50                                    # tail consent-
 > unattended **at all** — and they now default to *enabled* too. See the note directly below for why they
 > used to be opt-in and no longer are.
 
+#### Terminal steering (`kcap daemon steering`)
+
+Steering lets a remote surface send messages into your own terminal Claude Code sessions, through a Claude Code mod that talks to the daemon. It is **off by default**. The switch belongs to one daemon, so each profile has its own, and turning it on for one profile leaves the other's sessions closed.
+
+```bash
+kcap daemon steering on        # turn it on for the current profile's daemon (which must be running)
+kcap daemon steering off       # turn it off again
+kcap daemon steering-socket    # print the steering socket's path, or nothing when steering is off
+```
+
+The daemon saves the switch in its own `consent.json`, of which it is the only writer, so `steering on|off` goes through the running daemon rather than editing the file; it opens or closes the steering socket at once, with no restart. A missing or unreadable switch reads as off. `steering-socket` prints the path alone, and only while steering is on and the daemon is running; otherwise it prints nothing, and it exits 0 either way, since the mod runs it to find the daemon. The socket is owner-only, in a directory only you can enter, and that is its only authentication: no token ever reaches a session. Both verbs take `--name <n>`. Steering isn't offered on Windows yet: `steering on` refuses there, saying so, and `steering-socket` prints nothing.
+
 #### Unattended reviewers are enabled by default (they used to be opt-in)
 
 Every reviewer vendor your daemon can host is available to a review flow out of the box. Four of them

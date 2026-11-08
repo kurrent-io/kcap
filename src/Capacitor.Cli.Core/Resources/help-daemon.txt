@@ -17,6 +17,9 @@ Subcommands:
   service <action>        Manage the OS service (launchd/systemd/Scheduled Task)
   shim <action>           Manage the command-line tool (kcap on your terminal PATH)
   consent <verb>          Manage the launch-consent policy (see "Consent" below)
+  steering <on|off>       Turn steering of this profile's terminal Claude Code
+                          sessions on or off (see "Steering" below)
+  steering-socket         Print the daemon's steering socket, or nothing
 
 Options for start:
   --name <name>           Daemon name (defaults to OS username)
@@ -261,6 +264,26 @@ Consent:
   no-op, and a flagless "deny" is already expressible as `set-default deny`.
   --repo accepts an exact path or a "/prefix/*" glob. All six verbs take
   --name <n> like the rest of `kcap daemon`.
+
+Steering:
+  Steering lets a remote surface send messages into your own terminal Claude
+  Code sessions, through a Claude Code mod that talks to the daemon. It is off
+  by default. The switch belongs to one daemon, so each profile has its own,
+  and turning it on for one profile leaves the other's sessions closed.
+
+  kcap daemon steering on|off   Turn it on or off for the current profile's
+                                daemon, which must be running. The daemon
+                                saves the switch and opens or closes its
+                                steering socket at once, with no restart.
+  kcap daemon steering-socket   Print the steering socket's path, and nothing
+                                else, while steering is on and the daemon is
+                                running; otherwise print nothing. Exits 0
+                                either way.
+
+  The socket is owner-only, in a directory only you can enter, and that is
+  its only authentication: no token ever reaches a session. Both verbs take
+  --name <n>. Steering isn't offered on Windows yet: `steering on` refuses
+  there, and `steering-socket` prints nothing.
 
 Notes:
   Each daemon holds an exclusive flock on ~/.config/kcap/daemons/<name>.lock
