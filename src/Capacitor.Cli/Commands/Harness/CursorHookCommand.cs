@@ -244,9 +244,10 @@ public sealed class CursorHookCommand(
 
         if (response is not null) Console.Write(response);
 
-        // After the end, on every path it took — posted, spooled, or abandoned at the ceiling — and on a
-        // budget of its own: the end is what the hook's own budget is for, and Cursor waits on nothing here.
-        if (kindSignal is { Kind: "sessionEnd", SessionId: { } ended })
+        // After the end is posted or spooled, on a budget of its own: the end is what the hook's own budget is
+        // for, and Cursor waits on nothing here. An end the ceiling abandoned before that leaves its span open
+        // rather than deliver it with no session end.
+        if (kindSignal is { Kind: "sessionEnd", SessionId: { } ended, Settled: true })
             await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(ended, SessionEndSpanBudget, drain: false);
         return 0;
     }
@@ -269,6 +270,14 @@ public sealed class CursorHookCommand(
 
         /// <summary>A top-level session the event belongs to, once known; a linked subagent child has none.</summary>
         public string? SessionId { get => _sessionId; set => _sessionId = value; }
+
+        volatile bool _settled;
+
+        /// <summary>Set once the event was posted, spooled, or refused for good. A session end's spans close
+        /// only after it: an abandoned inner task can still be short of that when the process exits.</summary>
+        public bool Settled => _settled;
+
+        public void Settle() => _settled = true;
     }
 
     /// <summary>
@@ -517,6 +526,7 @@ public sealed class CursorHookCommand(
             // spool the fresh event so an earlier queued event (e.g. sessionStart) is not overtaken.
             if (sessionId is not null && mapping.SpoolOnFailure && spool.HasBacklog(sessionId)) {
                 spool.Append(sessionId, mapping.RouteSegment, normalized);
+                kindSignal.Settle();
                 if (drainBeforePost) FlagTailForImport(sessionId, firstUnsent: null);
                 return EmptyOrNull();
             }
@@ -529,6 +539,7 @@ public sealed class CursorHookCommand(
                 if (mapping.SpoolOnFailure && sessionId is not null) {
                     spool.Append(sessionId, mapping.RouteSegment, normalized);
                 }
+                kindSignal.Settle();
                 if (drainBeforePost) FlagTailForImport(sessionId!, firstUnsent: null);
                 return EmptyOrNull();
             }
@@ -563,6 +574,7 @@ public sealed class CursorHookCommand(
                 if (mapping.SpoolOnFailure && sessionId is not null) {
                     spool.Append(sessionId, mapping.RouteSegment, normalized);
                 }
+                kindSignal.Settle();
                 return EmptyOrNull();
             }
 
@@ -571,6 +583,7 @@ public sealed class CursorHookCommand(
             if (result == false && mapping.SpoolOnFailure && sessionId is not null) {
                 spool.Append(sessionId, mapping.RouteSegment, normalized);
             }
+            kindSignal.Settle();
             // Task 8: the ordering-sensitive beforeSubmitPrompt's own live POST just
             // succeeded — clear the barrier it created above.
             if (posted && eventName == "beforeSubmitPrompt" && sessionId is not null) {
