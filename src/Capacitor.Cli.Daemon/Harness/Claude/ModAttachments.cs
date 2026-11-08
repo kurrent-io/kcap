@@ -46,7 +46,10 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     /// <summary>How many agents back a report about a dispatch is tried, as far as the server follows a link.</summary>
     const int MaxCarriedFrom = 16;
 
-    const int GoneCap = 256, StoppedCap = 64, ReplacedCap = 256, ReportedCap = 1024;
+    const int GoneCap = 256, StoppedCap = 64, ReplacedCap = 256;
+
+    /// <summary>How many reported dispatches are remembered, a restored file's included, besides those still handed over.</summary>
+    internal const int ReportedCap = 1024;
 
     // What the mod is told. A refusal or a gone with no retry leaves it inert until its process or session changes.
     const string SteeringOffAnswer = "steering_off";

@@ -34,10 +34,11 @@ internal sealed partial class ModAttachmentStore(string path, ILogger logger) {
         var handedOver  = Keep(file.HandedOver, (id, h) => Guid.TryParse(id, out _) && IsValid(h), ref dropped);
         var replaced    = Keep(file.Replaced, (id, by) => ModAttachments.IsAgentId(id) && by is { Length: > 0 }, ref dropped);
         var carriedFrom = Keep(file.CarriedFrom, (id, from) => ModAttachments.IsAgentId(id) && ModAttachments.IsAgentId(from), ref dropped);
+        var reported    = Keep(file.Reported, id => Guid.TryParse(id, out var dispatchId) && dispatchId != Guid.Empty, ref dropped);
 
         if (dropped > 0) LogEntriesDropped(path, dropped);
 
-        return new ModAttachmentFile(attachments, handedOver, reports, replaced, stopped, carriedFrom);
+        return new ModAttachmentFile(attachments, handedOver, reports, replaced, stopped, carriedFrom, reported);
     }
 
     static bool IsValid(ModAttachmentRecord? a) =>

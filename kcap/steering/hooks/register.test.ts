@@ -198,6 +198,43 @@ test('It_links_a_row_only_when_its_text_matches', async ($, on) => {
   expect(w.sent('/next').at(-1)?.outstanding).toBeUndefined()
 })
 
+// A hook beneath can store other words than the mod proposed, as a redaction does, so only the stored row says whether
+// the dispatch landed.
+test('A_row_is_matched_as_it_was_stored', async ($, on) => {
+  const w = world(on)
+  const stored: Record<string, string> = { hello: 'hello, redacted', 'hello there': 'hello' }
+  on('session.append', (_, e, next) => {
+    const text = e.message.content.map(b => ('text' in b ? String(b.text) : '')).join('')
+    return next({ ...e, message: { ...e.message, content: [{ type: 'text', text: stored[text] ?? text }] } })
+  })
+  w.handovers.push({ dispatchId: FIRST, text: 'hello' })
+  await begin($, w)
+  await w.clock.advance(1000)
+
+  await row($, 'hello', ROW_1)
+  await w.clock.advance(1000)
+  expect(w.sent('/link')).toEqual([])
+
+  await row($, 'hello there', ROW_2)
+  await w.clock.advance(1000)
+  expect(w.sent('/link').map(b => b.rowUuid)).toEqual([ROW_2])
+})
+
+// A refused append stores nothing, so it links nothing, and the submit's own rejection still reports the dispatch.
+test('A_refused_append_links_nothing', async ($, on) => {
+  const w = world(on)
+  on('session.append', () => ({ deny: 'refused beneath' }))
+  w.handovers.push({ dispatchId: FIRST, text: 'refused' })
+  await begin($, w)
+  await w.clock.advance(1000)
+
+  await $.session.append({ message: { type: 'user', role: 'user', content: [{ type: 'text', text: 'refused' }] }, door: 'note', origin: own, uuid: ROW_1 })
+  await w.clock.advance(1000)
+
+  expect(w.sent('/link')).toEqual([])
+  expect(w.entry()?.held).toMatchObject({ dispatchId: FIRST, phase: 'submitted' })
+})
+
 test('A_remote_message_shows_a_notice_at_the_terminal', async ($, on) => {
   const w = world(on)
   w.handovers.push({ dispatchId: FIRST, text: 'from the phone' })
@@ -721,6 +758,29 @@ test('A_sweep_keeps_only_what_is_still_owed', async ($, on) => {
   await begin($, w)
   expect(w.sent('/link')).toHaveLength(1)
   expect(w.store.get(dead)).toEqual({ reports: [rejected] })
+})
+
+// A daemon that is away or failing when the sweep starts leaves what a gone process owed for a later tick.
+test('A_sweep_the_daemon_cut_short_is_tried_again', async ($, on) => {
+  const dead = 'process:6666:Sat Nov 8 06:00:00 2026'
+  const link = { route: '/link', dispatchId: FIRST, settles: true, body: { agentId: AGENT, dispatchId: FIRST, rowUuid: ROW_1 } }
+  const w = world(on, { store: { [dead]: { reports: [link] } } })
+  w.replies['/link'] = () => ({ status: 503 })
+
+  await begin($, w)
+  expect(w.sent('/link')).toHaveLength(1)
+  expect(w.store.has(dead)).toBe(true)
+
+  await w.clock.advance(1000)
+  expect(w.sent('/link')).toHaveLength(2)
+
+  delete w.replies['/link']
+  await w.clock.advance(1000)
+  expect(w.sent('/link')).toHaveLength(3)
+  expect(w.store.has(dead)).toBe(false)
+
+  await w.clock.advance(3000)
+  expect(w.sent('/link')).toHaveLength(3)
 })
 
 test('A_lost_path_is_looked_up_again_until_the_daemon_is_back', async ($, on) => {

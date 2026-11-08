@@ -1321,6 +1321,57 @@ public class ModAttachmentsTests {
         await Assert.That(server.AttachedRejections).IsEmpty();
     }
 
+    /// <summary>What the mod reported on outlives the daemon: a landed dispatch whose link was dropped at its refusal bound
+    /// is not taken for lost by the next daemon process, which would tell the sender a delivered message never arrived.</summary>
+    [Test]
+    public async Task A_dispatch_the_mod_reported_is_not_rejected_as_lost_after_a_restart() {
+        var    landed = Guid.NewGuid();
+        string agentId;
+
+        await using (var attachments = Attachments(new CaptureServerConnection { AttachedReportThrow = new HubException("Caller is not the daemon owning agent") })) {
+            agentId = await AttachAsync(attachments);
+            Push(attachments, agentId, landed);
+            await IdleAsync(attachments, agentId);
+
+            attachments.Link(agentId, Key, landed, Session, Guid.NewGuid());
+            for (var sweep = 0; sweep < ModReportQueue.MaxRefusals; sweep++) await Within(attachments.SweepAsync());
+        }
+
+        var after = new CaptureServerConnection { HandoverAnswer = _ => new ConfirmInputHandoverResponse(InputHandoverOutcome.Hold, landed) };
+        await using var restarted = Attachments(after);
+        Push(restarted, agentId, Guid.NewGuid());
+
+        await Assert.That(await IdleAsync(restarted, agentId)).IsNull();
+        await Assert.That(after.AttachedRejections).IsEmpty();
+    }
+
+    /// <summary>A reported dispatch another build wrote unreadably is dropped and the rest restored, and the file's record
+    /// is held to the cap the daemon keeps while it runs: the oldest past it goes.</summary>
+    [Test]
+    public async Task A_restored_record_of_reported_dispatches_keeps_its_valid_entries_up_to_the_cap() {
+        var agentId  = AgentOf(Session);
+        var reported = Enumerable.Range(0, ModAttachments.ReportedCap + 1).Select(_ => Guid.NewGuid()).ToArray();
+        var ids      = string.Join(", ", reported.Select(id => $"\"{id}\""));
+        Daemons.CreateFile(Path.GetRelativePath(Daemons.Directory, StatePath), $$"""
+            {
+              "attachments": [{ "agentId": "{{agentId}}", "sessionId": "{{Session}}", "processKey": "{{Key}}", "attachedAt": "2026-11-08T09:00:00Z" }],
+              "reported": ["not-a-dispatch", null, {{ids}}]
+            }
+            """);
+
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        Push(attachments, agentId, Guid.NewGuid());
+
+        server.HandoverAnswer = _ => new ConfirmInputHandoverResponse(InputHandoverOutcome.Hold, reported[^1]);
+        await IdleAsync(attachments, agentId);
+        server.HandoverAnswer = _ => new ConfirmInputHandoverResponse(InputHandoverOutcome.Hold, reported[0]);
+        await IdleAsync(attachments, agentId);
+
+        await Assert.That(attachments.Live.Select(a => a.AgentId)).IsEquivalentTo([agentId]);
+        await Assert.That(server.AttachedRejections.Select(r => r.DispatchId)).IsEquivalentTo([reported[0]]);
+    }
+
     /// <summary>A flood of reports from the owner's own processes fills the queue, and what it pushes out must not be the
     /// report of a dispatch the mod still has: without it, that dispatch would read as lost.</summary>
     [Test]

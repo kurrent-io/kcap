@@ -292,11 +292,42 @@ export const register: Register = on => {
         await undelivered(held.dispatchId, 'unconfirmed', 'no_row')
     }
 
+    // What a process that has gone still owed is sent before its key goes, so a row it linked is not left unattributed.
+    // A key owing nothing goes whatever the daemon is doing, which is every key while steering is off. A daemon that is
+    // away or failing leaves the rest to a later tick.
+    let unswept = stale
+    let sweeping = false
+    const sweep = async () => {
+      if (sweeping) return
+      sweeping = true
+      try {
+        for (const k of [...unswept]) {
+          if (retired) return
+          const left = await $.store.get(k)
+          const owed = left && typeof left === 'object' ? ((left as Partial<Entry>).reports ?? []) : []
+
+          for (const [i, report] of owed.entries()) {
+            const reply = await call(report.route, report.body, CALL_MS)
+            if (!reply || reply.status >= 500) {
+              if (i > 0) await $.store.set(k, { reports: owed.slice(i) })
+              return
+            }
+          }
+
+          await $.store.delete(k)
+          unswept = unswept.filter(u => u !== k)
+        }
+      } finally {
+        sweeping = false
+      }
+    }
+
     const tick = async () => {
       if (ticking || retired) return
       ticking = true
       try {
         await flush()
+        if (unswept.length > 0) await sweep()
         if (!known && (await $.clock.now()) >= lookAgainAt) await connect()
         if (!inert) {
           if (!entry.agentId && !entry.changing && known && (await $.clock.now()) >= attachAfter) await attach()
@@ -416,25 +447,6 @@ export const register: Register = on => {
       },
     }
 
-    // What a process that has gone still owed is sent before its key goes, so a row it linked is not left unattributed.
-    // A key owing nothing goes whatever the daemon is doing, which is every key while steering is off.
-    const sweep = async () => {
-      for (const k of stale) {
-        const left = await $.store.get(k)
-        const owed = left && typeof left === 'object' ? ((left as Partial<Entry>).reports ?? []) : []
-
-        for (const [i, report] of owed.entries()) {
-          const reply = await call(report.route, report.body, CALL_MS)
-          if (!reply || reply.status >= 500) {
-            if (i > 0) await $.store.set(k, { reports: owed.slice(i) })
-            return
-          }
-        }
-
-        await $.store.delete(k)
-      }
-    }
-
     await save()
 
     void (async () => {
@@ -466,10 +478,11 @@ export const register: Register = on => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
+  // A hook beneath may refuse the row or store other words than this one was given: only the stored row is the dispatch's.
   on('session.append', { origin: { kind: 'plugin', name: NAME } }, async ($, e, next) => {
     const stored = await next(e)
-    if (e.agentId === undefined && e.message.type === 'user' && e.door !== 'queue')
-      await noteRow({ uuid: e.uuid, text: textOf(e.message.content), sessionId: await $.session.id() })
+    if (stored.deny === undefined && e.agentId === undefined && stored.message.type === 'user' && e.door !== 'queue')
+      await noteRow({ uuid: stored.uuid, text: textOf(stored.message.content), sessionId: await $.session.id() })
     return stored
   }).catch(($, e, next) => next(e))
 }
