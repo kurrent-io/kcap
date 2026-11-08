@@ -20,7 +20,7 @@ const ROW_2 = 'c3d4e5f6-0000-4000-8000-000000000002'
 const ROW_3 = 'c3d4e5f6-0000-4000-8000-000000000003'
 
 type Body = Record<string, unknown>
-type Reply = { status: number; body?: unknown } | 'refused'
+type Reply = { status: number; body?: unknown } | 'refused' | 'missing'
 type Submitted = { text: string } | { drop: string } | 'refused'
 
 /** The engine and the daemon beneath the mod: a store in memory, Claude's process, `kcap`, and the steering socket. */
@@ -42,11 +42,18 @@ function world(on: On, options: { socket?: string; alive?: Record<string, string
     submits,
     logs,
     handovers,
+    alive,
+    pid: PID,
     socket: options.socket ?? SOCKET,
     session: SESSION,
     down: false,
     storeFails: false,
-    replies: {} as Record<string, (body: Body) => Reply>,
+    replies: {} as Record<string, (body: Body) => Reply | Promise<Reply>>,
+    /** The daemon's usual answer to `route`, given only once `ms` have passed on the mock clock. */
+    late: (ms: number, route: string) => async (body: Body) => {
+      await clock.sleep(ms)
+      return daemon(route, body)
+    },
     submit: (text: string): Submitted => ({ text }),
     sent: (route: string) => calls.filter(c => c.route === route).map(c => c.body),
     routes: () => calls.map(c => c.route),
@@ -88,7 +95,7 @@ function world(on: On, options: { socket?: string; alive?: Record<string, string
     const [command, ...args] = e.argv
     const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
 
-    if (command === 'sh') return out(`${PID}\n`)
+    if (command === 'sh') return out(`${w.pid}\n`)
     if (command === 'kcap') return out(w.socket ? `${w.socket}\n` : '')
     if (command === 'ps') {
       const pids = (args[args.indexOf('-p') + 1] ?? '').split(',')
@@ -98,13 +105,14 @@ function world(on: On, options: { socket?: string; alive?: Record<string, string
     throw new Error(`unexpected command: ${e.argv.join(' ')}`)
   })
 
-  on('http.fetch', (_, e) => {
+  on('http.fetch', async (_, e) => {
     const route = new URL(e.url).pathname
     const body = JSON.parse(e.init?.body ?? '{}') as Body
     calls.push({ route, body, socketPath: e.init?.socketPath })
 
-    const reply = w.down ? 'refused' : (w.replies[route] ?? (b => daemon(route, b)))(body)
+    const reply = w.down ? 'refused' : await (w.replies[route] ?? (b => daemon(route, b)))(body)
     if (reply === 'refused') throw new Error('connect ECONNREFUSED')
+    if (reply === 'missing') throw new Error(`connect ENOENT ${e.init?.socketPath}`)
 
     const text = reply.body === undefined ? '' : JSON.stringify(reply.body)
     return { value: { status: reply.status, ok: reply.status < 300, headers: {}, text } }
@@ -220,7 +228,8 @@ test('Entries_are_keyed_by_process_and_stale_keys_are_removed', async ($, on) =>
 })
 
 test('It_stays_inert_with_no_socket', async ($, on) => {
-  const w = world(on, { socket: '' })
+  const dead = 'process:6666:Sat Nov 8 06:00:00 2026'
+  const w = world(on, { socket: '', store: { [dead]: { reports: [] } } })
   w.handovers.push({ dispatchId: FIRST, text: 'never' })
 
   await begin($, w)
@@ -229,6 +238,7 @@ test('It_stays_inert_with_no_socket', async ($, on) => {
   expect(w.commands.filter(c => c[0] === 'kcap')).toEqual([['kcap', 'daemon', 'steering-socket']])
   expect(w.routes()).toEqual([])
   expect(w.submits).toEqual([])
+  expect(w.store.has(dead)).toBe(false)
 })
 
 test('It_asks_for_a_dispatch_only_when_no_turn_is_running', async ($, on) => {
@@ -495,4 +505,189 @@ test('A_gone_agent_attaches_again_unless_told_not_to', async ($, on) => {
   await w.clock.advance(1000)
   await w.clock.advance(30_000)
   expect(w.routes()).toEqual(['/attach', '/next', '/next', '/attach', '/next', '/next'])
+})
+
+test('A_hanging_call_and_a_missing_socket_are_retried', async ($, on) => {
+  const w = world(on)
+  // Longer than the mod's own bound for /next, so the tick gives up on this one and a later tick asks again.
+  w.replies['/next'] = w.late(60_000, '/next')
+  await begin($, w)
+  await w.clock.advance(1000)
+  expect(w.sent('/next')).toHaveLength(1)
+
+  await w.clock.advance(12_000)
+  expect(w.sent('/next')).toHaveLength(2)
+
+  w.handovers.push({ dispatchId: FIRST, text: 'after the hang' })
+  delete w.replies['/next']
+  await w.clock.advance(13_000)
+  expect(w.submits.map(s => s.text)).toEqual(['after the hang'])
+
+  w.replies['/link'] = () => 'missing'
+  await row($, 'after the hang', ROW_1)
+  await w.clock.advance(2000)
+  expect(w.sent('/link')).toHaveLength(2)
+  expect(w.entry()?.reports).toHaveLength(1)
+
+  delete w.replies['/link']
+  await w.clock.advance(1000)
+  expect(w.sent('/link')).toHaveLength(3)
+  expect(w.entry()?.reports).toEqual([])
+})
+
+test('A_final_refusal_leaves_the_mod_inert', async ($, on) => {
+  const w = world(on)
+  w.replies['/attach'] = () => ({ status: 200, body: { refused: 'hosted', retry: false } })
+  w.handovers.push({ dispatchId: FIRST, text: 'never' })
+
+  await begin($, w)
+  await w.clock.advance(60_000)
+  expect(w.sent('/attach')).toHaveLength(1)
+  expect(w.sent('/next')).toEqual([])
+
+  // A new session id is a fresh judgement, so the mod asks again.
+  await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } })
+  await $.classic.SessionStart({ source: 'clear', session_id: NEW_SESSION })
+  await w.clock.settle()
+  delete w.replies['/attach']
+  await w.clock.advance(1000)
+  expect(w.sent('/attach')).toHaveLength(2)
+})
+
+test('A_resume_attaches_a_replacement_rather_than_detaching', async ($, on) => {
+  const w = world(on)
+  await begin($, w)
+  await w.clock.advance(1000)
+
+  await $.session.end({ reason: 'resume', sessionId: SESSION, resume: { id: SESSION } })
+  await $.classic.SessionStart({ source: 'resume', session_id: NEW_SESSION })
+  await w.clock.settle()
+  await w.clock.advance(1000)
+
+  expect(w.sent('/detach')).toEqual([])
+  expect(w.sent('/attach').at(-1)).toEqual({ sessionId: NEW_SESSION, processKey: KEY, replacesAgentId: AGENT })
+})
+
+test('The_grace_waits_while_a_turn_runs', async ($, on) => {
+  const w = world(on)
+  w.handovers.push({ dispatchId: FIRST, text: 'runs long' })
+  await begin($, w)
+  await w.clock.advance(1000)
+  expect(w.submits).toHaveLength(1)
+
+  await turnStart($, 't1')
+  await w.clock.advance(30_000)
+  expect(w.sent('/undelivered')).toEqual([])
+
+  await turnEnd($, 't1')
+  await w.clock.advance(2000)
+  expect(w.sent('/undelivered')).toEqual([])
+
+  await w.clock.advance(9000)
+  expect(w.sent('/undelivered').map(b => b.reason)).toEqual(['no_row'])
+})
+
+test('A_session_change_while_the_daemon_is_down_keeps_the_socket', async ($, on) => {
+  const w = world(on)
+  w.handovers.push({ dispatchId: FIRST, text: 'carried' })
+  await begin($, w)
+  await w.clock.advance(1000)
+  expect(w.submits).toHaveLength(1)
+
+  // The daemon is restarting: it answers nothing, and `kcap daemon steering-socket` prints nothing.
+  w.down = true
+  w.socket = ''
+  await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } })
+  await $.classic.SessionStart({ source: 'clear', session_id: NEW_SESSION })
+  await w.clock.settle()
+
+  w.session = NEW_SESSION
+  await row($, 'carried', ROW_1)
+  await w.clock.advance(2000)
+  expect(w.sent('/link')).toHaveLength(2)
+  expect(w.sockets()).toEqual([SOCKET])
+
+  w.down = false
+  await w.clock.advance(1000)
+  expect(w.sent('/link').at(-1)).toMatchObject({ rowUuid: ROW_1, sessionId: NEW_SESSION })
+  expect(w.entry()?.reports).toEqual([])
+
+  // Only the attach waited for the path: the daemon is back but has printed none, so no agent is claimed.
+  expect(w.sent('/attach')).toHaveLength(1)
+
+  w.socket = SOCKET
+  await $.session.end({ reason: 'clear', sessionId: NEW_SESSION, resume: { id: NEW_SESSION } })
+  await $.classic.SessionStart({ source: 'clear', session_id: SESSION })
+  await w.clock.settle()
+  await w.clock.advance(1000)
+  expect(w.sent('/attach')).toHaveLength(2)
+})
+
+test('A_refused_link_keeps_the_barrier', async ($, on) => {
+  const w = world(on)
+  w.handovers.push({ dispatchId: FIRST, text: 'landed' })
+  await begin($, w)
+  await w.clock.advance(1000)
+
+  w.replies['/link'] = () => ({ status: 400, body: { error: 'invalid_request' } })
+  await row($, 'landed', ROW_1)
+  await w.clock.advance(2000)
+
+  expect(w.sent('/link')).toHaveLength(1)
+  expect(w.entry()?.reports).toEqual([])
+  expect(w.entry()?.held).toMatchObject({ dispatchId: FIRST, phase: 'linked' })
+  expect(w.sent('/next').at(-1)?.outstanding).toBe(FIRST)
+})
+
+test('Owed_reports_outlive_an_exit_and_a_stale_key', async ($, on) => {
+  const w = world(on)
+  w.handovers.push({ dispatchId: FIRST, text: 'owed' })
+  await begin($, w)
+  await w.clock.advance(1000)
+
+  w.down = true
+  await row($, 'owed', ROW_1)
+  await w.clock.advance(1000)
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: SESSION, resume: { id: SESSION } })
+  expect(w.entry()?.reports).toHaveLength(1)
+  expect(w.entry()?.agentId).toBeUndefined()
+
+  // The next Claude process finds that key stale, and sends what it owed before removing it.
+  w.down = false
+  delete w.alive[PID]
+  w.pid = '5555'
+  w.alive['5555'] = 'Sat Nov  8 09:00:00 2026'
+  await begin($, w)
+  await w.clock.advance(1000)
+
+  expect(w.sent('/link').at(-1)).toMatchObject({ dispatchId: FIRST, rowUuid: ROW_1 })
+  expect(w.store.has(ENTRY)).toBe(false)
+})
+
+test('Session_end_for_another_session_changes_nothing', async ($, on) => {
+  const w = world(on)
+  await begin($, w)
+  await w.clock.advance(1000)
+
+  await $.session.end({ reason: 'clear', sessionId: NEW_SESSION, resume: { id: NEW_SESSION } })
+  await w.clock.advance(1000)
+
+  expect(w.entry()?.changing).toBeUndefined()
+  expect(w.sent('/next').at(-1)).toMatchObject({ agentId: AGENT, idle: true })
+})
+
+test('A_retired_load_neither_records_nor_submits_a_handover', async ($, on) => {
+  const w = world(on)
+  w.handovers.push({ dispatchId: FIRST, text: 'answered too late' })
+  w.replies['/next'] = w.late(3000, '/next')
+  await begin($, w)
+  await w.clock.advance(1000)
+  expect(w.sent('/next')).toHaveLength(1)
+
+  // The module reloads while that poll is in flight, so its answer reaches a load whose writes are dropped.
+  await begin($, w)
+  await w.clock.advance(3000)
+
+  expect(w.submits).toEqual([])
+  expect(w.entry()?.held).toBeUndefined()
 })

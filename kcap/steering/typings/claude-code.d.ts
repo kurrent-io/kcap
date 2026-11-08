@@ -82,7 +82,17 @@ declare module 'claude-code' {
     source: 'startup' | 'resume' | 'clear' | 'compact' | 'fork'
   }
 
-  export type ClassicResult = { block?: boolean; preventContinuation?: boolean; stopReason?: string }
+  /** What a `classic.SessionStart` answer may carry; a field of the wrong shape fails the hook. */
+  export type ClassicResult = {
+    block?: string
+    preventContinuation?: true
+    stopReason?: string
+    additionalContext?: string[]
+    initialUserMessage?: string
+    sessionTitle?: string
+    watchPaths?: string[]
+    reloadSkills?: true
+  }
 
   export type PromptSubmitInput = { text: string; origin: PromptOrigin; wait: boolean; turnId?: string }
 
@@ -210,6 +220,7 @@ declare module 'claude-code/testing' {
     now: () => number
     advance: (ms: number) => Promise<void>
     settle: () => Promise<void>
+    sleep: (ms: number) => Promise<void>
   }
 
   export const mock: {
