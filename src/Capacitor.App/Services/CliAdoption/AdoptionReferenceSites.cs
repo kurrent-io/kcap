@@ -31,12 +31,12 @@ internal static class AdoptionReferenceSites {
     const string DaemonLabelPrefix = "io.kurrent.kcap.daemon.";
 
     /// <summary>What the site read takes from below <paramref name="home"/>, launch agents aside, as the privileged helper
-    /// reads it in every account's home: the default harness directories' files relative to the home, and the
-    /// account registry's harness directories. <paramref name="registry"/> counts only below the home.</summary>
-    internal static HomeSites HomeSites(UserHome home, HarnessRegistry harnesses, string registry) {
-        var relative = Below(home.Path, [registry]);
+    /// reads it in every account's home: the default harness directories' files relative to the home, and the harness
+    /// directories in the account registry at its default place, whatever daemons folder this process was given.</summary>
+    internal static HomeSites HomeSites(UserHome home, HarnessRegistry harnesses) {
+        var registry = Below(home.Path, [AccountStore.Beside(new DaemonStore(DaemonStore.DefaultDirectory(home))).RegistryPath]);
         var links    = KcapLinkFolders.For(home).Select(f => Path.Combine(f, "kcap")).ToList();
-        return new HomeSites(HomeFiles(home, harnesses), relative.Count == 1 ? relative[0] : null, AccountFiles(home)) {
+        return new HomeSites(HomeFiles(home, harnesses), registry.Single(), AccountFiles(home)) {
             Links = [.. Below(home.Path, links), .. links.Where(l => !IsBelow(home.Path, l))],
         };
     }

@@ -2469,7 +2469,7 @@ public partial class App : Application {
             new AdoptionPathStep(probe, new AdoptedLinkInventory(_config), store, shim, folders),
             new AdoptionNotices(_noticeWindow, store), harnesses, bundle, folders, WritableFolder.Check,
             new PrivilegedSwap(runner, store, _time), ConfirmAdoptionAsync, _config.Directory,
-            AdoptionReferenceSites.HomeSites(_userHome, harnesses, AccountStore.Beside(_daemonStore).RegistryPath), LifecycleLog.Write);
+            AdoptionReferenceSites.HomeSites(_userHome, harnesses), LifecycleLog.Write);
         return new CliAdoptionCoordinator(batch, _time, LifecycleLog.Write, _shutdown.Token);
     }
 

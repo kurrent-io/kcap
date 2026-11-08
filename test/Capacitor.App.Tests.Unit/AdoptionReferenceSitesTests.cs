@@ -64,15 +64,13 @@ public class AdoptionReferenceSitesTests {
         await Assert.That(files).Contains(Path.Combine(".copilot", "mcp-config.json"));
     }
 
-    /// <summary>The registry counts only below the home, and each registered directory is read for both layouts' files,
+    /// <summary>Every account's registry is read where kcap keeps it by default, and each registered directory for both layouts' files,
     /// relative to it.</summary>
     [Test]
     public async Task Home_sites_name_the_registry_below_the_home_and_the_account_files() {
-        var sites   = AdoptionReferenceSites.HomeSites(Home, Harnesses, Path.Combine(Home.Path, ".config", "kcap", "accounts", "accounts.json"));
-        var outside = AdoptionReferenceSites.HomeSites(Home, Harnesses, Tmp.PathTo("elsewhere", "accounts.json"));
+        var sites = AdoptionReferenceSites.HomeSites(Home, Harnesses);
 
         await Assert.That(sites.Registry).IsEqualTo(Path.Combine(".config", "kcap", "accounts", "accounts.json"));
-        await Assert.That(outside.Registry).IsNull();
         await Assert.That(sites.AccountFiles).Contains("settings.json");
         await Assert.That(sites.AccountFiles).Contains("config.toml");
         await Assert.That(sites.AccountFiles).Contains(Path.Combine("plugins", "installed_plugins.json"));
