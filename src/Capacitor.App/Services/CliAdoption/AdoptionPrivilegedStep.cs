@@ -114,6 +114,10 @@ internal sealed class AdoptionPrivilegedStep(
                 break;
             case PrivilegedResult.PutBack:
                 path.Release(links);
+                // Put back for a PATH that stopped finding the bundle: nothing holds it for a later run to see go.
+                if (store.Load().Installs.FirstOrDefault(i => AdoptionPreflight.SameRoot(i.Install, install)) is
+                    { State: InstallState.Pending, HeldBy: null })
+                    outcome = PrivilegedStepOutcome.WaitsOnPrompt;
                 break;
             case PrivilegedResult.Cancelled:
                 path.Release(links);

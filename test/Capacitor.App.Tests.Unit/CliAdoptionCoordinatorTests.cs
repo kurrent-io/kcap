@@ -1596,6 +1596,25 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
     }
 
+    /// <summary>A PATH that stops finding the bundle while the prompt is open puts everything back with nothing holding
+    /// the install for a recheck to see go: Finish switching is offered at once.</summary>
+    [Test]
+    public async Task A_PATH_lost_while_the_prompt_was_open_offers_finish_switching() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        world.Admin.WhileSwapped = () => world.Probe.KcapPathFreshBehavior = _ => Task.FromResult<string?>("/usr/bin/kcap");
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Logged("adoption_kept").Single(e => e["install"] == world.Root)["reason"])
+            .IsEqualTo(AdoptionPrivilegedStep.PathNotOnBundle);
+        await Assert.That(world.Logged("adoption_privileged").Single()["result"]).IsEqualTo("put_back");
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Pending);
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+        await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
+    }
+
     /// <summary>Nothing is asked while something still holds a root-owned install, and a recheck, which runs as this
     /// user, never deletes it once the holder is gone: the next launch's prompt does.</summary>
     [Test]
