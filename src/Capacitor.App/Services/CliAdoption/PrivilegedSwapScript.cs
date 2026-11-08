@@ -177,13 +177,21 @@ internal static class PrivilegedSwapScript {
 
             # Every folder in the homes folder and, for the machine's own, every account's home the directory service
             # knows, wherever it lives. No list from the directory service leaves accounts nothing else finds, so the
-            # checks that read the homes keep the install.
+            # checks that read the homes keep the install. So does a user's home that is not there, as a network home
+            # not mounted, which may name the install once it is; a system account's home often is not there at all.
             homelist=()
             for h in "$homes"/*; do [ -d "$h" ] && homelist[${#homelist[@]}]=$h; done
-            homes_read=1
+            homes_read=1 absent=
             if [ "$homes" = /Users ]; then
-                if accounts=$(/usr/bin/dscl . -list /Users NFSHomeDirectory 2>/dev/null) && [ -n "$accounts" ]; then
-                    while read -r _ h; do [ -n "$h" ] && homelist[${#homelist[@]}]=$h; done <<< "$accounts"
+                if accounts=$(/usr/bin/dscl . -list /Users NFSHomeDirectory 2>/dev/null) && [ -n "$accounts" ] \
+                    && ids=$(/usr/bin/dscl . -list /Users UniqueID 2>/dev/null) && [ -n "$ids" ]; then
+                    nl=$'\n'
+                    people=$nl$(printf '%s\n' "$ids" | /usr/bin/awk '$2 >= 500 { print $1 }')$nl
+                    while read -r name h; do
+                        [ -n "$h" ] || continue
+                        homelist[${#homelist[@]}]=$h
+                        case "$people" in *"$nl$name$nl"*) [ -d "$h" ] || absent=$h ;; esac
+                    done <<< "$accounts"
                 else
                     homes_read=0
                 fi
@@ -270,6 +278,7 @@ internal static class PrivilegedSwapScript {
                     case "$l" in /*) if leads_inside "$l"; then echo "$l points into the install"; return 0; fi ;; esac
                 done
                 [ $homes_read = 1 ] || { echo "the accounts on this Mac could not be listed"; return 0; }
+                [ -z "$absent" ] || { echo "the home $absent is not there"; return 0; }
                 while IFS= read -r home; do
                     [ -d "$home" ] || continue
                     i=0
