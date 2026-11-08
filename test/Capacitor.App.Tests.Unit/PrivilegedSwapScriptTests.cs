@@ -561,6 +561,24 @@ public class PrivilegedSwapScriptTests {
         }
     }
 
+    /// <summary>A link swapped onto the bundle that points elsewhere by the end, as a reinstall would leave it, is not
+    /// this install gone: the helper reports no deletion and leaves the outcome to the files.</summary>
+    [Test]
+    public async Task A_swapped_link_changed_before_the_end_reports_no_deletion() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        File.Delete(install.Links[0].Path);
+        File.CreateSymbolicLink(install.Links[0].Path, Tmp.CreateFile("reinstalled/kcap.js"));
+        run.Send("go");
+        var result = await run.ExitAsync();
+
+        await Assert.That(result.ExitCode).IsEqualTo(8);
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped"]);
+    }
+
     /// <summary>A plist stores the path XML-escaped, as JSON may store it escaped: the helper looks for the encoded forms
     /// the app gave it, not only for the path itself.</summary>
     [Test]

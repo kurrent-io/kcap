@@ -370,6 +370,21 @@ internal static class PrivilegedSwapScript {
                 i=$((i + 1))
             done
             [ $left = 0 ] || { echo "kcap: part of the install could not be deleted" >&2; exit 6; }
+
+            # A reinstall can bring an entry or a link back while the rest is deleted: that is a new install, not this one
+            # gone, so the outcome is left for the app to read from the files.
+            i=0
+            while [ $i -lt $nentries ]; do
+                if exists "${entries[$i]}"; then echo "kcap: ${entries[$i]} came back while the install was deleted" >&2; exit 8; fi
+                i=$((i + 1))
+            done
+            i=0
+            while [ $i -lt $nlinks ]; do
+                if [ "${swapped[$i]:-}" = 1 ] && [ "$(/usr/bin/readlink -- "${links[$i]}" 2>/dev/null)" != "${news[$i]}" ]; then
+                    echo "kcap: ${links[$i]} changed while the install was deleted" >&2; exit 8
+                fi
+                i=$((i + 1))
+            done
             say {{Deleted}}
 
             """;
