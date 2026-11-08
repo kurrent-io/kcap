@@ -174,6 +174,19 @@ public class PrivilegedSwapTests {
         await Assert.That(File.Exists(pwned)).IsFalse();
     }
 
+    /// <summary>A check that throws has not passed: the helper puts everything back and is awaited for its answer.</summary>
+    [Test]
+    public async Task A_check_that_throws_puts_everything_back() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+
+        var result = await new PrivilegedSwap(new Elevated(), Store()).RunAsync(
+            install.Packages[0], spec, Prompt, _ => throw new IOException("the login shell did not answer"), CancellationToken.None);
+
+        await Assert.That(result).IsEqualTo(PrivilegedResult.PutBack);
+        await install.AssertUntouchedAsync(spec);
+    }
+
     [Test]
     public async Task A_deletion_that_fails_after_go_is_cut_short() {
         var install = PrivilegedNpmInstall.Create(Tmp);

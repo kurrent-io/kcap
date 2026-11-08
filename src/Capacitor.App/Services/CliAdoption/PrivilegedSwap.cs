@@ -62,7 +62,7 @@ internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionReco
                         ran = true;
                         var operation = new PrivilegedOperation(installRoot, pid, ProcessStartToken.ForPid(pid), GoSent: false);
                         store.Update(r => r with { Privileged = operation });
-                        if (status.Contains(PrivilegedSwapScript.Swapped) && !helper.IsCompleted && await verify(ct).ConfigureAwait(false)) {
+                        if (status.Contains(PrivilegedSwapScript.Swapped) && !helper.IsCompleted && await PassesAsync(verify, ct).ConfigureAwait(false)) {
                             store.Update(r => r with { Privileged = operation with { GoSent = true } });
                             goSent = true;
                             word   = PrivilegedSwapScript.Go;
@@ -87,6 +87,16 @@ internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionReco
         } finally {
             Remove(spec.ControlFifo);
             Remove(spec.StatusFile);
+        }
+    }
+
+    // A check that cannot finish has not passed: the helper puts everything back and is awaited as for any other answer.
+    static async Task<bool> PassesAsync(Func<CancellationToken, Task<bool>> verify, CancellationToken ct) {
+        try {
+            return await verify(ct).ConfigureAwait(false);
+        } catch (Exception ex) when (ex is not OperationCanceledException) {
+            Console.Error.WriteLine($"kcap: the check before removing the install failed: {ex.Message}");
+            return false;
         }
     }
 
