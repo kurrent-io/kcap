@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using TUnit.Core.Enums;
+using Capacitor.App.Services;
 using Capacitor.App.Services.CliAdoption;
 using Capacitor.Cli.Core;
 
@@ -202,7 +203,9 @@ public class PrivilegedSwapTests {
             await Assert.That(result).IsEqualTo(PrivilegedResult.CutShort);
             await Assert.That(store.Load().Privileged!.GoSent).IsTrue();
         } finally {
-            foreach (var dir in new[] { locked.FullName, Path.Combine(spec.Entries[^1].Entry.Aside, "locked") }.Where(Directory.Exists))
+            var aside = spec.Entries[^1].Entry.Aside;
+            string[] places = [locked.FullName, Path.Combine(aside, "locked"), Path.Combine(AsideRetirement.CheckedAside(aside), "locked")];
+            foreach (var dir in places.Where(Directory.Exists))
                 File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
     }
