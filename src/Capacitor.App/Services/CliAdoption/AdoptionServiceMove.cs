@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Xml;
 using Capacitor.App.Services.Mutation;
 using Capacitor.Cli.Core;
@@ -81,7 +82,7 @@ internal sealed class AdoptionServiceMove(
                 var job = await machine.ReadJobAsync(unit.Name, ct).ConfigureAwait(false);
                 if (job.Loaded != unit.Loaded || job.Pid != unit.JobPid) return false;
             }
-        } catch (IOException) {
+        } catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException) {
             return false;
         }
 
@@ -135,7 +136,7 @@ internal sealed class AdoptionServiceMove(
         LaunchdJob job;
         try {
             job = await machine.ReadJobAsync(unit.Name, ct).ConfigureAwait(false);
-        } catch (IOException) {
+        } catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException) {
             return ($"unit_unknown:{unit.Name}", unit.Name, true);
         }
         if (job.Loaded && !IsBundleDaemon(job.Program)) return ($"unit_not_moved:{unit.Name}", unit.Name, false);

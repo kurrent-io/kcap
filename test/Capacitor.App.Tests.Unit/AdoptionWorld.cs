@@ -307,6 +307,9 @@ sealed class AdoptionWorld {
               ?? "16777232:1:1:1"
             : null;
 
+        /// <summary>What <c>launchctl print</c> for a unit throws instead of answering, if anything.</summary>
+        public Func<string, Exception?> JobFailure { get; set; } = _ => null;
+
         public Task<string?> IdentityAsync(string entry, CancellationToken ct) => Task.FromResult(Identity(entry));
 
         public int EvidenceReads { get; private set; }
@@ -325,8 +328,9 @@ sealed class AdoptionWorld {
         public Task<OtherCliInstall?> ReadInstallAsync(string binary, CancellationToken ct) =>
             Task.FromResult(InstallsUnreadable || !File.Exists(binary) ? null : world._installs.Find(n => n.Install.CliBinary == binary)?.Install);
 
-        public Task<LaunchdJob> ReadJobAsync(string unitName, CancellationToken ct) =>
-            Task.FromResult(Jobs.TryGetValue(unitName, out var job) ? job : new LaunchdJob(false, null, null));
+        public Task<LaunchdJob> ReadJobAsync(string unitName, CancellationToken ct) => JobFailure(unitName) is { } failure
+            ? Task.FromException<LaunchdJob>(failure)
+            : Task.FromResult(Jobs.TryGetValue(unitName, out var job) ? job : new LaunchdJob(false, null, null));
 
         public async Task<MutationOutcome> RepointAsync(
                 OtherCliInstall install, Func<CancellationToken, Task<bool>> stillSame, CancellationToken ct) {

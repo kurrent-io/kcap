@@ -573,6 +573,35 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
     }
 
+    /// <summary>A launchctl that cannot be started says no more of a rewritten service than one that cannot answer: that
+    /// service's move stays unproven.</summary>
+    [Test]
+    public async Task A_launchctl_that_cannot_start_leaves_the_move_unproven() {
+        var world = new AdoptionWorld(Tmp);
+        var plist = Path.Combine(world.Home, "Library", "LaunchAgents", "io.kurrent.kcap.daemon.flow.plist");
+        var program = world.Install.DaemonBinary;
+        world.Machine.Jobs["flow"] = new LaunchdJob(true, 4300, program);
+        world.Machine.Evidence = _ => {
+            var found = world.Found();
+            var job = world.Machine.Jobs["flow"];
+            ServiceUnitFact flow = new(plist, "flow", program, found.Units[0].StoredPath, null, job.Loaded, job.Pid, job.Loaded ? job.Program : null);
+            return Task.FromResult(found with { Units = [.. found.Units, flow] });
+        };
+        world.Machine.Repoint = _ => {
+            world.WritePlist(world.Bundle.Daemon);
+            world.Machine.Jobs[AdoptionWorld.DaemonName] = new LaunchdJob(true, AdoptionWorld.NewDaemonPid, world.Bundle.Daemon);
+            File.WriteAllText(plist, $"<plist><dict><key>ProgramArguments</key><array><string>{world.Bundle.Daemon}</string></array></dict></plist>");
+            world.Machine.JobFailure = name => name == "flow" ? new System.ComponentModel.Win32Exception(2) : null;
+            return new MutationOutcome.Succeeded();
+        };
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Logged("adoption_repoint").Single()["reason"]).IsEqualTo("unit_unknown:flow");
+        await Assert.That(world.Record.UnprovenMoves.Single().Daemon).IsEqualTo("flow");
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+    }
+
     /// <summary>A service the repoint left on the old daemon, ahead of another rewritten onto the bundle but stopped since,
     /// does not hide that one: the stopped service is the move left unproven, which the next evidence would not see.</summary>
     [Test]
