@@ -9,6 +9,9 @@ public static class AttachedAgentCopy {
     public const string DisconnectSteering = "Disconnect steering";
     public const string DisconnectFailed = "Failed to disconnect steering";
     public const string WaitingForApproval = "Waiting for approval at the terminal";
+    public const string WaitingForAnswer = "Waiting for an answer at the terminal";
+    /// An attached agent that is gone: the steering ended, while its Claude Code session may still run in its terminal.
+    public const string SteeringEnded = "Steering ended";
     public const string InterruptAtTerminal = "Interrupt it in its terminal";
     public const string NoFiles = "files can't be sent to a terminal session";
 

@@ -666,6 +666,39 @@ public class TrayViewModelTests {
         });
     }
 
+    /// The local daemon counts and lists the session it steers. The registry's row for the same agent stands in the
+    /// rail, but in the tray it is not a second session: not in the count, the menu or the waiting line.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_session_steered_here_is_counted_and_listed_once() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var remoteAgents = new FakeRemoteAgents();
+            var lane = new FakeServerLane();
+            using var directory = new AgentDirectory(
+                service, remoteAgents, lane, new RepoIdentityResolver(_ => null), p => p, "m1", "http://localhost:9999", TimeProvider.System);
+            var attached = new AgentStatusDto("mod-1", "attached", "claude", null, "Running", null, null, null, DateTime.UtcNow, null, null,
+                HasTerminal: false, SessionId: "s1");
+            service.SnapshotsSubject.OnNext(Snap("connected", 1, [attached]));
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, ["status/1"]));
+            service.Agents.AddOrUpdate(attached);
+            remoteAgents.DaemonsSubject.OnNext([new DaemonInfo { Name = "daemon-a", MachineId = "m1", OwnerUserId = "u1", Connected = true }]);
+            remoteAgents.Cache.AddOrUpdate(new AgentInstanceDto {
+                AgentId = "mod-1", SessionId = "s1", Status = "running", DaemonName = "daemon-a", OwnerUserId = "u1", Vendor = "claude",
+                Attached = true,
+            });
+            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
+
+            using var vm = new TrayViewModel(service, new FakePauseController(), NewActions(service), new FakeConsentService(),
+                remote: TrayViewModel.SummaryFrom(directory, Observable.Return<IReadOnlySet<string>>(new HashSet<string> { "s1" })));
+
+            await Assert.That(directory.Rows.Lookup("remote:mod-1").HasValue).IsTrue();
+            await Assert.That(vm.MenuModel.RunningCount).IsEqualTo(1);
+            await Assert.That(vm.MenuModel.Agents.Select(e => (e.Label, e.Origin))).IsEquivalentTo([("Terminal session", AgentOrigin.Local)]);
+            await Assert.That(vm.MenuModel.Header).DoesNotContain("remote session");
+        });
+    }
+
     /// A remote session waiting on its owner is listed by its machine, unless it is an attached agent's, which no
     /// machine hosts.
     [Test]

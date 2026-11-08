@@ -481,6 +481,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
 
     public string InterruptTip => IsAttached ? AttachedAgentCopy.InterruptAtTerminal : "Interrupt the current turn without ending the session";
 
+    /// An attached agent that has gone ended nothing in its terminal, so it never reads as a finished session.
+    static readonly AgentStatusPresentation SteeringEnded = new(AgentStatusKind.Done, AttachedAgentCopy.SteeringEnded,
+        AttachedAgentCopy.SteeringEnded, false, [new(AttachedAgentCopy.SteeringEnded, "Status")]) { Ended = true };
+
     readonly ObservableAsPropertyHelper<bool> _showsInterrupt;
     public bool ShowsInterrupt => _showsInterrupt.Value;
 
@@ -671,6 +675,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             answerExpected: answerExpected, ended: _ended, liveCommands: work.Commands,
             terminalDialog: _terminalDialog is not null, interruption: _interruption, agentId: _agentId,
             turnAttested: _turnAttested);
+        if (IsAttached && _ended) AgentStatus = SteeringEnded;
         StatusText = AgentStatus.Label;
     }
 
@@ -939,8 +944,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                 this.WhenAnyValue(x => x.UploadingFiles),
                 this.WhenAnyValue(x => x.TerminalMenuHint),
                 _intakeNotice,
-                (hint, availability, readOnly, uploading, menuHint, notice) =>
-                    availability == SendAvailability.Ended ? (readOnly ? "" : hint)
+                this.WhenAnyValue(x => x.IsAttached),
+                (hint, availability, readOnly, uploading, menuHint, notice, attached) =>
+                    availability == SendAvailability.Ended ? (readOnly ? "" : attached ? AttachedAgentCopy.SteeringEnded : hint)
                         : uploading > 0 ? $"Uploading {uploading} file{(uploading == 1 ? "" : "s")}…"
                         : notice ?? (readOnly ? ""
                             : menuHint.Length > 0 ? menuHint
@@ -1155,9 +1161,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }
         // The server stops listing a message it listed with a state only once that message is over: credited to its
         // transcript row, superseded by the sender's next message, discarded, or ended with its process.
+        // A delivered one also settles every attempt it replaced.
         foreach (var over in _queuedMessages.Where(q => q.DeliveryState is not null && q.DispatchId is { } id && !listed.Contains(id)).ToList()) {
             if (over is { IsDelivered: true, IsForeign: false, Acknowledged: false }) Acknowledge(over);
-            RetireDiscarded(over);
+            RetireDiscarded(over, restorePredecessors: !over.IsDelivered);
         }
         foreach (var gone in _queuedMessages.Where(q => q.IsForeign && q.DispatchId is { } id && !listed.Contains(id)).ToList())
             _queuedMessages.Remove(gone);
@@ -1383,8 +1390,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         RefreshQueue();
     }
 
-    void RetireDiscarded(QueuedChatMessage message) {
-        var predecessors = _superseded
+    void RetireDiscarded(QueuedChatMessage message, bool restorePredecessors = true) {
+        var predecessors = !restorePredecessors ? [] : _superseded
             .Where(pair => ReferenceEquals(pair.Replacement, message) && !pair.Old.Acknowledged)
             .Select(pair => pair.Old).Distinct().OrderBy(q => q.SendOrder).ToArray();
         if (message.DispatchId is { } id) {

@@ -1004,6 +1004,42 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("server:S").HasValue).IsFalse();
     }
 
+    /// Neither lane names an attached agent's repository, but the listing knows its session's, so the agent sits in
+    /// that repository's group, where the session's own row sits when nothing steers it.
+    [Test]
+    public async Task An_attached_agent_takes_its_sessions_repository_from_the_listing() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        var listed = Listed("S", "active") with { Cwd = "/w/kcap-cli", Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap-cli" } };
+        sessions.LiveCache.AddOrUpdate(listed);
+        sessions.MineLiveCache.AddOrUpdate(listed);
+        remote.Cache.AddOrUpdate(Remote("mod-1", daemon: "elsewhere", owner: "me", sessionId: "S") with { RepoOwner = null, RepoName = null, Attached = true });
+
+        var row = dir.Rows.Lookup("remote:mod-1").Value;
+        var own = AgentRow.FromServer(listed, hostedPresentation: false);
+        await Assert.That((row.RepoGroupKey, row.RepoGroupLabel, row.RepoPath)).IsEqualTo((own.RepoGroupKey, own.RepoGroupLabel, own.RepoPath));
+        await Assert.That(row.RepoGroupKey).IsEqualTo("repo:kurrent-io/kcap-cli");
+        await Assert.That(row.MachineBadge).IsNull();
+        await Assert.That(dir.Rows.Lookup("server:S").HasValue).IsFalse();
+    }
+
+    /// Disconnecting steering leaves the session running in its terminal, so its own row reads as a terminal session
+    /// at once: no hand-over grace, which is for an agent a daemon hosts.
+    [Test]
+    public async Task A_session_whose_steering_ends_reads_as_a_terminal_session_at_once() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        MineLive(sessions, "S");
+        remote.Cache.AddOrUpdate(Remote("mod-1", daemon: "elsewhere", owner: "me", sessionId: "S") with { Attached = true });
+        await Assert.That(dir.Rows.Lookup("server:S").HasValue).IsFalse();
+
+        remote.Cache.RemoveKey("mod-1");
+
+        await Assert.That(dir.Rows.Lookup("server:S").Value.IsTerminalSession).IsTrue();
+    }
+
     [Test]
     public async Task A_server_row_keeps_hosted_presentation_within_the_grace() {
         var (local, _, sessions, time, dir) = BuildWithSessions();

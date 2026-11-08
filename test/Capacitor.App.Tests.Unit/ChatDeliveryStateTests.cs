@@ -146,6 +146,61 @@ public class ChatDeliveryStateTests {
         } finally { await h.Chat.TeardownAsync(); }
     });
 
+    /// A delivered message the server stops listing is over, and so is every attempt it replaced: an earlier attempt
+    /// does not come back as a message still waiting.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_delivered_retry_takes_the_attempt_it_replaced_with_it() => RunOnUiAsync(async () => {
+        using var identity = new BehaviorSubject<ViewerIdentityDto?>(null);
+        var h = new Rig(attached: true, identity: identity);
+        try {
+            await h.SeededAsync();
+            h.Chat.ComposerText = "mine";
+            await h.Chat.SendCommand.Execute();
+            var first = h.Chat.QueuedMessages.Single();
+            await WaitUntilAsync(() => first.CanSendNow, what: "the first attempt resendable");
+
+            identity.OnNext(new() { UserId = "u2" });
+            await h.Chat.SendQueuedCommand.Execute(first);
+            var retry = h.Chat.QueuedMessages.Single();
+            await Assert.That(retry).IsNotSameReferenceAs(first);
+            var id = Guid.NewGuid();
+            h.Queue.OnNext([Item("mine", id, state: "with_mod")]);
+            h.Queue.OnNext([Item("mine", id, state: "delivered")]);
+            await Assert.That(h.Chat.DeliveryNotices.Single()).IsSameReferenceAs(retry);
+
+            h.Queue.OnNext([]);
+
+            await Assert.That(h.Chat.QueuedMessages).IsEmpty();
+            await Assert.That(h.Chat.DeliveryNotices).IsEmpty();
+        } finally { await h.Chat.TeardownAsync(); }
+    });
+
+    /// Disconnecting steering ends nothing in the terminal, so where the chat would say the session ended it says the
+    /// steering did. A hosted session's end reads as before.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(true)]
+    [Arguments(false)]
+    public Task An_attached_session_that_ends_reads_as_steering_ended(bool attached) => RunOnUiAsync(async () => {
+        var h = new Rig(attached);
+        try {
+            await h.SeededAsync();
+
+            h.Session.OnNext(h.Session.Value with { Ended = true });
+
+            await WaitUntilAsync(() => !h.Chat.ShowsComposer, what: "the composer to close");
+            if (attached) {
+                await Assert.That(h.Chat.StatusText).IsEqualTo("Steering ended");
+                await Assert.That(h.Chat.AgentStatus.Tip).IsEqualTo("Steering ended");
+                await Assert.That(h.Chat.ComposerHint).IsEqualTo("Steering ended");
+            } else {
+                await Assert.That(h.Chat.StatusText).IsNotEqualTo("Steering ended");
+                await Assert.That(h.Chat.ComposerHint).IsEqualTo(ServerChatInput.EndedHint);
+            }
+        } finally { await h.Chat.TeardownAsync(); }
+    });
+
     /// The server refuses an attached agent's Escape, so the button stays in place but disabled, pointing at the terminal.
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -180,9 +235,10 @@ public class ChatDeliveryStateTests {
     /// A remote chat on a running session, its sends going through the server as the viewer u2.
     sealed class Rig {
         public readonly Subject<IReadOnlyList<QueuedInputItem>> Queue = new();
+        public readonly BehaviorSubject<ChatSessionInfo> Session;
         public readonly ChatTabViewModel Chat;
 
-        public Rig(bool attached = false) {
+        public Rig(bool attached = false, IObservable<ViewerIdentityDto?>? identity = null) {
             var lane = new FakeServerLane();
             lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u2"));
             var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
@@ -190,9 +246,9 @@ public class ChatDeliveryStateTests {
                 AgentId = "a1", SessionId = "s1", Status = "running", DaemonName = "work-mac", OwnerUserId = "u2", Vendor = "claude",
                 Attached = attached,
             });
-            var session = new BehaviorSubject<ChatSessionInfo>(ChatSessionInfo.FromRemote(row, ended: false));
+            var session = Session = new BehaviorSubject<ChatSessionInfo>(ChatSessionInfo.FromRemote(row, ended: false));
             var input = new ServerChatInput("a1", lane, access, session, hasTerminal: !attached,
-                senderIdentity: Observable.Return<ViewerIdentityDto?>(new() { UserId = "u2" }));
+                senderIdentity: identity ?? Observable.Return<ViewerIdentityDto?>(new() { UserId = "u2" }));
             var time = new FakeTimeProvider();
             Chat = new ChatTabViewModel(
                 "a1", AgentOrigin.Remote, session, Observable.Return<string[]?>(null), input, new NoAttachmentUploader(),

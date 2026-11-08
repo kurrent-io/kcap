@@ -549,6 +549,11 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                 ListedPullRequests = dto.PullRequests,
                 Branch = row.Branch ?? dto.Branch,
             };
+            // Neither lane names an attached agent's repository; the listing names its session's.
+            if (row.IsAttached && row.RepoGroupKey == RepoIdentity.NoRepository.Key) {
+                var (repoPath, _, repo) = AgentRow.ListedCheckout(dto);
+                next[i] = next[i] with { RepoPath = repoPath, RepoGroupKey = repo.Key, RepoGroupLabel = repo.Label };
+            }
         }
         if (_scope == RailScope.Mine) {
             next.RemoveAll(row => {
@@ -580,7 +585,8 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                         return false;
                     }
                     suppressServer = true;
-                    hostedNow = true;
+                    // A session whose steering ends is still running in its terminal: there is no hand-over to bridge.
+                    hostedNow = !row.IsAttached;
                     return false;
                 }
                 if (!_localConnected) {
@@ -591,7 +597,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                 switch (row.Status) {
                     case "Completed": return true;
                     case "Failed": suppressServer = true; return false;
-                    default: suppressServer = true; hostedNow = hostedLocally = true; return false;
+                    default: suppressServer = true; hostedNow = !row.IsAttached; hostedLocally = true; return false;
                 }
             });
             if (hostedNow) _hostedUntil[sid] = now + HandoverGrace;

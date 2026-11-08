@@ -74,9 +74,9 @@ public sealed class AgentActionService {
     public static string StopKey(AgentOrigin origin, string agentId) => $"{origin}:{agentId}";
 
     /// A kind other than exactly "agent" is protected (KindText vocabulary: agent|review|
-    /// review-flow). Any non-"agent" value — including one this build doesn't recognise — fails
-    /// safe as protected, mirroring the daemon's own `Kind != LaunchKind.Default` check and the
-    /// CLI's `IsProtectedKind`.
+    /// review-flow|attached). Any non-"agent" value — including one this build doesn't recognise —
+    /// fails safe as protected, mirroring the daemon's own `Kind != LaunchKind.Default` check and the
+    /// CLI's `IsProtectedKind`. The stop of an attached agent asks nothing even so: see AttachedKind.
     internal static bool IsProtectedKind(string kind) => kind is not "agent";
 
     /// A terminal session the daemon steers rather than hosts. Its stop only disconnects the steering, which strands

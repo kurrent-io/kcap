@@ -2116,6 +2116,38 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// A question in an attached session, Claude's own or an ACP one, can only be answered at its terminal: the card
+    /// says so and offers no answer, whoever the viewer is.
+    [Test]
+    public async Task A_question_in_an_attached_session_waits_for_an_answer_at_the_terminal() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var owner = new AgentViewerRightsDto {
+                IsOwner = true, Reaches = true, AnswerQuestions = true, ApproveToolUse = true, SendWithoutApproval = true,
+            };
+            var vm = h.Build(AttachedRow() with { ViewerRights = owner });
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+
+            h.Permissions.Add(PermissionEntries.ServerQuestion());
+            h.Permissions.Add(PendingPermissionRequest.FromServer(
+                new ServerElicitationRequest("s1", "q2", "Pick", [new() { OptionId = "a", Label = "A" }], false), DateTimeOffset.UtcNow));
+            await WaitUntilAsync(() => vm.Chat.PendingCards.Count == 2, what: "both cards");
+
+            var question = vm.Chat.PendingCards.OfType<QuestionCardViewModel>().Single();
+            var acp = vm.Chat.PendingCards.OfType<AcpQuestionCardViewModel>().Single();
+            foreach (var card in new PendingCardViewModel[] { question, acp }) {
+                await Assert.That(card.WaitingOn).IsEqualTo("Waiting for an answer at the terminal");
+                await Assert.That(card.CanAnswer).IsFalse();
+                await Assert.That(card.OffersAnswers).IsFalse();
+            }
+            await question.SubmitCommand.Execute();
+            await acp.SubmitCommand.Execute();
+            await Assert.That(h.Permissions.Answered).IsEmpty();
+            await Assert.That(h.Permissions.AcpAnswered).IsEmpty();
+            await vm.TeardownAsync();
+        });
+    }
+
     /// The held list is read when the workspace opens on its chat, again each time the chat tab is shown, and again
     /// after the lane reconnects, since a push sent while it was down never arrives.
     [Test]

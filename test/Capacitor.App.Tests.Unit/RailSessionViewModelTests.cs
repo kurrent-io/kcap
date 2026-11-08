@@ -129,20 +129,19 @@ public class RailSessionViewModelTests {
             var fromDaemon = AgentRow.FromLocal(
                 new("mod-2", "attached", "claude", null, "Running", null, null, null, DateTime.UtcNow, null, null,
                     HasTerminal: false, SessionId: "s2"),
-                new RepoIdentity("path:", "No repository"));
+                RepoIdentity.NoRepository);
 
             foreach (var attached in new[] { fromServer, fromDaemon }) {
                 using var row = new RailSessionViewModel(attached, new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
                 await Assert.That(row.IsAttached).IsTrue();
-                await Assert.That(RailSessionViewModel.AttachedLabel).IsEqualTo("Terminal session");
                 await Assert.That(row.MachineBadge).IsNull();
                 await Assert.That(row.IsTerminalSession).IsFalse();
                 await Assert.That(row.Tooltip).DoesNotContain("daemon");
                 await Assert.That(row.Meta).DoesNotContain("attached");
                 await Assert.That(row.CheckoutPath).IsNull();
-                await Assert.That(attached.RepoGroupKey).IsEqualTo("path:");
-                await Assert.That(attached.RepoGroupLabel).IsEqualTo("No repository");
             }
+            await Assert.That(fromServer.RepoGroupKey).IsEqualTo("path:");
+            await Assert.That(fromServer.RepoGroupLabel).IsEqualTo("No repository");
 
             using var hosted = new RailSessionViewModel(RemoteRow("a1"), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
             await Assert.That(hosted.IsAttached).IsFalse();

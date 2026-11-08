@@ -172,7 +172,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             .DisposeWith(_disposables);
 
         _showsRepo = (grouping ?? Observable.Return(RailGrouping.Repository)).CombineLatest(_row, (mode, current) =>
-                mode != RailGrouping.Repository && current.RepoGroupLabel is { Length: > 0 } and not "No repository")
+                mode != RailGrouping.Repository && current.RepoGroupLabel is { Length: > 0 } label && label != RepoIdentity.NoRepository.Label)
             .ToProperty(this, x => x.ShowsRepo, initialValue: false)
             .DisposeWith(_disposables);
 

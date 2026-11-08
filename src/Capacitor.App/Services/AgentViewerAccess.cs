@@ -52,7 +52,7 @@ public sealed record AgentViewerAccess(
 
     /// Who a prompt the viewer cannot answer waits on; null when they can answer it.
     public string? WaitingOn(PendingPermissionRequest request) =>
-        AtTerminal ? ViewModels.AttachedAgentCopy.WaitingForApproval
+        AtTerminal ? request.IsQuestion ? ViewModels.AttachedAgentCopy.WaitingForAnswer : ViewModels.AttachedAgentCopy.WaitingForApproval
         : CanAnswer(request) ? null
         : request.IsQuestion ? "Waiting for the owner to answer"
         : "Waiting for the owner to decide";

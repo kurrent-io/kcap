@@ -636,44 +636,46 @@
 
                 <!-- A settled message to an attached agent waits for nothing: it sits apart from the queue with the server's
                      word on it. -->
-                <ItemsControl x:Name="DeliveryNotices" Grid.Row="1" Margin="0,0,0,8" ItemsSource="{Binding DeliveryNotices}"
+                <ScrollViewer Grid.Row="1" Margin="0,0,0,8" MaxHeight="120" HorizontalScrollBarVisibility="Disabled"
                               IsVisible="{Binding HasDeliveryNotices}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Spacing="6" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:QueuedChatMessage">
-                            <Border Padding="13,8" Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
-                                    BorderThickness="1" CornerRadius="8">
-                                <Border.Styles>
-                                    <Style Selector="TextBlock.deliveryNote">
-                                        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-                                    </Style>
-                                    <Style Selector="TextBlock.deliveryNote.needsSender">
-                                        <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
-                                    </Style>
-                                    <Style Selector="TextBlock.deliveryNote.delivered">
-                                        <Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" />
-                                    </Style>
-                                </Border.Styles>
-                                <DockPanel>
-                                    <Panel DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,8,0" VerticalAlignment="Center">
-                                        <views:AppIcon Kind="Check" Size="12" Foreground="{StaticResource KcapSuccessBrush}" IsVisible="{Binding IsDelivered}" />
-                                        <views:AppIcon Kind="CircleAlert" Size="12" Foreground="{StaticResource KcapWarningBrush}" IsVisible="{Binding DeliveryNeedsSender}" />
-                                    </Panel>
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding DeliveryNote}" Classes="deliveryNote"
-                                               Classes.needsSender="{Binding DeliveryNeedsSender}" Classes.delivered="{Binding IsDelivered}"
-                                               FontSize="12" Margin="12,0,0,0" MaxWidth="320" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                    <TextBlock Text="{Binding DisplayText}" ToolTip.Tip="{Binding DisplayText}" FontSize="13.5"
-                                               TextTrimming="CharacterEllipsis" MaxLines="1" VerticalAlignment="Center"
-                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                </DockPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                    <ItemsControl x:Name="DeliveryNotices" ItemsSource="{Binding DeliveryNotices}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="6" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:QueuedChatMessage">
+                                <Border Padding="13,8" Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                                        BorderThickness="1" CornerRadius="8">
+                                    <Border.Styles>
+                                        <Style Selector="TextBlock.deliveryNote">
+                                            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+                                        </Style>
+                                        <Style Selector="TextBlock.deliveryNote.needsSender">
+                                            <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
+                                        </Style>
+                                        <Style Selector="TextBlock.deliveryNote.delivered">
+                                            <Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" />
+                                        </Style>
+                                    </Border.Styles>
+                                    <DockPanel>
+                                        <Panel DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,8,0" VerticalAlignment="Center">
+                                            <views:AppIcon Kind="Check" Size="12" Foreground="{StaticResource KcapSuccessBrush}" IsVisible="{Binding IsDelivered}" />
+                                            <views:AppIcon Kind="CircleAlert" Size="12" Foreground="{StaticResource KcapWarningBrush}" IsVisible="{Binding DeliveryNeedsSender}" />
+                                        </Panel>
+                                        <TextBlock DockPanel.Dock="Right" Text="{Binding DeliveryNote}" Classes="deliveryNote"
+                                                   Classes.needsSender="{Binding DeliveryNeedsSender}" Classes.delivered="{Binding IsDelivered}"
+                                                   FontSize="12" Margin="12,0,0,0" MaxWidth="320" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding DisplayText}" ToolTip.Tip="{Binding DisplayText}" FontSize="13.5"
+                                                   TextTrimming="CharacterEllipsis" MaxLines="1" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource KcapMutedBrush}" />
+                                    </DockPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
 
                 <Border x:Name="QueuedMessagesBanner" Grid.Row="2" Margin="0,0,0,8" Padding="13,10"
                         Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"

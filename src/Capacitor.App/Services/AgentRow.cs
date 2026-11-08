@@ -109,17 +109,12 @@ public sealed record AgentRow(
     /// row for the same session has just gone, so a hand-over never flashes as a terminal session.
     public static AgentRow FromServer(RepoSessionDto dto, bool hostedPresentation) {
         var active = dto.Status == "active";
-        // The listing names only the cwd. A hosted agent's is its worktree, whose path names the
-        // checkout that owns it; any other cwd could be a linked worktree just the same, so it is
-        // not presented as one.
-        var agentWorktree = dto.Cwd is { } cwd ? GitRepository.AgentWorktreeOf(cwd) : null;
-        var repoPath = agentWorktree?.Owner ?? dto.Cwd;
-        var repo = RepoIdentityResolver.ForRemote(dto.Repo?.Owner, dto.Repo?.Name, repoPath, "server");
+        var (repoPath, worktreePath, repo) = ListedCheckout(dto);
         return new(
             Key: $"server:{dto.SessionId}", Origin: AgentOrigin.Server, Id: dto.SessionId, SessionId: dto.SessionId,
             Kind: "session", Vendor: dto.Vendor ?? "", Status: active ? "Running" : "Completed",
             CreatedAt: dto.StartedAt.UtcDateTime, RepoPath: repoPath, Title: dto.Title, Model: null, RequesterDisplay: null,
-            WorktreePath: agentWorktree?.Worktree, WorkLocation: null, BorrowedFrom: null,
+            WorktreePath: worktreePath, WorkLocation: null, BorrowedFrom: null,
             MachineBadge: null, RepoGroupKey: repo.Key, RepoGroupLabel: repo.Label,
             CheckoutKey: "@server", CheckoutLabel: "",
             OwnerUserId: dto.Owner?.UserId, OwnerName: dto.Owner?.DisplayName ?? dto.Owner?.Username,
@@ -127,6 +122,15 @@ public sealed record AgentRow(
             LastActivityAt: dto.LastActivityAt.UtcDateTime, EndedAt: dto.EndedAt?.UtcDateTime,
             IsStale: dto.Stale, IsTerminalSession: active && !hostedPresentation, AccessLevel: dto.AccessLevel,
             ListedPullRequests: dto.PullRequests, Branch: dto.Branch, Recording: dto.Recording);
+    }
+
+    /// The checkout a listing names for its session. The listing names only the cwd. A hosted agent's is its worktree,
+    /// whose path names the checkout that owns it; any other cwd could be a linked worktree just the same, so it is not
+    /// presented as one.
+    internal static (string? RepoPath, string? WorktreePath, RepoIdentity Repo) ListedCheckout(RepoSessionDto dto) {
+        var agentWorktree = dto.Cwd is { } cwd ? GitRepository.AgentWorktreeOf(cwd) : null;
+        var repoPath = agentWorktree?.Owner ?? dto.Cwd;
+        return (repoPath, agentWorktree?.Worktree, RepoIdentityResolver.ForRemote(dto.Repo?.Owner, dto.Repo?.Name, repoPath, "server"));
     }
 
     static string CanonicalRemoteStatus(string status) => status.ToLowerInvariant() switch {

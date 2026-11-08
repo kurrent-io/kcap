@@ -416,9 +416,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         StopCommand = ReactiveCommand.Create(() => {
             var dto = _latestDto;
             // UnresolvedKind fails safe as protected (AgentActionService.IsProtectedKind treats
-            // anything other than exactly "agent" as protected) -- the edge case of a Stop click
-            // before the first dto ever arrives must never default to the ONE kind that skips
-            // the confirm-then-force seam.
+            // anything other than exactly "agent" as protected) -- a Stop click before the first dto
+            // ever arrives must never default to a kind that skips the confirm-then-force seam.
             var row   = _startingRow;
             var kind  = dto?.Kind ?? row?.Kind ?? UnresolvedKind;
             var label = dto?.Kind == AgentActionService.AttachedKind ? AttachedAgentCopy.TerminalSession
