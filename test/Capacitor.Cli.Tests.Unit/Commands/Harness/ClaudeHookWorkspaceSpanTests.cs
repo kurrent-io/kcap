@@ -3,6 +3,7 @@ using System.Text.Json;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.PrDetection;
 using Capacitor.Cli.Workspace;
@@ -36,8 +37,8 @@ public class ClaudeHookWorkspaceSpanTests : IDisposable {
         Repo.CommitAll("seed");
     }
 
-    Task<int> HookAsync(string payload) {
-        var profiles = Resolutions.At(_server.Url!, Config.Root);
+    Task<int> HookAsync(string payload, ProfileContext? profiles = null) {
+        profiles ??= Resolutions.At(_server.Url!, Config.Root);
         var http     = new FixedCapacitorHttpClient();
         return new ClaudeHookCommand(Config.Root, profiles, new HookClock(_time), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, http,
                 TestWatchers.For(Config.Root, profiles, http), SystemProcessStarter.Instance, router: new GitProviderRouter(),
@@ -96,6 +97,35 @@ public class ClaudeHookWorkspaceSpanTests : IDisposable {
             $$""","agent_id":"a1","tool_name":"EnterWorktree","tool_response":{"worktreePath":{{JsonSerializer.Serialize(Repo.Path)}}}"""));
         Repo.CreateFile("subagent.txt", "x");
         await HookAsync(Hook("Stop", Repo.Path));
+
+        await Assert.That(Posted()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Entering_a_worktree_the_profile_excludes_opens_no_span_there() {
+        var b        = Repo.AddWorktree(Repo.PathTo("..", Path.GetFileName(Repo.Path) + "-excluded"), "excluded");
+        var profiles = Resolutions.Of(new Profile { ServerUrl = _server.Url!, ExcludedPaths = [b.Path] });
+        try {
+            await HookAsync(Hook("PostToolUse", Repo.Path,
+                $$""","tool_name":"EnterWorktree","tool_response":{"worktreePath":{{JsonSerializer.Serialize(b.Path)}}}"""), profiles);
+            b.CreateFile("private.txt", "x");
+            // The turn's Stop can still name the tree it started in.
+            await HookAsync(Hook("Stop", Repo.Path), profiles);
+
+            await Assert.That(Posted()).IsEmpty();
+        } finally {
+            Repo.Try("worktree", "remove", "--force", b.Path);
+        }
+    }
+
+    /// <summary>A prompt waits on its hook, so the span it opens never waits on the server; a span the
+    /// prompt closed is left for the turn's Stop to post.</summary>
+    [Test]
+    public async Task A_prompt_posts_nothing_even_with_spans_waiting_in_the_spool() {
+        await HookAsync(Hook("UserPromptSubmit", Repo.Path));
+        Repo.CreateFile("first-turn.txt", "x");
+
+        await HookAsync(Hook("UserPromptSubmit", Repo.Path));
 
         await Assert.That(Posted()).IsEmpty();
     }

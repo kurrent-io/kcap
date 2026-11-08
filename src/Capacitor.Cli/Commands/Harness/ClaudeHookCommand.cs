@@ -15,6 +15,7 @@ using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Plans;
 using Capacitor.Cli.PrDetection;
 using Capacitor.Cli.Workspace;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli.Commands.Harness;
 
@@ -269,6 +270,8 @@ public sealed class ClaudeHookCommand(
     public Task<int> HandleWorkspaceSpan(TextReader stdin) =>
         HandleWorkspaceSpanCore(stdin, new WorkspaceSpanHook(config, profiles, http, clock.Time));
 
+    static string CwdBody(string cwd) => new JsonObject { ["cwd"] = AotJsonString(cwd) }.ToJsonString();
+
     internal async Task<int> HandleWorkspaceSpanCore(TextReader stdin, WorkspaceSpanHook spans) {
         try {
             var body = await stdin.ReadToEndAsync();
@@ -277,8 +280,13 @@ public sealed class ClaudeHookCommand(
 
             var budget = clock.Budget(Ceiling(evt.Command));
             if (await ShouldSuppressCaptureAsync(evt.SessionId, body, evt.Command, profiles.Effective, budget)) return 0;
+            // A worktree the turn moved into is gated on its own path, which the payload's cwd may not name.
+            if (evt.Open == WorkspaceOpen.Join && evt.Dir is { } destination
+             && await IsSessionExcludedAsync(profiles.Effective, CwdBody(destination), budget)) return 0;
 
-            if (evt.Open is { } mode) await spans.OpenAsync(evt.SessionId, evt.Dir, mode, budget.Remaining);
+            // An open blocks the prompt or the agent's next tool, so it never waits on the server; the
+            // turn's Stop and the other hooks' drains post what it closed.
+            if (evt.Open is { } mode) await spans.OpenAsync(evt.SessionId, evt.Dir, mode, budget.Remaining, drain: false);
             else await spans.CloseAsync(evt.SessionId, budget.Remaining);
 
             return 0;

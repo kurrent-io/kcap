@@ -30,6 +30,16 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
 
     static string FileName(Guid spanId) => $"{spanId:N}.json";
 
+    /// <summary>Drops every span the session has spooled, unsent.</summary>
+    public void Discard(string sessionId) {
+        if (SessionDir(sessionId) is not { } dir || !Directory.Exists(dir)) return;
+        try {
+            foreach (var file in Directory.EnumerateFiles(dir)) WorkspaceFiles.TryDelete(file);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            // The drain's filter still keeps them off the wire.
+        }
+    }
+
     public bool Has(string sessionId, Guid spanId) => SessionDir(sessionId) is { } dir && File.Exists(Path.Combine(dir, FileName(spanId)));
 
     /// <summary>Spools one span, deleting the session's oldest span files whole to stay under the cap.</summary>
@@ -96,8 +106,10 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
         WorkspaceFiles.WriteAtomic(Path.Combine(partition.DirectoryPath, PauseFile), (time.GetUtcNow() + RouteMissingPause).ToString("O", CultureInfo.InvariantCulture));
 
     /// <summary>Posts spooled spans oldest first until the spool is empty, the budget runs out, or a
-    /// failure says a later attempt may succeed. Never throws.</summary>
-    public async Task<WorkspaceDrainStop> DrainAsync(HttpClient client, string serverUrl, TimeSpan budget, CancellationToken ct = default) {
+    /// failure says a later attempt may succeed. A span of a session <paramref name="withheld"/> names is
+    /// deleted unsent. Never throws.</summary>
+    public async Task<WorkspaceDrainStop> DrainAsync(
+            HttpClient client, string serverUrl, TimeSpan budget, CancellationToken ct = default, Func<string, bool>? withheld = null) {
         if (IsPaused) return WorkspaceDrainStop.Paused;
 
         var started = time.GetTimestamp();
@@ -129,6 +141,11 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
                 continue;
             }
 
+            if (withheld is not null && SessionOf(body) is { } owner && withheld(owner)) {
+                WorkspaceFiles.TryDelete(file.FullName);
+                continue;
+            }
+
             using var content = new StringContent(body, Encoding.UTF8, "application/json");
             var status = await SendAsync(() => client.PostOnceAsync(url, content, time, Left(), ct));
             if (status is >= 200 and < 300) {
@@ -156,6 +173,14 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
         }
 
         return WorkspaceDrainStop.Drained;
+    }
+
+    static string? SessionOf(string body) {
+        try {
+            return JsonSerializer.Deserialize(body, WorkspaceJsonContext.Default.WorkspaceChangesRequest)?.SessionId;
+        } catch (JsonException) {
+            return null;
+        }
     }
 
     static async Task<int?> SendAsync(Func<Task<HttpResponseMessage>> send) {

@@ -305,7 +305,7 @@ internal sealed class AgentHookPoster(
 
                 // Second, so a closed span never takes the lifecycle backlog's budget.
                 if (workspacePending && !cts.IsCancellationRequested)
-                    await workspace.DrainAsync(client, Url!, budget, cts.Token);
+                    await workspace.DrainAsync(client, Url!, budget, cts.Token, id => DisabledSessions.IsDisabled(id, config));
             }
         } catch {
             // Best-effort — a drain hiccup must never disrupt the vendor's own hook.

@@ -305,11 +305,12 @@ sealed class CodexHookCommand(
 
     WorkspaceSpanHook Spans(CodexHookEnvironment? env = null) => new(config, profiles, http, clock.Time, env?.Stderr);
 
-    /// <summary>A prompt opens the turn's workspace span. A subagent's hooks name it in <c>agent_id</c> and
-    /// run inside the parent's turn, so they take none.</summary>
+    /// <summary>A prompt opens the turn's workspace span without waiting on the server: Stop and the
+    /// background drain post what it closed. A subagent's hooks name it in <c>agent_id</c> and run inside
+    /// the parent's turn, so they take none.</summary>
     async Task<int> OpenSpanAsync(JsonNode node) {
         if (SubagentIdOf(node) is null)
-            await Spans().OpenAsync(TryGetString(node, "session_id"), TryGetString(node, "cwd"), WorkspaceOpen.Turn, clock.Budget(Ceiling).Remaining);
+            await Spans().OpenAsync(TryGetString(node, "session_id"), TryGetString(node, "cwd"), WorkspaceOpen.Turn, clock.Budget(Ceiling).Remaining, drain: false);
         return 0;
     }
 

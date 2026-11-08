@@ -14,7 +14,7 @@ sealed class WorkspaceSpanHook(ConfigRoot config, ProfileContext profiles, ICapa
     /// <summary>What a session-start may spend on its span, ahead of its lifecycle post.</summary>
     public static readonly TimeSpan StartBudget = TimeSpan.FromSeconds(2);
 
-    /// <summary>What a session end may spend closing spans and draining, ahead of its lifecycle post.</summary>
+    /// <summary>What a session end may spend closing spans and draining, after its lifecycle end.</summary>
     public static readonly TimeSpan EndBudget = TimeSpan.FromSeconds(4);
 
     /// <summary>The longest a drain may run after the span work.</summary>
@@ -32,15 +32,27 @@ sealed class WorkspaceSpanHook(ConfigRoot config, ProfileContext profiles, ICapa
 
     WorkspaceSpanStore Store => field ??= new WorkspaceSpanStore(config, Url, Spool, new WorkspaceSnapshotter(new WorkspaceGit(time), time, Bounds), time);
 
+    /// <summary>The store for one piece of span work. Its lock waits shrink with the budget, so a short
+    /// hook's span work stays inside what it was given.</summary>
+    WorkspaceSpanStore StoreWithin(TimeSpan budget) {
+        var quarter = budget / 4;
+        return new WorkspaceSpanStore(config, Url, Spool, new WorkspaceSnapshotter(new WorkspaceGit(time), time, Bounds), time) {
+            LockWait = quarter < WorkspaceSpanLock.DefaultWait ? quarter : WorkspaceSpanLock.DefaultWait,
+        };
+    }
+
+    bool Withheld(string sessionId) => DisabledSessions.IsDisabled(sessionId, config);
+
     public Task OpenAsync(string? sessionId, string? dir, WorkspaceOpen mode, TimeSpan budget, bool drain = true) =>
-        RunAsync(sessionId, budget, drain, left => dir is null ? Task.CompletedTask : Store.OpenAsync(sessionId!, dir, mode, left()));
+        RunAsync(sessionId, budget, drain, left => dir is null ? Task.CompletedTask : StoreWithin(budget).OpenAsync(sessionId!, dir, mode, left()));
 
     public Task CloseAsync(string? sessionId, TimeSpan budget, bool drain = true) =>
-        RunAsync(sessionId, budget, drain, left => Store.CloseAllAsync(sessionId!, left()));
+        RunAsync(sessionId, budget, drain, left => StoreWithin(budget).CloseAllAsync(sessionId!, left()));
 
-    /// <summary>Closes the session's spans and deletes its baselines. A failed post stays in the spool.</summary>
+    /// <summary>Closes the session's spans and deletes its baselines. A failed post stays in the spool.
+    /// Callers run it after the session's own end is handed off or posted, which must never wait on it.</summary>
     public Task EndAsync(string? sessionId, TimeSpan budget, bool drain = true) =>
-        RunAsync(sessionId, budget, drain, left => Store.EndSessionAsync(sessionId!, left()));
+        RunAsync(sessionId, budget, drain, left => StoreWithin(budget).EndSessionAsync(sessionId!, left()));
 
     public async Task DrainAsync(TimeSpan budget) {
         try {
@@ -57,8 +69,12 @@ sealed class WorkspaceSpanHook(ConfigRoot config, ProfileContext profiles, ICapa
         TimeSpan Left() => budget - time.GetElapsedTime(started);
 
         try {
-            if (DisabledSessions.IsDisabled(sessionId, config)) Store.Discard(sessionId);
-            else await work(Left);
+            if (Withheld(sessionId)) {
+                Store.Discard(sessionId);
+                Spool.Discard(sessionId);
+            } else {
+                await work(Left);
+            }
         } catch (Exception ex) when (ex is not OutOfMemoryException) {
             Stderr.WriteLine($"[kcap] workspace span failed for {sessionId}: {ex.Message}");
         }
@@ -85,6 +101,6 @@ sealed class WorkspaceSpanHook(ConfigRoot config, ProfileContext profiles, ICapa
         using var client = attempt.Client;
         if (!attempt.Usable) return;
 
-        await Spool.DrainAsync(client, Url!, window - time.GetElapsedTime(started));
+        await Spool.DrainAsync(client, Url!, window - time.GetElapsedTime(started), withheld: Withheld);
     }
 }
