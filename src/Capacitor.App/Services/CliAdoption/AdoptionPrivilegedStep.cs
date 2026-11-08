@@ -83,8 +83,10 @@ internal sealed class AdoptionPrivilegedStep(
             return PrivilegedStepOutcome.Declined;
         }
 
+        var planned = new List<PrivilegedEntry>();
+        foreach (var e in entries) planned.Add(await PinnedAsync(install, Entry(install, retirement.Plan(e)), ct).ConfigureAwait(false));
         var folder = Path.Combine(Path.GetFullPath(helperFolder), "cli-adoption-helper-" + Guid.NewGuid().ToString("N"));
-        var spec   = new PrivilegedSpec(links, [.. entries.Select(e => Entry(install, retirement.Plan(e)))],
+        var spec   = new PrivilegedSpec(links, planned,
             Path.Combine(folder, "control"), Path.Combine(folder, "status"), GoWait, RandomNumberGenerator.GetHexString(32, lowercase: true)) {
             Sites   = homeSites,
             Needles = AdoptionConsumers.Needles(entries),
@@ -232,6 +234,16 @@ internal sealed class AdoptionPrivilegedStep(
                 ? Listing(Directory.Exists(aside.Original) ? aside.Original : aside.Aside)
                 : null,
         };
+    }
+
+    // A same-version reinstall passes the name and version check: an npm package the daemon does not pin is pinned by
+    // its package.json as it is before the prompt.
+    async Task<PrivilegedEntry> PinnedAsync(OtherCliInstall install, PrivilegedEntry entry, CancellationToken ct) {
+        if (install.Kind != OtherCliInstallKind.Npm || entry.Pinned is not null) return entry;
+        var folder = Directory.Exists(entry.Entry.Original) ? entry.Entry.Original : entry.Entry.Aside;
+        return await machine.IdentityAsync(Path.Combine(folder, "package.json"), ct).ConfigureAwait(false) is { } identity
+            ? entry with { Pinned = ("package.json", identity) }
+            : entry;
     }
 
     static string Quoted(string value) => $"\"{value}\"";

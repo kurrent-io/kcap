@@ -256,7 +256,7 @@ public class PrivilegedSwapScriptTests {
 
     // The platform package holds the daemon; its kcap binary stands for it.
     static PrivilegedSpec WithDaemon(PrivilegedSpec spec, string identity) =>
-        spec with { Entries = [spec.Entries[0], spec.Entries[1] with { Daemon = ("bin/kcap", identity) }] };
+        spec with { Entries = [spec.Entries[0], spec.Entries[1] with { Pinned = ("bin/kcap", identity) }] };
 
     [Test]
     public async Task A_kind_checked_entry_that_changed_kind_moves_the_install_back() {

@@ -50,7 +50,7 @@ internal static class PrivilegedSwapScript {
             while [ $k -lt $nlinks ]; do links[$k]=$1; olds[$k]=$2; news[$k]=$3; shift 3; k=$((k + 1)); done
             nentries=$1; shift; k=0; m=0; n=0
             while [ $k -lt $nentries ]; do
-                entries[$k]=$1; asides[$k]=$2; kinds[$k]=$3; markers[$k]=$4; daemons[$k]=$5; identities[$k]=$6; targets[$k]=$7
+                entries[$k]=$1; asides[$k]=$2; kinds[$k]=$3; markers[$k]=$4; pins[$k]=$5; identities[$k]=$6; targets[$k]=$7
                 present[$k]=$8; first[$k]=$m; c=$9; shift 9
                 while [ $c -gt 0 ]; do needs[$m]=$1; shift; m=$((m + 1)); c=$((c - 1)); done
                 last[$k]=$m
@@ -314,8 +314,8 @@ internal static class PrivilegedSwapScript {
                     target=${target%/}
                     [ "${target##*/}" = "${targets[$2]}" ] || return 1
                 fi
-                if [ -n "${daemons[$2]}" ]; then
-                    [ "$(/usr/bin/stat -f '%d:%i:%m:%c' -- "$1/${daemons[$2]}" 2>/dev/null)" = "${identities[$2]}" ] || return 1
+                if [ -n "${pins[$2]}" ]; then
+                    [ "$(/usr/bin/stat -f '%d:%i:%m:%c' -- "$1/${pins[$2]}" 2>/dev/null)" = "${identities[$2]}" ] || return 1
                 fi
                 [ -n "${markers[$2]}" ] || return 0
                 [ "${kinds[$2]}" = d ] && [ -f "$1/${markers[$2]}" ] && ! [ -L "$1/${markers[$2]}" ] || return 1
@@ -402,7 +402,7 @@ internal static class PrivilegedSwapScript {
     /// paths, the account registry's path or nothing, the account files, the home links and the encoded install paths,
     /// each as a count and values, then the links as a count and
     /// (path, original, replacement) triples, and the entries as a count and (original, aside, kind d/l/f, marker,
-    /// daemon path, daemon identity, link target name, present 1/0, substring count, substrings…, child count or -,
+    /// pinned path, pinned identity, link target name, present 1/0, substring count, substrings…, child count or -,
     /// children…) groups, each empty check skipped.</summary>
     internal static IReadOnlyList<string> Arguments(PrivilegedSpec spec, uint owner) {
         Validate(spec);
@@ -420,7 +420,7 @@ internal static class PrivilegedSwapScript {
         foreach (var entry in spec.Entries) {
             args.AddRange([
                 entry.Entry.Original, entry.Entry.Aside, Letter(entry.Kind), entry.Marker ?? "",
-                entry.Daemon?.Path ?? "", entry.Daemon?.Identity ?? "", entry.LinkTargetName ?? "", entry.Present ? "1" : "0",
+                entry.Pinned?.Path ?? "", entry.Pinned?.Identity ?? "", entry.LinkTargetName ?? "", entry.Present ? "1" : "0",
                 Number(entry.MarkerContains.Count),
             ]);
             args.AddRange(entry.MarkerContains);

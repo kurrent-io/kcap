@@ -887,6 +887,25 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
     }
 
+    /// <summary>A same-version reinstall passes an npm package's name and version check: the launcher, which the daemon
+    /// does not pin, goes to the helper pinned by its package.json as read before the prompt, and the platform package by
+    /// the daemon preflight read.</summary>
+    [Test]
+    public async Task Every_npm_package_goes_to_the_helper_pinned() {
+        var world = new AdoptionWorld(Tmp);
+        world.RootOwned();
+        var identity = world.Machine.Identity;
+        world.Machine.Identity = path => path == Path.Combine(world.Root, "package.json") ? "1:2:3:4" : identity(path);
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        var entries  = world.Admin.Specs.Single().Entries;
+        var launcher = entries.Single(e => e.Entry.Original == world.Root).Pinned;
+        await Assert.That(launcher?.Path).IsEqualTo("package.json");
+        await Assert.That(launcher?.Identity).IsEqualTo("1:2:3:4");
+        await Assert.That(entries.Single(e => e.Entry.Original == world.Platform).Pinned?.Identity).IsEqualTo(world.Install.Identity);
+    }
+
     [Test]
     public async Task The_prompt_text_names_what_it_removes_and_that_every_account_shares_it() {
         var world = new AdoptionWorld(Tmp);
