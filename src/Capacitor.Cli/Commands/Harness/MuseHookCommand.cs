@@ -254,8 +254,8 @@ sealed class MuseHookCommand(
         var budget    = clock.Budget(SessionEndCeiling);
 
         if (DisabledSessions.IsDisabled(sessionId, config)) {
-            new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId);
-            DisabledSessions.RemoveMarker(sessionId, config);
+            // The marker withholds the spans until they are gone; a later hook retries the discard.
+            if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveMarker(sessionId, config);
             return;
         }
 

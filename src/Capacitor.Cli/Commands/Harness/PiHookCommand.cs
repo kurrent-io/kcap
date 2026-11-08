@@ -89,8 +89,8 @@ sealed class PiHookCommand(
         // disable` must stop every POST and watcher restart for the session.
         if (DisabledSessions.IsDisabled(sessionId, config)) {
             if (eventName == "session-end") {
-                new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId);
-                DisabledSessions.RemoveMarker(sessionId, config);
+                // The marker withholds the spans until they are gone; a later hook retries the discard.
+                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveMarker(sessionId, config);
             }
             return 0;
         }

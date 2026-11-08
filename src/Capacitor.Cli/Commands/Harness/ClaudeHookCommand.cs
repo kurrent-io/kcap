@@ -657,8 +657,8 @@ public sealed class ClaudeHookCommand(
 
         if (canonicalSessionId is not null && DisabledSessions.IsDisabled(canonicalSessionId, config)) {
             if (command == "session-end") {
-                new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(canonicalSessionId);
-                DisabledSessions.RemoveMarker(canonicalSessionId, config);
+                // The marker withholds the spans until they are gone; a later hook retries the discard.
+                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(canonicalSessionId)) DisabledSessions.RemoveMarker(canonicalSessionId, config);
             }
             return true;
         }
@@ -761,8 +761,8 @@ public sealed class ClaudeHookCommand(
 
             if (disabledSessionId is not null && DisabledSessions.IsDisabled(disabledSessionId, config)) {
                 if (command == "session-end") {
-                    new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(disabledSessionId);
-                    DisabledSessions.RemoveMarker(disabledSessionId, config);
+                    // The marker withholds the spans until they are gone; a later hook retries the discard.
+                    if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(disabledSessionId)) DisabledSessions.RemoveMarker(disabledSessionId, config);
                 }
 
                 return 0;

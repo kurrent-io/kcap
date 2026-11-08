@@ -79,11 +79,17 @@ public sealed class WorkspaceSpanStore(
     }
 
     /// <summary>Drops the session's baselines unposted — a session whose recording was turned off.</summary>
-    public void Discard(string sessionId) {
-        if (SessionDir(sessionId) is not { } sessionDir || !Directory.Exists(sessionDir)) return;
+    /// <returns>Whether no baseline is left: false when the lock was held past its wait, or a baseline
+    /// could not be deleted.</returns>
+    public bool Discard(string sessionId) {
+        if (SessionDir(sessionId) is not { } sessionDir) return false;
+        if (!Directory.Exists(sessionDir)) return true;
 
         using var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait);
-        held?.RemoveSession();
+        if (held is null) return false;
+
+        held.RemoveSession();
+        return !Baselines(sessionDir).Any();
     }
 
     /// <summary>Deletes session directories nothing has written for <see cref="PruneAfter"/>, under every server.</summary>

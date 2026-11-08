@@ -31,12 +31,15 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
     static string FileName(Guid spanId) => $"{spanId:N}.json";
 
     /// <summary>Drops every span the session has spooled, unsent.</summary>
-    public void Discard(string sessionId) {
-        if (SessionDir(sessionId) is not { } dir || !Directory.Exists(dir)) return;
+    /// <returns>Whether no span of the session is left spooled.</returns>
+    public bool Discard(string sessionId) {
+        if (SessionDir(sessionId) is not { } dir) return false;
+        if (!Directory.Exists(dir)) return true;
         try {
             foreach (var file in Directory.EnumerateFiles(dir)) WorkspaceFiles.TryDelete(file);
+            return !Directory.EnumerateFiles(dir, "*.json").Any();
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            // The drain's filter still keeps them off the wire.
+            return false;
         }
     }
 

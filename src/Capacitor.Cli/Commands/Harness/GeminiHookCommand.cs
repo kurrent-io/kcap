@@ -262,8 +262,8 @@ sealed class GeminiHookCommand(
         // silence — these paths are not stderr-free (Program.cs drains the spool before dispatch).
         if (DisabledSessions.IsDisabled(sessionId, config)) {
             if (eventName == "SessionEnd") {
-                new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId);
-                DisabledSessions.RemoveMarker(sessionId, config);
+                // The marker withholds the spans until they are gone; a later hook retries the discard.
+                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveMarker(sessionId, config);
             }
             return 0;
         }
