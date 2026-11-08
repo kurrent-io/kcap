@@ -150,16 +150,22 @@ internal static class PrivilegedSwapScript {
             }
 
             # Follows a link through every hop, as the kernel would, at most 32 deep. Succeeds when a hop, or where it ends
-            # with its folder's links resolved, lies inside the install.
+            # with its folders' links resolved, lies inside the install. The deepest of those folders still there resolves
+            # the path, so a link into an install already set aside is still seen.
             leads_inside() {
-                local p=$1 t d n=0
+                local p=$1 t d rest n=0
                 while [ -L "$p" ] && [ $n -lt 32 ]; do
                     t=$(/usr/bin/readlink -- "$p") || return 1
                     case "$t" in /*) p=$t ;; *) p=${p%/*}/$t ;; esac
                     inside "$p" && return 0
                     n=$((n + 1))
                 done
-                d=$(cd -P -- "${p%/*}" 2>/dev/null && pwd -P) && inside "$d/${p##*/}"
+                d=${p%/*} rest=${p##*/}
+                until t=$(cd -P -- "${d:-/}" 2>/dev/null && pwd -P); do
+                    case "$d" in */*) ;; *) return 1 ;; esac
+                    rest=${d##*/}/$rest d=${d%/*}
+                done
+                inside "${t%/}/$rest"
             }
 
             inside() {
@@ -200,11 +206,12 @@ internal static class PrivilegedSwapScript {
 
             # A process is found by the files it maps, which lsof names with every link resolved, whatever path it
             # was started by. A list without this helper's own process was not read. Asked once the install is set
-            # aside, when no process can reach it by its own paths any more.
+            # aside, when no process can reach it by its own paths any more and a link made since the first look shows.
             in_use() {
                 local i d home plist listed
                 [ $nentries -gt 0 ] || return 1
                 [ $homes_read = 1 ] || { echo "the accounts on this Mac could not be listed"; return 0; }
+                linked && return 0
                 /usr/sbin/lsof -nPw -b -d txt -Fpn 2>/dev/null | /usr/bin/awk -v self="p$$" '
                     BEGIN { for (i = 1; i < ARGC; i++) look[i] = ARGV[i]; n = ARGC - 1; ARGC = 1 }
                     $0 == self { seen = 1 }
@@ -247,7 +254,7 @@ internal static class PrivilegedSwapScript {
             }
 
             # Another account's own kcap link into the install would dangle once it goes; root changes nothing in another
-            # account's home, so the install stays. Read while the install is in place, so each link still resolves.
+            # account's home, so the install stays. Read before the install is set aside and again after.
             linked() {
                 local home l i
                 [ $nentries -gt 0 ] || return 1

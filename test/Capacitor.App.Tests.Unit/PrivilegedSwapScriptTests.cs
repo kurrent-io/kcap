@@ -504,13 +504,17 @@ public class PrivilegedSwapScriptTests {
     }
 
     /// <summary>Another account's own kcap link into the install would dangle once it goes, and root changes nothing in
-    /// that account's home: the install stays.</summary>
+    /// that account's home: the install stays, whether the link names it outright or through its parent folders.</summary>
     [Test]
-    public async Task A_kcap_link_in_another_home_into_the_install_keeps_it_on_go() {
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_kcap_link_in_another_home_into_the_install_keeps_it_on_go(bool relative) {
         var install = PrivilegedNpmInstall.Create(Tmp);
         var spec    = install.Spec(Tmp) with { Sites = new HomeSites([], null, []) { Links = [".local/bin/kcap"] } };
-        var link    = Tmp.CreateDir("homes", "other", ".local", "bin").PathTo("kcap");
-        File.CreateSymbolicLink(link, Path.Combine(install.Packages[0], "bin", "kcap.js"));
+        var folder  = Tmp.CreateDir("homes", "other", ".local", "bin");
+        var link    = folder.PathTo("kcap");
+        var target  = Path.Combine(install.Packages[0], "bin", "kcap.js");
+        File.CreateSymbolicLink(link, relative ? Path.GetRelativePath(folder.Path, target) : target);
         await using var run = Run.Start(Tmp, spec);
 
         await run.WaitForAsync("swapped");
