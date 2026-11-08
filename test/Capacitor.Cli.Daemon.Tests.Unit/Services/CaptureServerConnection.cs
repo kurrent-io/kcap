@@ -435,14 +435,29 @@ sealed class CaptureServerConnection : ServerConnection {
         return InputRejectionGate?.Task ?? Task.CompletedTask;
     }
 
-    public override Task AgentUnregisteredAsync(string agentId, string? stopReason = null) {
+    /// <summary>While set, every unregister fails as an unreachable server would, recording nothing.</summary>
+    public Exception? AgentUnregisteredThrow { get; set; }
+
+    /// <summary>While set, every unregister is recorded and then held until this completes; <see cref="UnregisterEntered"/>
+    /// completes once one is held.</summary>
+    public TaskCompletionSource? UnregisterGate { get; set; }
+
+    public TaskCompletionSource UnregisterEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public override async Task AgentUnregisteredAsync(string agentId, string? stopReason = null) {
+        if (AgentUnregisteredThrow is { } ex) throw ex;
+
         lock (AgentUnregisteredCalls) {
             AgentUnregisteredCalls.Add(agentId);
             AgentUnregisteredStopReasons[agentId] = stopReason;
         }
+        lock (AttachedCallOrder) AttachedCallOrder.Add($"unregister:{agentId}");
         OnAgentUnregistered?.Invoke();
 
-        return Task.CompletedTask;
+        if (UnregisterGate is { } gate) {
+            UnregisterEntered.TrySetResult();
+            await gate.Task;
+        }
     }
 
     public override Task UpdateRepoPathsAsync()
@@ -643,10 +658,25 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>The server's answer to each attached registration; accepted when unset or null.</summary>
     public Func<AgentRegistered, AgentRegisteredResponse?>? AttachedRegistrationAnswer { get; set; }
 
-    internal override Task<AgentRegisteredResponse?> InvokeAgentRegisteredAckedRawAsync(AgentRegistered registration) {
-        lock (AttachedRegistrations) AttachedRegistrations.Add(registration);
+    /// <summary>Every attached registration and unregistration, in the order the server saw them.</summary>
+    public List<string> AttachedCallOrder { get; } = [];
 
-        return Task.FromResult<AgentRegisteredResponse?>(AttachedRegistrationAnswer?.Invoke(registration) ?? AgentRegisteredResponse.Accepted);
+    /// <summary>While set, every attached registration is recorded and then held until this completes;
+    /// <see cref="AttachedRegistrationEntered"/> completes once one is held.</summary>
+    public TaskCompletionSource? AttachedRegistrationGate { get; set; }
+
+    public TaskCompletionSource AttachedRegistrationEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    internal override async Task<AgentRegisteredResponse?> InvokeAgentRegisteredAckedRawAsync(AgentRegistered registration) {
+        lock (AttachedRegistrations) AttachedRegistrations.Add(registration);
+        lock (AttachedCallOrder) AttachedCallOrder.Add($"register:{registration.AgentId}");
+
+        if (AttachedRegistrationGate is { } gate) {
+            AttachedRegistrationEntered.TrySetResult();
+            await gate.Task;
+        }
+
+        return AttachedRegistrationAnswer?.Invoke(registration) ?? AgentRegisteredResponse.Accepted;
     }
 
     public List<ConfirmInputHandoverRequest> HandoverRequests { get; } = [];
@@ -655,10 +685,21 @@ sealed class CaptureServerConnection : ServerConnection {
     public Func<ConfirmInputHandoverRequest, ConfirmInputHandoverResponse?> HandoverAnswer { get; set; } =
         _ => new ConfirmInputHandoverResponse(InputHandoverOutcome.HandedOver);
 
-    internal override Task<ConfirmInputHandoverResponse?> InvokeConfirmInputHandoverRawAsync(ConfirmInputHandoverRequest request) {
+    /// <summary>While set, every handover request is recorded and then held until this completes;
+    /// <see cref="HandoverEntered"/> completes once one is held.</summary>
+    public TaskCompletionSource? HandoverGate { get; set; }
+
+    public TaskCompletionSource HandoverEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    internal override async Task<ConfirmInputHandoverResponse?> InvokeConfirmInputHandoverRawAsync(ConfirmInputHandoverRequest request) {
         lock (HandoverRequests) HandoverRequests.Add(request);
 
-        return Task.FromResult(HandoverAnswer(request));
+        if (HandoverGate is { } gate) {
+            HandoverEntered.TrySetResult();
+            await gate.Task;
+        }
+
+        return HandoverAnswer(request);
     }
 
     /// <summary>While set, every link, Unconfirmed and attached rejection report fails as an unreachable server would.</summary>
@@ -689,8 +730,17 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>Whether the server recorded each attached rejection on the named agent's stream; recorded unless set.</summary>
     public Func<Guid, string, bool> AttachedRejectionRecorded { get; set; } = (_, _) => true;
 
+    /// <summary>While set, every attached rejection fails with this, as a server whose hub method refused it would, and
+    /// counts in <see cref="AttachedRejectionAttempts"/>.</summary>
+    public Exception? AttachedRejectionThrow { get; set; }
+
+    public int AttachedRejectionAttempts { get; private set; }
+
     internal override Task<bool> InvokeSendInputRejectedRawAsync(Guid dispatchId, string agentId, string reason) {
+        AttachedRejectionAttempts++;
+
         if (AttachedReportThrow is { } ex) return Task.FromException<bool>(ex);
+        if (AttachedRejectionThrow is { } refused) return Task.FromException<bool>(refused);
 
         lock (AttachedRejections) AttachedRejections.Add((dispatchId, agentId, reason));
 

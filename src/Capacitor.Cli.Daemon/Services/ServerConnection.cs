@@ -195,6 +195,17 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         }
     }
 
+    /// <summary>A registration completed and the connection is ready, so what waited for one can go.</summary>
+    public event Action? Registered;
+
+    internal void RaiseRegistered() {
+        try {
+            Registered?.Invoke();
+        } catch (Exception ex) {
+            _logger.LogWarning(ex, "A registered handler failed");
+        }
+    }
+
     /// <summary>Phase B2-b (sequenced-settlement design §4.2.4): snapshot of the un-acked resolved-
     /// candidates ledger, re-advertised on <c>DaemonConnect</c> (mirrors <see cref="GetLiveAgents"/>).
     /// Optional — null when not wired (tests / early startup) ⇒ no candidates advertised.</summary>
@@ -665,6 +676,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
                 await SendAccountsChangedSinceConnectAsync();
                 AskWhetherServerRecords();
+                RaiseRegistered();
             }
         );
 
@@ -1100,8 +1112,9 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         _hub.InvokeAsync<ConfirmInputHandoverResponse?>("ConfirmInputHandover", request, cancellationToken: _ct);
 
     /// <summary>Reports a dispatch the mod submitted landing as a transcript row. True once the server took the report,
-    /// whatever it made of it; false when it may not have arrived.</summary>
-    public virtual async Task<bool> ReportInputLinkAsync(ReportInputLinkRequest request) {
+    /// whatever it made of it; false when it answered with an error, which sending it again would only repeat; null when
+    /// it may not have arrived.</summary>
+    public virtual async Task<bool?> ReportInputLinkAsync(ReportInputLinkRequest request) {
         try {
             await InvokeReportInputLinkRawAsync(request).WaitAsync(AttachedInputCallBudget, _time, _ct);
 
@@ -1109,16 +1122,16 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         } catch (Exception ex) {
             _logger.LogDebug(ex, "Could not report the link of dispatch {DispatchId}", request.DispatchId);
 
-            return false;
+            return ex is Microsoft.AspNetCore.SignalR.HubException ? false : null;
         }
     }
 
     internal virtual Task InvokeReportInputLinkRawAsync(ReportInputLinkRequest request) =>
         _hub.InvokeAsync("ReportInputLink", request, cancellationToken: _ct);
 
-    /// <summary>Reports a dispatch the mod was handed whose landing nobody can confirm. True once the server took the
-    /// report; false when it may not have arrived.</summary>
-    public virtual async Task<bool> ReportInputUnconfirmedAsync(ReportInputUnconfirmedRequest request) {
+    /// <summary>Reports a dispatch the mod was handed whose landing nobody can confirm, answered as
+    /// <see cref="ReportInputLinkAsync"/> is.</summary>
+    public virtual async Task<bool?> ReportInputUnconfirmedAsync(ReportInputUnconfirmedRequest request) {
         try {
             await InvokeReportInputUnconfirmedRawAsync(request).WaitAsync(AttachedInputCallBudget, _time, _ct);
 
@@ -1126,7 +1139,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         } catch (Exception ex) {
             _logger.LogDebug(ex, "Could not report dispatch {DispatchId} unconfirmed", request.DispatchId);
 
-            return false;
+            return ex is Microsoft.AspNetCore.SignalR.HubException ? false : null;
         }
     }
 
@@ -1135,14 +1148,14 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
     /// <summary>Reports an attached agent's dispatch that will not land. Null when the report may not have arrived;
     /// otherwise whether the server recorded it on <paramref name="agentId"/>'s stream, which holds only what was sent
-    /// to that agent.</summary>
+    /// to that agent. An error the server answered with is an answer, and records nothing.</summary>
     public virtual async Task<bool?> ReportAttachedInputRejectedAsync(Guid dispatchId, string agentId, string reason) {
         try {
             return await InvokeSendInputRejectedRawAsync(dispatchId, agentId, reason).WaitAsync(AttachedInputCallBudget, _time, _ct);
         } catch (Exception ex) {
             _logger.LogDebug(ex, "Could not report dispatch {DispatchId} of attached agent {AgentId} dropped", dispatchId, agentId);
 
-            return null;
+            return ex is Microsoft.AspNetCore.SignalR.HubException ? false : null;
         }
     }
 

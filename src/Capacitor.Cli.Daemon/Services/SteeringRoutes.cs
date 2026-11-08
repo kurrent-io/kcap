@@ -39,9 +39,8 @@ internal sealed class SteeringRoutes(ModAttachments attachments) {
     }
 
     async Task<SteeringHttpResponse> NextAsync(SteeringHttpRequest request, CancellationToken ct) {
-        if (Read(request, SteeringJsonContext.Default.SteeringNextRequest) is not { AgentId: { } agentId } body
-         || !ModAttachments.IsAgentId(agentId)
-         || body.ProcessKey is { } process && !IsProcessKey(process))
+        if (Read(request, SteeringJsonContext.Default.SteeringNextRequest) is not { AgentId: { } agentId, ProcessKey: { } process } body
+         || !ModAttachments.IsAgentId(agentId) || !IsProcessKey(process))
             return Invalid;
 
         Guid? outstanding = null;
@@ -52,19 +51,20 @@ internal sealed class SteeringRoutes(ModAttachments attachments) {
             outstanding = id;
         }
 
-        return await attachments.NextAsync(agentId, body.ProcessKey, body.Idle, outstanding) is { } reply
+        return await attachments.NextAsync(agentId, process, body.Idle, outstanding) is { } reply
             ? Json(reply, SteeringJsonContext.Default.SteeringNextReply)
             : new SteeringHttpResponse(204, []);
     }
 
     Task<SteeringHttpResponse> LinkAsync(SteeringHttpRequest request, CancellationToken ct) {
-        if (Read(request, SteeringJsonContext.Default.SteeringLinkRequest) is not { AgentId: { } agentId, DispatchId: { } dispatch, SessionId: { } session, RowUuid: { } row }
+        if (Read(request, SteeringJsonContext.Default.SteeringLinkRequest) is not { AgentId: { } agentId, DispatchId: { } dispatch, SessionId: { } session, RowUuid: { } row } body
          || !ModAttachments.IsAgentId(agentId) || !Guid.TryParse(session, out _)
          || !Guid.TryParse(dispatch, out var dispatchId) || dispatchId == Guid.Empty
-         || !Guid.TryParse(row, out var rowUuid) || rowUuid == Guid.Empty)
+         || !Guid.TryParse(row, out var rowUuid) || rowUuid == Guid.Empty
+         || body.ProcessKey is { } process && !IsProcessKey(process))
             return Task.FromResult(Invalid);
 
-        attachments.Link(agentId, dispatchId, session, rowUuid);
+        attachments.Link(agentId, body.ProcessKey, dispatchId, session, rowUuid);
 
         return Task.FromResult(new SteeringHttpResponse(200, Done));
     }
@@ -72,10 +72,11 @@ internal sealed class SteeringRoutes(ModAttachments attachments) {
     Task<SteeringHttpResponse> UndeliveredAsync(SteeringHttpRequest request, CancellationToken ct) {
         if (Read(request, SteeringJsonContext.Default.SteeringUndeliveredRequest) is not { AgentId: { } agentId, DispatchId: { } dispatch, Outcome: "rejected" or "unconfirmed", Reason: { } reason } body
          || !ModAttachments.IsAgentId(agentId) || !IsReason(reason)
-         || !Guid.TryParse(dispatch, out var dispatchId) || dispatchId == Guid.Empty)
+         || !Guid.TryParse(dispatch, out var dispatchId) || dispatchId == Guid.Empty
+         || body.ProcessKey is { } process && !IsProcessKey(process))
             return Task.FromResult(Invalid);
 
-        attachments.Undelivered(agentId, dispatchId, rejected: body.Outcome == "rejected", reason);
+        attachments.Undelivered(agentId, body.ProcessKey, dispatchId, rejected: body.Outcome == "rejected", reason);
 
         return Task.FromResult(new SteeringHttpResponse(200, Done));
     }

@@ -4,12 +4,15 @@ namespace Capacitor.Cli.Daemon.Harness.Claude;
 /// held one never survives its connection.</summary>
 /// <param name="HandedOver">Keyed by dispatch id.</param>
 /// <param name="Replaced">Agents a process carried on from, keyed by agent id, each naming that process.</param>
+/// <param name="CarriedFrom">Each agent attached naming another as replaced, keyed by agent id: the chain a report
+/// follows back to the agent a dispatch went to.</param>
 internal sealed record ModAttachmentFile(
         ModAttachmentRecord[]           Attachments,
         Dictionary<string, ModHandover> HandedOver,
         ModInputReport[]                Reports,
         Dictionary<string, string>      Replaced,
-        ModStoppedPair[]                Stopped
+        ModStoppedPair[]                Stopped,
+        Dictionary<string, string>?     CarriedFrom = null
     ) {
-    public static ModAttachmentFile Empty => new([], [], [], [], []);
+    public static ModAttachmentFile Empty => new([], [], [], [], [], []);
 }

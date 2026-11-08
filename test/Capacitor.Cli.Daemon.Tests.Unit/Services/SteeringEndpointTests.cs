@@ -213,17 +213,17 @@ public class SteeringEndpointTests {
 
         attachments.TakeInput(new SendInputCommand(agentId, "hello", null, dispatch));
 
-        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":false}""", cts.Token)).IsEqualTo(("204", ""));
+        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":false,"processKey":"4242:start"}""", cts.Token)).IsEqualTo(("204", ""));
         await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true,"processKey":"4242:start"}""", cts.Token))
             .IsEqualTo(("200", $$"""{"dispatchId":"{{dispatch}}","text":"hello"}"""));
-        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true,"outstanding":"{{dispatch}}"}""", cts.Token))
+        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true,"outstanding":"{{dispatch}}","processKey":"4242:start"}""", cts.Token))
             .IsEqualTo(("204", ""));
-        await Assert.That(await PostAsync("/link", $$"""{"agentId":"{{agentId}}","dispatchId":"{{dispatch}}","sessionId":"{{ModSession}}","rowUuid":"{{row}}"}""", cts.Token))
+        await Assert.That(await PostAsync("/link", $$"""{"agentId":"{{agentId}}","dispatchId":"{{dispatch}}","sessionId":"{{ModSession}}","rowUuid":"{{row}}","processKey":"4242:start"}""", cts.Token))
             .IsEqualTo(("200", "{}"));
-        await Assert.That(await PostAsync("/undelivered", $$"""{"agentId":"{{agentId}}","dispatchId":"{{Guid.NewGuid()}}","outcome":"rejected","reason":"stopped"}""", cts.Token))
+        await Assert.That(await PostAsync("/undelivered", $$"""{"agentId":"{{agentId}}","dispatchId":"{{Guid.NewGuid()}}","outcome":"rejected","reason":"stopped","processKey":"4242:start"}""", cts.Token))
             .IsEqualTo(("200", "{}"));
         await Assert.That(await PostAsync("/detach", $$"""{"agentId":"{{agentId}}","processKey":"4242:start"}""", cts.Token)).IsEqualTo(("200", "{}"));
-        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true}""", cts.Token))
+        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true,"processKey":"4242:start"}""", cts.Token))
             .IsEqualTo(("200", """{"gone":"detached","retry":false}"""));
 
         await Assert.That(server.AttachedRegistrations.Single().ProcessKey).IsEqualTo("4242:start");
@@ -238,8 +238,10 @@ public class SteeringEndpointTests {
     [Arguments("/attach", """{"sessionId":"0f8fad5b-d9cb-469f-a165-70867728950e"}""")]
     [Arguments("/attach", """{"sessionId":"0f8fad5b-d9cb-469f-a165-70867728950e","processKey":"4242:\u0007"}""")]
     [Arguments("/attach", """{"sessionId":"0f8fad5b-d9cb-469f-a165-70867728950e","processKey":"4242:start","replacesAgentId":"hosted-1"}""")]
-    [Arguments("/next", """{"agentId":"hosted-1","idle":true}""")]
-    [Arguments("/next", """{"agentId":"mod-0123456789abcdef","idle":true,"outstanding":"not-a-dispatch"}""")]
+    [Arguments("/next", """{"agentId":"hosted-1","idle":true,"processKey":"4242:start"}""")]
+    [Arguments("/next", """{"agentId":"mod-0123456789abcdef","idle":true,"outstanding":"not-a-dispatch","processKey":"4242:start"}""")]
+    [Arguments("/next", """{"agentId":"mod-0123456789abcdef","idle":true}""")]
+    [Arguments("/link", """{"agentId":"mod-0123456789abcdef","dispatchId":"5a8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90","sessionId":"0f8fad5b-d9cb-469f-a165-70867728950e","rowUuid":"6b8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90","processKey":"4242:\u0007"}""")]
     [Arguments("/link", """{"agentId":"mod-0123456789abcdef","dispatchId":"5a8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90","rowUuid":"6b8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90"}""")]
     [Arguments("/link", """{"agentId":"mod-0123456789abcdef","dispatchId":"00000000-0000-0000-0000-000000000000","sessionId":"0f8fad5b-d9cb-469f-a165-70867728950e","rowUuid":"6b8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90"}""")]
     [Arguments("/undelivered", """{"agentId":"mod-0123456789abcdef","dispatchId":"5a8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90","outcome":"lost","reason":"stopped"}""")]

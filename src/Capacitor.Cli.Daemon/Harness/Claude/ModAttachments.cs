@@ -14,6 +14,9 @@ namespace Capacitor.Cli.Daemon.Harness.Claude;
 /// every barrier: this asks it, and passes a held dispatch to the mod only once it says so. Nothing here waits on the
 /// mod, so a server push is held and returns at once.
 ///
+/// <para>An agent's attach, re-registration and teardown (stop, detach, lapse, switch off) run one at a time under that
+/// agent's serial gate, through the server call, so none undoes another or reaches the server out of order.</para>
+///
 /// <para>Attachments, the dispatches handed to the mod, the reports owed about them, and the agents a process carried
 /// on from outlive the daemon in <see cref="ModAttachmentStore"/>. Held dispatches never do, and go with the connection
 /// they came on. An attached agent is never resumed, holds no daemon slot, and is never in the orchestrator's agents,
@@ -31,7 +34,10 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
     static readonly TimeSpan RegistrationBudget = TimeSpan.FromSeconds(15);
 
-    const int GoneCap = 256, StoppedCap = 64, ReplacedCap = 256, ReportCap = 1024;
+    /// <summary>How many agents back a report about a dispatch is tried, as far as the server follows a link.</summary>
+    const int MaxCarriedFrom = 16;
+
+    const int GoneCap = 256, StoppedCap = 64, ReplacedCap = 256;
 
     // What the mod is told. A refusal or a gone with no retry leaves it inert until its process or session changes.
     const string SteeringOffAnswer = "steering_off";
@@ -44,32 +50,35 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     const string LostAnswer        = "lost";
 
     // What the server is told, as the reason a dispatch did not land or may not have.
-    const string NotHeldByModReason      = "not_held_by_mod";
-    const string LapsedReason            = "attachment_lapsed";
-    const string AttachmentsUnsupported  = "attachments_unsupported";
+    const string NotHeldByModReason     = "not_held_by_mod";
+    const string LapsedReason           = "attachment_lapsed";
+    const string AttachmentsUnsupported = "attachments_unsupported";
+    const string AttachmentEndedReason  = "attachment_ended";
 
     readonly ServerConnection      _server;
     readonly ModAttachmentStore    _store;
+    readonly ModReportQueue        _reports;
     readonly Func<bool>            _steeringOn;
     readonly bool                  _offered;
     readonly TimeProvider          _time;
     readonly ILogger               _logger;
     readonly DaemonStatusNotifier? _status;
     readonly ITimer                _sweep;
-    readonly KeyedAsyncGate        _serial  = new();
-    readonly SemaphoreSlim         _flushing = new(1, 1);
-    readonly Lock                  _saveGate = new();
+    readonly KeyedAsyncGate        _serial    = new();
+    readonly Lock                  _saveGate  = new();
+    readonly Lock                  _sweepGate = new();
+    Task                           _sweepRun  = Task.CompletedTask;
 
     readonly Lock _gate = new();
     readonly Dictionary<string, ModAttachedAgentRuntime> _live = new(StringComparer.Ordinal);
-    readonly HashSet<string> _unregistered = new(StringComparer.Ordinal);
+    readonly HashSet<string> _unregistered      = new(StringComparer.Ordinal);
+    readonly HashSet<string> _unregisterPending = new(StringComparer.Ordinal);
     readonly Dictionary<Guid, ModHandover> _handedOver = [];
-    readonly List<ModInputReport> _reports = [];
-    readonly Dictionary<string, string> _replaced = new(StringComparer.Ordinal);
+    readonly Dictionary<string, string> _replaced    = new(StringComparer.Ordinal);
+    readonly Dictionary<string, string> _carriedFrom = new(StringComparer.Ordinal);
     readonly List<ModStoppedPair> _stopped = [];
     readonly Dictionary<string, (string Reason, bool Retry, string ProcessKey)> _gone = new(StringComparer.Ordinal);
     readonly Queue<string> _goneOrder = new();
-    int _sweeping;
 
     /// <param name="steeringOn">The persisted switch.</param>
     /// <param name="offered">Whether steering is offered on this platform; <see cref="SteeringIpc.Offered"/> unless given.</param>
@@ -83,11 +92,19 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         _time       = time;
         _logger     = logger;
         _status     = status;
+        _reports    = new ModReportQueue(server, logger) { Settled = ForgetHandover, Changed = Save };
 
         server.AdvertisesSteering = _offered;
         server.ConnectionLost    += DropAllHeld;
+        server.Registered        += SweepOnRegistered;
 
-        Restore(store.Load());
+        // A daemon that can't read its steering state still boots, steering nothing it held.
+        try {
+            Restore(store.Load());
+        } catch (Exception ex) {
+            LogRestoreFailed(ex);
+            Clear();
+        }
 
         _sweep = time.CreateTimer(state => _ = SweepAsync(), null, SweepInterval, SweepInterval);
     }
@@ -136,10 +153,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         var agentId = AgentIdFor(session);
 
         lock (_gate) {
-            if (_stopped.Contains(new ModStoppedPair(session, processKey))) return SteeringAttachReply.Refusal(StoppedAnswer, retry: false);
-
-            // A process that carried on from this agent attaching to it again would be a ghost once its replacement ends.
-            if (_replaced.TryGetValue(agentId, out var leftBy) && leftBy == processKey) return SteeringAttachReply.Refusal(ReplacedAnswer, retry: false);
+            if (Barred(agentId, session, processKey, replacesAgentId) is { } barred) return SteeringAttachReply.Refusal(barred, retry: false);
         }
 
         using var serial = await _serial.EnterAsync(agentId, ct);
@@ -165,15 +179,28 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             return SteeringAttachReply.Refusal(reason, retry);
         }
 
-        if (!Admit(new ModAttachmentRecord(agentId, sessionId, processKey, replacesAgentId, _time.GetUtcNow()))) {
+        if (Admit(new ModAttachmentRecord(agentId, sessionId, processKey, replacesAgentId, _time.GetUtcNow())) is { } refused) {
             await UnregisterAsync(agentId);
 
-            return SteeringAttachReply.Refusal(SteeringOffAnswer, retry: false);
+            return SteeringAttachReply.Refusal(refused, retry: false);
         }
 
         LogAttached(agentId, replacesAgentId);
 
         return SteeringAttachReply.Attached(agentId, PollInterval);
+    }
+
+    /// <summary>Why the process may not attach as this agent whatever the server says, or null.</summary>
+    string? Barred(string agentId, string session, string processKey, string? replacesAgentId) {
+        if (_stopped.Contains(new ModStoppedPair(session, processKey))) return StoppedAnswer;
+
+        // A process attaching again to an agent it carried on from would be a ghost once its replacement ends, unless it
+        // is carrying on back, naming the attachment it is leaving.
+        if (_replaced.TryGetValue(agentId, out var leftBy) && leftBy == processKey
+         && !(replacesAgentId is { } leaving && _live.TryGetValue(leaving, out var current) && current.ProcessKey == processKey))
+            return ReplacedAnswer;
+
+        return null;
     }
 
     /// <summary>What the mod is told to do about a refusal. <c>session_not_owned</c> is "not now": the server's read of
@@ -190,12 +217,14 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         };
     }
 
-    /// <summary>False when the switch went off while the server was registering it. An agent the process carried on
-    /// from leaves without an unregistration: the server ended it when this one registered, and ending it again would
-    /// discard what it still waits behind.</summary>
-    bool Admit(ModAttachmentRecord record) {
+    /// <summary>Why the registration may not stand, checked again now that the server has answered, or null once it
+    /// is admitted. An agent the process carried on from leaves without an unregistration: the server ended it when this
+    /// one registered, and ending it again would discard what it still waits behind.</summary>
+    string? Admit(ModAttachmentRecord record) {
         lock (_gate) {
-            if (!SteeringOn) return false;
+            if (!SteeringOn) return SteeringOffAnswer;
+
+            if (Barred(record.AgentId, SessionIds.Canonical(record.SessionId)!, record.ProcessKey, record.ReplacesAgentId) is { } barred) return barred;
 
             if (_live.TryGetValue(record.AgentId, out var current) && current.ProcessKey == record.ProcessKey) {
                 current.Reattach(record);
@@ -205,11 +234,13 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             }
 
             _unregistered.Remove(record.AgentId);
+            _unregisterPending.Remove(record.AgentId);
             _gone.Remove(record.AgentId);
             _replaced.Remove(record.AgentId);
 
             if (record.ReplacesAgentId is { } left && left != record.AgentId) {
-                _replaced[left] = record.ProcessKey;
+                _replaced[left]                = record.ProcessKey;
+                _carriedFrom[record.AgentId] = left;
 
                 if (_live.Remove(left, out var carriedFrom)) {
                     carriedFrom.DropHeld();
@@ -224,7 +255,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         Save();
         _status?.Pulse();
 
-        return true;
+        return null;
     }
 
     ModAttachedAgentRuntime NewRuntime(ModAttachmentRecord record) => new(record, () => _server.CurrentConnectionId, _time);
@@ -245,7 +276,9 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
         // The mod submits text alone, so files would be left behind without a word.
         if (cmd.AttachmentIds is { Length: > 0 }) {
-            _ = _server.ReportAttachedInputRejectedAsync(dispatchId, cmd.AgentId, AttachmentsUnsupported);
+            _reports.Enqueue(new ModInputReport(ModInputReport.Rejected, dispatchId, cmd.AgentId, Reason: AttachmentsUnsupported));
+            Save();
+            _ = _reports.FlushAsync();
 
             return true;
         }
@@ -256,17 +289,19 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     }
 
     /// <summary>
-    /// One poll. Any call is a beat; a call while a turn runs, or while the mod holds a dispatch, asks the server
-    /// nothing. Otherwise the oldest held dispatch is offered to the server, and handed over only once it confirms. A
-    /// hold behind a dispatch the mod does not hold proves that one cannot land, since the mod records a dispatch before
-    /// it submits one, so it is reported dropped and the next poll asks again. Null when there is nothing to hand over.
+    /// One poll from <paramref name="processKey"/>. Any call is a beat; a call while a turn runs, or while the mod holds a
+    /// dispatch, asks the server nothing. Otherwise the oldest held dispatch is offered to the server, and handed over
+    /// only once it confirms, and only while this is still the attachment it was offered for. A hold behind a dispatch the
+    /// mod does not hold proves that one cannot land, since the mod records a dispatch before it submits one, so it is
+    /// reported dropped and the next poll asks again; a report the mod made about it that has not reached the server yet
+    /// is that record, so it is sent instead. Null when there is nothing to hand over.
     /// </summary>
-    public async Task<SteeringNextReply?> NextAsync(string agentId, string? processKey, bool idle, Guid? outstanding) {
+    public async Task<SteeringNextReply?> NextAsync(string agentId, string processKey, bool idle, Guid? outstanding) {
         ModAttachedAgentRuntime? runtime;
         bool                     attached;
 
         lock (_gate) {
-            attached = _live.TryGetValue(agentId, out runtime) && (processKey is null || runtime.ProcessKey == processKey);
+            attached = _live.TryGetValue(agentId, out runtime) && runtime.ProcessKey == processKey;
             if (attached) runtime!.Beat();
         }
 
@@ -283,7 +318,22 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
                     case InputHandoverOutcome.HandedOver:
                         runtime.RemoveHeld(held.DispatchId);
 
-                        lock (_gate) _handedOver[held.DispatchId] = new ModHandover(agentId, runtime.ProcessKey);
+                        bool current;
+
+                        lock (_gate) {
+                            current = _live.GetValueOrDefault(agentId) == runtime;
+                            if (current) _handedOver[held.DispatchId] = new ModHandover(agentId, runtime.ProcessKey);
+                        }
+
+                        // The attachment ended while the server answered: the dispatch never reaches the mod.
+                        if (!current) {
+                            _reports.Enqueue(new ModInputReport(ModInputReport.Rejected, held.DispatchId, agentId, Reason: AttachmentEndedReason));
+                            Save();
+                            _ = _reports.FlushAsync();
+
+                            return GoneReply(agentId, processKey);
+                        }
+
                         Save();
 
                         return SteeringNextReply.Handover(held.DispatchId, held.Text);
@@ -294,7 +344,8 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
                         continue;
 
                     case InputHandoverOutcome.Hold when answer.BlockingDispatchId is { } blocking:
-                        await RejectLostAsync(runtime, blocking);
+                        if (_reports.Holds(blocking)) _ = _reports.FlushAsync();
+                        else await RejectLostAsync(runtime, blocking);
 
                         return null;
 
@@ -309,23 +360,20 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         }
     }
 
-    SteeringNextReply GoneReply(string agentId, string? processKey) {
+    SteeringNextReply GoneReply(string agentId, string processKey) {
         lock (_gate)
-            return _gone.TryGetValue(agentId, out var gone) && (processKey is null || gone.ProcessKey == processKey)
+            return _gone.TryGetValue(agentId, out var gone) && gone.ProcessKey == processKey
                 ? SteeringNextReply.GoneAs(gone.Reason, gone.Retry)
                 : SteeringNextReply.GoneAs(LostAnswer, retry: true);
     }
 
     /// <summary>Reports a dispatch the server holds as With the mod, which the mod has no record of, under the agent it was
-    /// sent to: only that agent's stream takes the report. With no record of that here, the agent polling and the one it
-    /// carried on from are tried in turn.</summary>
+    /// sent to: only that agent's stream takes the report. With no record of that here, the agent polling and those its
+    /// process carried on from are tried in turn, as far back as the server follows a link.</summary>
     async Task RejectLostAsync(ModAttachedAgentRuntime runtime, Guid dispatchId) {
-        string? sentTo;
-        lock (_gate) sentTo = _handedOver.GetValueOrDefault(dispatchId)?.AgentId;
+        List<string> candidates;
 
-        string[] candidates = sentTo is not null ? [sentTo]
-            : runtime.Attachment.ReplacesAgentId is { } carriedFrom ? [runtime.AgentId, carriedFrom]
-            : [runtime.AgentId];
+        lock (_gate) candidates = _handedOver.GetValueOrDefault(dispatchId)?.AgentId is { } sentTo ? [sentTo] : CarriedFromChain(runtime);
 
         foreach (var agentId in candidates) {
             if (await _server.ReportAttachedInputRejectedAsync(dispatchId, agentId, NotHeldByModReason) != true) continue;
@@ -339,106 +387,79 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         }
     }
 
+    List<string> CarriedFromChain(ModAttachedAgentRuntime runtime) {
+        List<string> chain = [runtime.AgentId];
+
+        for (var next = runtime.Attachment.ReplacesAgentId;
+             next is not null && chain.Count <= MaxCarriedFrom && !chain.Contains(next);
+             next = _carriedFrom.GetValueOrDefault(next))
+            chain.Add(next);
+
+        return chain;
+    }
+
     /// <summary>The mod saw a dispatch land as a row. Kept until the server takes it, and reported under the agent the
-    /// dispatch was sent to.</summary>
-    public void Link(string agentId, Guid dispatchId, string sessionId, Guid rowUuid) =>
-        Report(agentId, dispatchId, sentTo => new ModInputReport(ModInputReport.Link, dispatchId, sentTo, sessionId, rowUuid));
+    /// dispatch was sent to. A beat only for the attachment <paramref name="processKey"/> holds.</summary>
+    public void Link(string agentId, string? processKey, Guid dispatchId, string sessionId, Guid rowUuid) =>
+        Report(agentId, processKey, dispatchId, sentTo => new ModInputReport(ModInputReport.Link, dispatchId, sentTo, sessionId, rowUuid));
 
     /// <summary>The mod knows a dispatch will not land, or cannot tell whether it did.</summary>
-    public void Undelivered(string agentId, Guid dispatchId, bool rejected, string reason) =>
-        Report(agentId, dispatchId, sentTo => new ModInputReport(rejected ? ModInputReport.Rejected : ModInputReport.Unconfirmed, dispatchId, sentTo, Reason: reason));
+    public void Undelivered(string agentId, string? processKey, Guid dispatchId, bool rejected, string reason) =>
+        Report(agentId, processKey, dispatchId,
+            sentTo => new ModInputReport(rejected ? ModInputReport.Rejected : ModInputReport.Unconfirmed, dispatchId, sentTo, Reason: reason));
 
-    void Report(string agentId, Guid dispatchId, Func<string, ModInputReport> build) {
+    void Report(string agentId, string? processKey, Guid dispatchId, Func<string, ModInputReport> build) {
+        ModInputReport report;
+
         lock (_gate) {
-            _live.GetValueOrDefault(agentId)?.Beat();
+            if (processKey is not null && _live.TryGetValue(agentId, out var runtime) && runtime.ProcessKey == processKey) runtime.Beat();
 
-            var report = build(_handedOver.GetValueOrDefault(dispatchId)?.AgentId ?? agentId);
-
-            if (!_reports.Contains(report)) {
-                if (_reports.Count >= ReportCap) {
-                    LogReportDropped(_reports[0].DispatchId, _reports[0].Kind);
-                    _reports.RemoveAt(0);
-                }
-
-                _reports.Add(report);
-            }
+            report = build(_handedOver.GetValueOrDefault(dispatchId)?.AgentId ?? agentId);
         }
 
+        _reports.Enqueue(report);
         Save();
-        _ = FlushReportsAsync();
+        _ = _reports.FlushAsync();
     }
 
-    /// <summary>Sends what the server has not taken yet, oldest first, stopping at the first that does not arrive.</summary>
-    internal async Task FlushReportsAsync() {
-        await _flushing.WaitAsync();
+    internal Task FlushReportsAsync() => _reports.FlushAsync();
 
-        try {
-            while (_server.IsReady) {
-                ModInputReport? next;
-                lock (_gate) next = _reports.FirstOrDefault();
-
-                if (next is null || !await SendAsync(next)) return;
-
-                lock (_gate) {
-                    _reports.Remove(next);
-                    if (_reports.All(r => r.DispatchId != next.DispatchId)) _handedOver.Remove(next.DispatchId);
-                }
-
-                Save();
-            }
-        } finally {
-            _flushing.Release();
-        }
+    void ForgetHandover(Guid dispatchId) {
+        lock (_gate) _handedOver.Remove(dispatchId);
     }
-
-    async Task<bool> SendAsync(ModInputReport report) => report.Kind switch {
-        ModInputReport.Link        => await _server.ReportInputLinkAsync(new(report.DispatchId, report.AgentId, report.SessionId!, report.RowUuid!.Value)),
-        ModInputReport.Unconfirmed => await _server.ReportInputUnconfirmedAsync(new(report.DispatchId, report.AgentId, report.Reason!)),
-        _                          => await _server.ReportAttachedInputRejectedAsync(report.DispatchId, report.AgentId, report.Reason!) is not null,
-    };
 
     /// <summary>The session ended with its process. What the mod was handed is the server's to settle, once it learns
-    /// the attachment ended.</summary>
+    /// the attachment ended, and nothing the process left can be a ghost any more.</summary>
     public async Task DetachAsync(string agentId, string? processKey) {
-        ModAttachedAgentRuntime? runtime;
+        if (await EndAsync(agentId, DetachedAnswer, retry: false, r => processKey is null || r.ProcessKey == processKey, ForgetProcess))
+            LogDetached(agentId);
+    }
 
-        lock (_gate) {
-            if (!_live.TryGetValue(agentId, out runtime) || processKey is not null && runtime.ProcessKey != processKey) return;
+    void ForgetProcess(ModAttachedAgentRuntime ended) {
+        foreach (var (dispatchId, handover) in _handedOver.ToList())
+            if (handover.ProcessKey == ended.ProcessKey && !_reports.Holds(dispatchId)) _handedOver.Remove(dispatchId);
 
-            Forget(runtime, DetachedAnswer, retry: false);
+        foreach (var (left, by) in _replaced.ToList())
+            if (by == ended.ProcessKey) _replaced.Remove(left);
 
-            foreach (var (dispatchId, handover) in _handedOver.ToList())
-                if (handover.ProcessKey == runtime.ProcessKey && _reports.All(r => r.DispatchId != dispatchId)) _handedOver.Remove(dispatchId);
-
-            foreach (var (left, by) in _replaced.ToList())
-                if (by == runtime.ProcessKey) _replaced.Remove(left);
-        }
-
-        LogDetached(agentId);
-        Save();
-        _status?.Pulse();
-
-        await UnregisterAsync(agentId);
+        foreach (var agentId in _carriedFrom.Keys.ToList())
+            if (!_live.ContainsKey(agentId) && !_replaced.ContainsKey(agentId)) _carriedFrom.Remove(agentId);
     }
 
     /// <summary>A stop, from the server or <c>kcap agent stop</c>: the attachment ends, and the process is left exactly
-    /// as it was. The same session and process are then refused until one of them changes. False for an agent id this
-    /// does not hold.</summary>
+    /// as it was. The session and process are barred at once, so an attach already on its way is refused once the server
+    /// answers it, and stay barred until one of them changes. False for an agent id this does not hold.</summary>
     public async Task<bool> StopAsync(string agentId) {
         lock (_gate) {
             if (!_live.TryGetValue(agentId, out var runtime)) return false;
-
-            Forget(runtime, StoppedAnswer, retry: false);
 
             _stopped.Add(new ModStoppedPair(SessionIds.Canonical(runtime.Attachment.SessionId)!, runtime.ProcessKey));
             if (_stopped.Count > StoppedCap) _stopped.RemoveAt(0);
         }
 
-        LogStopped(agentId);
         Save();
-        _status?.Pulse();
-
-        await UnregisterAsync(agentId);
+        await EndAsync(agentId, StoppedAnswer, retry: false);
+        LogStopped(agentId);
 
         return true;
     }
@@ -446,20 +467,35 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     /// <summary>The switch went off: every attachment ends as a stop's does, but none is barred from attaching once it is
     /// on again.</summary>
     public async Task EndAllAsync() {
-        string[] ended;
+        string[] live;
+        lock (_gate) live = [.. _live.Keys];
+
+        await Task.WhenAll(live.Select(agentId => EndAsync(agentId, SteeringOffAnswer, retry: false)));
+    }
+
+    /// <summary>Ends the attachment under its agent's serial gate, so an attach or a registration in flight finishes
+    /// first and none starts until the server has been told. What is owed about its input goes first. False when no
+    /// attachment <paramref name="ends"/> accepts is there by then.</summary>
+    /// <param name="alsoForget">Runs under the state lock with the attachment just forgotten.</param>
+    async Task<bool> EndAsync(
+            string agentId, string reason, bool retry, Func<ModAttachedAgentRuntime, bool>? ends = null,
+            Action<ModAttachedAgentRuntime>? alsoForget = null) {
+        using var serial = await _serial.EnterAsync(agentId, CancellationToken.None);
 
         lock (_gate) {
-            ended = [.. _live.Keys];
+            if (!_live.TryGetValue(agentId, out var runtime) || ends?.Invoke(runtime) == false) return false;
 
-            foreach (var runtime in _live.Values.ToList()) Forget(runtime, SteeringOffAnswer, retry: false);
+            Forget(runtime, reason, retry);
+            alsoForget?.Invoke(runtime);
         }
-
-        if (ended.Length == 0) return;
 
         Save();
         _status?.Pulse();
 
-        await Task.WhenAll(ended.Select(UnregisterAsync));
+        await _reports.FlushAsync();
+        await UnregisterAsync(agentId);
+
+        return true;
     }
 
     void Forget(ModAttachedAgentRuntime runtime, string reason, bool retry) {
@@ -483,13 +519,44 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             if (!live.Contains(by)) _replaced.Remove(left);
     }
 
+    /// <summary>An unregistration the server did not get, because it was away or the call failed, is sent by a later
+    /// sweep.</summary>
     async Task UnregisterAsync(string agentId) {
-        if (!_server.IsReady) return;
+        if (_server.IsReady) {
+            try {
+                await _server.AgentUnregisteredAsync(agentId).WaitAsync(RegistrationBudget, _time, CancellationToken.None);
 
-        try {
-            await _server.AgentUnregisteredAsync(agentId).WaitAsync(RegistrationBudget, _time, CancellationToken.None);
-        } catch (Exception ex) {
-            LogUnregisterFailed(agentId, ex.Message);
+                lock (_gate) _unregisterPending.Remove(agentId);
+
+                return;
+            } catch (Exception ex) {
+                LogUnregisterFailed(agentId, ex.Message);
+            }
+        }
+
+        lock (_gate) _unregisterPending.Add(agentId);
+    }
+
+    /// <summary>One for an agent attached again since is dropped: the server now holds that agent's new attachment.</summary>
+    async Task SendPendingUnregistrationsAsync() {
+        string[] pending;
+        lock (_gate) pending = [.. _unregisterPending];
+
+        foreach (var agentId in pending) {
+            using var serial = await _serial.EnterAsync(agentId, CancellationToken.None);
+
+            bool attached;
+
+            lock (_gate) {
+                attached = _live.ContainsKey(agentId);
+                if (attached || !_unregisterPending.Contains(agentId)) {
+                    _unregisterPending.Remove(agentId);
+
+                    continue;
+                }
+            }
+
+            await UnregisterAsync(agentId);
         }
     }
 
@@ -545,11 +612,32 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         _status?.Pulse();
     }
 
-    /// <summary>Lapses attachments gone silent past <see cref="LapseBound"/>, then, while connected, registers what has not
-    /// registered and sends the reports the server has not taken.</summary>
-    internal async Task SweepAsync() {
-        if (Interlocked.Exchange(ref _sweeping, 1) == 1) return;
+    /// <summary>The reports go at once, whatever stage a sweep already running has reached.</summary>
+    void SweepOnRegistered() {
+        _ = _reports.FlushAsync();
+        _ = SweepAsync();
+    }
 
+    /// <summary>Lapses attachments gone silent past <see cref="LapseBound"/>, then, while connected, registers what has not
+    /// registered, unregisters what the server was not told of, and sends the reports it has not taken. One sweep at a
+    /// time: a call while one runs gets that one.</summary>
+    internal Task SweepAsync() {
+        Task<Task> cold;
+        Task       run;
+
+        lock (_sweepGate) {
+            if (!_sweepRun.IsCompleted) return _sweepRun;
+
+            cold      = new Task<Task>(SweepOnceAsync);
+            _sweepRun = run = cold.Unwrap();
+        }
+
+        cold.RunSynchronously(TaskScheduler.Default);
+
+        return run;
+    }
+
+    async Task SweepOnceAsync() {
         try {
             await LapseAsync();
 
@@ -560,41 +648,28 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
             foreach (var agentId in pending) await RegisterAsync(agentId);
 
-            await FlushReportsAsync();
+            await SendPendingUnregistrationsAsync();
+            await _reports.FlushAsync();
         } catch (Exception ex) {
             LogSweepFailed(ex);
-        } finally {
-            Volatile.Write(ref _sweeping, 0);
         }
     }
 
     /// <summary>A lapsed attachment's mod can report nothing more, so what it was handed is reported Unconfirmed under
-    /// the agent each was sent to, and the attachment is unregistered, which settles what the server holds for it.</summary>
+    /// the agent each was sent to, ahead of the unregistration that settles what the server holds for it.</summary>
     async Task LapseAsync() {
-        List<string> lapsed = [];
+        string[] silent;
+        lock (_gate) silent = [.. _live.Values.Where(r => r.SilentFor > LapseBound).Select(r => r.AgentId)];
 
-        lock (_gate) {
-            foreach (var runtime in _live.Values.Where(r => r.SilentFor > LapseBound).ToList()) {
-                Forget(runtime, LapsedAnswer, retry: true);
+        foreach (var agentId in silent)
+            if (await EndAsync(agentId, LapsedAnswer, retry: true, r => r.SilentFor > LapseBound, QueueUnconfirmed))
+                LogLapsed(agentId, (int)LapseBound.TotalSeconds);
+    }
 
-                foreach (var (dispatchId, handover) in _handedOver)
-                    if (handover.ProcessKey == runtime.ProcessKey && _reports.All(r => r.DispatchId != dispatchId))
-                        _reports.Add(new ModInputReport(ModInputReport.Unconfirmed, dispatchId, handover.AgentId, Reason: LapsedReason));
-
-                lapsed.Add(runtime.AgentId);
-            }
-        }
-
-        if (lapsed.Count == 0) return;
-
-        foreach (var agentId in lapsed) LogLapsed(agentId, (int)LapseBound.TotalSeconds);
-
-        Save();
-        _status?.Pulse();
-
-        await FlushReportsAsync();
-
-        foreach (var agentId in lapsed) await UnregisterAsync(agentId);
+    void QueueUnconfirmed(ModAttachedAgentRuntime lapsed) {
+        foreach (var (dispatchId, handover) in _handedOver)
+            if (handover.ProcessKey == lapsed.ProcessKey && !_reports.Holds(dispatchId))
+                _reports.Enqueue(new ModInputReport(ModInputReport.Unconfirmed, dispatchId, handover.AgentId, Reason: LapsedReason));
     }
 
     void DropAllHeld() {
@@ -611,22 +686,26 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
                 }
             }
 
-            foreach (var (dispatchId, handover) in file.HandedOver)
-                if (Guid.TryParse(dispatchId, out var id)) _handedOver[id] = handover;
-
-            _reports.AddRange(file.Reports.Where(Sendable));
-
+            foreach (var (dispatchId, handover) in file.HandedOver) _handedOver[Guid.Parse(dispatchId)] = handover;
             foreach (var (left, by) in file.Replaced) _replaced[left] = by;
+            foreach (var (agentId, from) in file.CarriedFrom ?? []) _carriedFrom[agentId] = from;
 
             _stopped.AddRange(file.Stopped);
         }
+
+        _reports.Restore(file.Reports);
     }
 
-    static bool Sendable(ModInputReport report) => report.Kind switch {
-        ModInputReport.Link                              => report is { SessionId: not null, RowUuid: not null },
-        ModInputReport.Rejected or ModInputReport.Unconfirmed => report.Reason is not null,
-        _                                                => false,
-    };
+    void Clear() {
+        lock (_gate) {
+            _live.Clear();
+            _unregistered.Clear();
+            _handedOver.Clear();
+            _replaced.Clear();
+            _carriedFrom.Clear();
+            _stopped.Clear();
+        }
+    }
 
     void Save() {
         lock (_saveGate) {
@@ -636,9 +715,10 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
                 file = new ModAttachmentFile(
                     [.. _live.Values.Select(r => r.Attachment)],
                     _handedOver.ToDictionary(h => h.Key.ToString("D"), h => h.Value),
-                    [.. _reports],
+                    _reports.Snapshot(),
                     new Dictionary<string, string>(_replaced, StringComparer.Ordinal),
-                    [.. _stopped]);
+                    [.. _stopped],
+                    new Dictionary<string, string>(_carriedFrom, StringComparer.Ordinal));
 
             _store.TrySave(file);
         }
@@ -646,6 +726,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
     public ValueTask DisposeAsync() {
         _server.ConnectionLost -= DropAllHeld;
+        _server.Registered     -= SweepOnRegistered;
 
         return _sweep.DisposeAsync();
     }
@@ -677,12 +758,12 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Input for attached agent {AgentId} carried no dispatch id, so it can be neither held nor refused")]
     partial void LogUnnamedInput(string agentId);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The steering report queue is full; dropped the {Kind} report of dispatch {DispatchId}")]
-    partial void LogReportDropped(Guid dispatchId, string kind);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Attached agent {AgentId} could not be unregistered: {Why}")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Attached agent {AgentId} could not be unregistered: {Why}; a later sweep tries again")]
     partial void LogUnregisterFailed(string agentId, string why);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The steering sweep failed")]
     partial void LogSweepFailed(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Steering state could not be restored, so nothing it held is steered")]
+    partial void LogRestoreFailed(Exception ex);
 }
