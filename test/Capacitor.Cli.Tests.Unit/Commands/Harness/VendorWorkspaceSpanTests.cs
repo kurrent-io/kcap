@@ -60,6 +60,60 @@ public class VendorWorkspaceSpanTests : IDisposable {
             .Handle(new StringReader(payload.ToJsonString()), ["--event", eventName]);
     }
 
+    List<string> PostedPaths() => _server.LogEntries.Where(e => e.RequestMessage.Method == "POST").Select(e => e.RequestMessage.Path).ToList();
+
+    Task<int> PiAsync(string eventName, string file) {
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        return new PiHookCommand(Config.Root, profiles, new HookClock(_time), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, http,
+                TestWatchers.For(Config.Root, profiles, http), new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory))
+            .Handle(["--event", eventName, "--file", file, "--cwd", Repo.Path, "--reason", "quit"], TextWriter.Null);
+    }
+
+    /// <summary>The session's end goes before its span: a host that kills the hook early must still get it.</summary>
+    [Test]
+    public async Task Copilot_posts_the_session_end_before_the_span_is_closed() {
+        await CopilotAsync("sessionStart");
+        Repo.CreateFile("made.txt", "x");
+        await CopilotAsync("sessionEnd");
+
+        var posts = PostedPaths();
+        await Assert.That(posts).Contains("/hooks/workspace-changes");
+        await Assert.That(posts.IndexOf("/hooks/session-end/copilot")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
+    }
+
+    [Test]
+    public async Task Pi_posts_the_session_end_before_the_span_is_closed() {
+        using var sessions = new TempDir("pi-sessions");
+        var file = sessions.CreateFile($"2026-11-07T10-00-00_{Session}.jsonl", "");
+        await PiAsync("session-start", file);
+        Repo.CreateFile("made.txt", "x");
+        await PiAsync("session-end", file);
+
+        var posts = PostedPaths();
+        await Assert.That(posts).Contains("/hooks/workspace-changes");
+        await Assert.That(posts.IndexOf("/hooks/session-end/pi")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
+    }
+
+    /// <summary>A session the user disabled sends nothing more, whichever session's hook drains the spool.</summary>
+    [Test]
+    public async Task A_disabled_sessions_spooled_span_is_dropped_unsent_by_another_sessions_drain() {
+        const string Disabled = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string Live     = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        var spool = new WorkspaceSpool(Config.Root, _server.Url!, _time);
+        foreach (var session in new[] { Disabled, Live })
+            spool.Write(new WorkspaceChangesRequest(session, Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+                [new WorkspaceChange("x.txt", "edit")], false));
+        Directory.CreateDirectory(Config.Root.Path("disabled"));
+        File.WriteAllText(Path.Combine(Config.Root.Path("disabled"), Disabled), "");
+
+        await new Capacitor.Cli.Workspace.WorkspaceSpanHook(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), _time)
+            .DrainAsync(TimeSpan.FromSeconds(30));
+
+        await Assert.That(Posted().Select(p => p.SessionId)).IsEquivalentTo([Live]);
+        await Assert.That(spool.HasPending).IsFalse();
+    }
+
     [Test]
     public async Task Codex_spans_a_turn_from_its_prompt_to_its_stop() {
         await CodexAsync("UserPromptSubmit");

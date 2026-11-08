@@ -198,8 +198,6 @@ sealed class PiHookCommand(
     }
 
     async Task<int> HandleSessionEnd(string sessionId, string file, string? cwd, string? reason) {
-        await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
-
         // Kill watcher + inline-drain BEFORE the POST so the server computes
         // stats over the full transcript — capped so a slow drain can't starve
         // the session-end POST (mirror of ClaudeHookCommand).
@@ -233,7 +231,10 @@ sealed class PiHookCommand(
         SessionEndIncarnation.Stamp(forwarded, hosted);
 
         // AuthLapsed / Posted → clean exit (0); a real failure keeps the prior non-zero exit.
-        return await PostHookAsync("session-end/pi", forwarded.ToJsonString()) == HookPostOutcome.Failed ? 1 : 0;
+        var exit = await PostHookAsync("session-end/pi", forwarded.ToJsonString()) == HookPostOutcome.Failed ? 1 : 0;
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+        return exit;
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────

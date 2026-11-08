@@ -7,6 +7,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Setup;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.PrDetection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
@@ -713,6 +714,28 @@ public class MuseHookCommandTests : IDisposable {
 
     /// <summary>A session whose watcher is gone still has a log to drain, so the end is handed to a watcher
     /// armed for it rather than posted from a hook Muse may kill mid-drain.</summary>
+    /// <summary><c>muse exec</c> kills a SessionEnd hook inside a second, so the end is handed to the watcher
+    /// before the session's workspace span is closed, which runs git over the whole tree.</summary>
+    [Test]
+    public async Task SessionEnd_hands_the_end_over_before_closing_the_workspace_span() {
+        StubHooks();
+        StageParentLog();
+        using var repo = GitRepo.CreateWithCommit("muse-span");
+        var time  = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var spool = new WorkspaceSpool(Config.Root, _server.Url!, time);
+        var store = new WorkspaceSpanStore(Config.Root, _server.Url!, spool, new WorkspaceSnapshotter(new WorkspaceGit(time), time), time);
+        await store.OpenAsync(ParentDashless, repo.Path, WorkspaceOpen.Turn, TimeSpan.FromSeconds(30));
+        repo.CreateFile("made.txt", "x");
+
+        await Command(time: time).Handle(new StringReader(
+            $$"""{"hook_event_name":"SessionEnd","reason":"exit","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
+            new StringWriter(), ParentEnv, Today);
+
+        var handed = File.GetLastWriteTimeUtc(MuseSessionEndRequest.PathFor(WatcherPaths.FromEnvironment(Config.Root), ParentDashless));
+        var posted = _server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/workspace-changes").RequestMessage.DateTime.ToUniversalTime();
+        await Assert.That(handed).IsLessThanOrEqualTo(posted);
+    }
+
     [Test]
     public async Task SessionEnd_without_a_watcher_arms_one_for_the_handed_end_and_posts_nothing() {
         StubHooks();

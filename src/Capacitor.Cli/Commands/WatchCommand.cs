@@ -2490,12 +2490,14 @@ partial class WatchCommand(
             }
         }
 
-        // A vendor without turn hooks opened its span at SessionStart, and a vendor with them may have died mid-turn.
-        await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceEndCap);
-
         var endHook = ParentExitEndBody(sessionId, transcriptPath, cwd, reason, time.GetUtcNow(), HostedAgent.FromEnvironment());
+        var posted  = await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
 
-        return await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
+        // After the end, which the watcher's short stop window protects: a vendor without turn hooks opened
+        // its span at SessionStart, and one with them may have died mid-turn. A later hook drains it.
+        await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceEndCap, drain: false);
+
+        return posted;
     }
 
     /// <summary>The end a hook handed over, as the watcher posts it. The run identity is only ever the one the hook

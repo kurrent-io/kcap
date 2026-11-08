@@ -242,8 +242,14 @@ sealed class MuseHookCommand(
     /// would take the only copy of the end with it; a watcher is a detached process. Only a session with
     /// no log, which has nothing to drain, is posted directly.</summary>
     async Task HandleSessionEnd(JsonNode node, Guid session, string? cwd, DateOnly today) {
-        await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(session.ToString("N"), WorkspaceSpanHook.EndBudget);
+        try {
+            await HandOffSessionEnd(node, session, cwd, today);
+        } finally {
+            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(session.ToString("N"), WorkspaceSpanHook.EndBudget);
+        }
+    }
 
+    async Task HandOffSessionEnd(JsonNode node, Guid session, string? cwd, DateOnly today) {
         var sessionId = session.ToString("N");
         var budget    = clock.Budget(SessionEndCeiling);
 

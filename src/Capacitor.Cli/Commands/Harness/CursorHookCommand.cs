@@ -497,8 +497,6 @@ public sealed class CursorHookCommand(
             // long enough for the final user line to attach. For every other
             // event we keep post-then-backfill so lifecycle metadata reaches the
             // server before any new transcript context.
-            if (eventName == "sessionEnd") await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
-
             var drainBeforePost = eventName == "sessionEnd"
                                && sessionId is not null
                                && !string.IsNullOrEmpty(transcriptPath);
@@ -579,6 +577,10 @@ public sealed class CursorHookCommand(
              && !hasRemainingSpoolBacklog) {
                 await MaybeSpawnWatcherAsync(sessionId, transcriptPath, cwd: null, eventName, isSubagentChild);
             }
+
+            // Last, on what the final drain and the end's post left: those carry the session's end.
+            if (eventName == "sessionEnd" && !BudgetExpired())
+                await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, budget.Remaining, drain: false);
 
             if (!drainBeforePost && !BudgetExpired() && sessionId is not null && !string.IsNullOrEmpty(transcriptPath)) {
                 await CursorTranscriptBackfill.RunAsync(
