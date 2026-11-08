@@ -2152,7 +2152,7 @@ public class ChatTabViewModelTests {
             var input = new ScriptedInput { CanResubmitValue = true };
             var h = new Harness(TranscriptChat.For("claude"), input: input);
             var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
-            await h.PushAsync(Dto(path) with { AwaitingInput = false });
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
             await SendAsync(h, input, "look");
             var queued = h.Chat.QueuedMessages.Single();
 
@@ -2163,6 +2163,106 @@ public class ChatTabViewModelTests {
             await h.PushAsync(Dto(path) with { AwaitingInput = true });
             await TickForAsync(h, ChatTabViewModel.PickupWait);
             await Assert.That(input.Resubmits).IsEqualTo(1);
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(queued.IsNotPickedUp).IsTrue();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// A turn started after a send from an idle prompt means its Enter landed, even when the echo
+    /// does not match the sent text. A second Enter would submit whatever was typed since.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_from_idle_followed_by_a_turn_is_never_resubmitted_or_marked_not_picked_up() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
+
+            await Assert.That(input.Resubmits).IsEqualTo(0);
+            await Assert.That(queued.IsNotPickedUp).IsFalse();
+            await Assert.That(h.Chat.QueuedMessages).Contains(queued);
+            await h.TeardownAsync();
+        });
+    }
+
+    /// A subagent still running when the agent's own prompt waits does not make a send there a
+    /// mid-turn one: the agent's next attested turn is the send's.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_while_only_a_subagent_works_is_left_waiting_once_a_turn_starts() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true, LiveSubagents = 1 });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true, LiveSubagents = 1 });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true, LiveSubagents = 0 });
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
+
+            await Assert.That(input.Resubmits).IsEqualTo(0);
+            await Assert.That(queued.IsNotPickedUp).IsFalse();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// The submit clears the agent's wait even when its Enter only became a newline, so working
+    /// that no turn attests is not a turn: the row still gets its second Enter.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_unattested_wait_cleared_by_the_submit_does_not_stop_the_resubmit() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = false });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(input.Resubmits).IsEqualTo(1);
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await Assert.That(queued.IsNotPickedUp).IsTrue();
+            await h.TeardownAsync();
+        });
+    }
+
+    /// A send made mid-turn counts a turn only once the agent has gone idle after it: the turn that
+    /// was already running is not its own.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_send_queued_behind_a_turn_is_left_waiting_once_a_later_turn_starts() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { CanResubmitValue = true };
+            var h = new Harness(TranscriptChat.For("claude"), input: input);
+            var path = Tmp.CreateFile("t.jsonl", [AssistantLine]);
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
+            await SendAsync(h, input, "look");
+            var queued = h.Chat.QueuedMessages.Single();
+
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await h.PushAsync(Dto(path) with { AwaitingInput = false, TurnAttested = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait);
+            await h.PushAsync(Dto(path) with { AwaitingInput = true });
+            await TickForAsync(h, ChatTabViewModel.PickupWait * 4);
+
+            await Assert.That(input.Resubmits).IsEqualTo(0);
+            await Assert.That(queued.IsNotPickedUp).IsFalse();
             await h.TeardownAsync();
         });
     }

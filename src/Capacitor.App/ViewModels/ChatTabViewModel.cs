@@ -606,8 +606,27 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         ShowsLiveNote = !ShowsActivityNote && ActivityNote.Length > 0;
         this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
         RefreshAgentStatus();
+        NoteTurnStarts();
         RefreshQueuedSend();
     }
+
+    /// An attested turn seen once the agent was idle with a row unechoed, whether at the send or after
+    /// the turn a mid-turn send queued behind, began after the send. The turn already running at a
+    /// mid-turn send does not count, and neither does working without attestation: the submit alone
+    /// clears the wait, even when its Enter only became a newline.
+    void NoteTurnStarts() {
+        var working = !_ended && SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
+        var idle = !working || AgentPromptWaits;
+        var attested = working && _turnAttested;
+        foreach (var queued in Tracked) {
+            if (queued.IsForeign || queued.Acknowledged) continue;
+            if (idle) queued.SawIdle = true;
+            else if (attested && queued.SawIdle) queued.TurnSeen = true;
+        }
+    }
+
+    /// The agent's own prompt waits for input; a live subagent does not make it busy.
+    bool AgentPromptWaits => !_ended && _awaitingInput == true;
 
     bool AgentIsIdle => !_ended && !SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents);
 
@@ -1519,6 +1538,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         var queued = new QueuedChatMessage(snapshot, ownsDraft ? edits : -1, _inputGeneration, CurrentOffset, chipIds) {
             SendOrder = ++_nextSendOrder,
             SentIdle = AgentIsIdle && _awaitingInput == true && !HasTerminalMenu,
+            SawIdle = AgentIsIdle || AgentPromptWaits,
             SenderIdentity = sender is null ? null : sender with { Ids = sender.Ids.ToArray() },
         };
         if (!queued.HasBaseline) Interlocked.Increment(ref _baselineVersion);
@@ -1570,14 +1590,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// An idle agent that has not echoed a send may have taken its Enter as a newline, as a large
     /// paste still arriving does: Enter is pressed once more, then the row is marked not picked up
     /// rather than left waiting. The clock runs only while the agent is not working, so a send
-    /// queued behind a turn waits for that turn first.
+    /// queued behind a turn waits for that turn first. A row a turn has started after is left
+    /// waiting: its Enter landed, and another would submit whatever is typed in the terminal.
     void CheckPickup() {
         var idle = !_ended && _status == "Running" && !SessionStatusDots.IsWorking(_status, _awaitingInput, _liveSubagents)
             && !HasTerminalMenu && !IsReadOnlyParticipant && _input.CanResubmit && _sending is null;
         var now = _time.GetTimestamp();
         var resubmit = false;
         foreach (var queued in _queuedMessages) {
-            if (queued.IsForeign || queued.Acknowledged || queued.IsUnconfirmed || queued.IsServerHeld || queued.IsNotPickedUp) continue;
+            if (queued.IsForeign || queued.Acknowledged || queued.IsUnconfirmed || queued.IsServerHeld || queued.IsNotPickedUp || queued.TurnSeen) continue;
             if (!idle) { queued.IdleSince = null; continue; }
             if (queued.IdleSince is not { } since) { queued.IdleSince = now; continue; }
             if (_time.GetElapsedTime(since, now) < PickupWait) continue;
