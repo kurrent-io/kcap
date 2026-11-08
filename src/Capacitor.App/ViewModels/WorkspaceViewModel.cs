@@ -174,6 +174,10 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     public ReactiveCommand<Unit, Unit> OpenInWebCommand { get; }
     public ReactiveCommand<Unit, Unit> StopCommand { get; }
 
+    readonly ObservableAsPropertyHelper<string> _stopLabel;
+    /// Stopping an attached agent removes the steering and leaves its session running in the terminal.
+    public string StopLabel => _stopLabel.Value;
+
     readonly CompositeDisposable _disposables = new();
     readonly SerialDisposable _lease = new();
     readonly IUrlOpener _opener;
@@ -329,6 +333,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         _repoLabelText = header.Select(h => h.Dto is not null ? CheckoutLabelFor(h.Dto) : h.Row is { } row ? RepoLabel.Leaf(row.RepoPath) : CheckoutLabelFor(null))
             .ToProperty(this, x => x.RepoLabelText, CheckoutLabelFor(null))
             .DisposeWith(_disposables);
+        _stopLabel = header.Select(h => h.Dto?.Kind == AgentActionService.AttachedKind ? AttachedAgentCopy.DisconnectSteering : "Stop")
+            .ToProperty(this, x => x.StopLabel, "Stop")
+            .DisposeWith(_disposables);
         _hasAgent = header.Select(h => h.Dto is not null)
             .ToProperty(this, x => x.HasAgent, initialValue: false)
             .DisposeWith(_disposables);
@@ -378,7 +385,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     senders, readings?.Local, readings?.Clock, signInCompleted,
                     handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(sessionIds
                         .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-                    openLink: Artefacts.OpenLink) {
+                    openLink: Artefacts.OpenLink,
+                    viewerAccess: presence.Select(p => AgentViewerAccess.Unrestricted with { AtTerminal = p.Dto?.Kind == AgentActionService.AttachedKind })
+                        .DistinctUntilChanged()) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
                     InputSending = inputSending,
                 };
@@ -412,7 +421,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             // the confirm-then-force seam.
             var row   = _startingRow;
             var kind  = dto?.Kind ?? row?.Kind ?? UnresolvedKind;
-            var label = dto is not null ? $"{dto.Kind} · {dto.Vendor} · {RepoLabel.Leaf(dto.RepoPath)}"
+            var label = dto?.Kind == AgentActionService.AttachedKind ? AttachedAgentCopy.TerminalSession
+                      : dto is not null ? $"{dto.Kind} · {dto.Vendor} · {RepoLabel.Leaf(dto.RepoPath)}"
                       : row is not null ? $"{row.Kind} · {row.Vendor} · {RepoLabel.Leaf(row.RepoPath)}"
                       : agentId;
             actions.RequestStop(agentId, label, kind);
@@ -441,6 +451,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     /// `repo / checkout`, with the marker for a borrowed reviewer; the repository alone from an
     /// older daemon.
     internal static string CheckoutLabelFor(AgentStatusDto? dto) {
+        if (dto?.Kind == AgentActionService.AttachedKind) return AttachedAgentCopy.TerminalSession;
         var repo = RepoLabel.Leaf(dto?.RepoPath);
         if (dto is null || CheckoutLabel.CheckoutPathFor(dto) is not { } checkout) return repo;
 

@@ -493,7 +493,7 @@
                                                                         <TextBlock x:Name="SessionTitleTip" Text="{Binding Primary}" TextWrapping="Wrap"
                                                                                    IsVisible="{Binding HasTitle}" />
                                                                         <views:AgentStatusTip DataContext="{Binding Status}" />
-                                                                        <StackPanel Spacing="1" IsVisible="{Binding IsRemote}">
+                                                                        <StackPanel Spacing="1" IsVisible="{Binding MachineBadge, Converter={x:Static ObjectConverters.IsNotNull}}">
                                                                             <TextBlock Text="{Binding MachineBadge}" TextWrapping="Wrap" />
                                                                             <TextBlock Text="Machine · remote daemon" Classes="kcapTipCaption" />
                                                                         </StackPanel>
@@ -541,6 +541,15 @@
                                                                             <StackPanel Orientation="Horizontal" Spacing="4">
                                                                                 <views:AppIcon Kind="Terminal" Size="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
                                                                                 <TextBlock Text="terminal" Classes="railChipLabel" Foreground="{StaticResource KcapMutedBrush}" />
+                                                                            </StackPanel>
+                                                                        </Border>
+                                                                        <Border x:Name="SessionAttachedChip" Classes="railChip" IsVisible="{Binding IsAttached}" Margin="0,0,6,0"
+                                                                                ToolTip.Tip="{x:Static vm:RailSessionViewModel.AttachedTooltip}"
+                                                                                AutomationProperties.Name="{x:Static vm:RailSessionViewModel.AttachedLabel}">
+                                                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                                <views:AppIcon Kind="Terminal" Size="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                                                                                <TextBlock Text="{x:Static vm:RailSessionViewModel.AttachedLabel}" Classes="railChipLabel"
+                                                                                           Foreground="{StaticResource KcapMutedBrush}" />
                                                                             </StackPanel>
                                                                         </Border>
                                                                         <TextBlock Text="{Binding RepoLabel}" Classes="railMeta" MaxWidth="140" Margin="0,0,6,0"

@@ -44,7 +44,7 @@ public sealed class TrayMenuBuilder(TrayViewModel vm) {
 
     NativeMenuItem BuildAgentItem(TrayAgentEntry entry) {
         var submenu = new NativeMenu();
-        submenu.Items.Add(new NativeMenuItem("Stop") {
+        submenu.Items.Add(new NativeMenuItem(entry.StopLabel) {
             Command = vm.StopAgentCommand, CommandParameter = entry.Key, IsEnabled = entry.StopEnabled,
         });
         submenu.Items.Add(new NativeMenuItem("Open in web") {

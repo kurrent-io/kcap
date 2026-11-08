@@ -40,6 +40,7 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
             if (_isUnconfirmed == value) return;
             _isUnconfirmed = value;
             this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(ShowsUnconfirmed));
             this.RaisePropertyChanged(nameof(IsAwaitingPickup));
             this.RaisePropertyChanged(nameof(PickupNote));
         }
@@ -66,12 +67,15 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
         }
     }
 
-    /// Which wait the row describes. A channel that is still delivering the last paste is not a step.
-    public string? PickupNote => !IsAwaitingPickup ? null : _agentIdle switch {
-        true => IdlePickupNote,
-        false => AwaitingPickupNote,
-        null => UnknownPickupNote,
-    };
+    /// Which wait the row describes. A channel that is still delivering the last paste is not a step. The server's
+    /// word on a message to an attached agent outranks what this pane can tell.
+    public string? PickupNote => _deliveryState is not null
+        ? IsSettled ? null : DeliveryNote
+        : !IsAwaitingPickup ? null : _agentIdle switch {
+            true => IdlePickupNote,
+            false => AwaitingPickupNote,
+            null => UnknownPickupNote,
+        };
 
     /// <param name="canDiscard">Whether a row no server holds can be dropped from the strip.</param>
     /// <param name="canDiscardHeld">Whether the channel can ask the server to drop a row it holds.</param>
@@ -108,8 +112,41 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// A server entry unmatched to this pane's sends. Its originating client is unknown.
     public bool IsForeign { get; private init; }
 
-    internal static QueuedChatMessage FromServer(QueuedInputItem item) =>
-        new(item.Text, composerEdits: -1, generation: -1, offset: null, attachmentIds: []) { DispatchId = item.DispatchId, IsForeign = true };
+    string? _deliveryState;
+    string? _deliveryReason;
+
+    /// Where the server says a message to an attached agent stands; null for a hosted agent's.
+    internal string? DeliveryState => _deliveryState;
+    public string? DeliveryNote => AttachedAgentCopy.Delivery(_deliveryState, _deliveryReason);
+    /// Delivered or not, as far as the server can tell: a notice, no longer a message waiting for the agent.
+    public bool IsSettled => AttachedAgentCopy.IsSettled(_deliveryState);
+    public bool IsDelivered => _deliveryState == "delivered";
+    public bool DeliveryNeedsSender => AttachedAgentCopy.NeedsSender(_deliveryState);
+    public bool ShowsUnconfirmed => IsUnconfirmed && _deliveryState is null;
+    public bool ShowsForeignUnconfirmed => IsForeign && _deliveryState is null;
+
+    internal void SetDelivery(string? state, string? reason) {
+        var known = AttachedAgentCopy.Known(state);
+        var why = known is null ? null : reason;
+        if (known == _deliveryState && why == _deliveryReason) return;
+        _deliveryState = known;
+        _deliveryReason = why;
+        this.RaisePropertyChanged(nameof(DeliveryNote));
+        this.RaisePropertyChanged(nameof(IsSettled));
+        this.RaisePropertyChanged(nameof(IsDelivered));
+        this.RaisePropertyChanged(nameof(DeliveryNeedsSender));
+        this.RaisePropertyChanged(nameof(ShowsUnconfirmed));
+        this.RaisePropertyChanged(nameof(ShowsForeignUnconfirmed));
+        this.RaisePropertyChanged(nameof(PickupNote));
+    }
+
+    internal static QueuedChatMessage FromServer(QueuedInputItem item) {
+        var row = new QueuedChatMessage(item.Text, composerEdits: -1, generation: -1, offset: null, attachmentIds: []) {
+            DispatchId = item.DispatchId, IsForeign = true,
+        };
+        row.SetDelivery(item.DeliveryState, item.DeliveryReason);
+        return row;
+    }
 
     internal void MarkQueued(Guid dispatchId) {
         if (DispatchId == dispatchId && _serverListed && !IsUnconfirmed) return;

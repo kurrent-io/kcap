@@ -643,6 +643,58 @@ public class TrayViewModelTests {
         });
     }
 
+    /// The tray's list is an agent list too: an attached agent reads as the terminal session it is, and its stop as a
+    /// disconnect, while a hosted agent beside it reads as before.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_attached_agent_reads_as_a_terminal_session_in_the_tray() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            using var vm = new TrayViewModel(service, new FakePauseController(), NewActions(service), new FakeConsentService());
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, []));
+            service.SnapshotsSubject.OnNext(Snap("connected", 2, [
+                new("mod-1", "attached", "claude", null, "Running", null, null, null, DateTime.UtcNow, null, null),
+                new("a1", "agent", "claude", "/repo/kcap-cli", "Running", null, null, null, DateTime.UtcNow.AddSeconds(1), null, null),
+            ]));
+
+            var entries = vm.MenuModel.Agents;
+            await Assert.That(entries[0].Label).IsEqualTo("Terminal session");
+            await Assert.That(entries[0].StopLabel).IsEqualTo("Disconnect steering");
+            await Assert.That(entries[1].Label).IsEqualTo("agent · claude · kcap-cli");
+            await Assert.That(entries[1].StopLabel).IsEqualTo("Stop");
+        });
+    }
+
+    /// A remote session waiting on its owner is listed by its machine, unless it is an attached agent's, which no
+    /// machine hosts.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_attached_agent_waiting_on_its_owner_reads_as_a_terminal_session_in_the_tray() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var remoteAgents = new FakeRemoteAgents();
+            using var directory = new AgentDirectory(
+                new FakeDaemonClientService(), remoteAgents, new FakeServerLane(), new RepoIdentityResolver(_ => null), p => p, "m1",
+                "http://localhost:9999", TimeProvider.System);
+            RemoteTraySummary? seen = null;
+            using var sub = TrayViewModel.SummaryFrom(directory, Observable.Return<IReadOnlySet<string>>(new HashSet<string> { "s1", "s2" }))
+                .Subscribe(v => seen = v);
+
+            remoteAgents.Cache.AddOrUpdate(new AgentInstanceDto {
+                AgentId = "mod-1", SessionId = "s1", Status = "running", DaemonName = "work-mac", OwnerUserId = "u1",
+                Vendor = "claude", Title = "fix tests", Attached = true,
+            });
+            remoteAgents.Cache.AddOrUpdate(new AgentInstanceDto {
+                AgentId = "a1", SessionId = "s2", Status = "running", DaemonName = "work-mac", OwnerUserId = "u1",
+                Vendor = "claude", Title = "fix docs", RepoOwner = "o", RepoName = "r",
+            });
+
+            var entries = seen!.Value.AttentionEntries!.OrderBy(e => e.Id, StringComparer.Ordinal).ToList();
+            await Assert.That(entries.Select(e => (e.Label, e.StopLabel))).IsEquivalentTo(
+                [("fix docs · on work-mac", "Stop"), ("fix tests · Terminal session", "Disconnect steering")], CollectionOrdering.Matching);
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Entries_empty_when_not_connected_despite_retained_snapshot() {

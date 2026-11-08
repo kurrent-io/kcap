@@ -220,6 +220,34 @@ public class AgentDirectoryTests {
         await Assert.That(dir.IsProvenLocalTwin("a1")).IsFalse();
     }
 
+    /// The local daemon steers an attached agent's terminal session but does not host it, and only the server can send to
+    /// it. So once the twin's registry lists it, that row stands for it while the local socket is up, and its leaving
+    /// is never read as this machine taking the agent over.
+    [Test]
+    public async Task An_attached_agent_the_twin_registers_is_listed_from_the_server() {
+        var (local, remote, _, dir) = Build();
+        using var _d = dir;
+        local.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap());
+        local.StatusSubject.OnNext(new(AttachState.Connected, null, ["status/1"]));
+        local.Agents.AddOrUpdate(new AgentStatusDto(
+            "mod-1", "attached", "claude", null, "Running", null, null, null, DateTime.UtcNow, null, null,
+            HasTerminal: false, SessionId: "s1"));
+        remote.DaemonsSubject.OnNext([TwinDaemon]);
+
+        var unregistered = dir.Rows.Lookup("local:mod-1").Value;
+        await Assert.That(unregistered.IsAttached).IsTrue();
+        await Assert.That(unregistered.RepoGroupKey).IsEqualTo("path:");
+
+        remote.Cache.AddOrUpdate(Remote("mod-1", daemon: "daemon-a", sessionId: "s1") with { RepoOwner = null, RepoName = null, Attached = true });
+
+        await Assert.That(dir.Rows.Lookup("local:mod-1").HasValue).IsFalse();
+        var registered = dir.Rows.Lookup("remote:mod-1").Value;
+        await Assert.That(registered.IsAttached).IsTrue();
+        await Assert.That(registered.MachineBadge).IsNull();
+        await Assert.That(registered.RepoGroupKey).IsEqualTo("path:");
+        await Assert.That(dir.IsProvenLocalTwin("mod-1")).IsFalse();
+    }
+
     /// A restarting daemon drops off the server's registry before it comes back. The twin proven
     /// before is still its identity, so the agent is not listed twice in that gap.
     [Test]

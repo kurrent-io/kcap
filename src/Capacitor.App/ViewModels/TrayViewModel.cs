@@ -314,7 +314,8 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
         var laneConnected = directory.RemoteStale.Select(stale => !stale);
         return remoteRows.CombineLatest(laneConnected, attention, (rows, connected, sessions) => {
             var entries = rows.Where(r => r.SessionId is { } sid && sessions.Contains(sid))
-                .Select(r => new TrayAgentEntry(r.Id, $"{r.Title ?? r.Vendor} · on {r.MachineBadge}", r.Kind,
+                .Select(r => new TrayAgentEntry(r.Id,
+                    $"{r.Title ?? r.Vendor} · {(r.IsAttached ? AttachedAgentCopy.TerminalSession : $"on {r.MachineBadge}")}", r.Kind,
                     StopEnabled: AgentViewerAccess.From(r.ViewerRights).CanPressKeys, AgentOrigin.Remote))
                 .ToList();
             return new RemoteTraySummary(rows.Count, connected, entries.Count, entries);
@@ -422,7 +423,9 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
     }
 
     static string Label(AgentStatusDto agent) {
-        var line = $"{agent.Kind} · {agent.Vendor} · {RepoLabel.Leaf(agent.RepoPath)}";
+        var line = agent.Kind == AgentActionService.AttachedKind
+            ? AttachedAgentCopy.TerminalSession
+            : $"{agent.Kind} · {agent.Vendor} · {RepoLabel.Leaf(agent.RepoPath)}";
         if (UsageLimitNoticeDto.IsQuestion(agent.UsageLimit)) line = $"{line} · usage limit";
 
         // A native menu row cannot ellipsize itself, so the title is cut before the separator.

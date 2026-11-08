@@ -115,6 +115,43 @@ public class RailSessionViewModelTests {
         Vendor = "claude", RepoOwner = "o", RepoName = "r",
     });
 
+    /// An attached agent steers a session in its owner's terminal, whichever lane reports it, so its row says that and
+    /// nothing a hosted agent's says: no machine badge, no kind word, no checkout and no daemon's group. A hosted agent
+    /// beside it reads as before.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_attached_agent_does_not_read_as_hosted_in_the_rail() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var fromServer = AgentRow.FromRemote(new AgentInstanceDto {
+                AgentId = "mod-1", SessionId = "s1", Status = "running", DaemonName = "work-mac", OwnerUserId = "u1",
+                Vendor = "claude", Attached = true,
+            });
+            var fromDaemon = AgentRow.FromLocal(
+                new("mod-2", "attached", "claude", null, "Running", null, null, null, DateTime.UtcNow, null, null,
+                    HasTerminal: false, SessionId: "s2"),
+                new RepoIdentity("path:", "No repository"));
+
+            foreach (var attached in new[] { fromServer, fromDaemon }) {
+                using var row = new RailSessionViewModel(attached, new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
+                await Assert.That(row.IsAttached).IsTrue();
+                await Assert.That(RailSessionViewModel.AttachedLabel).IsEqualTo("Terminal session");
+                await Assert.That(row.MachineBadge).IsNull();
+                await Assert.That(row.IsTerminalSession).IsFalse();
+                await Assert.That(row.Tooltip).DoesNotContain("daemon");
+                await Assert.That(row.Meta).DoesNotContain("attached");
+                await Assert.That(row.CheckoutPath).IsNull();
+                await Assert.That(attached.RepoGroupKey).IsEqualTo("path:");
+                await Assert.That(attached.RepoGroupLabel).IsEqualTo("No repository");
+            }
+
+            using var hosted = new RailSessionViewModel(RemoteRow("a1"), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
+            await Assert.That(hosted.IsAttached).IsFalse();
+            await Assert.That(hosted.MachineBadge).IsEqualTo("work-mac");
+            await Assert.That(hosted.Tooltip).Contains("Machine · remote daemon");
+            await Assert.That(RemoteRow("a1").RepoGroupKey).IsEqualTo("repo:o/r");
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_pending_row_reads_its_launch_stage_and_opens_locally() {

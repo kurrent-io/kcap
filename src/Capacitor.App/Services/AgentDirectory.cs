@@ -53,7 +53,8 @@ public interface IAgentDirectory {
 /// other lane holds a row for the SAME agent. While the twin is proven, its remote row hides
 /// whenever the local socket is Connected (the local view is current), and the local row hides once
 /// it isn't (the twin's own server row wins) — except for an agent the daemon's own resume ledger
-/// says it is taking back up while its process starts, whose local row stands as Resuming. Another
+/// says it is taking back up while its process starts, whose local row stands as Resuming, and an
+/// attached agent, whose twin's row always stands because only the server can send to it. Another
 /// daemon's rows never take part: an unproven identity, an unpaired agent and a same-id agent
 /// elsewhere all keep both lanes' rows.
 public sealed class AgentDirectory : IAgentDirectory, IDisposable {
@@ -333,11 +334,10 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
         public int GetHashCode(IReadOnlyDictionary<string, string> obj) => obj.Count;
     }
 
-    static readonly RepoIdentity NoRepositoryIdentity = new("path:", "No repository");
     readonly Dictionary<string, RepoIdentity> _repoByPath = new(StringComparer.Ordinal);
 
     RepoIdentity RepoFor(string? repoPath) {
-        if (repoPath is not { Length: > 0 } path) return NoRepositoryIdentity;
+        if (repoPath is not { Length: > 0 } path) return RepoIdentity.NoRepository;
         if (_repoByPath.TryGetValue(path, out var cached)) return cached;
         var resolved = _repoIdentity.ForLocalRoot(PlatformPaths.Normalize(_resolveLocalRepoRoot(path)));
         _repoByPath[path] = resolved;
@@ -384,8 +384,9 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                 ? _localAgents.Where(a => !ViewModels.SessionStatusDots.IsTerminal(a.Status))
                     .Select(a => a.Id).ToHashSet(StringComparer.Ordinal)
                 : resumingHere;
+            // An attached agent is never taken over: the daemon steers it, it never hosts it.
             _twinAgents = twinProven
-                ? _remoteAgents.Where(OnTwin).Select(a => a.AgentId).Where(claimedLocally.Contains).ToFrozenSet(StringComparer.Ordinal)
+                ? _remoteAgents.Where(a => OnTwin(a) && !a.Attached).Select(a => a.AgentId).Where(claimedLocally.Contains).ToFrozenSet(StringComparer.Ordinal)
                 : FrozenSet<string>.Empty;
 
             var remote = _remoteAgents
@@ -394,14 +395,16 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                 .Where(a => a.Status.Equals("Starting", StringComparison.OrdinalIgnoreCase)
                     || a.Status.Equals("Running", StringComparison.OrdinalIgnoreCase)
                     || a.Status.Equals("Idle", StringComparison.OrdinalIgnoreCase))
-                .Where(a => !(OnTwin(a) && (_localConnected || resumingHere.Contains(a.AgentId))))
+                // Only the server can send to an attached agent, so its twin's registry row stands for it even while
+                // the local socket is up.
+                .Where(a => a.Attached || !(OnTwin(a) && (_localConnected || resumingHere.Contains(a.AgentId))))
                 .ToList();
             // The counterpart set is the TWIN's own rows, never every remote row: proving this
             // daemon's registry twin establishes no correspondence with an agent of the same id
             // running on some other daemon, which is a different agent entirely.
             var twinIds = remote.Where(OnTwin).Select(a => a.AgentId).ToHashSet(StringComparer.Ordinal);
             var localRows = _localAgents
-                .Where(a => !(twinProven && !_localConnected && twinIds.Contains(a.Id)))
+                .Where(a => !(twinProven && twinIds.Contains(a.Id) && (!_localConnected || a.Kind == AgentActionService.AttachedKind)))
                 .Select(a => ProjectLocal(resumingHere.Contains(a.Id) ? a with { Status = "Resuming" } : a));
             // A twin row standing in for a hidden local one keeps the checkout that daemon reported for the
             // same agent: the registry names none, and the session pane would lose its worktree.

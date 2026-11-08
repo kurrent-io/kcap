@@ -56,6 +56,9 @@ public sealed record AgentRow(
         // What the viewer may do to a hosted agent on another machine; null from a server with agent privileges off.
         AgentViewerRightsDto? ViewerRights = null) {
 
+    /// A terminal session a daemon steers rather than hosts, from either lane.
+    public bool IsAttached => Kind == AgentActionService.AttachedKind;
+
     /// A session the server lists as ended; a daemon row's Completed is not this.
     public bool IsEndedSession => Origin == AgentOrigin.Server && Status == "Completed";
 
@@ -75,17 +78,23 @@ public sealed record AgentRow(
         TerminalDialog: dto.TerminalDialog, Interruption: dto.Interruption,
         AccountDirectory: dto.AccountDirectory, AccountId: dto.AccountId, AccountLabel: dto.AccountLabel);
 
+    /// An attached agent's daemon steers it from the same machine and hosts nothing, so its row carries neither the
+    /// daemon's badge nor its checkout group.
     public static AgentRow FromRemote(AgentInstanceDto dto) {
         var daemonKey = $"{dto.OwnerUserId}/{dto.DaemonName}";
-        var repo = RepoIdentityResolver.ForRemote(dto.RepoOwner, dto.RepoName, dto.RepoPath, daemonKey);
+        var attached = dto.Attached;
+        var repo = attached && (string.IsNullOrEmpty(dto.RepoOwner) || string.IsNullOrEmpty(dto.RepoName))
+            ? RepoIdentity.NoRepository
+            : RepoIdentityResolver.ForRemote(dto.RepoOwner, dto.RepoName, dto.RepoPath, daemonKey);
         return new AgentRow(
             Key: $"remote:{dto.AgentId}", Origin: AgentOrigin.Remote, Id: dto.AgentId, SessionId: dto.SessionId,
-            Kind: "agent", Vendor: dto.Vendor ?? "", Status: CanonicalRemoteStatus(dto.Status), CreatedAt: dto.RegisteredAt,
+            Kind: attached ? AgentActionService.AttachedKind : "agent", Vendor: dto.Vendor ?? "", Status: CanonicalRemoteStatus(dto.Status),
+            CreatedAt: dto.RegisteredAt,
             RepoPath: dto.RepoPath, Title: dto.Title is { Length: > 0 } ? dto.Title : TitleFromPrompt(dto.Prompt),
             Model: dto.Model, RequesterDisplay: null,
             WorktreePath: null, WorkLocation: null, BorrowedFrom: null,
-            MachineBadge: dto.DaemonName, RepoGroupKey: repo.Key, RepoGroupLabel: repo.Label,
-            CheckoutKey: $"@{daemonKey}", CheckoutLabel: $"on {dto.DaemonName}",
+            MachineBadge: attached ? null : dto.DaemonName, RepoGroupKey: repo.Key, RepoGroupLabel: repo.Label,
+            CheckoutKey: attached ? "" : $"@{daemonKey}", CheckoutLabel: attached ? "" : $"on {dto.DaemonName}",
             TerminalDialog: dto.TerminalDialog is { } dialog
                 ? new TerminalDialogDto(dialog.Heading, dialog.Body, dialog.Options, dialog.Selected, dialog.Screen)
                 : null,

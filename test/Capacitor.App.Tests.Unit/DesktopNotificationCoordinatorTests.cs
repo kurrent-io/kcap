@@ -104,6 +104,20 @@ public class DesktopNotificationCoordinatorTests {
         await Assert.That(h.Sink.Shown.Count).IsEqualTo(1);
     }
 
+    /// Only its terminal can answer an attached session's prompt, so the notice opens the session and answers nothing.
+    [Test]
+    public async Task An_attached_sessions_permission_only_opens_the_session() {
+        using var h = new Harness();
+        h.Directory.Rows.Clear();
+        h.Directory.Rows.AddOrUpdate(Row(kind: "attached"));
+        h.Permissions.Add(PermissionEntries.ServerEntry());
+
+        var notification = h.Sink.Shown.Single();
+        await Assert.That(notification.Actions.Select(a => a.Id)).IsEquivalentTo(["open"]);
+        h.Sink.Callbacks[notification.Id]("allow");
+        await Assert.That(h.Permissions.Resolved).IsEmpty();
+    }
+
     [Test]
     public async Task Questions_open_the_agent_without_sending_a_permission_decision() {
         using var h = new Harness();
