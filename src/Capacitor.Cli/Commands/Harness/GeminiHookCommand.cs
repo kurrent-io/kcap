@@ -261,7 +261,10 @@ sealed class GeminiHookCommand(
         // disable` must stop every POST and watcher restart for the session. Suppression is not
         // silence — these paths are not stderr-free (Program.cs drains the spool before dispatch).
         if (DisabledSessions.IsDisabled(sessionId, config)) {
-            if (eventName == "SessionEnd") DisabledSessions.RemoveMarker(sessionId, config);
+            if (eventName == "SessionEnd") {
+                new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId);
+                DisabledSessions.RemoveMarker(sessionId, config);
+            }
             return 0;
         }
 
@@ -382,8 +385,6 @@ sealed class GeminiHookCommand(
         => AgentHookPoster.ShouldSpawnAfter(o, baseUrl);
 
     async Task<int> HandleSessionEnd(JsonNode node, string sessionId, string? cwd) {
-        await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
-
         var transcriptPath = TryGetString(node, "transcript_path");
 
         // Kill watcher + inline-drain BEFORE the POST so the server computes
@@ -433,7 +434,10 @@ sealed class GeminiHookCommand(
         SessionEndIncarnation.Stamp(forwarded, hosted);
 
         // AuthLapsed / Posted → clean exit (0); a real failure keeps the prior non-zero exit.
-        return await PostHookAsync("session-end/gemini", forwarded.ToJsonString()) == HookPostOutcome.Failed ? 1 : 0;
+        var exit = await PostHookAsync("session-end/gemini", forwarded.ToJsonString()) == HookPostOutcome.Failed ? 1 : 0;
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+        return exit;
     }
 
     async Task<int> HandleNotification(JsonNode node, string sessionId, string? cwd) {

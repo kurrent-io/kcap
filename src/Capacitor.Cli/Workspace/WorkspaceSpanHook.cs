@@ -54,6 +54,18 @@ sealed class WorkspaceSpanHook(ConfigRoot config, ProfileContext profiles, ICapa
     public Task EndAsync(string? sessionId, TimeSpan budget, bool drain = true) =>
         RunAsync(sessionId, budget, drain, left => StoreWithin(budget).EndSessionAsync(sessionId!, left()));
 
+    /// <summary>Drops the session's open spans and spooled events unsent. A session end that clears the
+    /// disabled marker calls it first: once the marker is gone, nothing else knows to withhold them.</summary>
+    public void Discard(string? sessionId) {
+        if (string.IsNullOrEmpty(sessionId)) return;
+        try {
+            Store.Discard(sessionId);
+            Spool.Discard(sessionId);
+        } catch (Exception ex) when (ex is not OutOfMemoryException) {
+            Stderr.WriteLine($"[kcap] workspace span discard failed for {sessionId}: {ex.Message}");
+        }
+    }
+
     public async Task DrainAsync(TimeSpan budget) {
         try {
             await DrainCoreAsync(budget);

@@ -88,7 +88,10 @@ sealed class PiHookCommand(
         // Mirror the Claude/Codex/Copilot disabled-session fast path: `kcap
         // disable` must stop every POST and watcher restart for the session.
         if (DisabledSessions.IsDisabled(sessionId, config)) {
-            if (eventName == "session-end") DisabledSessions.RemoveMarker(sessionId, config);
+            if (eventName == "session-end") {
+                new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId);
+                DisabledSessions.RemoveMarker(sessionId, config);
+            }
             return 0;
         }
 
