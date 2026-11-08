@@ -41,14 +41,18 @@ internal sealed class SteeringSwitch(
 
     // Skipped while the switch moves. A socket that never bound waits for the next on, as at start.
     void Rebind() {
-        if (!_lane.Wait(0)) return;
-
         try {
-            if (store.SteeringOn && endpoint.IsBound) endpoint.TryBind(out _);
-        } catch {
-            // The next round tries again.
-        } finally {
-            _lane.Release();
+            if (!_lane.Wait(0)) return;
+
+            try {
+                if (store.SteeringOn && endpoint.IsBound) endpoint.TryBind(out _);
+            } catch {
+                // The next round tries again.
+            } finally {
+                _lane.Release();
+            }
+        } catch (ObjectDisposedException) {
+            // Dispose doesn't wait for a running tick, and a throw here would be unhandled on the timer thread.
         }
     }
 
