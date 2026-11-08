@@ -80,7 +80,14 @@ internal sealed class AdoptionDeletion(
             log("adoption_retired", AdoptionEvent.For(install, "failed", EntriesUnknown));
             return EntriesUnknown;
         }
+        var gone = new List<string>();
         foreach (var entry in install.OwnedEntries.OrderByDescending(e => HoldsBinaries(install, e))) {
+            // Only the first entry's daemon tells a same-version reinstall apart; one begun since brings a gone entry back,
+            // and what is left at the other paths may be its files.
+            if (gone.Exists(Exists)) {
+                log("adoption_retired", AdoptionEvent.For(install, "failed", Changed));
+                return Changed;
+            }
             // Taken while the entry is still in place, so the daemon is found inside its aside by the same path. Only the
             // folder holding it is checked: a script install's current resolves into versions, gone by the time it goes.
             var daemonInside = Directory.Exists(entry) && new FileInfo(entry).LinkTarget is null && CanonicalPath.IsWithin(install.DaemonBinary, entry)
@@ -97,6 +104,7 @@ internal sealed class AdoptionDeletion(
                 log("adoption_retired", AdoptionEvent.For(install, "failed", Changed));
                 return Changed;
             }
+            gone.Add(entry);
         }
 
         log("adoption_retired", AdoptionEvent.For(install, "ok"));
@@ -125,6 +133,8 @@ internal sealed class AdoptionDeletion(
         });
         log("adoption_switched", AdoptionEvent.For(install));
     }
+
+    static bool Exists(string path) => new FileInfo(path).LinkTarget is not null || Path.Exists(path);
 
     static bool HoldsBinaries(OtherCliInstall install, string entry) =>
         CanonicalPath.IsWithin(install.CliBinary, entry) || CanonicalPath.IsWithin(install.DaemonBinary, entry);

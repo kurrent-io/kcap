@@ -623,6 +623,24 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Logged("adoption_retired").Any(e => e["reason"] == AdoptionDeletion.Changed)).IsTrue();
     }
 
+    /// <summary>A same-version reinstall begun once the platform package is gone brings that package back before the
+    /// launcher goes: the launcher left at its path may be the reinstall's, so the retirement stops there.</summary>
+    [Test]
+    public async Task A_reinstall_begun_between_entries_keeps_the_rest() {
+        var world = new AdoptionWorld(Tmp);
+        var identity = world.Machine.Identity;
+        world.Machine.Identity = path => {
+            if (path.Contains(".retired-", StringComparison.Ordinal)) Directory.CreateDirectory(Path.Combine(world.Platform, "bin"));
+            return identity(path);
+        };
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(File.Exists(Path.Combine(world.Root, "package.json"))).IsTrue();
+        await Assert.That(world.Logged("adoption_retired").Any(e => e["reason"] == AdoptionDeletion.Changed)).IsTrue();
+    }
+
     /// <summary>A batch held over an install it found changes nothing, so the ordinary offer to put kcap on PATH must not
     /// follow it either, this launch.</summary>
     [Test]
