@@ -13,7 +13,7 @@ public sealed class ScheduledPrompts {
     string? _typedCompact;
 
     public void Observe(object? payload) {
-        if (payload is UserMessageReceived person && IsPersons(person)) ObserveCompact(person.Content);
+        if (payload is UserMessageReceived person && IsPersons(person)) ObserveCompact(person);
 
         switch (payload) {
             case AssistantToolCallsGenerated calls when !IsSidechain(calls):
@@ -37,14 +37,19 @@ public sealed class ScheduledPrompts {
         && command is { Kind: LocalCommandParser.LocalCommandKind.Command, CommandName: "/compact" }
         && LocalCommandParser.DisplayLabel(command) == typed;
 
-    void ObserveCompact(string? text) {
-        var clean = SystemInstructionParser.Parse(text ?? "").CleanText.Trim();
+    // The summary, the caveat and the command's output sit between the two copies, so they leave a
+    // pending prompt alone; any other turn of the person's means its copy is not coming.
+    void ObserveCompact(UserMessageReceived message) {
+        var clean = SystemInstructionParser.Parse(message.Content ?? "").CleanText.Trim();
         if (LocalCommandParser.IsPure(clean, out var command)) {
-            if (command is { Kind: LocalCommandParser.LocalCommandKind.Command, CommandName: "/compact" }) _typedCompact = null;
+            if (command.Kind == LocalCommandParser.LocalCommandKind.Command) _typedCompact = null;
             return;
         }
-        if (clean == "/compact") _typedCompact = clean;
-        else if (clean.StartsWith("/compact ", StringComparison.Ordinal)) _typedCompact = "/compact " + clean[9..].Trim();
+        var slug = SchemaExtensions.Slug(message, ClaudeCodeExtension.Slug);
+        if (SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsMeta) || SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsCompactSummary)) return;
+        _typedCompact = clean == "/compact" ? clean
+            : clean.StartsWith("/compact ", StringComparison.Ordinal) ? "/compact " + clean[9..].Trim()
+            : null;
     }
 
     public bool IsWakeUp(string? text) => Key(text) is { Length: > 0 } key && _wakeUps.Contains(key);

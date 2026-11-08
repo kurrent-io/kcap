@@ -158,7 +158,21 @@ public class ClaudeChatRulesTests {
         await Assert.That(rows).IsEquivalentTo(new[] { "/compact other", "/compact" }, CollectionOrdering.Matching);
     }
 
-    /// A reminder quoting /compact ahead of a different command neither hides that command nor consumes the typed prompt.
+    /// A typed /compact whose tagged copy never came is forgotten at the person's next turn, and a meta
+    /// record's bare /compact is not a typed prompt: a later tagged /compact is then the only record and shows.
+    [Test]
+    [Arguments("""{"type":"user","message":{"content":"/compact"}}""", """{"type":"user","message":{"content":"carry on"}}""")]
+    [Arguments("""{"type":"user","message":{"content":"/compact"}}""", """{"type":"user","message":{"content":"<command-name>/review</command-name><command-args></command-args>"}}""")]
+    [Arguments("""{"type":"user","isMeta":true,"message":{"content":"/compact"}}""", """{"type":"user","isMeta":true,"message":{"content":"noise"}}""")]
+    public async Task A_tagged_compact_without_a_pending_typed_prompt_shows_its_row(string before, string between) {
+        var chat = TranscriptChat.For("claude")!;
+        var context = chat.CreateContext("a1", null);
+        string[] records = [before, between, """{"type":"user","message":{"content":"<command-name>/compact</command-name><command-args></command-args>"}}"""];
+        var last = records.Select((r, i) => chat.ProjectWithInputs(r, i + 1, Received, context)).Last();
+        await Assert.That(last.Envelopes.Select(e => e.Text ?? "").ToArray()).IsEquivalentTo(new[] { "/compact" });
+    }
+
+    /// A reminder quoting /compact ahead of a different command does not hide that command.
     [Test]
     public async Task A_reminder_quoting_compact_does_not_hide_another_command() {
         var chat = TranscriptChat.For("claude")!;
