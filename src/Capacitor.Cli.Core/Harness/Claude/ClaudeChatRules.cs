@@ -122,6 +122,10 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
             return output.Length == 0 ? null : envelope with { Kind = AcpEventKind.SystemNote, Text = output, ToolKind = ChatDisplayKind.Shell };
 
         switch (cls.Kind) {
+            // Claude Code records a manual /compact twice: the typed prompt ahead of the boundary, and
+            // the command tags again after the summary. The typed one is the row; this one stays a receipt.
+            case UserMessageKind.Person when cls.IsCommand && scheduled?.IsCompactEcho(SystemInstructionParser.Parse(raw).CleanText) == true:
+                return null;
             case UserMessageKind.Person when cls is { IsCommand: true, Label: { Length: > 0 } line }:
                 return envelope with { Text = line };
             case UserMessageKind.Person:
