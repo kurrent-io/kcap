@@ -1,7 +1,7 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 
-namespace Capacitor.Cli.Daemon.Services;
+namespace Capacitor.Cli.Daemon.Harness.Claude;
 
 /// <summary>What a hook says about a transcript, checked ahead of the daemon reading it. The daemon outlives its agent and
 /// reads whatever its user can, and what it reads goes to the server under the session the hook names, so the hook's word

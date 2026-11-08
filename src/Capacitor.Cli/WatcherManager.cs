@@ -31,8 +31,8 @@ public sealed partial class WatcherManager(
     // Kept back from a caller's remaining budget for the watcher it may still have to start.
     internal static readonly TimeSpan SpawnReserve = TimeSpan.FromMilliseconds(500);
 
-    // Past the daemon's own bound, so its answer that a send is still out arrives rather than reading as no answer. With no
-    // claim nothing turns on the answer, so that case keeps to HandOffBudget.
+    // Past the daemon's own bound, so its answer that a send is still out arrives rather than reading as no answer. A run
+    // with no claim waits as long: an earlier run let the claims go, and what that one sent may still be unanswered.
     internal static readonly TimeSpan DisableBudget = TimeSpan.FromSeconds(8);
 
     readonly IDaemonRecordingClient _daemonRecording = daemonRecording ?? NoDaemonRecording.Instance;
@@ -188,8 +188,8 @@ public sealed partial class WatcherManager(
             if (asked.All(daemon => daemon.Name != name)) asked.Add(new AskedDaemon(name, Held: false, Fresh: false));
         }
 
-        // A daemon finishing a stop needs longer than one that holds nothing, and a person waits on the slowest.
-        using var budget = new CancellationTokenSource(claims.Length > 0 || keys is null ? DisableBudget : HandOffBudget, time);
+        // One bound for every daemon: a person waits on the slowest.
+        using var budget = new CancellationTokenSource(DisableBudget, time);
 
         var answers = await Task.WhenAll(asked.Select(async daemon => (
             Daemon: daemon,

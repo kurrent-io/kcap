@@ -153,7 +153,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             (source, log, stop, beat) => new RecorderHousekeeping(
                 source.Recording, source.SkipTitle, parentPid: null,
                 new DaemonRecorderHost(config.ConfigRoot, hookCommand, time, stop, (session, vendor, path) => HandOffTitle(config, logger, session, vendor, path), log),
-                config.ConfigRoot, config.Profiles, harnesses, http, router, time, accounts, config.Home, log, beat),
+                config.ConfigRoot, config.Profiles, harnesses, http, router, time, accounts, config.Home, log, beat) {
+                Carry = post => recorder!.CarryAsync(source.SessionId, post),
+            },
             time, logger,
             postSessionEnd: (source, end) => new SessionEndPoster(
                     config.ConfigRoot, config.ServerUrl, http, time, message => logger.LogInformation("Recording {Key}: {Message}", source.Key, message),
@@ -498,6 +500,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
         _closing.Dispose();
     }
+
+    // A housekeeping post is the session's as much as its hub calls are, so a disable refuses and waits for it as for them.
+    Task CarryAsync(string sessionId, Func<Task> post) => _transport is { } transport ? transport.CarryAsync(sessionId, post) : post();
 
     RecorderHost CreateHost() {
         _transport = _connect();

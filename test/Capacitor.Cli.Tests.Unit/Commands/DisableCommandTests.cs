@@ -448,7 +448,7 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(Printed).Contains("A kcap daemon on this machine did not answer");
     }
 
-    /// <summary>Every daemon gets the same short wait when no claim says one of them has a stop to finish.</summary>
+    /// <summary>Every daemon shares one wait, however many go quiet.</summary>
     [Test]
     public async Task Silent_daemons_cost_one_bound_between_them() {
         _daemon.Names = ["daemon-b", "daemon-c", "daemon-d"];
@@ -456,9 +456,26 @@ public class DisableCommandTests : IDisposable {
 
         var run = Run();
         await _daemon.Reached.Task.WithinDeadlineAsync("the frame");
-        _time.Advance(WatcherManager.HandOffBudget);
+        _time.Advance(WatcherManager.DisableBudget);
 
         await Assert.That(await run.WithinDeadlineAsync("the command")).IsEqualTo(1);
+    }
+
+    /// <summary>A later run finds no claim, because the first let them go, and the daemon can still be waiting out a batch
+    /// the server hadn't answered, which it reports within its own bound.</summary>
+    [Test]
+    public async Task A_daemon_answering_within_its_own_bound_is_heard_with_no_claim() {
+        var answersAfter = TimeSpan.FromSeconds(4);
+        _daemon.Answer = new(RecordingDisable.SendInFlight);
+        _daemon.Before = ct => Task.Delay(answersAfter, _time, ct);
+
+        var run = Run();
+        await _daemon.Reached.Task.WithinDeadlineAsync("the frame");
+        _time.Advance(answersAfter);
+
+        await Assert.That(await run.WithinDeadlineAsync("the command")).IsEqualTo(1);
+        await Assert.That(Printed).Contains("may still have landed");
+        await Assert.That(Printed).DoesNotContain("did not answer");
     }
 
     [Test]
@@ -859,6 +876,9 @@ public class DisableCommandTests : IDisposable {
 
         public bool Hangs { get; set; }
 
+        /// <summary>Waited for before answering, started ahead of <see cref="Reached"/> so its timers are there to advance.</summary>
+        public Func<CancellationToken, Task>? Before { get; set; }
+
         public Action? OnAsked { get; set; }
 
         public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -876,9 +896,11 @@ public class DisableCommandTests : IDisposable {
         public async Task<RecordingDisableAnswer> DisableSessionAsync(string daemonName, string sessionId, CancellationToken ct) {
             lock (_asked) _asked.Add((daemonName, sessionId));
             OnAsked?.Invoke();
+            var before = Before?.Invoke(ct);
             Reached.TrySetResult();
 
             if (Hangs) await new TaskCompletionSource().Task;
+            if (before is not null) await before;
 
             return Answers.GetValueOrDefault(daemonName, Answer);
         }

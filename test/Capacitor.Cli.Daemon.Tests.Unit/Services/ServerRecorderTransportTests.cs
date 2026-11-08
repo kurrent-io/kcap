@@ -468,6 +468,44 @@ public class ServerRecorderTransportTests {
         await Assert.That(await silence.WithinDeadlineAsync("the silence")).IsTrue();
     }
 
+    /// <summary>A post a recorder makes beside the connection reaches the server all the same, so a silence waits for it, and
+    /// one that failed may have landed.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_silence_waits_for_a_call_carried_beside_the_connection(bool answered) {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        var             release   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var carried = transport.CarryAsync(SessionA, () => release.Task);
+        var silence = transport.SilenceAsync(SessionA);
+
+        await Assert.That(silence.IsCompleted).IsFalse();
+
+        if (answered) release.SetResult();
+        else release.SetException(new HttpRequestException("the connection went"));
+
+        await Assert.That(await silence.WithinDeadlineAsync("the silence")).IsEqualTo(answered);
+        await Assert.That(carried.IsCompletedSuccessfully).IsEqualTo(answered);
+    }
+
+    [Test]
+    public async Task A_silenced_session_carries_no_call() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        var             ran       = false;
+
+        await transport.SilenceAsync(SessionA).WithinDeadlineAsync("the silence");
+
+        await Assert.That(async () => await transport.CarryAsync(SessionA, () => {
+            ran = true;
+
+            return Task.CompletedTask;
+        })).Throws<InvalidOperationException>();
+        await Assert.That(ran).IsFalse();
+    }
+
     /// <summary>The connection went with the call, and the server may have had it by then: nobody can say it didn't land.</summary>
     [Test]
     public async Task A_send_that_went_with_the_connection_is_no_answer() {

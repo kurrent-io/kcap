@@ -74,6 +74,23 @@ public class RecorderClaimsTests {
         await Assert.That(claims.IsHosted(Key)).IsFalse();
     }
 
+    /// <summary>A stat that fails says nothing about the claim, and reading it as none would start a second recorder beside
+    /// a live daemon, or stop the daemon's own with no final drain.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task A_claim_whose_stat_fails_reads_as_held() {
+        Claims.TryTake(Key, "daemon", isHosted: true);
+        _time.Advance(RecorderClaims.Grace * 2);
+        File.SetUnixFileMode(Directory, UnixFileMode.None);
+
+        try {
+            await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
+            await Assert.That(Claims.Keeps(Key)).IsTrue();
+        } finally {
+            File.SetUnixFileMode(Directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
     [Test]
     public async Task A_read_of_a_key_no_path_can_hold_does_not_throw() {
         await Assert.That(Claims.Read("bad\0key")).IsEqualTo(RecorderClaimState.None);
