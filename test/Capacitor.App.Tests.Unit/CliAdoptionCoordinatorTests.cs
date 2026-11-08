@@ -573,6 +573,36 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
     }
 
+    /// <summary>A plist that cannot be read once the repoint is done names nothing a later run would see, so the move stays
+    /// unproven for that service; and a move unproven for another service than the one already told is told on its own.</summary>
+    [Test]
+    public async Task A_service_plist_unreadable_after_its_move_keeps_the_install_unproven() {
+        var world = new AdoptionWorld(Tmp);
+        var plist = Path.Combine(world.Home, "Library", "LaunchAgents", "io.kurrent.kcap.daemon.flow.plist");
+        var program = world.Install.DaemonBinary;
+        world.Machine.Jobs["flow"] = new LaunchdJob(true, 4300, program);
+        world.Machine.Evidence = _ => {
+            var found = world.Found();
+            var job = world.Machine.Jobs["flow"];
+            ServiceUnitFact flow = new(plist, "flow", program, found.Units[0].StoredPath, null, job.Loaded, job.Pid, job.Loaded ? job.Program : null);
+            return Task.FromResult(found with { Units = [.. found.Units, flow] });
+        };
+        world.Machine.Repoint = _ => {
+            world.WritePlist(world.Bundle.Daemon);
+            world.Machine.Jobs[AdoptionWorld.DaemonName] = new LaunchdJob(true, AdoptionWorld.NewDaemonPid, world.Bundle.Daemon);
+            File.WriteAllText(plist, "not a plist");
+            world.Machine.Jobs["flow"] = new LaunchdJob(true, 4400, world.Bundle.Daemon);
+            return new MutationOutcome.Succeeded();
+        };
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Logged("adoption_repoint").Single()["reason"]).IsEqualTo("unit_unreadable:flow");
+        await Assert.That(world.Record.UnprovenMoves.Single().Daemon).IsEqualTo("flow");
+        await Assert.That(Directory.Exists(world.Root)).IsTrue();
+        await Assert.That(AdoptionNotices.UnprovenKey(world.Install, "flow")).IsNotEqualTo(AdoptionNotices.UnprovenKey(world.Install, "mac"));
+    }
+
     /// <summary>A fallback the user removed by hand is nothing to keep: the next run lets the unproven move go instead of
     /// asking a repoint about an install that is gone.</summary>
     [Test]

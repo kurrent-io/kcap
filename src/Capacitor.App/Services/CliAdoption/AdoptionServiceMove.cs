@@ -117,7 +117,9 @@ internal sealed class AdoptionServiceMove(
         if ((ownUnit is not null || units.Count == 0) && outcome is not MutationOutcome.Succeeded) return (Describe(outcome), blamed, false);
 
         foreach (var unit in units) {
-            if (!IsBundleDaemon(PlistProgram(unit.PlistPath))) return ($"unit_not_moved:{unit.Name}", unit.Name, false);
+            // A plist that cannot be read names nothing the next evidence would see, so it is as unproven as a stopped one.
+            if (PlistProgram(unit.PlistPath) is not { } program) return ($"unit_unreadable:{unit.Name}", unit.Name, true);
+            if (!IsBundleDaemon(program)) return ($"unit_not_moved:{unit.Name}", unit.Name, false);
 
             LaunchdJob job;
             try {

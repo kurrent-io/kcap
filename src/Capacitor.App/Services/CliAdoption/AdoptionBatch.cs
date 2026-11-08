@@ -374,7 +374,7 @@ internal sealed class AdoptionBatch(
                     notices.Post(AdoptionNotices.SwitchedKey(install), AdoptionNotices.Switched(install, removed: false));
                     break;
                 case InstallState.Pending when AdoptionServiceMove.Unproven(record, install) is { } unproven:
-                    notices.Post(AdoptionNotices.UnprovenKey(install), AdoptionNotices.Unproven(install, unproven.Daemon));
+                    notices.Post(AdoptionNotices.UnprovenKey(install, unproven.Daemon), AdoptionNotices.Unproven(install, unproven.Daemon));
                     break;
                 case InstallState.Left when recorded.Reason is { } reason:
                     notices.Post(AdoptionNotices.LeftKey(install, reason, recorded.HeldBy), AdoptionNotices.Left(install, reason, recorded.HeldBy));

@@ -78,7 +78,9 @@ internal sealed class AdoptionNotices : IDisposable {
 
     internal static string ReportedKey(OtherCliInstall install) => "reported:" + install.Root;
 
-    internal static string UnprovenKey(OtherCliInstall install) => "unproven:" + install.Root;
+    /// <param name="daemon">The daemon the move could not prove: another one is another outcome to tell.</param>
+    internal static string UnprovenKey(OtherCliInstall install, string? daemon) =>
+        daemon is null ? "unproven:" + install.Root : $"unproven:{install.Root}:{daemon}";
 
     internal static string Switched(OtherCliInstall install, bool removed) =>
         $"kcap now uses the app's command-line tool. The {Name(install)} {(removed ? "was removed." : "is removed once nothing still uses it.")}";
