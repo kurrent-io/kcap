@@ -18,7 +18,7 @@
 - Wire changes land on the server first, as optional trailing fields. An older CLI or daemon must keep today's path.
 - `FrameType` values are append-only, and each new frame has a live handler before its capability joins `LocalControlCapabilities.Current`.
 - Transcript event ids don't change. `TranscriptIds` is a persistence contract.
-- No new Postgres tables. Claims, the input log and the steering switch are daemon files, stamps are event metadata, attribution stays in `hosted_agent_input_attribution`, and dispatch states are events on `HostedAgentInput-{agentId}`. The only schema change is two nullable columns on `hosted_agent_pending_dispatches`, in Task 17.
+- No new Postgres tables. Claims, the input log and the steering switch are daemon files, stamps are event metadata, attribution stays in `hosted_agent_input_attribution`, and dispatch states are events on `HostedAgentInput-{agentId}`. The only schema change is three nullable columns on `hosted_agent_pending_dispatches`: two in Task 17, and `delivery_reason` in Task 21c, so a rejected attached message keeps its reason across a projector restart.
 - Read agent-owned files with `FileShare.ReadWrite`.
 - A redaction timeout holds its source, and never drops or marks the line.
 - A 401 spools, and only a rejected payload drops. Status classification goes through `HookSpool.IsRetryable`.
@@ -104,7 +104,7 @@ public enum RecorderClaimState { None, DaemonFresh, DaemonStale }
   - `A_shrink_is_logged_once`: three drains on the shrunk file log one line.
   - `Reconnect_rewind_resends_exactly_the_gap`: the server is 3 lines behind, and exactly those 3 lines go out with the same line numbers as before.
   - `A_line_cut_inside_a_multibyte_character_is_held_until_complete`, with an index, in `IndexedTranscriptReadTests`.
-- [ ] **Implement:** every path that sets `LinesProcessed` from a read takes the larger of the cursor and the read's position. A shrink logs once, and the flag clears when the file reaches the cursor again. Cursor keeps its quarantine. Lines written below the cursor after a shrink stay out of the live stream, because the server would drop them, and `kcap import` remains the repair.
+- [ ] **Implement:** every path that sets `LinesProcessed` from a read takes the larger of the cursor and the read's position. A shrink logs once, and the flag clears when the file reaches the cursor again. Cursor keeps its quarantine. Lines written below the cursor after a shrink stay out of the live stream, because the server would drop them. They are lost for good: `kcap import` resumes from the server's cursor too, so it can't send them either, and the shrink's log line is all that records the loss.
 - [ ] **Verify:** both classes pass, plus `ReadNewCompleteLinesAsyncTests`, `CursorReconnectRewindTests`, `HeldLineDrainTests`, `ShortLiveSessionTests` and `WatchCommandTests`.
 - [ ] **Commit:** `Keep a watcher's line cursor when its transcript shrinks`
 
@@ -260,7 +260,8 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
   - `Watcher_held_source_stops_and_drains_as_today`.
   - `A_fresh_daemon_claim_signals_nothing_and_asks_the_daemon_to_finish`: assert no signal is sent, `FinishSourceAsync` is called once, and no `/hooks/transcript` post happens.
   - `A_stale_claim_on_a_terminal_session_is_taken_and_drained`.
-  - `A_stale_claim_on_a_hosted_session_does_nothing`: no post and no claim change.
+  - `A_stale_hosted_claim_holds_back_a_hook_from_a_hosted_agent`: no post and no claim change.
+  - `A_stale_hosted_claim_is_taken_and_drained_by_a_hook_from_outside_an_agent`: a hook from outside an agent takes it, so a session never goes unrecorded because its daemon is down.
   - `An_unclaimed_source_drains_as_today`.
   - `The_claim_never_touches_the_pid_file`: assert `KillWatcher` can't reach the daemon's pid.
   - `EnsureWatcherRunning_spawns_nothing_for_a_fresh_claim`.
@@ -281,7 +282,7 @@ Built in three reviewed parts: the server's wire additions first, then the recor
 
 **Interfaces:**
 - Consumes: `RecorderHost`, `RecorderClaims`.
-- Produces: capability `recording/1`. The server pushes `StopSource(string key, string reason)` beside `StopWatcher` at both sites, and adds a hub method `WatcherDetach(string sessionId, string? agentId)`, because a source that ends by itself on a long-lived connection would otherwise stay live until the connection drops and the stale-session sweep could never reap it. `IRecorderTransport` gains `DetachAsync(RecordingSource source, CancellationToken ct)`, which `HubRecorderTransport` leaves a no-op because its connection ends with its one source. A recording connection handles `StopSource` and ignores `StopWatcher`. `ServerRecorderTransport` holds its own `HubConnection` to `/hubs/sessions`, because `WatcherConnect` takes a connection out of the UI topics and the daemon's main connection has joined its owner's. `DaemonRecorder.StartForAgent(HostedAgent agent)` and `FinishAsync(string key, CancellationToken ct)`.
+- Produces: capability `recording/1`. The server pushes `StopSource(string key, string reason)` beside `StopWatcher` at both sites, and adds a hub method `WatcherDetach(string sessionId, string? agentId)`, because a source that ends by itself on a long-lived connection would otherwise stay live until the connection drops and the stale-session sweep could never reap it. `IRecorderTransport` gains `DetachAsync(RecordingSource source, CancellationToken ct)`, which `HubRecorderTransport` leaves a no-op because its connection ends with its one source. A recording connection handles `StopSource` and ignores `StopWatcher`. `ServerRecorderTransport` holds its own `HubConnection` to `/hubs/sessions`, because `WatcherConnect` takes a connection out of the UI topics and the daemon's main connection has joined its owner's. `DaemonRecorder.StartForAgent(RecordedSource source)` and `FinishAsync(string key, CancellationToken ct)`.
 
 - [ ] **Tests:**
   - `The_claim_exists_before_the_agent_process_starts` (Review Focus 4).
