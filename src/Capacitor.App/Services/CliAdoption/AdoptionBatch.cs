@@ -198,9 +198,13 @@ internal sealed class AdoptionBatch(
 
     // Fresh evidence finding another install at a root Finish switching would take further means the one recorded is
     // gone: reopening it would chase an install nothing can switch, so the record lets it go and the new one is reported.
+    // A pending record on a switched machine goes the same way once no helper runs: preflight there carries only the
+    // identity it records, so nothing else would ever take it further.
     AdoptionRecord LetReplacedGo(AdoptionEvidence evidence, AdoptionRecord record) {
+        bool Stale(RecordedInstall i) =>
+            Finishable(i) || record is { MachineSwitched: true, Privileged: null } && i.State == InstallState.Pending;
         bool IsReplaced(RecordedInstall i) =>
-            Finishable(i) && evidence.Installs.Any(e => AdoptionPreflight.SameRoot(e, i.Install) && e.Identity != i.Install.Identity);
+            Stale(i) && evidence.Installs.Any(e => AdoptionPreflight.SameRoot(e, i.Install) && e.Identity != i.Install.Identity);
         var replaced = record.Installs.Where(IsReplaced).ToList();
         if (replaced.Count == 0) return record;
 

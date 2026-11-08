@@ -1060,6 +1060,26 @@ public class CliAdoptionCoordinatorTests {
 
     /// <summary>A reinstall at the root a cancelled prompt left is another install: the left record lets it go instead
     /// of reopening an install that is gone, Finish switching is no longer offered, and the reinstall is reported.</summary>
+    /// <summary>On a switched machine preflight carries only the identity a record names, so a pending record whose install
+    /// was replaced, as while the prompt Finish switching raised was open, would be taken further by nothing: it goes,
+    /// and the reinstall is reported.</summary>
+    [Test]
+    public async Task A_pending_record_replaced_on_a_switched_machine_is_let_go() {
+        var world = new AdoptionWorld(Tmp);
+        new AdoptionRecordStore(world.Config).Update(r => r with {
+            MachineSwitched = true, CutoverUtc = world.Time.GetUtcNow().UtcDateTime.AddMinutes(-5),
+            Installs = [new RecordedInstall(world.Install, InstallState.Pending, null, null, null, null)],
+        });
+        var reinstalled = world.Install with { Identity = "16777232:777:3:3" };
+        world.Machine.Evidence = _ => Task.FromResult(world.Found() with { Installs = [reinstalled] });
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Record.Installs).IsEmpty();
+        await Assert.That(world.Logged("adoption_left").Single()["reason"]).IsEqualTo(AdoptionBatch.Replaced);
+        await Assert.That(world.Notifier.Notified.Single()).Contains("left it in place");
+    }
+
     [Test]
     public async Task A_reinstall_over_a_left_install_retires_its_record() {
         var world = new AdoptionWorld(Tmp);
