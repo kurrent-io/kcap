@@ -128,8 +128,9 @@ internal sealed class AdoptionNotices : IDisposable {
           + $"Give that service the app's kcap with kcap daemon service install --replace --verify{(cause is null ? "" : $" --name {cause}")}, "
           + "then open kcap again to finish switching.",
         LeftReason.SharedInstallInUse =>
-            "another account on this Mac still runs kcap from it, or has a kcap daemon service that starts it. "
-          + $"Once that account has switched or stopped using it, choose {FinishSwitching} in the menu bar.",
+            "another account on this Mac may still use it: it runs kcap from it, or has a link, setting or kcap daemon service "
+          + "that points to it, or the app could not read everything it checks. Once every other account has "
+          + $"switched or stopped using it, choose {FinishSwitching} in the menu bar, which checks again.",
         _                                  => "it could not be switched.",
     };
 }
