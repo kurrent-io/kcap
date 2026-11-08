@@ -280,7 +280,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     /// <summary>A hook's ask for the final drain of the source <paramref name="key"/> names. A source whose process exited
-    /// first has had its last drain, so the exited process's own late hook is answered once that is done. A hook from
+    /// first has had its last drain, so the exited process's own late hook is answered once that is done, the source
+    /// following first a run that has resumed the session meanwhile. A hook from
     /// another process is a resumed run's, whose lines came after that drain: the source follows that process and finishes
     /// for it, unless it is a run the source already followed away from. A hook from a process other than the one a
     /// running source follows is not that run's, and ends nothing.</summary>
@@ -300,7 +301,15 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
             await tracked.LastAttemptDone.Task.WaitAsync(ct);
 
-            if (followed || from == tracked.Source.Process || tracked.Source.SubagentId is not null) return true;
+            if (followed || tracked.Source.SubagentId is not null) return true;
+
+            // The exited run's own hook can come after a resumed run's SessionStart and before the grace looks again. The
+            // session went on, so that run owes no end, and an end this hook posted would land after the resumed start.
+            if (from == tracked.Source.Process) {
+                if (LiveClaimant(tracked.Source) is { } resumed && resumed != from) await FollowAsync(tracked, resumed);
+
+                return true;
+            }
 
             // One that can't say which process it ran under is taken for the exited one's own, which posts the end: the
             // daemon posts none for that run.

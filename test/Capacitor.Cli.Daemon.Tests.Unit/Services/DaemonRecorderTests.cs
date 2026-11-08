@@ -349,6 +349,29 @@ public class DaemonRecorderTests {
         await Assert.That(List.Load().Single().Process).IsEqualTo(new ProcessIncarnation(4343, "test:claude"));
     }
 
+    /// <summary>The exited process's detached SessionEnd can land after a resumed run's SessionStart and before the grace
+    /// looks again. The session runs on in that run, so the exited one's hook finds its end settled rather than its own to
+    /// post, and the source follows the resumed run.</summary>
+    [Test]
+    public async Task An_exited_processes_late_hook_after_a_resume_posts_no_end_and_follows_the_resume() {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply));
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        Exited.Add(4242);
+        recorder.FinishExitedProcesses();
+        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        ClaimNote(4343);
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the late hook's finish")).IsTrue();
+
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+        await Assert.That(recorder.Holds(source.Key)).IsTrue();
+        await Assert.That(List.Load().Single().Process).IsEqualTo(new ProcessIncarnation(4343, "test:claude"));
+    }
+
     /// <summary>The claim went to another daemon while the end waited, so the resumed run is that daemon's to record, and
     /// this one neither follows it nor posts an end.</summary>
     [Test]
