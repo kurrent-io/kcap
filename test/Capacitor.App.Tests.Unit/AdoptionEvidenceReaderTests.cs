@@ -154,6 +154,22 @@ public class AdoptionEvidenceReaderTests {
         await Assert.That(evidence.Links).Contains(Path.Combine(stored.Path, "kcap"));
     }
 
+    /// <summary>An install no fixed folder and no first PATH match reaches is found through a later PATH match, so its
+    /// link and the install are switched together.</summary>
+    [Test, RunOn(OS.MacOs)]
+    public async Task An_install_only_a_later_PATH_match_reaches_is_found() {
+        NpmDaemon();
+        Exe("first-bin/kcap");
+        var later = Tmp.CreateDir("later-bin");
+        File.CreateSymbolicLink(Path.Combine(later, "kcap"), Tmp.GetResolvedPath("prefix", "lib", "node_modules", "@kurrent", "kcap", "bin", "kcap.js"));
+
+        var evidence = await Read($"{Tmp.PathTo("first-bin")}:{later.Path}");
+
+        await Assert.That(evidence.Installs.Count).IsEqualTo(1);
+        await Assert.That(evidence.Installs[0].Root).IsEqualTo(Tmp.GetResolvedPath("prefix", "lib", "node_modules", "@kurrent", "kcap"));
+        await Assert.That(evidence.Links).Contains(Path.Combine(later.Path, "kcap"));
+    }
+
     /// <summary>npm links an install's command into its own prefix, which no PATH may list, as for an nvm version not in
     /// use.</summary>
     [Test, RunOn(OS.MacOs)]
