@@ -25,6 +25,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     // Picks made before the stored memory loaded, replayed over it so the older read cannot win.
     List<(string HostId, string Vendor, string RepoPath, bool Remote, string? AccountId)>? _earlyPicks = [];
     (string Vendor, HandoffAccountChoice Choice)? _restored;
+    HandoffAccountChoice? _picked;
     Task _accountMemoryWrites = Task.CompletedTask;
     AccountSupport _support;
     AccountsSnapshotDto? _snapshot;
@@ -65,6 +66,12 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
                     HomeViewModel.MergeCatalogs(machine.Models, server), machine.ByAccount, account))
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .ToProperty(this, x => x.EffectiveModelCatalog, ServerVendorModelCatalog.Empty)
+            .DisposeWith(_disposables);
+        this.WhenAnyValue(x => x.EffectiveModelCatalog)
+            .Scan((Prev: ServerVendorModelCatalog.Empty, Next: ServerVendorModelCatalog.Empty), (acc, next) => (acc.Next, next))
+            .Subscribe(pair => {
+                if (HomeViewModel.ShouldClearSelection(SelectedVendor, SelectedModel, pair.Prev, pair.Next)) SelectedModel = "";
+            })
             .DisposeWith(_disposables);
 
         if (readings is null) {
@@ -150,6 +157,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
 
     public Task ChooseHarnessAsync(string vendor) {
         _restored = null;
+        _picked = null;
         SetVendor(vendor);
         return Task.CompletedTask;
     }
@@ -232,19 +240,25 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     public Task PickAccountAsync(string? accountId) {
         var defaultRow = _accounts.Rows.Any(c => c.Row.IsDefault && c.Row.Id == accountId);
         _restored = null;
-        _accounts.Pick(defaultRow ? null : accountId);
+        _picked = new(defaultRow ? null : accountId);
+        _accounts.Pick(_picked.Id);
         return _accountMemoryWrites;
     }
 
     public ReactiveCommand<Unit, Unit> RetryAccountsCommand { get; }
 
-    /// The checkout the hand-off would start in, which the remembered account is read under.
+    /// The checkout the hand-off would start in, which the remembered account is read under. A pick
+    /// made before it was found is the person's choice for it too.
     public void SetRepository(string? repoPath) {
         if (repoPath is not { Length: > 0 } path || PlatformPaths.Comparer.Equals(path, _repoPath)) return;
         _repoPath = path;
         _accounts.EnterTarget(path, SelectedVendor, remote: false);
-        ReapplyRestored();
+        if (_picked is { } picked) _accounts.Pick(picked.Id);
+        else ReapplyRestored();
     }
+
+    /// What a hand-off started now would launch on; null while it is still resolving.
+    public HandoffAccountChoice? CurrentAccount => AccountChoice();
 
     /// A returned draft's account outlasts the target changes that would otherwise drop it, until
     /// the person picks an account or an agent themselves.
@@ -279,7 +293,8 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
 
     /// An unavailable pick keeps its id, so the launch refuses it rather than falling back to the default.
     HandoffAccountChoice? AccountChoice() => _accounts.State switch {
-        AccountSelectionState.Pending => null,
+        AccountSelectionState.Pending => _restored is { } restored
+            && string.Equals(restored.Vendor, SelectedVendor, StringComparison.OrdinalIgnoreCase) ? restored.Choice : null,
         AccountSelectionState.ExplicitValid or AccountSelectionState.ExplicitInvalid => new(_accounts.SelectedAccountId),
         _ => new(null),
     };
@@ -300,6 +315,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         if (changed) SelectedModel = "";
         SelectedVendor = vendor;
         if (!changed) return;
+        _picked = null;
         _accounts.EnterTarget(_repoPath, vendor, remote: false);
         ReapplyRestored();
     }

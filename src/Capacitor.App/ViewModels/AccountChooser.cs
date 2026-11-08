@@ -18,6 +18,7 @@ public sealed class AccountChooser {
     AccountsSnapshotDto? _snapshot;
     bool _memoryLoaded;
     bool _picked;
+    bool _restoredPick;
     string? _pickedId;
 
     public AccountChooser(Func<string, string, string, bool, string?> remembered, Action<string, string, string, bool, string?> remember) {
@@ -48,6 +49,7 @@ public sealed class AccountChooser {
         _vendor   = vendor;
         _remote   = remote;
         _picked   = false;
+        _restoredPick = false;
         _pickedId = null;
         Recompute();
     }
@@ -72,6 +74,7 @@ public sealed class AccountChooser {
     public void Pick(string? accountId) {
         if (OffersAccounts) {
             _picked   = true;
+            _restoredPick = false;
             _pickedId = accountId;
             if (_snapshot is not null) _remember(_snapshot.HostId, _vendor, _repoPath, _remote, accountId);
         }
@@ -81,10 +84,12 @@ public sealed class AccountChooser {
 
     public void UseDefault() => Pick(null);
 
-    /// A choice a returned draft carried: held like a pick, but not remembered again.
+    /// A choice a returned draft carried: held like a pick, but not remembered again, and still
+    /// loading rather than unavailable until the accounts are known.
     public void Restore(string? accountId) {
         if (OffersAccounts) {
             _picked   = true;
+            _restoredPick = true;
             _pickedId = accountId;
         }
 
@@ -135,6 +140,8 @@ public sealed class AccountChooser {
 
         if (_picked) {
             if (_pickedId is null) return (AccountSelectionState.Default, null);
+            if (_restoredPick && (_support == AccountSupport.Unknown || (_support == AccountSupport.Supported && _snapshot is null)))
+                return (AccountSelectionState.Pending, null);
 
             var valid = _support == AccountSupport.Supported && Lists(rows, _pickedId);
             return (valid ? AccountSelectionState.ExplicitValid : AccountSelectionState.ExplicitInvalid, _pickedId);

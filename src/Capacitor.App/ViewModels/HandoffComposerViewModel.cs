@@ -32,6 +32,8 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     public const string CheckingOrigin = "Checking origin…";
     public const string OriginMoved =
         "Origin has moved on since this was checked, so nothing was started. Check where the new session would start and start again.";
+    public const string AccountMoved =
+        "Origin points to another checkout, which uses a different account, so nothing was started. Check the account and start again.";
     public const string OriginSignInNeeded = "Couldn't sign in to origin, so nothing was started. Set up git's sign-in for it on this machine and start again.";
     public const string OriginTimedOut = "Origin didn't answer in time, so nothing was started. Start again to retry.";
     public const string OriginOffline = "Couldn't reach origin, so nothing was started. Check this machine's network and start again.";
@@ -730,8 +732,13 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         }
         IsLaunching = true;
         try {
+            var account = _choices.CurrentAccount;
             if (!_originChecked && !await CheckOriginAsync(plan)) return;
             if (ProbedStart is not { } start || _checkout is not { } checkout || _choices.AccountPending) return;
+            if (_choices.CurrentAccount != account) {
+                Error = AccountMoved;
+                return;
+            }
             // The account can go while origin answers.
             if (_choices.AccountRefusal is { } refusedAfterOrigin) {
                 Error = _accountError = refusedAfterOrigin;

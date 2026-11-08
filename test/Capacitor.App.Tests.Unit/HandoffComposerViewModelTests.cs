@@ -1433,10 +1433,10 @@ public class HandoffComposerViewModelTests {
         await Assert.That(vm.Error).IsEqualTo("work is not available on this machine. Use the default account or pick another.");
     });
 
-    static async Task<AppStateStore> RememberedAsync(TempDir tmp, string accountId) {
+    static async Task<AppStateStore> RememberedAsync(TempDir tmp, string accountId, string checkout = Checkout) {
         var store = new AppStateStore(tmp.PathTo("app-state.json"));
         await store.UpdateAsync(s => s with {
-            AccountByRepo = new Dictionary<string, string> { [AccountMemory.KeyFor("host-1", "claude", Checkout, remote: false)] = accountId },
+            AccountByRepo = new Dictionary<string, string> { [AccountMemory.KeyFor("host-1", "claude", checkout, remote: false)] = accountId },
         });
         return store;
     }
@@ -1473,6 +1473,93 @@ public class HandoffComposerViewModelTests {
         await vm.StartCommand.Execute();
 
         await Assert.That(rig.Launch.Requests.Single().AccountId).IsEqualTo("a2");
+    });
+
+    /// The draft can come back before the accounts do; its account is still loading then, not unavailable.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_returned_draft_waits_for_the_accounts_before_judging_its_account() => Run(async rig => {
+        rig.UseAccounts();
+        rig.Drafts.KeepFailed(SessionId, new HandoffDraft("again", [], "claude", "", null, null, null, new HandoffAccountChoice("a2"), null));
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That(vm.Choices.AccountPendingText).IsEqualTo("Loading accounts…");
+        await Assert.That(await vm.StartCommand.CanExecute.FirstAsync()).IsFalse();
+
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests.Single().AccountId).IsEqualTo("a2");
+    });
+
+    /// A pick made while the session's own folder stands in for the checkout holds once the checkout is found.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_account_picked_before_the_checkout_is_found_is_kept_for_it() => Run(async rig => {
+        using var tmp = new TempDir();
+        rig.Memory = await RememberedAsync(tmp, "a1");
+        rig.UseAccounts();
+        rig.Session = rig.Session with { Cwd = "/elsewhere/widgets" };
+        rig.Candidates.Add(Checkout);
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+        var vm = rig.Build();
+        await vm.Choices.PickAccountAsync("a2");
+
+        await vm.InitializeAsync(CancellationToken.None);
+        await Assert.That(vm.ProbedStart).IsNotNull();
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests.Single().AccountId).IsEqualTo("a2");
+        var stored = await rig.Memory.LoadAsync();
+        await Assert.That(AccountMemory.Lookup(stored.AccountByRepo, "host-1", "claude", Checkout, remote: false)).IsEqualTo("a2");
+    });
+
+    /// Origin can pass over the strip's checkout for a sibling with another remembered account; nothing launches on it unseen.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_account_the_origin_answer_changes_is_shown_rather_than_launched() => Run(async rig => {
+        const string sibling = "/w/widgets-2";
+        using var tmp = new TempDir();
+        rig.Memory = await RememberedAsync(tmp, "a2", sibling);
+        rig.UseAccounts();
+        rig.Daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null,
+            ["input/1", "input/2", HandoffWire.Capability, AccountsService.Capability]));
+        rig.Origins[sibling] = rig.Origins[Checkout];
+        rig.Candidates.Add(sibling);
+        rig.Ops.Answer = request => request.RepoPath == sibling
+            ? Reply(AttachedStart)
+            : new HandoffProbeReplyDto(HandoffRefusals.RepoNotAllowed, null, null, null, null);
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+        var vm = await rig.ReadyAsync();
+        await vm.Choices.WhenAnyValue(x => x.AccountPendingText).Where(t => t is null).FirstAsync().Timeout(TimeSpan.FromSeconds(5));
+        await Assert.That(vm.Choices.SelectedAccountLabel).IsNull();
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests).IsEmpty();
+        await Assert.That(vm.Error).IsEqualTo(HandoffComposerViewModel.AccountMoved);
+        await Assert.That(vm.Choices.SelectedAccountLabel).IsEqualTo("work");
+
+        await vm.StartCommand.Execute();
+
+        await Assert.That(rig.Launch.Requests.Single().AccountId).IsEqualTo("a2");
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_model_the_picked_account_does_not_offer_is_cleared() => Run(async rig => {
+        rig.UseAccounts();
+        rig.Daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(
+            supportedVendors: ["claude"],
+            vendorModels: new() { ["claude"] = [new("opus", "Opus"), new("sonnet", "Sonnet")] },
+            vendorModelsByAccount: new() { ["a2"] = [new("sonnet", "Sonnet")] }));
+        rig.Accounts.OnNext(AccountsSnapshot(Home, Work));
+        var vm = await rig.ReadyAsync();
+        vm.Choices.SelectedModel = "opus";
+
+        await vm.Choices.PickAccountAsync("a2");
+
+        await Assert.That(vm.Choices.SelectedModel).IsEqualTo("");
     });
 
     // ---- resume ----
