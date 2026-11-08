@@ -40,12 +40,16 @@ public class WorkContextViewModelTests {
         public FakePlanSource Plans { get; } = new();
         public PlanActivity PlanActivity { get; } = new();
         public BehaviorSubject<ServerLaneStatus> Lane { get; } = new(new(ServerLaneState.Connected));
+        public bool CanSend { get; set; } = true;
+        public bool SendResult { get; set; } = true;
+        public List<string> Sent { get; } = [];
         public WorkContextViewModel Vm { get; }
 
         public Harness(bool isRemote = false, WorkContextLayout? layout = null) {
             Runs = new SessionRuns(Time);
             Vm = new WorkContextViewModel(Presence, Source, Time, Opener, Runs, () => SignInRequests++, SignIn, OpenedWorkItems.Add, Plans, PlanActivity,
-                isRemote: isRemote, serverLane: Lane, layout: layout);
+                isRemote: isRemote, serverLane: Lane,
+                canSendToAgent: () => CanSend, sendToAgent: text => { Sent.Add(text); return Task.FromResult(SendResult); }, layout: layout);
         }
 
         public Task PlanSettledAsync() => Vm.Plan.PendingReadForTesting ?? Task.CompletedTask;
@@ -340,6 +344,205 @@ public class WorkContextViewModelTests {
             await h.Vm.TeardownAsync();
         });
     }
+
+    static SessionSummaryDto ReadingSummary(double percent, bool awaiting = false) => new() {
+        SessionId = SessionA,
+        Stats = new SessionStatsDto {
+            CurrentContextTokens = awaiting ? null : (long)(percent * 1_000), CurrentContextWindow = 100_000,
+            AwaitingContextReading = awaiting,
+        },
+    };
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_summary_with_a_current_reading_fills_the_context_row() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(null, summary: new SessionSummaryDto {
+            SessionId = SessionA,
+            Stats = new SessionStatsDto { CurrentContextTokens = 37_000, CurrentContextWindow = 1_000_000, CurrentContextPercent = 3.7 },
+        }));
+
+        await h.PushAsync(Dto());
+
+        await Assert.That(h.Vm.CurrentContextUse).IsEqualTo("37k / 1M (4%)");
+        await Assert.That(h.Vm.ShowsCurrentContext).IsTrue();
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_context_row_warns_from_80_percent_on_a_live_session() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(null, summary: ReadingSummary(79)), ReadyWith(null, summary: ReadingSummary(80)));
+
+        await h.PushAsync(Dto());
+        await Assert.That(h.Vm.CurrentContextWarns).IsFalse();
+        await h.TickAsync();
+        await Assert.That(h.Vm.CurrentContextWarns).IsTrue();
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_ended_session_never_warns_or_offers_to_compact() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(null, summary: ReadingSummary(95)));
+
+        await h.PushAsync(Dto() with { Status = "Completed" });
+
+        await Assert.That(h.Vm.ShowsCurrentContext).IsTrue();
+        await Assert.That(h.Vm.CurrentContextWarns).IsFalse();
+        await Assert.That(h.Vm.ShowsCompact).IsFalse();
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Compact_is_offered_only_when_the_agent_can_be_sent_to() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(null, summary: ReadingSummary(85)));
+
+        await h.PushAsync(Dto());
+        await Assert.That(h.Vm.ShowsCompact).IsTrue();
+
+        h.CanSend = false;
+        h.Vm.AgentInputAvailabilityChanged();
+        await Assert.That(h.Vm.ShowsCompact).IsFalse();
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Compact_is_not_offered_for_other_vendors() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(null, summary: ReadingSummary(85)));
+
+        await h.PushAsync(Dto() with { Vendor = "gemini" });
+
+        await Assert.That(h.Vm.CurrentContextWarns).IsTrue();
+        await Assert.That(h.Vm.ShowsCompact).IsFalse();
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Compact_sends_slash_compact_and_polls_until_the_drop() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(null, summary: ReadingSummary(85)));
+        await h.PushAsync(Dto());
+
+        await h.Vm.CompactCommand.Execute();
+
+        await Assert.That(h.Sent).IsEquivalentTo(new[] { "/compact" });
+        await Assert.That(h.Vm.ShowsCompact).IsFalse();
+
+        h.Source.Enqueue(ReadyWith(null, summary: ReadingSummary(85)), ReadyWith(null, summary: ReadingSummary(0, awaiting: true)));
+        var before = h.Source.Requested.Count;
+        h.Time.Advance(WorkContextViewModel.CompactPollInterval);
+        await (h.Vm.PendingReadForTesting ?? Task.CompletedTask);
+        await Assert.That(h.Source.Requested.Count).IsEqualTo(before + 1);
+        await Assert.That(h.Vm.ShowsCompact).IsFalse();
+
+        h.Time.Advance(WorkContextViewModel.CompactPollInterval);
+        await (h.Vm.PendingReadForTesting ?? Task.CompletedTask);
+        await Assert.That(h.Source.Requested.Count).IsEqualTo(before + 2);
+        await Assert.That(h.Vm.CurrentContextUse).IsEqualTo("compacted");
+
+        h.Time.Advance(WorkContextViewModel.CompactPollInterval);
+        await Assert.That(h.Source.Requested.Count).IsEqualTo(before + 2);
+        await h.TickAsync();
+        await Assert.That(h.Source.Requested.Count).IsGreaterThan(before + 2);
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_claude_compaction_that_lands_with_a_low_reading_ends_the_wait() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(null, summary: ReadingSummary(85)));
+        await h.PushAsync(Dto());
+        await h.Vm.CompactCommand.Execute();
+        await Assert.That(h.Sent).IsEquivalentTo(new[] { "/compact" });
+
+        h.Source.Enqueue(ReadyWith(null, summary: new SessionSummaryDto {
+            SessionId = SessionA,
+            Stats = new SessionStatsDto { CurrentContextTokens = 37_040, CurrentContextWindow = 1_000_000 },
+        }));
+        h.Time.Advance(WorkContextViewModel.CompactPollInterval);
+        await (h.Vm.PendingReadForTesting ?? Task.CompletedTask);
+
+        await Assert.That(h.Vm.ShowsCompact).IsFalse();
+        await Assert.That(h.Vm.CurrentContextWarns).IsFalse();
+        var settled = h.Source.Requested.Count;
+        h.Time.Advance(WorkContextViewModel.CompactPollInterval);
+        await Assert.That(h.Source.Requested.Count).IsEqualTo(settled);
+        await h.TickAsync();
+        await Assert.That(h.Source.Requested.Count).IsGreaterThan(settled);
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_compact_that_never_drops_gives_up_polling_at_the_limit() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Default = ReadyWith(null, summary: ReadingSummary(85));
+        await h.PushAsync(Dto());
+        await h.Vm.CompactCommand.Execute();
+
+        h.Time.Advance(WorkContextViewModel.CompactPollLimit + WorkContextViewModel.CompactPollInterval);
+        await WaitUntilAsync(() => h.Vm.ShowsCompact, what: "compact offered again at the limit");
+        await (h.Vm.PendingReadForTesting ?? Task.CompletedTask);
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        var settled = h.Source.Requested.Count;
+        h.Time.Advance(WorkContextViewModel.CompactPollInterval);
+
+        await Assert.That(h.Source.Requested.Count).IsEqualTo(settled);
+        await Assert.That(h.Vm.ShowsCompact).IsTrue();
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_refused_compact_offers_the_button_again() => RunOnUiAsync(async () => {
+        var h = new Harness { SendResult = false };
+        h.Source.Enqueue(ReadyWith(null, summary: ReadingSummary(85)));
+        await h.PushAsync(Dto());
+
+        await h.Vm.CompactCommand.Execute();
+
+        await Assert.That(h.Vm.ShowsCompact).IsTrue();
+        var before = h.Source.Requested.Count;
+        h.Time.Advance(WorkContextViewModel.CompactPollInterval);
+        await Assert.That(h.Source.Requested.Count).IsEqualTo(before);
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_turn_end_rereads_the_summary() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        await h.PushAsync(Dto());
+        var before = h.Source.Requested.Count;
+
+        await h.PushAsync(Dto() with { AwaitingInput = true });
+
+        await Assert.That(h.Source.Requested.Count).IsEqualTo(before + 1);
+        await h.Vm.TeardownAsync();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_older_server_without_current_fields_shows_only_the_peak() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        h.Source.Enqueue(ReadyWith(null, summary: UsageSummary()));
+
+        await h.PushAsync(Dto());
+
+        await Assert.That(h.Vm.ContextUse).IsEqualTo("142k / 200k (71%)");
+        await Assert.That(h.Vm.ShowsCurrentContext).IsFalse();
+        await Assert.That(h.Vm.ShowsCompact).IsFalse();
+        await h.Vm.TeardownAsync();
+    });
 
     static SessionSummaryDto UsageSummary() => new() {
         SessionId = SessionA,

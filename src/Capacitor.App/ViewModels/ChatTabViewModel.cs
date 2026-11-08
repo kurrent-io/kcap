@@ -344,6 +344,19 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     public ReactiveCommand<UserAttachment, Unit> OpenAttachmentCommand { get; }
     public ReactiveCommand<string, Unit> RunCodeCommand { get; }
 
+    readonly ObservableAsPropertyHelper<bool> _canSendText;
+    /// Whether text can go to the agent from outside the composer right now.
+    public bool CanSendText => _canSendText.Value;
+
+    /// Sends text through the composer's own path without touching the draft or the tray.
+    /// False means nothing was sent. An unconfirmed send counts as sent: the text may already
+    /// have reached the agent, so a caller must not retry it.
+    public async Task<bool> SendTextAsync(string text) {
+        if (!CanSendText) return false;
+        var outcome = await SendComposerAsync(text, includeTray: false, bypassRecall: true, ownsDraft: false);
+        return outcome is ChatSendOutcome.Accepted or ChatSendOutcome.Unconfirmed;
+    }
+
     // The opener launches whatever it is handed, so only a resolved image path reaches it: a
     // transcript line naming an executable must not run it.
     void OpenAttachment(UserAttachment attachment) {
@@ -1093,6 +1106,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             await SendCommand.Execute();
         }, canRun);
         _disposables.Add(RunCodeCommand);
+
+        _canSendText = Observable.CombineLatest(
+                canRun,
+                this.WhenAnyValue(x => x.HasTerminalMenu),
+                this.WhenAnyValue(x => x.HasSeed),
+                (run, menu, _) => run && !menu && CanSendBeforeSeed)
+            .DistinctUntilChanged()
+            .ToProperty(this, x => x.CanSendText, initialValue: false)
+            .DisposeWith(_disposables);
 
         serverQueue?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(ApplyServerQueue).DisposeWith(_disposables);
     }
