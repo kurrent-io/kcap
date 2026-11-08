@@ -1484,7 +1484,7 @@ public sealed class TranscriptRecorder(
                     TranscriptSpool.BuildTranscriptSpoolBatch(sessionId, agentId, vendor, chunk.Lines, chunk.LineNumbers!, chunk.ObservedCommits, chunk.MoreFollows),
                     chunk.MoreFollows ? commitsOnly : null);
                 if (result != TranscriptSpool.AppendResult.Appended) {
-                    if (spooled && commitsOnly is not null && transcriptSpool.Append(sessionId, commitsOnly) != TranscriptSpool.AppendResult.Appended)
+                    if (spooled && commitsOnly is not null && !HasLostClaim() && transcriptSpool.Append(sessionId, commitsOnly) != TranscriptSpool.AppendResult.Appended)
                         log($"Commits of {sessionId} could not be spooled at shutdown; they are sent again when its watcher resumes");
                     break;
                 }
