@@ -165,6 +165,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         return recorder;
     }
 
+    /// <summary>Runs each source's settling once its last attempt has ended, for a test that holds one back.</summary>
+    internal Func<Func<Task>, Task>? Settling { get; init; }
+
     /// <summary>Whether this daemon takes new sources now. Read on every use: the server's answer goes with its connection,
     /// and what is already recording carries on without it.</summary>
     public bool Enabled => IsOn && _serverRecords.Answer == true;
@@ -279,7 +282,8 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// <summary>A hook's ask for the final drain of the source <paramref name="key"/> names. A source whose process exited
     /// first has had its last drain, so the exited process's own late hook is answered once that is done. A hook from
     /// another process is a resumed run's, whose lines came after that drain: the source follows that process and finishes
-    /// for it. A hook from a process other than the one a running source follows is not that run's, and ends nothing.</summary>
+    /// for it, unless it is a run the source already followed away from. A hook from a process other than the one a
+    /// running source follows is not that run's, and ends nothing.</summary>
     /// <param name="from">The process the hook runs under, when it said.</param>
     public async Task<bool> FinishForHookAsync(string key, ProcessIncarnation? from, CancellationToken ct) {
         for (var followed = false;; followed = true) {
@@ -305,6 +309,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
                 return true;
             }
+
+            // A run this source followed away from: following it back would settle the end of the run that exited since.
+            if (SessionEndRecord.IsSettled(_paths, tracked.Source.SessionId, from)) return true;
 
             await FollowAsync(tracked, from);
         }
@@ -757,14 +764,19 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     // A session resumed in another process runs on there, and that process's next hook may be minutes away. The exited
-    // run owes no end, so its late hook finds that settled.
+    // run owes no end, so its late hook finds that settled. One the list can't record would be left out of it for good,
+    // so it goes, as a follow that can't start does, and the resumed run's hooks take the session.
     void EndOrFollow(Tracked tracked, ProcessIncarnation process) {
         if (tracked.Source.SubagentId is null && LiveClaimant(tracked.Source) is { } claimant && claimant != process) {
             LogFollowed(tracked.Source.Key, process.Pid, claimant.Pid);
             SessionEndRecord.Settle(_paths, tracked.Source.SessionId, process, _time.GetUtcNow());
             tracked.Source     = tracked.Source with { Process = claimant };
             tracked.MayPostEnd = true;
-            _list.TryAdd(tracked.Source);
+
+            if (!_list.TryAdd(tracked.Source) && tracked.TryEnd(EndedBy.Itself)) {
+                LogFollowUnlisted(tracked.Source.Key);
+                _ = FinishQuietlyAsync(tracked.Source.Key, CancellationToken.None);
+            }
 
             return;
         }
@@ -952,7 +964,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
         tracked.TryEnd(EndedBy.Itself);
         tracked.Ending = true;
-        _ = Task.Run(() => SettleAsync(tracked, ended.LostClaim));
+        _ = Task.Run(() => Settling is { } settling ? settling(() => SettleAsync(tracked, ended.LostClaim)) : SettleAsync(tracked, ended.LostClaim));
     }
 
     // The host's finish returns once the key has left, and the gate keeps anyone from adding it back before the claim goes.
@@ -977,9 +989,15 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                 _list.Remove(key);
                 _sources.TryRemove(key, out var _);
                 tracked.Settled.TrySetResult();
-            } else if (tracked is { Ended: EndedBy.Process, MayPostEnd: true, Disabled: false, Source.SubagentId: null } && Volatile.Read(ref _stopping) == 0) {
-                tracked.EndPending = true;
-                _ = Task.Run(() => EndSessionAsync(tracked));
+            } else if (tracked is { Ended: EndedBy.Process, MayPostEnd: true, Disabled: false, Source.SubagentId: null }) {
+                // A stop that landed on the way here leaves the end undecided, as one inside the grace does.
+                if (Volatile.Read(ref _stopping) != 0) {
+                    if (tracked.Drained) _list.TryAdd(tracked.Source with { Drained = true });
+                    tracked.Settled.TrySetResult();
+                } else {
+                    tracked.EndPending = true;
+                    _ = Task.Run(() => EndSessionAsync(tracked));
+                }
             } else {
                 Forget(tracked);
             }
@@ -1147,6 +1165,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Information, Message = "The terminal process {Pid} of {Key} has exited and the session runs on in {Claimant}; following that")]
     partial void LogFollowed(string key, int pid, int claimant);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The recorded sources could not take {Key} as it follows the session; letting it go for the session's hooks to take")]
+    partial void LogFollowUnlisted(string key);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "No session end posted for {Key}: a hook posts it, the session was disabled, or it runs on elsewhere")]
     partial void LogNoEndPosted(string key);

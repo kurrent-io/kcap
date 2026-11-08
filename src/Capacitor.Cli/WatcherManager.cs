@@ -358,19 +358,19 @@ public sealed partial class WatcherManager(
         }
     }
 
-    /// <summary>Whether this SessionEnd hook posts the end of <paramref name="process"/>'s run of the session. A daemon
-    /// holding it as a terminal session posts that end itself if the process exits with no hook in time, so with that claim
-    /// on disk the two race for one record; with none, only a record the daemon already left has a say. A hook that can't
-    /// name its process posts. One that posts follows with <see cref="SessionEndPosted"/>.</summary>
-    public bool ClaimSessionEnd(string sessionId, ProcessIncarnation? process) {
-        if (process is null) return true;
+    /// <summary>Whether this SessionEnd hook posts the end of <paramref name="process"/>'s run of the session, and if not,
+    /// why not. A daemon holding it as a terminal session posts that end itself if the process exits with no hook in time,
+    /// so with that claim on disk the two race for one record; with none, only a record the daemon already left has a say.
+    /// A hook that can't name its process posts. One that posts follows with <see cref="SessionEndPosted"/>.</summary>
+    public SessionEndTurn ClaimSessionEnd(string sessionId, ProcessIncarnation? process) {
+        if (process is null) return SessionEndTurn.Yours;
 
         var key = new RecordingSource(sessionId, null, "", "claude", null).Key;
 
         if (_claims.Read(key) is RecorderClaimState.None || _claims.IsHosted(key))
-            if (!SessionEndRecord.Exists(paths, sessionId, process)) return true;
+            if (!SessionEndRecord.Exists(paths, sessionId, process)) return SessionEndTurn.Yours;
 
-        return SessionEndRecord.TryClaim(paths, sessionId, process, time.GetUtcNow()) is SessionEndTurn.Yours;
+        return SessionEndRecord.TryClaim(paths, sessionId, process, time.GetUtcNow());
     }
 
     /// <summary>The end this hook claimed has reached the server or the spool, so nobody takes the claim over.</summary>
@@ -797,12 +797,13 @@ public sealed partial class WatcherManager(
 
     /// <summary>Waits for the holder inside what is left of <see cref="FinishSourceBudget"/>. Short of finding nothing
     /// listening, the hook drains nothing: the source is the daemon's, which finishes it whether or not anyone is still
-    /// waiting.</summary>
+    /// waiting. The process goes only with a terminal claim: a daemon that holds hosted claims alone may predate the
+    /// process in the frame, and reads the frame's whole text as the key.</summary>
     async Task<RecordingFinish> AskDaemonToFinishAsync(string key, string? holder, string sessionId, ProcessIncarnation? from) {
         using var budget = new CancellationTokenSource(FinishWait(), time);
 
         try {
-            var finish = await _daemonRecording.FinishSourceAsync(key, holder, from, budget.Token).WaitAsync(budget.Token);
+            var finish = await _daemonRecording.FinishSourceAsync(key, holder, _claims.IsHosted(key) ? null : from, budget.Token).WaitAsync(budget.Token);
 
             if (finish is not RecordingFinish.Unreachable)
                 await Console.Error.WriteLineAsync(finish is RecordingFinish.Finished

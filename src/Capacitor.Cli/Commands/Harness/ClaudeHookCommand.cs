@@ -413,8 +413,8 @@ public sealed class ClaudeHookCommand(
             var unusableUrl = !HookHttp.IsPostable(Url);
             var reason      = unusableUrl ? "unusable server URL" : "auth/client creation exceeded hook budget";
 
-            if (command == "session-end" && sessionId is not null && !watchers.ClaimSessionEnd(sessionId, _endingProcess.Value)) {
-                await Console.Error.WriteLineAsync($"[kcap] session-end not spooled: the daemon recording {sessionId} posted it when the session's process exited");
+            if (command == "session-end" && sessionId is not null && watchers.ClaimSessionEnd(sessionId, _endingProcess.Value) is var turn and not SessionEndTurn.Yours) {
+                await Console.Error.WriteLineAsync(SessionEndLeftAlone(sessionId, turn, "not spooled"));
             }
             else if (command is "session-start" or "session-end" && sessionId is not null) {
                 var spooled = spool.Append(sessionId, command, NormalizeForSpool(body, command));
@@ -534,6 +534,13 @@ public sealed class ClaudeHookCommand(
     // Why a bounded live POST left its payload to the spool: the status it got, or no response at all.
     static string FailureReason(int statusCode) =>
         statusCode == 0 ? "no response within the hook budget" : $"HTTP {statusCode}";
+
+    /// <summary>Why this hook leaves its run's end alone, as the end's record says: the hook log is what a person reads to
+    /// explain a session with no end.</summary>
+    internal static string SessionEndLeftAlone(string sessionId, SessionEndTurn turn, string left) => turn switch {
+        SessionEndTurn.Pending => $"[kcap] session-end {left}: the end of this run of {sessionId} was claimed moments ago and is being posted",
+        _                      => $"[kcap] session-end {left}: the end of this run of {sessionId} was posted already, or the session went on in another process",
+    };
 
     internal async Task<bool> ShouldSuppressCaptureAsync(
             string? canonicalSessionId, string body, string? command, Profile? activeProfile, HookBudget budget) {
@@ -1136,8 +1143,8 @@ public sealed class ClaudeHookCommand(
                 new TaskListNudgeLedger(config).Evict(sessionId.Replace("-", ""));
             }
 
-            if (sessionId is not null && !watchers.ClaimSessionEnd(sessionId, _endingProcess.Value)) {
-                await Console.Error.WriteLineAsync($"[kcap] session-end not posted: the daemon recording {sessionId} posted it when the session's process exited");
+            if (sessionId is not null && watchers.ClaimSessionEnd(sessionId, _endingProcess.Value) is var turn and not SessionEndTurn.Yours) {
+                await Console.Error.WriteLineAsync(SessionEndLeftAlone(sessionId, turn, "not posted"));
                 return 0;
             }
 

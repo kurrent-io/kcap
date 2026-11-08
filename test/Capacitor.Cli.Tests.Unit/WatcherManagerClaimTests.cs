@@ -127,7 +127,7 @@ public class WatcherManagerClaimTests : IDisposable {
     [Test]
     public async Task A_posted_end_is_marked_so_nobody_takes_it_over() {
         Claims.TryTake(Key, "daemon-b", isHosted: false);
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsTrue();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Yours);
 
         Watchers.SessionEndPosted(Key, Claude);
         _time.Advance(SessionEndRecord.TakeOver * 2);
@@ -141,9 +141,9 @@ public class WatcherManagerClaimTests : IDisposable {
     public async Task A_session_end_beside_a_terminal_daemon_claim_is_claimed_once() {
         Claims.TryTake(Key, "daemon-b", isHosted: false);
 
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsTrue();
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsFalse();
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude with { Pid = 4343 })).IsTrue();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Yours);
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Pending);
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude with { Pid = 4343 })).IsEqualTo(SessionEndTurn.Yours);
     }
 
     /// <summary>A daemon posts no end for a hosted session, and nothing would read a record for one no daemon holds.</summary>
@@ -153,7 +153,7 @@ public class WatcherManagerClaimTests : IDisposable {
     public async Task A_session_end_with_no_terminal_daemon_claim_leaves_no_record(bool hosted) {
         if (hosted) Claims.TryTake(Key, "daemon-b", isHosted: true);
 
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsTrue();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Yours);
         await Assert.That(SessionEndRecord.Exists(Paths, Key, Claude)).IsFalse();
     }
 
@@ -163,7 +163,16 @@ public class WatcherManagerClaimTests : IDisposable {
         SessionEndRecord.TryClaim(Paths, Key, Claude, _time.GetUtcNow());
         SessionEndRecord.MarkPosted(Paths, Key, Claude, _time.GetUtcNow());
 
-        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsFalse();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>A run the session went on from owes no end, and the hook says that rather than that someone posted one.</summary>
+    [Test]
+    public async Task A_session_end_for_a_run_the_session_went_on_from_is_done() {
+        Claims.TryTake(Key, "daemon-b", isHosted: false);
+        SessionEndRecord.Settle(Paths, Key, Claude, _time.GetUtcNow());
+
+        await Assert.That(Watchers.ClaimSessionEnd(Key, Claude)).IsEqualTo(SessionEndTurn.Done);
     }
 
     [Test]
@@ -171,7 +180,7 @@ public class WatcherManagerClaimTests : IDisposable {
         Claims.TryTake(Key, "daemon-b", isHosted: false);
         SessionEndRecord.TryClaim(Paths, Key, Claude, DateTimeOffset.UtcNow);
 
-        await Assert.That(Watchers.ClaimSessionEnd(Key, process: null)).IsTrue();
+        await Assert.That(Watchers.ClaimSessionEnd(Key, process: null)).IsEqualTo(SessionEndTurn.Yours);
     }
 
     static readonly ProcessIncarnation Claude = new(4242, "mac:1:2");
@@ -186,6 +195,18 @@ public class WatcherManagerClaimTests : IDisposable {
         await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null, from: Claude);
 
         await Assert.That(_daemon.Froms.Single()).IsEqualTo(Claude);
+    }
+
+    /// <summary>A daemon that predates terminal hand-off reads the frame's whole text as the key, and only it can hold a
+    /// hosted claim without holding terminal ones, so a hosted source's finish says nothing more.</summary>
+    [Test]
+    public async Task A_hosted_claims_finish_text_is_the_bare_key() {
+        StubServer();
+        Claims.TryTake(Key, "daemon-b", isHosted: true);
+
+        await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null, from: Claude);
+
+        await Assert.That(RecordingIpc.FinishText(Key, _daemon.Froms.Single())).IsEqualTo(Key);
     }
 
     /// <summary>The daemon died inside the grace and nothing listens for it. A session ending now has no later hook to

@@ -8,11 +8,12 @@ namespace Capacitor.Cli.Core;
 /// <summary>
 /// Who posts the end of one process's run of a session: its SessionEnd hook, or the daemon recording it as a terminal
 /// session, which posts it when that process exits with no hook in time. Each claims this file before it posts and marks
-/// it posted once the end has reached the server or the spool. A claim never marked is taken over once it is older than
-/// <see cref="TakeOver"/>, by the daemon's next boot too, and the server appends nothing for an end of a session it has
-/// already ended, so a claimer killed before its post costs the session no end. It names the process by pid and start
-/// token, so a resumed run in another process owes an end of its own. Beside the claims, in the directory hooks and the
-/// daemon share.
+/// it posted once the end has reached the server or the spool, so a run has one record. A claim never marked is taken over
+/// once it is older than <see cref="TakeOver"/>, but only by whoever comes next for that run: a claimer that dies with
+/// nothing holding the end pending, or a post that neither lands nor spools, leaves the session with no end. The server
+/// appends nothing for an end of a session it has already ended, so a takeover repeating an end that landed costs nothing,
+/// unless the session reopened in between. It names the process by pid and start token, so a resumed run in another
+/// process owes an end of its own. Beside the claims, in the directory hooks and the daemon share.
 /// </summary>
 public static class SessionEndRecord {
     const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
@@ -86,6 +87,9 @@ public static class SessionEndRecord {
 
     /// <summary>Whether anyone has claimed, posted or settled the end of <paramref name="process"/>'s run.</summary>
     public static bool Exists(WatcherPaths paths, string sessionId, ProcessIncarnation process) => File.Exists(PathOf(paths, sessionId, process));
+
+    /// <summary>Whether the end of <paramref name="process"/>'s run was settled, as it is once the session went on from it.</summary>
+    public static bool IsSettled(WatcherPaths paths, string sessionId, ProcessIncarnation process) => Read(PathOf(paths, sessionId, process)) is (Settled, _);
 
     /// <summary>Deletes records past <see cref="Retention"/>, except a session's in <paramref name="pending"/>, whose end
     /// may not have been decided yet.</summary>
