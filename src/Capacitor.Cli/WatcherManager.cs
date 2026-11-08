@@ -766,6 +766,12 @@ public sealed partial class WatcherManager(
 
                 try {
                     foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
+                        // A disable can land while this drain waits on the server or a redaction.
+                        if (DisabledSessions.IsDisabledByPerson(SessionIds.Canonical(sessionId)!, config)) {
+                            await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the session was disabled; sending nothing more");
+                            return false;
+                        }
+
                         var batchJson = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
                         using var content = new StringContent(batchJson, Encoding.UTF8, "application/json");
                         using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time);

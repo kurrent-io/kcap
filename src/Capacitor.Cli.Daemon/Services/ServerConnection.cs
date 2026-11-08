@@ -928,12 +928,19 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         }, CancellationToken.None);
     }
 
-    /// <summary>The stored sign-in stopped matching what this hub negotiated as, a sign-out included.</summary>
+    /// <summary>The stored sign-in stopped matching what this hub negotiated as, a sign-out included, or a reconnect
+    /// negotiated as someone else.</summary>
     public event Action? SignInChanged;
 
     public void ReportSignInChanged() => SignInChanged?.Invoke();
 
-    void CommitNegotiatedIdentity() => Volatile.Write(ref _negotiatedAs, Volatile.Read(ref _pendingAs));
+    // The heartbeat compares the stored sign-in with what this commits, so a change a reconnect took up is said here or
+    // never: unsaid, the recording connection goes on sending as the identity this one left.
+    void CommitNegotiatedIdentity() {
+        var now = Volatile.Read(ref _pendingAs);
+
+        if (HubIdentity.Moved(Interlocked.Exchange(ref _negotiatedAs, now), now)) ReportSignInChanged();
+    }
 
     // Once per change of reason, so a hub retrying every 30 s does not repeat it. A server that takes
     // no sign-in sends no bearer by design.

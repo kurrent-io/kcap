@@ -156,6 +156,43 @@ public class DaemonRecorderHubTests {
         await recorder.FinishAsync(source.Key, CancellationToken.None).WithinDeadlineAsync("the finish");
     }
 
+    /// <summary>A reconnect of the main connection can be the first to sign in as someone else. The heartbeat then compares
+    /// the stored sign-in with what that reconnect negotiated, the same account, while the recording connection still sends
+    /// as the last one. A reconnect as the same account says nothing.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_reconnect_that_signs_in_as_another_account_says_so(bool cleanClose) {
+        await using var hub         = await RecordingHubHost.StartAsync();
+        var             credentials = new AccountCredentials(hub.Url) { Account = "ana" };
+        await using var main        = new ServerConnection(DaemonConfigFor(hub), credentials, NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
+        using var       cts         = new CancellationTokenSource(BoundedWait.Deadline);
+        var             changes     = 0;
+        main.SignInChanged += () => Interlocked.Increment(ref changes);
+
+        await main.ConnectAsync(cts.Token);
+        await hub.WaitForAsync(h => h.DaemonConnections.Count == 1, "the first connect");
+
+        await Reconnect();
+        await hub.WaitForAsync(h => h.DaemonConnections.Count == 2, "a reconnect as the same account");
+        await Assert.That(Volatile.Read(ref changes)).IsEqualTo(0);
+
+        credentials.Account = "bob";
+        await Reconnect();
+        await hub.WaitForAsync(h => h.DaemonConnections.Count == 3, "a reconnect as another account");
+        await Assert.That(Volatile.Read(ref changes)).IsEqualTo(1);
+
+        Task Reconnect() {
+            if (!cleanClose) {
+                hub.BreakTransports();
+
+                return Task.CompletedTask;
+            }
+
+            return hub.CloseCleanlyAsync();
+        }
+    }
+
     /// <summary>A claim can go while the connection is down, to a hook that takes the source for a watcher. The connect
     /// that was waiting registers nothing once the connection comes back.</summary>
     [Test]
@@ -329,6 +366,20 @@ public class DaemonRecorderHubTests {
 
         public Task<CredentialState> ResolveAsync(CancellationToken ct = default) =>
             Task.FromResult(new CredentialState(Bearer, Bearer is null ? AuthStatus.NoAuthRequired : AuthStatus.Ok));
+
+        public Task<CredentialState> RotateAsync(string? refused, CancellationToken ct = default) => ResolveAsync(ct);
+    }
+
+    /// <summary>A stored sign-in for one account at a time, as <c>kcap login</c> leaves it.</summary>
+    sealed class AccountCredentials(string server) : ICredentialSource {
+        public required string Account { get; set; }
+
+        public Task<CredentialState> ResolveAsync(CancellationToken ct = default) {
+            var token = $"token-{Account}";
+            var tokens = new StoredTokens { AccessToken = token, ExpiresAt = DateTimeOffset.UtcNow.AddHours(1), GitHubUsername = Account, ServerUrl = server };
+
+            return Task.FromResult(new CredentialState(token, AuthStatus.Ok, new TokenResolution(tokens, AuthStatus.Ok, server, "default")));
+        }
 
         public Task<CredentialState> RotateAsync(string? refused, CancellationToken ct = default) => ResolveAsync(ct);
     }

@@ -730,6 +730,38 @@ public class WatcherManagerClaimTests : IDisposable {
         await Assert.That(Posts).IsEqualTo(0);
     }
 
+    /// <summary>A disable can land while a drain past its first check waits on the server: from then on the drain sends
+    /// nothing, the chunks it has yet to post included, since the daemon's claim has gone and the command deletes the
+    /// session behind it.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_disable_landing_mid_drain_stops_what_is_left_of_it(bool afterFirstChunk) {
+        var transcript = Config.CreateFile("t.jsonl", string.Concat(Enumerable.Repeat($"{Line}\n", TranscriptBatchBuffer.MaxLines + 1)));
+
+        _server.Given(Request.Create().WithPath($"/api/sessions/{Key}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithCallback(_ => {
+                if (!afterFirstChunk) DisabledSessions.Mark(Key, Config.Root);
+
+                return Answer("""{"last_line_number": -1}""");
+            }));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithCallback(_ => {
+                DisabledSessions.Mark(Key, Config.Root);
+
+                return Answer("{}");
+            }));
+
+        await Watchers.InlineDrainAsync(Key, transcript, agentId: null);
+
+        await Assert.That(Posts).IsEqualTo(afterFirstChunk ? 1 : 0);
+
+        static WireMock.ResponseMessage Answer(string body) => new() {
+            StatusCode = 200,
+            BodyData   = new WireMock.Util.BodyData { DetectedBodyType = WireMock.Types.BodyType.String, BodyAsString = body },
+        };
+    }
+
     sealed class FakeDaemon : IDaemonRecordingClient {
         readonly List<string> _asked = [];
         readonly List<string?> _holders = [];
