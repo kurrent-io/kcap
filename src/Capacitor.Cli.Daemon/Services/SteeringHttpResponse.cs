@@ -19,8 +19,10 @@ internal sealed record SteeringHttpResponse(int Status, byte[] Body) {
         return new(status, body.ToArray());
     }
 
-    /// <summary>The whole answer, as it goes on the wire.</summary>
+    /// <summary>The whole answer, as it goes on the wire. A 204 carries no body and, as HTTP/1.1 requires, no length.</summary>
     public byte[] Encode() {
+        if (Status == 204) return Encoding.ASCII.GetBytes("HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+
         var head = string.Create(CultureInfo.InvariantCulture,
             $"HTTP/1.1 {Status} {Reason(Status)}\r\n{(Status == 405 ? "Allow: POST\r\n" : "")}Content-Type: application/json\r\nContent-Length: {Body.Length}\r\nConnection: close\r\n\r\n");
 

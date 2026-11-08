@@ -11,7 +11,10 @@ namespace Capacitor.Cli.Daemon.Services;
 /// goes, so a failure on either side leaves the two agreeing.
 /// </summary>
 /// <param name="offered">Whether steering is offered on this platform; <see cref="SteeringIpc.Offered"/> unless given.</param>
-internal sealed class SteeringSwitch(LaunchConsentStore store, SteeringEndpoint endpoint, bool? offered = null) : IHostedService, IDisposable {
+/// <param name="attachments">The sessions steered while the switch is on, every one of them ended when it goes off.</param>
+internal sealed class SteeringSwitch(
+        LaunchConsentStore store, SteeringEndpoint endpoint, bool? offered = null, Harness.Claude.ModAttachments? attachments = null
+    ) : IHostedService, IDisposable {
     readonly SemaphoreSlim _lane = new(1, 1);
     readonly bool _offered = offered ?? SteeringIpc.Offered;
 
@@ -69,6 +72,7 @@ internal sealed class SteeringSwitch(LaunchConsentStore store, SteeringEndpoint 
                 if (!store.TrySetSteering(false, out var unwritable)) return Refused(SteeringIpc.Unwritable, unwritable);
 
                 await endpoint.UnbindAsync();
+                if (attachments is not null) await attachments.EndAllAsync();
             }
 
             return new(true, null, State);

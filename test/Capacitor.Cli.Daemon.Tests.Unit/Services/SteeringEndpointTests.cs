@@ -1,7 +1,10 @@
 using System.Net.Sockets;
 using System.Runtime.Versioning;
 using System.Text;
+using Capacitor.Cli.Core;
+using Capacitor.Cli.Daemon.Harness.Claude;
 using Capacitor.Cli.Daemon.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -118,7 +121,17 @@ public class SteeringEndpointTests {
         var first  = await ConnectAsync(cts.Token);
         var second = await ConnectAsync(cts.Token);
 
-        var busy = await RequestAsync(WellFormed, cts.Token);
+        // The listen backlog is as deep as the cap, so a connect is refused until the endpoint has taken those two off it.
+        string busy;
+        while (true) {
+            try {
+                busy = await RequestAsync(WellFormed, cts.Token);
+                break;
+            } catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused) {
+                await Task.Delay(20, cts.Token);
+            }
+        }
+
         await Assert.That(StatusOf(busy)).IsEqualTo("503");
         await Assert.That(busy).Contains("Connection: close\r\n");
         await Assert.That(busy).EndsWith("{\"error\":\"busy\"}");
@@ -174,6 +187,83 @@ public class SteeringEndpointTests {
         await Assert.That(StatusOf(await RequestAsync(Ascii("POST /boom HTTP/1.1\r\n\r\n"), cts.Token))).IsEqualTo("500");
         await Assert.That(Log.Warnings).Count().IsEqualTo(1);
         await Assert.That(StatusOf(await RequestAsync(Ascii("POST /echo HTTP/1.1\r\n\r\n"), cts.Token))).IsEqualTo("200");
+    }
+
+    const string ModSession = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+    ModAttachments Attachments(CaptureServerConnection server) =>
+        new(server, new ModAttachmentStore(Daemons.Store.SteeringAttachmentsPath(Name), NullLogger.Instance), () => true,
+            TimeProvider.System, NullLogger.Instance, offered: true);
+
+    /// <summary>The routes over the socket, in the shapes the mod is written against.</summary>
+    [Test]
+    public async Task The_steering_routes_answer_over_the_socket() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        await using var endpoint = Endpoint(routes: new SteeringRoutes(attachments).Table());
+        endpoint.TryBind(out _);
+
+        var agentId  = ModAttachments.AgentIdFor(SessionIds.Canonical(ModSession)!);
+        var dispatch = Guid.NewGuid();
+        var row      = Guid.NewGuid();
+
+        await Assert.That(await PostAsync("/attach", $$"""{"sessionId":"{{ModSession}}","processKey":"4242:start"}""", cts.Token))
+            .IsEqualTo(("200", $$"""{"agentId":"{{agentId}}","pollIntervalMs":1000}"""));
+
+        attachments.TakeInput(new SendInputCommand(agentId, "hello", null, dispatch));
+
+        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":false}""", cts.Token)).IsEqualTo(("204", ""));
+        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true,"processKey":"4242:start"}""", cts.Token))
+            .IsEqualTo(("200", $$"""{"dispatchId":"{{dispatch}}","text":"hello"}"""));
+        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true,"outstanding":"{{dispatch}}"}""", cts.Token))
+            .IsEqualTo(("204", ""));
+        await Assert.That(await PostAsync("/link", $$"""{"agentId":"{{agentId}}","dispatchId":"{{dispatch}}","sessionId":"{{ModSession}}","rowUuid":"{{row}}"}""", cts.Token))
+            .IsEqualTo(("200", "{}"));
+        await Assert.That(await PostAsync("/undelivered", $$"""{"agentId":"{{agentId}}","dispatchId":"{{Guid.NewGuid()}}","outcome":"rejected","reason":"stopped"}""", cts.Token))
+            .IsEqualTo(("200", "{}"));
+        await Assert.That(await PostAsync("/detach", $$"""{"agentId":"{{agentId}}","processKey":"4242:start"}""", cts.Token)).IsEqualTo(("200", "{}"));
+        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true}""", cts.Token))
+            .IsEqualTo(("200", """{"gone":"detached","retry":false}"""));
+
+        await Assert.That(server.AttachedRegistrations.Single().ProcessKey).IsEqualTo("4242:start");
+        await Assert.That(server.LinkReports).IsEquivalentTo([new ReportInputLinkRequest(dispatch, agentId, ModSession, row)]);
+        await Assert.That(server.AgentUnregisteredCalls).IsEquivalentTo([agentId]);
+    }
+
+    [Test]
+    [Arguments("/attach", "not json")]
+    [Arguments("/attach", "null")]
+    [Arguments("/attach", """{"sessionId":"not-a-session","processKey":"4242:start"}""")]
+    [Arguments("/attach", """{"sessionId":"0f8fad5b-d9cb-469f-a165-70867728950e"}""")]
+    [Arguments("/attach", """{"sessionId":"0f8fad5b-d9cb-469f-a165-70867728950e","processKey":"4242:\u0007"}""")]
+    [Arguments("/attach", """{"sessionId":"0f8fad5b-d9cb-469f-a165-70867728950e","processKey":"4242:start","replacesAgentId":"hosted-1"}""")]
+    [Arguments("/next", """{"agentId":"hosted-1","idle":true}""")]
+    [Arguments("/next", """{"agentId":"mod-0123456789abcdef","idle":true,"outstanding":"not-a-dispatch"}""")]
+    [Arguments("/link", """{"agentId":"mod-0123456789abcdef","dispatchId":"5a8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90","rowUuid":"6b8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90"}""")]
+    [Arguments("/link", """{"agentId":"mod-0123456789abcdef","dispatchId":"00000000-0000-0000-0000-000000000000","sessionId":"0f8fad5b-d9cb-469f-a165-70867728950e","rowUuid":"6b8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90"}""")]
+    [Arguments("/undelivered", """{"agentId":"mod-0123456789abcdef","dispatchId":"5a8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90","outcome":"lost","reason":"stopped"}""")]
+    [Arguments("/undelivered", """{"agentId":"mod-0123456789abcdef","dispatchId":"5a8f3c5e-2b9e-4c1d-9f41-6b1c2a7d8e90","outcome":"rejected","reason":"not a token"}""")]
+    [Arguments("/detach", """{"processKey":"4242:start"}""")]
+    public async Task A_body_a_route_does_not_take_is_refused(string path, string body) {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        await using var endpoint = Endpoint(routes: new SteeringRoutes(attachments).Table());
+        endpoint.TryBind(out _);
+
+        await Assert.That(await PostAsync(path, body, cts.Token)).IsEqualTo(("400", """{"error":"invalid_request"}"""));
+        await Assert.That(server.AttachedRegistrations).IsEmpty();
+        await Assert.That(server.LinkReports).IsEmpty();
+        await Assert.That(server.AttachedRejections).IsEmpty();
+    }
+
+    async Task<(string? Status, string Body)> PostAsync(string path, string json, CancellationToken ct) {
+        var body     = Encoding.UTF8.GetBytes(json);
+        var response = await RequestAsync([.. Ascii($"POST {path} HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: {body.Length}\r\n\r\n"), .. body], ct);
+        var split    = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+
+        return (StatusOf(response), split < 0 ? "" : response[(split + 4)..]);
     }
 
     async Task<Socket> ConnectAsync(CancellationToken ct) {

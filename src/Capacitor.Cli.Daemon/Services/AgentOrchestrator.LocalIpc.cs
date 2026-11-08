@@ -30,6 +30,9 @@ internal partial class AgentOrchestrator {
                 l.Entry.Launch.FlowRole, l.Entry.Launch.Title, l.State)));
         }
 
+        lines = lines.Concat((_attachments?.Live ?? []).Select(a => ListRow(
+            a.AgentId, "Running", null, AttachedKind, null, null, null, withState ? AttachedKind : null)));
+
         return FrameCodec.WriteAsync(stream, new LocalFrame(FrameType.AgentList) { Text = string.Join('\n', lines.ToList()) }, ct);
 
         string ListRow(string id, string status, string? repo, string kind, string? flowRunId, string? flowRole, string? title, string? state) =>
@@ -59,6 +62,10 @@ internal partial class AgentOrchestrator {
         LaunchKind.ReviewFlow => "review-flow",
         _                     => kind.ToString(),
     };
+
+    /// <summary>The kind of a terminal session steered through its mod, which this daemon does not host. A client that
+    /// does not know it reads it as protected, as it does any kind but <c>agent</c>.</summary>
+    internal const string AttachedKind = "attached";
 
     /// <summary>
     /// The supervision payload's agent rows: every entry in _agents (all statuses — same
@@ -96,8 +103,16 @@ internal partial class AgentOrchestrator {
         var live   = LiveStatusRows();
         var listed = live.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
 
-        return [.. live, .. ledger.Where(l => !listed.Contains(l.Entry.AgentId)).Select(l => LedgerStatusRow(l.Entry, l.Status))];
+        return [
+            .. live, .. ledger.Where(l => !listed.Contains(l.Entry.AgentId)).Select(l => LedgerStatusRow(l.Entry, l.Status)),
+            .. (_attachments?.Live ?? []).Select(AttachedStatusRow)
+        ];
     }
+
+    /// <summary>No repository, worktree or terminal: the daemon knows the session and nothing it would host.</summary>
+    static AgentStatusDto AttachedStatusRow(Harness.Claude.ModAttachmentRecord attached) => new(
+        attached.AgentId, AttachedKind, "claude", null, "Running", null, null, null, attached.AttachedAt.UtcDateTime, null, null,
+        HasTerminal: false, SessionId: SessionIds.Canonical(attached.SessionId), TranscriptFormat: TranscriptFormats.Vendor);
 
     /// <summary>The session the server files the agent under: the one it was launched or resumed into, else
     /// the ACP session its runtime opened. Null until the agent has one.</summary>
@@ -234,7 +249,19 @@ internal partial class AgentOrchestrator {
                 ? await Task.WhenAll(resuming.Select(async id => $"{id}\t{StatusText(await WithdrawPendingAsync(id))}"))
                 : [.. resuming.Select(id => $"{id}\tskipped")];
 
-            await FrameCodec.WriteAsync(stream, LocalFrame.StopAck(string.Join('\n', stopped.Concat(skipped).Concat(pending))), ct);
+            // A steered terminal session is protected as any kind but a plain agent is.
+            var attachedIds = _attachments?.Live.Select(a => a.AgentId).ToList() ?? [];
+            var attached    = force && _attachments is { } steered
+                ? await Task.WhenAll(attachedIds.Select(async id => $"{id}\t{StatusText(await steered.StopAsync(id))}"))
+                : [.. attachedIds.Select(id => $"{id}\tskipped")];
+
+            await FrameCodec.WriteAsync(stream, LocalFrame.StopAck(string.Join('\n', stopped.Concat(skipped).Concat(pending).Concat(attached))), ct);
+
+            return;
+        }
+
+        if (_attachments is { } attachments && attachments.Holds(agentId)) {
+            await FrameCodec.WriteAsync(stream, LocalFrame.StopAck($"{agentId}\t{StatusText(await attachments.StopAsync(agentId))}"), ct);
 
             return;
         }

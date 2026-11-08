@@ -109,6 +109,9 @@ public sealed partial class DaemonStore(string directory) {
     /// <see cref="SocketPath"/>, out of the same 103.</summary>
     public string SteeringSocketPath(string daemonName) => Path.Combine(StateDirectory(daemonName), "steering.sock");
 
+    /// <summary>The terminal sessions the daemon steers, and the reports about their input it owes the server.</summary>
+    public string SteeringAttachmentsPath(string daemonName) => Path.Combine(StateDirectory(daemonName), "steering-attachments.json");
+
     /// <summary>The cross-process lock around one service transaction (install/replace/start).</summary>
     public string ServiceLockPath(string daemonName) => File(daemonName, ServiceLockExtension);
 

@@ -23,7 +23,7 @@ sealed class CaptureServerConnection : ServerConnection {
             config, new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System) =>
         _config = config;
 
-    public            string?                               ConnectionIdForTest { get; init; } = "connection-1";
+    public            string?                               ConnectionIdForTest { get; set; } = "connection-1";
     internal override string?                               CurrentConnectionId => ConnectionIdForTest;
     readonly List<(string AgentId, string Reason)> _launchFailedCalls = [];
 
@@ -633,4 +633,67 @@ sealed class CaptureServerConnection : ServerConnection {
             JsonElement?      suggestions,
             CancellationToken ct = default
         ) => Task.FromResult(new PermissionDecision("deny", null, null));
+
+    // ── Attached agents: the raw hub seams, so the real connection builds every payload ──────────
+
+    /// <summary>Every <c>AgentRegisteredAcked</c> payload. Hosted registrations stop at the override above, so
+    /// only an attached agent's reaches here.</summary>
+    public List<AgentRegistered> AttachedRegistrations { get; } = [];
+
+    /// <summary>The server's answer to each attached registration; accepted when unset or null.</summary>
+    public Func<AgentRegistered, AgentRegisteredResponse?>? AttachedRegistrationAnswer { get; set; }
+
+    internal override Task<AgentRegisteredResponse?> InvokeAgentRegisteredAckedRawAsync(AgentRegistered registration) {
+        lock (AttachedRegistrations) AttachedRegistrations.Add(registration);
+
+        return Task.FromResult<AgentRegisteredResponse?>(AttachedRegistrationAnswer?.Invoke(registration) ?? AgentRegisteredResponse.Accepted);
+    }
+
+    public List<ConfirmInputHandoverRequest> HandoverRequests { get; } = [];
+
+    /// <summary>The server's answer to each handover request; handed over unless set.</summary>
+    public Func<ConfirmInputHandoverRequest, ConfirmInputHandoverResponse?> HandoverAnswer { get; set; } =
+        _ => new ConfirmInputHandoverResponse(InputHandoverOutcome.HandedOver);
+
+    internal override Task<ConfirmInputHandoverResponse?> InvokeConfirmInputHandoverRawAsync(ConfirmInputHandoverRequest request) {
+        lock (HandoverRequests) HandoverRequests.Add(request);
+
+        return Task.FromResult(HandoverAnswer(request));
+    }
+
+    /// <summary>While set, every link, Unconfirmed and attached rejection report fails as an unreachable server would.</summary>
+    public Exception? AttachedReportThrow { get; set; }
+
+    public List<ReportInputLinkRequest> LinkReports { get; } = [];
+
+    internal override Task InvokeReportInputLinkRawAsync(ReportInputLinkRequest request) {
+        if (AttachedReportThrow is { } ex) return Task.FromException(ex);
+
+        lock (LinkReports) LinkReports.Add(request);
+
+        return Task.CompletedTask;
+    }
+
+    public List<ReportInputUnconfirmedRequest> UnconfirmedReports { get; } = [];
+
+    internal override Task InvokeReportInputUnconfirmedRawAsync(ReportInputUnconfirmedRequest request) {
+        if (AttachedReportThrow is { } ex) return Task.FromException(ex);
+
+        lock (UnconfirmedReports) UnconfirmedReports.Add(request);
+
+        return Task.CompletedTask;
+    }
+
+    public List<(Guid DispatchId, string AgentId, string Reason)> AttachedRejections { get; } = [];
+
+    /// <summary>Whether the server recorded each attached rejection on the named agent's stream; recorded unless set.</summary>
+    public Func<Guid, string, bool> AttachedRejectionRecorded { get; set; } = (_, _) => true;
+
+    internal override Task<bool> InvokeSendInputRejectedRawAsync(Guid dispatchId, string agentId, string reason) {
+        if (AttachedReportThrow is { } ex) return Task.FromException<bool>(ex);
+
+        lock (AttachedRejections) AttachedRejections.Add((dispatchId, agentId, reason));
+
+        return Task.FromResult(AttachedRejectionRecorded(dispatchId, agentId));
+    }
 }

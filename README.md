@@ -1509,6 +1509,8 @@ kcap daemon steering-socket    # print the steering socket's path, or nothing wh
 
 The daemon saves the switch in its own `consent.json`, of which it is the only writer, so `steering on|off` goes through the running daemon rather than editing the file; it opens or closes the steering socket at once, with no restart. A missing or unreadable switch reads as off. The rest of the document is left as it is: if `consent.json` can't be parsed, the daemon moves it aside to `consent.json.quarantined-<ticks>` before writing the switch, and if it can't be read at all, the command refuses and says why. `steering-socket` prints the path alone, and only while steering is on and the daemon is running; otherwise it prints nothing, and it exits 0 either way, since the mod runs it to find the daemon. The socket is owner-only, in a directory only you can enter, and that is its only authentication: no token ever reaches a session. Both verbs take `--name <n>`. Steering isn't offered on Windows yet: `steering on` refuses there, saying so, and `steering-socket` prints nothing.
 
+A steered session shows up in `kcap agent ls` with the kind `attached`: the daemon steers it but doesn't host it, so it has no worktree, no terminal to attach to, and never holds up a daemon restart or update. `kcap agent stop <id>` stops steering that session and leaves the Claude process running untouched; the session can't be steered again until it is a new session or a new process. `kcap agent stop --all` skips attached sessions unless you pass `--force`. `steering off` stops steering every session at once.
+
 #### Unattended reviewers are enabled by default (they used to be opt-in)
 
 Every reviewer vendor your daemon can host is available to a review flow out of the box. Four of them

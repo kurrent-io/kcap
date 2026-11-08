@@ -179,6 +179,22 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     // Read off the handler, never asserted, as with correlated status reports.
     internal bool AdvertisesRawInput => OnSendRawInput is not null;
 
+    /// <summary>Set by what serves attached agents, where it is offered; nothing else claims them.</summary>
+    internal bool AdvertisesSteering { get; set; }
+
+    internal string[]? AdvertisedCapabilities => AdvertisesSteering ? [DaemonCapabilities.Steering] : null;
+
+    /// <summary>The connection the server pushed on has gone, so nothing it pushed can be acted on any more.</summary>
+    public event Action? ConnectionLost;
+
+    internal void RaiseConnectionLost() {
+        try {
+            ConnectionLost?.Invoke();
+        } catch (Exception ex) {
+            _logger.LogWarning(ex, "A connection-lost handler failed");
+        }
+    }
+
     /// <summary>Phase B2-b (sequenced-settlement design §4.2.4): snapshot of the un-acked resolved-
     /// candidates ledger, re-advertised on <c>DaemonConnect</c> (mirrors <see cref="GetLiveAgents"/>).
     /// Optional — null when not wired (tests / early startup) ⇒ no candidates advertised.</summary>
@@ -592,6 +608,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         _statusNotifier.Pulse();
         _gate.MarkUnregistered();
         RecordingProbe.Forget();
+        RaiseConnectionLost();
 
         if (_disposed || _ct.IsCancellationRequested) {
             return;
@@ -725,7 +742,8 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
             Accounts: GetAccountsSnapshot?.Invoke(),
             HeadlessVendors: AdvertisedHeadlessVendors(),
             SupportsScratchWorkspace: true,
-            SupportsHandoffLaunch: true, SupportsResumeInPlace: true);
+            SupportsHandoffLaunch: true, SupportsResumeInPlace: true,
+            Capabilities: AdvertisedCapabilities);
     }
 
     async Task DaemonConnectCoreAsync(RegistrationAttempt attempt) {
@@ -816,6 +834,7 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         Volatile.Write(ref _pendingAs, null);
         _gate.MarkUnregistered();
         RecordingProbe.Forget();
+        RaiseConnectionLost();
         _statusNotifier.Pulse();
 
         return Task.CompletedTask;
@@ -1036,6 +1055,99 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
     internal virtual Task InvokeAgentRegisteredRawAsync(AgentRegistered registration)
         => _hub.InvokeAsync("AgentRegistered", registration, cancellationToken: _ct);
+
+    /// <summary>The runtime transport of an agent steered through a Claude Code mod, with no launch and no process of
+    /// the daemon's own.</summary>
+    internal const string ModTransport = "mod";
+
+    /// <summary>Registers an attached agent and returns the server's answer. Only <c>AgentRegisteredAcked</c> says
+    /// whether the server took it, so a server without that method reads as one that takes no attached agents. A
+    /// failed call throws.</summary>
+    public virtual async Task<AgentRegisteredResponse> AttachedAgentRegisteredAsync(
+            string agentId, string sessionId, string processKey, string? replacesAgentId) {
+        var activeCount  = GetActiveCount?.Invoke();
+        var registration = new AgentRegistered(
+            agentId, null, null, null, null, RuntimeTransport: ModTransport,
+            ActiveCount: activeCount?.Count, ActiveCountVersion: activeCount?.Version, Vendor: "claude",
+            SessionId: sessionId, ProcessKey: processKey, ReplacesAgentId: replacesAgentId);
+
+        try {
+            return await InvokeAgentRegisteredAckedRawAsync(registration)
+                ?? throw new InvalidOperationException($"The server answered the registration of attached agent {agentId} with no outcome");
+        } catch (Exception ex) when (IsUnknownHubMethod(ex, AgentRegisteredAckedMethod)) {
+            return new AgentRegisteredResponse(false, AgentRegistrationRefusal.SteeringUnsupported);
+        }
+    }
+
+    /// <summary>Bounds each attached-input call, so a server that never answers holds up neither a steering request
+    /// nor the report queue behind it.</summary>
+    static readonly TimeSpan AttachedInputCallBudget = TimeSpan.FromSeconds(10);
+
+    /// <summary>Asks whether a held dispatch may go to the attached agent's mod. Null when no answer came, which the
+    /// caller reads as a hold.</summary>
+    public virtual async Task<ConfirmInputHandoverResponse?> ConfirmInputHandoverAsync(Guid dispatchId, string agentId) {
+        try {
+            return await InvokeConfirmInputHandoverRawAsync(new ConfirmInputHandoverRequest(dispatchId, agentId))
+                .WaitAsync(AttachedInputCallBudget, _time, _ct);
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "No handover answer for dispatch {DispatchId} of attached agent {AgentId}", dispatchId, agentId);
+
+            return null;
+        }
+    }
+
+    internal virtual Task<ConfirmInputHandoverResponse?> InvokeConfirmInputHandoverRawAsync(ConfirmInputHandoverRequest request) =>
+        _hub.InvokeAsync<ConfirmInputHandoverResponse?>("ConfirmInputHandover", request, cancellationToken: _ct);
+
+    /// <summary>Reports a dispatch the mod submitted landing as a transcript row. True once the server took the report,
+    /// whatever it made of it; false when it may not have arrived.</summary>
+    public virtual async Task<bool> ReportInputLinkAsync(ReportInputLinkRequest request) {
+        try {
+            await InvokeReportInputLinkRawAsync(request).WaitAsync(AttachedInputCallBudget, _time, _ct);
+
+            return true;
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "Could not report the link of dispatch {DispatchId}", request.DispatchId);
+
+            return false;
+        }
+    }
+
+    internal virtual Task InvokeReportInputLinkRawAsync(ReportInputLinkRequest request) =>
+        _hub.InvokeAsync("ReportInputLink", request, cancellationToken: _ct);
+
+    /// <summary>Reports a dispatch the mod was handed whose landing nobody can confirm. True once the server took the
+    /// report; false when it may not have arrived.</summary>
+    public virtual async Task<bool> ReportInputUnconfirmedAsync(ReportInputUnconfirmedRequest request) {
+        try {
+            await InvokeReportInputUnconfirmedRawAsync(request).WaitAsync(AttachedInputCallBudget, _time, _ct);
+
+            return true;
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "Could not report dispatch {DispatchId} unconfirmed", request.DispatchId);
+
+            return false;
+        }
+    }
+
+    internal virtual Task InvokeReportInputUnconfirmedRawAsync(ReportInputUnconfirmedRequest request) =>
+        _hub.InvokeAsync("ReportInputUnconfirmed", request, cancellationToken: _ct);
+
+    /// <summary>Reports an attached agent's dispatch that will not land. Null when the report may not have arrived;
+    /// otherwise whether the server recorded it on <paramref name="agentId"/>'s stream, which holds only what was sent
+    /// to that agent.</summary>
+    public virtual async Task<bool?> ReportAttachedInputRejectedAsync(Guid dispatchId, string agentId, string reason) {
+        try {
+            return await InvokeSendInputRejectedRawAsync(dispatchId, agentId, reason).WaitAsync(AttachedInputCallBudget, _time, _ct);
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "Could not report dispatch {DispatchId} of attached agent {AgentId} dropped", dispatchId, agentId);
+
+            return null;
+        }
+    }
+
+    internal virtual Task<bool> InvokeSendInputRejectedRawAsync(Guid dispatchId, string agentId, string reason) =>
+        _hub.InvokeAsync<bool>("SendInputRejected", dispatchId, agentId, reason, cancellationToken: _ct);
 
     /// <summary>
     /// Reports the hosted agent's fixed PTY dimensions to the server, which stores

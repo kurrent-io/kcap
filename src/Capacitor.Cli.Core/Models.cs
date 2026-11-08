@@ -1203,6 +1203,11 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(PidIdentityKind))]
 [JsonSerializable(typeof(AgentRegistered))]
 [JsonSerializable(typeof(AgentRegisteredResponse))]
+[JsonSerializable(typeof(ConfirmInputHandoverRequest))]
+[JsonSerializable(typeof(ConfirmInputHandoverResponse))]
+[JsonSerializable(typeof(ReportInputLinkRequest))]
+[JsonSerializable(typeof(ReportInputUnconfirmedRequest))]
+[JsonSerializable(typeof(bool))]
 [JsonSerializable(typeof(AgentStatusChanged))]
 [JsonSerializable(typeof(ReportAgentTerminalDialogArgs))]
 [JsonSerializable(typeof(AgentUnregistered))]
@@ -2335,7 +2340,9 @@ public readonly record struct DaemonConnect(
         bool                                        SupportsHandoffLaunch = false,
         // Accepts a LaunchAgentCommand.ResumeInPlace launch. False from a daemon predating it, which would
         // ignore the block and start an ordinary session.
-        bool                                        SupportsResumeInPlace = false
+        bool                                        SupportsResumeInPlace = false,
+        // Capability tokens (DaemonCapabilities). Null from a daemon that advertises none.
+        string[]?                                   Capabilities = null
     );
 
 public sealed record UnattendedVendorCapability(
@@ -2408,7 +2415,12 @@ public readonly record struct AgentRegistered(
         // process. Trailing name-bound fields, like the rest: an older server ignores both.
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResumedSessionId = null,
         // True only on the resumed process's first registration, the one that may reopen the session.
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ResumeFirstAnnounce = false
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ResumeFirstAnnounce = false,
+        // An attached agent's, on every announcement of one: its session, the Claude process attached to it, and the
+        // agent that process carried on from after a session change. Null for any other agent.
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SessionId       = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ProcessKey      = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReplacesAgentId = null
     );
 
 public readonly record struct AgentStatusChanged(
