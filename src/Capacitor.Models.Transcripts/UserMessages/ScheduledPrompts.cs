@@ -5,12 +5,16 @@ namespace Capacitor.Models.Transcripts.UserMessages;
 
 /// Prompts the session arranged to receive later. A wake-up's prompt and a `/loop` command's prompt come
 /// back as plain user messages with no marker of their own, so the only way to recognise one is to have
-/// seen it scheduled. Fed every event of one session in stream order.
+/// seen it scheduled. A typed `/compact` comes back too, as command tags after the compaction summary.
+/// Fed every event of one session in stream order.
 public sealed class ScheduledPrompts {
     readonly HashSet<string> _wakeUps = [];
     readonly HashSet<string> _loops = [];
+    string? _typedCompact;
 
     public void Observe(object? payload) {
+        if (payload is UserMessageReceived person && IsPersons(person)) ObserveCompact(person.Content);
+
         switch (payload) {
             case AssistantToolCallsGenerated calls when !IsSidechain(calls):
                 foreach (var call in calls.ToolCalls)
@@ -24,7 +28,24 @@ public sealed class ScheduledPrompts {
         }
     }
 
-    public bool IsEmpty => _wakeUps.Count == 0 && _loops.Count == 0;
+    public bool IsEmpty => _wakeUps.Count == 0 && _loops.Count == 0 && _typedCompact is null;
+
+    /// True for the command-tag copy of a `/compact` the person typed earlier in the stream. A tagged
+    /// `/compact` with no typed prompt ahead of it is the only record of that command.
+    public bool IsCompactEcho(string? text) =>
+        _typedCompact is { } typed && LocalCommandParser.IsPure(text?.Trim(), out var command)
+        && command is { Kind: LocalCommandParser.LocalCommandKind.Command, CommandName: "/compact" }
+        && LocalCommandParser.DisplayLabel(command) == typed;
+
+    void ObserveCompact(string? text) {
+        var clean = SystemInstructionParser.Parse(text ?? "").CleanText.Trim();
+        if (LocalCommandParser.IsPure(clean, out var command)) {
+            if (command is { Kind: LocalCommandParser.LocalCommandKind.Command, CommandName: "/compact" }) _typedCompact = null;
+            return;
+        }
+        if (clean == "/compact") _typedCompact = clean;
+        else if (clean.StartsWith("/compact ", StringComparison.Ordinal)) _typedCompact = "/compact " + clean[9..].Trim();
+    }
 
     public bool IsWakeUp(string? text) => Key(text) is { Length: > 0 } key && _wakeUps.Contains(key);
 

@@ -145,6 +145,32 @@ public class ClaudeChatRulesTests {
         await Assert.That(results[4].SubmittedInputs).IsEquivalentTo(new[] { line });
     }
 
+    /// Without a typed prompt ahead of it, the tagged /compact is the command's only record and keeps its row.
+    [Test]
+    public async Task A_tagged_compact_with_no_typed_prompt_ahead_shows_its_row() {
+        var chat = TranscriptChat.For("claude")!;
+        var context = chat.CreateContext("a1", null);
+        string[] records = [
+            """{"type":"user","message":{"content":"/compact other"}}""",
+            """{"type":"user","message":{"content":"<command-name>/compact</command-name><command-args></command-args>"}}""",
+        ];
+        var rows = records.SelectMany((r, i) => chat.ProjectWithInputs(r, i + 1, Received, context).Envelopes).Select(e => e.Text ?? "").ToArray();
+        await Assert.That(rows).IsEquivalentTo(new[] { "/compact other", "/compact" }, CollectionOrdering.Matching);
+    }
+
+    /// A reminder quoting /compact ahead of a different command neither hides that command nor consumes the typed prompt.
+    [Test]
+    public async Task A_reminder_quoting_compact_does_not_hide_another_command() {
+        var chat = TranscriptChat.For("claude")!;
+        var context = chat.CreateContext("a1", null);
+        string[] records = [
+            """{"type":"user","message":{"content":"/compact"}}""",
+            """{"type":"user","message":{"content":"<system-reminder>Run <command-name>/compact</command-name> later.</system-reminder><command-name>/review</command-name><command-args></command-args>"}}""",
+        ];
+        var rows = records.SelectMany((r, i) => chat.ProjectWithInputs(r, i + 1, Received, context).Envelopes).Select(e => e.Text ?? "").ToArray();
+        await Assert.That(rows).IsEquivalentTo(new[] { "/compact", "/review" }, CollectionOrdering.Matching);
+    }
+
     /// Claude Code also flags a message queued while compaction runs; a peer's hand-back keeps its own label.
     [Test]
     public async Task A_queued_handback_flagged_as_compact_summary_stays_a_subagent_report() {
