@@ -53,34 +53,34 @@ internal sealed class AdoptionPrivilegedStep(
     /// script.</remarks>
     /// <returns>True when a helper cut short left every entry in place: pending, with nothing this session's other runs
     /// would prompt for.</returns>
-    public async Task<bool> RunAsync(
+    public async Task<PrivilegedStepOutcome> RunAsync(
             OtherCliInstall install, InstallPlan? plan, AdoptionEvidence evidence, IReadOnlyList<string>? unfinished,
             CancellationToken ct) {
-        if (store.Load().CutoverUtc is not { } cutover) return false;
+        if (store.Load().CutoverUtc is not { } cutover) return PrivilegedStepOutcome.Settled;
 
         var links   = plan?.Links ?? [];
         var entries = Entries(install);
         if (links.Count == 0 && !entries.Any(e => Exists(e) || retirement.HasAside(e))) {
             log("adoption_retired", AdoptionEvent.For(install, "ok", NothingLeft));
             deletion.Switch(install, []);
-            return false;
+            return PrivilegedStepOutcome.Settled;
         }
         if (!bundle.InSystemApplications) {
             Leave(install, LeftReason.SharedInstallPrivateApp);
-            return false;
+            return PrivilegedStepOutcome.Settled;
         }
         if (store.Load().Privileged is not null) {
             deletion.Hold(install, HelperRunning);
-            return false;
+            return PrivilegedStepOutcome.Settled;
         }
         if (await HolderAsync(install, cutover, unfinished, ct).ConfigureAwait(false) is { } holder) {
             deletion.Hold(install, holder);
-            return false;
+            return PrivilegedStepOutcome.Settled;
         }
         if (_explained.Add(CanonicalPath.Resolve(install.Root)) && !await confirm(Explanation(install), ct).ConfigureAwait(false)) {
             log("adoption_privileged", AdoptionEvent.For(install, "declined"));
             Leave(install, LeftReason.PromptCancelled);
-            return false;
+            return PrivilegedStepOutcome.Declined;
         }
 
         var folder = Path.Combine(Path.GetFullPath(helperFolder), "cli-adoption-helper-" + Guid.NewGuid().ToString("N"));
@@ -104,7 +104,7 @@ internal sealed class AdoptionPrivilegedStep(
             _                          => "cut_short",
         }));
 
-        var inPlace = false;
+        var outcome = PrivilegedStepOutcome.Settled;
         switch (result) {
             case PrivilegedResult.Deleted:
                 deletion.Switch(install, []);
@@ -115,18 +115,21 @@ internal sealed class AdoptionPrivilegedStep(
             case PrivilegedResult.Cancelled:
                 path.Release(links);
                 Leave(install, LeftReason.PromptCancelled);
+                outcome = PrivilegedStepOutcome.Declined;
                 break;
             case PrivilegedResult.InUse:
                 path.Release(links);
                 Leave(install, LeftReason.SharedInstallInUse);
                 break;
             case PrivilegedResult.CutShort:
-                inPlace = SettleFromFiles(install, store.Load().Privileged?.GoSent ?? false) == InstallState.Pending;
-                if (inPlace) path.Release(links);
+                if (SettleFromFiles(install, store.Load().Privileged?.GoSent ?? false) == InstallState.Pending) {
+                    path.Release(links);
+                    outcome = PrivilegedStepOutcome.WaitsOnPrompt;
+                }
                 break;
         }
         store.Update(r => r with { Privileged = null });
-        return inPlace;
+        return outcome;
     }
 
     /// <summary>What a helper that ended without its outcome left, read from the files. Every entry in place, with

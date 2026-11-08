@@ -989,6 +989,26 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Platform)).IsFalse();
     }
 
+    /// <summary>Not now to one shared install's explanation ends the run's prompting: the next install's explanation and
+    /// password wait for Finish switching or the next launch rather than follow at once.</summary>
+    [Test]
+    public async Task Declining_one_shared_install_asks_nothing_about_the_next() {
+        var world  = new AdoptionWorld(Tmp);
+        var second = world.AddInstall("nvm", "flow", 5100);
+        string[] roots = [world.Prefix, CanonicalPath.Resolve(world.Prefix), Path.GetDirectoryName(Path.GetDirectoryName(second.Link))!];
+        roots = [.. roots, CanonicalPath.Resolve(roots[2])];
+        world.UserCanWrite = folder => !roots.Any(r => folder == r || folder.StartsWith(r + "/", StringComparison.Ordinal));
+        world.Explain = _ => false;
+
+        using var launch = world.Launch();
+        await world.FirstLookAsync(launch);
+
+        await Assert.That(world.Explained.Count).IsEqualTo(1);
+        await Assert.That(world.Admin.Prompts).IsEmpty();
+        await Assert.That(world.Record.Installs.Count(i => i.Reason == LeftReason.PromptCancelled)).IsEqualTo(1);
+        await Assert.That(world.Record.Installs.Count(i => i.State == InstallState.Pending)).IsEqualTo(1);
+    }
+
     /// <summary>An install made writable after a cancelled prompt is the user's to remove: Finish switching takes it
     /// without a second prompt, rather than handing a helper links this run already swapped.</summary>
     [Test]
