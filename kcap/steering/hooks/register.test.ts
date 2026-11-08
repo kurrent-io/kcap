@@ -691,3 +691,73 @@ test('A_retired_load_neither_records_nor_submits_a_handover', async ($, on) => {
   expect(w.submits).toEqual([])
   expect(w.entry()?.held).toBeUndefined()
 })
+
+test('A_report_taken_at_exit_is_not_sent_again', async ($, on) => {
+  const w = world(on)
+  w.handovers.push({ dispatchId: FIRST, text: 'landed at exit' })
+  await begin($, w)
+  await w.clock.advance(1000)
+
+  await row($, 'landed at exit', ROW_1)
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: SESSION, resume: { id: SESSION } })
+  expect(w.sent('/link')).toHaveLength(1)
+  expect(w.store.has(ENTRY)).toBe(false)
+
+  delete w.alive[PID]
+  w.pid = '5555'
+  w.alive['5555'] = 'Sat Nov  8 09:00:00 2026'
+  await begin($, w)
+  await w.clock.advance(1000)
+  expect(w.sent('/link')).toHaveLength(1)
+})
+
+test('A_sweep_keeps_only_what_is_still_owed', async ($, on) => {
+  const dead = 'process:6666:Sat Nov 8 06:00:00 2026'
+  const link = { route: '/link', dispatchId: FIRST, settles: true, body: { agentId: AGENT, dispatchId: FIRST, rowUuid: ROW_1 } }
+  const rejected = { route: '/undelivered', dispatchId: SECOND, settles: true, body: { agentId: AGENT, dispatchId: SECOND } }
+  const w = world(on, { store: { [dead]: { reports: [link, rejected] } } })
+  w.replies['/undelivered'] = () => ({ status: 503 })
+
+  await begin($, w)
+  expect(w.sent('/link')).toHaveLength(1)
+  expect(w.store.get(dead)).toEqual({ reports: [rejected] })
+})
+
+test('A_lost_path_is_looked_up_again_until_the_daemon_is_back', async ($, on) => {
+  const w = world(on)
+  w.handovers.push({ dispatchId: FIRST, text: 'waiting it out' })
+  await begin($, w)
+  await w.clock.advance(1000)
+  expect(w.submits).toHaveLength(1)
+
+  w.down = true
+  w.socket = ''
+  await $.session.end({ reason: 'clear', sessionId: SESSION, resume: { id: SESSION } })
+  await $.classic.SessionStart({ source: 'clear', session_id: NEW_SESSION })
+  await w.clock.settle()
+
+  await w.clock.advance(10_000)
+  w.down = false
+  w.socket = SOCKET
+  await w.clock.advance(19_000)
+  expect(w.sent('/attach')).toHaveLength(1)
+  expect(w.commands.filter(c => c[0] === 'kcap')).toHaveLength(2)
+
+  await w.clock.advance(1000)
+  expect(w.commands.filter(c => c[0] === 'kcap')).toHaveLength(3)
+  expect(w.sent('/attach').at(-1)).toEqual({ sessionId: NEW_SESSION, processKey: KEY, replacesAgentId: AGENT })
+  expect(w.sent('/next').at(-1)).toMatchObject({ agentId: NEW_AGENT, outstanding: FIRST })
+})
+
+test('A_refused_rejection_report_still_settles', async ($, on) => {
+  const w = world(on)
+  w.submit = () => ({ drop: 'a hook blocked it' })
+  w.replies['/undelivered'] = () => ({ status: 400, body: { error: 'invalid_request' } })
+  w.handovers.push({ dispatchId: FIRST, text: 'first drop' }, { dispatchId: SECOND, text: 'second drop' })
+
+  await begin($, w)
+  await w.clock.advance(2000)
+
+  expect(w.sent('/undelivered').map(b => b.dispatchId)).toEqual([FIRST])
+  expect(w.submits.map(s => s.text)).toEqual(['first drop', 'second drop'])
+})

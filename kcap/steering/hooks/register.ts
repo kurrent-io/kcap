@@ -5,6 +5,7 @@ const NOTICE = 'Remote message from kcap'
 const ENTRY = 'process:'
 const POLL_MS = 1000
 const SLOW_ATTACH_MS = 10_000
+const LOOK_AGAIN_MS = 30_000
 // Above the daemon's own budgets, so the mod never abandons a call the daemon still answers: it waits up to 10 s on
 // the server for each handover it confirms, and 15 s for a registration.
 const CALL_MS = 12_000
@@ -127,6 +128,7 @@ export const register: Register = on => {
 
     let socket: string | undefined
     let known = false
+    let lookAgainAt = 0
     let timer: Timer | undefined
     let every = POLL_MS
     let ticking = false
@@ -162,22 +164,26 @@ export const register: Register = on => {
     }
 
     // No path means steering is off, no daemon serves this session's profile, or the daemon is away: only the attach
-    // waits for one. A path already found is kept and retried, because that is also how a daemon restart looks.
+    // waits for one. A path already found is kept and retried, because that is also how a daemon restart looks, and
+    // the tick asks for a path again now and then. A session that never had one runs no timer, so asks nothing.
     const connect = async () => {
       const found = await $.process.run(['kcap', 'daemon', 'steering-socket'], { timeoutMs: 5000 }).catch(() => undefined)
       const path = found?.exitCode === 0 ? (found.stdout.split('\n')[0] ?? '').trim() : ''
       if (retired) return
 
       known = path.startsWith('/')
-      if (!known) return
+      if (!known) {
+        lookAgainAt = (await $.clock.now()) + LOOK_AGAIN_MS
+        return
+      }
 
       socket = path
       if (!timer) run(every)
     }
 
     // A refused connect or an answer the daemon could not give yet leaves a report for the next tick. A report the
-    // daemon will never accept is dropped, but the dispatch stays outstanding: the row it names exists, and letting
-    // the daemon's next confirm find nothing behind it would tell the sender a delivered message was refused.
+    // daemon will never accept is dropped. A refused link still keeps its dispatch outstanding: the row it names exists,
+    // and letting the daemon's next confirm find nothing behind it would tell the sender a delivered message was refused.
     const flush = async () => {
       for (const report of [...entry.reports]) {
         const reply = await call(report.route, report.body, CALL_MS)
@@ -185,7 +191,8 @@ export const register: Register = on => {
         if (reply.status !== 200) $.ui.log(`the daemon refused a ${report.route} report (${reply.status})`, { to: 'debug' })
 
         entry.reports = entry.reports.filter(r => r !== report)
-        if (reply.status === 200 && report.settles && entry.held?.dispatchId === report.dispatchId) delete entry.held
+        const settled = report.settles && (reply.status === 200 || report.route !== '/link')
+        if (settled && entry.held?.dispatchId === report.dispatchId) delete entry.held
         await save()
       }
     }
@@ -289,6 +296,7 @@ export const register: Register = on => {
       ticking = true
       try {
         await flush()
+        if (!known && (await $.clock.now()) >= lookAgainAt) await connect()
         if (!inert) {
           if (!entry.agentId && !entry.changing && known && (await $.clock.now()) >= attachAfter) await attach()
           if (entry.agentId) await poll(entry.agentId)
@@ -382,10 +390,12 @@ export const register: Register = on => {
         const until = (await $.clock.now()) + budgetMs / 2
         const left = async () => Math.min(CALL_MS, until - (await $.clock.now()))
 
-        for (const report of entry.reports) {
+        for (const report of [...entry.reports]) {
           const ms = await left()
           const reply = ms > 0 ? await call(report.route, report.body, ms) : undefined
           if (!reply || reply.status >= 500) break
+
+          entry.reports = entry.reports.filter(r => r !== report)
         }
 
         const ms = await left()
@@ -395,7 +405,7 @@ export const register: Register = on => {
 
         // The daemon takes a report whichever process sends it, so what is still owed outlives this process: the next
         // one finds this key stale and sends it. Nothing else of the key survives.
-        if (entry.reports.length > 0) await $.store.set(storeKey, { reports: entry.reports, turn: entry.turn })
+        if (entry.reports.length > 0) await $.store.set(storeKey, { reports: entry.reports })
         else await $.store.delete(storeKey)
       },
 
@@ -412,9 +422,12 @@ export const register: Register = on => {
         const left = await $.store.get(k)
         const owed = left && typeof left === 'object' ? ((left as Partial<Entry>).reports ?? []) : []
 
-        for (const report of owed) {
+        for (const [i, report] of owed.entries()) {
           const reply = await call(report.route, report.body, CALL_MS)
-          if (!reply || reply.status >= 500) return
+          if (!reply || reply.status >= 500) {
+            if (i > 0) await $.store.set(k, { reports: owed.slice(i) })
+            return
+          }
         }
 
         await $.store.delete(k)
