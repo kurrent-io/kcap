@@ -299,5 +299,28 @@ public class WorkspaceSpanStoreTests {
         await Assert.That(Directory.Exists(fresh)).IsTrue();
     }
 
+    /// <summary>A hook opens a span in a stale session directory while the prune waits on the lock: the
+    /// prune read the directory as stale before that, so only a recheck under the lock keeps the span.</summary>
+    [Test]
+    public async Task Pruning_keeps_a_stale_directory_a_hook_wrote_into_while_the_prune_waited() {
+        using var rig   = new WorkspaceRig();
+        var store       = new WorkspaceSpanStore(rig.Config.Root, WorkspaceRig.Server, rig.Spool,
+            new WorkspaceSnapshotter(new WorkspaceGit(rig.Time), rig.Time), rig.Time) { LockWait = TimeSpan.FromSeconds(5) };
+        var old         = rig.Time.GetUtcNow().UtcDateTime - TimeSpan.FromDays(8);
+        var fresh       = Path.Combine(rig.SessionSpanDir, "0123456789abcdef.json");
+
+        Task prune;
+        using (WorkspaceSpanLock.TryAcquire(rig.SessionSpanDir, TimeSpan.Zero)) {
+            File.SetLastWriteTimeUtc(Path.Combine(rig.SessionSpanDir, ".lock"), old);
+            Directory.SetLastWriteTimeUtc(rig.SessionSpanDir, old);
+            prune = Task.Run(store.Prune);
+            await Task.Delay(500);
+            File.WriteAllText(fresh, "{}");
+        }
+        await prune;
+
+        await Assert.That(File.Exists(fresh)).IsTrue();
+    }
+
     static string Toplevel(GitRepo repo) => Path.GetFullPath(repo.Do("rev-parse", "--show-toplevel").Text);
 }

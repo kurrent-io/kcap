@@ -96,12 +96,13 @@ public sealed class WorkspaceSpanStore(
             foreach (var server in Directory.EnumerateDirectories(top))
             foreach (var session in Directory.EnumerateDirectories(server)) {
                 try {
-                    var info   = new DirectoryInfo(session);
-                    var latest = info.EnumerateFiles().Select(f => f.LastWriteTimeUtc).Append(info.LastWriteTimeUtc).Max();
-                    if (latest >= cutoff) continue;
+                    if (!IsStale(session, cutoff, withDirectory: true)) continue;
 
-                    using var held = WorkspaceSpanLock.TryAcquire(session, TimeSpan.Zero);
-                    held?.RemoveSession();
+                    using var held = WorkspaceSpanLock.TryAcquire(session, LockWait);
+                    // Again under the lock: a hook may have opened a span between the first look and the lock.
+                    // Taking the lock touches the directory and may create the lock file, so only the other
+                    // files count now.
+                    if (held is not null && IsStale(session, cutoff, withDirectory: false)) held.RemoveSession();
                 } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                     // The next prune retries it.
                 }
@@ -109,6 +110,13 @@ public sealed class WorkspaceSpanStore(
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             // The next prune retries.
         }
+    }
+
+    static bool IsStale(string session, DateTime cutoff, bool withDirectory) {
+        var info  = new DirectoryInfo(session);
+        var times = info.EnumerateFiles().Where(f => withDirectory || f.Name != ".lock").Select(f => f.LastWriteTimeUtc);
+        if (withDirectory) times = times.Append(info.LastWriteTimeUtc);
+        return times.DefaultIfEmpty(DateTime.MinValue).Max() < cutoff;
     }
 
     static IEnumerable<string> Baselines(string sessionDir) {
