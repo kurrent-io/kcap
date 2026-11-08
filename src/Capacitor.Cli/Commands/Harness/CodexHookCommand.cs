@@ -455,7 +455,12 @@ sealed class CodexHookCommand(
 
         await RunSessionStartHandshakeForTest(
             writeStdout: () => WriteSessionStartOutput(env.Stdout, fragment, workItemsNudge),
-            postStdoutWork: () => RunPostStdoutWork(spool, enrichedNode, sessionId, outcome, env));
+            postStdoutWork: async () => {
+                await RunPostStdoutWork(spool, enrichedNode, sessionId, outcome, env);
+                // Codex has no hook after a session's last Stop, so a span whose post failed there is retried here,
+                // after the handshake; Program's post-dispatch drain skips Codex.
+                await Poster(env).DrainWorkspaceAsync(clock.Elapsed);
+            });
 
         // Non-zero says the session was not recorded; RunPostStdoutWork spawns no watcher for it.
         return outcome == HookPostOutcome.Failed ? 1 : 0;

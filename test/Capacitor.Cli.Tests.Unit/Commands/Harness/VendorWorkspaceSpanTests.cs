@@ -166,6 +166,19 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(Posted().Select(p => p.SessionId)).IsEquivalentTo(["eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]);
     }
 
+    /// <summary>Codex has no hook after its last Stop, so a span whose post failed there is retried when the
+    /// next session starts.</summary>
+    [Test]
+    public async Task Codex_session_start_retries_spooled_workspace_spans() {
+        new WorkspaceSpool(Config.Root, _server.Url!, _time).Write(new WorkspaceChangesRequest(
+            "ffffffffffffffffffffffffffffffff", Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+            [new WorkspaceChange("x.txt", "edit")], false));
+
+        await CodexAsync("SessionStart");
+
+        await Assert.That(Posted().Select(p => p.SessionId)).IsEquivalentTo(["ffffffffffffffffffffffffffffffff"]);
+    }
+
     [Test]
     public async Task Codex_spans_a_turn_from_its_prompt_to_its_stop() {
         await CodexAsync("UserPromptSubmit");
