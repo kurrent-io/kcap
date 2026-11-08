@@ -45,7 +45,7 @@ internal sealed class AdoptionEvidenceReader(IProcessRunner runner, ILoginShellP
             units = printed;
         }
 
-        return new AdoptionEvidence([.. installs.Values], units, files.Daemons, path, onLogin);
+        return new AdoptionEvidence([.. installs.Values], units, files.Daemons, path, onLogin) { Links = files.Links };
     }
 
     sealed record Files(IReadOnlyList<ServiceUnitFact> Units, IReadOnlyList<RunningDaemonFact> Daemons, IReadOnlyList<string> Links);

@@ -392,6 +392,25 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Notifier.Notified[1]).Contains("kcap daemon stop --name spare");
     }
 
+    /// <summary>A login shell that already finds the bundle elsewhere leaves the install's own link in place on every PATH
+    /// that reaches it; the switch points that link at the bundle too before the install goes.</summary>
+    [Test]
+    public async Task A_link_the_login_shell_no_longer_finds_first_is_pointed_at_the_bundle() {
+        var world = new AdoptionWorld(Tmp);
+        world.Machine.Evidence = _ => {
+            var found = world.Found();
+            return Task.FromResult(found with {
+                KcapOnLoginPath = world.Bundle.Cli, Units = [.. found.Units.Select(u => u with { KcapOnStoredPath = world.Bundle.Cli })],
+            });
+        };
+
+        using (var launch = world.Launch()) await world.FirstLookAsync(launch);
+
+        await Assert.That(Target(world.Link)).IsEqualTo(world.Bundle.Cli);
+        await Assert.That(Directory.Exists(world.Root)).IsFalse();
+        await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Switched);
+    }
+
     /// <summary>The lane proves only the app's daemon answering; the service file must name the bundle's daemon too.</summary>
     [Test]
     public async Task A_repoint_that_leaves_the_service_file_on_the_old_daemon_is_not_a_move() {

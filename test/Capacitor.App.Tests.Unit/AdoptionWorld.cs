@@ -136,7 +136,7 @@ sealed class AdoptionWorld {
             .Where(n => Directory.Exists(n.Platform) && named.Exists(c => n.Install.OwnedEntries.Any(e => CanonicalPath.IsWithin(c, e))))
             .Select(n => n.Install).ToList();
 
-        return new AdoptionEvidence(installs, units, daemons, LoginPath, Link);
+        return new AdoptionEvidence(installs, units, daemons, LoginPath, Link) { Links = [.. _installs.Select(n => n.Link)] };
     }
 
     /// <summary>A harness session that started an hour before any cutover this world records.</summary>

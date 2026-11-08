@@ -135,5 +135,6 @@ public class AdoptionEvidenceReaderTests {
 
         await Assert.That(evidence.Installs.Count).IsEqualTo(1);
         await Assert.That(evidence.Installs[0].DaemonBinary).IsEqualTo(daemon);
+        await Assert.That(evidence.Links).IsEquivalentTo([Path.Combine(links.Path, "kcap")]);
     }
 }

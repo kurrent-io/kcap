@@ -12,4 +12,7 @@ public sealed record RunningDaemonFact(string Name, int Pid, string? StartToken,
 /// <c>kcap</c> on <paramref name="LoginPath"/>, as found.</summary>
 public sealed record AdoptionEvidence(
     IReadOnlyList<OtherCliInstall> Installs, IReadOnlyList<ServiceUnitFact> Units, IReadOnlyList<RunningDaemonFact> Daemons,
-    string? LoginPath, string? KcapOnLoginPath);
+    string? LoginPath, string? KcapOnLoginPath) {
+    /// <summary>Every <c>kcap</c> found in the folders a kcap link is made in, whichever PATH finds it first.</summary>
+    public IReadOnlyList<string> Links { get; init; } = [];
+}

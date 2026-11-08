@@ -14,7 +14,8 @@ public static class AdoptionPreflight {
         if (evidence.Installs.Count == 0) return new AdoptionPlan(null, [], false, []);
         if (record.MachineSwitched) return new AdoptionPlan(null, [], false, evidence.Installs);
 
-        var locations = new[] { evidence.KcapOnLoginPath }.Concat(evidence.Units.Select(u => u.KcapOnStoredPath))
+        // A link no PATH here finds first is still another account's or another shell's kcap, gone with the install.
+        var locations = new[] { evidence.KcapOnLoginPath }.Concat(evidence.Units.Select(u => u.KcapOnStoredPath)).Concat(evidence.Links)
             .OfType<string>().DistinctBy(LinkKey, PathComparison.Comparer).ToList();
 
         var installs = evidence.Installs.Select(i => RecordedLeft(i, record) is { } kept

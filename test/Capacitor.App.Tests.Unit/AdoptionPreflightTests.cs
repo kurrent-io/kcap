@@ -35,6 +35,17 @@ public class AdoptionPreflightTests {
     static ServiceUnitFact Unit(string name, string? kcapOnPath, bool loaded = false, int? pid = null) =>
         new($"/p/{name}.plist", name, "/x/kcap-daemon", "/usr/bin", kcapOnPath, loaded, pid, null);
 
+    /// <summary>A link into the install that this shell's PATH reaches only after the bundle's is another shell's or
+    /// another account's kcap all the same: it is swapped too, or the deletion would leave it pointing at nothing.</summary>
+    [Test]
+    public async Task A_link_no_PATH_finds_first_is_still_swapped() {
+        var s    = Script("a");
+        var plan = Plan(Evidence([s.Install], Bundle) with { Links = [s.Link] }, stable: s.LinkFolder);
+
+        await Assert.That(plan.Installs.Single().Links.Select(l => l.Path)).IsEquivalentTo([s.Link]);
+        await Assert.That(plan.Installs.Single().Left).IsNull();
+    }
+
     [Test]
     public async Task No_other_install_plans_nothing() {
         var plan = Plan(Evidence([], null));
