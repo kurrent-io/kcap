@@ -166,9 +166,15 @@ internal sealed class CliAdoptionCoordinator : IDisposable {
             Console.Error.WriteLine($"kcap: switching to the app's kcap failed unexpectedly: {ex}");
             _log("adoption_held", [("reason", "unexpected_error"), ("result", $"{ex.GetType().Name}: {ex.Message}")]);
         } finally {
-            PublishFinishOffered();
-            _running.Release();
-            if (Interlocked.Exchange(ref _again, 0) == 1) Retry();
+            // An offer that cannot be published must not keep the lane held: every later run would wait on it for good.
+            try {
+                PublishFinishOffered();
+            } catch (Exception ex) {
+                _log("adoption_held", [("reason", "finish_offer_unpublished"), ("result", $"{ex.GetType().Name}: {ex.Message}")]);
+            } finally {
+                _running.Release();
+                if (Interlocked.Exchange(ref _again, 0) == 1) Retry();
+            }
         }
     }
 
