@@ -376,6 +376,28 @@ public class DaemonRecorderTests {
         await Assert.That(List.Load().Single().Process).IsEqualTo(new ProcessIncarnation(4343, "test:claude"));
     }
 
+    /// <summary>An ending process's own SessionEnd can run while that process is still alive, beside the resumed run's
+    /// claim. Run in both pid orders, so one of them has the ending process's note read first: the resumed run is the one
+    /// followed either way, and the ending run's end is settled.</summary>
+    [Test]
+    [Arguments(4242, 4343)]
+    [Arguments(4343, 4242)]
+    public async Task A_live_ending_processes_hook_beside_a_resume_follows_the_resume(int ending, int resumed) {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var recorder = NewRecorder(time: time);
+        var source = Terminal(Transcript(Prompt, Reply), pid: ending);
+        await recorder.TryRecordAsync(source, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        ClaimNote(ending);
+        ClaimNote(resumed);
+
+        await Assert.That(await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the ending run's finish")).IsTrue();
+
+        await Assert.That(SessionEndRecord.TryClaim(Paths, Session, source.Process!, time.GetUtcNow())).IsEqualTo(SessionEndTurn.Done);
+        await Assert.That(List.Load().Single().Process).IsEqualTo(new ProcessIncarnation(resumed, "test:claude"));
+    }
+
     /// <summary>The claim went to another daemon while the end waited, so the resumed run is that daemon's to record, and
     /// this one neither follows it nor posts an end.</summary>
     [Test]

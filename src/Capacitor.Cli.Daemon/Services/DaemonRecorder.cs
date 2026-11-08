@@ -311,7 +311,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             // The exited run's own hook can come after a resumed run's SessionStart and before the grace looks again. The
             // session went on, so that run owes no end, and an end this hook posted would land after the resumed start.
             if (from == tracked.Source.Process) {
-                if (LiveClaimant(tracked.Source) is { } resumed && resumed != from) await FollowAsync(tracked, resumed);
+                if (LiveClaimant(tracked.Source, besides: from) is { } resumed) await FollowAsync(tracked, resumed);
 
                 return true;
             }
@@ -786,7 +786,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
     // False when no other live process has claimed the session, and nothing has changed.
     bool TryFollowClaimant(Tracked tracked, ProcessIncarnation process) {
-        if (tracked.Source.SubagentId is not null || LiveClaimant(tracked.Source) is not { } claimant || claimant == process) return false;
+        if (tracked.Source.SubagentId is not null || LiveClaimant(tracked.Source, besides: process) is not { } claimant) return false;
 
         LogFollowed(tracked.Source.Key, process.Pid, claimant.Pid);
         SessionEndRecord.Settle(_paths, tracked.Source.SessionId, process, _time.GetUtcNow());
@@ -811,9 +811,11 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     // The session is running in a live process its hooks claimed, which may be another than the one this source follows.
-    ProcessIncarnation? LiveClaimant(RecordedSource source) =>
+    // A process ending now still has its note, and the first live note read can be its own: one named in besides is
+    // passed over, so any other claimant is found.
+    ProcessIncarnation? LiveClaimant(RecordedSource source, ProcessIncarnation? besides = null) =>
         SessionId.Parse(source.SessionId) is { } session
-            ? new AgentSessionNotes(_config.ConfigRoot).LiveClaimant(session, (pid, token) => _processExited(new ProcessIncarnation(pid, token)))
+            ? new AgentSessionNotes(_config.ConfigRoot).LiveClaimant(session, (pid, token) => new ProcessIncarnation(pid, token) is var note && (note == besides || _processExited(note)))
             : null;
 
     /// <summary>Posts a terminal session's end once its process has gone and the grace has passed with no SessionEnd hook,
