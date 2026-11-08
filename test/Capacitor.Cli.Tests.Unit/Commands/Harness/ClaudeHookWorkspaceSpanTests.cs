@@ -4,6 +4,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.PrDetection;
 using Capacitor.Cli.Workspace;
@@ -128,6 +129,29 @@ public class ClaudeHookWorkspaceSpanTests : IDisposable {
         await HookAsync(Hook("UserPromptSubmit", Repo.Path));
 
         await Assert.That(Posted()).IsEmpty();
+    }
+
+    /// <summary>The session's end is posted before the span work, which runs git over the whole tree and
+    /// would otherwise spend the end's budget; the span it closes is left in the spool for a later hook.</summary>
+    [Test]
+    public async Task A_session_end_posts_the_end_before_any_span_and_spools_the_span() {
+        _server.Given(Request.Create().WithPath("/hooks/session-end").UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        await HookAsync(Hook("UserPromptSubmit", Repo.Path));
+        Repo.CreateFile("last.txt", "x");
+
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        using var client = new HttpClient();
+        await new ClaudeHookCommand(Config.Root, profiles, new HookClock(_time), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, http,
+                TestWatchers.For(Config.Root, profiles, http), SystemProcessStarter.Instance, router: new GitProviderRouter(),
+                workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            .HandleWithDeps(new HookSpool(Config.Root, _time, _server.Url), new StringReader(Hook("SessionEnd", Repo.Path, ""","reason":"exit" """)),
+                () => Task.FromResult(new AuthAttempt(client, AuthStatus.Ok)), new StringWriter());
+
+        var posts = _server.LogEntries.Select(e => e.RequestMessage.Path).ToList();
+        await Assert.That(posts).Contains("/hooks/session-end");
+        await Assert.That(posts).DoesNotContain("/hooks/workspace-changes");
+        await Assert.That(new WorkspaceSpool(Config.Root, _server.Url, _time).HasPending).IsTrue();
     }
 
     static string JsonEncoded(string path) => JsonSerializer.Serialize(path)[1..^1];

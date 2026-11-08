@@ -281,10 +281,7 @@ internal sealed class AgentHookPoster(
 
         // An empty spool posts nothing, and resolving a credential only to find that out is a token
         // read, or a refresh, on the hook's path.
-        var workspace = new WorkspaceSpool(config, Url, time, Stderr.WriteLine);
-        workspace.DeleteExpired();
-        var workspacePending = workspace.HasPending && !workspace.IsPaused;
-        if (sessionId is null && !lifecycle.SessionIdsWithBacklog().Any() && !transcript.SessionIdsWithBacklog().Any() && !workspacePending) return;
+        if (sessionId is null && !lifecycle.SessionIdsWithBacklog().Any() && !transcript.SessionIdsWithBacklog().Any()) return;
 
         var budget = TimeSpan.FromSeconds(1.5);
 
@@ -303,12 +300,38 @@ internal sealed class AgentHookPoster(
                     time, cts.Token,
                     onWhatsDoneRequested: (id, vendor) => watchers.SpawnWhatsDoneGenerator(id, vendor, stderr));
 
-                // Second, so a closed span never takes the lifecycle backlog's budget.
-                if (workspacePending && !cts.IsCancellationRequested)
-                    await workspace.DrainAsync(client, Url!, budget, cts.Token, id => DisabledSessions.IsDisabled(id, config));
             }
         } catch {
             // Best-effort — a drain hiccup must never disrupt the vendor's own hook.
+        }
+    }
+
+    /// <summary>The longest the post-dispatch workspace drain may run, and the latest point in a hook's life it
+    /// starts: past that the host's own timeout is close.</summary>
+    static readonly TimeSpan WorkspaceDrainWindow = TimeSpan.FromSeconds(1.5);
+    static readonly TimeSpan WorkspaceDrainLatestStart = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Posts spooled workspace spans once the vendor's hook has done its own work, so a session end is
+    /// handed off or posted before any span is. Throttled like the lifecycle drain, and withholds disabled
+    /// sessions. Never throws.
+    /// </summary>
+    public async Task DrainWorkspaceAsync(TimeSpan elapsed) {
+        try {
+            if (elapsed >= WorkspaceDrainLatestStart || !HookHttp.IsPostable(Url)) return;
+
+            var workspace = new WorkspaceSpool(config, Url, time, Stderr.WriteLine);
+            workspace.DeleteExpired();
+            if (!workspace.HasPending || workspace.IsPaused || !TryClaimDrainAttempt(workspace.DirectoryPath)) return;
+
+            using var cts = new CancellationTokenSource(WorkspaceDrainWindow, time);
+            var (client, status) = await http.ForHookAsync(cts.Token);
+            using (client) {
+                if (IsAuthLapsed(status)) return;
+                await workspace.DrainAsync(client, Url!, WorkspaceDrainWindow, cts.Token, id => DisabledSessions.IsDisabled(id, config));
+            }
+        } catch {
+            // Best-effort — the next hook drains again.
         }
     }
 

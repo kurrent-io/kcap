@@ -114,6 +114,40 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(spool.HasPending).IsFalse();
     }
 
+    /// <summary>The drain ahead of a hook's dispatch runs before a session end is handed off, so it never
+    /// posts a workspace span; those go after the vendor's own work.</summary>
+    [Test]
+    public async Task The_drain_ahead_of_dispatch_posts_no_workspace_span() {
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        new WorkspaceSpool(Config.Root, _server.Url!, _time).Write(new WorkspaceChangesRequest(
+            "cccccccccccccccccccccccccccccccc", Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+            [new WorkspaceChange("x.txt", "edit")], false));
+
+        await new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time)
+            .DrainSpoolsCoreAsync(new HookSpool(Config.Root, _time, _server.Url), new TranscriptSpool(Config.Root, _time, _server.Url),
+                sessionId: "cccccccccccccccccccccccccccccccc", http.ForHookAsync);
+
+        await Assert.That(Posted()).IsEmpty();
+    }
+
+    [Test]
+    public async Task The_drain_after_dispatch_posts_workspace_spans_and_withholds_disabled_sessions() {
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        var http     = new FixedCapacitorHttpClient();
+        var spool    = new WorkspaceSpool(Config.Root, _server.Url!, _time);
+        foreach (var session in new[] { "dddddddddddddddddddddddddddddddd", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" })
+            spool.Write(new WorkspaceChangesRequest(session, Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+                [new WorkspaceChange("x.txt", "edit")], false));
+        Directory.CreateDirectory(Config.Root.Path("disabled"));
+        File.WriteAllText(Path.Combine(Config.Root.Path("disabled"), "dddddddddddddddddddddddddddddddd"), "");
+
+        await new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time)
+            .DrainWorkspaceAsync(TimeSpan.Zero);
+
+        await Assert.That(Posted().Select(p => p.SessionId)).IsEquivalentTo(["eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]);
+    }
+
     [Test]
     public async Task Codex_spans_a_turn_from_its_prompt_to_its_stop() {
         await CodexAsync("UserPromptSubmit");

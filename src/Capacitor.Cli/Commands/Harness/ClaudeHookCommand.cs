@@ -357,6 +357,35 @@ public sealed class ClaudeHookCommand(
         string body;
         try { body = await stdin.ReadToEndAsync(); } catch { return 0; }
 
+        var exit = await HandleWithDepsCore(spool, body, clientFactory, stdout, passNoticesCapable);
+        await EndWorkspaceSpansAsync(body);
+        return exit;
+    }
+
+    /// <summary>A session's end goes first: it is posted or spooled before the turn's spans are closed, which
+    /// runs git over the whole tree. The turn's Stop normally closed them already; this catches a session that
+    /// ended mid-turn. Its spans are left for a later hook to post.</summary>
+    async Task EndWorkspaceSpansAsync(string body) {
+        string? sessionId;
+        try {
+            var node = JsonNode.Parse(body);
+            if (node?["hook_event_name"]?.GetValue<string>() is not { } ev || ToKebab(ev) != "session-end" || node["agent_id"] is not null) return;
+            sessionId = node["session_id"]?.GetValue<string>()?.Replace("-", "");
+        } catch {
+            return;
+        }
+
+        if (sessionId is null || ClaudeHelperRun.IsHelperSessionId(sessionId) || SessionEndFence.ShouldHold(hosted, sessionId)) return;
+
+        await new WorkspaceSpanHook(config, profiles, http, clock.Time)
+            .EndAsync(sessionId, Min(clock.Budget(Ceiling("session-end")).Remaining, WorkspaceEndCap), drain: false);
+    }
+
+    async Task<int> HandleWithDepsCore(
+            HookSpool spool, string body,
+            Func<Task<AuthAttempt>> clientFactory,
+            TextWriter? stdout, bool passNoticesCapable) {
+
         // Minimal parse (no auth/git) so we can spool AND start the watcher even if client creation hangs.
         string? command = null, sessionId = null, transcriptPath = null, cwd = null, source = null, agentId = null, toolUseId = null, toolName = null;
         JsonNode? toolInput = null;
@@ -440,10 +469,6 @@ public sealed class ClaudeHookCommand(
         // notices above have had their chance to post.
         if (command is "post-tool-use" or "post-tool-use-failure")
             return 0;
-
-        // The turn's Stop normally closed every span already; this catches a session that ended mid-turn.
-        if (command == "session-end" && agentId is null)
-            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, Min(budget.Remaining, WorkspaceEndCap));
 
         var clientCap = budget.Remaining;
 
@@ -631,7 +656,10 @@ public sealed class ClaudeHookCommand(
         if (ClaudeHelperRun.IsHelperSessionId(canonicalSessionId)) return true;
 
         if (canonicalSessionId is not null && DisabledSessions.IsDisabled(canonicalSessionId, config)) {
-            if (command == "session-end") DisabledSessions.RemoveMarker(canonicalSessionId, config);
+            if (command == "session-end") {
+                new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(canonicalSessionId);
+                DisabledSessions.RemoveMarker(canonicalSessionId, config);
+            }
             return true;
         }
 
@@ -733,6 +761,7 @@ public sealed class ClaudeHookCommand(
 
             if (disabledSessionId is not null && DisabledSessions.IsDisabled(disabledSessionId, config)) {
                 if (command == "session-end") {
+                    new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(disabledSessionId);
                     DisabledSessions.RemoveMarker(disabledSessionId, config);
                 }
 

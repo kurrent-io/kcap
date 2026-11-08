@@ -243,8 +243,15 @@ public sealed class CursorHookCommand(
             : (kindSignal.Kind == "sessionStart" ? SessionStartMemoryOutputAdapters.Render(HarnessId.Cursor, null) : null);
 
         if (response is not null) Console.Write(response);
+
+        // After the end, on every path it took — posted, spooled, or abandoned at the ceiling — and on a
+        // budget of its own: the end is what the hook's own budget is for, and Cursor waits on nothing here.
+        if (kindSignal is { Kind: "sessionEnd", SessionId: { } ended })
+            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(ended, SessionEndSpanBudget, drain: false);
         return 0;
     }
+
+    static readonly TimeSpan SessionEndSpanBudget = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// A write-once, thread-safe signal for the resolved <c>hook_event_name</c>, published
@@ -256,8 +263,12 @@ public sealed class CursorHookCommand(
     /// </summary>
     sealed class ResolvedEventKindSignal {
         volatile string? _kind;
+        volatile string? _sessionId;
         public void Publish(string kind) => _kind = kind;
         public string? Kind => _kind;
+
+        /// <summary>A top-level session the event belongs to, once known; a linked subagent child has none.</summary>
+        public string? SessionId { get => _sessionId; set => _sessionId = value; }
     }
 
     /// <summary>
@@ -389,6 +400,7 @@ public sealed class CursorHookCommand(
                 }
             }
             var isSubagentChild = subagentParentId is not null;
+            if (!isSubagentChild) kindSignal.SessionId = sessionId;
 
             // attach a `repository` node on sessionStart so the session groups
             // under its repo in the sidebar. Cursor payloads carry `workspace_roots`
@@ -577,10 +589,6 @@ public sealed class CursorHookCommand(
              && !hasRemainingSpoolBacklog) {
                 await MaybeSpawnWatcherAsync(sessionId, transcriptPath, cwd: null, eventName, isSubagentChild);
             }
-
-            // Last, on what the final drain and the end's post left: those carry the session's end.
-            if (eventName == "sessionEnd" && !BudgetExpired())
-                await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, budget.Remaining, drain: false);
 
             if (!drainBeforePost && !BudgetExpired() && sessionId is not null && !string.IsNullOrEmpty(transcriptPath)) {
                 await CursorTranscriptBackfill.RunAsync(
