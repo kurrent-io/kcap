@@ -296,6 +296,11 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
                 // Declined, it takes nothing from the exit that may yet end the source.
                 if (!MayFinish(tracked)) return false;
+
+                // The exited run's own hook can beat the process check to a resumed run's SessionStart. The session went
+                // on, so the source follows that run rather than ending with this one.
+                if (from is not null && from == tracked.Source.Process && TryFollowClaimant(tracked, from)) return true;
+
                 if (tracked.TryEnd(EndedBy.Hook) || tracked.Ended is not EndedBy.Process) return await FinishAsync(key, ct, hurried: true);
             }
 
@@ -776,21 +781,24 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     // run owes no end, so its late hook finds that settled. One the list can't record would be left out of it for good,
     // so it goes, as a follow that can't start does, and the resumed run's hooks take the session.
     void EndOrFollow(Tracked tracked, ProcessIncarnation process) {
-        if (tracked.Source.SubagentId is null && LiveClaimant(tracked.Source) is { } claimant && claimant != process) {
-            LogFollowed(tracked.Source.Key, process.Pid, claimant.Pid);
-            SessionEndRecord.Settle(_paths, tracked.Source.SessionId, process, _time.GetUtcNow());
-            tracked.Source     = tracked.Source with { Process = claimant };
-            tracked.MayPostEnd = true;
+        if (!TryFollowClaimant(tracked, process)) EndExited(tracked, process);
+    }
 
-            if (!_list.TryAdd(tracked.Source) && tracked.TryEnd(EndedBy.Itself)) {
-                LogFollowUnlisted(tracked.Source.Key);
-                _ = FinishQuietlyAsync(tracked.Source.Key, CancellationToken.None);
-            }
+    // False when no other live process has claimed the session, and nothing has changed.
+    bool TryFollowClaimant(Tracked tracked, ProcessIncarnation process) {
+        if (tracked.Source.SubagentId is not null || LiveClaimant(tracked.Source) is not { } claimant || claimant == process) return false;
 
-            return;
+        LogFollowed(tracked.Source.Key, process.Pid, claimant.Pid);
+        SessionEndRecord.Settle(_paths, tracked.Source.SessionId, process, _time.GetUtcNow());
+        tracked.Source     = tracked.Source with { Process = claimant };
+        tracked.MayPostEnd = true;
+
+        if (!_list.TryAdd(tracked.Source) && tracked.TryEnd(EndedBy.Itself)) {
+            LogFollowUnlisted(tracked.Source.Key);
+            _ = FinishQuietlyAsync(tracked.Source.Key, CancellationToken.None);
         }
 
-        EndExited(tracked, process);
+        return true;
     }
 
     // Whoever ends a source first decides how: this exit loses to a hook or a server stop already under way.

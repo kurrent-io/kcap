@@ -349,11 +349,13 @@ public class DaemonRecorderTests {
         await Assert.That(List.Load().Single().Process).IsEqualTo(new ProcessIncarnation(4343, "test:claude"));
     }
 
-    /// <summary>The exited process's detached SessionEnd can land after a resumed run's SessionStart and before the grace
-    /// looks again. The session runs on in that run, so the exited one's hook finds its end settled rather than its own to
-    /// post, and the source follows the resumed run.</summary>
+    /// <summary>The exited process's detached SessionEnd can land after a resumed run's SessionStart, whether or not the
+    /// daemon's process check has seen the exit yet. The session runs on in that run, so the exited one's hook finds its
+    /// end settled rather than its own to post, and the source follows the resumed run.</summary>
     [Test]
-    public async Task An_exited_processes_late_hook_after_a_resume_posts_no_end_and_follows_the_resume() {
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_exited_processes_late_hook_after_a_resume_posts_no_end_and_follows_the_resume(bool exitSeen) {
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
         await using var recorder = NewRecorder(time: time);
         var source = Terminal(Transcript(Prompt, Reply));
@@ -361,8 +363,10 @@ public class DaemonRecorderTests {
         await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
 
         Exited.Add(4242);
-        recorder.FinishExitedProcesses();
-        await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        if (exitSeen) {
+            recorder.FinishExitedProcesses();
+            await WaitHarness.PollUntilAsync(() => recorder.AwaitsEnd(source.Key));
+        }
         ClaimNote(4343);
 
         await Assert.That(await recorder.FinishForHookAsync(source.Key, source.Process, CancellationToken.None).WithinDeadlineAsync("the late hook's finish")).IsTrue();
