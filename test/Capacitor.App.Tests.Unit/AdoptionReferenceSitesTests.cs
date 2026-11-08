@@ -4,6 +4,7 @@ using Capacitor.App.Services.CliAdoption;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Harness.Codex;
 using TUnit.Core.Enums;
 
 namespace Capacitor.App.Tests.Unit;
@@ -48,6 +49,19 @@ public class AdoptionReferenceSitesTests {
         await Assert.That(files).Contains(".gitconfig");
         await Assert.That(files.Any(Path.IsPathRooted)).IsFalse();
         await Assert.That(files.Count).IsEqualTo(files.Distinct().Count());
+    }
+
+    /// <summary>An override in this process's environment says nothing of another account: every harness's default
+    /// files are read in its home all the same.</summary>
+    [Test]
+    public async Task Home_files_keep_each_default_layout_under_an_override() {
+        var overridden = HarnessRegistry.Over(TestBinaries.None, CodexHarness.Over(new CodexPaths(Home, Tmp.PathTo("home", ".codex-work"))));
+
+        var files = AdoptionReferenceSites.HomeFiles(Home, overridden);
+
+        await Assert.That(files).Contains(Path.Combine(".codex", "config.toml"));
+        await Assert.That(files).Contains(Path.Combine(".codex-work", "config.toml"));
+        await Assert.That(files).Contains(Path.Combine(".copilot", "mcp-config.json"));
     }
 
     /// <summary>The registry counts only below the home, and each registered directory is read for both layouts' files,

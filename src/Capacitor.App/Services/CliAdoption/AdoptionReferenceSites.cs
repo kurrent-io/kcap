@@ -57,10 +57,12 @@ internal static class AdoptionReferenceSites {
             .Select(f => f[root.Length..]).Distinct(StringComparer.Ordinal)];
     }
 
+    // Another account's harnesses sit at their defaults, whatever overrides this process's environment sets.
     internal static IReadOnlyList<string> HomeFiles(UserHome home, HarnessRegistry harnesses) {
         var claude = AccountLayouts.Claude(home, AccountLayouts.DefaultDirectory(HarnessId.Claude, home));
         string[] files = [
-            .. harnesses.SelectMany(h => h.IntegrationFiles), .. ClaudeHarness.Over(claude).IntegrationFiles,
+            .. HarnessRegistry.AtDefaults(home, BinaryProbe.Searching(null)).Concat(harnesses).SelectMany(h => h.IntegrationFiles),
+            .. ClaudeHarness.Over(claude).IntegrationFiles,
             Path.Combine(home.Path, ".gitconfig"), Path.Combine(home.Path, ".config", "git", "config"),
             Path.Combine(claude.Home, "plugins", "known_marketplaces.json"), Path.Combine(claude.Home, "plugins", "installed_plugins.json"),
         ];
