@@ -35,8 +35,8 @@ public class WatcherManagerClaimTests : IDisposable {
 
     WatcherManager FromAgent => field ??= Manager(Resolutions.At(_server.Url!, Config.Root), new HostedAgent("agent-1", false, DaemonBridge.None));
 
-    WatcherManager Manager(ProfileContext profiles, HostedAgent? hosted = null) => new(
-        Config.Root, profiles, new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, _spawner, _time, _daemon, hosted ?? HostedAgent.Terminal) {
+    WatcherManager Manager(ProfileContext profiles, HostedAgent? hosted = null, ICapacitorHttpClient? http = null) => new(
+        Config.Root, profiles, http ?? new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, Paths, _spawner, _time, _daemon, hosted ?? HostedAgent.Terminal) {
         DrainCommits = new CommitObservation.Uncovered(),
     };
 
@@ -760,6 +760,45 @@ public class WatcherManagerClaimTests : IDisposable {
             StatusCode = 200,
             BodyData   = new WireMock.Util.BodyData { DetectedBodyType = WireMock.Types.BodyType.String, BodyAsString = body },
         };
+    }
+
+    /// <summary>A chunk whose post failed is posted again after a backoff, and a disable can land inside it: the attempt
+    /// after it sends nothing.</summary>
+    [Test]
+    public async Task A_disable_landing_in_a_retry_backoff_stops_the_next_attempt() {
+        StubServer();
+        using var transport = new FirstTranscriptPostDrops();
+        using var deadline  = new CancellationTokenSource(BoundedWait.Deadline);
+        var       drain     = Manager(Resolutions.At(_server.Url!, Config.Root), http: new FixedCapacitorHttpClient(background: transport))
+            .InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        // The backoff runs on the fake clock, so the next attempt waits for this.
+        while (transport.Attempts == 0 && !drain.IsCompleted) await Task.Delay(20, deadline.Token);
+        DisabledSessions.Mark(Key, Config.Root);
+
+        while (!drain.IsCompleted) {
+            _time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(20, deadline.Token);
+        }
+        await drain;
+
+        await Assert.That(transport.Attempts).IsEqualTo(1);
+        await Assert.That(Posts).IsEqualTo(0);
+    }
+
+    /// <summary>Drops the first transcript post at the transport, as a reset connection does, and sends the rest.</summary>
+    sealed class FirstTranscriptPostDrops() : DelegatingHandler(new SocketsHttpHandler()) {
+        int _attempts;
+
+        public int Attempts => Volatile.Read(ref _attempts);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            if (request.RequestUri?.AbsolutePath != "/hooks/transcript") return base.SendAsync(request, ct);
+
+            return Interlocked.Increment(ref _attempts) == 1
+                ? Task.FromException<HttpResponseMessage>(new HttpRequestException("Connection reset by peer"))
+                : base.SendAsync(request, ct);
+        }
     }
 
     sealed class FakeDaemon : IDaemonRecordingClient {

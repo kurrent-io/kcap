@@ -749,6 +749,10 @@ public sealed partial class WatcherManager(
             void ReportLoss(RedactionLossReason loss, int _) =>
                 Console.Error.WriteLine($"Inline capture loss at line {lineIndex}: {CaptureLossMarker.ReasonName(loss)}");
 
+            // Read before every post, retries included: a disable can land while this drain waits on the server, a
+            // redaction or a backoff.
+            bool Disabled() => DisabledSessions.IsDisabledByPerson(SessionIds.Canonical(sessionId)!, config);
+
             // False when the drain has to stop, having printed why.
             async Task<bool> SendAsync() {
                 commits = commits.Collect();
@@ -766,15 +770,9 @@ public sealed partial class WatcherManager(
 
                 try {
                     foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                        // A disable can land while this drain waits on the server or a redaction.
-                        if (DisabledSessions.IsDisabledByPerson(SessionIds.Canonical(sessionId)!, config)) {
-                            await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the session was disabled; sending nothing more");
-                            return false;
-                        }
-
                         var batchJson = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
                         using var content = new StringContent(batchJson, Encoding.UTF8, "application/json");
-                        using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time);
+                        using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time, mayAttempt: () => !Disabled());
                         if (!resp.IsSuccessStatusCode) {
                             await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: server returned HTTP {(int)resp.StatusCode}");
                             PrintRecoveryHint(sessionId);
@@ -782,6 +780,9 @@ public sealed partial class WatcherManager(
                         }
                         await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: sent {chunk.Lines.Length} line(s)");
                     }
+                } catch (OperationCanceledException) when (Disabled()) {
+                    await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the session was disabled; sending nothing more");
+                    return false;
                 } catch (HttpRequestException ex) {
                     await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: server unreachable after retries — {ex.Message}");
                     PrintRecoveryHint(sessionId);

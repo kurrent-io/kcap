@@ -7,7 +7,8 @@ namespace Capacitor.Tests.Helpers;
 /// API implementation (<c>FeedbackApi</c>, <c>SessionsApi</c>, ...) directly against a stub server,
 /// bypassing the auth-discovery pipeline <c>AddCapacitorHttp</c> wires in production.</summary>
 /// <param name="unauthenticated">Answers the anonymous and loopback lanes when given.</param>
-public sealed class FixedCapacitorHttpClient(HttpMessageHandler? unauthenticated = null) : ICapacitorHttpClient {
+/// <param name="background">Answers the background lane when given; the caller keeps it.</param>
+public sealed class FixedCapacitorHttpClient(HttpMessageHandler? unauthenticated = null, HttpMessageHandler? background = null) : ICapacitorHttpClient {
     public Task<HttpClient> ForCommandAsync(CancellationToken ct = default) => Task.FromResult(new HttpClient());
 
     public Task<HttpClient> ForSessionAsync(CancellationToken ct = default) =>
@@ -23,7 +24,7 @@ public sealed class FixedCapacitorHttpClient(HttpMessageHandler? unauthenticated
         Task.FromResult(new AuthAttempt(new HttpClient(), AuthStatus.Ok, null, null));
 
     public Task<HttpClient> ForBackgroundAsync(CancellationToken ct = default) =>
-        Task.FromResult(new HttpClient());
+        Task.FromResult(background is null ? new HttpClient() : new HttpClient(background, disposeHandler: false));
 
     public Task<HttpClient> ForMemoryAsync(CancellationToken ct = default) =>
         Task.FromResult(new HttpClient());
