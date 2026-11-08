@@ -207,6 +207,51 @@ public class WorkspaceSpanStoreTests {
     }
 
     [Test]
+    public async Task A_span_that_could_not_be_spooled_survives_the_session_end_for_a_later_retry() {
+        using var rig = new WorkspaceRig();
+        await rig.OpenAsync();
+        rig.Write("unsent.txt", "x");
+        // A file where the session's spool directory belongs makes every spool write fail.
+        Directory.CreateDirectory(rig.Spool.DirectoryPath);
+        var blocker = Path.Combine(rig.Spool.DirectoryPath, WorkspaceRig.Session);
+        File.WriteAllText(blocker, "");
+
+        await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget);
+
+        await Assert.That(rig.Baselines()).HasSingleItem();
+
+        File.Delete(blocker);
+        await rig.CloseAsync();
+        await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Select(c => c.Path)).IsEquivalentTo(["unsent.txt"]);
+    }
+
+    /// <summary>A Stop whose snapshot is slow must not hold the lock an <c>EnterWorktree</c> open of the same
+    /// session needs: the lock covers span and spool files only. The tree's fsmonitor hook makes git status
+    /// take two seconds, longer than a waiting hook gives the lock.</summary>
+    [Test]
+    public async Task A_slow_snapshot_never_holds_the_session_lock() {
+        Skip.When(OperatingSystem.IsWindows(), "the slow fsmonitor hook is a shell script");
+        using var rig = new WorkspaceRig();
+        await rig.OpenAsync();
+        rig.Write("slow.txt", "x");
+        using var tools = new TempDir("ws-fsmonitor");
+        var hook = tools.CreateExecutable("slow-fsmonitor.sh", "#!/bin/sh\nsleep 2\nexit 1\n");
+        rig.Repo.Config("core.fsmonitor", hook);
+
+        var close    = rig.CloseAsync();
+        var acquired = false;
+        for (var i = 0; i < 30 && !close.IsCompleted && !acquired; i++) {
+            await Task.Delay(50);
+            using var free = WorkspaceSpanLock.TryAcquire(rig.SessionSpanDir, TimeSpan.Zero);
+            acquired = free is not null && !close.IsCompleted;
+        }
+        await close;
+
+        await Assert.That(acquired).IsTrue();
+        await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Select(c => c.Path)).IsEquivalentTo(["slow.txt"]);
+    }
+
+    [Test]
     public async Task Pruning_deletes_session_directories_untouched_for_a_week_only() {
         using var rig = new WorkspaceRig();
         await rig.OpenAsync();

@@ -4,10 +4,11 @@ using System.Text.Json;
 namespace Capacitor.Cli.Core.Workspace;
 
 /// <summary>
-/// One server's open span baselines, <c>{partition}/{session}/{tree key}.json</c>. Closing a span writes
-/// its event to the <see cref="WorkspaceSpool"/> and then deletes the baseline, under the session's lock;
-/// a baseline whose span is already spooled was closed by a hook that died before the delete, and is
-/// deleted without closing again. Nothing here touches the network.
+/// One server's open span baselines, <c>{partition}/{session}/{tree key}.json</c>. Git runs outside the
+/// session's lock, which a waiting hook gives up on after a second; under it, closing a span writes its
+/// event to the <see cref="WorkspaceSpool"/> and then deletes the baseline. A baseline whose span is already
+/// spooled was closed by a hook that died before the delete, and is deleted without closing again. Nothing
+/// here touches the network.
 /// </summary>
 public sealed class WorkspaceSpanStore(
         SpoolPartition partition, WorkspaceSpool spool, WorkspaceSnapshotter snapshotter, TimeProvider time) {
@@ -35,24 +36,25 @@ public sealed class WorkspaceSpanStore(
         var started = time.GetTimestamp();
         TimeSpan Left() => budget - time.GetElapsedTime(started);
 
-        using var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait);
-        if (held is null) return false;
-
-        if (mode == WorkspaceOpen.Turn) await CloseAllLockedAsync(sessionId, sessionDir, Left);
+        if (mode == WorkspaceOpen.Turn && !await CloseAllCoreAsync(sessionId, sessionDir, Left)) return false;
 
         var repo = await snapshotter.ResolveAsync(dir, Left());
         if (repo is null) return false;
 
         var path = Path.Combine(sessionDir, $"{repo.Key}.json");
-        // A baseline still here after a Turn close is one whose close could not read the tree; the next
-        // close then spans both turns rather than losing the first.
         if (File.Exists(path)) return true;
 
         var snapshot = await snapshotter.TakeAsync(repo.Toplevel, Min(snapshotter.Bounds.SnapshotBudget, Left()));
         if (snapshot is null) return false;
 
-        var span     = new WorkspaceSpan(Guid.NewGuid(), sessionId, repo.Toplevel, time.GetUtcNow(), snapshot);
+        using var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait);
+        if (held is null) return false;
 
+        // A baseline here now is a concurrent open of the same tree, or one whose close could not read the
+        // tree; either way the earlier baseline is kept, so the next close spans both turns.
+        if (File.Exists(path)) return true;
+
+        var span = new WorkspaceSpan(Guid.NewGuid(), sessionId, repo.Toplevel, time.GetUtcNow(), snapshot);
         return WorkspaceFiles.WriteAtomic(path, JsonSerializer.Serialize(span, WorkspaceJsonContext.Default.WorkspaceSpan));
     }
 
@@ -61,26 +63,18 @@ public sealed class WorkspaceSpanStore(
         if (SessionDir(sessionId) is not { } sessionDir || !Directory.Exists(sessionDir)) return true;
 
         var started = time.GetTimestamp();
-        using var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait);
-        if (held is null) return false;
-
-        await CloseAllLockedAsync(sessionId, sessionDir, () => budget - time.GetElapsedTime(started));
-        return true;
+        return await CloseAllCoreAsync(sessionId, sessionDir, () => budget - time.GetElapsedTime(started));
     }
 
-    /// <summary>Closes every span and then deletes the session's baselines; its spooled events are the spool's.</summary>
+    /// <summary>Closes every span, then removes the session's directory once no baseline is left. A span
+    /// whose close failed keeps its baseline for a later hook to retry; spooled events are the spool's.</summary>
     public async Task EndSessionAsync(string sessionId, TimeSpan budget) {
         if (SessionDir(sessionId) is not { } sessionDir || !Directory.Exists(sessionDir)) return;
 
         var started = time.GetTimestamp();
-        using (var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait)) {
-            if (held is null) return;
+        await CloseAllCoreAsync(sessionId, sessionDir, () => budget - time.GetElapsedTime(started));
 
-            await CloseAllLockedAsync(sessionId, sessionDir, () => budget - time.GetElapsedTime(started));
-            foreach (var baseline in Baselines(sessionDir)) WorkspaceFiles.TryDelete(baseline);
-        }
-
-        TryDeleteDirectory(sessionDir);
+        if (!Baselines(sessionDir).Any()) TryDeleteDirectory(sessionDir);
     }
 
     /// <summary>Drops the session's baselines unposted — a session whose recording was turned off.</summary>
@@ -118,31 +112,49 @@ public sealed class WorkspaceSpanStore(
         }
     }
 
-    async Task CloseAllLockedAsync(string sessionId, string sessionDir, Func<TimeSpan> left) {
-        foreach (var path in Baselines(sessionDir)) {
-            WorkspaceSpan? span;
-            try {
-                span = JsonSerializer.Deserialize(await File.ReadAllTextAsync(path), WorkspaceJsonContext.Default.WorkspaceSpan);
-            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) {
-                span = null;
-            }
+    /// <summary>What closing one baseline comes to, worked out without the lock: drop it, spool an event
+    /// and drop it, or keep it for a later close.</summary>
+    sealed record Closing(string Path, Guid? SpanId, WorkspaceChangesRequest? Event, bool Keep);
 
-            if (span is null || spool.Has(sessionId, span.SpanId)
-             || time.GetUtcNow() - span.OpenedAt > MaxSpanAge || !Directory.Exists(span.RepoRoot)) {
-                WorkspaceFiles.TryDelete(path);
-                continue;
-            }
+    /// <summary>Snapshots and diffs every open span outside the lock, then commits each under it — only if
+    /// its baseline is still the one diffed, so a span a concurrent hook closed meanwhile is never spooled
+    /// twice. False when the lock was held past its wait.</summary>
+    async Task<bool> CloseAllCoreAsync(string sessionId, string sessionDir, Func<TimeSpan> left) {
+        var closings = new List<Closing>();
+        foreach (var path in Baselines(sessionDir)) closings.Add(await PrepareAsync(sessionId, path, left));
+        if (closings.Count == 0) return true;
 
-            var snapshotBudget = Min(snapshotter.Bounds.SnapshotBudget, left());
-            var after          = await snapshotter.TakeAsync(span.RepoRoot, snapshotBudget);
-            // Kept for the next close, which then spans both turns.
-            if (after is null) continue;
+        using var held = WorkspaceSpanLock.TryAcquire(sessionDir, LockWait);
+        if (held is null) return false;
 
-            var detection      = await _detector.DetectAsync(span.RepoRoot, span.Snapshot, after, Max(left(), TimeSpan.FromMilliseconds(250)));
+        foreach (var closing in closings) {
+            if (closing.Keep || ReadSpan(closing.Path)?.SpanId != closing.SpanId) continue;
+            if (closing.Event is { } evt && !spool.Has(sessionId, evt.SpanId) && !spool.Write(evt)) continue;
 
-            if (detection.Changes.Count > 0 && !spool.Write(Fit(span, detection))) continue;
+            WorkspaceFiles.TryDelete(closing.Path);
+        }
 
-            WorkspaceFiles.TryDelete(path);
+        return true;
+    }
+
+    async Task<Closing> PrepareAsync(string sessionId, string path, Func<TimeSpan> left) {
+        var span = ReadSpan(path);
+        if (span is null || spool.Has(sessionId, span.SpanId)
+         || time.GetUtcNow() - span.OpenedAt > MaxSpanAge || !Directory.Exists(span.RepoRoot))
+            return new Closing(path, span?.SpanId, null, Keep: false);
+
+        var after = await snapshotter.TakeAsync(span.RepoRoot, Min(snapshotter.Bounds.SnapshotBudget, left()));
+        if (after is null) return new Closing(path, span.SpanId, null, Keep: true);
+
+        var detection = await _detector.DetectAsync(span.RepoRoot, span.Snapshot, after, Max(left(), TimeSpan.FromMilliseconds(250)));
+        return new Closing(path, span.SpanId, detection.Changes.Count > 0 ? Fit(span, detection) : null, Keep: false);
+    }
+
+    static WorkspaceSpan? ReadSpan(string path) {
+        try {
+            return JsonSerializer.Deserialize(File.ReadAllText(path), WorkspaceJsonContext.Default.WorkspaceSpan);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) {
+            return null;
         }
     }
 
