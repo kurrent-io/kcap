@@ -135,6 +135,35 @@ public class AdoptionEvidenceReaderTests {
 
         await Assert.That(evidence.Installs.Count).IsEqualTo(1);
         await Assert.That(evidence.Installs[0].DaemonBinary).IsEqualTo(daemon);
-        await Assert.That(evidence.Links).IsEquivalentTo([Path.Combine(links.Path, "kcap")]);
+        await Assert.That(evidence.Links).IsEquivalentTo([Path.Combine(links.Path, "kcap"), Path.Combine(onPath.Path, "kcap")]);
+    }
+
+    /// <summary>A kcap a PATH reaches only after another is a link all the same, which dangles once its install goes.</summary>
+    [Test, RunOn(OS.MacOs)]
+    public async Task A_kcap_later_on_the_login_PATH_or_a_unit_PATH_is_link_evidence() {
+        Exe("first-bin/kcap");
+        var later  = Tmp.CreateDir("later-bin");
+        var stored = Tmp.CreateDir("stored-bin");
+        File.CreateSymbolicLink(Path.Combine(later, "kcap"), Exe("real/kcap"));
+        File.CreateSymbolicLink(Path.Combine(stored, "kcap"), Exe("real/kcap"));
+        Plist("work", $"{Bundle}/Contents/MacOS/kcap-daemon", $"{Tmp.PathTo("first-bin")}:{stored.Path}");
+
+        var evidence = await Read($"{Tmp.PathTo("first-bin")}:relative:{later.Path}");
+
+        await Assert.That(evidence.Links).Contains(Path.Combine(later.Path, "kcap"));
+        await Assert.That(evidence.Links).Contains(Path.Combine(stored.Path, "kcap"));
+    }
+
+    /// <summary>npm links an install's command into its own prefix, which no PATH may list, as for an nvm version not in
+    /// use.</summary>
+    [Test, RunOn(OS.MacOs)]
+    public async Task An_npm_install_s_own_link_is_link_evidence_on_no_PATH() {
+        Plist("work", NpmDaemon());
+        File.CreateSymbolicLink(Tmp.CreateDir("prefix", "bin").PathTo("kcap"), "../lib/node_modules/@kurrent/kcap/bin/kcap.js");
+
+        var evidence = await Read();
+
+        await Assert.That(evidence.Installs.Count).IsEqualTo(1);
+        await Assert.That(evidence.Links).IsEquivalentTo([Tmp.GetResolvedPath("prefix", "bin", "kcap")]);
     }
 }

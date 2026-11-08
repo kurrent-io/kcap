@@ -45,7 +45,21 @@ internal sealed class AdoptionEvidenceReader(IProcessRunner runner, ILoginShellP
             units = printed;
         }
 
-        return new AdoptionEvidence([.. installs.Values], units, files.Daemons, path, onLogin) { Links = files.Links };
+        var links = await Task.Run(() => files.Links.Concat(LaterLinks(installs.Values, path, units)).Distinct(StringComparer.Ordinal).ToList(), ct)
+            .ConfigureAwait(false);
+        return new AdoptionEvidence([.. installs.Values], units, files.Daemons, path, onLogin) { Links = links };
+    }
+
+    // Every kcap a PATH here reaches, not only its first, and the command npm links into each install's own prefix, which
+    // may be on no PATH at all, as an nvm version not in use: either dangles once its install goes.
+    static IEnumerable<string> LaterLinks(IEnumerable<OtherCliInstall> installs, string? loginPath, IEnumerable<ServiceUnitFact> units) {
+        var onPaths = units.Select(u => u.StoredPath).Prepend(loginPath).OfType<string>()
+            .SelectMany(p => p.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)).Where(Path.IsPathRooted);
+        var prefixes = installs.Where(i => i.Kind == OtherCliInstallKind.Npm)
+            .Select(i => OtherCliInstallReader.NpmPrefixOf(Path.Combine(i.Root, "bin", "kcap.js"))).OfType<string>()
+            .Select(prefix => Path.Combine(prefix, "bin"));
+
+        return onPaths.Concat(prefixes).Select(folder => Path.Combine(folder, "kcap")).Where(File.Exists);
     }
 
     sealed record Files(IReadOnlyList<ServiceUnitFact> Units, IReadOnlyList<RunningDaemonFact> Daemons, IReadOnlyList<string> Links);
