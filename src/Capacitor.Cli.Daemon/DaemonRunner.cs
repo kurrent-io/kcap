@@ -721,7 +721,8 @@ public static partial class DaemonRunner {
             config.Store.SteeringSocketPath(config.Name),
             FrozenDictionary<string, Func<SteeringHttpRequest, CancellationToken, Task<SteeringHttpResponse>>>.Empty,
             time, sp.GetRequiredService<ILogger<SteeringEndpoint>>()));
-        builder.Services.AddSingleton<SteeringSwitch>();
+        builder.Services.AddSingleton(sp => new SteeringSwitch(
+            sp.GetRequiredService<LaunchConsentStore>(), sp.GetRequiredService<SteeringEndpoint>()));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SteeringSwitch>());
 
         // Local control socket: lets `kcap agent start`/`attach`/`ls`/`stop` drive daemon-hosted

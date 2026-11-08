@@ -28,19 +28,28 @@ public static class SteeringIpc {
 
     /// <summary>Turns the switch of the daemon named <paramref name="daemonName"/> on or off, through that daemon.</summary>
     public static async Task<SteeringSetAckDto> SetAsync(DaemonStore store, string daemonName, bool on, CancellationToken ct) {
+        UnixDomainSocketEndPoint control;
+
         try {
-            var hello = await ExchangeAsync(store, daemonName, new LocalFrame(FrameType.Hello), ct);
+            control = new UnixDomainSocketEndPoint(store.SocketPath(daemonName));
+        } catch (ArgumentOutOfRangeException) {
+            // A path too long for anything to listen on.
+            return Failed(Unreachable);
+        }
+
+        try {
+            var hello = await ExchangeAsync(control, new LocalFrame(FrameType.Hello), ct);
             if (hello?.Type != FrameType.HelloReply) return Failed(Unanswered);
 
             var capabilities = JsonSerializer.Deserialize(hello.Text, HelloIpcJsonContext.Default.HelloReplyDto)?.Capabilities ?? [];
             if (!capabilities.Contains(SwitchCapability)) return Failed(Unsupported);
 
-            return await ExchangeAsync(store, daemonName, LocalFrame.SteeringSet(on), ct) is { Type: FrameType.SteeringSetAck, Text: var json }
+            return await ExchangeAsync(control, LocalFrame.SteeringSet(on), ct) is { Type: FrameType.SteeringSetAck, Text: var json }
                 && JsonSerializer.Deserialize(json, SteeringIpcJsonContext.Default.SteeringSetAckDto) is { } ack
                     ? ack
                     : Failed(Unanswered);
-        } catch (Exception ex) when (ex is SocketException or ArgumentException) {
-            // Only the connect throws these: nothing listens there, or the path is too long for anything to.
+        } catch (SocketException) {
+            // Only the connect throws this: nothing listens there.
             return Failed(Unreachable);
         } catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or OperationCanceledException) {
             return Failed(Unanswered);
@@ -65,9 +74,9 @@ public static class SteeringIpc {
 
     static SteeringSetAckDto Failed(string reason) => new(false, reason, null);
 
-    static async Task<LocalFrame?> ExchangeAsync(DaemonStore store, string daemonName, LocalFrame request, CancellationToken ct) {
+    static async Task<LocalFrame?> ExchangeAsync(UnixDomainSocketEndPoint control, LocalFrame request, CancellationToken ct) {
         using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-        await socket.ConnectAsync(new UnixDomainSocketEndPoint(store.SocketPath(daemonName)), ct);
+        await socket.ConnectAsync(control, ct);
         await using var stream = new NetworkStream(socket, ownsSocket: false);
         await FrameCodec.WriteAsync(stream, request, ct);
 

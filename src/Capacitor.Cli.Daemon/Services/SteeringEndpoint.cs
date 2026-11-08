@@ -1,6 +1,8 @@
 using System.Net.Sockets;
 using Capacitor.Cli.Core;
 using Microsoft.Extensions.Logging;
+using Bound = (System.Net.Sockets.Socket Listener, System.Threading.CancellationTokenSource Stop,
+    System.Threading.Tasks.Task Accepting, System.Collections.Generic.HashSet<System.Threading.Tasks.Task> Connections);
 
 namespace Capacitor.Cli.Daemon.Services;
 
@@ -18,6 +20,8 @@ internal sealed partial class SteeringEndpoint(
     ) : IAsyncDisposable {
     static readonly TimeSpan AcceptRetry = TimeSpan.FromMilliseconds(100);
 
+    static readonly byte[] Busy = SteeringHttpResponse.Error(503, "busy").Encode();
+
     public int MaxHeaderBytes { get; init; } = 8 * 1024;
 
     public int MaxBodyBytes { get; init; } = 64 * 1024;
@@ -28,17 +32,25 @@ internal sealed partial class SteeringEndpoint(
     public int MaxConnections { get; init; } = 16;
 
     readonly Lock _gate = new();
-    (Socket Listener, CancellationTokenSource Stop, Task Accepting, HashSet<Task> Connections)? _bound;
+    Bound? _bound;
+    Task _retiring = Task.CompletedTask;
 
     public bool IsBound { get { lock (_gate) return _bound is not null; } }
 
     /// <summary>Binds the socket owner-only, in a directory made owner-only first, and serves it. Bound already is
-    /// bound.</summary>
+    /// bound, unless the socket file has gone, which leaves nothing able to reach it: then it is bound again.</summary>
     public bool TryBind(out string? failure) {
         failure = null;
 
         lock (_gate) {
-            if (_bound is not null) return true;
+            if (_bound is { } current) {
+                if (File.Exists(socketPath)) return true;
+
+                _bound = null;
+                current.Listener.Dispose();
+                _retiring = Task.WhenAll(_retiring, RetireAsync(current));
+                LogSocketFileGone(socketPath);
+            }
 
             if (OperatingSystem.IsWindows()) {
                 failure = "steering isn't offered on Windows";
@@ -83,18 +95,28 @@ internal sealed partial class SteeringEndpoint(
     /// <summary>Closes the socket and removes its file, then waits for the connections it was serving, which are
     /// cut off.</summary>
     public async Task UnbindAsync() {
-        (Socket Listener, CancellationTokenSource Stop, Task Accepting, HashSet<Task> Connections) bound;
+        Bound? bound;
+        Task   retiring;
 
         // Disposing a bound socket unlinks its path, so it happens under the gate, where no later bind can have put a
         // fresh socket there yet.
         lock (_gate) {
-            if (_bound is not { } current) return;
-
-            bound  = current;
-            _bound = null;
-            bound.Listener.Dispose();
+            bound    = _bound;
+            _bound   = null;
+            retiring = _retiring;
+            bound?.Listener.Dispose();
         }
 
+        if (bound is { } unbound) {
+            await RetireAsync(unbound);
+            LogUnbound(socketPath);
+        }
+
+        await retiring;
+    }
+
+    /// <summary>Cuts off what a closed listener was serving and waits for it to stop.</summary>
+    static async Task RetireAsync(Bound bound) {
         await bound.Stop.CancelAsync();
         await bound.Accepting;
 
@@ -103,7 +125,6 @@ internal sealed partial class SteeringEndpoint(
         await Task.WhenAll(open);
 
         bound.Stop.Dispose();
-        LogUnbound(socketPath);
     }
 
     public ValueTask DisposeAsync() => new(UnbindAsync());
@@ -127,7 +148,7 @@ internal sealed partial class SteeringEndpoint(
 
             if (!slots.Wait(0, CancellationToken.None)) {
                 LogBusy(MaxConnections);
-                connection.Dispose();
+                RefuseBusy(connection);
 
                 continue;
             }
@@ -136,6 +157,18 @@ internal sealed partial class SteeringEndpoint(
 
             lock (connections) connections.Add(serving);
             _ = serving.ContinueWith(done => { lock (connections) connections.Remove(done); }, TaskScheduler.Default);
+        }
+    }
+
+    /// <summary>Answers 503 and closes, without waiting on the client: the answer fits a fresh socket's send buffer, and
+    /// one that doesn't is dropped rather than allowed to hold up the accept loop.</summary>
+    static void RefuseBusy(Socket connection) {
+        using (connection) {
+            try {
+                connection.Blocking = false;
+                connection.Send(Busy, SocketFlags.None);
+                connection.Shutdown(SocketShutdown.Send);
+            } catch (SocketException) { }
         }
     }
 
@@ -192,6 +225,9 @@ internal sealed partial class SteeringEndpoint(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Steering socket at {Path} closed")]
     partial void LogUnbound(string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Steering socket file {Path} is gone; binding it again")]
+    partial void LogSocketFileGone(string path);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Steering socket could not bind at {Path}: {Reason}")]
     partial void LogBindFailed(string path, string reason);

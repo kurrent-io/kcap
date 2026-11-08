@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Runtime.Versioning;
 using System.Text.Json;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Daemon.Services;
@@ -8,10 +9,12 @@ using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-/// <summary>The steering switch through a real control socket, across daemon restarts over one state directory: each
-/// incarnation reads the consent document afresh and starts its switch as the host does.</summary>
-[ExcludeOn(OS.Windows)] // steering isn't offered on Windows
+/// <summary>The steering switch: through a real control socket, across daemon restarts over one state directory, where
+/// each incarnation reads the consent document afresh and starts its switch as the host does; and on its own, for
+/// what it answers when it can't move.</summary>
 public class SteeringSwitchTests {
+    [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
+
     sealed class NoopRestartStrategy : IRestartStrategy {
         public RestartOutcome Restart() => RestartOutcome.NoOp;
     }
@@ -73,6 +76,7 @@ public class SteeringSwitchTests {
     }
 
     [Test]
+    [ExcludeOn(OS.Windows)] // steering isn't offered on Windows
     public async Task Steering_on_and_off_round_trips_through_the_daemon() {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var orchestrator = Orchestrator(out var config);
@@ -108,6 +112,7 @@ public class SteeringSwitchTests {
     }
 
     [Test]
+    [ExcludeOn(OS.Windows)] // steering isn't offered on Windows
     public async Task A_switch_request_that_is_neither_on_nor_off_changes_nothing() {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var orchestrator = Orchestrator(out var config);
@@ -130,5 +135,79 @@ public class SteeringSwitchTests {
             if (daemon is not null) await StopAsync(daemon);
             await orchestrator.DisposeAsync();
         }
+    }
+
+    LaunchConsentStore Consent() =>
+        new(Daemons.Store.StateDirectory(Name), NullLogger.Instance, TimeProvider.System);
+
+    SteeringEndpoint Endpoint() =>
+        new(Daemons.Store.SteeringSocketPath(Name), TestSteering.NoRoutes, TimeProvider.System, NullLogger.Instance);
+
+    const string Name = "t";
+
+    /// <summary>The switch's own answer to a frame, without a control server in front of it.</summary>
+    static async Task<SteeringSetAckDto> AskAsync(SteeringSwitch steering, string payload) {
+        using var stream = new MemoryStream();
+        await steering.HandleSetAsync(payload, stream, CancellationToken.None);
+        stream.Position = 0;
+        var reply = await FrameCodec.ReadAsync(stream, CancellationToken.None);
+
+        return JsonSerializer.Deserialize(reply!.Text, SteeringIpcJsonContext.Default.SteeringSetAckDto)!;
+    }
+
+    /// <summary>Where steering isn't offered, a switch left on is not acted on at start, and a request to move it is
+    /// refused.</summary>
+    [Test]
+    public async Task The_daemon_refuses_steering_where_it_is_not_offered() {
+        var consent = Consent();
+        consent.TrySetSteering(true, out _);
+        await using var endpoint = Endpoint();
+        using var steering = new SteeringSwitch(consent, endpoint, offered: false);
+
+        await steering.StartAsync(CancellationToken.None);
+        await Assert.That(endpoint.IsBound).IsFalse();
+
+        await Assert.That(await AskAsync(steering, SteeringIpc.On))
+            .IsEqualTo(new SteeringSetAckDto(false, SteeringIpc.NotOffered, SteeringIpc.On));
+        await Assert.That(endpoint.IsBound).IsFalse();
+    }
+
+    [Test]
+    [ExcludeOn(OS.Windows)] // steering isn't offered on Windows
+    public async Task A_socket_that_will_not_bind_is_refused_with_why() {
+        Directory.CreateDirectory(Daemons.Store.SteeringSocketPath(Name));
+        var consent = Consent();
+        await using var endpoint = Endpoint();
+        using var steering = new SteeringSwitch(consent, endpoint);
+
+        var ack = await AskAsync(steering, SteeringIpc.On);
+
+        await Assert.That(ack.Ok).IsFalse();
+        await Assert.That(ack.Reason).IsEqualTo(SteeringIpc.Unbindable);
+        await Assert.That(ack.Steering).IsEqualTo(SteeringIpc.Off);
+        await Assert.That(ack.Detail).IsNotNull().And.IsNotEmpty();
+        await Assert.That(consent.SteeringOn).IsFalse();
+    }
+
+    /// <summary>The switch can't be written while the policy beside it can't be read; the socket bound for it goes
+    /// again, so the two still agree.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows)] // the read is failed through the file's mode
+    [UnsupportedOSPlatform("windows")]
+    public async Task A_switch_that_cannot_be_saved_is_refused_with_why() {
+        var policy = Daemons.CreateFile(Path.Combine(Name, "consent.json"), """{"default":"deny"}""");
+        File.SetUnixFileMode(policy, UnixFileMode.None);
+        var consent = Consent();
+        await using var endpoint = Endpoint();
+        using var steering = new SteeringSwitch(consent, endpoint);
+
+        var ack = await AskAsync(steering, SteeringIpc.On);
+
+        await Assert.That(ack.Ok).IsFalse();
+        await Assert.That(ack.Reason).IsEqualTo(SteeringIpc.Unwritable);
+        await Assert.That(ack.Detail).Contains("could not read");
+        await Assert.That(endpoint.IsBound).IsFalse();
+        await Assert.That(File.Exists(Daemons.Store.SteeringSocketPath(Name))).IsFalse();
+        File.SetUnixFileMode(policy, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 }

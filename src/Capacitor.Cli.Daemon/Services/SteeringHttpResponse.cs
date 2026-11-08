@@ -19,12 +19,16 @@ internal sealed record SteeringHttpResponse(int Status, byte[] Body) {
         return new(status, body.ToArray());
     }
 
-    public async Task WriteAsync(Stream stream, CancellationToken ct) {
+    /// <summary>The whole answer, as it goes on the wire.</summary>
+    public byte[] Encode() {
         var head = string.Create(CultureInfo.InvariantCulture,
             $"HTTP/1.1 {Status} {Reason(Status)}\r\n{(Status == 405 ? "Allow: POST\r\n" : "")}Content-Type: application/json\r\nContent-Length: {Body.Length}\r\nConnection: close\r\n\r\n");
 
-        await stream.WriteAsync(Encoding.ASCII.GetBytes(head), ct);
-        await stream.WriteAsync(Body, ct);
+        return [.. Encoding.ASCII.GetBytes(head), .. Body];
+    }
+
+    public async Task WriteAsync(Stream stream, CancellationToken ct) {
+        await stream.WriteAsync(Encode(), ct);
         await stream.FlushAsync(ct);
     }
 
@@ -37,6 +41,7 @@ internal sealed record SteeringHttpResponse(int Status, byte[] Body) {
         431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
         501 => "Not Implemented",
+        503 => "Service Unavailable",
         _   => "Status",
     };
 }

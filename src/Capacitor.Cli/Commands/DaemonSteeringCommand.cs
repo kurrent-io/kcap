@@ -71,11 +71,13 @@ public static class DaemonSteeringCommand {
         SteeringIpc.Unreachable => $"daemon '{name}' is not running (start it with `kcap daemon start -d --name {name}`).",
         SteeringIpc.Unsupported => $"daemon '{name}' doesn't support steering; restart it on this version with `kcap daemon restart --name {name}`.",
         SteeringIpc.Unanswered  => $"daemon '{name}' did not answer.",
-        SteeringIpc.Unwritable  => $"daemon '{name}' could not save the switch, which is still {ack.Steering}; its log says why.",
-        SteeringIpc.Unbindable  => $"daemon '{name}' could not open its steering socket, so the switch is still {ack.Steering}; its log says why.",
+        SteeringIpc.Unwritable  => $"daemon '{name}' could not save the switch, which is still {ack.Steering}{Why(ack)}",
+        SteeringIpc.Unbindable  => $"daemon '{name}' could not open its steering socket, so the switch is still {ack.Steering}{Why(ack)}",
         SteeringIpc.NotOffered  => $"daemon '{name}' runs where steering isn't offered.",
         _                       => $"daemon '{name}' refused the request ({ack.Reason}).",
     };
+
+    static string Why(SteeringSetAckDto ack) => ack.Detail is { Length: > 0 } detail ? $": {detail}" : "; its log says why.";
 
     static async Task<string?> ResolveNameAsync(ProfileContext profiles, StandardStreams console, string[] args) {
         try {

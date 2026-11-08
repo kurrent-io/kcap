@@ -108,8 +108,9 @@ public class SteeringEndpointTests {
         await Assert.That(Log.Warnings).IsEmpty();
     }
 
+    /// <summary>Busy is said rather than left to look like a daemon that died mid-request.</summary>
     [Test]
-    public async Task Connections_past_the_cap_are_dropped_until_one_frees() {
+    public async Task Connections_past_the_cap_are_told_the_endpoint_is_busy_until_one_frees() {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         await using var endpoint = Endpoint(maxConnections: 2);
         endpoint.TryBind(out _);
@@ -117,15 +118,35 @@ public class SteeringEndpointTests {
         var first  = await ConnectAsync(cts.Token);
         var second = await ConnectAsync(cts.Token);
 
-        await Assert.That(StatusOf(await RequestAsync(WellFormed, cts.Token))).IsNull();
+        var busy = await RequestAsync(WellFormed, cts.Token);
+        await Assert.That(StatusOf(busy)).IsEqualTo("503");
+        await Assert.That(busy).Contains("Connection: close\r\n");
+        await Assert.That(busy).EndsWith("{\"error\":\"busy\"}");
 
         first.Dispose();
         second.Dispose();
 
         // A slot frees once the endpoint reads the close, which it does on its own schedule.
         string? status;
-        while ((status = StatusOf(await RequestAsync(WellFormed, cts.Token))) is null) await Task.Delay(20, cts.Token);
+        while ((status = StatusOf(await RequestAsync(WellFormed, cts.Token))) == "503") await Task.Delay(20, cts.Token);
         await Assert.That(status).IsEqualTo("404");
+    }
+
+    [Test]
+    public async Task A_bind_after_the_socket_file_has_gone_binds_it_again() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using var endpoint = Endpoint();
+        endpoint.TryBind(out _);
+
+        File.Delete(SocketPath);
+
+        await Assert.That(endpoint.TryBind(out var failure)).IsTrue();
+        await Assert.That(failure).IsNull();
+        await Assert.That(StatusOf(await RequestAsync(WellFormed, cts.Token))).IsEqualTo("404");
+        await Assert.That(File.GetUnixFileMode(SocketPath) & GroupOrOther).IsEqualTo(UnixFileMode.None);
+
+        await endpoint.UnbindAsync();
+        await Assert.That(File.Exists(SocketPath)).IsFalse();
     }
 
     /// <summary>The shape a route gets and gives back: a POST's body in, JSON out, on a connection that closes.</summary>

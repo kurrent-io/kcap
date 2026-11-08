@@ -10,13 +10,15 @@ namespace Capacitor.Cli.Daemon.Services;
 /// socket follows it with no restart. A SteeringSet writes on only once the socket is up, and off before the socket
 /// goes, so a failure on either side leaves the two agreeing.
 /// </summary>
-internal sealed class SteeringSwitch(LaunchConsentStore store, SteeringEndpoint endpoint) : IHostedService, IDisposable {
+/// <param name="offered">Whether steering is offered on this platform; <see cref="SteeringIpc.Offered"/> unless given.</param>
+internal sealed class SteeringSwitch(LaunchConsentStore store, SteeringEndpoint endpoint, bool? offered = null) : IHostedService, IDisposable {
     readonly SemaphoreSlim _lane = new(1, 1);
+    readonly bool _offered = offered ?? SteeringIpc.Offered;
 
     /// <summary>Binds the socket when the switch was left on. One that won't bind stays on, and the next
     /// <see cref="SteeringIpc.On"/> tries again.</summary>
     public async Task StartAsync(CancellationToken ct) {
-        if (!SteeringIpc.Offered) return;
+        if (!_offered) return;
 
         await _lane.WaitAsync(ct);
 
@@ -49,22 +51,22 @@ internal sealed class SteeringSwitch(LaunchConsentStore store, SteeringEndpoint 
     }
 
     async Task<SteeringSetAckDto> SetAsync(bool on, CancellationToken ct) {
-        if (!SteeringIpc.Offered) return Refused(SteeringIpc.NotOffered);
+        if (!_offered) return Refused(SteeringIpc.NotOffered);
 
         await _lane.WaitAsync(ct);
 
         try {
             if (on) {
                 var wasBound = endpoint.IsBound;
-                if (!endpoint.TryBind(out _)) return Refused(SteeringIpc.Unbindable);
+                if (!endpoint.TryBind(out var unbindable)) return Refused(SteeringIpc.Unbindable, unbindable);
 
-                if (!store.TrySetSteering(true, out _)) {
+                if (!store.TrySetSteering(true, out var unwritable)) {
                     if (!wasBound) await endpoint.UnbindAsync();
 
-                    return Refused(SteeringIpc.Unwritable);
+                    return Refused(SteeringIpc.Unwritable, unwritable);
                 }
             } else {
-                if (!store.TrySetSteering(false, out _)) return Refused(SteeringIpc.Unwritable);
+                if (!store.TrySetSteering(false, out var unwritable)) return Refused(SteeringIpc.Unwritable, unwritable);
 
                 await endpoint.UnbindAsync();
             }
@@ -79,5 +81,5 @@ internal sealed class SteeringSwitch(LaunchConsentStore store, SteeringEndpoint 
 
     string State => store.SteeringOn ? SteeringIpc.On : SteeringIpc.Off;
 
-    SteeringSetAckDto Refused(string reason) => new(false, reason, State);
+    SteeringSetAckDto Refused(string reason, string? detail = null) => new(false, reason, State, detail);
 }

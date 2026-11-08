@@ -48,9 +48,55 @@ internal sealed partial class LaunchConsentStore {
 
     public bool SteeringOn { get { lock (_gate) return _doc?.Steering == SteeringOnValue; } }
 
-    /// Writes the switch and nothing else: every launch-consent field goes back as it was read.
+    /// Writes the switch and nothing else: every launch-consent field goes back as it was read. A
+    /// policy the store couldn't read when it started is read again first, so a flip never writes
+    /// over one: refused while it still can't be read, set aside while it doesn't parse.
     public bool TrySetSteering(bool on, out string? error) {
-        lock (_gate) return Persist((_doc ?? Unread()) with { Steering = on ? SteeringOnValue : SteeringOffValue }, out error);
+        lock (_gate) {
+            var doc = _doc;
+            if (doc is null && !TryReread(out doc, out error)) return false;
+
+            return Persist((doc ?? Unread()) with { Steering = on ? SteeringOnValue : SteeringOffValue }, out error);
+        }
+    }
+
+    /// The policy on disk, or null when there is none left to keep. Caller holds _gate.
+    bool TryReread(out PolicyDoc? doc, out string? error) {
+        doc   = null;
+        error = null;
+        string text;
+
+        try {
+            if (!File.Exists(_path)) return true;
+
+            text = File.ReadAllText(_path);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            _log.LogWarning(ex, "Consent policy at {Path} could not be read; steering left as it was", _path);
+            error = $"could not read {_path}: {ex.Message}";
+
+            return false;
+        }
+
+        if (Parse(text) is { } readable) {
+            doc = readable;
+
+            return true;
+        }
+
+        var quarantinePath = _path + ".quarantined-" + _time.GetUtcNow().UtcDateTime.Ticks;
+
+        try {
+            File.Move(_path, quarantinePath, overwrite: true);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            _log.LogWarning(ex, "Failed to quarantine consent policy at {Path}", _path);
+            error = $"could not set aside the unparseable {_path}: {ex.Message}";
+
+            return false;
+        }
+
+        _log.LogWarning("Unparseable consent policy at {Path} moved to {Quarantine} before writing the steering switch", _path, quarantinePath);
+
+        return true;
     }
 
     public bool TryReplace(LaunchConsentPolicy next, out string? error) {
@@ -175,7 +221,7 @@ internal sealed partial class LaunchConsentStore {
             return true;
         } catch (Exception ex) {
             _log.LogWarning(ex, "Failed to persist consent policy to {Path}", _path);
-            error = "failed to persist consent policy";
+            error = $"failed to persist consent policy: {ex.Message}";
             return false;
         }
     }
@@ -183,16 +229,30 @@ internal sealed partial class LaunchConsentStore {
     LaunchConsentPolicy Load() {
         try {
             if (!File.Exists(_path)) return LaunchConsentPolicy.UpgradeSafe;
-            var doc = JsonSerializer.Deserialize(File.ReadAllText(_path), LaunchConsentJsonCtx.Default.PolicyDoc);
-            if (doc is null) return LaunchConsentPolicy.UpgradeSafe;
 
-            var policy = ToPolicy(doc);
+            if (Parse(File.ReadAllText(_path)) is not { } doc) {
+                _log.LogWarning("Corrupt consent policy at {Path}; using upgrade-safe default (allow)", _path);
+
+                return LaunchConsentPolicy.UpgradeSafe;
+            }
+
             _doc = doc;
 
-            return policy;
+            return ToPolicy(doc);
         } catch (Exception ex) {
             _log.LogWarning(ex, "Corrupt consent policy at {Path}; using upgrade-safe default (allow)", _path);
             return LaunchConsentPolicy.UpgradeSafe;
+        }
+    }
+
+    /// A document <see cref="ToPolicy"/> can read, or null.
+    static PolicyDoc? Parse(string text) {
+        try {
+            var doc = JsonSerializer.Deserialize(text, LaunchConsentJsonCtx.Default.PolicyDoc);
+
+            return doc?.Rules?.Any(r => r is null) == true ? null : doc;
+        } catch (JsonException) {
+            return null;
         }
     }
 
