@@ -258,6 +258,9 @@ internal static class PrivilegedSwapScript {
                     fi
                     while IFS= read -r d; do
                         [ -n "$d" ] || continue
+                        # One there that cannot be listed may hold files naming the install; one gone names nothing, as in
+                        # this user's own check.
+                        if exists "$d" && ! /bin/ls -A -- "$d" >/dev/null 2>&1; then echo "$d cannot be listed"; return 0; fi
                         i=0
                         while [ $i -lt $nkinds ]; do
                             if names "$d/${accountfiles[$i]}"; then echo "$d/${accountfiles[$i]} names the install"; return 0; fi

@@ -503,6 +503,36 @@ public class PrivilegedSwapScriptTests {
         await Assert.That(run.Words()).IsEquivalentTo(words);
     }
 
+    /// <summary>A harness directory another account registered that cannot be listed may hold files naming the install:
+    /// it keeps it. One that is gone names nothing.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_registered_directory_that_cannot_be_listed_keeps_the_install_on_go(bool there) {
+        var install  = PrivilegedNpmInstall.Create(Tmp);
+        var spec     = install.Spec(Tmp) with { Sites = new HomeSites([], ".config/kcap/accounts/accounts.json", ["settings.json"]) };
+        var work     = Tmp.PathTo("homes", "other", "work-claude");
+        Tmp.CreateFile("homes/other/.config/kcap/accounts/accounts.json",
+            $$"""{"accounts": [{"vendor": "Claude", "directory": "{{work}}", "wired_at": null}]}""");
+        if (there) {
+            Tmp.CreateFile("homes/other/work-claude/settings.json", "{}");
+            File.SetUnixFileMode(work, UnixFileMode.None);
+        }
+        try {
+            await using var run = Run.Start(Tmp, spec);
+
+            await run.WaitForAsync("swapped");
+            run.Send("go");
+            var result = await run.ExitAsync();
+
+            string[] words = there ? ["swapped", "in-use"] : ["swapped", "deleted"];
+            await Assert.That(run.Words()).IsEquivalentTo(words);
+            if (there) await Assert.That(result.Stderr).Contains($"{work} cannot be listed");
+        } finally {
+            if (there) File.SetUnixFileMode(work, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
     /// <summary>Another account's own kcap link into the install would dangle once it goes, and root changes nothing in
     /// that account's home: the install stays, whether the link names it outright or through its parent folders.</summary>
     [Test]
