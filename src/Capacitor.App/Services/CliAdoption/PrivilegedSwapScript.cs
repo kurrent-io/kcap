@@ -228,6 +228,10 @@ internal static class PrivilegedSwapScript {
                 esac
                 while IFS= read -r home; do
                     [ -d "$home" ] || continue
+                    # A folder that cannot be listed reads as empty, and may hold a launch agent naming the install.
+                    for d in "$home" "$home/Library" "$home/Library/LaunchAgents"; do
+                        if exists "$d" && ! /bin/ls -A -- "$d" >/dev/null 2>&1; then echo "$d cannot be listed"; return 0; fi
+                    done
                     for plist in "$home"/Library/LaunchAgents/*.plist; do
                         if names "$plist"; then echo "$plist names the install"; return 0; fi
                     done

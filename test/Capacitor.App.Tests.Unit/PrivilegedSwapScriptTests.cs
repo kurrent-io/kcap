@@ -544,6 +544,32 @@ public class PrivilegedSwapScriptTests {
         await install.AssertUntouchedAsync(spec);
     }
 
+    /// <summary>A folder the helper cannot list reads as empty, and may hold a launch agent naming the install: another
+    /// account's home, or its launch agents folder, that cannot be listed keeps the install.</summary>
+    [Test]
+    [Arguments("")]
+    [Arguments("Library/LaunchAgents")]
+    public async Task A_folder_in_another_home_that_cannot_be_listed_keeps_the_install_on_go(string folder) {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp);
+        Tmp.CreateDir("homes", "other", "Library", "LaunchAgents");
+        var hidden = folder.Length == 0 ? Tmp.PathTo("homes", "other") : Tmp.PathTo("homes", "other", folder);
+        File.SetUnixFileMode(hidden, UnixFileMode.None);
+        try {
+            await using var run = Run.Start(Tmp, spec);
+
+            await run.WaitForAsync("swapped");
+            run.Send("go");
+            var result = await run.ExitAsync();
+
+            await Assert.That(run.Words()).IsEquivalentTo(["swapped", "in-use"]);
+            await Assert.That(result.Stderr).Contains($"{hidden} cannot be listed");
+            await install.AssertUntouchedAsync(spec);
+        } finally {
+            File.SetUnixFileMode(hidden, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
     /// <summary>A file the helper cannot search may name the install all the same: it keeps it.</summary>
     [Test]
     public async Task A_home_file_that_cannot_be_read_keeps_the_install_on_go() {
