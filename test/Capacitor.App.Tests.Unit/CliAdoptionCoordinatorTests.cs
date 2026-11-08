@@ -1154,8 +1154,6 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(Directory.Exists(world.Platform)).IsFalse();
     }
 
-    /// <summary>A reinstall at the root a cancelled prompt left is another install: the left record lets it go instead
-    /// of reopening an install that is gone, Finish switching is no longer offered, and the reinstall is reported.</summary>
     /// <summary>On a switched machine preflight carries only the identity a record names, so a pending record whose install
     /// was replaced, as while the prompt Finish switching raised was open, would be taken further by nothing: it goes,
     /// and the reinstall is reported.</summary>
@@ -1176,6 +1174,8 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Notifier.Notified.Single()).Contains("left it in place");
     }
 
+    /// <summary>A reinstall at the root a cancelled prompt left is another install: the left record lets it go instead
+    /// of reopening an install that is gone, Finish switching is no longer offered, and the reinstall is reported.</summary>
     [Test]
     public async Task A_reinstall_over_a_left_install_retires_its_record() {
         var world = new AdoptionWorld(Tmp);
