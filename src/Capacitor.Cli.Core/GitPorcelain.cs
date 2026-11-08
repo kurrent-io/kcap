@@ -12,7 +12,8 @@ public static class GitPorcelain {
             if (fields[i].Length < 4) continue;
 
             var code = fields[i][..2];
-            if (code[0] is 'R' or 'C') {
+            // A worktree-side rename (" R", a moved intent-to-add file) carries the original path too.
+            if (code[0] is 'R' or 'C' || code[1] is 'R' or 'C') {
                 if (i + 1 >= complete) yield break;
 
                 yield return new PorcelainEntry(code, fields[i][3..], fields[i + 1]);
