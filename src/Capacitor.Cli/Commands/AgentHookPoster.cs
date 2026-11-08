@@ -261,8 +261,19 @@ internal sealed class AgentHookPoster(
     internal async Task DrainSpoolsCoreAsync(
             HookSpool lifecycle, TranscriptSpool transcript, string? sessionId,
             Func<CancellationToken, Task<AuthAttempt>> clientFactory) {
-        if (!TryClaimDrainAttempt(lifecycle.DirectoryPath)) return; // throttled — a recent attempt already ran
+        if (IsDrainThrottled(lifecycle.DirectoryPath)) return; // a recent drain finished
 
+        try {
+            await DrainSpoolsUnthrottledAsync(lifecycle, transcript, sessionId, clientFactory);
+        } finally {
+            // Only once the drain returned: one killed with its hook process must not hold the next back.
+            StampDrain(lifecycle.DirectoryPath);
+        }
+    }
+
+    async Task DrainSpoolsUnthrottledAsync(
+            HookSpool lifecycle, TranscriptSpool transcript, string? sessionId,
+            Func<CancellationToken, Task<AuthAttempt>> clientFactory) {
         // Retention runs even when delivery cannot: the reap lives here, and Program.cs skips this
         // whole call while the URL is unacceptable, so an indefinitely broken config would otherwise
         // never reap anything.
@@ -370,25 +381,26 @@ internal sealed class AgentHookPoster(
     }
 
     /// <summary>
-    /// Cross-process drain throttle: returns <c>true</c> (and stamps the attempt) only when the last
-    /// recorded attempt is older than <see cref="DrainThrottle"/>. The stamp file name starts with a
-    /// dot so <see cref="HookSpool"/>'s / <see cref="TranscriptSpool"/>'s session-id-keyed enumerations
-    /// ignore it. Fail-open: a stamp-file hiccup must never suppress a drain, so any I/O error returns
-    /// <c>true</c>.
+    /// Cross-process drain throttle: true while the last drain that returned is younger than
+    /// <see cref="DrainThrottle"/>. The stamp file name starts with a dot so <see cref="HookSpool"/>'s /
+    /// <see cref="TranscriptSpool"/>'s session-id-keyed enumerations ignore it. Fail-open: a stamp-file
+    /// hiccup never suppresses a drain.
     /// </summary>
-    bool TryClaimDrainAttempt(string spoolDir) {
+    bool IsDrainThrottled(string spoolDir) {
         try {
             var stamp = Path.Combine(spoolDir, ".last-drain");
-
-            if (File.Exists(stamp) && time.GetUtcNow().UtcDateTime - File.GetLastWriteTimeUtc(stamp) < DrainThrottle) {
-                return false;
-            }
-
-            Directory.CreateDirectory(spoolDir);
-            File.WriteAllText(stamp, ""); // touch — mtime is the throttle clock
-            return true;
+            return File.Exists(stamp) && time.GetUtcNow().UtcDateTime - File.GetLastWriteTimeUtc(stamp) < DrainThrottle;
         } catch {
-            return true; // never let a throttle-file error swallow a legitimate drain
+            return false; // never let a throttle-file error swallow a legitimate drain
+        }
+    }
+
+    static void StampDrain(string spoolDir) {
+        try {
+            Directory.CreateDirectory(spoolDir);
+            File.WriteAllText(Path.Combine(spoolDir, ".last-drain"), ""); // touch — mtime is the throttle clock
+        } catch {
+            // The next drain runs unthrottled.
         }
     }
 
