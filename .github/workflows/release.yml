@@ -164,6 +164,7 @@ jobs:
       - name: Copy plugin and license into wrapper package
         run: |
           cp -r kcap/ npm/kcap/kcap/
+          source scripts/lib/plugin-dev-files.sh && strip_plugin_dev_files npm/kcap/kcap
           cp LICENSE.md npm/kcap/LICENSE.md
 
       # A wrapper installable before its platform packages installs without them, silently: npm

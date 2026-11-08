@@ -15,6 +15,9 @@ public static class AttachedAgentCopy {
     public const string InterruptAtTerminal = "Interrupt it in its terminal";
     public const string NoFiles = "files can't be sent to a terminal session";
 
+    /// Discarding a message the server still holds for an attached agent cancels it: the server gates its handover.
+    public const string DiscardCancels = "Cancel this message. It hasn't reached the terminal session, so it never will.";
+
     public const string WaitingForTheTurn = "Waiting for the turn to end";
     public const string Delivered = "Delivered";
     public const string SendAgain = "Not delivered, send again";
@@ -42,6 +45,9 @@ public static class AttachedAgentCopy {
 
     /// Delivered or not, as far as the server can tell: no longer waiting for the agent.
     public static bool IsSettled(string? state) => Known(state) is "delivered" or "rejected" or "unconfirmed";
+
+    /// The sender discarded it, so nothing about it is owed them: no notice, and no send-again.
+    public static bool DiscardedBySender(string? state, string? reason) => Known(state) == "rejected" && reason == "discarded";
 
     /// A settled state the sender has to act on.
     public static bool NeedsSender(string? state) => Known(state) is "rejected" or "unconfirmed";

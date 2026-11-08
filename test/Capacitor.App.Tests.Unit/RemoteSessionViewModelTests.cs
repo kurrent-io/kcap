@@ -2116,6 +2116,32 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// A permission record nothing resolved can outlive its prompt at the terminal, and a message is held until the turn
+    /// ends anyway, so a wait at the terminal shows beside a composer that still sends.
+    [Test]
+    public async Task A_wait_at_the_terminal_leaves_the_composer_open() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var owner = new AgentViewerRightsDto {
+                IsOwner = true, Reaches = true, AnswerQuestions = true, ApproveToolUse = true, SendWithoutApproval = true,
+            };
+            var vm = h.Build(AttachedRow() with { ViewerRights = owner });
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await WaitUntilAsync(() => vm.Chat.HasSeed, what: "the seed");
+
+            h.Permissions.Add(PermissionEntries.ServerEntry(sessionId: "s1"));
+            h.Permissions.Add(PermissionEntries.ServerQuestion());
+            await WaitUntilAsync(() => vm.Chat.PendingCards.Count == 2, what: "both cards");
+            vm.Chat.ComposerText = "carry on";
+
+            await Assert.That(vm.Chat.PendingCards.Select(c => c.WaitingOn ?? ""))
+                .IsEquivalentTo(["Waiting for approval at the terminal", "Waiting for an answer at the terminal"]);
+            await Assert.That(vm.Chat.ShowsComposer).IsTrue();
+            await Assert.That(await vm.Chat.SendCommand.CanExecute.FirstAsync()).IsTrue();
+            await vm.TeardownAsync();
+        });
+    }
+
     /// A question in an attached session, Claude's own or an ACP one, can only be answered at its terminal: the card
     /// says so and offers no answer, whoever the viewer is.
     [Test]

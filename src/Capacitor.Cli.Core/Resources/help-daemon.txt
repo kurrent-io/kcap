@@ -288,10 +288,13 @@ Steering:
   each Claude config dir `kcap accounts` records), once per settings file
   rather than per profile: if you later disable or uninstall it in Claude
   Code, turning steering on again leaves it that way and says so. Sessions
-  started after the install load it. Where kcap's plugin isn't installed,
-  nothing is written; if it is installed nowhere, steering still turns on and
-  the command says so and exits 1: run `kcap plugin install`, then
-  `steering on` again. `steering off` leaves the steering plugin installed,
+  started after the install load it. A session started while steering was
+  off, or while the daemon was down, is steered from its next /clear, resume
+  or restart, and a Claude config dir added later with `kcap accounts add`
+  gets the plugin at the next `steering on`. Where kcap's plugin isn't
+  installed, nothing is written; if it is installed nowhere, steering still
+  turns on and the command says so and exits 1: run `kcap plugin install`,
+  then `steering on` again. `steering off` leaves the steering plugin installed,
   doing nothing while the switch is off. If a settings file can't be written,
   steering still turns on and the command says why and exits 1; install the
   plugin by hand with `claude plugin install kcap-steering@kcap`, or fix the
@@ -302,6 +305,11 @@ Steering:
   over only between turns, and it can miss the end of one. /clear starts a
   new conversation and drops the waiting message, so send it again
   afterwards.
+
+  Steering needs a kcap server that takes steered sessions. The daemon asks
+  its server once per connection, before it registers any; against one that
+  doesn't, it steers nothing, and the plugin asks again every ten seconds, so
+  a server upgrade is picked up without a restart.
 
   The socket is owner-only, in a directory only you can enter, and that is
   its only authentication: no token ever reaches a session. Both verbs take

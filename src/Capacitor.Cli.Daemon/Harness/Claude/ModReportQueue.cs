@@ -32,6 +32,10 @@ internal sealed partial class ModReportQueue(ServerConnection server, ILogger lo
     /// saves, and may hold its own lock while enqueuing.</summary>
     public Action? Changed { get; set; }
 
+    /// <summary>Whether a report about the dispatch must stay past the cap: the mod still has it, and a report evicted
+    /// would leave it to read as lost.</summary>
+    public Func<Guid, bool>? Keeps { get; set; }
+
     public void Restore(IEnumerable<ModInputReport> reports) {
         lock (_gate) _reports.AddRange(reports);
     }
@@ -45,18 +49,29 @@ internal sealed partial class ModReportQueue(ServerConnection server, ILogger lo
     }
 
     /// <summary>Queues a report unless the same one is queued already, which a mod resending it before an answer
-    /// reached it produces.</summary>
+    /// reached it produces. Past the cap the oldest goes that <see cref="Keeps"/> doesn't keep; those it keeps are bounded
+    /// by what the server handed over, so only they take the queue past the cap.</summary>
     public void Enqueue(ModInputReport report) {
+        ModInputReport[] queued;
+
         lock (_gate) {
             if (_reports.Any(r => r.SaysTheSameAs(report))) return;
 
-            if (_reports.Count >= Cap) {
-                LogDropped(_reports[0].DispatchId, _reports[0].Kind);
-                _reports.RemoveAt(0);
-            }
-
             _reports.Add(report);
+
+            if (_reports.Count <= Cap) return;
+
+            queued = [.. _reports];
         }
+
+        // Asked outside this lock: whoever answers it takes its own, which may be held around a call into this.
+        if (queued.FirstOrDefault(r => Keeps?.Invoke(r.DispatchId) != true) is not { } oldest) return;
+
+        lock (_gate) {
+            if (_reports.Count <= Cap || !_reports.Remove(oldest)) return;
+        }
+
+        LogDropped(oldest.DispatchId, oldest.Kind);
     }
 
     /// <param name="sweep">Whether this is a sweep's flush, the one that sends again what the server refused.</param>

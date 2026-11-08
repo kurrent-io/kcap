@@ -1126,8 +1126,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         var attempts = Tracked.Concat(_superseded.Select(pair => pair.Old))
             .Distinct().OrderBy(q => q.SendOrder).ToList();
         foreach (var item in items.OrderBy(item => item.DispatchedAt)) {
-            // Empty ids cannot distinguish dispatches or establish ownership.
-            if (item.DispatchId == Guid.Empty || _discardedDispatches.Contains(item.DispatchId)) continue;
+            // Empty ids cannot distinguish dispatches or establish ownership. One its sender discarded is over, and
+            // listed it would tell them to send again what they withdrew.
+            if (item.DispatchId == Guid.Empty || _discardedDispatches.Contains(item.DispatchId)
+             || AttachedAgentCopy.DiscardedBySender(item.DeliveryState, item.DeliveryReason)) continue;
             if (_senders?.HasReceipt(item.DispatchId) == true) {
                 // The receipt can precede the first listing, but only an attempt present when
                 // that message was observed can acquire its id. A later identical send cannot.

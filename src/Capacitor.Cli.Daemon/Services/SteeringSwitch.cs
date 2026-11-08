@@ -8,15 +8,20 @@ namespace Capacitor.Cli.Daemon.Services;
 /// The steering switch: the consent document's <c>steering</c> field, with the steering socket bound while it is on. It
 /// moves only through <see cref="FrameType.SteeringSet"/>, since the daemon is the document's only writer, and the
 /// socket follows it with no restart. A SteeringSet writes on only once the socket is up, and off before the socket
-/// goes, so a failure on either side leaves the two agreeing.
+/// goes, so a failure on either side leaves the two agreeing. While it is on, a socket file that goes from under it is
+/// bound again within <see cref="RebindInterval"/>, since every mod keeps trying that path.
 /// </summary>
 /// <param name="offered">Whether steering is offered on this platform; <see cref="SteeringIpc.Offered"/> unless given.</param>
 /// <param name="attachments">The sessions steered while the switch is on, every one of them ended when it goes off.</param>
 internal sealed class SteeringSwitch(
-        LaunchConsentStore store, SteeringEndpoint endpoint, bool? offered = null, Harness.Claude.ModAttachments? attachments = null
+        LaunchConsentStore store, SteeringEndpoint endpoint, bool? offered = null, Harness.Claude.ModAttachments? attachments = null,
+        TimeProvider? time = null
     ) : IHostedService, IDisposable {
+    internal static readonly TimeSpan RebindInterval = TimeSpan.FromSeconds(5);
+
     readonly SemaphoreSlim _lane = new(1, 1);
     readonly bool _offered = offered ?? SteeringIpc.Offered;
+    ITimer? _rebind;
 
     /// <summary>Binds the socket when the switch was left on. One that won't bind stays on, and the next
     /// <see cref="SteeringIpc.On"/> tries again.</summary>
@@ -30,9 +35,26 @@ internal sealed class SteeringSwitch(
         } finally {
             _lane.Release();
         }
+
+        _rebind = (time ?? TimeProvider.System).CreateTimer(_ => Rebind(), null, RebindInterval, RebindInterval);
+    }
+
+    // Skipped while the switch moves. A socket that never bound waits for the next on, as at start.
+    void Rebind() {
+        if (!_lane.Wait(0)) return;
+
+        try {
+            if (store.SteeringOn && endpoint.IsBound) endpoint.TryBind(out _);
+        } catch {
+            // The next round tries again.
+        } finally {
+            _lane.Release();
+        }
     }
 
     public async Task StopAsync(CancellationToken ct) {
+        if (_rebind is { } rebind) await rebind.DisposeAsync();
+
         await _lane.WaitAsync(ct);
 
         try {
@@ -71,8 +93,10 @@ internal sealed class SteeringSwitch(
             } else {
                 if (!store.TrySetSteering(false, out var unwritable)) return Refused(SteeringIpc.Unwritable, unwritable);
 
-                await endpoint.UnbindAsync();
+                // Ahead of the socket, which waits for requests already in: a handover answered meanwhile then finds its
+                // attachment gone, and is reported back rather than given to a mod.
                 attachments?.EndAll();
+                await endpoint.UnbindAsync();
             }
 
             return new(true, null, State);
@@ -81,7 +105,10 @@ internal sealed class SteeringSwitch(
         }
     }
 
-    public void Dispose() => _lane.Dispose();
+    public void Dispose() {
+        _rebind?.Dispose();
+        _lane.Dispose();
+    }
 
     string State => store.SteeringOn ? SteeringIpc.On : SteeringIpc.Off;
 

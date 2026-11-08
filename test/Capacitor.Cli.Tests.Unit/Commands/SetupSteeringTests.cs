@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.FirstRun;
@@ -32,10 +33,12 @@ public class SetupSteeringTests {
     static Func<bool, bool> Refusing => _ => throw new InvalidOperationException("the steering question was asked");
 
     /// <summary>Pressing Enter takes the default, and a run that can't ask takes no answer: neither asks the daemon
-    /// anything or writes Claude's settings.</summary>
+    /// anything or writes Claude's settings, which kcap's plugin is in, so a write would show.</summary>
     [Test]
     [ExcludeOn(OS.Windows)] // a Unix-domain socket stands in for the daemon
     public async Task Setup_offers_steering_and_leaves_it_off_by_default() {
+        InstallKcap();
+        var before = File.ReadAllText(Settings);
         await using var daemon = Daemon();
         var defaults = new List<bool>();
 
@@ -51,7 +54,7 @@ public class SetupSteeringTests {
         await Assert.That(unattended).IsFalse();
         await Assert.That(Lines).IsEquivalentTo([SetupSteering.LeftOff]);
         await Assert.That(daemon.Asked).IsEmpty();
-        await Assert.That(File.Exists(Settings)).IsFalse();
+        await Assert.That(File.ReadAllText(Settings)).IsEqualTo(before);
     }
 
     [Test]
@@ -84,6 +87,60 @@ public class SetupSteeringTests {
         await Assert.That(daemon.Asked).IsEquivalentTo([SteeringIpc.On]);
     }
 
+    /// <summary>What a daemon whose switch is on has, beside its control socket: something listening on its steering
+    /// socket.</summary>
+    Socket SwitchedOn() {
+        Daemons.CreateDir(Name);
+        var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        socket.Bind(new UnixDomainSocketEndPoint(Daemons.Store.SteeringSocketPath(Name)));
+        socket.Listen(4);
+
+        return socket;
+    }
+
+    FakeSteeringDaemon TurningOff() => FakeSteeringDaemon.Answering(Daemons.Store.SocketPath(Name), new SteeringSetAckDto(true, null, SteeringIpc.Off));
+
+    /// <summary>Re-running setup is how a person updates it, and an off that setup ignored while it printed "off" would
+    /// leave remote input into their terminal open with nothing saying so.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows)] // Unix-domain sockets stand in for the daemon
+    public async Task An_off_while_steering_is_on_turns_it_off() {
+        using var steering = SwitchedOn();
+        await using var daemon = TurningOff();
+
+        await Assert.That(await RunAsync(["--steering", "off"], ask: null)).IsFalse();
+
+        await Assert.That(daemon.Asked).IsEquivalentTo([SteeringIpc.Off]);
+        await Assert.That(Lines).IsEquivalentTo([$"Steering is off for daemon '{Name}'."]);
+    }
+
+    /// <summary>The question suggests the switch as it stands, and a no to it turns steering off.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows)] // Unix-domain sockets stand in for the daemon
+    public async Task The_question_suggests_steering_as_it_stands_and_a_no_turns_it_off() {
+        using var steering = SwitchedOn();
+        await using var daemon = TurningOff();
+        var defaults = new List<bool>();
+
+        await Assert.That(await RunAsync([], ask: d => { defaults.Add(d); return false; })).IsFalse();
+
+        await Assert.That(defaults).IsEquivalentTo([true]);
+        await Assert.That(daemon.Asked).IsEquivalentTo([SteeringIpc.Off]);
+    }
+
+    /// <summary>A run that asks nothing and has no answer leaves the switch as it is, and says how it is.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows)] // Unix-domain sockets stand in for the daemon
+    public async Task A_run_with_no_answer_leaves_steering_on_and_never_calls_it_off() {
+        using var steering = SwitchedOn();
+        await using var daemon = TurningOff();
+
+        await Assert.That(await RunAsync([], ask: null)).IsTrue();
+
+        await Assert.That(daemon.Asked).IsEmpty();
+        await Assert.That(Lines).IsEquivalentTo([SetupSteering.LeftOn]);
+    }
+
     [Test]
     public async Task Steering_is_not_asked_about_where_it_could_not_reach_a_session() {
         await Assert.That(await RunAsync([], ask: Refusing, eligible: false)).IsFalse();
@@ -110,12 +167,15 @@ public class SetupSteeringTests {
     [Test]
     [ExcludeOn(OS.Windows)] // without a daemon the flip is refused; Windows refuses before asking
     public async Task A_daemon_that_could_not_turn_it_on_leaves_steering_off_and_says_how_to_later() {
+        InstallKcap();
+        var before = File.ReadAllText(Settings);
+
         var on = await RunAsync([], ask: _ => true);
 
         await Assert.That(on).IsFalse();
         await Assert.That(Lines.Any(l => l.Contains($"daemon '{Name}' is not running", StringComparison.Ordinal))).IsTrue();
         await Assert.That(Lines.Any(l => l.Contains("kcap daemon steering on", StringComparison.Ordinal))).IsTrue();
-        await Assert.That(File.Exists(Settings)).IsFalse();
+        await Assert.That(File.ReadAllText(Settings)).IsEqualTo(before);
     }
 
     /// <summary>Through the seam rather than the OS, so it runs everywhere: no question, and the flag refused for the

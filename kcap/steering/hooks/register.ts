@@ -6,8 +6,9 @@ const ENTRY = 'process:'
 const POLL_MS = 1000
 const SLOW_ATTACH_MS = 10_000
 const LOOK_AGAIN_MS = 30_000
-// Above the daemon's own budgets, so the mod never abandons a call the daemon still answers: it waits up to 10 s on
-// the server for each handover it confirms, and 15 s for a registration.
+// Above the daemon's own budgets, so the mod never abandons a call the daemon still answers: a poll spends at most 8 s
+// on the server however many handovers it confirms, and an attach 1 s on whether the server steers and 15 s on the
+// registration.
 const CALL_MS = 12_000
 const ATTACH_MS = 17_000
 // A late link corrects a false alarm, so the grace only has to outlast a normal landing.

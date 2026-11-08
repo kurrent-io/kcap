@@ -36,10 +36,17 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
     static readonly TimeSpan RegistrationBudget = TimeSpan.FromSeconds(15);
 
+    // Short, so a registration behind it still answers the mod inside its own wait for an attach.
+    static readonly TimeSpan ProbeWait = TimeSpan.FromSeconds(1);
+
+    /// <summary>All one poll spends on the server, whatever it asks: short of the mod's own wait for an answer, so a
+    /// handover the server gives always reaches a mod still waiting for it.</summary>
+    internal static readonly TimeSpan NextBudget = TimeSpan.FromSeconds(8);
+
     /// <summary>How many agents back a report about a dispatch is tried, as far as the server follows a link.</summary>
     const int MaxCarriedFrom = 16;
 
-    const int GoneCap = 256, StoppedCap = 64, ReplacedCap = 256;
+    const int GoneCap = 256, StoppedCap = 64, ReplacedCap = 256, ReportedCap = 1024;
 
     // What the mod is told. A refusal or a gone with no retry leaves it inert until its process or session changes.
     const string SteeringOffAnswer = "steering_off";
@@ -78,9 +85,18 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     readonly Dictionary<Guid, ModHandover> _handedOver = [];
     readonly Dictionary<string, string> _replaced    = new(StringComparer.Ordinal);
     readonly Dictionary<string, string> _carriedFrom = new(StringComparer.Ordinal);
+
+    // The dispatches the mod has reported on: a record of each, whether or not its report still waits here.
+    readonly HashSet<Guid> _reported = [];
+    readonly Queue<Guid> _reportedOrder = new();
     readonly List<ModStoppedPair> _stopped = [];
     readonly Dictionary<string, (string Reason, bool Retry, string ProcessKey)> _gone = new(StringComparer.Ordinal);
     readonly Queue<string> _goneOrder = new();
+
+    // Whether the server takes attached agents, as it said on the connection named; asked once per connection.
+    (string? Connection, bool Steers)? _probed;
+    TaskCompletionSource<bool?>? _probing;
+    string? _probingOn;
 
     /// <param name="steeringOn">The persisted switch.</param>
     /// <param name="offered">Whether steering is offered on this platform; <see cref="SteeringIpc.Offered"/> unless given.</param>
@@ -94,7 +110,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         _time       = time;
         _logger     = logger;
         _status     = status;
-        _reports    = new ModReportQueue(server, logger) { Settled = ForgetHandover, Changed = Save };
+        _reports    = new ModReportQueue(server, logger) { Settled = ForgetHandover, Changed = Save, Keeps = HandedOver };
 
         server.AdvertisesSteering = _offered;
         server.ConnectionLost    += DropAllHeld;
@@ -162,6 +178,13 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
         if (!_server.IsReady) return SteeringAttachReply.Refusal(UnreachableAnswer, retry: true);
 
+        // A server that can't take attached agents would take this one for a hosted agent and drop what is sent to it.
+        // The mod comes back slowly either way, so an upgraded server is found.
+        switch (await AnsweredAsync(SteersAsync(), ProbeWait)) {
+            case false: return SteeringAttachReply.Refusal(AgentRegistrationRefusal.SteeringUnsupported, retry: true);
+            case null:  return SteeringAttachReply.Refusal(UnreachableAnswer, retry: true);
+        }
+
         AgentRegisteredResponse answer;
 
         // Past here the client going away changes nothing: an attachment the mod never learns of lapses.
@@ -190,6 +213,71 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         LogAttached(agentId, replacesAgentId);
 
         return SteeringAttachReply.Attached(agentId, PollInterval);
+    }
+
+    /// <summary>Whether the server on this connection takes attached agents, asked of it once per connection. Null until
+    /// it has answered.</summary>
+    Task<bool?> SteersAsync() {
+        var connection = _server.CurrentConnectionId;
+
+        TaskCompletionSource<bool?> asking;
+
+        lock (_gate) {
+            if (_probed is { } probed && probed.Connection == connection) return Task.FromResult<bool?>(probed.Steers);
+            if (_probing is { } probing && _probingOn == connection) return probing.Task;
+
+            _probingOn = connection;
+            _probing   = asking = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        _ = ProbeAsync(connection, asking);
+
+        return asking.Task;
+    }
+
+    async Task ProbeAsync(string? connection, TaskCompletionSource<bool?> asking) {
+        var steers = await _server.ServerSteersAsync();
+
+        lock (_gate) {
+            if (steers is { } said && _server.CurrentConnectionId == connection) _probed = (connection, said);
+            if (_probing == asking) _probing = null;
+        }
+
+        if (steers == false) LogSteeringUnsupported();
+
+        asking.TrySetResult(steers);
+    }
+
+    async Task<bool?> AnsweredAsync(Task<bool?> probe, TimeSpan wait) {
+        try {
+            return await probe.WaitAsync(wait, _time);
+        } catch (TimeoutException) {
+            return null;
+        }
+    }
+
+    /// <summary>Whether these attachments may register on this connection. One the server can't take ends here, and its
+    /// mod is told on its next poll to come back slowly; one it hasn't said about yet waits for the sweep.</summary>
+    async Task<bool> MayRegisterAsync(IReadOnlyCollection<string> agentIds) {
+        switch (await SteersAsync()) {
+            case true:
+                return true;
+            case false:
+                lock (_gate)
+                    foreach (var agentId in agentIds)
+                        if (_live.TryGetValue(agentId, out var runtime)) Forget(runtime, AgentRegistrationRefusal.SteeringUnsupported, retry: true);
+
+                Save();
+                _status?.Pulse();
+
+                return false;
+            default:
+                lock (_gate)
+                    foreach (var agentId in agentIds)
+                        if (_live.ContainsKey(agentId)) _unregistered.Add(agentId);
+
+                return false;
+        }
     }
 
     /// <summary>Why the process may not attach as this agent whatever the server says, or null.</summary>
@@ -313,11 +401,15 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         if (!attached) return GoneReply(agentId, processKey);
         if (!idle || outstanding is not null || !runtime!.TryBeginHandover()) return null;
 
+        var started = _time.GetTimestamp();
+
+        TimeSpan Left() => NextBudget - _time.GetElapsedTime(started);
+
         try {
-            for (var tries = runtime.HeldCount; tries > 0 && _server.IsReady; tries--) {
+            for (var tries = runtime.HeldCount; tries > 0 && _server.IsReady && Left() > TimeSpan.Zero; tries--) {
                 if (runtime.OldestHeld(_server.CurrentConnectionId) is not { } held) return null;
 
-                var answer = await _server.ConfirmInputHandoverAsync(held.DispatchId, agentId);
+                var answer = await _server.ConfirmInputHandoverAsync(held.DispatchId, agentId, Left());
 
                 switch (answer?.Outcome) {
                     case InputHandoverOutcome.HandedOver:
@@ -350,7 +442,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
                     case InputHandoverOutcome.Hold when answer.BlockingDispatchId is { } blocking:
                         if (_reports.Holds(blocking)) _ = _reports.FlushAsync();
-                        else await RejectLostAsync(runtime, blocking);
+                        else if (!Reported(blocking)) await RejectLostAsync(runtime, blocking, Left);
 
                         return null;
 
@@ -374,14 +466,20 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
     /// <summary>Reports a dispatch the server holds as With the mod, which the mod has no record of, under the agent it was
     /// sent to: only that agent's stream takes the report. With no record of that here, the agent polling and those its
-    /// process carried on from are tried in turn, as far back as the server follows a link.</summary>
-    async Task RejectLostAsync(ModAttachedAgentRuntime runtime, Guid dispatchId) {
+    /// process carried on from are tried in turn, as far back as the server follows a link, while the server answers and
+    /// <paramref name="left"/> lasts; the next poll tries again.</summary>
+    async Task RejectLostAsync(ModAttachedAgentRuntime runtime, Guid dispatchId, Func<TimeSpan> left) {
         List<string> candidates;
 
         lock (_gate) candidates = _handedOver.GetValueOrDefault(dispatchId)?.AgentId is { } sentTo ? [sentTo] : CarriedFromChain(runtime);
 
         foreach (var agentId in candidates) {
-            if (await _server.ReportAttachedInputRejectedAsync(dispatchId, agentId, NotHeldByModReason) != AttachedReportAnswer.Taken) continue;
+            if (left() <= TimeSpan.Zero) return;
+
+            var answer = await _server.ReportAttachedInputRejectedAsync(dispatchId, agentId, NotHeldByModReason, left());
+
+            if (answer is AttachedReportAnswer.Unreached) return;
+            if (answer != AttachedReportAnswer.Taken) continue;
 
             LogLostDispatchRejected(dispatchId, agentId);
 
@@ -420,6 +518,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             if (processKey is not null && _live.TryGetValue(agentId, out var runtime) && runtime.ProcessKey == processKey) runtime.Beat();
 
             report = build(_handedOver.GetValueOrDefault(dispatchId)?.AgentId ?? agentId);
+            NoteReported(dispatchId);
         }
 
         _reports.Enqueue(report);
@@ -428,6 +527,31 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     }
 
     internal Task FlushReportsAsync() => _reports.FlushAsync();
+
+    /// <summary>Whether the mod has reported on the dispatch: it records one before it submits it, so a report that never
+    /// reached the server, dropped or not, still says the dispatch isn't lost.</summary>
+    bool Reported(Guid dispatchId) {
+        lock (_gate) return _reported.Contains(dispatchId);
+    }
+
+    /// <summary>Called under the state lock. The oldest goes past the cap, except one still handed over, which only a
+    /// real handover adds, so those are bounded by what the server sent.</summary>
+    void NoteReported(Guid dispatchId) {
+        if (!_reported.Add(dispatchId)) return;
+
+        _reportedOrder.Enqueue(dispatchId);
+
+        for (var left = _reportedOrder.Count; _reported.Count > ReportedCap && left > 0; left--) {
+            var oldest = _reportedOrder.Dequeue();
+
+            if (_handedOver.ContainsKey(oldest)) _reportedOrder.Enqueue(oldest);
+            else _reported.Remove(oldest);
+        }
+    }
+
+    bool HandedOver(Guid dispatchId) {
+        lock (_gate) return _handedOver.ContainsKey(dispatchId);
+    }
 
     void ForgetHandover(Guid dispatchId) {
         lock (_gate) _handedOver.Remove(dispatchId);
@@ -447,8 +571,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         foreach (var (left, by) in _replaced.ToList())
             if (by == ended.ProcessKey) _replaced.Remove(left);
 
-        foreach (var agentId in _carriedFrom.Keys.ToList())
-            if (!_live.ContainsKey(agentId) && !_replaced.ContainsKey(agentId)) _carriedFrom.Remove(agentId);
+        PruneCarriedFrom();
     }
 
     /// <summary>A stop, from the server or <c>kcap agent stop</c>: the attachment ends, and the process is left exactly
@@ -549,6 +672,14 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
         foreach (var (left, by) in _replaced.ToList())
             if (!live.Contains(by)) _replaced.Remove(left);
+
+        PruneCarriedFrom();
+    }
+
+    // A link is followed only from a live agent or one a process carried on from.
+    void PruneCarriedFrom() {
+        foreach (var agentId in _carriedFrom.Keys.ToList())
+            if (!_live.ContainsKey(agentId) && !_replaced.ContainsKey(agentId)) _carriedFrom.Remove(agentId);
     }
 
     /// <summary>An unregistration the server did not get, because it was away or the call failed, is sent by a later
@@ -591,13 +722,24 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     }
 
     /// <summary>Registers every attachment again, so the server moves it to this connection; run inside the
-    /// registration, after <c>DaemonConnect</c> has reported them live. One the server now refuses ends here, and its
-    /// mod is told why on its next poll.</summary>
+    /// registration, after <c>DaemonConnect</c> has reported them live, all at once and within one bound, since every
+    /// hosted agent's readiness waits behind them. One the server now refuses ends here, and its mod is told why on its
+    /// next poll; one still registering at the bound is left to finish, and the sweep registers it if that fails.</summary>
     public async Task ReRegisterAsync() {
         string[] live;
         lock (_gate) live = [.. _live.Keys];
 
-        foreach (var agentId in live) await RegisterAsync(agentId);
+        if (live.Length == 0) return;
+
+        try {
+            await RegisterAllAsync(live).WaitAsync(RegistrationBudget, _time);
+        } catch (TimeoutException) {
+            LogReRegistrationSlow(live.Length, (int)RegistrationBudget.TotalSeconds);
+        }
+    }
+
+    async Task RegisterAllAsync(string[] agentIds) {
+        if (await MayRegisterAsync(agentIds)) await Task.WhenAll(agentIds.Select(RegisterAsync));
     }
 
     async Task RegisterAsync(string agentId) {
@@ -642,8 +784,11 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         _status?.Pulse();
     }
 
-    /// <summary>The reports go at once, whatever stage a sweep already running has reached.</summary>
+    /// <summary>The reports go at once, whatever stage a sweep already running has reached, and the server is asked
+    /// whether it takes attached agents before a mod asks to attach.</summary>
     void SweepOnRegistered() {
+        if (SteeringOn) _ = SteersAsync();
+
         _ = _reports.FlushAsync();
         _ = SweepAsync();
     }
@@ -676,7 +821,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             string[] pending;
             lock (_gate) pending = [.. _unregistered];
 
-            foreach (var agentId in pending) await RegisterAsync(agentId);
+            if (pending.Length > 0) await RegisterAllAsync(pending);
 
             await SendPendingUnregistrationsAsync();
             await _reports.FlushAsync(sweep: true);
@@ -702,9 +847,13 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
                 _reports.Enqueue(new ModInputReport(ModInputReport.Unconfirmed, dispatchId, handover.AgentId, Reason: LapsedReason));
     }
 
+    // What the server said goes with the connection too: the next one may be to an upgraded server.
     void DropAllHeld() {
-        lock (_gate)
+        lock (_gate) {
             foreach (var runtime in _live.Values) runtime.DropHeld();
+
+            _probed = null;
+        }
     }
 
     void Restore(ModAttachmentFile file) {
@@ -719,6 +868,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             foreach (var (dispatchId, handover) in file.HandedOver) _handedOver[Guid.Parse(dispatchId)] = handover;
             foreach (var (left, by) in file.Replaced) _replaced[left] = by;
             foreach (var (agentId, from) in file.CarriedFrom ?? []) _carriedFrom[agentId] = from;
+            foreach (var reported in file.Reported ?? []) NoteReported(Guid.Parse(reported));
 
             _stopped.AddRange(file.Stopped);
         }
@@ -734,6 +884,8 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             _replaced.Clear();
             _carriedFrom.Clear();
             _stopped.Clear();
+            _reported.Clear();
+            _reportedOrder.Clear();
         }
     }
 
@@ -748,7 +900,8 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
                     _reports.Snapshot(),
                     new Dictionary<string, string>(_replaced, StringComparer.Ordinal),
                     [.. _stopped],
-                    new Dictionary<string, string>(_carriedFrom, StringComparer.Ordinal));
+                    new Dictionary<string, string>(_carriedFrom, StringComparer.Ordinal),
+                    [.. _reportedOrder.Select(id => id.ToString("D"))]);
 
             _store.TrySave(file);
         }
@@ -790,6 +943,12 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Attached agent {AgentId} could not be unregistered: {Why}; a later sweep tries again")]
     partial void LogUnregisterFailed(string agentId, string why);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The server takes no attached agents, so no terminal session is steered through it")]
+    partial void LogSteeringUnsupported();
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Count} attached agent(s) had not registered again within {Seconds}s; the registration goes on without them")]
+    partial void LogReRegistrationSlow(int count, int seconds);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The steering sweep failed")]
     partial void LogSweepFailed(Exception ex);

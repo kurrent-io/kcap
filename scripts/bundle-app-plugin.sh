@@ -10,6 +10,9 @@ mkdir -p "$destination"
 # target check; mkdir takes the name literally and still refuses an existing plugin.
 mkdir "$destination/kcap"
 cp -R "$here/../kcap/." "$destination/kcap/"
+# shellcheck source=lib/plugin-dev-files.sh
+source "$here/lib/plugin-dev-files.sh"
+strip_plugin_dev_files "$destination/kcap"
 # shellcheck source=lib/plugin-manifests.sh
 source "$here/lib/plugin-manifests.sh"
 for manifest in "${plugin_manifests[@]}"; do

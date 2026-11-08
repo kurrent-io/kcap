@@ -6,6 +6,7 @@ using Capacitor.Cli.Daemon.Harness.Claude;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 using Capacitor.Cli.Daemon.Tests.Unit.Services;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using TUnit.Core.Enums;
@@ -569,6 +570,93 @@ public class ModAttachmentsTests {
         await Assert.That(attachments.Live).IsEmpty();
     }
 
+    static Task<ConfirmInputHandoverResponse?> NoHandoverMethod() =>
+        Task.FromException<ConfirmInputHandoverResponse?>(
+            new HubException("Failed to invoke 'ConfirmInputHandover' due to an error on the server. HubException: Method does not exist."));
+
+    /// <summary>A server from before attached agents has <c>AgentRegisteredAcked</c>, and would take an attached agent's
+    /// registration for a hosted one's and drop everything sent to it, but has no <c>ConfirmInputHandover</c>. Asked
+    /// about the empty dispatch, it says it can't steer: nothing registers, and the mod comes back slowly in case the
+    /// server is upgraded.</summary>
+    [Test]
+    public async Task A_server_without_the_handover_method_registers_no_attached_agent() {
+        var server = new CaptureServerConnection { SteeringProbe = NoHandoverMethod };
+        await using var attachments = Attachments(server);
+
+        await Assert.That(await attachments.AttachAsync(Session, Key, null, CancellationToken.None))
+            .IsEqualTo(SteeringAttachReply.Refusal("steering_unsupported", retry: true));
+        await Assert.That(server.AttachedRegistrations).IsEmpty();
+        await Assert.That(attachments.Live).IsEmpty();
+    }
+
+    /// <summary>Until the server has said whether it steers, nothing registers, and the mod is told to try again.</summary>
+    [Test]
+    public async Task An_attach_before_the_server_says_whether_it_steers_registers_nothing() {
+        var server = new CaptureServerConnection { SteeringProbe = () => Task.FromException<ConfirmInputHandoverResponse?>(new IOException("the connection went")) };
+        await using var attachments = Attachments(server);
+
+        await Assert.That(await attachments.AttachAsync(Session, Key, null, CancellationToken.None))
+            .IsEqualTo(SteeringAttachReply.Refusal("unreachable", retry: true));
+        await Assert.That(server.AttachedRegistrations).IsEmpty();
+    }
+
+    /// <summary>The server is asked once for its connection, not once per attach.</summary>
+    [Test]
+    public async Task The_server_is_asked_once_per_connection_whether_it_steers() {
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+
+        await AttachAsync(attachments);
+        await AttachAsync(attachments, session: Later, key: OtherKey);
+        await Assert.That(server.SteeringProbes).IsEqualTo(1);
+
+        server.ConnectionIdForTest = "connection-2";
+        await AttachAsync(attachments, key: OtherKey);
+        await Assert.That(server.SteeringProbes).IsEqualTo(2);
+    }
+
+    /// <summary>An attachment kept across a restart registers again only on a server that steers: on one that can't, the
+    /// re-registration and the sweep send nothing, and the mod is told to come back slowly.</summary>
+    [Test]
+    public async Task Kept_attachments_do_not_register_again_on_a_server_that_cannot_steer() {
+        string agentId;
+        await using (var before = Attachments(new CaptureServerConnection())) agentId = await AttachAsync(before);
+
+        var server = new CaptureServerConnection { SteeringProbe = NoHandoverMethod };
+        await using var restarted = Attachments(server);
+
+        await restarted.ReRegisterAsync();
+        await restarted.SweepAsync();
+
+        await Assert.That(server.AttachedRegistrations).IsEmpty();
+        await Assert.That(await IdleAsync(restarted, agentId)).IsEqualTo(SteeringNextReply.GoneAs("steering_unsupported", retry: true));
+    }
+
+    /// <summary>Every hosted agent's readiness waits behind the re-registration, so the attachments register all at once,
+    /// and the wait has one bound however slow the server is.</summary>
+    [Test]
+    public async Task Kept_attachments_register_again_together_within_one_bound() {
+        await using (var before = Attachments(new CaptureServerConnection())) {
+            await AttachAsync(before);
+            await AttachAsync(before, session: Later, key: OtherKey);
+        }
+
+        var gate   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = new CaptureServerConnection { AttachedRegistrationGate = gate };
+        await using var restarted = Attachments(server);
+
+        var registering = restarted.ReRegisterAsync();
+        var deadline    = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        int Registered() { lock (server.AttachedRegistrations) return server.AttachedRegistrations.Count; }
+        while (Registered() < 2 && DateTime.UtcNow < deadline) await Task.Delay(10);
+
+        await Assert.That(Registered()).IsEqualTo(2);
+
+        _time.Advance(TimeSpan.FromSeconds(15));
+        await registering.WithinDeadlineAsync("the re-registration's bound");
+        gate.SetResult();
+    }
+
     [Test]
     public async Task A_daemon_with_no_server_connection_says_to_attach_again() {
         var server = new CaptureServerConnection { Ready = false };
@@ -913,8 +1001,7 @@ public class ModAttachmentsTests {
     public async Task A_state_file_with_bad_entries_keeps_the_good_ones() {
         var good     = AgentOf(Session);
         var dispatch = Guid.NewGuid();
-        Directory.CreateDirectory(Path.GetDirectoryName(StatePath)!);
-        File.WriteAllText(StatePath, $$"""
+        Daemons.CreateFile(Path.GetRelativePath(Daemons.Directory, StatePath), $$"""
             {
               "attachments": [null, { "sessionId": "{{Later}}", "processKey": "{{OtherKey}}", "attachedAt": "2026-11-08T09:00:00Z" },
                               { "agentId": "{{good}}", "sessionId": "{{Session}}", "processKey": "{{Key}}", "attachedAt": "2026-11-08T09:00:00Z" }],
@@ -1171,5 +1258,98 @@ public class ModAttachmentsTests {
         await IdleAsync(attachments, current);
 
         await Assert.That(server.AttachedRejections.Select(r => r.AgentId)).IsEquivalentTo([current, second, first]);
+    }
+
+    /// <summary>The mod gives up on a call after twelve seconds, and a handover the server gave after that would reach a
+    /// mod that has gone, so one poll stops asking once its own bound is spent, however many dispatches are held.</summary>
+    [Test]
+    public async Task A_poll_stops_asking_the_server_once_its_bound_is_spent() {
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        var agentId = await AttachAsync(attachments);
+        var settled = Guid.NewGuid();
+        Push(attachments, agentId, settled, "settled already");
+        Push(attachments, agentId, Guid.NewGuid(), "still wanted");
+        server.HandoverAnswer = _ => {
+            _time.Advance(ModAttachments.NextBudget + TimeSpan.FromSeconds(1));
+
+            return new ConfirmInputHandoverResponse(InputHandoverOutcome.Drop);
+        };
+
+        await Assert.That(await IdleAsync(attachments, agentId)).IsNull();
+        await Assert.That(server.HandoverRequests.Select(r => r.DispatchId)).IsEquivalentTo([settled]);
+    }
+
+    /// <summary>A server that can't be reached answers no agent of the walk, and the next poll asks again.</summary>
+    [Test]
+    public async Task A_lost_dispatch_walk_stops_at_a_server_that_does_not_answer() {
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        var first   = await AttachAsync(attachments);
+        var current = await AttachAsync(attachments, session: Later, replaces: first);
+        Push(attachments, current, Guid.NewGuid());
+        server.HandoverAnswer      = _ => new ConfirmInputHandoverResponse(InputHandoverOutcome.Hold, Guid.NewGuid());
+        server.AttachedReportThrow = new IOException("connection reset");
+
+        await IdleAsync(attachments, current);
+
+        await Assert.That(server.AttachedRejectionAttempts).IsEqualTo(1);
+    }
+
+    /// <summary>The mod records a dispatch before it submits it, so one it reported on isn't lost, even once that report
+    /// has been dropped at its refusal bound.</summary>
+    [Test]
+    public async Task A_dispatch_the_mod_reported_is_never_rejected_as_lost() {
+        var error  = new HubException("Caller is not the daemon owning agent");
+        var server = new CaptureServerConnection { AttachedRejectionThrow = error };
+        await using var attachments = Attachments(server);
+        var agentId  = await AttachAsync(attachments);
+        var reported = Guid.NewGuid();
+        Push(attachments, agentId, reported);
+        await IdleAsync(attachments, agentId);
+
+        attachments.Undelivered(agentId, Key, reported, rejected: true, "stopped");
+        for (var sweep = 0; sweep < ModReportQueue.MaxRefusals; sweep++) await Within(attachments.SweepAsync());
+        var refusals = server.AttachedRejectionAttempts;
+
+        server.AttachedRejectionThrow = null;
+        Push(attachments, agentId, Guid.NewGuid());
+        server.HandoverAnswer = _ => new ConfirmInputHandoverResponse(InputHandoverOutcome.Hold, reported);
+
+        await Assert.That(await IdleAsync(attachments, agentId)).IsNull();
+        await Assert.That(server.AttachedRejectionAttempts).IsEqualTo(refusals);
+        await Assert.That(server.AttachedRejections).IsEmpty();
+    }
+
+    /// <summary>A flood of reports from the owner's own processes fills the queue, and what it pushes out must not be the
+    /// report of a dispatch the mod still has: without it, that dispatch would read as lost.</summary>
+    [Test]
+    public async Task A_full_report_queue_keeps_the_report_of_a_dispatch_still_handed_over() {
+        var handed = Guid.NewGuid();
+        var queue  = new ModReportQueue(new CaptureServerConnection { Ready = false }, NullLogger.Instance) { Keeps = id => id == handed };
+        var agent  = AgentOf(Session);
+
+        queue.Enqueue(new ModInputReport(ModInputReport.Link, handed, agent, Session, Guid.NewGuid()));
+        for (var i = 0; i < 1024; i++) queue.Enqueue(new ModInputReport(ModInputReport.Link, Guid.NewGuid(), agent, Session, Guid.NewGuid()));
+
+        await Assert.That(queue.Holds(handed)).IsTrue();
+        await Assert.That(queue.Snapshot().Length).IsEqualTo(1024);
+    }
+
+    /// <summary>A link back is kept only for an agent still live or carried on from, so the links are bounded as the
+    /// agents carried on from are, by processes that end without a detach too.</summary>
+    [Test]
+    public async Task The_links_back_go_with_the_agents_carried_on_from() {
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+
+        for (var i = 0; i <= 256; i++) {
+            var key   = $"{5000 + i}:start";
+            var first = await AttachAsync(attachments, session: Guid.NewGuid().ToString(), key: key);
+
+            attachments.Stop(await AttachAsync(attachments, session: Guid.NewGuid().ToString(), key: key, replaces: first));
+        }
+
+        await Assert.That(new ModAttachmentStore(StatePath, NullLogger.Instance).Load().CarriedFrom!.Count).IsEqualTo(1);
     }
 }

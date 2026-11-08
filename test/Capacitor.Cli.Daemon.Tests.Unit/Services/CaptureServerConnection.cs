@@ -691,7 +691,22 @@ sealed class CaptureServerConnection : ServerConnection {
 
     public TaskCompletionSource HandoverEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    /// <summary>What the server answers the empty dispatch a daemon asks about to learn whether it takes attached agents:
+    /// drop, as such a server answers it ahead of everything else, unless set. Never in <see cref="HandoverRequests"/>.</summary>
+    public Func<Task<ConfirmInputHandoverResponse?>> SteeringProbe { get; set; } =
+        () => Task.FromResult<ConfirmInputHandoverResponse?>(new ConfirmInputHandoverResponse(InputHandoverOutcome.Drop));
+
+    int _steeringProbes;
+
+    public int SteeringProbes => Volatile.Read(ref _steeringProbes);
+
     internal override async Task<ConfirmInputHandoverResponse?> InvokeConfirmInputHandoverRawAsync(ConfirmInputHandoverRequest request) {
+        if (request.DispatchId == Guid.Empty) {
+            Interlocked.Increment(ref _steeringProbes);
+
+            return await SteeringProbe();
+        }
+
         lock (HandoverRequests) HandoverRequests.Add(request);
 
         if (HandoverGate is { } gate) {

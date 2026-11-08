@@ -176,6 +176,46 @@ public class ChatDeliveryStateTests {
         } finally { await h.Chat.TeardownAsync(); }
     });
 
+    /// The server cancels a discarded message it still holds for an attached agent, so only that one says a discard
+    /// cancels it. One already handed to the session, and a hosted agent's, can't be recalled.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(true, "held", true)]
+    [Arguments(true, "with_mod", false)]
+    [Arguments(false, null, false)]
+    public Task A_discard_cancels_only_a_message_the_server_still_holds_for_an_attached_agent(bool attached, string? state, bool cancels) =>
+        RunOnUiAsync(async () => {
+            var h = new Rig(attached);
+            try {
+                await h.SeededAsync();
+                h.Queue.OnNext([Item("theirs", Guid.NewGuid(), sender: "u3", state: state)]);
+
+                await Assert.That(h.Chat.QueuedMessages.Single().DiscardTip)
+                    .IsEqualTo(cancels ? AttachedAgentCopy.DiscardCancels : QueuedChatMessage.NotCancelledDiscardTip);
+            } finally { await h.Chat.TeardownAsync(); }
+        });
+
+    /// A message its sender discarded is over: the server's rejection of it tells nobody to send it again, and an own
+    /// message it settles leaves with no notice.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_discarded_message_leaves_with_no_notice() => RunOnUiAsync(async () => {
+        var h = new Rig(attached: true);
+        try {
+            await h.SeededAsync();
+            h.Chat.ComposerText = "mine";
+            await h.Chat.SendCommand.Execute();
+            var id = Guid.NewGuid();
+            h.Queue.OnNext([Item("mine", id, state: "held")]);
+            await Assert.That(h.Chat.QueuedMessages).Count().IsEqualTo(1);
+
+            h.Queue.OnNext([Item("mine", id, state: "rejected", reason: "discarded"), Item("theirs", Guid.NewGuid(), sender: "u3", state: "rejected", reason: "discarded")]);
+
+            await Assert.That(h.Chat.QueuedMessages).IsEmpty();
+            await Assert.That(h.Chat.DeliveryNotices).IsEmpty();
+        } finally { await h.Chat.TeardownAsync(); }
+    });
+
     /// Disconnecting steering ends nothing in the terminal, so where the chat would say the session ended it says the
     /// steering did. A hosted session's end reads as before.
     [Test]

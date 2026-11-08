@@ -1,10 +1,14 @@
 using System.Net.Sockets;
 using System.Runtime.Versioning;
+using System.Text;
 using System.Text.Json;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Daemon.Harness.Claude;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -209,5 +213,83 @@ public class SteeringSwitchTests {
         await Assert.That(endpoint.IsBound).IsFalse();
         await Assert.That(File.Exists(Daemons.Store.SteeringSocketPath(Name))).IsFalse();
         File.SetUnixFileMode(policy, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
+    /// <summary>A socket file removed while the daemon runs leaves every mod retrying a path nothing serves, so while the
+    /// switch is on it is bound again on the next round.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task A_socket_file_that_goes_is_bound_again_while_the_switch_is_on() {
+        var time   = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var socket = Daemons.Store.SteeringSocketPath(Name);
+        await using var endpoint = Endpoint();
+        using var steering = new SteeringSwitch(Consent(), endpoint, offered: true, time: time);
+        await steering.StartAsync(CancellationToken.None);
+        await AskAsync(steering, SteeringIpc.On);
+
+        File.Delete(socket);
+        time.Advance(SteeringSwitch.RebindInterval);
+
+        await Assert.That(File.Exists(socket)).IsTrue();
+        await steering.StopAsync(CancellationToken.None);
+    }
+
+    /// <summary>Switching off waits for requests already on the socket, and one of them can be a poll whose handover the
+    /// server answers meanwhile, too late for the answer to be written. The attachments end first, so that handover finds
+    /// its attachment gone and is reported back at once, rather than recorded as the mod's when no mod has it.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    public async Task A_handover_answered_while_steering_goes_off_is_reported_back() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        const string session = "0f8fad5b-d9cb-469f-a165-70867728950e", key = "4242:start";
+        var consent  = Consent();
+        consent.TrySetSteering(true, out _);
+        var gate     = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server   = new CaptureServerConnection { HandoverGate = gate };
+        await using var attachments = new ModAttachments(
+            server, new ModAttachmentStore(Daemons.Store.SteeringAttachmentsPath(Name), NullLogger.Instance), () => consent.SteeringOn,
+            TimeProvider.System, NullLogger.Instance, offered: true);
+        await using var endpoint = new SteeringEndpoint(
+            Daemons.Store.SteeringSocketPath(Name), new SteeringRoutes(attachments).Table(), TimeProvider.System, NullLogger.Instance);
+        using var steering = new SteeringSwitch(consent, endpoint, offered: true, attachments);
+        await steering.StartAsync(cts.Token);
+
+        var agentId  = (await attachments.AttachAsync(session, key, null, cts.Token)).AgentId!;
+        var dispatch = Guid.NewGuid();
+        attachments.TakeInput(new SendInputCommand(agentId, "hello", null, dispatch));
+
+        var poll = PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true,"processKey":"{{key}}"}""", cts.Token);
+        await server.HandoverEntered.Task.WaitAsync(cts.Token);
+
+        var off   = AskAsync(steering, SteeringIpc.Off);
+        var ended = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (attachments.Holds(agentId) && DateTime.UtcNow < ended) await Task.Delay(10, cts.Token);
+        gate.SetResult();
+
+        var answer = await poll;
+        await off.WaitAsync(cts.Token);
+
+        var reported = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        bool Rejected() { lock (server.AttachedRejections) return server.AttachedRejections.Contains((dispatch, agentId, "attachment_ended")); }
+        while (!Rejected() && DateTime.UtcNow < reported) await Task.Delay(10, cts.Token);
+
+        await Assert.That(answer).DoesNotContain("hello");
+        await Assert.That(Rejected()).IsTrue();
+    }
+
+    async Task<string> PostAsync(string route, string body, CancellationToken ct) {
+        using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        await socket.ConnectAsync(new UnixDomainSocketEndPoint(Daemons.Store.SteeringSocketPath(Name)), ct);
+
+        var request = Encoding.ASCII.GetBytes(
+            $"POST {route} HTTP/1.1\r\nHost: kcap\r\nContent-Type: application/json\r\nContent-Length: {Encoding.UTF8.GetByteCount(body)}\r\n\r\n{body}");
+        await using (var stream = new NetworkStream(socket, ownsSocket: false)) await stream.WriteAsync(request, ct);
+
+        using var received = new MemoryStream();
+        var buffer = new byte[4096];
+
+        while (await socket.ReceiveAsync(buffer, SocketFlags.None, ct) is var n and > 0) received.Write(buffer, 0, n);
+
+        return Encoding.UTF8.GetString(received.ToArray());
     }
 }

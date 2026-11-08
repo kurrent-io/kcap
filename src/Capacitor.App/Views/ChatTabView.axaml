@@ -705,7 +705,7 @@
                                                 <Button x:Name="DiscardQueuedButton" Classes="kcapChip" Content="Discard"
                                                         Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DiscardQueuedCommand}"
                                                         CommandParameter="{Binding}" IsVisible="{Binding CanDiscard}"
-                                                        ToolTip.Tip="Stop tracking this message. It is not cancelled: the agent may still receive it."
+                                                        ToolTip.Tip="{Binding DiscardTip}"
                                                         BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
                                                         FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand"
                                                         AutomationProperties.Name="Discard unresolved message" />

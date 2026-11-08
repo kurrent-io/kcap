@@ -72,15 +72,19 @@ public class DaemonSteeringCommandTests {
         Err.GetStringBuilder().Clear();
     }
 
+    /// <summary>With kcap's plugin installed, a refusal that wrote the steering plugin anyway would show in the file.</summary>
     [Test]
     public async Task Steering_is_refused_on_windows() {
+        InstallKcap(Settings);
+        var before = File.ReadAllText(Settings);
+
         var exit = await DaemonSteeringCommand.SetAsync(Daemons.Store, Profiles, TimeProvider.System, Streams, ["on", "--name", Name], Mod, offered: false);
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(Err.ToString()).Contains("isn't offered on Windows");
         await Assert.That(Err.ToString()).DoesNotContain("not running");
         await Assert.That(Out.ToString()).IsEmpty();
-        await Assert.That(File.Exists(Settings)).IsFalse();
+        await Assert.That(File.ReadAllText(Settings)).IsEqualTo(before);
     }
 
     /// <summary>The switch flips first, so a daemon that never flipped it leaves Claude's settings as they were.</summary>

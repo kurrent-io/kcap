@@ -733,7 +733,7 @@ public static partial class DaemonRunner {
             time, sp.GetRequiredService<ILogger<SteeringEndpoint>>()));
         builder.Services.AddSingleton(sp => new SteeringSwitch(
             sp.GetRequiredService<LaunchConsentStore>(), sp.GetRequiredService<SteeringEndpoint>(),
-            attachments: sp.GetRequiredService<Harness.Claude.ModAttachments>()));
+            attachments: sp.GetRequiredService<Harness.Claude.ModAttachments>(), time: time));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SteeringSwitch>());
 
         // Local control socket: lets `kcap agent start`/`attach`/`ls`/`stop` drive daemon-hosted

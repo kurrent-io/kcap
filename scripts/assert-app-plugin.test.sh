@@ -21,6 +21,12 @@ if bash "$here/assert-app-plugin.sh" "$bundle" "$version" >/dev/null 2>&1; then
   echo "FAIL: accepted a stale steering plugin version"; exit 1
 fi
 cp "$tmp/steering.json" "$steering"
+test ! -e "$plugin/steering/hooks/register.test.ts" || { echo "FAIL: bundled the steering mod's tests"; exit 1; }
+cp "$here/../kcap/steering/hooks/register.test.ts" "$plugin/steering/hooks/register.test.ts"
+if bash "$here/assert-app-plugin.sh" "$bundle" "$version" >/dev/null 2>&1; then
+  echo "FAIL: accepted a development-only file in the payload"; exit 1
+fi
+rm "$plugin/steering/hooks/register.test.ts"
 mv "$plugin/skills/guided-tour/SKILL.md" "$tmp/guided-tour"
 if bash "$here/assert-app-plugin.sh" "$bundle" "$version" >/dev/null 2>&1; then
   echo "FAIL: accepted a missing skill"; exit 1

@@ -18,11 +18,17 @@ else
 fi
 # shellcheck source=lib/plugin-manifests.sh
 source "$here/lib/plugin-manifests.sh"
+# shellcheck source=lib/plugin-dev-files.sh
+source "$here/lib/plugin-dev-files.sh"
 for manifest in "${plugin_manifests[@]}"; do
   grep -qF '"version": "'"$version"'"' "$plugin/$manifest" || { echo "$manifest is not stamped $version" >&2; exit 1; }
 done
 while IFS= read -r -d '' file; do
   relative="${file#"$source_dir/"}"
+  if is_plugin_dev_file "$relative"; then
+    test ! -e "$plugin/$relative" || { echo "bundled a development-only plugin file: $relative" >&2; exit 1; }
+    continue
+  fi
   test -f "$plugin/$relative" || { echo "missing bundled plugin file: $relative" >&2; exit 1; }
   stamped=false
   for manifest in "${plugin_manifests[@]}"; do [ "$relative" = "$manifest" ] && stamped=true; done

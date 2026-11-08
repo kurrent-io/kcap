@@ -1097,10 +1097,11 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
     /// <summary>Asks whether a held dispatch may go to the attached agent's mod. Null when no answer came, which the
     /// caller reads as a hold.</summary>
-    public virtual async Task<ConfirmInputHandoverResponse?> ConfirmInputHandoverAsync(Guid dispatchId, string agentId) {
+    /// <param name="budget">How long the caller can wait, if less than an attached-input call gets.</param>
+    public virtual async Task<ConfirmInputHandoverResponse?> ConfirmInputHandoverAsync(Guid dispatchId, string agentId, TimeSpan? budget = null) {
         try {
             return await InvokeConfirmInputHandoverRawAsync(new ConfirmInputHandoverRequest(dispatchId, agentId))
-                .WaitAsync(AttachedInputCallBudget, _time, _ct);
+                .WaitAsync(Within(budget), _time, _ct);
         } catch (Exception ex) {
             _logger.LogDebug(ex, "No handover answer for dispatch {DispatchId} of attached agent {AgentId}", dispatchId, agentId);
 
@@ -1108,8 +1109,29 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         }
     }
 
+    static TimeSpan Within(TimeSpan? budget) =>
+        budget is { } left && left < AttachedInputCallBudget ? left > TimeSpan.Zero ? left : TimeSpan.Zero : AttachedInputCallBudget;
+
+    const string ConfirmInputHandoverMethod = "ConfirmInputHandover";
+
+    /// <summary>Whether the server takes attached agents. A server that does answers a handover of the empty dispatch
+    /// with drop before it looks at anything else, so any other answer is no, and so is a server without the method,
+    /// which would take an attached agent's registration for a hosted one's. Null when no answer came.</summary>
+    public virtual async Task<bool?> ServerSteersAsync() {
+        try {
+            return await InvokeConfirmInputHandoverRawAsync(new ConfirmInputHandoverRequest(Guid.Empty, ""))
+                .WaitAsync(AttachedInputCallBudget, _time, _ct) is { } answer ? answer.Outcome == InputHandoverOutcome.Drop : null;
+        } catch (Exception ex) when (IsUnknownHubMethod(ex, ConfirmInputHandoverMethod)) {
+            return false;
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "No answer to whether the server takes attached agents");
+
+            return null;
+        }
+    }
+
     internal virtual Task<ConfirmInputHandoverResponse?> InvokeConfirmInputHandoverRawAsync(ConfirmInputHandoverRequest request) =>
-        _hub.InvokeAsync<ConfirmInputHandoverResponse?>("ConfirmInputHandover", request, cancellationToken: _ct);
+        _hub.InvokeAsync<ConfirmInputHandoverResponse?>(ConfirmInputHandoverMethod, request, cancellationToken: _ct);
 
     /// <summary>Reports a dispatch the mod submitted landing as a transcript row; taken whatever the server made of it.</summary>
     public virtual async Task<AttachedReportAnswer> ReportInputLinkAsync(ReportInputLinkRequest request) {
@@ -1149,9 +1171,10 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
 
     /// <summary>Reports an attached agent's dispatch that will not land. Recorded only on <paramref name="agentId"/>'s
     /// stream, which holds only what was sent to that agent.</summary>
-    public virtual async Task<AttachedReportAnswer> ReportAttachedInputRejectedAsync(Guid dispatchId, string agentId, string reason) {
+    /// <param name="budget">How long the caller can wait, if less than an attached-input call gets.</param>
+    public virtual async Task<AttachedReportAnswer> ReportAttachedInputRejectedAsync(Guid dispatchId, string agentId, string reason, TimeSpan? budget = null) {
         try {
-            return await InvokeSendInputRejectedRawAsync(dispatchId, agentId, reason).WaitAsync(AttachedInputCallBudget, _time, _ct)
+            return await InvokeSendInputRejectedRawAsync(dispatchId, agentId, reason).WaitAsync(Within(budget), _time, _ct)
                 ? AttachedReportAnswer.Taken
                 : AttachedReportAnswer.NotRecorded;
         } catch (Exception ex) {

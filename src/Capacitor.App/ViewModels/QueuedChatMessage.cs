@@ -13,6 +13,7 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     public const string AttachmentsOnlyText = "Attachments only";
     public const string IdlePickupNote = "The agent is not in a step";
     public const string UnknownPickupNote = "Waiting for delivery confirmation from the agent";
+    public const string NotCancelledDiscardTip = "Stop tracking this message. It is not cancelled: the agent may still receive it.";
 
     public string Text { get; } = text;
     /// The server's queue item carries no attachments, so a prompt that was only files arrives
@@ -123,6 +124,9 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     public bool IsDelivered => _deliveryState == "delivered";
     public bool DeliveryNeedsSender => AttachedAgentCopy.NeedsSender(_deliveryState);
     public bool ShowsUnconfirmed => IsUnconfirmed && _deliveryState is null;
+    /// What a discard does. Only a message the server still holds for an attached agent can be cancelled; a hosted
+    /// agent's, or one already handed to the session, can't be recalled.
+    public string DiscardTip => _deliveryState == "held" ? AttachedAgentCopy.DiscardCancels : NotCancelledDiscardTip;
     public bool ShowsForeignUnconfirmed => IsForeign && _deliveryState is null;
 
     internal void SetDelivery(string? state, string? reason) {
@@ -138,6 +142,7 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
         this.RaisePropertyChanged(nameof(ShowsUnconfirmed));
         this.RaisePropertyChanged(nameof(ShowsForeignUnconfirmed));
         this.RaisePropertyChanged(nameof(PickupNote));
+        this.RaisePropertyChanged(nameof(DiscardTip));
     }
 
     internal static QueuedChatMessage FromServer(QueuedInputItem item) {
