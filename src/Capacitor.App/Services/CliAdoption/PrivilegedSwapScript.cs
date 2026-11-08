@@ -124,11 +124,33 @@ internal static class PrivilegedSwapScript {
                 return 1
             }
 
+            # Every folder in the homes folder and, for the machine's own, every account's home the directory service
+            # knows, wherever it lives.
+            homes_of() {
+                {
+                    for h in "$homes"/*; do printf '%s\n' "$h"; done
+                    [ "$homes" = /Users ] || return 0
+                    /usr/bin/dscl . -list /Users NFSHomeDirectory 2>/dev/null | while read -r _ h; do [ -n "$h" ] && printf '%s\n' "$h"; done
+                } | /usr/bin/sort -u
+            }
+
+            # The folder of every account in a registry, one per line; a failure when the file is not one.
+            jsfolders='ObjC.import("Foundation");
+            function run(argv) {
+                const text = $.NSString.stringWithContentsOfFileEncodingError(argv[0], $.NSUTF8StringEncoding, null);
+                if (text.isNil()) throw new Error("unreadable");
+                const accounts = JSON.parse(text.js).accounts ?? [];
+                if (!Array.isArray(accounts)) throw new Error("no account list");
+                const folders = accounts.map(a => a.directory);
+                if (folders.some(f => typeof f !== "string" || !f.startsWith("/") || f.includes("\n"))) throw new Error("a folder cannot be read");
+                return folders.join("\n");
+            }'
+
             # A process is found by the files it maps, which lsof names with every link resolved, whatever path it
             # was started by. A list without this helper's own process was not read. Asked once the install is set
             # aside, when no process can reach it by its own paths any more.
             in_use() {
-                local i d e home plist
+                local i d e home plist listed
                 local -a look
                 [ $nentries -gt 0 ] || return 1
                 i=0
@@ -153,8 +175,8 @@ internal static class PrivilegedSwapScript {
                     1) ;;
                     *) echo "the process list could not be read"; return 0 ;;
                 esac
-                for home in "$homes"/*; do
-                    [ -d "$home" ] && ! [ -L "$home" ] || continue
+                while IFS= read -r home; do
+                    [ -d "$home" ] || continue
                     for plist in "$home"/Library/LaunchAgents/*.plist; do
                         if names "$plist"; then echo "$plist names the install"; return 0; fi
                     done
@@ -163,23 +185,20 @@ internal static class PrivilegedSwapScript {
                         if names "$home/${files[$i]}"; then echo "$home/${files[$i]} names the install"; return 0; fi
                         i=$((i + 1))
                     done
-                    [ -n "$registry" ] && [ -f "$home/$registry" ] || continue
-                    # Only a plain absolute path is read; an escaped one could name a folder kcap cannot see, so it keeps
-                    # the install.
+                    [ -n "$registry" ] && { [ -e "$home/$registry" ] || [ -L "$home/$registry" ]; } || continue
+                    # A registry that cannot be parsed may list any folder, so it keeps the install.
+                    if ! [ -f "$home/$registry" ] || ! listed=$(/usr/bin/osascript -l JavaScript -e "$jsfolders" "$home/$registry" 2>/dev/null); then
+                        echo "$home/$registry cannot be read"; return 0
+                    fi
                     while IFS= read -r d; do
-                        case "$d" in
-                            *\\*) echo "$home/$registry lists a folder that cannot be read"; return 0 ;;
-                            /*) ;;
-                            *) echo "$home/$registry lists a folder that cannot be read"; return 0 ;;
-                        esac
+                        [ -n "$d" ] || continue
                         i=0
                         while [ $i -lt $nkinds ]; do
                             if names "$d/${accountfiles[$i]}"; then echo "$d/${accountfiles[$i]} names the install"; return 0; fi
                             i=$((i + 1))
                         done
-                    done < <(/usr/bin/grep -o -D skip -e '"directory"[[:space:]]*:[[:space:]]*"[^"]*"' -- "$home/$registry" 2>/dev/null \
-                        | /usr/bin/sed -e 's/^"directory"[[:space:]]*:[[:space:]]*"//' -e 's/"$//')
-                done
+                    done <<< "$listed"
+                done < <(homes_of)
                 return 1
             }
 

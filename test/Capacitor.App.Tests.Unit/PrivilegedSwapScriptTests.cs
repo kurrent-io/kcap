@@ -477,20 +477,22 @@ public class PrivilegedSwapScriptTests {
         await install.AssertUntouchedAsync(spec);
     }
 
-    /// <summary>A harness directory another account registered outside its default is read for the same files; one the
-    /// registry names in a form the helper cannot read plainly keeps the install rather than go unread.</summary>
+    /// <summary>A harness directory another account registered outside its default is read for the same files, its JSON
+    /// escapes decoded; a registry that does not parse keeps the install, since it may list any folder.</summary>
     [Test]
     [Arguments("names it", true)]
     [Arguments("escaped", true)]
+    [Arguments("truncated", true)]
     [Arguments("names nothing", false)]
     public async Task A_harness_directory_another_account_registered_is_read(string registered, bool kept) {
         var install  = PrivilegedNpmInstall.Create(Tmp);
         var spec     = install.Spec(Tmp) with { Sites = new HomeSites([], ".config/kcap/accounts/accounts.json", ["settings.json"]) };
         var work     = Tmp.CreateDir("homes", "other", "work-claude").Path;
         var listed   = registered == "escaped" ? work.Replace("work-claude", "work\\u002Dclaude") : work;
-        Tmp.CreateFile("homes/other/.config/kcap/accounts/accounts.json",
-            $$"""{"accounts": [{"vendor": "Claude", "directory": "{{listed}}"}]}""");
-        Tmp.CreateFile("homes/other/work-claude/settings.json", registered == "names nothing" ? "{}" : $$"""{"command": "{{install.Packages[1]}}/bin/kcap"}""");
+        var registry = $$"""{"accounts": [{"vendor": "Claude", "directory": "{{listed}}", "wired_at": null}]}""";
+        Tmp.CreateFile("homes/other/.config/kcap/accounts/accounts.json", registered == "truncated" ? registry[..^4] : registry);
+        Tmp.CreateFile("homes/other/work-claude/settings.json",
+            registered is "names nothing" or "truncated" ? "{}" : $$"""{"command": "{{install.Packages[1]}}/bin/kcap"}""");
         await using var run = Run.Start(Tmp, spec);
 
         await run.WaitForAsync("swapped");
