@@ -1905,7 +1905,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         PublishAccountChoice();
     }
 
-    static IReadOnlyDictionary<string, AccountUsageView> ProjectUsage(AccountsSnapshotDto? snapshot, string vendor, DateTimeOffset now) =>
+    internal static IReadOnlyDictionary<string, AccountUsageView> ProjectUsage(AccountsSnapshotDto? snapshot, string vendor, DateTimeOffset now) =>
         snapshot is null
             ? FrozenDictionary<string, AccountUsageView>.Empty
             : (snapshot.Accounts ?? [])
@@ -1984,7 +1984,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     }
 
     /// The selected account's own list replaces its vendor's entry where the machine has one for it.
-    static IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>> WithAccountCatalog(
+    internal static IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>> WithAccountCatalog(
             IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>> merged,
             IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>? byAccount, (string Vendor, string AccountId)? account) {
         if (account is not { } chosen || byAccount is null || !byAccount.TryGetValue(chosen.AccountId, out var models)) return merged;
