@@ -35,14 +35,10 @@ internal sealed class AdoptionDeletion(
             IReadOnlyList<OtherCliInstall> installs, IReadOnlyList<ProcessFact> processes, IReadOnlyList<ReferenceSite> sites,
             IReadOnlyList<string>? unfinished, CancellationToken ct) {
         if (installs.Count == 0 || store.Load().CutoverUtc is not { } cutover) return;
-        var processesRead = processes.Any(p => p.Pid == Environment.ProcessId);
 
         foreach (var install in installs) {
             ct.ThrowIfCancellationRequested();
-            var holder = UnfinishedEntry(install, unfinished)
-                      ?? (processesRead ? null : ProcessesUnreadable)
-                      ?? AdoptionConsumers.Holder(install, cutover, processes, sites, harnesses, bundleRoot)
-                      ?? await ChangedAsync(install, ct).ConfigureAwait(false);
+            var holder = UnfinishedEntry(install, unfinished) ?? await HolderAsync(install, cutover, processes, sites, ct).ConfigureAwait(false);
             if (holder is not null) {
                 Hold(install, holder);
                 continue;
@@ -57,6 +53,15 @@ internal sealed class AdoptionDeletion(
             Switch(install, links);
         }
     }
+
+    /// <summary>What still runs from the install or names it, or the install having changed; null when nothing
+    /// holds it.</summary>
+    public async Task<string?> HolderAsync(
+            OtherCliInstall install, DateTime cutover, IReadOnlyList<ProcessFact> processes, IReadOnlyList<ReferenceSite> sites,
+            CancellationToken ct) =>
+        (processes.Any(p => p.Pid == Environment.ProcessId) ? null : ProcessesUnreadable)
+     ?? AdoptionConsumers.Holder(install, cutover, processes, sites, harnesses, bundleRoot)
+     ?? await ChangedAsync(install, ct).ConfigureAwait(false);
 
     static string? UnfinishedEntry(OtherCliInstall install, IReadOnlyList<string>? unfinished) {
         if (unfinished is null) return Unfinished + install.Root;
@@ -111,7 +116,7 @@ internal sealed class AdoptionDeletion(
         return null;
     }
 
-    void Hold(OtherCliInstall install, string holder) {
+    public void Hold(OtherCliInstall install, string holder) {
         int? pid = holder.StartsWith(PidHolder, StringComparison.Ordinal)
                 && int.TryParse(holder.AsSpan(PidHolder.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : null;
         var token = pid is { } p ? machine.StartToken(p) : null;
@@ -124,7 +129,7 @@ internal sealed class AdoptionDeletion(
         log("adoption_kept", AdoptionEvent.For(install, reason: holder));
     }
 
-    void Switch(OtherCliInstall install, List<LinkChange> links) {
+    public void Switch(OtherCliInstall install, IReadOnlyList<LinkChange> links) {
         store.Update(r => r with {
             Installs = [.. r.Installs.Select(i => AdoptionPreflight.SameRoot(i.Install, install)
                 ? i with { State = InstallState.Switched, Reason = null, HeldBy = null, HolderPid = null, HolderStartToken = null }

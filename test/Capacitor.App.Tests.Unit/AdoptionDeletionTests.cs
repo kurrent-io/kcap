@@ -104,6 +104,21 @@ public class AdoptionDeletionTests {
         public Task<bool> WaitForExitAsync(int pid, string? startToken, TimeSpan bound, CancellationToken ct) => throw new NotSupportedException();
     }
 
+    /// <summary>The root helper is told every version versions held when the app planned it, and only versions gets a
+    /// listing.</summary>
+    [Test, ExcludeOn(OS.Windows)]
+    public async Task A_privileged_versions_entry_carries_every_version_it_held() {
+        var (install, layout) = Script();
+        Tmp.CreateDir("kcap", "versions", "1.1.0");
+        var retirement = new AsideRetirement(new ConfigRoot(Tmp.CreateDir("config")), "cli-adoption-retire");
+
+        var versions = AdoptionPrivilegedStep.Entry(install, retirement.Plan(layout.Versions));
+        var current  = AdoptionPrivilegedStep.Entry(install, retirement.Plan(layout.Current));
+
+        await Assert.That(versions.Children).IsEquivalentTo(["1.1.0", "1.2.3"]);
+        await Assert.That(current.Children).IsNull();
+    }
+
     [Test, ExcludeOn(OS.Windows)]
     public async Task A_versions_folder_without_the_recorded_version_fails() {
         var (install, layout) = Script();

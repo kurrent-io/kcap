@@ -104,6 +104,21 @@ public class AdoptionPreflightTests {
         await Assert.That(plan.Installs[0].Left).IsEqualTo(LeftReason.OwnFolderOnPath);
     }
 
+    /// <summary>A service's saved PATH is fixed by giving that service a fresh one, not by a shell profile, so the plan
+    /// names the service; the login PATH listing the folder too is what the user fixes first.</summary>
+    [Test]
+    public async Task A_service_PATH_naming_the_install_folder_leaves_it_for_that_service() {
+        var s   = Script("a");
+        var own = Path.Combine(s.Install.Root, "current", "bin", "kcap");
+
+        var service = Plan(Evidence([s.Install], s.Link, units: [Unit("u", own)]), stable: s.LinkFolder);
+        var both    = Plan(Evidence([s.Install], own, units: [Unit("u", own)]), stable: s.LinkFolder);
+
+        await Assert.That((service.Installs[0].Left, service.Installs[0].Cause)).IsEqualTo(((LeftReason?)LeftReason.OwnFolderOnServicePath, "u"));
+        await Assert.That((both.Installs[0].Left, both.Installs[0].Cause))
+            .IsEqualTo(((LeftReason?)LeftReason.OwnFolderOnPath, Path.GetDirectoryName(own)));
+    }
+
     [Test]
     public async Task A_left_install_that_wins_the_login_PATH_does_not_hold_an_eligible_one() {
         var left = Script("a");
@@ -168,6 +183,35 @@ public class AdoptionPreflightTests {
         await Assert.That(plan.HoldReason).IsNull();
     }
 
+    /// <summary>Finish switching reopens an install without clearing the machine's switch, and may leave it for a
+    /// reason checked again each launch: both are planned. Any other install found there is reported: one that appeared,
+    /// one left for a reason only Finish switching retries, and a reinstall at a reopened one's path.</summary>
+    [Test]
+    public async Task On_a_switched_machine_only_installs_Finish_switching_took_back_in_are_planned() {
+        var held      = Script("a");
+        var rederived = Script("b");
+        var appeared  = Script("c");
+        var cancelled = Script("d");
+        var reinstall = Script("e");
+        var record    = AdoptionRecord.Empty with {
+            MachineSwitched = true,
+            Installs = [
+                new RecordedInstall(held.Install, InstallState.Pending, null, null, null, null),
+                new RecordedInstall(rederived.Install, InstallState.Left, LeftReason.UnsupervisedDaemon, "manual", null, null),
+                new RecordedInstall(cancelled.Install, InstallState.Left, LeftReason.PromptCancelled, null, null, null),
+                new RecordedInstall(reinstall.Install with { Identity = "old" }, InstallState.Pending, null, null, null, null),
+            ],
+        };
+
+        var plan = Plan(Evidence([held.Install, rederived.Install, appeared.Install, cancelled.Install, reinstall.Install], held.Link),
+            record, stable: [held.LinkFolder, rederived.LinkFolder, appeared.LinkFolder, cancelled.LinkFolder, reinstall.LinkFolder]);
+
+        await Assert.That(plan.HoldReason).IsNull();
+        await Assert.That(plan.Installs.Select(p => p.Install)).IsEquivalentTo([held.Install, rederived.Install]);
+        await Assert.That(plan.Installs.All(p => p.Left is null)).IsTrue();
+        await Assert.That(plan.Reported).IsEquivalentTo([appeared.Install, cancelled.Install, reinstall.Install]);
+    }
+
     [Test]
     public async Task A_recorded_install_whose_identity_changed_is_planned_afresh() {
         var s        = Script("a");
@@ -212,14 +256,17 @@ public class AdoptionPreflightTests {
     }
 
     [Test]
-    public async Task Until_PR_C_a_batch_needing_administrator_holds() {
+    public async Task A_root_owned_install_is_planned_with_its_links_and_holds_nothing() {
         var s    = Script("a");
         var plan = Plan(Evidence([s.Install], s.Link), canWrite: f => f != s.LinkFolder, stable: s.LinkFolder);
-        await Assert.That(plan.HoldReason).IsEqualTo("administrator_support_pending");
+        await Assert.That(plan.HoldReason).IsNull();
+        await Assert.That(plan.Installs.Single().NeedsAdministrator).IsTrue();
+        await Assert.That(plan.Installs[0].Left).IsNull();
+        await Assert.That(plan.Installs[0].Links.Single().Path).IsEqualTo(s.Link);
     }
 
     [Test]
-    public async Task Precedence_is_newer_then_path_unknown_then_administrator() {
+    public async Task Precedence_is_newer_then_path_unknown() {
         var s    = Script("a", "3.0.0");
         var plan = Plan(Evidence([s.Install], s.Link, loginPath: null), canWrite: _ => false);
         await Assert.That(plan.HoldReason).IsEqualTo("newer_install");

@@ -4,6 +4,7 @@ using Capacitor.App.Services.CliAdoption;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Harness.Codex;
 using TUnit.Core.Enums;
 
 namespace Capacitor.App.Tests.Unit;
@@ -35,6 +36,50 @@ public class AdoptionReferenceSitesTests {
     string Claude => Tmp.PathTo("home", ".claude");
     HarnessRegistry Harnesses => TestHarnesses.Under(Home);
     AccountStore Accounts => new(Tmp.PathTo("accounts"));
+
+    /// <summary>What another account's home is read for: the same files below a home, relative to it, and nothing outside
+    /// it.</summary>
+    [Test]
+    public async Task Home_files_are_the_sites_below_a_home_relative_to_it() {
+        var files = AdoptionReferenceSites.HomeFiles(Home, Harnesses);
+
+        await Assert.That(files).Contains(Path.Combine(".claude", "settings.json"));
+        await Assert.That(files).Contains(Path.Combine(".claude", "plugins", "installed_plugins.json"));
+        await Assert.That(files).Contains(Path.Combine(".codex", "config.toml"));
+        await Assert.That(files).Contains(".gitconfig");
+        await Assert.That(files.Any(Path.IsPathRooted)).IsFalse();
+        await Assert.That(files.Count).IsEqualTo(files.Distinct().Count());
+    }
+
+    /// <summary>An override in this process's environment says nothing of another account: every harness's default
+    /// files are read in its home all the same.</summary>
+    [Test]
+    public async Task Home_files_keep_each_default_layout_under_an_override() {
+        var overridden = HarnessRegistry.Over(TestBinaries.None, CodexHarness.Over(new CodexPaths(Home, Tmp.PathTo("home", ".codex-work"))));
+
+        var files = AdoptionReferenceSites.HomeFiles(Home, overridden);
+
+        await Assert.That(files).Contains(Path.Combine(".codex", "config.toml"));
+        await Assert.That(files).Contains(Path.Combine(".codex-work", "config.toml"));
+        await Assert.That(files).Contains(Path.Combine(".copilot", "mcp-config.json"));
+    }
+
+    /// <summary>Every account's registry is read where kcap keeps it by default, and each registered directory for both layouts' files,
+    /// relative to it.</summary>
+    [Test]
+    public async Task Home_sites_name_the_registry_below_the_home_and_the_account_files() {
+        var sites = AdoptionReferenceSites.HomeSites(Home, Harnesses);
+
+        await Assert.That(sites.Registry).IsEqualTo(Path.Combine(".config", "kcap", "accounts", "accounts.json"));
+        await Assert.That(sites.AccountFiles).Contains("settings.json");
+        await Assert.That(sites.AccountFiles).Contains("config.toml");
+        await Assert.That(sites.AccountFiles).Contains(Path.Combine("plugins", "installed_plugins.json"));
+        await Assert.That(sites.AccountFiles.Any(Path.IsPathRooted)).IsFalse();
+        await Assert.That(sites.Links).IsEquivalentTo([
+            Path.Combine(".local", "bin", "kcap"), Path.Combine("bin", "kcap"), Path.Combine("/usr/local/bin", "kcap"),
+            Path.Combine("/opt/homebrew/bin", "kcap"),
+        ]);
+    }
 
     OtherCliInstall Npm() {
         var scope    = Tmp.GetResolvedPath("prefix", "lib", "node_modules", "@kurrent");

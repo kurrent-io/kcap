@@ -30,6 +30,47 @@ internal static class AdoptionReferenceSites {
     const string LaunchdSite       = "launchd:";
     const string DaemonLabelPrefix = "io.kurrent.kcap.daemon.";
 
+    /// <summary>What the site read takes from below <paramref name="home"/>, launch agents aside, as the privileged helper
+    /// reads it in every account's home: the default harness directories' files relative to the home, and the harness
+    /// directories in the account registry at its default place, whatever daemons folder this process was given.</summary>
+    internal static HomeSites HomeSites(UserHome home, HarnessRegistry harnesses) {
+        var registry = Below(home.Path, [AccountStore.Beside(new DaemonStore(DaemonStore.DefaultDirectory(home))).RegistryPath]);
+        var links    = KcapLinkFolders.For(home).Select(f => Path.Combine(f, "kcap")).ToList();
+        return new HomeSites(HomeFiles(home, harnesses), registry.Single(), AccountFiles(home)) {
+            Links = [.. Below(home.Path, links), .. links.Where(l => !IsBelow(home.Path, l))],
+        };
+    }
+
+    // A directory other than the default, so each layout names its files inside it.
+    static IReadOnlyList<string> AccountFiles(UserHome home) {
+        var probe  = Path.Combine(home.Path, ".kcap-account-layout");
+        var claude = AccountLayouts.Claude(home, probe);
+        string[] files = [
+            .. ClaudeHarness.Over(claude).IntegrationFiles, .. CodexHarness.Over(AccountLayouts.Codex(home, probe)).IntegrationFiles,
+            Path.Combine(claude.Home, "plugins", "known_marketplaces.json"), Path.Combine(claude.Home, "plugins", "installed_plugins.json"),
+        ];
+        return Below(probe, files);
+    }
+
+    static List<string> Below(string folder, IEnumerable<string> files) =>
+        [.. files.Where(f => IsBelow(folder, f)).Select(f => Path.GetFullPath(f)[Root(folder).Length..]).Distinct(StringComparer.Ordinal)];
+
+    static bool IsBelow(string folder, string file) => Path.GetFullPath(file).StartsWith(Root(folder), StringComparison.Ordinal);
+
+    static string Root(string folder) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + Path.DirectorySeparatorChar;
+
+    // Another account's harnesses sit at their defaults, whatever overrides this process's environment sets.
+    internal static IReadOnlyList<string> HomeFiles(UserHome home, HarnessRegistry harnesses) {
+        var claude = AccountLayouts.Claude(home, AccountLayouts.DefaultDirectory(HarnessId.Claude, home));
+        string[] files = [
+            .. HarnessRegistry.AtDefaults(home, BinaryProbe.Searching(null)).Concat(harnesses).SelectMany(h => h.IntegrationFiles),
+            .. ClaudeHarness.Over(claude).IntegrationFiles,
+            Path.Combine(home.Path, ".gitconfig"), Path.Combine(home.Path, ".config", "git", "config"),
+            Path.Combine(claude.Home, "plugins", "known_marketplaces.json"), Path.Combine(claude.Home, "plugins", "installed_plugins.json"),
+        ];
+        return Below(home.Path, files);
+    }
+
     internal static Task<IReadOnlyList<ReferenceSite>> ReadAsync(
             UserHome home, AccountStore accounts, Launchctl launchctl, CancellationToken ct) =>
         ReadAsync(home, HarnessRegistry.FromEnvironment(home), accounts, launchctl, ct);

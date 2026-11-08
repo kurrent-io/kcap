@@ -30,7 +30,8 @@ internal sealed class AdoptionPathStep(
                 return false;
             }
 
-            applied = await ResolvesToBundleAsync(plan, evidence, changes, bundleCli, ct).ConfigureAwait(false);
+            applied = await ResolvesToBundleAsync(evidence, changes, plan.NeedsStableLink && evidence.KcapOnLoginPath is null, bundleCli, ct)
+                .ConfigureAwait(false);
             return applied;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TimeoutException) {
             Console.Error.WriteLine($"kcap: could not replace the kcap PATH links: {ex.Message}");
@@ -38,6 +39,21 @@ internal sealed class AdoptionPathStep(
         } finally {
             if (!applied) PutBack(made, CancellationToken.None);
         }
+    }
+
+    /// Whether every PATH whose location <paramref name="changes"/> replaced now finds the bundle's <c>kcap</c>.
+    public Task<bool> FindsBundleAsync(AdoptionEvidence evidence, IReadOnlyList<LinkChange> changes, string bundleCli, CancellationToken ct) =>
+        ResolvesToBundleAsync(evidence, changes, loginRegardless: false, bundleCli, ct);
+
+    /// Adds each link outside the stable folders to the inventory, for a step that makes the links itself.
+    public void Adopt(IReadOnlyList<LinkChange> links) {
+        foreach (var link in links.Where(l => !InStableFolder(l.Path))) inventory.Add(link.Path);
+    }
+
+    /// Takes back out of the inventory each adopted link that no longer points at the bundle.
+    public void Release(IReadOnlyList<LinkChange> links) {
+        foreach (var link in links.Where(l => !InStableFolder(l.Path) && new FileInfo(l.Path).LinkTarget != l.Replacement))
+            inventory.Remove(link.Path);
     }
 
     /// Restores every recorded link, for a rollback or a crash: an earlier attempt's links included. Safe to run again.
@@ -79,7 +95,7 @@ internal sealed class AdoptionPathStep(
     bool InStableFolder(string link) => _stable.Contains(CanonicalPath.Resolve(Path.GetDirectoryName(link)!), PathComparison.Comparer);
 
     async Task<bool> ResolvesToBundleAsync(
-            AdoptionPlan plan, AdoptionEvidence evidence, IReadOnlyList<LinkChange> changes, string bundleCli, CancellationToken ct) {
+            AdoptionEvidence evidence, IReadOnlyList<LinkChange> changes, bool loginRegardless, string bundleCli, CancellationToken ct) {
         var bundle   = CanonicalPath.Resolve(bundleCli);
         var replaced = changes.Select(c => AdoptionPreflight.LinkKey(c.Path)).ToHashSet(PathComparison.Comparer);
 
@@ -95,7 +111,7 @@ internal sealed class AdoptionPathStep(
             if (!FindsBundle(BinaryProbe.Searching(unit.StoredPath).Resolve("kcap"), $"the PATH of service '{unit.Name}'")) return false;
         }
 
-        var login = Replaced(evidence.KcapOnLoginPath) || (plan.NeedsStableLink && evidence.KcapOnLoginPath is null);
+        var login = Replaced(evidence.KcapOnLoginPath) || loginRegardless;
         return !login || FindsBundle(await probe.KcapPathAsync(ct, forceRefresh: true).ConfigureAwait(false), "the login shell's PATH");
     }
 }

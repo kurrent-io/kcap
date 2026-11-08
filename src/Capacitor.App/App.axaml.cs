@@ -186,6 +186,7 @@ public partial class App : Application {
     CliAdoptionCoordinator? _adoption;
     // The daemon the takeover moves onto the bundle, once the graph has one.
     AdoptionDaemon? _adoptionDaemon;
+    ILifecycleSurface? _lifecycleSurface;
     // The main window's notifier while that window is on screen; the takeover's notices wait for it.
     readonly BehaviorSubject<IAppNotifier?> _noticeWindow = new(null);
     // No disposal needed — its Status subscription dies with _service's own subject disposal below.
@@ -1492,7 +1493,9 @@ public partial class App : Application {
                     .StartWith((IReadOnlyList<PendingPermissionRequest>)[]),
                 PendingAttention.TraySessions)),
             updateMenu: _updates.MenuItem, updateAction: RunUpdateMenuActionAsync,
-            restartPending: restartPending.Pending, openSettings: openSettings, openLaunchApprovals: launchApprovals.Show);
+            restartPending: restartPending.Pending, openSettings: openSettings,
+            finishSwitchOffered: _adoption?.FinishOffered, finishSwitch: _adoption is { } adoption ? adoption.FinishSwitchingAsync : null,
+            openLaunchApprovals: launchApprovals.Show);
         _tray = new TrayIconManager(this, _trayVm);
         LifecycleLog.Write("tray_created", ("executable", Environment.ProcessPath));
     }
@@ -2416,6 +2419,7 @@ public partial class App : Application {
         var cli     = new KcapCli(runner, cliPath, service.DaemonName, profile?.ProfileName ?? "default", probe.TerminalPathAsync,
             canonicalServer: canonicalServer);
         var surface = new LifecycleSurface(setLifecycleStatus, setLifecycleAttention, ConfirmLifecyclePromptAsync, withdrawLifecycleAttention);
+        _lifecycleSurface = surface;
 
         var lifecycle = new DaemonLifecycleController(
             service, cli, probe, surface, () => Task.FromResult(ValidProfileName(profile)), _time,
@@ -2440,6 +2444,10 @@ public partial class App : Application {
         return (lifecycle, shimOffer, consentFlip, surface, probe, cli);
     }
 
+    // Through the lifecycle surface once there is one, so the takeover's dialog never opens over another lifecycle prompt.
+    Task<bool> ConfirmAdoptionAsync(LifecyclePrompt prompt, CancellationToken ct) =>
+        _lifecycleSurface is { } surface ? surface.ConfirmAsync(prompt, ct) : ConfirmLifecyclePromptAsync(prompt, ct);
+
     // Only an installed bundle on macOS takes over another install; anywhere else the coordinator just releases the
     // shim offer's wait.
     CliAdoptionCoordinator BuildCliAdoption(DaemonMutationLane lane, IProcessRunner runner, ILoginShellProbe probe) {
@@ -2455,11 +2463,13 @@ public partial class App : Application {
         var harnesses = HarnessRegistry.FromEnvironment(_userHome);
         var folders   = KcapLinkFolders.For(_userHome);
         var machine   = new AdoptionMachine(new AdoptionEvidenceReader(runner, probe, _daemonStore, _userHome, root), runner, lane,
-            () => _adoptionDaemon, _userHome, harnesses, AccountStore.Beside(_daemonStore));
+            () => _adoptionDaemon, _userHome, harnesses, AccountStore.Beside(_daemonStore), _time);
         var batch     = new AdoptionBatch(machine, store, new AsideRetirement(_config, "cli-adoption-retire"),
             new AdoptionIntegrations(new ApplicationIntegrationRefresh(_config, runner), bundle.Cli, store, _time),
             new AdoptionPathStep(probe, new AdoptedLinkInventory(_config), store, shim, folders),
-            new AdoptionNotices(_noticeWindow, store), harnesses, bundle, folders, WritableFolder.Check, LifecycleLog.Write);
+            new AdoptionNotices(_noticeWindow, store), harnesses, bundle, folders, WritableFolder.Check,
+            new PrivilegedSwap(runner, store, _time), ConfirmAdoptionAsync, _config.Directory,
+            AdoptionReferenceSites.HomeSites(_userHome, harnesses), LifecycleLog.Write);
         return new CliAdoptionCoordinator(batch, _time, LifecycleLog.Write, _shutdown.Token);
     }
 
