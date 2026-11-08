@@ -234,7 +234,7 @@ Only a dispatch that cannot land is Rejected, and only Rejected can tell the sen
 | From | To | When |
 |---|---|---|
 | Held | With the mod | The server confirms the handover. It refuses for a dispatch it has already rejected, and the daemon drops that dispatch |
-| Held | Rejected | The daemon's connection drops, the attachment lapses or ends, or the process has an Unconfirmed dispatch. The server does this itself, so a hard-killed daemon needs to report nothing |
+| Held | Rejected | The daemon's connection drops, the attachment lapses or ends, a replacement attaches after a session change, the process has an Unconfirmed dispatch, or the sender discards it. The server does this itself, so a hard-killed daemon needs to report nothing |
 | With the mod | Delivered | The link arrives |
 | With the mod | Rejected | The submit returned `drop` or refused the text, or the server's hold names a dispatch the mod has no record of (`not_held_by_mod`). The mod records a dispatch before it submits it, so one it has no record of was never submitted and can't land; one it has reported on is never taken for lost. Nothing else proves the prompt won't land |
 | With the mod | Unconfirmed | The session goes idle and no matching row appears within a grace period, or the session ends, or the attachment lapses, or the daemon stays away past a grace period |
