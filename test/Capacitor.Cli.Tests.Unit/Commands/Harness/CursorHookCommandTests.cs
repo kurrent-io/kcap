@@ -347,6 +347,27 @@ public class CursorHookCommandTests {
         hold.SetResult();
     }
 
+    /// <summary>An end the server could not take and the spool could not keep is lost, so its span stays open
+    /// rather than be delivered with no session end.</summary>
+    [Test]
+    public async Task A_session_end_that_could_neither_post_nor_spool_leaves_the_span_open() {
+        var sid = Guid.NewGuid().ToString("N");
+        using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError);
+        await fx.WriteTranscript(TranscriptLine);
+        var (repo, spool) = await OpenSpanAsync(sid, fx.Clock);
+        using var _ = repo;
+        // A file where the lifecycle spool's directory belongs makes every append fail.
+        if (Directory.Exists(fx.Spool.DirectoryPath)) Directory.Delete(fx.Spool.DirectoryPath, recursive: true);
+        Directory.CreateDirectory(Path.GetDirectoryName(fx.Spool.DirectoryPath)!);
+        File.WriteAllText(fx.Spool.DirectoryPath, "");
+
+        await fx.HandleAsync(
+            $$"""{"hook_event_name":"sessionEnd","session_id":"{{sid}}","transcript_path":"{{fx.TranscriptPathEscaped}}"}""");
+
+        await Assert.That(fx.RouteOrder).Contains("session-end/cursor");
+        await Assert.That(spool.HasPending).IsFalse();
+    }
+
     [Test]
     public async Task A_session_end_posted_in_time_closes_the_span_after_it() {
         var sid = Guid.NewGuid().ToString("N");

@@ -434,10 +434,12 @@ sealed class GeminiHookCommand(
         SessionEndIncarnation.Stamp(forwarded, hosted);
 
         // AuthLapsed / Posted → clean exit (0); a real failure keeps the prior non-zero exit.
-        var exit = await PostHookAsync("session-end/gemini", forwarded.ToJsonString()) == HookPostOutcome.Failed ? 1 : 0;
+        var outcome = await PostHookAsync("session-end/gemini", forwarded.ToJsonString());
 
-        await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
-        return exit;
+        // Only after an end the server took: this post has no spool, and a span must never outlive a lost end.
+        if (outcome == HookPostOutcome.Posted)
+            await new WorkspaceSpanHook(config, profiles, http, clock.Time).EndAsync(sessionId, WorkspaceSpanHook.EndBudget);
+        return outcome == HookPostOutcome.Failed ? 1 : 0;
     }
 
     async Task<int> HandleNotification(JsonNode node, string sessionId, string? cwd) {

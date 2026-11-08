@@ -95,6 +95,24 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(posts.IndexOf("/hooks/session-end/pi")).IsLessThan(posts.IndexOf("/hooks/workspace-changes"));
     }
 
+    /// <summary>Pi's end post has no spool, so an end the server did not take leaves the span open.</summary>
+    [Test]
+    public async Task Pi_leaves_the_span_open_when_its_end_is_not_taken() {
+        _server.ResetMappings();
+        _server.Given(Request.Create().WithPath("/hooks/session-end/pi").UsingPost()).AtPriority(1)
+            .RespondWith(Response.Create().WithStatusCode(400));
+        _server.Given(Request.Create().UsingAnyMethod()).AtPriority(10).RespondWith(Response.Create().WithStatusCode(200));
+        using var sessions = new TempDir("pi-sessions");
+        var file = sessions.CreateFile($"2026-11-07T10-00-00_{Session}.jsonl", "");
+        await PiAsync("session-start", file);
+        Repo.CreateFile("made.txt", "x");
+        await PiAsync("session-end", file);
+
+        await Assert.That(_server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/session-end/pi").ResponseMessage.StatusCode).IsEqualTo(400);
+        await Assert.That(PostedPaths()).DoesNotContain("/hooks/workspace-changes");
+        await Assert.That(new WorkspaceSpool(Config.Root, _server.Url!, _time).HasPending).IsFalse();
+    }
+
     /// <summary>A session the user disabled sends nothing more, whichever session's hook drains the spool.</summary>
     [Test]
     public async Task A_disabled_sessions_spooled_span_is_dropped_unsent_by_another_sessions_drain() {

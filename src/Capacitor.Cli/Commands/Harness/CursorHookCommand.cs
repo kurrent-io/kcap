@@ -273,7 +273,7 @@ public sealed class CursorHookCommand(
 
         volatile bool _settled;
 
-        /// <summary>Set once the event was posted, spooled, or refused for good. A session end's spans close
+        /// <summary>Set once the event was posted, durably spooled, or refused for good. A session end's spans close
         /// only after it: an abandoned inner task can still be short of that when the process exits.</summary>
         public bool Settled => _settled;
 
@@ -525,8 +525,7 @@ public sealed class CursorHookCommand(
             // Ordering guard: if a transient drain failure left this session's backlog in place,
             // spool the fresh event so an earlier queued event (e.g. sessionStart) is not overtaken.
             if (sessionId is not null && mapping.SpoolOnFailure && spool.HasBacklog(sessionId)) {
-                spool.Append(sessionId, mapping.RouteSegment, normalized);
-                kindSignal.Settle();
+                if (spool.Append(sessionId, mapping.RouteSegment, normalized)) kindSignal.Settle();
                 if (drainBeforePost) FlagTailForImport(sessionId, firstUnsent: null);
                 return EmptyOrNull();
             }
@@ -536,10 +535,8 @@ public sealed class CursorHookCommand(
                 // next invocation can still deliver it. Without this the new
                 // canonical event would be lost when the spool replay backlog
                 // is large or the server is slow.
-                if (mapping.SpoolOnFailure && sessionId is not null) {
-                    spool.Append(sessionId, mapping.RouteSegment, normalized);
-                }
-                kindSignal.Settle();
+                if (mapping.SpoolOnFailure && sessionId is not null && spool.Append(sessionId, mapping.RouteSegment, normalized))
+                    kindSignal.Settle();
                 if (drainBeforePost) FlagTailForImport(sessionId!, firstUnsent: null);
                 return EmptyOrNull();
             }
@@ -571,19 +568,20 @@ public sealed class CursorHookCommand(
             if (BudgetExpired()) {
                 // Drain consumed the budget; preserve the unposted sessionEnd
                 // so the next invocation (if any) can still deliver it.
-                if (mapping.SpoolOnFailure && sessionId is not null) {
-                    spool.Append(sessionId, mapping.RouteSegment, normalized);
-                }
-                kindSignal.Settle();
+                if (mapping.SpoolOnFailure && sessionId is not null && spool.Append(sessionId, mapping.RouteSegment, normalized))
+                    kindSignal.Settle();
                 return EmptyOrNull();
             }
 
             var result = await TryPostHookAsync(client, mapping.RouteSegment, normalized, ct);
             var posted = result == true;
-            if (result == false && mapping.SpoolOnFailure && sessionId is not null) {
-                spool.Append(sessionId, mapping.RouteSegment, normalized);
+            // Taken, spooled, or refused for good: an end whose spool write failed settles nothing.
+            if (result == false) {
+                if (mapping.SpoolOnFailure && sessionId is not null && spool.Append(sessionId, mapping.RouteSegment, normalized))
+                    kindSignal.Settle();
+            } else {
+                kindSignal.Settle();
             }
-            kindSignal.Settle();
             // Task 8: the ordering-sensitive beforeSubmitPrompt's own live POST just
             // succeeded — clear the barrier it created above.
             if (posted && eventName == "beforeSubmitPrompt" && sessionId is not null) {

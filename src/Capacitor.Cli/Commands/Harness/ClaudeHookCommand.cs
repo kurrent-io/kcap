@@ -358,9 +358,13 @@ public sealed class ClaudeHookCommand(
         try { body = await stdin.ReadToEndAsync(); } catch { return 0; }
 
         var exit = await HandleWithDepsCore(spool, body, clientFactory, stdout, passNoticesCapable);
-        await EndWorkspaceSpansAsync(body);
+        if (_endSettled) await EndWorkspaceSpansAsync(body);
         return exit;
     }
+
+    /// <summary>Set once this invocation's session end was posted, spooled, or refused for good. Spans close only
+    /// after it, so none is ever delivered for a session whose end was lost.</summary>
+    bool _endSettled;
 
     /// <summary>A session's end goes first: it is posted or spooled before the turn's spans are closed, which
     /// runs git over the whole tree. The turn's Stop normally closed them already; this catches a session that
@@ -535,8 +539,9 @@ public sealed class ClaudeHookCommand(
             var reason      = unusableUrl ? "unusable server URL" : "auth/client creation exceeded hook budget";
 
             if (command is "session-start" or "session-end" && sessionId is not null) {
-                await ReportSpoolAsync(spool.Append(sessionId, command, NormalizeForSpool(body, command)),
-                                       command, sessionId, reason, unusableUrl);
+                var spooled = spool.Append(sessionId, command, NormalizeForSpool(body, command));
+                if (command == "session-end") _endSettled = spooled;
+                await ReportSpoolAsync(spooled, command, sessionId, reason, unusableUrl);
             }
             else if (command == "subagent-stop" && sessionId is not null && agentId is not null) {
                 await ReportSpoolAsync(spool.Append(sessionId, "subagent-stop", NormalizeForSpool(body, command)),
@@ -1276,7 +1281,7 @@ public sealed class ClaudeHookCommand(
             // session-end so a stranded session-start always reaches the server before it.
             if (CurrentSessionHasBacklog(spool, sessionId)) {
                 if (sessionId is not null) {
-                    spool.Append(sessionId, "session-end", body);
+                    _endSettled = spool.Append(sessionId, "session-end", body);
                     await Console.Error.WriteLineAsync($"[kcap] session-end spooled (ordering guard); will retry on the next kcap hook ({sessionId})");
                 }
                 return 0;
@@ -1298,15 +1303,19 @@ public sealed class ClaudeHookCommand(
                 resp?.Dispose();
                 if (retryable) {
                     if (sessionId is not null) {
-                        await ReportSpoolAsync(spool.Append(sessionId, "session-end", body),
-                                               "session-end", sessionId, FailureReason(code), unusableUrl: false);
+                        _endSettled = spool.Append(sessionId, "session-end", body);
+                        await ReportSpoolAsync(_endSettled, "session-end", sessionId, FailureReason(code), unusableUrl: false);
                     } else {
                         await Console.Error.WriteLineAsync("[kcap] session-end transient failure but session_id missing — cannot spool; event dropped");
                     }
+                } else {
+                    // Refused for good, as a deleted session's end is: nothing is left to deliver first.
+                    _endSettled = true;
                 }
                 return 0;
             }
 
+            _endSettled = true;
             try {
                 var node = JsonNode.Parse(await resp.Content.ReadAsStringAsync());
                 if (node?["generate_whats_done"]?.GetValue<bool>() == true && sessionId is not null)
