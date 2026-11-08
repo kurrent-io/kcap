@@ -217,7 +217,7 @@ internal static class PrivilegedSwapScript {
             # was started by. A list without this helper's own process was not read. Asked once the install is set
             # aside, when no process can reach it by its own paths any more and a link made since the first look shows.
             in_use() {
-                local i d home plist listed
+                local i d home plist listed st
                 [ $nentries -gt 0 ] || return 1
                 [ $homes_read = 1 ] || { echo "the accounts on this Mac could not be listed"; return 0; }
                 linked && return 0
@@ -230,9 +230,11 @@ internal static class PrivilegedSwapScript {
                         for (i = 1; i <= n; i++) if (f == look[i] || index(f, look[i] "/") == 1) { print "process " pid " runs " f; found = 1; exit }
                     }
                     END { exit (found ? 0 : (seen ? 1 : 2)) }' "${look[@]}"
-                case $? in
+                st=("${PIPESTATUS[@]}")
+                # lsof warns and goes on past an error, so a list with this helper in it may still leave a process out.
+                case ${st[1]} in
                     0) return 0 ;;
-                    1) ;;
+                    1) [ "${st[0]}" = 0 ] || { echo "the process list could not be read"; return 0; } ;;
                     *) echo "the process list could not be read"; return 0 ;;
                 esac
                 while IFS= read -r home; do
