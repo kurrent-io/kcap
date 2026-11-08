@@ -14,8 +14,10 @@ namespace Capacitor.Cli.Daemon.Harness.Claude;
 /// every barrier: this asks it, and passes a held dispatch to the mod only once it says so. Nothing here waits on the
 /// mod, so a server push is held and returns at once.
 ///
-/// <para>An agent's attach, re-registration and teardown (stop, detach, lapse, switch off) run one at a time under that
-/// agent's serial gate, through the server call, so none undoes another or reaches the server out of order.</para>
+/// <para>An agent's attach, re-registration, detach, lapse and unregistration run one at a time under that agent's
+/// serial gate, through the server call, so none undoes another or reaches the server out of order. A stop and the
+/// switch going off end the attachment at once, outside it, since they run where nothing may wait on the server: the
+/// attach they overtake is refused when the server answers it, and their unregistration takes the gate.</para>
 ///
 /// <para>Attachments, the dispatches handed to the mod, the reports owed about them, and the agents a process carried
 /// on from outlive the daemon in <see cref="ModAttachmentStore"/>. Held dispatches never do, and go with the connection
@@ -173,7 +175,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         }
 
         if (!answer.Registered) {
-            var (reason, retry) = RefusalOf(answer.RefusedReason, agentId);
+            var (reason, retry) = RefusalOf(answer.RefusedReason, agentId, processKey, replacesAgentId);
             LogAttachRefused(agentId, reason);
 
             return SteeringAttachReply.Refusal(reason, retry);
@@ -196,21 +198,24 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
         // A process attaching again to an agent it carried on from would be a ghost once its replacement ends, unless it
         // is carrying on back, naming the attachment it is leaving.
-        if (_replaced.TryGetValue(agentId, out var leftBy) && leftBy == processKey
-         && !(replacesAgentId is { } leaving && _live.TryGetValue(leaving, out var current) && current.ProcessKey == processKey))
+        if (_replaced.TryGetValue(agentId, out var leftBy) && leftBy == processKey && !CarriesOnBack(processKey, replacesAgentId))
             return ReplacedAnswer;
 
         return null;
     }
 
+    bool CarriesOnBack(string processKey, string? replacesAgentId) =>
+        replacesAgentId is { } leaving && _live.TryGetValue(leaving, out var current) && current.ProcessKey == processKey;
+
     /// <summary>What the mod is told to do about a refusal. <c>session_not_owned</c> is "not now": the server's read of
-    /// the owner can fail or miss.</summary>
-    (string Reason, bool Retry) RefusalOf(string? refused, string agentId) {
-        bool replaced;
-        lock (_gate) replaced = _replaced.ContainsKey(agentId);
+    /// the owner can fail or miss. So is <c>session_attached</c>, except for an agent a process carried on from, which
+    /// only a process carrying on back may take again.</summary>
+    (string Reason, bool Retry) RefusalOf(string? refused, string agentId, string processKey, string? replacesAgentId) {
+        bool ghost;
+        lock (_gate) ghost = _replaced.ContainsKey(agentId) && !CarriesOnBack(processKey, replacesAgentId);
 
         return refused switch {
-            AgentRegistrationRefusal.SessionAttached => (refused, !replaced),
+            AgentRegistrationRefusal.SessionAttached => (refused, !ghost),
             AgentRegistrationRefusal.SessionNotOwned or AgentRegistrationRefusal.ConnectionVanished or AgentRegistrationRefusal.NotADaemon => (refused, true),
             null => ("refused", false),
             _    => (refused, false),
@@ -376,7 +381,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         lock (_gate) candidates = _handedOver.GetValueOrDefault(dispatchId)?.AgentId is { } sentTo ? [sentTo] : CarriedFromChain(runtime);
 
         foreach (var agentId in candidates) {
-            if (await _server.ReportAttachedInputRejectedAsync(dispatchId, agentId, NotHeldByModReason) != true) continue;
+            if (await _server.ReportAttachedInputRejectedAsync(dispatchId, agentId, NotHeldByModReason) != AttachedReportAnswer.Taken) continue;
 
             LogLostDispatchRejected(dispatchId, agentId);
 
@@ -447,18 +452,20 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     }
 
     /// <summary>A stop, from the server or <c>kcap agent stop</c>: the attachment ends, and the process is left exactly
-    /// as it was. The session and process are barred at once, so an attach already on its way is refused once the server
-    /// answers it, and stay barred until one of them changes. False for an agent id this does not hold.</summary>
-    public async Task<bool> StopAsync(string agentId) {
+    /// as it was. The session and process are barred, so an attach already on its way is refused once the server answers
+    /// it, and stay barred until one of them changes; the server is told once that attach has settled. False for an
+    /// agent id this does not hold.</summary>
+    public bool Stop(string agentId) {
         lock (_gate) {
             if (!_live.TryGetValue(agentId, out var runtime)) return false;
 
             _stopped.Add(new ModStoppedPair(SessionIds.Canonical(runtime.Attachment.SessionId)!, runtime.ProcessKey));
             if (_stopped.Count > StoppedCap) _stopped.RemoveAt(0);
+
+            EndHere(runtime, StoppedAnswer);
         }
 
-        Save();
-        await EndAsync(agentId, StoppedAnswer, retry: false);
+        UnregisterEnded([agentId]);
         LogStopped(agentId);
 
         return true;
@@ -466,11 +473,36 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
     /// <summary>The switch went off: every attachment ends as a stop's does, but none is barred from attaching once it is
     /// on again.</summary>
-    public async Task EndAllAsync() {
-        string[] live;
-        lock (_gate) live = [.. _live.Keys];
+    public void EndAll() {
+        List<string> ended;
 
-        await Task.WhenAll(live.Select(agentId => EndAsync(agentId, SteeringOffAnswer, retry: false)));
+        lock (_gate) {
+            ended = [.. _live.Keys];
+            foreach (var agentId in ended) EndHere(_live[agentId], SteeringOffAnswer);
+        }
+
+        if (ended.Count > 0) UnregisterEnded(ended);
+    }
+
+    /// <summary>Called under the state lock.</summary>
+    void EndHere(ModAttachedAgentRuntime runtime, string reason) {
+        Forget(runtime, reason, retry: false);
+        _unregisterPending.Add(runtime.AgentId);
+    }
+
+    void UnregisterEnded(IEnumerable<string> agentIds) {
+        Save();
+        _status?.Pulse();
+
+        foreach (var agentId in agentIds) _ = UnregisterSoonAsync(agentId);
+    }
+
+    async Task UnregisterSoonAsync(string agentId) {
+        try {
+            await SendPendingUnregistrationAsync(agentId);
+        } catch (Exception ex) {
+            LogUnregisterFailed(agentId, ex.Message);
+        }
     }
 
     /// <summary>Ends the attachment under its agent's serial gate, so an attach or a registration in flight finishes
@@ -537,27 +569,25 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         lock (_gate) _unregisterPending.Add(agentId);
     }
 
-    /// <summary>One for an agent attached again since is dropped: the server now holds that agent's new attachment.</summary>
     async Task SendPendingUnregistrationsAsync() {
         string[] pending;
         lock (_gate) pending = [.. _unregisterPending];
 
-        foreach (var agentId in pending) {
-            using var serial = await _serial.EnterAsync(agentId, CancellationToken.None);
+        foreach (var agentId in pending) await SendPendingUnregistrationAsync(agentId);
+    }
 
-            bool attached;
+    /// <summary>Sent once nothing else of the agent's is in flight, after what is owed about its input. One for an agent
+    /// attached again since is dropped: the server now holds that agent's new attachment.</summary>
+    async Task SendPendingUnregistrationAsync(string agentId) {
+        using var serial = await _serial.EnterAsync(agentId, CancellationToken.None);
 
-            lock (_gate) {
-                attached = _live.ContainsKey(agentId);
-                if (attached || !_unregisterPending.Contains(agentId)) {
-                    _unregisterPending.Remove(agentId);
-
-                    continue;
-                }
-            }
-
-            await UnregisterAsync(agentId);
+        lock (_gate) {
+            if (_live.ContainsKey(agentId)) _unregisterPending.Remove(agentId);
+            if (!_unregisterPending.Contains(agentId)) return;
         }
+
+        await _reports.FlushAsync();
+        await UnregisterAsync(agentId);
     }
 
     /// <summary>Registers every attachment again, so the server moves it to this connection; run inside the
@@ -599,7 +629,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             return;
         }
 
-        var (reason, retry) = RefusalOf(answer.RefusedReason, agentId);
+        var (reason, retry) = RefusalOf(answer.RefusedReason, agentId, record.ProcessKey, record.ReplacesAgentId);
 
         lock (_gate) {
             if (!_live.TryGetValue(agentId, out var runtime) || runtime.Attachment != record) return;
@@ -649,7 +679,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             foreach (var agentId in pending) await RegisterAsync(agentId);
 
             await SendPendingUnregistrationsAsync();
-            await _reports.FlushAsync();
+            await _reports.FlushAsync(sweep: true);
         } catch (Exception ex) {
             LogSweepFailed(ex);
         }

@@ -4759,7 +4759,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// concurrency-safe via the per-agent single-flight teardown latch, and routing them through the lane
     /// would let a parked consent prompt delay reviewer reaping — the exact inversion of its purpose.</summary>
     internal async Task HandleStopAgent(string agentId) {
-        if (_attachments is { } attachments && await attachments.StopAsync(agentId)) return;
+        if (_attachments?.Stop(agentId) == true) return;
 
         if (!_agents.TryGetValue(agentId, out var agent)) {
             // An agent a restart left resuming or interrupted has only its ledger entry; a private one is

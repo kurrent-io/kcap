@@ -252,7 +252,7 @@ internal partial class AgentOrchestrator {
             // A steered terminal session is protected as any kind but a plain agent is.
             var attachedIds = _attachments?.Live.Select(a => a.AgentId).ToList() ?? [];
             var attached    = force && _attachments is { } steered
-                ? await Task.WhenAll(attachedIds.Select(async id => $"{id}\t{StatusText(await steered.StopAsync(id))}"))
+                ? attachedIds.Select(id => $"{id}\t{StatusText(steered.Stop(id))}").ToList()
                 : [.. attachedIds.Select(id => $"{id}\tskipped")];
 
             await FrameCodec.WriteAsync(stream, LocalFrame.StopAck(string.Join('\n', stopped.Concat(skipped).Concat(pending).Concat(attached))), ct);
@@ -261,7 +261,7 @@ internal partial class AgentOrchestrator {
         }
 
         if (_attachments is { } attachments && attachments.Holds(agentId)) {
-            await FrameCodec.WriteAsync(stream, LocalFrame.StopAck($"{agentId}\t{StatusText(await attachments.StopAsync(agentId))}"), ct);
+            await FrameCodec.WriteAsync(stream, LocalFrame.StopAck($"{agentId}\t{StatusText(attachments.Stop(agentId))}"), ct);
 
             return;
         }

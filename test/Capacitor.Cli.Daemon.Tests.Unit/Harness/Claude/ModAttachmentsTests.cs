@@ -599,7 +599,7 @@ public class ModAttachmentsTests {
         await using var attachments = Attachments(server);
         var agentId = await AttachAsync(attachments);
 
-        await attachments.StopAsync(agentId);
+        attachments.Stop(agentId);
 
         await Assert.That(await attachments.AttachAsync(Session, Key, null, CancellationToken.None))
             .IsEqualTo(SteeringAttachReply.Refusal("stopped", retry: false));
@@ -610,7 +610,7 @@ public class ModAttachmentsTests {
 
     [Test]
     public async Task A_stop_outlives_a_daemon_restart() {
-        await using (var attachments = Attachments(new CaptureServerConnection())) await attachments.StopAsync(await AttachAsync(attachments));
+        await using (var attachments = Attachments(new CaptureServerConnection())) attachments.Stop(await AttachAsync(attachments));
 
         await using var restarted = Attachments(new CaptureServerConnection());
 
@@ -715,6 +715,8 @@ public class ModAttachmentsTests {
 
     static Task Within(Task task) => task.WaitAsync(TimeSpan.FromSeconds(10));
 
+    static Task<T> Within<T>(Task<T> task) => task.WaitAsync(TimeSpan.FromSeconds(10));
+
     /// <summary>A link the daemon holds but has not delivered is the mod's record of the dispatch: a hold behind it sends
     /// the link, never a rejection that would tell the sender to resend what landed.</summary>
     [Test]
@@ -759,8 +761,9 @@ public class ModAttachmentsTests {
         await Assert.That(server.LinkReports).IsEquivalentTo([new ReportInputLinkRequest(dispatch, agentId, Session, row)]);
     }
 
-    /// <summary>A module reload's attach is in its registration when <c>kcap agent stop</c> lands: the stop waits for it
-    /// and then ends the attachment, so the stopped pair is not attached again, now or on the next reconnect.</summary>
+    /// <summary>A module reload's attach is in its registration when <c>kcap agent stop</c> lands: the attach is refused
+    /// once the server answers it, and the server's last word is the unregistration, so the stopped pair is not attached
+    /// again, now or on the next reconnect.</summary>
     [Test]
     public async Task A_stop_landing_during_an_attach_is_not_undone() {
         var server = new CaptureServerConnection();
@@ -771,16 +774,15 @@ public class ModAttachmentsTests {
 
         var reattach = attachments.AttachAsync(Session, Key, null, CancellationToken.None);
         await Within(server.AttachedRegistrationEntered.Task);
-        var stop = attachments.StopAsync(agentId);
 
-        await Assert.That(stop.IsCompleted).IsFalse();
+        await Assert.That(attachments.Stop(agentId)).IsTrue();
 
         release.SetResult();
 
-        await Assert.That(await reattach).IsEqualTo(SteeringAttachReply.Refusal("stopped", retry: false));
-        await Assert.That(await stop).IsTrue();
+        await Assert.That(await Within(reattach)).IsEqualTo(SteeringAttachReply.Refusal("stopped", retry: false));
+        await Within(attachments.SweepAsync());
         await Assert.That(attachments.Holds(agentId)).IsFalse();
-        await Assert.That(server.AttachedCallOrder[^1]).IsEqualTo($"unregister:{agentId}");
+        await Assert.That(string.Join(",", server.AttachedCallOrder)).IsEqualTo($"register:{agentId},register:{agentId},unregister:{agentId}");
 
         server.AttachedRegistrationGate = null;
         server.AttachedRegistrations.Clear();
@@ -791,8 +793,8 @@ public class ModAttachmentsTests {
             .IsEqualTo(SteeringAttachReply.Refusal("stopped", retry: false));
     }
 
-    /// <summary>A reconnect is registering the attachment again when a stop lands: the stop waits for it, so the server's
-    /// last word is the unregistration and the stopped attachment stays gone.</summary>
+    /// <summary>A reconnect is registering the attachment again when a stop lands: the unregistration waits for that
+    /// registration, so the server's last word is the unregistration and the stopped attachment stays gone.</summary>
     [Test]
     public async Task A_stop_landing_during_a_reconnect_registration_is_not_undone() {
         var server = new CaptureServerConnection();
@@ -803,15 +805,77 @@ public class ModAttachmentsTests {
 
         var reregister = attachments.ReRegisterAsync();
         await Within(server.AttachedRegistrationEntered.Task);
-        var stop = attachments.StopAsync(agentId);
 
-        await Assert.That(stop.IsCompleted).IsFalse();
+        await Assert.That(attachments.Stop(agentId)).IsTrue();
+        await Assert.That(server.AgentUnregisteredCalls).IsEmpty();
 
         release.SetResult();
         await Within(reregister);
+        await Within(attachments.SweepAsync());
 
-        await Assert.That(await stop).IsTrue();
         await Assert.That(attachments.Holds(agentId)).IsFalse();
+        await Assert.That(string.Join(",", server.AttachedCallOrder)).IsEqualTo($"register:{agentId},register:{agentId},unregister:{agentId}");
+    }
+
+    /// <summary>A server stop runs on the lane every launch and stop shares, so it ends the attachment and returns while
+    /// an attach of the same agent still waits on the server; the server is told once that registration has settled.</summary>
+    [Test]
+    public async Task A_server_stop_returns_while_an_attach_of_its_agent_is_registering() {
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        await using var orch = Orchestrator(server, attachments);
+        var agentId = await AttachAsync(attachments);
+        var release = Gate();
+        server.AttachedRegistrationGate = release;
+
+        var reattach = attachments.AttachAsync(Session, Key, null, CancellationToken.None);
+        await Within(server.AttachedRegistrationEntered.Task);
+
+        try {
+            await Within(orch.HandleServerStopAgentForTest(agentId));
+
+            await Assert.That(reattach.IsCompleted).IsFalse();
+            await Assert.That(attachments.Holds(agentId)).IsFalse();
+            await Assert.That(await IdleAsync(attachments, agentId)).IsEqualTo(SteeringNextReply.GoneAs("stopped", retry: false));
+            await Assert.That(server.AgentUnregisteredCalls).IsEmpty();
+        } finally {
+            release.TrySetResult();
+        }
+
+        await Assert.That(await Within(reattach)).IsEqualTo(SteeringAttachReply.Refusal("stopped", retry: false));
+        await Within(attachments.SweepAsync());
+        await Assert.That(string.Join(",", server.AttachedCallOrder)).IsEqualTo($"register:{agentId},register:{agentId},unregister:{agentId}");
+    }
+
+    /// <summary>The switch answers the command that flips it off while an attach still waits on the server: that attach is
+    /// refused once the server answers it, and the server is told the attachment ended once it has.</summary>
+    [Test]
+    public async Task Turning_the_switch_off_returns_while_an_attach_is_registering() {
+        var consent = new LaunchConsentStore(Daemons.Store.StateDirectory("test"), NullLogger.Instance, TimeProvider.System);
+        consent.TrySetSteering(true, out _);
+
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server, steeringOn: () => consent.SteeringOn);
+        await using var endpoint = new SteeringEndpoint(Daemons.Store.SteeringSocketPath("test"), TestSteering.NoRoutes, TimeProvider.System, NullLogger.Instance);
+        using var steering = new SteeringSwitch(consent, endpoint, offered: true, attachments);
+        var agentId = await AttachAsync(attachments);
+        var release = Gate();
+        server.AttachedRegistrationGate = release;
+
+        var reattach = attachments.AttachAsync(Session, Key, null, CancellationToken.None);
+        await Within(server.AttachedRegistrationEntered.Task);
+
+        try {
+            using (var ack = new MemoryStream()) await Within(steering.HandleSetAsync(SteeringIpc.Off, ack, CancellationToken.None));
+
+            await Assert.That(attachments.Live).IsEmpty();
+            await Assert.That(server.AgentUnregisteredCalls).IsEmpty();
+        } finally {
+            release.TrySetResult();
+        }
+
+        await Assert.That(await Within(reattach)).IsEqualTo(SteeringAttachReply.Refusal("steering_off", retry: false));
+        await Within(attachments.SweepAsync());
         await Assert.That(string.Join(",", server.AttachedCallOrder)).IsEqualTo($"register:{agentId},register:{agentId},unregister:{agentId}");
     }
 
@@ -855,7 +919,8 @@ public class ModAttachmentsTests {
               "attachments": [null, { "sessionId": "{{Later}}", "processKey": "{{OtherKey}}", "attachedAt": "2026-11-08T09:00:00Z" },
                               { "agentId": "{{good}}", "sessionId": "{{Session}}", "processKey": "{{Key}}", "attachedAt": "2026-11-08T09:00:00Z" }],
               "handedOver": { "{{Guid.NewGuid()}}": null, "{{dispatch}}": { "agentId": "{{good}}", "processKey": "{{Key}}" } },
-              "reports": [null, { "kind": "link" }],
+              "reports": [null, { "kind": "link" },
+                          { "kind": "rejected", "dispatchId": "{{Guid.NewGuid()}}", "agentId": "{{good}}", "reason": "stopped", "refusals": -1 }],
               "replaced": { "not-an-agent": "{{Key}}" },
               "stopped": [null]
             }
@@ -870,6 +935,7 @@ public class ModAttachmentsTests {
         await Within(attachments.SweepAsync());
 
         await Assert.That(server.UnconfirmedReports).IsEquivalentTo([new ReportInputUnconfirmedRequest(dispatch, good, "attachment_lapsed")]);
+        await Assert.That(server.AttachedRejections).IsEmpty();
         await Assert.That(server.AgentUnregisteredCalls).IsEquivalentTo([good]);
     }
 
@@ -884,11 +950,11 @@ public class ModAttachmentsTests {
         var attached = await AttachAsync(attachments, session: "c56a4180-65aa-42ec-a945-5fd21dec0538");
 
         server.Ready = false;
-        await attachments.StopAsync(away);
+        attachments.Stop(away);
         await attachments.DetachAsync(attached, Key);
         server.Ready = true;
         server.AgentUnregisteredThrow = new IOException("connection reset");
-        await attachments.StopAsync(failed);
+        attachments.Stop(failed);
         server.AgentUnregisteredThrow = null;
 
         await Assert.That(server.AgentUnregisteredCalls).IsEmpty();
@@ -930,7 +996,7 @@ public class ModAttachmentsTests {
 
         var poll = IdleAsync(attachments, agentId);
         await Within(server.HandoverEntered.Task);
-        await attachments.StopAsync(agentId);
+        attachments.Stop(agentId);
         release.SetResult();
 
         await Assert.That(await poll).IsEqualTo(SteeringNextReply.GoneAs("stopped", retry: false));
@@ -958,8 +1024,39 @@ public class ModAttachmentsTests {
             .IsEqualTo(SteeringAttachReply.Refusal("replaced", retry: false));
     }
 
-    /// <summary>A rejection the server answered with an error will be refused again, so it goes, and the link queued
-    /// behind it is delivered.</summary>
+    /// <summary>A process carrying on back to the session it left is no ghost of it, so the server finding that session
+    /// still attached is "not now", as it is for a first attach.</summary>
+    [Test]
+    public async Task A_process_carrying_on_back_is_told_to_attach_again_while_its_session_is_still_attached() {
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        var first  = await AttachAsync(attachments);
+        var second = await AttachAsync(attachments, session: Later, replaces: first);
+        server.AttachedRegistrationAnswer = r => r.AgentId == first ? new AgentRegisteredResponse(false, "session_attached") : null;
+
+        await Assert.That(await attachments.AttachAsync(Session, Key, second, CancellationToken.None))
+            .IsEqualTo(SteeringAttachReply.Refusal("session_attached", retry: true));
+        await Assert.That(attachments.Holds(second)).IsTrue();
+    }
+
+    /// <summary>Another process attaching as an agent this one carried on from is the ghost the refusal is for, whether
+    /// it names nothing or an attachment that is not its own: the server finding the session attached is final.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_ghost_the_server_finds_attached_is_told_not_to_attach_again(bool namesTheReplacement) {
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        var first  = await AttachAsync(attachments);
+        var second = await AttachAsync(attachments, session: Later, replaces: first);
+        server.AttachedRegistrationAnswer = r => r.AgentId == first ? new AgentRegisteredResponse(false, "session_attached") : null;
+
+        await Assert.That(await attachments.AttachAsync(Session, OtherKey, namesTheReplacement ? second : null, CancellationToken.None))
+            .IsEqualTo(SteeringAttachReply.Refusal("session_attached", retry: false));
+    }
+
+    /// <summary>A report the server answers with an error is sent again by the next sweep, not by every flush, and holds
+    /// back only what is reported about the same dispatch: the link behind it about another dispatch goes at once.</summary>
     [Test]
     public async Task A_report_the_server_refuses_does_not_hold_back_the_ones_behind_it() {
         var server = new CaptureServerConnection();
@@ -968,9 +1065,11 @@ public class ModAttachmentsTests {
         var refused  = Guid.NewGuid();
         var landed   = Guid.NewGuid();
         var row      = Guid.NewGuid();
+        var lateRow  = Guid.NewGuid();
 
         server.Ready = false;
         attachments.Undelivered(agentId, Key, refused, rejected: true, "stopped");
+        attachments.Link(agentId, Key, refused, Session, lateRow);
         attachments.Link(agentId, Key, landed, Session, row);
         server.Ready = true;
         server.AttachedRejectionThrow = new Microsoft.AspNetCore.SignalR.HubException("Caller is not the daemon owning agent");
@@ -978,6 +1077,61 @@ public class ModAttachmentsTests {
         await Within(attachments.FlushReportsAsync());
 
         await Assert.That(server.LinkReports).IsEquivalentTo([new ReportInputLinkRequest(landed, agentId, Session, row)]);
+        await Assert.That(server.AttachedRejectionAttempts).IsEqualTo(1);
+
+        await Within(attachments.SweepAsync());
+
+        await Assert.That(server.AttachedRejectionAttempts).IsEqualTo(2);
+        await Assert.That(server.LinkReports.Count).IsEqualTo(1);
+
+        server.AttachedRejectionThrow = null;
+        await Within(attachments.SweepAsync());
+
+        await Assert.That(server.AttachedRejections).IsEquivalentTo([(refused, agentId, "stopped")]);
+        await Assert.That(server.LinkReports).IsEquivalentTo(
+            [new ReportInputLinkRequest(landed, agentId, Session, row), new ReportInputLinkRequest(refused, agentId, Session, lateRow)],
+            TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    /// <summary>A report the server keeps refusing is dropped once refused <see cref="ModReportQueue.MaxRefusals"/>
+    /// times, counted across a daemon restart, and what was queued behind it about the same dispatch goes then.</summary>
+    [Test]
+    public async Task A_report_the_server_keeps_refusing_is_dropped_at_its_bound_counted_across_a_restart() {
+        var refused = Guid.NewGuid();
+        var row     = Guid.NewGuid();
+        var error   = new Microsoft.AspNetCore.SignalR.HubException("Caller is not the daemon owning agent");
+        var before  = new CaptureServerConnection { AttachedRejectionThrow = error };
+
+        await using (var attachments = Attachments(before)) {
+            var agentId = await AttachAsync(attachments);
+            attachments.Undelivered(agentId, Key, refused, rejected: true, "stopped");
+            attachments.Link(agentId, Key, refused, Session, row);
+            await Within(attachments.SweepAsync());
+        }
+
+        await Assert.That(before.AttachedRejectionAttempts).IsEqualTo(2);
+        await Assert.That(before.LinkReports).IsEmpty();
+
+        var after = new CaptureServerConnection { AttachedRejectionThrow = error };
+        await using var restarted = Attachments(after);
+
+        for (var sweep = 0; sweep < ModReportQueue.MaxRefusals; sweep++) await Within(restarted.SweepAsync());
+
+        await Assert.That(after.AttachedRejectionAttempts).IsEqualTo(ModReportQueue.MaxRefusals - 2);
+        await Assert.That(after.LinkReports).IsEquivalentTo([new ReportInputLinkRequest(refused, AgentOf(Session), Session, row)]);
+    }
+
+    /// <summary>A rejection the server takes and records on no stream names an agent that was not sent the dispatch, which
+    /// sending it again does not change: it goes at once, and no sweep sends it again.</summary>
+    [Test]
+    public async Task A_rejection_the_server_records_nowhere_is_not_sent_again() {
+        var server = new CaptureServerConnection { AttachedRejectionRecorded = (_, _) => false };
+        await using var attachments = Attachments(server);
+        var agentId = await AttachAsync(attachments);
+
+        attachments.Undelivered(agentId, Key, Guid.NewGuid(), rejected: true, "stopped");
+        await Within(attachments.SweepAsync());
+
         await Assert.That(server.AttachedRejectionAttempts).IsEqualTo(1);
     }
 

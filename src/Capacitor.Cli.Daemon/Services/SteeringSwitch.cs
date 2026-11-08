@@ -72,7 +72,7 @@ internal sealed class SteeringSwitch(
                 if (!store.TrySetSteering(false, out var unwritable)) return Refused(SteeringIpc.Unwritable, unwritable);
 
                 await endpoint.UnbindAsync();
-                if (attachments is not null) await attachments.EndAllAsync();
+                attachments?.EndAll();
             }
 
             return new(true, null, State);

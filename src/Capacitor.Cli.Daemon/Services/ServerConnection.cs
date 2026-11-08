@@ -1111,51 +1111,53 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     internal virtual Task<ConfirmInputHandoverResponse?> InvokeConfirmInputHandoverRawAsync(ConfirmInputHandoverRequest request) =>
         _hub.InvokeAsync<ConfirmInputHandoverResponse?>("ConfirmInputHandover", request, cancellationToken: _ct);
 
-    /// <summary>Reports a dispatch the mod submitted landing as a transcript row. True once the server took the report,
-    /// whatever it made of it; false when it answered with an error, which sending it again would only repeat; null when
-    /// it may not have arrived.</summary>
-    public virtual async Task<bool?> ReportInputLinkAsync(ReportInputLinkRequest request) {
+    /// <summary>Reports a dispatch the mod submitted landing as a transcript row; taken whatever the server made of it.</summary>
+    public virtual async Task<AttachedReportAnswer> ReportInputLinkAsync(ReportInputLinkRequest request) {
         try {
             await InvokeReportInputLinkRawAsync(request).WaitAsync(AttachedInputCallBudget, _time, _ct);
 
-            return true;
+            return AttachedReportAnswer.Taken;
         } catch (Exception ex) {
             _logger.LogDebug(ex, "Could not report the link of dispatch {DispatchId}", request.DispatchId);
 
-            return ex is Microsoft.AspNetCore.SignalR.HubException ? false : null;
+            return Unanswered(ex);
         }
     }
+
+    static AttachedReportAnswer Unanswered(Exception ex) =>
+        ex is Microsoft.AspNetCore.SignalR.HubException ? AttachedReportAnswer.Refused : AttachedReportAnswer.Unreached;
 
     internal virtual Task InvokeReportInputLinkRawAsync(ReportInputLinkRequest request) =>
         _hub.InvokeAsync("ReportInputLink", request, cancellationToken: _ct);
 
     /// <summary>Reports a dispatch the mod was handed whose landing nobody can confirm, answered as
     /// <see cref="ReportInputLinkAsync"/> is.</summary>
-    public virtual async Task<bool?> ReportInputUnconfirmedAsync(ReportInputUnconfirmedRequest request) {
+    public virtual async Task<AttachedReportAnswer> ReportInputUnconfirmedAsync(ReportInputUnconfirmedRequest request) {
         try {
             await InvokeReportInputUnconfirmedRawAsync(request).WaitAsync(AttachedInputCallBudget, _time, _ct);
 
-            return true;
+            return AttachedReportAnswer.Taken;
         } catch (Exception ex) {
             _logger.LogDebug(ex, "Could not report dispatch {DispatchId} unconfirmed", request.DispatchId);
 
-            return ex is Microsoft.AspNetCore.SignalR.HubException ? false : null;
+            return Unanswered(ex);
         }
     }
 
     internal virtual Task InvokeReportInputUnconfirmedRawAsync(ReportInputUnconfirmedRequest request) =>
         _hub.InvokeAsync("ReportInputUnconfirmed", request, cancellationToken: _ct);
 
-    /// <summary>Reports an attached agent's dispatch that will not land. Null when the report may not have arrived;
-    /// otherwise whether the server recorded it on <paramref name="agentId"/>'s stream, which holds only what was sent
-    /// to that agent. An error the server answered with is an answer, and records nothing.</summary>
-    public virtual async Task<bool?> ReportAttachedInputRejectedAsync(Guid dispatchId, string agentId, string reason) {
+    /// <summary>Reports an attached agent's dispatch that will not land. Recorded only on <paramref name="agentId"/>'s
+    /// stream, which holds only what was sent to that agent.</summary>
+    public virtual async Task<AttachedReportAnswer> ReportAttachedInputRejectedAsync(Guid dispatchId, string agentId, string reason) {
         try {
-            return await InvokeSendInputRejectedRawAsync(dispatchId, agentId, reason).WaitAsync(AttachedInputCallBudget, _time, _ct);
+            return await InvokeSendInputRejectedRawAsync(dispatchId, agentId, reason).WaitAsync(AttachedInputCallBudget, _time, _ct)
+                ? AttachedReportAnswer.Taken
+                : AttachedReportAnswer.NotRecorded;
         } catch (Exception ex) {
             _logger.LogDebug(ex, "Could not report dispatch {DispatchId} of attached agent {AgentId} dropped", dispatchId, agentId);
 
-            return ex is Microsoft.AspNetCore.SignalR.HubException ? false : null;
+            return Unanswered(ex);
         }
     }
 

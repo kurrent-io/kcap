@@ -5,8 +5,9 @@ namespace Capacitor.Cli.Daemon.Harness.Claude;
 
 /// <summary>
 /// What became of the dispatches the mod was handed, owed to the server until it answers. Sent oldest first. One that may
-/// not have arrived holds back the rest, which would go on the same connection; one the server answered with an error is
-/// dropped and logged, since sending it again would only repeat that answer.
+/// not have arrived holds back the rest, which would go on the same connection. One the server answered with an error is
+/// sent again by each later sweep, holding back only what is reported about the same dispatch, until it has been refused
+/// <see cref="MaxRefusals"/> times, since an error can be the server not yet knowing this connection as the agent's.
 ///
 /// <para>A queued report is the mod's record of its dispatch once the mod has handed it over, so while one is here a
 /// dispatch must never be reported lost.</para>
@@ -14,9 +15,15 @@ namespace Capacitor.Cli.Daemon.Harness.Claude;
 internal sealed partial class ModReportQueue(ServerConnection server, ILogger logger) {
     const int Cap = 1024;
 
+    /// <summary>Refused this many times, a report is dropped: three minutes of sweeps.</summary>
+    internal const int MaxRefusals = 36;
+
     readonly Lock                 _gate     = new();
     readonly List<ModInputReport> _reports  = [];
     readonly KeyedAsyncGate       _flushing = new();
+
+    /// <summary>The dispatches whose reports wait for the next sweep, behind one the server refused.</summary>
+    readonly HashSet<Guid> _waitingForSweep = [];
 
     /// <summary>Runs once the last report about a dispatch has gone.</summary>
     public Action<Guid>? Settled { get; set; }
@@ -41,7 +48,7 @@ internal sealed partial class ModReportQueue(ServerConnection server, ILogger lo
     /// reached it produces.</summary>
     public void Enqueue(ModInputReport report) {
         lock (_gate) {
-            if (_reports.Contains(report)) return;
+            if (_reports.Any(r => r.SaysTheSameAs(report))) return;
 
             if (_reports.Count >= Cap) {
                 LogDropped(_reports[0].DispatchId, _reports[0].Kind);
@@ -52,24 +59,41 @@ internal sealed partial class ModReportQueue(ServerConnection server, ILogger lo
         }
     }
 
-    public async Task FlushAsync() {
+    /// <param name="sweep">Whether this is a sweep's flush, the one that sends again what the server refused.</param>
+    public async Task FlushAsync(bool sweep = false) {
         using var flushing = await _flushing.EnterAsync(nameof(FlushAsync), CancellationToken.None);
+
+        if (sweep) lock (_gate) _waitingForSweep.Clear();
 
         while (server.IsReady) {
             ModInputReport? next;
-            lock (_gate) next = _reports.FirstOrDefault();
+            lock (_gate) next = _reports.FirstOrDefault(r => !_waitingForSweep.Contains(r.DispatchId));
 
             if (next is null) return;
 
             var answer = await SendAsync(next);
-            if (answer is null) return;
-            if (answer == false) LogRefused(next.Kind, next.DispatchId, next.AgentId);
+            if (answer is AttachedReportAnswer.Unreached) return;
 
+            var again = answer is AttachedReportAnswer.Refused && next.Refusals + 1 < MaxRefusals;
             bool settled;
 
             lock (_gate) {
-                _reports.Remove(next);
-                settled = _reports.All(r => r.DispatchId != next.DispatchId);
+                var at = _reports.IndexOf(next);
+
+                if (again) {
+                    if (at >= 0) _reports[at] = next with { Refusals = next.Refusals + 1 };
+                    _waitingForSweep.Add(next.DispatchId);
+                } else if (at >= 0) {
+                    _reports.RemoveAt(at);
+                }
+
+                settled = !again && _reports.All(r => r.DispatchId != next.DispatchId);
+            }
+
+            switch (answer) {
+                case AttachedReportAnswer.Refused when again: LogRefusedAgain(next.Kind, next.DispatchId, next.AgentId, next.Refusals + 1, MaxRefusals); break;
+                case AttachedReportAnswer.Refused:            LogRefusedDropped(next.Kind, next.DispatchId, next.AgentId, MaxRefusals); break;
+                case AttachedReportAnswer.NotRecorded:        LogNotRecorded(next.Kind, next.DispatchId, next.AgentId); break;
             }
 
             if (settled) Settled?.Invoke(next.DispatchId);
@@ -77,7 +101,7 @@ internal sealed partial class ModReportQueue(ServerConnection server, ILogger lo
         }
     }
 
-    Task<bool?> SendAsync(ModInputReport report) => report.Kind switch {
+    Task<AttachedReportAnswer> SendAsync(ModInputReport report) => report.Kind switch {
         ModInputReport.Link        => server.ReportInputLinkAsync(new(report.DispatchId, report.AgentId, report.SessionId!, report.RowUuid!.Value)),
         ModInputReport.Unconfirmed => server.ReportInputUnconfirmedAsync(new(report.DispatchId, report.AgentId, report.Reason!)),
         _                          => server.ReportAttachedInputRejectedAsync(report.DispatchId, report.AgentId, report.Reason!),
@@ -86,6 +110,12 @@ internal sealed partial class ModReportQueue(ServerConnection server, ILogger lo
     [LoggerMessage(Level = LogLevel.Warning, Message = "The steering report queue is full; dropped the {Kind} report of dispatch {DispatchId}")]
     partial void LogDropped(Guid dispatchId, string kind);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The server refused the {Kind} report of dispatch {DispatchId} under agent {AgentId}; it was dropped")]
-    partial void LogRefused(string kind, Guid dispatchId, string agentId);
+    [LoggerMessage(Level = LogLevel.Information, Message = "The server refused the {Kind} report of dispatch {DispatchId} under agent {AgentId} ({Refusals} of {Max}); the next sweep sends it again")]
+    partial void LogRefusedAgain(string kind, Guid dispatchId, string agentId, int refusals, int max);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The server refused the {Kind} report of dispatch {DispatchId} under agent {AgentId} {Refusals} times; it was dropped")]
+    partial void LogRefusedDropped(string kind, Guid dispatchId, string agentId, int refusals);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The server holds no dispatch {DispatchId} for agent {AgentId}, so its {Kind} report was dropped")]
+    partial void LogNotRecorded(string kind, Guid dispatchId, string agentId);
 }
