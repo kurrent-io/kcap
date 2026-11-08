@@ -283,6 +283,8 @@ public sealed class TranscriptRecorder(
     /// server's cursor says what is left, and what cannot be sent is spooled as <see cref="FinishAsync"/> does.
     /// Registering gets <see cref="DrainOnceConnectBudget"/>, then throws <see cref="TimeoutException"/>, because a
     /// transport that retries until it connects would otherwise park the drain with nothing spooled or marked.</summary>
+    /// <param name="ct">As for <see cref="FinishAsync"/>, and it cuts the connect too, which then throws: with no cursor
+    /// from the server there is nothing to spool, so the caller marks the source for import.</param>
     public async Task DrainOnceAsync(CancellationToken ct) {
         if (HasLostClaim()) return;
 
@@ -292,8 +294,9 @@ public sealed class TranscriptRecorder(
     }
 
     /// <summary>Makes the final drain, whatever stopped the loop, and tells the server it is done. Lines it could
-    /// not deliver go to the spool, because the process may exit right after. <paramref name="ct"/> cuts off what
-    /// depends on the server and on a title, a hung send above all, and the spool still gets what is left.</summary>
+    /// not deliver go to the spool, because the process may exit right after.</summary>
+    /// <param name="ct">For a caller out of time, never to end a drain early: it cuts what waits on the server or on a
+    /// title, a hung send above all, and never the spool, which takes what the cut sends left.</param>
     public async Task FinishAsync(CancellationToken ct) {
         // A stop can end the loop before a tick saw the claim go.
         if (HasLostClaim()) {
@@ -1002,8 +1005,9 @@ public sealed class TranscriptRecorder(
             var newLineNumbers = drainRead.LineNumbers;
             var newLines       = captured.Lines;
             // The server drops a line numbered at or below one it took, so a shorter file never
-            // lowers the cursor; only a reconnect rewind does. kcap import repairs lines written
-            // below it.
+            // lowers the cursor; only a reconnect rewind does. Lines written below it after a shrink
+            // are lost for good, and the log line below is all that says so: kcap import resumes
+            // from the server's cursor too.
             var linesRead = Math.Max(drainRead.NextPosition, state.LinesProcessed);
 
             if (drainRead.NextPosition < state.LinesProcessed) {

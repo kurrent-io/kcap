@@ -469,6 +469,26 @@ public class RecorderHostTests {
         await Assert.That(attempts[1].EndedIdle).IsFalse();
     }
 
+    /// <summary>The recorder's loop ends quietly on any cancellation, so one nothing asked for would read as a clean end,
+    /// and under a daemon nothing starts the source again.</summary>
+    [Test]
+    public async Task A_cancellation_no_stop_caused_is_retried_as_a_failure() {
+        var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
+        var thrown = 0;
+        _beforeDrain[source.Key] = () => Interlocked.Increment(ref thrown) == 1 ? throw new OperationCanceledException("not a stop") : Task.CompletedTask;
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => _ended.Count == 1, "the first attempt");
+
+        var first = _ended.Single();
+        await Assert.That(first.SourceEnded).IsFalse();
+        await Assert.That(first.Failure).IsNotNull();
+
+        await Eventually(() => LinesSent(source.SessionId) == 1, "the retry's line", TimeSpan.FromSeconds(1));
+        await Assert.That(host.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
     [Test]
     public async Task The_owner_hears_a_source_went_idle() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Reply}\n"), "a1");

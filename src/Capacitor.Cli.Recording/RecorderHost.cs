@@ -8,7 +8,8 @@ namespace Capacitor.Cli.Recording;
 /// respawns a source that fails here, so the host retries it: the key stays in <see cref="ActiveKeys"/> and
 /// <see cref="TryAdd"/> stays refused, and each attempt is a fresh recorder, context and stamper that resume
 /// from the server's cursor. Retries wait 1s doubling to 30s and have no ceiling, because a source ends when its
-/// owner calls <see cref="FinishAsync"/>. A recorder that returns cleanly ends its source and is never retried.
+/// owner calls <see cref="FinishAsync"/>. A recorder that returns because something stopped it ends its source and is
+/// never retried; one that returns with nothing stopping it has failed.
 /// Given claims, the host beats a source's claim whenever it beats the source, and a source that lost its claim ends
 /// where it stands, undrained and unretried, because it is no longer this host's. Taking and releasing a claim stay
 /// with the host's owner: only it can tell a session that ended from a restart that must keep the source owned.
@@ -290,6 +291,11 @@ public sealed class RecorderHost {
 
                             ran     = _time.GetElapsedTime(started);
                             stopped = token.IsCancellationRequested || recorder.Stopping.IsCancellationRequested;
+
+                            // The loop ends quietly on any cancellation, and every end of its own stops the recorder or
+                            // loses its claim, so a return with neither is a cancellation nobody asked for.
+                            if (failure is null && !stopped && !recorder.LostClaim)
+                                failure = new InvalidOperationException("its loop ended with nothing stopping it");
 
                             if (failure is not null) {
                                 var next = recorder.LostClaim ? "lost its claim, so it ends here" : stopped ? "is stopping, so it drains once" : "will retry";
