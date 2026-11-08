@@ -384,10 +384,11 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     /// <summary>
     /// One poll from <paramref name="processKey"/>. Any call is a beat; a call while a turn runs, or while the mod holds a
     /// dispatch, asks the server nothing. Otherwise the oldest held dispatch is offered to the server, and handed over
-    /// only once it confirms, and only while this is still the attachment it was offered for. A hold behind a dispatch the
-    /// mod does not hold proves that one cannot land, since the mod records a dispatch before it submits one, so it is
-    /// reported dropped and the next poll asks again; a report the mod made about it that has not reached the server yet
-    /// is that record, so it is sent instead. Null when there is nothing to hand over.
+    /// only once it confirms, and only while this is still the attachment it was offered for, all within
+    /// <see cref="NextBudget"/>. A hold behind a dispatch the mod has no record of proves that one cannot land, since the
+    /// mod records a dispatch before it submits one, so it is reported dropped and the next poll asks again. A report the
+    /// mod made about it is that record: one that has not reached the server yet is sent instead, and one that went
+    /// without reaching it still keeps the dispatch from being called lost. Null when there is nothing to hand over.
     /// </summary>
     public async Task<SteeringNextReply?> NextAsync(string agentId, string processKey, bool idle, Guid? outstanding) {
         ModAttachedAgentRuntime? runtime;
