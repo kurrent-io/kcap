@@ -5,6 +5,8 @@ public enum WorkspaceDrainStop {
     Drained,
     /// <summary>The server is marked as lacking the route; nothing was sent.</summary>
     Paused,
+    /// <summary>Another drain of this spool is running; nothing was sent.</summary>
+    Busy,
     Budget,
     /// <summary>A failure a later attempt may get past; the file is kept.</summary>
     Retryable,

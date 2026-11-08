@@ -205,10 +205,11 @@ public class VendorWorkspaceSpanTests : IDisposable {
         await Assert.That(Posted().SelectMany(p => p.Changes).Select(c => c.Path)).IsEquivalentTo(["last-turn.txt"]);
     }
 
-    /// <summary>A drain still in flight when its hook process is killed must not keep the next one from running:
-    /// the throttle counts only a drain that finished.</summary>
+    /// <summary>A drain still in flight when its hook process is killed must not hold the next one back. The
+    /// throttle stamp is written only once a drain returns; the lease a killed drain held is released by the
+    /// OS, which <c>SpoolDrainLeaseTests</c> pins.</summary>
     [Test]
-    public async Task A_drain_still_in_flight_does_not_suppress_the_next() {
+    public async Task A_drain_still_in_flight_leaves_no_throttle_stamp() {
         _server.ResetMappings();
         // Counted on arrival: the server logs a request only once it has answered.
         var arrived = 0;
@@ -220,24 +221,22 @@ public class VendorWorkspaceSpanTests : IDisposable {
                 return new WireMock.ResponseMessage { StatusCode = 200 };
             }));
         _server.Given(Request.Create().UsingAnyMethod()).AtPriority(10).RespondWith(Response.Create().WithStatusCode(200));
-        new WorkspaceSpool(Config.Root, _server.Url!, _time).Write(new WorkspaceChangesRequest(
+        var spool = new WorkspaceSpool(Config.Root, _server.Url!, _time);
+        spool.Write(new WorkspaceChangesRequest(
             "ffffffffffffffffffffffffffffffff", Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
             [new WorkspaceChange("x.txt", "edit")], false));
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var http     = new FixedCapacitorHttpClient();
-        AgentHookPoster Poster() => new(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time);
-        int Attempts() => Volatile.Read(ref arrived);
+        var stamp    = Path.Combine(spool.DirectoryPath, ".last-drain");
 
-        // The first hook's drain is in flight, as it is when its process is killed.
-        _ = Poster().DrainWorkspaceAsync(TimeSpan.Zero);
-        for (var i = 0; i < 200 && Attempts() == 0; i++) await Task.Delay(50);
-        await Assert.That(Attempts()).IsEqualTo(1);
+        var drain = new AgentHookPoster(Config.Root, profiles, http, TestWatchers.For(Config.Root, profiles, http), _time).DrainWorkspaceAsync(TimeSpan.Zero);
+        for (var i = 0; i < 200 && Volatile.Read(ref arrived) == 0; i++) await Task.Delay(50);
+        await Assert.That(Volatile.Read(ref arrived)).IsEqualTo(1);
 
-        _ = Poster().DrainWorkspaceAsync(TimeSpan.Zero);
-        for (var i = 0; i < 100 && Attempts() < 2; i++) await Task.Delay(50);
+        await Assert.That(File.Exists(stamp)).IsFalse();
         release.Set();
-
-        await Assert.That(Attempts()).IsEqualTo(2);
+        await drain;
+        await Assert.That(File.Exists(stamp)).IsTrue();
     }
 
     [Test]

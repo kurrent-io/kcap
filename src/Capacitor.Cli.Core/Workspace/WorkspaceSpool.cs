@@ -126,6 +126,7 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
         }
 
         var stop = await DrainAsync(client, serverUrl, budget, ct, withheld);
+        if (stop == WorkspaceDrainStop.Busy) return stop;
         try {
             Directory.CreateDirectory(partition.DirectoryPath);
             File.WriteAllText(stamp, "");
@@ -142,6 +143,10 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
     public async Task<WorkspaceDrainStop> DrainAsync(
             HttpClient client, string serverUrl, TimeSpan budget, CancellationToken ct = default, Func<string, bool>? withheld = null) {
         if (IsPaused) return WorkspaceDrainStop.Paused;
+
+        // Drains overlap from hooks, watchers and the daemon; one at a time keeps a span from being posted twice.
+        using var lease = SpoolDrainLease.TryTake(partition.DirectoryPath);
+        if (lease is null) return WorkspaceDrainStop.Busy;
 
         var started = time.GetTimestamp();
         TimeSpan Left() => budget - time.GetElapsedTime(started);
