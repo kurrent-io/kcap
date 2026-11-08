@@ -1,9 +1,11 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Recording;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -784,6 +786,44 @@ public class WatcherManagerClaimTests : IDisposable {
 
         await Assert.That(transport.Attempts).IsEqualTo(1);
         await Assert.That(Posts).IsEqualTo(0);
+    }
+
+    /// <summary>The background client's own handler answers a 401 by rotating the bearer and sending the same content
+    /// again, inside one attempt of the drain's retry loop. A disable landing during that rotation stops the resend. Driven
+    /// through the client chain the container builds, with only the credential source standing in.</summary>
+    [Test]
+    public async Task A_disable_landing_while_a_refused_bearer_rotates_stops_the_resend() {
+        var profiles = Resolutions.At(_server.Url!, Config.Root);
+        _server.Given(Request.Create().WithPath($"/api/sessions/{Key}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number": -1}"""));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost().WithHeader("Authorization", "Bearer refused"))
+            .RespondWith(Response.Create().WithStatusCode(401));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost().WithHeader("Authorization", "Bearer rotated"))
+            .RespondWith(Response.Create().WithStatusCode(200));
+
+        var services = new ServiceCollection();
+        services.AddSingleton(Config.Root);
+        services.AddSingleton(profiles);
+        services.AddSingleton(new CapacitorServer(_server.Url!, Config.Root, profiles));
+        services.AddCapacitorHttp(ProfileOverrides.None, MachineAuth.None);
+        services.AddSingleton<ICredentialSource>(new RotatingCredentials(() => DisabledSessions.Mark(Key, Config.Root)));
+        await using var container = services.BuildServiceProvider();
+
+        await Manager(profiles, http: container.GetRequiredService<ICapacitorHttpClient>()).InlineDrainAsync(Key, NewTranscript(), agentId: null);
+
+        await Assert.That(_server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript").Select(e => e.RequestMessage.Headers!["Authorization"].Single()))
+            .IsEquivalentTo(["Bearer refused"]);
+    }
+
+    /// <summary>A bearer the server refuses, rotated to one it takes; <paramref name="rotating"/> runs during the rotation.</summary>
+    sealed class RotatingCredentials(Action rotating) : ICredentialSource {
+        public Task<CredentialState> ResolveAsync(CancellationToken ct = default) => Task.FromResult(new CredentialState("refused", AuthStatus.Ok));
+
+        public Task<CredentialState> RotateAsync(string? refused, CancellationToken ct = default) {
+            rotating();
+
+            return Task.FromResult(new CredentialState("rotated", AuthStatus.Ok));
+        }
     }
 
     /// <summary>Drops the first transcript post at the transport, as a reset connection does, and sends the rest.</summary>

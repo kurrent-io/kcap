@@ -773,6 +773,11 @@ public sealed partial class WatcherManager(
                         var batchJson = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
                         using var content = new StringContent(batchJson, Encoding.UTF8, "application/json");
                         using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time, mayAttempt: () => !Disabled());
+                        // A refusal the guard kept from being sent again, after a bearer rotation, is the disable's.
+                        if (!resp.IsSuccessStatusCode && Disabled()) {
+                            await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the session was disabled; sending nothing more");
+                            return false;
+                        }
                         if (!resp.IsSuccessStatusCode) {
                             await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: server returned HTTP {(int)resp.StatusCode}");
                             PrintRecoveryHint(sessionId);
