@@ -35,7 +35,9 @@ internal static class AdoptionReferenceSites {
     /// account registry's harness directories. <paramref name="registry"/> counts only below the home.</summary>
     internal static HomeSites HomeSites(UserHome home, HarnessRegistry harnesses, string registry) {
         var relative = Below(home.Path, [registry]);
-        return new HomeSites(HomeFiles(home, harnesses), relative.Count == 1 ? relative[0] : null, AccountFiles(home));
+        return new HomeSites(HomeFiles(home, harnesses), relative.Count == 1 ? relative[0] : null, AccountFiles(home)) {
+            Links = Below(home.Path, KcapLinkFolders.For(home).Select(f => Path.Combine(f, "kcap"))),
+        };
     }
 
     // A directory other than the default, so each layout names its files inside it.

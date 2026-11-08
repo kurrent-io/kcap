@@ -5,4 +5,7 @@ namespace Capacitor.App.Services.CliAdoption;
 /// it, each harness directory listed, read for <paramref name="AccountFiles"/> relative to that directory.</summary>
 public sealed record HomeSites(IReadOnlyList<string> Files, string? Registry, IReadOnlyList<string> AccountFiles) {
     public static HomeSites None { get; } = new([], null, []);
+
+    /// <summary>The kcap links an account makes in its own home, relative to it.</summary>
+    public IReadOnlyList<string> Links { get; init; } = [];
 }

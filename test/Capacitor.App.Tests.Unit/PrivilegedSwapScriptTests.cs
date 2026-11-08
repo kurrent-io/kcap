@@ -503,6 +503,46 @@ public class PrivilegedSwapScriptTests {
         await Assert.That(run.Words()).IsEquivalentTo(words);
     }
 
+    /// <summary>Another account's own kcap link into the install would dangle once it goes, and root changes nothing in
+    /// that account's home: the install stays.</summary>
+    [Test]
+    public async Task A_kcap_link_in_another_home_into_the_install_keeps_it_on_go() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp) with { Sites = new HomeSites([], null, []) { Links = [".local/bin/kcap"] } };
+        var link    = Tmp.CreateDir("homes", "other", ".local", "bin").PathTo("kcap");
+        File.CreateSymbolicLink(link, Path.Combine(install.Packages[0], "bin", "kcap.js"));
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        var result = await run.ExitAsync();
+
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped", "in-use"]);
+        await Assert.That(result.Stderr).Contains(link);
+        await install.AssertUntouchedAsync(spec);
+    }
+
+    /// <summary>A plist stores the path XML-escaped, as JSON may store it escaped: the helper looks for the encoded forms
+    /// the app gave it, not only for the path itself.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_install_path_a_plist_stores_escaped_is_found(bool encoded) {
+        var install = PrivilegedNpmInstall.Create(Tmp, prefix: "usr & local");
+        var planned = install.Spec(Tmp);
+        var spec    = encoded ? planned with { Needles = AdoptionConsumers.Needles(install.Packages) } : planned;
+        Tmp.CreateFile(Path.Combine("homes", "other", "Library", "LaunchAgents", "com.example.other.plist"),
+            $"<string>{System.Security.SecurityElement.Escape(install.Packages[1])}/bin/kcap</string>");
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        await run.ExitAsync();
+
+        string[] words = encoded ? ["swapped", "in-use"] : ["swapped", "deleted"];
+        await Assert.That(run.Words()).IsEquivalentTo(words);
+    }
+
     /// <summary>Another account can put a pipe where a home file belongs: root never opens it, which would wait for a
     /// writer for good.</summary>
     [Test]

@@ -63,6 +63,7 @@ public class AdoptionReferenceSitesTests {
         await Assert.That(sites.AccountFiles).Contains("config.toml");
         await Assert.That(sites.AccountFiles).Contains(Path.Combine("plugins", "installed_plugins.json"));
         await Assert.That(sites.AccountFiles.Any(Path.IsPathRooted)).IsFalse();
+        await Assert.That(sites.Links).IsEquivalentTo([Path.Combine(".local", "bin", "kcap"), Path.Combine("bin", "kcap")]);
     }
 
     OtherCliInstall Npm() {

@@ -10,4 +10,8 @@ public sealed record PrivilegedSpec(
     string Staging, string Homes = "/Users") {
     /// <summary>What can name an install below a home, which the helper reads in every account's.</summary>
     public HomeSites Sites { get; init; } = HomeSites.None;
+
+    /// <summary>The install's paths as a JSON or XML file may store them, which the helper looks for besides the paths
+    /// themselves.</summary>
+    public IReadOnlyList<string> Needles { get; init; } = [];
 }

@@ -76,7 +76,7 @@ internal static class AdoptionConsumers {
 
     // kcap's JSON writers escape non-ASCII, so a path holding any appears in a file only in its escaped form; a plist
     // is XML, which escapes `&`, `<` and `>`.
-    static List<string> Needles(IEnumerable<string> folders) =>
+    internal static List<string> Needles(IEnumerable<string> folders) =>
         [.. folders.SelectMany(f => new[] { f, CanonicalPath.Resolve(f) })
             .SelectMany(p => new[] { p, JsonEncodedText.Encode(p).Value, SecurityElement.Escape(p) })
             .Where(p => p.Length > 0)

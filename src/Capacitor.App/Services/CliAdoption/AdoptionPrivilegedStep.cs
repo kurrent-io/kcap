@@ -86,7 +86,8 @@ internal sealed class AdoptionPrivilegedStep(
         var folder = Path.Combine(Path.GetFullPath(helperFolder), "cli-adoption-helper-" + Guid.NewGuid().ToString("N"));
         var spec   = new PrivilegedSpec(links, [.. entries.Select(e => Entry(install, retirement.Plan(e)))],
             Path.Combine(folder, "control"), Path.Combine(folder, "status"), GoWait, RandomNumberGenerator.GetHexString(32, lowercase: true)) {
-            Sites = homeSites,
+            Sites   = homeSites,
+            Needles = AdoptionConsumers.Needles(entries),
         };
         path.Adopt(links);
         PrivilegedResult result;

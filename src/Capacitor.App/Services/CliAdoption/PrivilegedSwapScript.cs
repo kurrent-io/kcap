@@ -11,7 +11,8 @@ namespace Capacitor.App.Services.CliAdoption;
 /// earlier run left is deleted if it carries the checked name and checked like a fresh one otherwise. With the whole
 /// install set aside it looks for what this user's own checks cannot see: a process of any account mapping a file of
 /// it, or a launch agent or one of <see cref="PrivilegedSpec.Sites"/> in any home naming it, any of which puts it
-/// all back and reports <see cref="InUse"/>. Only then does it delete anything. Any other word, end of file or no word in time puts the links back. After go it finishes even
+/// all back and reports <see cref="InUse"/>. Only then does it delete anything. A kcap link in another account's home
+/// that points into the install keeps it the same way, checked before anything is set aside. Any other word, end of file or no word in time puts the links back. After go it finishes even
 /// if the app is gone.
 /// <para>Every path reaches it as a positional argument, never as script text. It creates the status file itself, only
 /// inside a real 0700 folder the app's user owns, and writes only through that descriptor: root must not write through
@@ -41,6 +42,10 @@ internal static class PrivilegedSwapScript {
             while [ $k -lt $nfiles ]; do files[$k]=$1; shift; k=$((k + 1)); done
             registry=$1; nkinds=$2; shift 2; k=0
             while [ $k -lt $nkinds ]; do accountfiles[$k]=$1; shift; k=$((k + 1)); done
+            nhomelinks=$1; shift; k=0
+            while [ $k -lt $nhomelinks ]; do homelinks[$k]=$1; shift; k=$((k + 1)); done
+            nneedles=$1; shift; k=0
+            while [ $k -lt $nneedles ]; do needles[$k]=$1; shift; k=$((k + 1)); done
             nlinks=$1; shift; k=0
             while [ $k -lt $nlinks ]; do links[$k]=$1; olds[$k]=$2; news[$k]=$3; shift 3; k=$((k + 1)); done
             nentries=$1; shift; k=0; m=0; n=0
@@ -115,12 +120,33 @@ internal static class PrivilegedSwapScript {
             exec 3<&-
             if [ "$word" != {{Go}} ]; then put_back; say {{Restored}}; exit 0; fi
 
+            # Each entry under each name it can have, as written and with its folder's links resolved.
+            look=()
+            i=0
+            while [ $i -lt $nentries ]; do
+                for e in "${entries[$i]}" "${asides[$i]}" "${asides[$i]}.ok"; do
+                    look[${#look[@]}]=$e
+                    d=$(cd -P -- "${e%/*}" 2>/dev/null && pwd -P) && look[${#look[@]}]=$d/${e##*/}
+                done
+                i=$((i + 1))
+            done
+
             # Another account can put a pipe at any of these names, which root would wait on for good: only a regular file
-            # is read, and grep skips one swapped in after that check.
+            # is read, and grep skips one swapped in after that check. A file names the install as JSON or XML may store it.
             names() {
-                local e
+                local e k=0
                 [ -f "$1" ] || return 1
                 for e in "${look[@]}"; do /usr/bin/grep -qF -D skip -e "$e" -- "$1" 2>/dev/null && return 0; done
+                while [ $k -lt $nneedles ]; do
+                    /usr/bin/grep -qF -D skip -e "${needles[$k]}" -- "$1" 2>/dev/null && return 0
+                    k=$((k + 1))
+                done
+                return 1
+            }
+
+            inside() {
+                local e
+                for e in "${look[@]}"; do case "$1" in "$e"|"$e"/*) return 0 ;; esac; done
                 return 1
             }
 
@@ -150,17 +176,8 @@ internal static class PrivilegedSwapScript {
             # was started by. A list without this helper's own process was not read. Asked once the install is set
             # aside, when no process can reach it by its own paths any more.
             in_use() {
-                local i d e home plist listed
-                local -a look
+                local i d home plist listed
                 [ $nentries -gt 0 ] || return 1
-                i=0
-                while [ $i -lt $nentries ]; do
-                    for e in "${entries[$i]}" "${asides[$i]}" "${asides[$i]}.ok"; do
-                        look[${#look[@]}]=$e
-                        d=$(cd -P -- "${e%/*}" 2>/dev/null && pwd -P) && look[${#look[@]}]=$d/${e##*/}
-                    done
-                    i=$((i + 1))
-                done
                 /usr/sbin/lsof -nPw -b -d txt -Fpn 2>/dev/null | /usr/bin/awk -v self="p$$" '
                     BEGIN { for (i = 1; i < ARGC; i++) look[i] = ARGV[i]; n = ARGC - 1; ARGC = 1 }
                     $0 == self { seen = 1 }
@@ -201,6 +218,31 @@ internal static class PrivilegedSwapScript {
                 done < <(homes_of)
                 return 1
             }
+
+            # Another account's own kcap link into the install would dangle once it goes; root changes nothing in another
+            # account's home, so the install stays. Read while the install is in place, so each link still resolves.
+            linked() {
+                local home l t d p i
+                [ $nentries -gt 0 ] || return 1
+                while IFS= read -r home; do
+                    [ -d "$home" ] || continue
+                    i=0
+                    while [ $i -lt $nhomelinks ]; do
+                        l="$home/${homelinks[$i]}"
+                        i=$((i + 1))
+                        [ -L "$l" ] && t=$(/usr/bin/readlink -- "$l") || continue
+                        case "$t" in /*) ;; *) t="${l%/*}/$t" ;; esac
+                        d=$(cd -P -- "${t%/*}" 2>/dev/null && pwd -P) && p="$d/${t##*/}" || p=$t
+                        if inside "$p" || inside "$t"; then echo "$l points into the install"; return 0; fi
+                    done
+                done < <(homes_of)
+                return 1
+            }
+
+            if why=$(linked); then
+                echo "kcap: $why" >&2
+                put_back; say {{InUse}}; exit 0
+            fi
 
             move_back() {
                 local i=$nentries back=0 from
@@ -310,8 +352,8 @@ internal static class PrivilegedSwapScript {
 
     /// <summary>The script's positional arguments: the status file, the control pipe, the uid that must own their
     /// folder, the staging name's random part, the folder of every account's home, the home files as a count and
-    /// paths, the account registry's path or nothing, the account files as a count and paths, then the links as a count
-    /// and
+    /// paths, the account registry's path or nothing, the account files, the home links and the encoded install paths,
+    /// each as a count and values, then the links as a count and
     /// (path, original, replacement) triples, and the entries as a count and (original, aside, kind d/l/f, marker,
     /// daemon path, daemon identity, link target name, present 1/0, substring count, substrings…, child count or -,
     /// children…) groups, each empty check skipped.</summary>
@@ -321,6 +363,10 @@ internal static class PrivilegedSwapScript {
         args.AddRange(spec.Sites.Files);
         args.AddRange([spec.Sites.Registry ?? "", Number(spec.Sites.AccountFiles.Count)]);
         args.AddRange(spec.Sites.AccountFiles);
+        args.Add(Number(spec.Sites.Links.Count));
+        args.AddRange(spec.Sites.Links);
+        args.Add(Number(spec.Needles.Count));
+        args.AddRange(spec.Needles);
         args.Add(Number(spec.Links.Count));
         foreach (var link in spec.Links) args.AddRange([link.Path, link.Original, link.Replacement]);
         args.Add(Number(spec.Entries.Count));
@@ -362,8 +408,9 @@ internal static class PrivilegedSwapScript {
         Require(spec.ControlFifo, Normal, "control pipe");
         Require(spec.StatusFile, Normal, "status file");
         Require(spec.Homes, Normal, "homes folder");
-        foreach (var file in spec.Sites.Files.Concat(spec.Sites.AccountFiles).Concat(spec.Sites.Registry is { } r ? [r] : []))
+        foreach (var file in spec.Sites.Files.Concat(spec.Sites.AccountFiles).Concat(spec.Sites.Links).Concat(spec.Sites.Registry is { } r ? [r] : []))
             Require(file, f => !Path.IsPathRooted(f) && !f.Split('/').Contains(".."), "home file");
+        foreach (var needle in spec.Needles) Require(needle, _ => true, "install path");
         Require(spec.Staging, s => s.Length >= 32 && s.All(char.IsAsciiHexDigitLower), "staging name");
         if (Path.GetDirectoryName(spec.StatusFile) != Path.GetDirectoryName(spec.ControlFifo))
             throw new ArgumentException("The status file and the control pipe must share one folder.", nameof(spec));
