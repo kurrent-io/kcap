@@ -522,6 +522,45 @@ public class PrivilegedSwapScriptTests {
         await install.AssertUntouchedAsync(spec);
     }
 
+    /// <summary>A link may reach the install through another link of the account's own: every hop is followed.</summary>
+    [Test]
+    public async Task A_kcap_link_in_another_home_chained_into_the_install_keeps_it_on_go() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp) with { Sites = new HomeSites([], null, []) { Links = [".local/bin/kcap"] } };
+        var hop     = Tmp.CreateDir("homes", "other", "tools").PathTo("kcap");
+        File.CreateSymbolicLink(hop, Path.Combine(install.Packages[0], "bin", "kcap.js"));
+        File.CreateSymbolicLink(Tmp.CreateDir("homes", "other", ".local", "bin").PathTo("kcap"), "../../tools/kcap");
+        await using var run = Run.Start(Tmp, spec);
+
+        await run.WaitForAsync("swapped");
+        run.Send("go");
+        await run.ExitAsync();
+
+        await Assert.That(run.Words()).IsEquivalentTo(["swapped", "in-use"]);
+        await install.AssertUntouchedAsync(spec);
+    }
+
+    /// <summary>A file the helper cannot search may name the install all the same: it keeps it.</summary>
+    [Test]
+    public async Task A_home_file_that_cannot_be_read_keeps_the_install_on_go() {
+        var install = PrivilegedNpmInstall.Create(Tmp);
+        var spec    = install.Spec(Tmp) with { Sites = new HomeSites([".claude/settings.json"], null, []) };
+        var hidden  = Tmp.CreateFile("homes/other/.claude/settings.json", "{}");
+        File.SetUnixFileMode(hidden, UnixFileMode.None);
+        try {
+            await using var run = Run.Start(Tmp, spec);
+
+            await run.WaitForAsync("swapped");
+            run.Send("go");
+            await run.ExitAsync();
+
+            await Assert.That(run.Words()).IsEquivalentTo(["swapped", "in-use"]);
+            await install.AssertUntouchedAsync(spec);
+        } finally {
+            File.SetUnixFileMode(hidden, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
     /// <summary>A plist stores the path XML-escaped, as JSON may store it escaped: the helper looks for the encoded forms
     /// the app gave it, not only for the path itself.</summary>
     [Test]

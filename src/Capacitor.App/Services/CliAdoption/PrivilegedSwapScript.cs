@@ -132,16 +132,34 @@ internal static class PrivilegedSwapScript {
             done
 
             # Another account can put a pipe at any of these names, which root would wait on for good: only a regular file
-            # is read, and grep skips one swapped in after that check. A file names the install as JSON or XML may store it.
+            # is read, and grep skips one swapped in after that check. A file names the install as JSON or XML may store it,
+            # and one grep cannot read may name it all the same.
             names() {
                 local e k=0
                 [ -f "$1" ] || return 1
-                for e in "${look[@]}"; do /usr/bin/grep -qF -D skip -e "$e" -- "$1" 2>/dev/null && return 0; done
+                for e in "${look[@]}"; do
+                    /usr/bin/grep -qF -D skip -e "$e" -- "$1" 2>/dev/null
+                    [ $? = 1 ] || return 0
+                done
                 while [ $k -lt $nneedles ]; do
-                    /usr/bin/grep -qF -D skip -e "${needles[$k]}" -- "$1" 2>/dev/null && return 0
+                    /usr/bin/grep -qF -D skip -e "${needles[$k]}" -- "$1" 2>/dev/null
+                    [ $? = 1 ] || return 0
                     k=$((k + 1))
                 done
                 return 1
+            }
+
+            # Follows a link through every hop, as the kernel would, at most 32 deep. Succeeds when a hop, or where it ends
+            # with its folder's links resolved, lies inside the install.
+            leads_inside() {
+                local p=$1 t d n=0
+                while [ -L "$p" ] && [ $n -lt 32 ]; do
+                    t=$(/usr/bin/readlink -- "$p") || return 1
+                    case "$t" in /*) p=$t ;; *) p=${p%/*}/$t ;; esac
+                    inside "$p" && return 0
+                    n=$((n + 1))
+                done
+                d=$(cd -P -- "${p%/*}" 2>/dev/null && pwd -P) && inside "$d/${p##*/}"
             }
 
             inside() {
@@ -151,13 +169,21 @@ internal static class PrivilegedSwapScript {
             }
 
             # Every folder in the homes folder and, for the machine's own, every account's home the directory service
-            # knows, wherever it lives.
+            # knows, wherever it lives. No list from the directory service leaves accounts nothing else finds, so the
+            # checks that read the homes keep the install.
+            homelist=()
+            for h in "$homes"/*; do [ -d "$h" ] && homelist[${#homelist[@]}]=$h; done
+            homes_read=1
+            if [ "$homes" = /Users ]; then
+                if accounts=$(/usr/bin/dscl . -list /Users NFSHomeDirectory 2>/dev/null) && [ -n "$accounts" ]; then
+                    while read -r _ h; do [ -n "$h" ] && homelist[${#homelist[@]}]=$h; done <<< "$accounts"
+                else
+                    homes_read=0
+                fi
+            fi
             homes_of() {
-                {
-                    for h in "$homes"/*; do printf '%s\n' "$h"; done
-                    [ "$homes" = /Users ] || return 0
-                    /usr/bin/dscl . -list /Users NFSHomeDirectory 2>/dev/null | while read -r _ h; do [ -n "$h" ] && printf '%s\n' "$h"; done
-                } | /usr/bin/sort -u
+                [ ${#homelist[@]} -gt 0 ] || return 0
+                printf '%s\n' "${homelist[@]}" | /usr/bin/sort -u
             }
 
             # The folder of every account in a registry, one per line; a failure when the file is not one.
@@ -178,6 +204,7 @@ internal static class PrivilegedSwapScript {
             in_use() {
                 local i d home plist listed
                 [ $nentries -gt 0 ] || return 1
+                [ $homes_read = 1 ] || { echo "the accounts on this Mac could not be listed"; return 0; }
                 /usr/sbin/lsof -nPw -b -d txt -Fpn 2>/dev/null | /usr/bin/awk -v self="p$$" '
                     BEGIN { for (i = 1; i < ARGC; i++) look[i] = ARGV[i]; n = ARGC - 1; ARGC = 1 }
                     $0 == self { seen = 1 }
@@ -222,18 +249,16 @@ internal static class PrivilegedSwapScript {
             # Another account's own kcap link into the install would dangle once it goes; root changes nothing in another
             # account's home, so the install stays. Read while the install is in place, so each link still resolves.
             linked() {
-                local home l t d p i
+                local home l i
                 [ $nentries -gt 0 ] || return 1
+                [ $homes_read = 1 ] || { echo "the accounts on this Mac could not be listed"; return 0; }
                 while IFS= read -r home; do
                     [ -d "$home" ] || continue
                     i=0
                     while [ $i -lt $nhomelinks ]; do
                         l="$home/${homelinks[$i]}"
                         i=$((i + 1))
-                        [ -L "$l" ] && t=$(/usr/bin/readlink -- "$l") || continue
-                        case "$t" in /*) ;; *) t="${l%/*}/$t" ;; esac
-                        d=$(cd -P -- "${t%/*}" 2>/dev/null && pwd -P) && p="$d/${t##*/}" || p=$t
-                        if inside "$p" || inside "$t"; then echo "$l points into the install"; return 0; fi
+                        if leads_inside "$l"; then echo "$l points into the install"; return 0; fi
                     done
                 done < <(homes_of)
                 return 1
