@@ -229,8 +229,8 @@ public class HomeViewModelTests {
         });
     }
 
-    /// A picked task's checkout is its own: once its directory is deleted, opening the menu leaves the task waiting
-    /// for one and Start refusing, never running it in another known repository.
+    /// A picked task's checkout is its own: once its directory is deleted, opening the menu leaves the task picked,
+    /// as the same pick a launch in flight will consume, and Start refusing, never running it in another repository.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_picked_tasks_deleted_checkout_leaves_it_waiting_for_one() {
@@ -242,17 +242,63 @@ public class HomeViewModelTests {
             var checkout = Tmp.CreateDir("checkout").Path;
             using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("state.json")), launch, Known(other), TimeProvider.System);
             await WaitUntilAsync(() => vm.SelectedRepoPath == other, "the startup default adopted");
-            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, checkout, "Recorded context"));
+            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", daemon.DaemonName, true, checkout, "Recorded context"));
+            var picked = vm.NextWorkSource;
             Directory.Delete(checkout);
 
             var repos = await vm.ListRepositoriesAsync();
 
             await Assert.That(vm.SelectedRepoPath).IsEqualTo(HomeViewModel.ScratchRepoPath);
-            await Assert.That(vm.NextWorkSource!.AwaitsCheckout).IsTrue();
+            await Assert.That(ReferenceEquals(vm.NextWorkSource, picked)).IsTrue();
             await Assert.That(repos.Any(r => r.RepoPath == checkout)).IsFalse();
             await vm.StartCommand.Execute();
             await Assert.That(launch.Last).IsNull();
             await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.PickTaskRepository);
+        });
+    }
+
+    /// A picked task whose selection was deleted goes back to its own checkout, not to a more recent repository.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_picked_task_falls_back_to_its_own_checkout() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var daemon = new FakeDaemonClientService();
+            Connect(daemon);
+            var recent = Tmp.CreateDir("recent").Path;
+            var checkout = Tmp.CreateDir("checkout").Path;
+            var chosen = Tmp.CreateDir("chosen").Path;
+            using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("state.json")), new RecordingLaunchClient(),
+                Known(recent), TimeProvider.System);
+            await WaitUntilAsync(() => vm.SelectedRepoPath == recent, "the startup default adopted");
+            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", daemon.DaemonName, true, checkout, "Recorded context"));
+            await vm.SelectRepositoryAsync(chosen);
+            Directory.Delete(chosen);
+
+            await vm.EnsureDefaultRepositoryAsync();
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(checkout);
+        });
+    }
+
+    /// A task with no repository leaves discovery as it was: one that was reading when the task was picked still
+    /// adopts the default.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_task_without_a_repository_picked_while_discovery_reads_still_gets_the_default() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var daemon = new FakeDaemonClientService();
+            Connect(daemon);
+            var known = new TaskCompletionSource<string[]>();
+            using var vm = new HomeViewModel(daemon, new AppStateStore(Tmp.PathTo("state.json")), new RecordingLaunchClient(),
+                () => known.Task, TimeProvider.System);
+            var recent = Tmp.CreateDir("recent").Path;
+
+            var discovery = vm.EnsureDefaultRepositoryAsync();
+            await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, null, "Recorded context"));
+            known.SetResult([recent]);
+            await discovery;
+
+            await Assert.That(vm.SelectedRepoPath).IsEqualTo(recent);
         });
     }
 

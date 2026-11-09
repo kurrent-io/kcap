@@ -1958,26 +1958,29 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
     /// used known repository that still exists (then a remembered harness key, then an agent root),
     /// or no repository when none does. No-op while the selection exists, for a remote machine,
     /// which these local paths do not describe, and while a task is being picked. A picked task that
-    /// has a repository never takes another one: its empty selection is how Start knows to refuse,
-    /// and a deleted one leaves it waiting for its checkout.
+    /// has a repository falls back only to its own checkout, else to none, where Start refuses it.
     public async Task EnsureDefaultRepositoryAsync() {
         bool Held() => RemoteMachineSelected || Volatile.Read(ref _taskPicksInFlight) > 0;
         if (Held()) return;
         var picks = Volatile.Read(ref _repoPicks);
         var source = NextWorkSource;
-        var task = source is { AwaitsCheckout: true } or { RepoPath: not null } ? source : null;
         var selected = SelectedRepoPath;
-        if (task is not null && selected.Length == 0) return;
         if (selected.Length > 0 && await FirstExistingAsync([selected]) is not null) return;
-        var recent = task is null ? await PreferRecentRepositoryAsync() : null;
+        var fallback = HasRepository(source)
+            ? await FirstExistingAsync(source is { MachineIsLocal: true, RepoPath: { } own } ? [own] : [])
+            : await PreferRecentRepositoryAsync();
         // Both awaits are file I/O — a pick or a machine switch made while they ran must win.
-        if (Held() || Volatile.Read(ref _repoPicks) != picks || !ReferenceEquals(NextWorkSource, source)) return;
-        if (task is not null) {
-            NextWorkSource = task with { RepoPath = null, AwaitsCheckout = true };
-            await SelectRepositoryAsync(ScratchRepoPath);
-        } else if (recent is not null) await SelectRepositoryAsync(recent);
+        if (Held() || Volatile.Read(ref _repoPicks) != picks) return;
+        // A task picked or dropped meanwhile changes where the selection may go.
+        if (!ReferenceEquals(NextWorkSource, source)) {
+            await EnsureDefaultRepositoryAsync();
+            return;
+        }
+        if (fallback is not null) await SelectRepositoryAsync(fallback);
         else if (selected.Length > 0) await SelectRepositoryAsync(ScratchRepoPath);
     }
+
+    static bool HasRepository(NextWork.NextWorkFill? task) => task is { AwaitsCheckout: true } or { RepoPath: not null };
 
     async Task<string?> PreferRecentRepositoryAsync() =>
         await FirstExistingAsync(await _knownRepos())
@@ -2179,7 +2182,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, IAttach
         // Captured before anything can await: an upload takes time the user can spend re-pointing
         // the launcher, and the files must reach the machine the composer was aimed at.
         var picked = NextWorkSource;
-        if (picked is { AwaitsCheckout: true } && string.IsNullOrEmpty(SelectedRepoPath)) {
+        if (HasRepository(picked) && string.IsNullOrEmpty(SelectedRepoPath)) {
             StartError = PickTaskRepository;
             return;
         }
