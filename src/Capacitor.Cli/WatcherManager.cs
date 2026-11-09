@@ -148,12 +148,17 @@ public sealed partial class WatcherManager(
     public async Task<RecordingStopReport> StopRecordingAsync(string sessionId, TextWriter? stderr = null) {
         var report = await StopDaemonsAsync(sessionId);
 
+        // Ahead of the listing, which the session's own watcher needs none of.
         try {
-            var keys = Directory.Exists(paths.Directory)
-                ? Directory.GetFiles(paths.Directory, $"{sessionId}-*.pid").Select(Path.GetFileNameWithoutExtension).Prepend(sessionId)
-                : [sessionId];
+            if (!await TryStopWatcher(sessionId, stderr)) report = report with { WatcherLeft = true };
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            report = report with { Unreadable = true };
+        }
 
-            foreach (var key in keys.Distinct().ToList()) {
+        try {
+            var subagents = Directory.Exists(paths.Directory) ? Directory.GetFiles(paths.Directory, $"{sessionId}-*.pid").Select(Path.GetFileNameWithoutExtension) : [];
+
+            foreach (var key in subagents.ToList()) {
                 if (!await TryStopWatcher(key!, stderr)) report = report with { WatcherLeft = true };
             }
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {

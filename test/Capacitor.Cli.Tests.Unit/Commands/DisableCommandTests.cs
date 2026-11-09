@@ -745,6 +745,26 @@ public class DisableCommandTests : IDisposable {
         }
     }
 
+    /// <summary>Finding the session's own watcher needs no listing, so a directory that can't be listed still has it
+    /// stopped. On the real clock, because the stop waits for the watcher to exit.</summary>
+    [Test]
+    [ExcludeOn(OS.Windows), UnsupportedOSPlatform("windows")]
+    [ParallelLimiter<SubprocessLimit>]
+    public async Task A_watcher_directory_that_cannot_be_listed_still_stops_the_sessions_watcher() {
+        using var watcher = await WatcherOn(Session);
+        var watchers = Paths.Directory;
+        File.SetUnixFileMode(watchers, UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        try {
+            await Assert.That(await Run(TimeProvider.System)).IsEqualTo(1);
+
+            await Assert.That(watcher.HasExited).IsTrue();
+            await Assert.That(Printed).Contains("could not read what records this session");
+        } finally {
+            File.SetUnixFileMode(watchers, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
     /// <summary>Nothing here knows recording stopped, so nothing printed may say it did.</summary>
     [Test]
     public async Task Disable_says_so_when_the_daemon_does_not_answer() {
