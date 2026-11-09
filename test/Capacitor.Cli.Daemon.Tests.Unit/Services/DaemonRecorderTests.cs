@@ -279,6 +279,31 @@ public class DaemonRecorderTests {
         await Assert.That(recorder.ActiveKeys).IsEmpty();
     }
 
+    /// <summary>The agent that resumes a restored source can write its transcript somewhere else, while the file the last
+    /// daemon tailed is still there, so nothing that looks for a missing file would ever move it.</summary>
+    [Test]
+    public async Task A_restored_source_resumed_on_another_path_follows_it() {
+        const string resumedReply = """{"type":"assistant","message":{"content":[{"type":"text","text":"Resumed elsewhere."}]}}""";
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+        Transport.ResumeFrom = 1;
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Connects == 1);
+
+        var resumed = source with { AgentId = "agent-2", TranscriptPath = Tmp.CreateFile("resumed.jsonl", $"{Prompt}\n{resumedReply}\n") };
+        await Assert.That(await recorder.ClaimAsync(resumed, CancellationToken.None)).IsTrue();
+        recorder.StartForAgent(resumed);
+
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Any(batch => batch.Lines.Any(line => line.Contains("Resumed elsewhere."))));
+
+        await Assert.That(List.Load().Single()).IsEqualTo(resumed);
+        await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
+    }
+
     /// <summary>Recording was turned off with sources left. A hosted claim nobody comes back for would keep a resumed
     /// session's hooks from starting the watcher it now needs.</summary>
     [Test]

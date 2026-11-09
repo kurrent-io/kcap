@@ -170,14 +170,19 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     }
 
     /// <summary>Starts recording a source <see cref="ClaimAsync"/> claimed, with its agent published. A source the last
-    /// daemon left is already being recorded, and is now this agent's.</summary>
+    /// daemon left is already being recorded, and is now this agent's, moved to where this agent writes it.</summary>
     public void StartForAgent(RecordedSource source) {
         if (!_sources.TryGetValue(source.Key, out var tracked) || IsLeaving(tracked)) return;
 
         if (tracked.Running) {
-            tracked.Source   = source;
+            // The host goes on tailing the path it was given until the move, and the entry says so meanwhile.
+            var tailed = tracked.Source.TranscriptPath;
+
+            tracked.Source   = source with { TranscriptPath = tailed };
             tracked.Restored = false;
-            _list.TryAdd(source);
+            _list.TryAdd(tracked.Source);
+
+            if (tailed != source.TranscriptPath) _ = MoveAsync(source);
 
             return;
         }
@@ -214,9 +219,14 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         if (!_sources.TryGetValue(found.Key, out var tracked) || tracked.Source.TranscriptPath == found.TranscriptPath) return;
         if (File.Exists(tracked.Source.TranscriptPath)) return;
 
-        LogTranscriptMoved(found.Key, found.TranscriptPath);
-        await FinishAsync(found.Key, CancellationToken.None);
-        await TryRecordAsync(found with { SkipTitle = tracked.Source.SkipTitle }, CancellationToken.None);
+        await MoveAsync(found with { SkipTitle = tracked.Source.SkipTitle });
+    }
+
+    // One restart, and the server's position carries the source on from where it was.
+    async Task MoveAsync(RecordedSource to) {
+        LogTranscriptMoved(to.Key, to.TranscriptPath);
+        await FinishAsync(to.Key, CancellationToken.None);
+        await TryRecordAsync(to, CancellationToken.None);
     }
 
     /// <summary>Makes the final drain of the source <paramref name="key"/> names and lets it go. Off the caller's thread,
