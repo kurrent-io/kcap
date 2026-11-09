@@ -71,6 +71,45 @@
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0">
     <views:LauncherLayoutPanel Margin="24,0,24,24" Gap="20" ListMinHeight="200">
         <StackPanel x:Name="LauncherNotices" VerticalAlignment="Top" HorizontalAlignment="Stretch" MaxWidth="680" Spacing="8">
+            <Border x:Name="HistoryImportBanner" Classes="notice" x:DataType="vm:HistoryImportBannerViewModel"
+                    DataContext="{Binding $parent[views:LauncherPaneView].HistoryImport}"
+                    IsVisible="{Binding IsVisible, FallbackValue=False}"
+                    AutomationProperties.Name="{Binding Status}" AutomationProperties.AccessibilityView="Content"
+                    AutomationProperties.ControlTypeOverride="Group" AutomationProperties.LandmarkType="Region">
+                <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
+                    <views:AppIcon Classes="noticeIcon" Classes.kcapSpinning="{Binding Running}" Size="16"
+                                   Kind="{Binding Icon}" Foreground="{StaticResource KcapMutedBrush}" />
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <!-- Every state measures against the longest headline at the current width and font size. -->
+                        <Panel>
+                            <TextBlock Classes="noticeTitle" Text="{x:Static vm:HistoryImportBannerViewModel.UnfinishedHeadline}"
+                                       Opacity="0" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw" />
+                            <TextBlock Classes="noticeTitle" Text="{Binding Headline}" />
+                        </Panel>
+                        <TextBlock Classes="noticeBody" Text="{Binding Detail}" TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Detail}" />
+                        <Panel Height="8">
+                            <ProgressBar x:Name="HistoryImportProgressBar" Classes="noticeProgress" Minimum="0" Maximum="100"
+                                         Value="{Binding Progress}" IsVisible="{Binding Running}"
+                                         Background="{StaticResource KcapBorderBrush}" AutomationProperties.Name="History import progress" />
+                        </Panel>
+                        <WrapPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button x:Name="HistoryImportDismissButton" Classes="kcapChip" Content="Dismiss" Margin="0,0,8,4"
+                                    Padding="12,5" FontSize="12.5"
+                                    Command="{Binding DismissCommand}" Click="OnHistoryImportDismissClick" AutomationProperties.Name="Dismiss history import status" />
+                            <!-- Keep the action's footprint when it is unavailable, so wrapping cannot move the composer. -->
+                            <Panel Margin="0,0,0,4">
+                                <Button Classes="kcapChip" Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}"
+                                        Padding="12,5" FontSize="12.5" Opacity="0" IsHitTestVisible="False" Focusable="False"
+                                        IsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
+                                <Button x:Name="HistoryImportSetupButton" Classes="kcapChip"
+                                        Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}" Padding="12,5" FontSize="12.5"
+                                        Command="{Binding ReopenSetupCommand}" IsVisible="{Binding ShowsReopenSetup}" />
+                            </Panel>
+                        </WrapPanel>
+                    </StackPanel>
+                </Grid>
+            </Border>
             <Border x:Name="UpdateBanner" Classes="notice" IsVisible="{Binding Notices.ShowUpdate}">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <!-- Matches the update window's running steps. -->

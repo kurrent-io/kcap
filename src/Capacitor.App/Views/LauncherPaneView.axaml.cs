@@ -22,6 +22,14 @@ namespace Capacitor.App.Views;
 /// The launcher pane: DataContext is supplied externally (a plainly-constructed HomeViewModel);
 /// this view never builds its own ViewModel.
 public partial class LauncherPaneView : UserControl {
+    public static readonly StyledProperty<HistoryImportBannerViewModel?> HistoryImportProperty =
+        AvaloniaProperty.Register<LauncherPaneView, HistoryImportBannerViewModel?>(nameof(HistoryImport));
+
+    public HistoryImportBannerViewModel? HistoryImport {
+        get => GetValue(HistoryImportProperty);
+        set => SetValue(HistoryImportProperty, value);
+    }
+
     AttachmentDropPaste? _attachments;
     Flyout? _openMenu;
     IDisposable? _nudgeEnd;
@@ -39,6 +47,8 @@ public partial class LauncherPaneView : UserControl {
     }
 
     public void FocusComposer() => GoalInput.Focus();
+
+    void OnHistoryImportDismissClick(object? sender, RoutedEventArgs e) => FocusComposer();
 
     /// New session pressed while this pane is already showing: focus the goal and ring the card
     /// briefly, so the press does not read as a dead button.
