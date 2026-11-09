@@ -119,7 +119,7 @@ public class ShimOfferCoordinatorTests {
         await Assert.That(probed).IsFalse();
 
         released.SetResult();
-        await adoption.FirstLook.WaitAsync(AdoptionWorld.Bounded);
+        await adoption.FirstLook;
         await WaitUntilAsync(() => probed, what: "the offer to go on once the first look is done");
 
         await Task.Delay(100); // give a wrongly-firing auto-offer dialog every chance to appear

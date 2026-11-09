@@ -196,14 +196,14 @@ public class CliAdoptionCoordinatorTests {
             return world.Found();
         };
         world.Activity.OnNext(new DaemonActivity(0, Busy: false, Quiet: true));
-        await entered.Task.WaitAsync(AdoptionWorld.Bounded);
+        await entered.Task;
         var held = launch.Settled;
 
         world.Activity.OnNext(null);
         world.Activity.OnNext(new DaemonActivity(0, Busy: false, Quiet: true));
         launch.Dispose();
         release.SetResult();
-        await held.WaitAsync(AdoptionWorld.Bounded);
+        await held;
 
         await Assert.That(ReferenceEquals(launch.Settled, held)).IsTrue();
         await Assert.That(world.Machine.EvidenceReads).IsEqualTo(2);
@@ -831,7 +831,7 @@ public class CliAdoptionCoordinatorTests {
         using (EnvScope.Exclusive(CliAdoptionCoordinator.CliOverride, Path.Combine(Tmp.Path, "dev", "kcap"))) {
             using var skipped = world.Launch();
             skipped.Start();
-            await skipped.FirstLook.WaitAsync(AdoptionWorld.Bounded);
+            await skipped.FirstLook;
         }
         await Assert.That(world.Machine.EvidenceReads).IsEqualTo(0);
 
@@ -839,7 +839,7 @@ public class CliAdoptionCoordinatorTests {
             world.Machine.Evidence = _ => throw new InvalidOperationException("boom");
             using var throwing = world.Launch();
             throwing.Start();
-            await throwing.FirstLook.WaitAsync(AdoptionWorld.Bounded);
+            await throwing.FirstLook;
 
             await Assert.That(throwing.FirstLook.IsCompletedSuccessfully).IsTrue();
             await Assert.That(world.Logged("adoption_held").Single()["reason"]).IsEqualTo("unexpected_error");
@@ -847,7 +847,7 @@ public class CliAdoptionCoordinatorTests {
 
         using var off = new CliAdoptionCoordinator(null, world.Time, (_, _) => { }, CancellationToken.None);
         off.Start();
-        await off.FirstLook.WaitAsync(AdoptionWorld.Bounded);
+        await off.FirstLook;
         await Assert.That(world.Machine.EvidenceReads).IsEqualTo(1);
     }
 
@@ -1046,7 +1046,7 @@ public class CliAdoptionCoordinatorTests {
         using var launch = world.Launch();
         await world.FirstLookAsync(launch);
 
-        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await launch.FinishSwitchingAsync();
         await world.SettledAsync(launch);
 
         await Assert.That(world.Explained.Count).IsEqualTo(1);
@@ -1107,7 +1107,7 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Notifier.Notified.Single()).Contains("another account").And.Contains(FinishSwitching);
 
         world.Admin.Answer = null;
-        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await launch.FinishSwitchingAsync();
         await world.SettledAsync(launch);
 
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(2);
@@ -1146,7 +1146,7 @@ public class CliAdoptionCoordinatorTests {
         await world.FirstLookAsync(launch);
 
         world.UserCanWrite = _ => true;
-        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await launch.FinishSwitchingAsync();
         await world.SettledAsync(launch);
 
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
@@ -1188,7 +1188,7 @@ public class CliAdoptionCoordinatorTests {
         var reinstalled = world.Install with { Identity = "16777232:777:3:3" };
         world.Machine.Evidence = _ => Task.FromResult(world.Found() with { Installs = [reinstalled] });
         world.Admin.Answer = null;
-        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await launch.FinishSwitchingAsync();
         await world.SettledAsync(launch);
 
         await Assert.That(world.Record.Installs).IsEmpty();
@@ -1207,7 +1207,7 @@ public class CliAdoptionCoordinatorTests {
         await world.FirstLookAsync(launch);
 
         world.Admin.Answer = null;
-        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await launch.FinishSwitchingAsync();
         await world.SettledAsync(launch);
 
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(2);
@@ -1258,7 +1258,7 @@ public class CliAdoptionCoordinatorTests {
 
         using var launch = world.Launch();
         await world.FirstLookAsync(launch);
-        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await launch.FinishSwitchingAsync();
         await world.SettledAsync(launch);
 
         await Assert.That(world.Record.Privileged).IsNotNull();
@@ -1312,7 +1312,7 @@ public class CliAdoptionCoordinatorTests {
         try {
             using var launch = world.Launch();
             await world.FirstLookAsync(launch);
-            await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+            await launch.FinishSwitchingAsync();
             await world.SettledAsync(launch);
 
             var spec = world.Admin.Specs.Single();
@@ -1396,7 +1396,7 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
 
         world.Admin.Cut = AdoptionWorld.Administrator.CutShortAt.Never;
-        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await launch.FinishSwitchingAsync();
         await world.SettledAsync(launch);
 
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(2);
@@ -1467,7 +1467,7 @@ public class CliAdoptionCoordinatorTests {
         await world.IdleAsync(launch);
         await Assert.That(AdoptionWorld.Offered(launch)).IsTrue();
 
-        await launch.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await launch.FinishSwitchingAsync();
         await world.SettledAsync(launch);
 
         await Assert.That(world.Explained.Count).IsEqualTo(1);
@@ -1500,7 +1500,7 @@ public class CliAdoptionCoordinatorTests {
         await Assert.That(world.Admin.Prompts).IsEmpty();
         await Assert.That(world.Record.Installs.Single().State).IsEqualTo(InstallState.Left);
 
-        await moved.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+        await moved.FinishSwitchingAsync();
         await world.SettledAsync(moved);
 
         await Assert.That(world.Admin.Prompts.Count).IsEqualTo(1);
@@ -1546,7 +1546,7 @@ public class CliAdoptionCoordinatorTests {
         world.Admin.Answer = null;
         using (var finishing = world.Launch()) {
             await world.FirstLookAsync(finishing);
-            await finishing.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+            await finishing.FinishSwitchingAsync();
             await world.SettledAsync(finishing);
         }
 
@@ -1610,7 +1610,7 @@ public class CliAdoptionCoordinatorTests {
         world.Admin.Answer = null;
         using (var finishing = world.Launch()) {
             await world.FirstLookAsync(finishing);
-            await finishing.FinishSwitchingAsync().WaitAsync(AdoptionWorld.Bounded);
+            await finishing.FinishSwitchingAsync();
             await world.SettledAsync(finishing);
 
             var reopened = world.Record.Installs.Single(i => i.Install.Root == world.Root);
