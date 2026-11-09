@@ -221,15 +221,17 @@ public sealed class WorkspaceSpool(SpoolPartition partition, TimeProvider time, 
         }
     }
 
-    // A post with no answer is recorded for its session, as UnansweredPosts says, and a delivered one clears that.
+    // Recorded for its session ahead of the send, as UnansweredPosts says, until its own answer comes.
     async Task<int?> PostAsync(string? session, Func<Task<HttpResponseMessage>> send) {
+        var attempt = session is null ? null : UnansweredPosts.Begin(partition.DirectoryPath, session);
+
         try {
             using var response = await send();
-            if (session is not null && response.IsSuccessStatusCode) UnansweredPosts.Clear(partition.DirectoryPath, session);
+            UnansweredPosts.End(attempt);
 
             return (int) response.StatusCode;
         } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException) {
-            if (session is not null && UnansweredPosts.Sent(ex)) UnansweredPosts.Record(partition.DirectoryPath, session);
+            if (!UnansweredPosts.Sent(ex)) UnansweredPosts.End(attempt);
 
             return null;
         }

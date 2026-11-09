@@ -71,19 +71,34 @@ public class WorkspaceSpoolTests {
         await Assert.That(up.Posted).IsEquivalentTo([A]);
     }
 
-    /// <summary>A span post with no answer may still be landing, and only a delivered one of the session clears that.</summary>
+    /// <summary>A span post is recorded while it is out, and any answer settles it, an error status too.</summary>
     [Test]
-    public async Task A_post_with_no_answer_is_recorded_for_its_session_and_a_delivered_one_clears_it() {
+    public async Task A_post_is_recorded_while_it_is_out_and_any_answer_settles_it() {
+        var spool = SpoolFor();
+        spool.Write(Span(A));
+        bool? recordedWhileOut = null;
+
+        await spool.DrainAsync(new ScriptedRoute(_ => {
+            recordedWhileOut = UnansweredPosts.Has(spool.DirectoryPath, A);
+
+            return HttpStatusCode.ServiceUnavailable;
+        }).Client(), Server, Budget);
+
+        await Assert.That(recordedWhileOut).IsTrue();
+        await Assert.That(UnansweredPosts.Has(spool.DirectoryPath, A)).IsFalse();
+    }
+
+    /// <summary>A span post with no answer may still be landing, and another post's answer says nothing of it.</summary>
+    [Test]
+    public async Task A_post_with_no_answer_stays_recorded_whatever_a_later_one_gets() {
         var spool = SpoolFor();
         spool.Write(Span(A));
 
         await spool.DrainAsync(new ScriptedRoute(_ => null).Client(), Server, Budget);
-
-        await Assert.That(UnansweredPosts.Has(spool.DirectoryPath, A)).IsTrue();
-
         await spool.DrainAsync(new ScriptedRoute(_ => HttpStatusCode.Accepted).Client(), Server, Budget);
 
-        await Assert.That(UnansweredPosts.Has(spool.DirectoryPath, A)).IsFalse();
+        await Assert.That(Files(spool)).IsEmpty();
+        await Assert.That(UnansweredPosts.Has(spool.DirectoryPath, A)).IsTrue();
     }
 
     [Test]

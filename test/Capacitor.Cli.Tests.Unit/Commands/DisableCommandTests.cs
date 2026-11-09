@@ -741,27 +741,36 @@ public class DisableCommandTests : IDisposable {
             new TranscriptSpool(Config.Root, _time, ServerUrl), currentSessionId: null, TimeSpan.FromSeconds(30), _time, CancellationToken.None);
     }
 
+    void SpoolSessionStart() =>
+        new HookSpool(Config.Root, _time, ServerUrl).Append(Session, "session-start/codex", $$"""{"session_id":"{{Session}}"}""");
+
     /// <summary>A pass that has ended can have left a post the server never answered, which it may still be taking in
-    /// and which could land behind the deletion. A post of the session answered later settles it.</summary>
+    /// and which could land behind the deletion. A later post's answer says nothing of that one.</summary>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task A_spooled_post_the_server_never_answered_is_not_a_clean_stop(bool answeredLater) {
-        new HookSpool(Config.Root, _time, ServerUrl).Append(Session, "session-start/codex", $$"""{"session_id":"{{Session}}"}""");
+    public async Task A_spooled_post_the_server_never_answered_is_not_a_clean_stop(bool deliveredLater) {
+        SpoolSessionStart();
         await DrainPassAsync(() => throw new TaskCanceledException("The post timed out."));
-        if (answeredLater) await DrainPassAsync(() => new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+        if (deliveredLater) await DrainPassAsync(() => new HttpResponseMessage(System.Net.HttpStatusCode.OK));
 
-        await Assert.That(await Run()).IsEqualTo(answeredLater ? 0 : 1);
+        await Assert.That(await Run()).IsEqualTo(1);
 
-        if (answeredLater) {
-            await Assert.That(Printed).IsEqualTo(Clean);
-        } else {
-            await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
-            await Assert.That(Printed).Contains("so a send of this session may still land");
-            await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
-        }
-
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).Contains("so a send of this session may still land");
+        await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
         await Assert.That(UnansweredPosts.Has(LifecycleSpool, Session)).IsFalse();
+    }
+
+    /// <summary>An error status is an answer: the server has finished with that post.</summary>
+    [Test]
+    public async Task A_spooled_post_the_server_answered_with_an_error_is_a_clean_stop() {
+        SpoolSessionStart();
+        await DrainPassAsync(() => new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+
+        await Assert.That(await Run()).IsEqualTo(0);
+
+        await Assert.That(Printed).IsEqualTo(Clean);
     }
 
     /// <summary>A failed marker can't be a reason to leave recording running, so what can be stopped still is. The person
