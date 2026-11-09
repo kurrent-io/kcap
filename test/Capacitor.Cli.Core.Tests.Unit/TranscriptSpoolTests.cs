@@ -177,6 +177,7 @@ public class TranscriptSpoolTests {
         var spool = new TranscriptSpool(tmp.Path, time: TimeProvider.System);
         spool.Append(Sid, """{"lines":["a"],"line_numbers":[0]}""");
         spool.MarkNeedsImport(Sid, "a reason");
+        spool.MarkNeedsImport(Sid, "an owner's reason", owner: 4242);
         tmp.CreateFile($"{Sid}.0.transcript.draining", """{"lines":["b"],"line_numbers":[1]}""");
         spool.Append(other, """{"lines":["c"],"line_numbers":[0]}""");
 

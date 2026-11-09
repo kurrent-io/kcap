@@ -285,7 +285,7 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
 
         var key = EncodeKey(sessionId);
 
-        foreach (var pattern in new[] { $"{key}.transcript.jsonl", $"{key}.*.transcript.draining", $"{key}.needs-import" }) {
+        foreach (var pattern in new[] { $"{key}.transcript.jsonl", $"{key}.*.transcript.draining", $"{key}.needs-import", $"{key}.p*.needs-import" }) {
             try {
                 foreach (var file in Directory.GetFiles(DirectoryPath, pattern)) File.Delete(file);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
