@@ -1,6 +1,6 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Capacitor.Cli.Core.Skills;
 
 namespace Capacitor.Cli.Core.Config;
 
@@ -44,13 +44,9 @@ public sealed class ExperimentalSettingsStore(ConfigRoot root) {
         section[featureId] = enabled;
 
         Directory.CreateDirectory(root.Directory);
-        var temp = System.IO.Path.Combine(root.Directory, $"{FileName}.{Guid.NewGuid():N}.tmp");
-        try {
-            File.WriteAllText(temp, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
-            File.Move(temp, Path, overwrite: true);
-        } finally {
-            if (File.Exists(temp)) File.Delete(temp);
-        }
+        // Windows refuses File.Move over a file any reader holds open; this rename gets past one that
+        // shares delete, as ReadDocument's does, and the daemon's watcher and the app re-read it.
+        AtomicFile.Replace(Path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
 
         return true;
     }
@@ -59,7 +55,7 @@ public sealed class ExperimentalSettingsStore(ConfigRoot root) {
         string text;
         try {
             if (!File.Exists(Path)) return (new JsonObject(), null);
-            text = File.ReadAllText(Path);
+            text = File.ReadAllTextShared(Path);
         } catch (IOException e) {
             return (new JsonObject(), $"{FileName} could not be read: {e.Message}");
         } catch (UnauthorizedAccessException e) {

@@ -6,6 +6,10 @@ namespace Capacitor.Cli.Core.Tests.Unit.Workspace;
 /// posts what it has.</summary>
 [ParallelLimiter<SubprocessLimit>]
 public class WorkspaceBoundsTests {
+    /// <summary>For the stalling-clock tests: far more than real time can spend between stalls on a
+    /// loaded host, far less than one stall, so only the chosen read runs it out.</summary>
+    static readonly TimeSpan StallBudget = TimeSpan.FromMinutes(10);
+
     public static IEnumerable<Func<(string Bound, WorkspaceBounds Bounds)>> PassedBounds() {
         yield return () => ("status entries", WorkspaceBounds.Default with { StatusEntries = 2 });
         yield return () => ("hashed paths", WorkspaceBounds.Default with { HashedPaths = 1 });
@@ -47,7 +51,7 @@ public class WorkspaceBoundsTests {
         WorkspaceSnapshot? snapshot = null;
         for (var free = 1; free < 40 && snapshot is null; free++) {
             var clock = new StallingClock(read => read > free);
-            snapshot = await new WorkspaceSnapshotter(new WorkspaceGit(clock), clock).TakeAsync(repo.Path, TimeSpan.FromSeconds(1.5));
+            snapshot = await new WorkspaceSnapshotter(new WorkspaceGit(clock), clock).TakeAsync(repo.Path, StallBudget);
         }
 
         await Assert.That(snapshot).IsNotNull();
@@ -62,7 +66,7 @@ public class WorkspaceBoundsTests {
         // and every commit the reflog has would then look gained at the span's close.
         var clock = new StallingClock(read => read == 2);
 
-        var snapshot = await new WorkspaceSnapshotter(new WorkspaceGit(clock), clock).TakeAsync(repo.Path, TimeSpan.FromSeconds(1.5));
+        var snapshot = await new WorkspaceSnapshotter(new WorkspaceGit(clock), clock).TakeAsync(repo.Path, StallBudget);
 
         await Assert.That(snapshot!.HeadReflog).IsEqualTo(-1);
         await Assert.That(snapshot.Truncated).IsTrue();

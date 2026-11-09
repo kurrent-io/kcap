@@ -10,8 +10,10 @@ namespace Capacitor.Cli.Core;
 /// after that so a full pipe cannot stall the child. A pool-scheduled read can stay queued past the
 /// caller's grace window and the bytes already in the pipe are then lost. The loop waits in slices,
 /// so a stop is observed while a descendant still holds the write end — closing the reader from
-/// another thread deadlocks, because the read holds the reader's lock. A leading UTF-8 BOM is
-/// dropped; leaving it on the first token makes a version parser reject the line.
+/// another thread deadlocks, because the read holds the reader's lock. A stop still takes, without
+/// waiting, what has already reached the pipe: on a loaded machine this thread can start after the
+/// output arrived. A leading UTF-8 BOM is dropped; leaving it on the first token makes a version
+/// parser reject the line.
 /// </summary>
 internal static partial class ProcessPipeDrain {
     public static Task<string> Start(StreamReader reader, int cap, CancellationToken stop) =>
@@ -47,10 +49,15 @@ internal static partial class ProcessPipeDrain {
                 // the bytes already in the pipe.
                 if (!PeekNamedPipe(handle, IntPtr.Zero, 0, out _, out var avail, out _)) return;
                 if (avail == 0) {
-                    if (stop.WaitHandle.WaitOne(50)) return;
+                    if (stop.WaitHandle.WaitOne(50)) break;
                     continue;
                 }
                 var n = stream.Read(buf, 0, Math.Min(buf.Length, avail));
+                if (n == 0) return;
+                Append(kept, decoder, buf, n, chars, cap, ref pendingBom);
+            }
+            while (kept.Length < cap && PeekNamedPipe(handle, IntPtr.Zero, 0, out _, out var left, out _) && left > 0) {
+                var n = stream.Read(buf, 0, Math.Min(buf.Length, left));
                 if (n == 0) return;
                 Append(kept, decoder, buf, n, chars, cap, ref pendingBom);
             }
@@ -77,12 +84,19 @@ internal static partial class ProcessPipeDrain {
                     rc = poll(ref pfd, 1, 50);
                 } while (rc < 0 && Marshal.GetLastPInvokeError() == Eintr && !stop.IsCancellationRequested);
 
-                if (stop.IsCancellationRequested) return;
+                if (stop.IsCancellationRequested) break;
                 if (rc < 0) return;
                 if (rc == 0) continue;
                 if ((pfd.REvents & (PollHup | PollErr | PollNval)) != 0 && (pfd.REvents & PollIn) == 0)
                     return;
 
+                var n = read(fd, buf, buf.Length);
+                if (n <= 0) return;
+                Append(kept, decoder, buf, (int)n, chars, cap, ref pendingBom);
+            }
+            while (kept.Length < cap) {
+                var pfd = new PollFd { Fd = fd, Events = PollIn };
+                if (poll(ref pfd, 1, 0) <= 0 || (pfd.REvents & PollIn) == 0) return;
                 var n = read(fd, buf, buf.Length);
                 if (n <= 0) return;
                 Append(kept, decoder, buf, (int)n, chars, cap, ref pendingBom);

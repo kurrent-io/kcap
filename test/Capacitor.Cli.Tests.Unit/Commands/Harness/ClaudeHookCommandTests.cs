@@ -1704,6 +1704,13 @@ public class ClaudeHookCommandTests {
         return JsonNode.Parse(JsonNode.Parse(content.Split('\n')[0])!["body"]!.GetValue<string>())!;
     }
 
+    /// <summary>The start's body as it reached the server's side: posted, or spooled when the hook's
+    /// real-clock budget ran out before the POST.</summary>
+    static async Task<JsonNode> DeliveredStartBody(Fixture fx) =>
+        fx.Sent.FirstOrDefault(s => s.StartsWith("/hooks/session-start|", StringComparison.Ordinal)) is { } posted
+            ? JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!
+            : await SpooledBody(fx);
+
     static async Task AssertFiredBetween(JsonNode body, DateTimeOffset before) {
         var firedAt = body["started_at"]!.GetValue<DateTimeOffset>();
         await Assert.That(firedAt).IsGreaterThanOrEqualTo(before);
@@ -1756,8 +1763,7 @@ public class ClaudeHookCommandTests {
 
         await fx.EnterAsync(SessionStartHook(source));
 
-        var posted = fx.Sent.Single(s => s.StartsWith("/hooks/session-start|", StringComparison.Ordinal));
-        await Assert.That(JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!["started_at"]).IsNull();
+        await Assert.That((await DeliveredStartBody(fx))["started_at"]).IsNull();
     }
 
     [Test]

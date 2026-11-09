@@ -54,9 +54,12 @@ static class GitHook {
         return 0;
     }
 
-    internal static async Task RecordAsync(GitHookInvocation invocation, AgentSessions sessions, ConfigRoot config, TimeProvider time) {
+    /// <param name="gitTimeout">Caps each git call; a test on a loaded runner passes a longer one.</param>
+    internal static async Task RecordAsync(
+            GitHookInvocation invocation, AgentSessions sessions, ConfigRoot config, TimeProvider time, TimeSpan? gitTimeout = null) {
         // The hook's clock, not git's: git's dates are whole seconds and the caller can set them.
         var committedAt = time.GetUtcNow();
+        var timeout     = gitTimeout ?? GitTimeout;
 
         if (sessions.Above(invocation.Pid) is not { } session) return;
 
@@ -66,11 +69,11 @@ static class GitHook {
         // post-commit passes no arguments and post-merge its squash flag. A squash merge has committed nothing yet.
         var committed = invocation.Args switch {
             []    => true,
-            ["0"] => await MergedNowAsync(run, dir),
+            ["0"] => await MergedNowAsync(run, dir, timeout),
             _     => false,
         };
 
-        if (!committed || await run("git", "log -1 --format=%H%x1f%B", dir, GitTimeout) is not { } log || log.Split('\x1f', 2) is not [var sha, var body])
+        if (!committed || await run("git", "log -1 --format=%H%x1f%B", dir, timeout) is not { } log || log.Split('\x1f', 2) is not [var sha, var body])
             return;
 
         var repo    = await RepositoryDetection.DetectRepositoryAsync(new(), config, dir, time, detectPullRequest: false);
@@ -88,9 +91,9 @@ static class GitHook {
 
     // A fast-forward moves HEAD onto a commit another ref already holds. A merge git just made is
     // held by the current branch alone.
-    static async Task<bool> MergedNowAsync(CommandRunner run, string dir) {
+    static async Task<bool> MergedNowAsync(CommandRunner run, string dir, TimeSpan timeout) {
         // %(HEAD) prints '*' before the branch HEAD is on.
-        var holders = await run("git", "for-each-ref --contains HEAD --format=%(HEAD)%(refname)", dir, GitTimeout);
+        var holders = await run("git", "for-each-ref --contains HEAD --format=%(HEAD)%(refname)", dir, timeout);
 
         return holders is not null && holders
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
