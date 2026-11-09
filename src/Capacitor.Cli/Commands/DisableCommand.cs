@@ -110,6 +110,9 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
         if (stopped.DaemonUnmarked)
             caveats.Add("A kcap daemon could not mark this session disabled where its agents' hooks read it, so they can record it again.");
 
+        if (stopped.DrainLeft)
+            caveats.Add("A pass sending what hooks had spooled was still running when kcap stopped waiting, so a send of this session may still land.");
+
         caveats.AddRange(stopped.Outcome switch {
             RecordingStopOutcome.HolderUnconfirmed => ["The daemon recording this session did not confirm it stopped, so more may have reached the server."],
             RecordingStopOutcome.DaemonSilent      => ["A kcap daemon on this machine did not answer, so if it hosts this session, more may have reached the server."],

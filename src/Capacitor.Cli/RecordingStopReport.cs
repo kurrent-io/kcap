@@ -11,9 +11,11 @@ namespace Capacitor.Cli;
 /// <param name="WatcherLeft">A watcher of the session outlived the attempt to stop it.</param>
 /// <param name="DaemonUnmarked">A daemon could not mark the session disabled where it and its agents' hooks read, so they
 /// can record it again.</param>
+/// <param name="DrainLeft">A pass sending what hooks spooled was still going when the stop stopped waiting, and it may
+/// have read the marker before it went down.</param>
 public sealed record RecordingStopReport(
     RecordingStopOutcome Outcome, IReadOnlyList<string> OtherServers, bool AgentLive = false, bool Unreadable = false, bool WatcherLeft = false,
-    bool DaemonUnmarked = false) {
+    bool DaemonUnmarked = false, bool DrainLeft = false) {
     /// <summary>Everything that could be recording this session is known to have stopped.</summary>
-    public bool Confirmed => this is { Outcome: RecordingStopOutcome.Stopped, Unreadable: false, WatcherLeft: false, DaemonUnmarked: false };
+    public bool Confirmed => this is { Outcome: RecordingStopOutcome.Stopped, Unreadable: false, WatcherLeft: false, DaemonUnmarked: false, DrainLeft: false };
 }

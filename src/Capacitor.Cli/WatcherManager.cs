@@ -11,6 +11,7 @@ using Capacitor.Cli.Core.Config;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli;
 
@@ -144,7 +145,8 @@ public sealed partial class WatcherManager(
     /// stops as <see cref="KillWatcher"/> stops one, and one whose pid file outlives that is still running. A daemon's
     /// sources are found by their claims, because it leaves no pid file, and it is asked to stop rather than signalled.
     /// Every daemon on the machine is asked, whatever its profile: only a daemon can say a live agent's output goes on, and
-    /// neither a hosted session on a watcher nor an ACP session has a claim.</summary>
+    /// neither a hosted session on a watcher nor an ACP session has a claim. A drain of what hooks spooled that is already
+    /// under way is waited out, within <see cref="SpoolPassBound"/>.</summary>
     public async Task<RecordingStopReport> StopRecordingAsync(string sessionId, TextWriter? stderr = null) {
         var report = await StopDaemonsAsync(sessionId);
 
@@ -162,10 +164,41 @@ public sealed partial class WatcherManager(
                 if (!await TryStopWatcher(key!, stderr)) report = report with { WatcherLeft = true };
             }
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-            return report with { Unreadable = true };
+            report = report with { Unreadable = true };
         }
 
-        return report;
+        return await SpoolPassesEndedAsync() ? report : report with { DrainLeft = true };
+    }
+
+    // Past the 3 s a drain gives each post, so a post a pass sent ahead of the marker has had its answer by then.
+    internal static readonly TimeSpan SpoolPassBound = TimeSpan.FromSeconds(4);
+
+    static readonly TimeSpan SpoolLeasePoll = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>Whether every drain pass of this profile's spools that was under way ahead of the marker has ended. A pass
+    /// holds its spool's lease throughout and reads the marker before each post, so one that starts later sends nothing
+    /// of the session, while one under way may have read it a moment before it went down.</summary>
+    async Task<bool> SpoolPassesEndedAsync() {
+        using var bound = new CancellationTokenSource(SpoolPassBound, time);
+
+        foreach (var dir in new[] { new HookSpool(config, time, Url).DirectoryPath, new WorkspaceSpool(config, Url, time).DirectoryPath }) {
+            // A pass under way made its directory.
+            if (!Directory.Exists(dir)) continue;
+
+            SpoolDrainLease? lease;
+
+            while ((lease = SpoolDrainLease.TryTake(dir)) is null) {
+                try {
+                    await Task.Delay(SpoolLeasePoll, time, bound.Token);
+                } catch (OperationCanceledException) {
+                    return false;
+                }
+            }
+
+            lease.Dispose();
+        }
+
+        return true;
     }
 
     /// <summary>A daemon asked in a disable, and the claim that ties it to the session, if one does.</summary>

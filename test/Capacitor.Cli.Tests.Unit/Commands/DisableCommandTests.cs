@@ -3,6 +3,7 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Recording;
 using Microsoft.Extensions.Time.Testing;
 using TUnit.Core.Enums;
@@ -676,6 +677,55 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(await Run()).IsEqualTo(0);
 
         await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
+    string LifecycleSpool => new HookSpool(Config.Root, _time, ServerUrl).DirectoryPath;
+
+    string WorkspaceSpoolDirectory => new WorkspaceSpool(Config.Root, ServerUrl, _time).DirectoryPath;
+
+    /// <summary>Moves the clock on until <paramref name="run"/> is done, for a command waiting on it.</summary>
+    async Task<int> Advancing(Task<int> run) {
+        while (!run.IsCompleted) {
+            _time.Advance(TimeSpan.FromMilliseconds(50));
+            await Task.Delay(5);
+        }
+
+        return await run;
+    }
+
+    /// <summary>A drain pass can read the marker a moment before it goes down and have a post of the session on its way.
+    /// Every pass holds its spool's lease throughout, so the deletion waits for that lease.</summary>
+    [Test]
+    [Arguments("lifecycle")]
+    [Arguments("workspace")]
+    public async Task The_deletion_waits_for_a_spool_drain_under_way(string spool) {
+        var released = false;
+        bool? deletedWhileDraining = null;
+        _sessions.OnDelete = () => deletedWhileDraining = !Volatile.Read(ref released);
+        var pass = SpoolDrainLease.TryTake(spool == "lifecycle" ? LifecycleSpool : WorkspaceSpoolDirectory)!;
+
+        var run = Run();
+        await Task.Delay(100);
+        Volatile.Write(ref released, true);
+        pass.Dispose();
+
+        await Assert.That(await Advancing(run).WithinDeadlineAsync("the command")).IsEqualTo(0);
+
+        await Assert.That(deletedWhileDraining).IsFalse();
+        await Assert.That(Printed).IsEqualTo(Clean);
+    }
+
+    /// <summary>Past the wait the pass may still be sending, so the deletion goes ahead and says so.</summary>
+    [Test]
+    public async Task A_spool_drain_that_outlasts_the_wait_is_not_a_clean_stop() {
+        using var pass = SpoolDrainLease.TryTake(LifecycleSpool);
+
+        await Assert.That(await Advancing(Run()).WithinDeadlineAsync("the command")).IsEqualTo(1);
+
+        await Assert.That(_sessions.Deleted).IsEquivalentTo([Session]);
+        await Assert.That(Printed).StartsWith($"Session {Session} disabled. Server data deleted.");
+        await Assert.That(Printed).Contains("so a send of this session may still land");
+        await Assert.That(DisabledSessions.WasDeletedUnconfirmed(Session, Config.Root)).IsTrue();
     }
 
     /// <summary>A failed marker can't be a reason to leave recording running, so what can be stopped still is. The person

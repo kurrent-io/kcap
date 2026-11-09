@@ -729,12 +729,13 @@ kcap disable <sessionId>     # specific session
 
 This is irreversible on the server side; the local transcript file is untouched.
 
-A session the daemon records stops at once with its subagents, with no final drain. Every daemon on this machine is asked, whatever its profile, and the command waits a few seconds for their answers before it deletes anything. The first line says `Recording stopped` only when every daemon that could be recording answered, no watcher outlived the stop, no live agent's output goes on, and no daemon holds the session for another server.
+A session the daemon records stops at once with its subagents, with no final drain. Every daemon on this machine is asked, whatever its profile, and the command waits a few seconds for their answers before it deletes anything. It also waits a few seconds for a pass already sending what hooks spooled, which may have read the session as not disabled a moment before the command marked it. The first line says `Recording stopped` only when every daemon that could be recording answered, no watcher outlived the stop, no live agent's output goes on, and no daemon holds the session for another server.
 
 The command exits `1`, and says why, when something stays unconfirmed:
 
 - A batch already on its way when recording stopped had no answer from the server, so it may still have landed, or the daemon was still stopping the session when the command stopped waiting.
 - The daemon recording the session did not confirm it stopped, or another daemon on this machine did not answer.
+- A pass sending what hooks spooled was still running when the command stopped waiting, so a send of the session may still land.
 - A watcher recording the session could not be stopped, the session could not be marked disabled (by this command, or by a daemon under another config directory, whose agents' hooks read its own marker), or kcap could not read what records it.
 - A daemon that recorded the session or hosts its agent sends to another server, where nothing was deleted. Run `kcap disable` under the profile for that server.
 - An earlier run deleted the session before it could confirm recording had stopped. Anything that landed after that deletion may still be on the server, and kcap can't tell or remove it from here; the server's administrator can check. Every later run says so.
