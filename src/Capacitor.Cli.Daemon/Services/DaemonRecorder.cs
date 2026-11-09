@@ -65,6 +65,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     readonly RecordedSourceList _list;
     readonly KeyedAsyncGate _keys = new();
     readonly ConcurrentDictionary<string, Tracked> _sources = new(StringComparer.Ordinal);
+    readonly ConcurrentDictionary<string, Move> _moves = new(StringComparer.Ordinal);
     readonly ConcurrentQueue<(RecordedSource Source, bool MayImport)> _letGo = new();
     readonly CancellationTokenSource _closing = new();
     readonly Lazy<RecorderHost> _host;
@@ -182,7 +183,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             tracked.Restored = false;
             _list.TryAdd(tracked.Source);
 
-            if (tailed != source.TranscriptPath) _ = MoveAsync(source);
+            if (tailed != source.TranscriptPath) _ = MoveAsync(tracked, source);
 
             return;
         }
@@ -219,14 +220,29 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         if (!_sources.TryGetValue(found.Key, out var tracked) || tracked.Source.TranscriptPath == found.TranscriptPath) return;
         if (File.Exists(tracked.Source.TranscriptPath)) return;
 
-        await MoveAsync(found with { SkipTitle = tracked.Source.SkipTitle });
+        await MoveAsync(tracked, found with { SkipTitle = tracked.Source.SkipTitle });
     }
 
-    // One restart, and the server's position carries the source on from where it was.
-    async Task MoveAsync(RecordedSource to) {
-        LogTranscriptMoved(to.Key, to.TranscriptPath);
-        await FinishAsync(to.Key, CancellationToken.None);
-        await TryRecordAsync(to, CancellationToken.None);
+    // One restart, and the server's position carries the source on from where it was. The agent's finish waits for it, and
+    // an agent that has ended by the time the old source goes gets no replacement, or has the one just started finished.
+    async Task MoveAsync(Tracked from, RecordedSource to) {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var move = new Move(from, done.Task);
+        _moves[to.Key] = move;
+
+        try {
+            LogTranscriptMoved(to.Key, to.TranscriptPath);
+            await FinishAsync(to.Key, CancellationToken.None);
+
+            if (from.AgentFinished) return;
+
+            await TryRecordAsync(to, CancellationToken.None);
+
+            if (from.AgentFinished) await FinishQuietlyAsync(to.Key, CancellationToken.None);
+        } finally {
+            _moves.TryRemove(new KeyValuePair<string, Move>(to.Key, move));
+            done.SetResult();
+        }
     }
 
     /// <summary>Makes the final drain of the source <paramref name="key"/> names and lets it go. Off the caller's thread,
@@ -248,16 +264,27 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     /// carries on: a tail landing behind the session's end reactivates it, and the server's sweep closes it again once
     /// the source has detached.</summary>
     public async Task FinishAgentAsync(string agentId, TimeSpan budget) {
-        var keys = _sources.Where(source => source.Value.Source.AgentId == agentId && source.Value is { Running: true, AgentFinished: false, Disabled: false }).Select(source => source.Key).ToArray();
-        if (keys.Length == 0) return;
+        // Ahead of the marks below, which would hide the source a move goes from.
+        var moves = _moves.Values.Where(move => move.From is { AgentFinished: false } && move.From.Source.AgentId == agentId).ToArray();
+        var keys  = _sources.Where(source => source.Value.Source.AgentId == agentId && source.Value is { Running: true, AgentFinished: false, Disabled: false }).Select(source => source.Key).ToArray();
+
+        foreach (var move in moves) move.From.AgentFinished = true;
 
         foreach (var key in keys) {
             if (_sources.TryGetValue(key, out var tracked)) tracked.AgentFinished = true;
         }
 
+        if (keys.Length == 0 && moves.Length == 0) return;
+
         using var bound = new CancellationTokenSource(budget, _time);
 
         await Task.WhenAll(keys.Select(key => FinishQuietlyAsync(key, bound.Token)));
+
+        try {
+            await Task.WhenAll(moves.Select(move => move.Done)).WaitAsync(bound.Token);
+        } catch (OperationCanceledException) {
+            // The bound passed, and the move finishes what it started by itself.
+        }
     }
 
     /// <summary>Picks up what the last daemon left: each source from the line the server answers with, unless a live
@@ -782,6 +809,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
 
         public TaskCompletionSource Settled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
+
+    /// <summary>A source on its way to another transcript path, and when the move is over.</summary>
+    sealed record Move(Tracked From, Task Done);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Recording {Key}: {Message}")]
     partial void LogRecorder(string key, string message);

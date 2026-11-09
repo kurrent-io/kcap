@@ -304,6 +304,41 @@ public class DaemonRecorderTests {
         await Assert.That(recorder.ActiveKeys).IsEquivalentTo([source.Key]);
     }
 
+    /// <summary>The agent can end while its restored source moves to its path, and its session's end goes to the server
+    /// once its finish returns, so nothing may be left recording for it: no replacement on the new path, and no claim.</summary>
+    [Test]
+    public async Task An_agent_that_ends_while_its_source_moves_leaves_nothing_recording() {
+        var source = Source(Transcript(Prompt));
+        List.TryAdd(source);
+        Directory.CreateDirectory(Paths.Directory);
+        Claims.TryTake(source.Key, Name, isHosted: true);
+        Transport.ResumeFrom = 1;
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Transport.OnDrainComplete = _ => release.Task;
+
+        await using var recorder = NewRecorder();
+        await recorder.RestoreAsync(InScope, CancellationToken.None);
+        await WaitHarness.PollUntilAsync(() => Transport.Connects == 1);
+
+        var resumed = source with { AgentId = "agent-2", TranscriptPath = Tmp.CreateFile("resumed.jsonl", $"{Prompt}\n{Reply}\n") };
+        await Assert.That(await recorder.ClaimAsync(resumed, CancellationToken.None)).IsTrue();
+        recorder.StartForAgent(resumed);
+        await WaitHarness.PollUntilAsync(() => Transport.DrainCompletes == 1);
+
+        var finish = recorder.FinishAgentAsync("agent-2", TimeSpan.FromSeconds(30));
+        release.TrySetResult();
+        await finish.WithinDeadlineAsync("the agent's finish");
+
+        // A replacement would be connecting within moments of the old source's settling.
+        var settle = DateTime.UtcNow + TimeSpan.FromSeconds(1);
+        while (Transport.ConnectAttempts < 2 && DateTime.UtcNow < settle) await Task.Delay(10);
+
+        await Assert.That(Transport.ConnectAttempts).IsEqualTo(1);
+        await Assert.That(recorder.ActiveKeys).IsEmpty();
+        await Assert.That(Claims.Read(source.Key)).IsEqualTo(RecorderClaimState.None);
+        await Assert.That(List.Load()).IsEmpty();
+    }
+
     /// <summary>Recording was turned off with sources left. A hosted claim nobody comes back for would keep a resumed
     /// session's hooks from starting the watcher it now needs.</summary>
     [Test]
