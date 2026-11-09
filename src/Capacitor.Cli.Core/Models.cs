@@ -202,6 +202,7 @@ class WatchState {
     public List<int>    BufferedLineNumbers { get; } = [];
     public int          LinesReadAhead      { get; set; } // file position while buffering
     public bool         ThresholdReached    { get; set; }
+    public bool         ShrinkLogged        { get; set; }
 
     public CommitObservation Commits           { get; set; } = new CommitObservation.Uncovered();
     public DateTimeOffset    LastCoverageCheck { get; set; }

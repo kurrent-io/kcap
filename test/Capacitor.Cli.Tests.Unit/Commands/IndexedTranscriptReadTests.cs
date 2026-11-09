@@ -257,4 +257,67 @@ public class IndexedTranscriptReadTests {
 
         await Assert.That(idle.BytesRead).IsLessThan(16 * 1024);
     }
+
+    [Test]
+    public async Task A_line_cut_inside_a_multibyte_character_is_held_until_complete() {
+        var whole = "{\"s\":\"é漢😀\"}\n"u8.ToArray();
+        var head  = "{\"a\":1}\n"u8.ToArray();
+        var cut   = head.Length + Array.IndexOf(whole, (byte)0xE6) + 2;
+        var path  = Tmp.PathTo("cut.jsonl");
+        var index = new TranscriptLineIndex();
+        await File.WriteAllBytesAsync(path, [.. head, .. whole[..(cut - head.Length)]]);
+
+        var held = await Read(path, 0, Hold, index);
+
+        await File.WriteAllBytesAsync(path, [.. head, .. whole]);
+        var done      = await Read(path, held.Result.NextPosition, Hold, index);
+        var reference = await Read(path, held.Result.NextPosition, Hold, null);
+
+        await Assert.That(held.Result.Lines).IsEquivalentTo(["{\"a\":1}"]);
+        await Assert.That(held.Result.NextPosition).IsEqualTo(1);
+        await Assert.That(done.Result.Lines).IsEquivalentTo(["{\"s\":\"é漢😀\"}"]);
+        await Assert.That(done.Result.LineNumbers).IsEquivalentTo([1]);
+        await AssertSame(reference.Result, done.Result, "completed multibyte line");
+    }
+
+    // 10_000 lines of ~1 KB.
+    string TenMegabytes() => WriteLines(10_000, 1000);
+
+    [Test]
+    public async Task The_final_wait_reads_only_the_tail() {
+        var path = TenMegabytes();
+        await using var stream = new CountingFileStream(path);
+
+        var tail = await WatchCommand.ReadFinalLineAsync(stream, path);
+
+        await Assert.That(new FileInfo(path).Length).IsGreaterThan(10_000_000);
+        await Assert.That(WatchCommand.IsFinalLineComplete(tail)).IsTrue();
+        await Assert.That(stream.BytesRead).IsLessThan(64 * 1024 + 1024);
+    }
+
+    [Test]
+    public async Task Spooling_the_tail_reads_only_the_tail() {
+        var path  = TenMegabytes();
+        var index = new TranscriptLineIndex();
+        var first = await Read(path, 0, Consume, index);
+
+        var again = await Read(path, first.Result.NextPosition, Consume, index);
+
+        await Assert.That(first.Result.NextPosition).IsEqualTo(10_000);
+        await Assert.That(again.Result.Lines).IsEmpty();
+        await Assert.That(again.BytesRead).IsLessThan(64 * 1024);
+    }
+
+    [Test]
+    public async Task A_resume_reads_the_file_once() {
+        var path  = TenMegabytes();
+        var index = new TranscriptLineIndex();
+
+        var first  = await Read(path, 9_990, Hold, index);
+        var second = await Read(path, first.Result.NextPosition, Hold, index);
+
+        await Assert.That(first.Result.LineNumbers).IsEquivalentTo(Enumerable.Range(9_990, 10).ToArray());
+        await Assert.That(first.BytesRead).IsGreaterThan(5_000_000);
+        await Assert.That(second.BytesRead).IsLessThan(64 * 1024);
+    }
 }

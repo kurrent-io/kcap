@@ -290,6 +290,11 @@ partial class WatchCommand(
     /// </summary>
     internal static async Task<string> ReadFinalLineSharedAsync(string path) {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+        return await ReadFinalLineAsync(stream, path);
+    }
+
+    internal static async Task<string> ReadFinalLineAsync(FileStream stream, string path) {
         if (stream.Length > 0 && stream.ReadByte() is 0xFE or 0xFF or 0x00) return await File.ReadAllTextSharedAsync(path);
 
         var end   = stream.Length;
@@ -2954,7 +2959,20 @@ partial class WatchCommand(
 
             var newLineNumbers = drainRead.LineNumbers;
             var newLines       = captured.Lines;
-            var linesRead      = drainRead.NextPosition;
+            // The server drops a line numbered at or below one it took, so a shorter file never
+            // lowers the cursor; only a reconnect rewind does. Lines written below it after a shrink
+            // are never sent, and the log line below is all that says so: kcap import resumes from
+            // the server's cursor too.
+            var linesRead = Math.Max(drainRead.NextPosition, state.LinesProcessed);
+
+            if (drainRead.NextPosition < state.LinesProcessed) {
+                if (!state.ShrinkLogged) {
+                    state.ShrinkLogged = true;
+                    Log(time, $"Transcript is shorter than the line cursor ({drainRead.NextPosition} < {state.LinesProcessed}); keeping the cursor, lines below it are not sent");
+                }
+            } else {
+                state.ShrinkLogged = false;
+            }
 
             state.Commits = state.Commits.Collect();
 
